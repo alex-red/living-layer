@@ -1,0 +1,13 @@
+{
+  "name": "@livinglayer/server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsup --config tsup.config.ts"
+  },
+  "dependencies": {
+    "@livinglayer/domain": "*"
+  }
+}
