@@ -1,6 +1,12 @@
 {
   "name": "livinglayer",
   "version": "0.1.0",
+  "description": "Give everyday objects a memory so your smart home can react to them.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/alex-red/living-layer.git"
+  },
   "private": true,
   "type": "module",
   "engines": {
