@@ -1,0 +1,6 @@
+{
+  "provenance": "Synthetic conformance fixture generated with @meta-sam/parser 0.1.0 internal test encoder. Not a model response.",
+  "width": 960,
+  "height": 640,
+  "wire": "<0f>7<|box;x1=350;y1=180;x2=609;y2=459;w=960;h=640;c=0.97|><|mask;x=0;y=0;c=0.97;data=64,64,!!!!!S8U[Sl.!yx?fzzTSf4r&*n`+)2T5FmZCJ0hA1ols*me9V3?Q]R@L7wZH!!|>"
+}
