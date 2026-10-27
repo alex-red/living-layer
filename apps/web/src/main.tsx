@@ -7,7 +7,11 @@ import type {
   Scene,
   Segmentation,
   LampResult,
+  DeskMemory,
+  ZoneRect,
+  PlacementDecision,
 } from '@livinglayer/domain';
+import { OBSERVATION_MAX_AGE_MS } from '@livinglayer/domain';
 import './styles.css';
 
 async function api<T>(path: string, body?: unknown): Promise<T> {
@@ -58,6 +62,11 @@ function Glyph({ type = 'layers' }: { type?: 'layers' | 'arrow' | 'camera' | 'up
   );
 }
 function App() {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
   const [mode, setMode] = useState<Mode>('fixture');
   const [status, setStatus] = useState<LabStatus>();
   const [runs, setRuns] = useState<EvidenceRun[]>([]);
@@ -65,6 +74,12 @@ function App() {
   const [dimensions, setDimensions] = useState({ width: 960, height: 640 });
   const [scene, setScene] = useState<Scene>();
   const [segmentation, setSegmentation] = useState<Segmentation>();
+  const [memories, setMemories] = useState<Partial<Record<Mode, DeskMemory>>>({});
+  const memory = memories[mode];
+  const [segmentRunId, setSegmentRunId] = useState<string>();
+  const [draftZone, setDraftZone] = useState<ZoneRect>({ x: 0.3, y: 0.2, width: 0.4, height: 0.6 });
+  const [drawing, setDrawing] = useState(false);
+  const zoneStart = useRef<{ x: number; y: number } | null>(null);
   const [concept, setConcept] = useState('mug');
   const [overlay, setOverlay] = useState(true);
   const [busy, setBusy] = useState('');
@@ -82,12 +97,15 @@ function App() {
   const imageGeneration = useRef(0);
   const mounted = useRef(true);
   const refresh = async () => {
-    const [nextStatus, nextRuns] = await Promise.all([
+    const [nextStatus, nextRuns, fixtureDesk, liveDesk] = await Promise.all([
       api<LabStatus>('status'),
       api<EvidenceRun[]>('runs'),
+      api<DeskMemory>('desk/fixture'),
+      api<DeskMemory>('desk/live'),
     ]);
     setStatus(nextStatus);
     setRuns(nextRuns);
+    setMemories({ fixture: fixtureDesk, live: liveDesk });
   };
   useEffect(() => {
     mounted.current = true;
@@ -114,6 +132,8 @@ function App() {
     setDimensions({ width: 960, height: 640 });
     setScene(undefined);
     setSegmentation(undefined);
+    setSegmentRunId(undefined);
+    setDrawing(false);
     setError('');
     setMessage(
       next === 'fixture'
@@ -133,6 +153,8 @@ function App() {
     setDimensions({ width: canvas.width, height: canvas.height });
     setScene(undefined);
     setSegmentation(undefined);
+    setSegmentRunId(undefined);
+    setDrawing(false);
     setMessage(
       'Photo prepared locally. Live probes send this image to Meta only when you press a probe button.',
     );
@@ -197,7 +219,11 @@ function App() {
         ...(kind === 'segment' ? { concept: overrideConcept ?? concept } : {}),
       });
       if (kind === 'discover') setScene(run.output as Scene);
-      if (kind === 'segment') setSegmentation(run.output as Segmentation);
+      if (kind === 'segment') {
+        setSegmentation(run.output as Segmentation);
+        setSegmentRunId(run.id);
+        setDrawing(false);
+      }
       setSelected(run);
       setMessage(
         kind === 'segment' && run.status === 'no_match'
@@ -212,6 +238,59 @@ function App() {
     } finally {
       setBusy('');
     }
+  }
+  async function deskAction(path: 'select' | 'zone' | 'verify' | 'reset', fields: object = {}) {
+    setBusy(path);
+    setError('');
+    try {
+      const result = await api<DeskMemory | EvidenceRun<PlacementDecision>>(`desk/${path}`, {
+        mode,
+        ...fields,
+      });
+      if (path === 'verify') {
+        const event = result as EvidenceRun<PlacementDecision>;
+        setSelected(event);
+        setMessage(
+          `${mode === 'fixture' ? 'Virtual' : 'Live'} placement: ${event.output.reason} Lamp: ${event.output.action}.${event.output.error ? ` ${event.output.error.message}` : ''}`,
+        );
+      } else {
+        setMemories((current) => ({ ...current, [mode]: result as DeskMemory }));
+        setMessage(
+          path === 'select'
+            ? 'Mug identity manually confirmed. Draw or edit its zone next.'
+            : path === 'zone'
+              ? 'Zone saved for this exact image. Review it before verifying placement.'
+              : 'Desk memory reset. Evidence and action deduplication are retained.',
+        );
+        setDrawing(false);
+      }
+      await refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Desk operation failed.');
+    } finally {
+      setBusy('');
+    }
+  }
+  const currentObservation =
+    memory?.observation &&
+    segmentation?.sourceKey === memory.observation.sourceKey &&
+    segmentRunId === memory.observation.segmentRunId
+      ? memory.observation
+      : null;
+  const observationStale = memory?.observation
+    ? now - Date.parse(memory.observation.observedAt) > OBSERVATION_MAX_AGE_MS
+    : false;
+  const visibleZone = drawing
+    ? draftZone
+    : currentObservation && memory?.zone && memory.zone.sourceKey === segmentation?.sourceKey
+      ? memory.zone.rect
+      : null;
+  function zonePoint(e: React.PointerEvent<SVGSVGElement>) {
+    const bounds = e.currentTarget.getBoundingClientRect();
+    return {
+      x: Math.max(0, Math.min(1, (e.clientX - bounds.left) / bounds.width)),
+      y: Math.max(0, Math.min(1, (e.clientY - bounds.top) / bounds.height)),
+    };
   }
   const metaReady = Boolean(
     status?.meta.configured &&
@@ -232,7 +311,7 @@ function App() {
           LivingLayer<span className="wordmark-sub">DESK LAB</span>
         </a>
         <span className="edition">
-          FIELD NOTES <span>01 / FOUNDATION</span>
+          FIELD NOTES <span>02 / CONNECT THE LOOP</span>
         </span>
         <a className="export" href="/api/evidence" download>
           Export evidence <span aria-hidden="true">↗</span>
@@ -242,7 +321,7 @@ function App() {
         <section className="intro">
           <div>
             <p className="eyebrow">
-              <span className="dot" /> SOLO INDIE / DAY 01
+              <span className="dot" /> SOLO INDIE / DAY 02
             </p>
             <h1>
               A little context.
@@ -252,7 +331,7 @@ function App() {
             <p className="lede">
               Find the objects. See the mask. Test one light.
               <br />
-              Build the evidence before connecting the loop.
+              Select a mug. Mark a zone. Verify one placement.
             </p>
           </div>
           <aside className="session-note">
@@ -264,7 +343,7 @@ function App() {
             </p>
             <span className="note-rule" />
             <span className="tiny">SPARK → SAM → HOME ASSISTANT</span>
-            <span className="note-foot">Independent probes · no automatic triggers</span>
+            <span className="note-foot">Manual placement checks · one action per observation</span>
           </aside>
         </section>
         <div className="workspace-heading">
@@ -364,6 +443,43 @@ function App() {
                       </text>
                     </g>
                   ))}
+                </svg>
+              )}
+              {!camera && currentObservation && visibleZone && (
+                <svg
+                  className={`zone-overlay ${drawing ? 'drawing' : ''}`}
+                  viewBox="0 0 1000 1000"
+                  preserveAspectRatio="none"
+                  aria-label={drawing ? 'Draw placement zone' : 'Saved placement zone'}
+                  onPointerDown={(e) => {
+                    if (!drawing || busy) return;
+                    zoneStart.current = zonePoint(e);
+                    e.currentTarget.setPointerCapture(e.pointerId);
+                  }}
+                  onPointerMove={(e) => {
+                    if (!drawing || !zoneStart.current) return;
+                    const p = zonePoint(e),
+                      a = zoneStart.current;
+                    setDraftZone({
+                      x: Math.min(a.x, p.x),
+                      y: Math.min(a.y, p.y),
+                      width: Math.abs(a.x - p.x),
+                      height: Math.abs(a.y - p.y),
+                    });
+                  }}
+                  onPointerUp={() => {
+                    zoneStart.current = null;
+                  }}
+                  onPointerCancel={() => {
+                    zoneStart.current = null;
+                  }}
+                >
+                  <rect
+                    x={visibleZone.x * 1000}
+                    y={visibleZone.y * 1000}
+                    width={visibleZone.width * 1000}
+                    height={visibleZone.height * 1000}
+                  />
                 </svg>
               )}
               <span className="frame-label">
@@ -525,9 +641,147 @@ function App() {
                   : 'Crop-local mask → source-pixel overlay'}
               </p>
             </div>
-            <div className="probe">
+            <div className="probe placement-controls">
               <div className="probe-title">
                 <span className="step">03</span>
+                <h3>Remember & place</h3>
+                <span className="model-tag">DAY 2</span>
+              </div>
+              <p>
+                Confirm a specific mug mask. Identity is manual; the whole box must fit inside the
+                zone.
+              </p>
+              {segmentation?.detections.map((d) => (
+                <button
+                  key={d.objectId}
+                  className="secondary"
+                  disabled={
+                    Boolean(busy) ||
+                    !segmentRunId ||
+                    !/^(mug|cream mug|cup)$/i.test(segmentation.concept)
+                  }
+                  onClick={() =>
+                    void deskAction('select', { segmentRunId, detectionId: d.objectId })
+                  }
+                >
+                  Confirm mug mask #{d.objectId}
+                </button>
+              ))}
+              {memory?.object && (
+                <p className="micro">
+                  {memory.object.label} · {memory.object.id.slice(0, 8)}
+                  <br />
+                  {memory.observation
+                    ? `Last observed ${new Date(memory.observation.observedAt).toLocaleTimeString()} · manual identity`
+                    : 'No observation'}
+                  {observationStale && ' · STALE: segment a new frame.'}
+                  {!currentObservation && ' · Segment and confirm the current frame to continue.'}
+                </p>
+              )}
+              <button
+                className="text-button"
+                disabled={Boolean(busy) || !currentObservation || camera}
+                onClick={() => {
+                  setDraftZone(memory?.zone?.rect ?? { x: 0.3, y: 0.2, width: 0.4, height: 0.6 });
+                  setDrawing(true);
+                }}
+              >
+                Draw / edit zone ↗
+              </button>
+              {drawing && (
+                <div className="zone-editor">
+                  <p className="micro">
+                    Drag a rectangle on the image, or enter percentages below.
+                  </p>
+                  <div className="zone-fields">
+                    {(['x', 'y', 'width', 'height'] as const).map((key) => (
+                      <label key={key}>
+                        Zone {key} %
+                        <input
+                          type="number"
+                          min="0"
+                          max="100"
+                          step="1"
+                          value={Math.round(draftZone[key] * 100)}
+                          disabled={Boolean(busy)}
+                          onChange={(e) =>
+                            setDraftZone((z) => ({ ...z, [key]: Number(e.target.value) / 100 }))
+                          }
+                        />
+                      </label>
+                    ))}
+                  </div>
+                  <button
+                    className="secondary"
+                    disabled={Boolean(busy) || !currentObservation}
+                    onClick={() =>
+                      void deskAction('zone', {
+                        observationId: currentObservation?.id,
+                        rect: draftZone,
+                      })
+                    }
+                  >
+                    Save zone
+                  </button>
+                </div>
+              )}
+              <p className="micro">
+                {memory?.zone ? 'Zone saved for its source image.' : 'No saved zone.'} Observations
+                expire after 5 minutes. A still photo does not prove the current physical scene.
+              </p>
+              <button
+                className="primary"
+                disabled={
+                  Boolean(busy) ||
+                  drawing ||
+                  !currentObservation ||
+                  !memory?.zone ||
+                  (mode === 'live' && !lampReady)
+                }
+                onClick={() =>
+                  void deskAction('verify', {
+                    observationId: currentObservation?.id,
+                    zoneId: memory?.zone?.id,
+                  })
+                }
+              >
+                {busy === 'verify'
+                  ? 'Checking placement…'
+                  : mode === 'fixture'
+                    ? 'Verify placement · virtual lamp'
+                    : 'Verify placement · turn on lamp'}
+              </button>
+              {memory?.lastDecision && (
+                <p className="placement-result" role="note">
+                  {memory.lastDecision.mode.toUpperCase()} · {memory.lastDecision.output.decision} ·
+                  lamp {memory.lastDecision.output.action}
+                  <br />
+                  {memory.lastDecision.output.reason}
+                  {memory.lastDecision.output.error && (
+                    <>
+                      <br />
+                      {memory.lastDecision.output.error.message}
+                    </>
+                  )}
+                  {memory.lastDecision.output.lamp && (
+                    <>
+                      <br />
+                      {memory.lastDecision.output.lamp.explanation}
+                    </>
+                  )}
+                </p>
+              )}
+              <button
+                className="text-button"
+                disabled={Boolean(busy) || !memory?.object}
+                onClick={() => void deskAction('reset')}
+              >
+                Reset desk memory
+              </button>
+            </div>
+            <div className="probe">
+              <div className="probe-title">
+                <span className="step">04</span>
                 <h3>Test one light</h3>
                 <span className="model-tag">HA</span>
               </div>
@@ -662,7 +916,7 @@ function App() {
           LivingLayer
         </span>
         <p>Perception first. A little magic later.</p>
-        <span className="tiny">DAY 01 / BUILD THE FOUNDATION</span>
+        <span className="tiny">DAY 02 / CONNECT THE LOOP</span>
       </footer>
     </div>
   );

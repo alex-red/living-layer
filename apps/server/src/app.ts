@@ -2,7 +2,7 @@ import Fastify from 'fastify';
 import staticFiles from '@fastify/static';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import {
   modeSchema,
@@ -20,6 +20,7 @@ import { MetaAdapter, type ProviderResult } from './meta.js';
 import { LampAdapter } from './lamp.js';
 import { LabError, safeError } from './errors.js';
 import { validateImage } from './images.js';
+import { deskRoutes } from './desk.js';
 import { fixtureScene, fixtureSegmentation, fixtureLamp } from './fixtures.js';
 
 export async function buildApp(
@@ -93,6 +94,7 @@ export async function buildApp(
     },
     liveEvidence: store.liveEvidence(),
   }));
+  deskRoutes(app, store, async (mode) => (mode === 'fixture' ? fixtureLamp : lamp.turnOn()));
   app.get('/api/runs', async () => store.list());
   app.get('/api/evidence', async (_request, reply) =>
     reply.header('Content-Disposition', 'attachment; filename="livinglayer-evidence.json"').send({
@@ -100,6 +102,7 @@ export async function buildApp(
       exportedAt: new Date().toISOString(),
       notice:
         'Fixture runs are synthetic. Physical lamp verification is manual. Latest 200 runs; local source images are excluded.',
+      desk: { fixture: store.memory('fixture'), live: store.memory('live') },
       runs: store.list(),
     }),
   );
@@ -187,7 +190,7 @@ export async function buildApp(
           );
         const result = await fixtureSegmentation(input.concept);
         return {
-          output: result.output,
+          output: { ...result.output, sourceKey: 'illustrated-desk-v1' },
           assets: [store.asset(id, 'synthetic-sam.txt', result.raw)],
         };
       }
@@ -195,6 +198,10 @@ export async function buildApp(
       const result = await meta.segment(image.dataUrl, input.concept, image.width, image.height);
       return {
         ...result,
+        output: {
+          ...result.output,
+          sourceKey: createHash('sha256').update(image.bytes).digest('hex'),
+        },
         assets: [
           store.asset(id, 'source.png', image.bytes),
           store.asset(id, 'sam-output.txt', result.raw),

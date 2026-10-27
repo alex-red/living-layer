@@ -1,7 +1,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { EvidenceRun, LabStatus } from '@livinglayer/domain';
+import type { EvidenceRun, LabStatus, DeskMemory, Mode } from '@livinglayer/domain';
 import { LabError } from './errors.js';
 
 export class EvidenceStore {
@@ -11,12 +11,51 @@ export class EvidenceStore {
     this.db = new DatabaseSync(join(dir, 'livinglayer.sqlite'));
     this.db.exec(`PRAGMA journal_mode = WAL;
       CREATE TABLE IF NOT EXISTS evidence (id TEXT PRIMARY KEY, created_at TEXT NOT NULL, payload TEXT NOT NULL);
-      CREATE TABLE IF NOT EXISTS meta_budget (day TEXT PRIMARY KEY, attempts INTEGER NOT NULL);`);
+      CREATE TABLE IF NOT EXISTS meta_budget (day TEXT PRIMARY KEY, attempts INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS desk_memory (mode TEXT PRIMARY KEY, payload TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS placement_claims (segment_id TEXT PRIMARY KEY, created_at TEXT NOT NULL);`);
   }
   save(run: EvidenceRun): void {
     this.db
       .prepare('INSERT INTO evidence VALUES (?, ?, ?)')
       .run(run.id, run.createdAt, JSON.stringify(run));
+  }
+  getRun(id: string): EvidenceRun | undefined {
+    const row = this.db.prepare('SELECT payload FROM evidence WHERE id = ?').get(id);
+    return row ? (JSON.parse(String(row.payload)) as EvidenceRun) : undefined;
+  }
+  latestSegment(mode: Mode): string | undefined {
+    const row = this.db
+      .prepare(
+        "SELECT id FROM evidence WHERE json_extract(payload, '$.mode') = ? AND json_extract(payload, '$.kind') = 'segment' ORDER BY rowid DESC LIMIT 1",
+      )
+      .get(mode);
+    return row ? String(row.id) : undefined;
+  }
+  updateRun(run: EvidenceRun): void {
+    this.db
+      .prepare('UPDATE evidence SET payload = ? WHERE id = ?')
+      .run(JSON.stringify(run), run.id);
+  }
+  memory(mode: Mode): DeskMemory {
+    const row = this.db.prepare('SELECT payload FROM desk_memory WHERE mode = ?').get(mode);
+    return row
+      ? (JSON.parse(String(row.payload)) as DeskMemory)
+      : { mode, object: null, observation: null, zone: null, lastDecision: null };
+  }
+  saveMemory(memory: DeskMemory): void {
+    this.db
+      .prepare(
+        'INSERT INTO desk_memory VALUES (?, ?) ON CONFLICT(mode) DO UPDATE SET payload = excluded.payload',
+      )
+      .run(memory.mode, JSON.stringify(memory));
+  }
+  claimPlacement(segmentId: string): boolean {
+    return (
+      this.db
+        .prepare('INSERT OR IGNORE INTO placement_claims VALUES (?, ?)')
+        .run(segmentId, new Date().toISOString()).changes === 1
+    );
   }
   list(): EvidenceRun[] {
     return this.db
@@ -68,7 +107,12 @@ export class EvidenceStore {
           r.kind === 'segment' &&
           /^(mug|cream mug|cup)$/i.test(String((r.output as { concept?: string }).concept)),
       ),
-      lamp: runs.some((r) => r.kind === 'lamp'),
+      lamp: runs.some(
+        (r) =>
+          r.kind === 'lamp' ||
+          (r.kind === 'placement' &&
+            (r.output as { lamp?: { stateConfirmed?: boolean } }).lamp?.stateConfirmed === true),
+      ),
     };
   }
   close(): void {
