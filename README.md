@@ -70,6 +70,19 @@ Local data (captures, raw SAM output, SQLite history, exports) is written to `.d
 
 Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
+## Meta Global AI Developer Hackathon
+
+Living Layer was built for the [Meta Global AI Developer Hackathon](https://cerebralvalley.ai/e/meta-ai-developer-hackathon) (Indie track) between October 26 and November 4, 2026. The first commit is dated October 27, so the git history shows the whole build.
+
+**Built during the event:** all the code and assets in this repository. That covers the web UI, the API server and its Meta and Home Assistant adapters, the shared domain types and placement rule, the SQLite evidence store, the synthetic fixture, the illustrated desk and favicon, the tests, and the scripts.
+
+**From third parties:**
+
+- [Muse Spark](https://dev.meta.ai/docs) and SAM 3.1, Meta's models, called through Meta's API
+- `@meta-sam/parser`, Meta's library for parsing SAM output and decoding masks. Its encoder was also used once to produce the synthetic fixture ([details](fixtures/README.md)).
+- [Home Assistant](https://www.home-assistant.io/), which controls the lamp
+- Open source packages listed in `package.json`, including Fastify, React, Vite, sharp, zod, and the OpenAI SDK
+
 ## License
 
 [MIT](LICENSE). The SAM stream parser (`@meta-sam/parser`) is under its own license; see [licenses/](licenses/README.md).
