@@ -1,9 +1,9 @@
 import { config as loadDotEnv } from 'dotenv';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { z } from 'zod';
 
 export const PROJECT_ROOT = fileURLToPath(new URL('../../../', import.meta.url));
-import { z } from 'zod';
 
 const flag = z
   .enum(['true', 'false'])

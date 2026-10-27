@@ -8,6 +8,7 @@ import {
   modeSchema,
   imageRequestSchema,
   segmentRequestSchema,
+  FIXTURE_ID,
   type EvidenceRun,
   type RunKind,
   type Mode,
@@ -18,7 +19,7 @@ import { type Config, PROJECT_ROOT } from './config.js';
 import { EvidenceStore } from './store.js';
 import { MetaAdapter, type ProviderResult } from './meta.js';
 import { LampAdapter } from './lamp.js';
-import { LabError, safeError } from './errors.js';
+import { LabError, parseInput, safeError } from './errors.js';
 import { validateImage } from './images.js';
 import { deskRoutes } from './desk.js';
 import { fixtureScene, fixtureSegmentation, fixtureLamp } from './fixtures.js';
@@ -64,12 +65,6 @@ export async function buildApp(
       .code(normalized.statusCode)
       .send({ error: { code: normalized.code, message: normalized.message } });
   });
-  function body<T>(schema: z.ZodType<T>, value: unknown): T {
-    const parsed = schema.safeParse(value);
-    if (!parsed.success)
-      throw new LabError('invalid_input', 'Request fields do not match this operation.');
-    return parsed.data;
-  }
   app.get('/api/status', async () => ({
     meta: {
       configured: Boolean(config.modelApiKey),
@@ -155,7 +150,7 @@ export async function buildApp(
     }
   }
   app.post('/api/text', async (request) => {
-    const { mode } = body(z.object({ mode: modeSchema }).strict(), request.body);
+    const { mode } = parseInput(z.object({ mode: modeSchema }).strict(), request.body);
     return run('text', mode, async () =>
       mode === 'fixture'
         ? { output: { text: 'Fixture connection ready. No model request was sent.' } }
@@ -163,7 +158,7 @@ export async function buildApp(
     );
   });
   app.post('/api/discover', async (request) => {
-    const input = body(imageRequestSchema, request.body);
+    const input = parseInput(imageRequestSchema, request.body);
     return run('discover', input.mode, async (id) => {
       if (input.mode === 'fixture') {
         if (input.imageDataUrl)
@@ -179,7 +174,7 @@ export async function buildApp(
     });
   });
   app.post('/api/segment', async (request) => {
-    const input = body(segmentRequestSchema, request.body);
+    const input = parseInput(segmentRequestSchema, request.body);
     return run('segment', input.mode, async (id) => {
       if (input.mode === 'fixture') {
         if (input.imageDataUrl)
@@ -189,7 +184,7 @@ export async function buildApp(
           );
         const result = await fixtureSegmentation(input.concept);
         return {
-          output: { ...result.output, sourceKey: 'illustrated-desk-v1' },
+          output: { ...result.output, sourceKey: FIXTURE_ID },
           assets: [store.asset(id, 'synthetic-sam.txt', result.raw)],
         };
       }
@@ -209,7 +204,7 @@ export async function buildApp(
     });
   });
   app.post('/api/lamp', async (request) => {
-    const { mode } = body(z.object({ mode: modeSchema }).strict(), request.body);
+    const { mode } = parseInput(z.object({ mode: modeSchema }).strict(), request.body);
     return run('lamp', mode, async () => ({
       output: mode === 'fixture' ? fixtureLamp : await lamp.turnOn(),
     }));

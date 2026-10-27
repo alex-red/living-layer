@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import type { Scene, LampResult } from '@livinglayer/domain';
+import { isMugConcept, type Scene, type LampResult } from '@livinglayer/domain';
 import { PROJECT_ROOT } from './config.js';
 import { decodeSegmentation, syntheticStream } from './sam.js';
 
@@ -21,7 +21,7 @@ export async function fixtureSegmentation(concept: string) {
     readFileSync(resolve(PROJECT_ROOT, 'fixtures/sam-mug.json'), 'utf8'),
   ) as { width: number; height: number; wire: string };
   return decodeSegmentation(
-    syntheticStream(/^(mug|cream mug|cup)$/i.test(concept) ? fixture.wire : ''),
+    syntheticStream(isMugConcept(concept) ? fixture.wire : ''),
     concept,
     fixture.width,
     fixture.height,

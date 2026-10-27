@@ -97,6 +97,10 @@ export const MAX_IMAGE_PIXELS = 4_000_000;
 export const MAX_MASK_PIXELS = 4_000_000;
 export const FIXTURE_ID = 'illustrated-desk-v1';
 
+export function isMugConcept(concept: string): boolean {
+  return /^(mug|cream mug|cup)$/i.test(concept.trim());
+}
+
 export function validBox(box: Detection['box'], width: number, height: number): boolean {
   return (
     Object.values(box).every(Number.isFinite) &&

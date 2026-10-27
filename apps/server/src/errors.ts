@@ -1,3 +1,5 @@
+import type { z } from 'zod';
+
 export class LabError extends Error {
   constructor(
     public code: string,
@@ -37,4 +39,11 @@ export function safeError(error: unknown): LabError {
     'The operation failed. Check configuration and connectivity; sensitive provider details were not logged.',
     502,
   );
+}
+
+export function parseInput<T>(schema: z.ZodType<T>, value: unknown): T {
+  const parsed = schema.safeParse(value);
+  if (!parsed.success)
+    throw new LabError('invalid_input', 'Request fields do not match this operation.');
+  return parsed.data;
 }

@@ -11,7 +11,7 @@ import type {
   ZoneRect,
   PlacementDecision,
 } from '@livinglayer/domain';
-import { OBSERVATION_MAX_AGE_MS } from '@livinglayer/domain';
+import { OBSERVATION_MAX_AGE_MS, isMugConcept } from '@livinglayer/domain';
 import './styles.css';
 
 async function api<T>(path: string, body?: unknown): Promise<T> {
@@ -654,11 +654,7 @@ function App() {
                 <button
                   key={d.objectId}
                   className="secondary"
-                  disabled={
-                    Boolean(busy) ||
-                    !segmentRunId ||
-                    !/^(mug|cream mug|cup)$/i.test(segmentation.concept)
-                  }
+                  disabled={Boolean(busy) || !segmentRunId || !isMugConcept(segmentation.concept)}
                   onClick={() =>
                     void deskAction('select', { segmentRunId, detectionId: d.objectId })
                   }

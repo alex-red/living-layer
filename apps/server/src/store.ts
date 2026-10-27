@@ -1,7 +1,13 @@
 import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { EvidenceRun, LabStatus, DeskMemory, Mode } from '@livinglayer/domain';
+import {
+  isMugConcept,
+  type EvidenceRun,
+  type LabStatus,
+  type DeskMemory,
+  type Mode,
+} from '@livinglayer/domain';
 import { LabError } from './errors.js';
 
 export class EvidenceStore {
@@ -104,8 +110,7 @@ export class EvidenceStore {
       discover: runs.some((r) => r.kind === 'discover'),
       segment: runs.some(
         (r) =>
-          r.kind === 'segment' &&
-          /^(mug|cream mug|cup)$/i.test(String((r.output as { concept?: string }).concept)),
+          r.kind === 'segment' && isMugConcept(String((r.output as { concept?: string }).concept)),
       ),
       lamp: runs.some(
         (r) =>

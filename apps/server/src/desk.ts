@@ -5,6 +5,7 @@ import {
   modeSchema,
   zoneRectSchema,
   placementGate,
+  isMugConcept,
   OBSERVATION_MAX_AGE_MS,
   type DeskMemory,
   type Mode,
@@ -14,7 +15,7 @@ import {
   type LampResult,
 } from '@livinglayer/domain';
 import { EvidenceStore } from './store.js';
-import { LabError, safeError } from './errors.js';
+import { LabError, parseInput, safeError } from './errors.js';
 
 export function deskRoutes(
   app: FastifyInstance,
@@ -22,12 +23,6 @@ export function deskRoutes(
   turnOn: (mode: Mode) => Promise<LampResult>,
 ) {
   const active = new Set<Mode>();
-  function input<T>(schema: z.ZodType<T>, value: unknown): T {
-    const parsed = schema.safeParse(value);
-    if (!parsed.success)
-      throw new LabError('invalid_input', 'Request fields do not match this operation.');
-    return parsed.data;
-  }
   function available(mode: Mode) {
     if (active.has(mode))
       throw new LabError('placement_busy', 'A placement check is already running.', 409);
@@ -53,11 +48,11 @@ export function deskRoutes(
     };
   }
   app.get('/api/desk/:mode', async (request) => {
-    const { mode } = input(z.object({ mode: modeSchema }), request.params);
+    const { mode } = parseInput(z.object({ mode: modeSchema }), request.params);
     return store.memory(mode);
   });
   app.post('/api/desk/select', async (request) => {
-    const { mode, segmentRunId, detectionId } = input(
+    const { mode, segmentRunId, detectionId } = parseInput(
       z
         .object({
           mode: modeSchema,
@@ -79,11 +74,7 @@ export function deskRoutes(
       throw new LabError('observation_source', 'Choose a completed segmentation from this mode.');
     const segmentation = run.output as Segmentation;
     const detection = segmentation.detections.find((d) => d.objectId === detectionId);
-    if (
-      !/^(mug|cream mug|cup)$/i.test(segmentation.concept) ||
-      !detection ||
-      !segmentation.sourceKey
-    )
+    if (!isMugConcept(segmentation.concept) || !detection || !segmentation.sourceKey)
       throw new LabError('mug_selection', 'Select a specific mug mask from a new segmentation.');
     if (Date.now() - Date.parse(run.createdAt) > OBSERVATION_MAX_AGE_MS)
       throw new LabError('stale_observation', 'This segmentation is stale. Segment a new frame.');
@@ -112,7 +103,7 @@ export function deskRoutes(
     return memory;
   });
   app.post('/api/desk/zone', async (request) => {
-    const { mode, observationId, rect } = input(
+    const { mode, observationId, rect } = parseInput(
       z
         .object({ mode: modeSchema, observationId: z.string().uuid(), rect: zoneRectSchema })
         .strict(),
@@ -133,7 +124,7 @@ export function deskRoutes(
     return memory;
   });
   app.post('/api/desk/reset', async (request) => {
-    const { mode } = input(z.object({ mode: modeSchema }).strict(), request.body);
+    const { mode } = parseInput(z.object({ mode: modeSchema }).strict(), request.body);
     available(mode);
     const memory: DeskMemory = {
       mode,
@@ -147,7 +138,7 @@ export function deskRoutes(
     return memory;
   });
   app.post('/api/desk/verify', async (request) => {
-    const { mode, observationId, zoneId } = input(
+    const { mode, observationId, zoneId } = parseInput(
       z
         .object({ mode: modeSchema, observationId: z.string().uuid(), zoneId: z.string().uuid() })
         .strict(),
