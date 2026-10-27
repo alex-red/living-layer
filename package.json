@@ -1,0 +1,56 @@
+{
+  "name": "livinglayer",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "packageManager": "npm@11.12.1",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -k -n api,web -c cyan,green \"npm run dev -w @livinglayer/server\" \"npm run dev -w @livinglayer/web\"",
+    "build": "npm run typecheck && npm run build -w @livinglayer/web && npm run build -w @livinglayer/server",
+    "start": "node apps/server/dist/index.js",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:browser": "playwright test",
+    "check": "npm run format:check && npm run typecheck && npm test && npm run build",
+    "doctor": "node --import tsx scripts/doctor.ts",
+    "smoke": "node --import tsx scripts/smoke.ts",
+    "format": "prettier --write \"apps/**/*.{ts,tsx,css,html,svg,json}\" \"packages/**/*.{ts,json}\" \"scripts/**/*.ts\" \"tests/**/*.ts\" \"*.{ts,json}\"",
+    "format:check": "prettier --check \"apps/**/*.{ts,tsx,css,html,svg,json}\" \"packages/**/*.{ts,json}\" \"scripts/**/*.ts\" \"tests/**/*.ts\" \"*.{ts,json}\""
+  },
+  "dependencies": {
+    "@fastify/static": "10.1.7",
+    "@meta-sam/parser": "0.1.0",
+    "dotenv": "^17.2.3",
+    "fastify": "^5.6.0",
+    "openai": "^6.0.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "sharp": "0.35.5",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.56.0",
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@vitejs/plugin-react": "^5.0.4",
+    "concurrently": "^9.2.1",
+    "prettier": "3.9.10",
+    "tsup": "^8.5.0",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3",
+    "vite": "^7.1.12",
+    "vitest": "^4.0.0"
+  },
+  "overrides": {
+    "esbuild": "^0.28.1"
+  }
+}
