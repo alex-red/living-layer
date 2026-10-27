@@ -81,7 +81,6 @@ export interface Readiness {
 }
 export interface LabStatus {
   meta: Readiness & {
-    creditsConfirmed: boolean;
     usedToday: number;
     requestLimit: number;
     sparkModel: string;

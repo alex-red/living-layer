@@ -34,13 +34,8 @@ export class MetaAdapter {
     });
   }
   private reserve() {
-    if (!this.config.modelApiKey || !this.config.metaEnabled || !this.config.creditsConfirmed) {
-      throw new LabError(
-        'meta_not_ready',
-        'Configure the server-side Meta key, confirm credited balance, and explicitly enable live requests first.',
-        409,
-      );
-    }
+    if (!this.config.modelApiKey || !this.config.metaEnabled)
+      throw new LabError('meta_not_ready', 'Live Meta calls are not enabled on the server.', 409);
     this.store.reserveRequest(this.config.maxRequests);
   }
   async text(): Promise<ProviderResult<{ text: string }>> {

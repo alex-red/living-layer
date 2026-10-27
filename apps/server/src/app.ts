@@ -74,15 +74,14 @@ export async function buildApp(
     meta: {
       configured: Boolean(config.modelApiKey),
       enabled: config.metaEnabled,
-      creditsConfirmed: config.creditsConfirmed,
       usedToday: store.usedToday(),
       requestLimit: config.maxRequests,
       sparkModel: config.sparkModel,
       samModel: config.samModel,
       note:
-        config.modelApiKey && config.metaEnabled && config.creditsConfirmed
-          ? 'Live calls enabled; allowance counts attempts, not dollars.'
-          : 'Pending API key, credited balance confirmation, and explicit live enablement.',
+        config.modelApiKey && config.metaEnabled
+          ? 'Live calls enabled. The daily allowance counts attempts, not cost.'
+          : 'Set MODEL_API_KEY and META_LIVE_ENABLED to make live calls.',
     },
     lamp: {
       configured: Boolean(config.haUrl && config.haToken && config.haEntity),
@@ -90,7 +89,7 @@ export async function buildApp(
       note:
         config.haEnabled && config.haUrl && config.haToken && config.haEntity
           ? 'One configured light; explicit actions only.'
-          : 'Pending Home Assistant lamp setup and explicit live enablement.',
+          : 'Set the HA_* variables and HA_LIVE_ENABLED to control a lamp.',
     },
     liveEvidence: store.liveEvidence(),
   }));

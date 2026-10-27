@@ -254,7 +254,6 @@ describe('Meta adapter transport contract', () => {
     config({
       MODEL_API_KEY: 'test-key',
       META_LIVE_ENABLED: 'true',
-      META_CREDITS_CONFIRMED: 'true',
       META_MAX_REQUESTS_PER_DAY: '2',
     });
   it('uses Responses text.format, validates data, records usage/request ID and counts failures', async () => {
@@ -316,7 +315,6 @@ describe('stream transport and sanitized failures', () => {
     const c = config({
       MODEL_API_KEY: 'test-key',
       META_LIVE_ENABLED: 'true',
-      META_CREDITS_CONFIRMED: 'true',
     });
     const store = new EvidenceStore(c.dataDir);
     const events = [];
@@ -359,7 +357,6 @@ describe('stream transport and sanitized failures', () => {
     const c = config({
       MODEL_API_KEY: 'sensitive-credential',
       META_LIVE_ENABLED: 'true',
-      META_CREDITS_CONFIRMED: 'true',
     });
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
       new Response('{"error":{"message":"sensitive-credential private-image"}}', {

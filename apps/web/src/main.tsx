@@ -295,7 +295,6 @@ function App() {
   const metaReady = Boolean(
     status?.meta.configured &&
     status.meta.enabled &&
-    status.meta.creditsConfirmed &&
     status.meta.usedToday < status.meta.requestLimit,
   );
   const lampReady = Boolean(status?.lamp.configured && status.lamp.enabled);

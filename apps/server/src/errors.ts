@@ -19,10 +19,7 @@ export function safeError(error: unknown): LabError {
       'The provider rejected the request. Check the pinned model and input format.',
     ],
     401: ['authentication', 'The provider rejected the credential. Check the server-side key.'],
-    402: [
-      'billing',
-      'Meta billing or credits are not ready. Check the claim and credited balance.',
-    ],
+    402: ['billing', 'The provider declined the request for billing reasons.'],
     403: ['entitlement', 'This account cannot access the requested model or resource.'],
     429: ['rate_limit', 'The provider rate-limited this request. Wait before trying again.'],
   };

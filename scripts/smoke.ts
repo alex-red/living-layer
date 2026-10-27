@@ -12,8 +12,8 @@ if (live) {
   const path = process.argv[imageIndex + 1];
   if (imageIndex < 0 || !path || !/\.(png|jpe?g)$/i.test(path))
     throw new Error('Live smoke requires --image /path/to/desk.png (or .jpg).');
-  if (!config.modelApiKey || !config.metaEnabled || !config.creditsConfirmed)
-    throw new Error('Live Meta access is not enabled. Run npm run doctor and follow README setup.');
+  if (!config.modelApiKey || !config.metaEnabled)
+    throw new Error('Live Meta access is not enabled. Run npm run doctor and see the README.');
   const bytes = readFileSync(resolve(path));
   imageDataUrl = `data:image/${extname(path).toLowerCase() === '.png' ? 'png' : 'jpeg'};base64,${bytes.toString('base64')}`;
 }

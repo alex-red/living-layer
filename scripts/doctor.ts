@@ -4,7 +4,7 @@ try {
   console.log('LivingLayer readiness (no network requests)');
   console.log(`Node ${process.version}; data directory: ${config.dataDir}`);
   console.log(
-    `Meta key: ${config.modelApiKey ? 'present' : 'missing'}; live enabled: ${config.metaEnabled}; credits confirmed: ${config.creditsConfirmed}`,
+    `Meta key: ${config.modelApiKey ? 'present' : 'missing'}; live enabled: ${config.metaEnabled}`,
   );
   console.log(
     `Models: ${config.sparkModel}, ${config.samModel}; request allowance: ${config.maxRequests}/UTC day`,
