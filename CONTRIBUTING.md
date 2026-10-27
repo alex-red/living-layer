@@ -26,7 +26,40 @@ A few conventions:
 - Tests should never reach the network. Pass a mock `fetcher` into `buildApp`, as `tests/core.test.ts` does.
 - Dependencies are pinned to exact versions (`.npmrc` sets `save-exact`).
 - Don't commit anything from `.data/`, real photos, or `.env`.
-- Write commit messages in the imperative ("Add zone editor", not "Added zone editor"). Keep the subject under about 60 characters and use the body to explain why.
+
+## Commit messages
+
+We use [Conventional Commits](https://www.conventionalcommits.org/):
+
+```
+<type>(<optional scope>): <summary>
+
+<optional body: why the change was made>
+```
+
+| Type       | Use it for                                      |
+| ---------- | ----------------------------------------------- |
+| `feat`     | Something a user can now do                     |
+| `fix`      | A bug fix                                       |
+| `docs`     | Documentation only                              |
+| `refactor` | Code changes that don't change behaviour        |
+| `test`     | Adding or fixing tests and fixtures             |
+| `perf`     | Making something faster or lighter              |
+| `ci`       | GitHub Actions and other CI config              |
+| `chore`    | Tooling, dependencies, config, and housekeeping |
+
+Scopes are optional. When one helps, use the part of the repo you touched: `web`, `server`, or `domain`.
+
+Write the summary in lowercase and the imperative mood, with no full stop, and keep it under about 60 characters: `feat(web): add zone editor`, not `Added the zone editor.` Use the body to explain why, not what. For a breaking change, add `!` after the type (`feat(server)!: …`) and explain the break in the body.
+
+Examples:
+
+```
+feat: remember a mug and gate the lamp on a drawn zone
+fix(server): reject zones saved against a different image
+docs: explain how to get a Home Assistant token
+chore: bump vite to 7.2.0
+```
 
 ## Reporting security issues
 
