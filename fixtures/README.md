@@ -1,4 +1,4 @@
-# Day 1 conformance fixture
+# Test fixtures
 
 `sam-mug.json` is **synthetic**, not a Meta API response. `apps/web/public/desk.svg` is an original code-drawn illustration, not a camera capture. Fixture discovery labels and the virtual lamp response are deterministic, hand-authored data in `apps/server/src/fixtures.ts`.
 

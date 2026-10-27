@@ -44,7 +44,7 @@ async function setup() {
   return { app, c, post, memory, segment, zone, fetcher };
 }
 
-describe('Day 2 connected desk slice', () => {
+describe('desk placement', () => {
   it('persists object identity and zone across restart; links selection, decision, and virtual action without provider traffic', async () => {
     const s = await setup();
     const zoned = await s.zone();

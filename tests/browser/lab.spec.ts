@@ -64,7 +64,7 @@ test('mobile workbench fits its viewport', async ({ page }) => {
   await page.screenshot({ path: '.data/screenshots/desk-fixture-mobile.png', fullPage: true });
 });
 
-test('Day 2 remembers a mug, draws a zone, verifies one virtual action, and retains evidence on reload', async ({
+test('remembers a mug, draws a zone, verifies one virtual action, and retains evidence on reload', async ({
   page,
 }) => {
   await page.goto('/');
@@ -91,7 +91,7 @@ test('Day 2 remembers a mug, draws a zone, verifies one virtual action, and reta
   await expect(page.locator('.placement-result')).toContainText('inside · lamp confirmed');
   await expect(page.locator('.placement-result')).toContainText('No Home Assistant request');
   await expect(page.locator('.readiness h3')).toHaveText('0 / 4');
-  await page.screenshot({ path: '.data/screenshots/day-2-connected-desktop.png', fullPage: true });
+  await page.screenshot({ path: '.data/screenshots/placement-desktop.png', fullPage: true });
   await page.getByRole('button', { name: 'Verify placement · virtual lamp', exact: true }).click();
   await expect(page.locator('.placement-result')).toContainText('blocked · lamp none');
   await page.getByRole('button', { name: 'Draw / edit zone' }).click();
@@ -114,5 +114,5 @@ test('Day 2 remembers a mug, draws a zone, verifies one virtual action, and reta
   expect((await (await page.request.get('/api/desk/fixture')).json()).object.id).toBe(objectId);
   await page.setViewportSize({ width: 390, height: 844 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-  await page.screenshot({ path: '.data/screenshots/day-2-connected-mobile.png', fullPage: true });
+  await page.screenshot({ path: '.data/screenshots/placement-mobile.png', fullPage: true });
 });
