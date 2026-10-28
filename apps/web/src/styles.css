@@ -709,6 +709,42 @@ input[type='checkbox'] {
   pointer-events: none;
 }
 
+/* Local following: the browser's own guess, kept visually apart from SAM's masks. */
+.follow-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.follow-overlay rect {
+  fill: none;
+  stroke-width: 1.5px;
+  vector-effect: non-scaling-stroke;
+}
+.follow-zone {
+  stroke: var(--chosen);
+  stroke-dasharray: 6 5;
+  opacity: 0.6;
+}
+.follow-box {
+  stroke: var(--seen);
+  stroke-dasharray: 3 3;
+  transition:
+    x var(--t-fast) var(--ease-out),
+    y var(--t-fast) var(--ease-out);
+}
+.follow-box:not(.follow) {
+  stroke: var(--unsure);
+}
+.follow-tag {
+  color: var(--seen);
+}
+.follow-tag:not(.follow) {
+  color: var(--unsure);
+}
+
 /* Buttons */
 .primary,
 .secondary,

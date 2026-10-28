@@ -47,13 +47,20 @@ A newer segmentation replaces the current observation. Each segmentation can sti
 
 The first identity is always manual: a person confirms a mug mask with `desk/select`. After that, `desk/track` takes the newest mug segmentation, picks the detection that overlaps the last box most (or the nearest one when none overlap) with `pickTracked`, records it as a `tracked` observation with its overlap, and verifies it in the same request. A frame with no mug changes nothing. Earlier observations are kept, newest first, in the memory's `history` (up to 12), which the lab shows as a timeline and a trail on the scene.
 
+**Following locally (prototype).** Calling SAM for every frame pays for detection when only matching is needed. `Follow locally` in the lab cuts a grayscale template of the mug from the last SAM-confirmed frame and searches each new frame near the last box by normalized cross-correlation (`packages/domain/src/tracker.ts`). Nothing leaves the browser. The live camera is sampled every 100 ms at 160 px wide; in fixture mode each mug move is one step. SAM runs again through the normal `desk/track` path only when:
+
+- **confirm**: the local box sits on the other side of the zone edge for a few samples. Leaving is confirmed too, so the server's last verdict stays right and the next entry still fires the lamp.
+- **re-anchor**: the match stays below 0.55 for a few samples, for example when the mug is covered or moves more than a quarter of the frame between samples.
+
+The lamp only ever fires on a SAM observation. The local box is a reason to look again, never a verdict. The template is only cut from SAM frames, so it doesn't drift, and live SAM checks are rate-limited to one every 5 s. The zone can only be watched when it carries over, meaning the camera is marked fixed. Template matching won't handle big changes in rotation, scale or lighting; those show up as weak matches and fall back to SAM.
+
 ## Lamp results
 
 Home Assistant accepting a request, the entity reporting the requested state, and the bulb actually lighting up are three separate things. `LampResult` records the first two (`accepted`, `stateConfirmed`). `physicalEffectVerified` is always `false`, because the software has no way to see the lamp.
 
 ## Not built yet
 
-- Automatic motion detection and continuous capture
+- Automatic motion detection and continuous capture, outside the local-following prototype
 - Recognising the same mug by appearance. Tracking matches by position only, so two mugs swapping places would fool it.
 - Camera calibration, so a zone can carry over between frames from a camera that did move
 - More than one object, zone, or light

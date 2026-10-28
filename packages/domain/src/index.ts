@@ -354,3 +354,4 @@ export function placementGate(
         assumedFixedCamera: zone.carried,
       };
 }
+export * from './tracker.js';
