@@ -1,6 +1,14 @@
 import { test, expect, type Page } from '@playwright/test';
 import sharp from 'sharp';
 
+/** The lab opens on a choice of scene; the illustrated fixture is the office desk. */
+async function chooseScene(page: Page, name = 'Office desk') {
+  await page
+    .getByRole('group', { name: 'Choose a scene' })
+    .getByRole('button', { name, exact: true })
+    .click();
+}
+
 test('fixture desk completes discovery, mask, absent target, lamp and export without external requests', async ({
   page,
 }) => {
@@ -16,6 +24,10 @@ test('fixture desk completes discovery, mask, absent target, lamp and export wit
   });
   await page.goto('/');
   await expect(page.getByRole('heading', { name: 'Desk lab' })).toBeVisible();
+  // Scene first: nothing runs until a scene is chosen.
+  await expect(page.getByRole('button', { name: 'Discover objects', exact: true })).toBeDisabled();
+  await chooseScene(page);
+  await expect(page.locator('.scene-chosen')).toContainText('Office desk');
   await page.getByRole('button', { name: 'Discover objects', exact: true }).click();
   await expect(
     page.locator('.object-grid').getByRole('button', { name: /cream mug/ }),
@@ -41,6 +53,7 @@ test('live probes stay disabled without setup; uploads prepare locally and camer
   page,
 }) => {
   await page.goto('/');
+  await chooseScene(page);
   await page.getByRole('button', { name: 'Live', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Discover objects', exact: true })).toBeDisabled();
   await expect(page.getByRole('button', { name: 'Turn on desk lamp' })).toBeDisabled();
@@ -60,6 +73,7 @@ test('live probes stay disabled without setup; uploads prepare locally and camer
 test('mobile workbench fits its viewport', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/');
+  await chooseScene(page);
   await page.getByRole('button', { name: 'Discover objects', exact: true }).click();
   await expect(
     page.locator('.object-grid').getByRole('button', { name: /cream mug/ }),
@@ -72,6 +86,7 @@ test('remembers a mug, draws a zone, verifies one virtual action, and retains ev
   page,
 }) => {
   await page.goto('/');
+  await chooseScene(page);
   await page.getByRole('button', { name: 'Discover objects', exact: true }).click();
   await page
     .locator('.object-grid')
@@ -116,6 +131,7 @@ test('remembers a mug, draws a zone, verifies one virtual action, and retains ev
   await page.getByRole('button', { name: 'Verify placement · virtual lamp', exact: true }).click();
   await expect(page.locator('.placement-result')).toContainText('outside · lamp none');
   await page.reload();
+  await chooseScene(page);
   await expect(page.locator('.placement-result')).toContainText('outside · lamp none');
   await expect(
     page.getByRole('button', { name: 'Verify placement · virtual lamp', exact: true }),
@@ -146,6 +162,7 @@ test('draws the remembered mug in the isometric desk and follows it to a new fra
 }) => {
   await freshDesk(page);
   await page.goto('/');
+  await chooseScene(page);
   await page.getByRole('button', { name: 'Segment object', exact: true }).click();
   await page.getByRole('button', { name: 'Confirm mug mask #7', exact: true }).click();
   await expect(page.locator('.feedback')).toContainText('Mug identity manually confirmed');
@@ -154,8 +171,10 @@ test('draws the remembered mug in the isometric desk and follows it to a new fra
   const mug = page.locator('[data-object="tracked"] ellipse').first();
   await expect(mug).toBeVisible();
   const before = Number(await mug.getAttribute('cx'));
-  for (const preset of ['Office', 'Fridge', 'Desk'])
-    await page.getByRole('button', { name: preset, exact: true }).click();
+  // The office desk is the office's desk, so its pin places the mug in the office too.
+  await page.getByRole('button', { name: 'Office', exact: true }).click();
+  await expect(mug).toBeVisible();
+  await page.getByRole('button', { name: 'Office desk', exact: true }).click();
   await expect(page.locator('[data-prop="lamp"]')).toBeVisible();
   await page.getByRole('button', { name: 'Right', exact: true }).click();
   await page.getByRole('button', { name: 'Track the mug', exact: true }).click();
@@ -190,6 +209,7 @@ test('draws the remembered mug in the isometric desk and follows it to a new fra
 test('drafts a custom room offline, saves it, and lights a rule’s lamp', async ({ page }) => {
   await freshDesk(page);
   await page.goto('/');
+  await chooseScene(page);
   await page.getByRole('button', { name: 'Segment object', exact: true }).click();
   await page.getByRole('button', { name: 'Confirm mug mask #7', exact: true }).click();
   await page.getByRole('button', { name: 'Iso', exact: true }).click();
@@ -235,6 +255,7 @@ test('drafts a scene from the illustrated desk, reviews the pin and objects, and
 }) => {
   await freshDesk(page);
   await page.goto('/');
+  await chooseScene(page);
   await page.getByRole('button', { name: 'Iso', exact: true }).click();
   await page.getByRole('button', { name: 'Edit scene', exact: true }).click();
   await page.getByRole('button', { name: 'Draft from the illustrated desk', exact: true }).click();

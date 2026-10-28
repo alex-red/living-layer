@@ -133,7 +133,7 @@ export class MetaAdapter {
           content: [
             {
               type: 'input_text',
-              text: `Pick the scene preset that best matches this photo: office (a room with a desk), desk (a close view of a desktop), or fridge (the inside of a fridge). Then list which of that preset's optional props are visible, using only these ids:\n${presetCatalog()}\nDescribe only what is visible, in one short sentence.`,
+              text: `Pick the scene preset that best matches this photo: office (a room with a desk), desk (an office desk: a close view of the desktop in an office), or fridge (the inside of a fridge). Then list which of that preset's optional props are visible, using only these ids:\n${presetCatalog()}\nDescribe only what is visible, in one short sentence.`,
             },
             { type: 'input_image', image_url: imageDataUrl, detail: 'auto' },
           ],

@@ -2,10 +2,12 @@ import { useEffect, useState } from 'react';
 import {
   FIXTURE_SURFACE,
   ISO_PRESETS,
+  ISO_SCENE_PARENT,
   guessedScene,
   isoSurface,
   itemHeight,
   modelTarget,
+  pinFits,
   projectBox,
   surfaceMap,
   zoneFromSurface,
@@ -14,7 +16,6 @@ import {
   type DeskObservation,
   type EvidenceRun,
   type IsoItem,
-  type IsoSceneKind,
   type IsoScene as Scene,
   type IsoSurface,
   type Mode,
@@ -30,9 +31,17 @@ import { ItemEditor } from './ItemEditor';
 import { RulesPanel, type RuleDraft } from './RulesPanel';
 import { SceneEditor, type LayoutRun } from './SceneEditor';
 import type { PhotoRun } from './PhotoReview';
+import type { SceneKind as Kind } from './ScenePicker';
 import './iso.css';
 
-type Kind = IsoSceneKind | 'custom';
+/** A preset's room and the close views inside it, which share its pins. */
+function family(kind: Kind): Kind[] {
+  if (kind === 'custom') return [];
+  const room = ISO_SCENE_PARENT[kind] ?? kind;
+  const kinds = Object.keys(ISO_PRESETS) as (keyof typeof ISO_PRESETS)[];
+  const members = kinds.filter((k) => k === room || ISO_SCENE_PARENT[k] === room);
+  return members.length > 1 ? members : [];
+}
 type Panel = 'room' | 'scene' | 'rules' | 'item';
 const PANELS: { id: Panel; label: string }[] = [
   { id: 'room', label: 'Room' },
@@ -72,6 +81,8 @@ function marker(
  */
 export function IsoView({
   mode,
+  kind,
+  onKind,
   memory,
   image,
   segmentation,
@@ -91,6 +102,9 @@ export function IsoView({
   onError,
 }: {
   mode: Mode;
+  /** The scene the person chose to work on. */
+  kind: Kind;
+  onKind: (kind: Kind) => void;
   memory?: DeskMemory;
   /** The current live photo, for asking Spark about the scene. */
   image?: string;
@@ -117,25 +131,20 @@ export function IsoView({
   onError: (message: string) => void;
 }) {
   const pin = memory?.surface ?? (mode === 'fixture' ? FIXTURE_SURFACE : null);
-  const [kind, setKind] = useState<Kind>(pin?.scene ?? 'desk');
   const [surfaceId, setSurfaceId] = useState(pin?.surfaceId ?? 'desk:top');
   const [guess, setGuess] = useState<SceneGuess | null>(null);
   const [asking, setAsking] = useState(false);
   const [panel, setPanel] = useState<Panel>('room');
   const [modelOf, setModelOf] = useState<string>();
   const [ruleDraft, setRuleDraft] = useState<RuleDraft | null>(null);
+  // A new scene or pin starts on the pinned surface when it is in this scene.
   useEffect(() => {
-    if (!pin) return;
-    setKind(pin.scene);
-    setSurfaceId(pin.surfaceId);
-  }, [pin?.scene, pin?.surfaceId]);
+    if (pin && pinFits(pin, kind)) setSurfaceId(pin.surfaceId);
+  }, [kind, pin?.scene, pin?.surfaceId]);
   useEffect(() => {
     setGuess(null);
     setRuleDraft(null);
   }, [mode]);
-  useEffect(() => {
-    if (kind === 'custom' && !memory?.scene) setKind('desk');
-  }, [kind, memory?.scene]);
 
   const custom = memory?.scene ?? null;
   const scene: Scene =
@@ -145,7 +154,8 @@ export function IsoView({
         ? guessedScene(guess)
         : ISO_PRESETS[kind];
   const surface = isoSurface(kind, surfaceId, custom) ?? scene.surfaces[0];
-  const pinned = Boolean(surface && pin?.scene === kind && pin.surfaceId === surface.id);
+  const pinned = Boolean(surface && pin && pinFits(pin, kind) && pin.surfaceId === surface.id);
+  const views = family(kind);
   const defaultLight = lights[0] ?? '';
 
   // The mug, then every other remembered object the pin can place.
@@ -216,8 +226,8 @@ export function IsoView({
         ...(mode === 'live' ? { imageDataUrl: image } : {}),
       });
       setGuess(run.output);
-      setKind(run.output.kind);
-      setSurfaceId(ISO_PRESETS[run.output.kind].surfaces[0]!.id);
+      // The person chose the scene; Spark may only move between a room and its close views.
+      if (run.output.kind !== kind && views.includes(run.output.kind)) onKind(run.output.kind);
       onRun(run);
     } catch (e) {
       onError(e instanceof Error ? e.message : 'Scene guess failed.');
@@ -240,21 +250,15 @@ export function IsoView({
   return (
     <div className="iso-view">
       <div className="iso-tools">
-        <div className="iso-presets" role="group" aria-label="Scene preset">
-          {([...Object.keys(ISO_PRESETS), ...(custom ? ['custom'] : [])] as Kind[]).map((k) => (
-            <button
-              key={k}
-              aria-pressed={kind === k}
-              onClick={() => {
-                setKind(k);
-                const next = k === 'custom' ? custom! : ISO_PRESETS[k];
-                setSurfaceId(pin?.scene === k ? pin.surfaceId : (next.surfaces[0]?.id ?? ''));
-              }}
-            >
-              {k === 'custom' ? 'Custom' : ISO_PRESETS[k].label}
-            </button>
-          ))}
-        </div>
+        {views.length > 0 && (
+          <div className="iso-presets" role="group" aria-label="Scene view">
+            {views.map((k) => (
+              <button key={k} aria-pressed={kind === k} onClick={() => onKind(k)}>
+                {k === 'custom' ? 'Custom' : ISO_PRESETS[k].label}
+              </button>
+            ))}
+          </div>
+        )}
         {scene.surfaces.length > 1 && (
           <label className="iso-surface-pick">
             <span className="tiny">SURFACE</span>
@@ -358,7 +362,7 @@ export function IsoView({
             onUpload={onUpload}
             onPhotoSaved={(m) => {
               onMemory(m);
-              setKind('custom');
+              onKind('custom');
               if (m.surface?.scene === 'custom') setSurfaceId(m.surface.surfaceId);
               setPanel('room');
               const n = (m.object ? 1 : 0) + (m.others?.length ?? 0);
@@ -371,7 +375,7 @@ export function IsoView({
               void send<DeskMemory>('scene/save', { scene: next }, (m) => {
                 onMemory(m);
                 if (next) {
-                  setKind('custom');
+                  onKind('custom');
                   setSurfaceId(
                     m.surface?.scene === 'custom'
                       ? m.surface.surfaceId
@@ -444,7 +448,9 @@ export function IsoView({
             : note ||
               (guess?.kind === kind
                 ? `Spark: ${guess.summary}`
-                : 'Placement is still decided on the photo. This view only shows it in the room.')}
+                : guess
+                  ? `Spark guessed ${ISO_PRESETS[guess.kind].label}, not this scene. Change the scene to use its guess.`
+                  : 'Placement is still decided on the photo. This view only shows it in the room.')}
         </p>
       )}
     </div>

@@ -802,3 +802,76 @@
     flex-wrap: wrap;
   }
 }
+
+/* Scene first: the lab opens on a choice of scene. */
+.scene-picker {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: grid;
+  align-content: start;
+  gap: 16px;
+  padding: 20px;
+  border-radius: var(--r-panel);
+  border: 1px solid var(--line-strong);
+  background: radial-gradient(ellipse at 50% 60%, var(--surface-1), #05060a 75%);
+}
+.scene-picker-head {
+  display: grid;
+  gap: 4px;
+}
+.scene-picker-head h3 {
+  font: 600 17px/22px var(--ui);
+}
+.scene-picker-head p {
+  color: var(--text-2);
+}
+.scene-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
+}
+.scene-card {
+  display: grid;
+  grid-template-rows: 140px auto;
+  gap: 8px;
+  padding: 10px;
+  border-radius: var(--r-panel);
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  color: var(--text);
+  text-align: left;
+}
+.scene-card:hover {
+  border-color: var(--line-strong);
+}
+.scene-card[aria-pressed='true'] {
+  border-color: var(--chosen);
+  box-shadow: 0 0 0 1px var(--chosen-glow);
+}
+.scene-card.nested {
+  border-style: dashed;
+}
+.scene-card-art {
+  display: grid;
+  place-items: center;
+  min-height: 0;
+  pointer-events: none;
+}
+.scene-card-text {
+  display: grid;
+  gap: 2px;
+  font-size: 12px;
+}
+.scene-card-text strong {
+  font-size: 14px;
+}
+.scene-card-text > span:last-child {
+  color: var(--text-2);
+}
+.scene-chosen {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}

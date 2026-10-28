@@ -26,6 +26,8 @@ import {
   OBSERVATION_MAX_AGE_MS,
   isMugConcept,
   FIXTURE_LIGHTS,
+  ISO_PRESETS,
+  ISO_SCENE_PARENT,
   runCost,
   startLocalTrack,
   stepLocalTrack,
@@ -39,6 +41,7 @@ import { Glyph } from './Glyph';
 import { takeHandoff } from './handoff';
 import { MaskOverlay } from './MaskOverlay';
 import { IsoView } from './iso/IsoView';
+import { ScenePicker, type SceneKind } from './iso/ScenePicker';
 import { SurfacePin } from './iso/SurfacePin';
 
 const BUSY: Record<string, string> = {
@@ -226,6 +229,17 @@ export function App() {
   const [deskSvg, setDeskSvg] = useState('');
   const [overlay, setOverlay] = useState(true);
   const [stageView, setStageView] = useState<'photo' | 'iso'>('photo');
+  // Scene first: nothing runs until the person says which scene they are in.
+  const [workScene, setWorkScene] = useState<SceneKind | null>(null);
+  const [choosingScene, setChoosingScene] = useState(false);
+  const sceneLabel =
+    workScene === 'custom'
+      ? (memory?.scene?.label ?? 'Custom')
+      : workScene && ISO_PRESETS[workScene].label;
+  // A removed custom scene, or one this mode doesn't have, means choosing again.
+  useEffect(() => {
+    if (workScene === 'custom' && memory && !memory.scene) setWorkScene(null);
+  }, [workScene, memory]);
   // Clicking a surface's corners on the photo, for the iso view.
   const [pinning, setPinning] = useState<{
     scene: IsoSceneKind | 'custom';
@@ -235,7 +249,7 @@ export function App() {
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
   const [message, setMessage] = useState(
-    'Start with the illustrated desk. Every fixture result is labeled.',
+    'Start by choosing the scene you are working on. Every fixture result is labeled.',
   );
   const [selected, setSelected] = useState<EvidenceRun>();
   const [logKind, setLogKind] = useState<RunKind | 'all'>('all');
@@ -768,15 +782,27 @@ export function App() {
     status.meta.usedToday < status.meta.requestLimit,
   );
   const lampReady = Boolean(status?.lamp.configured && status.lamp.enabled);
-  const canVision = !busy && (mode === 'fixture' || (metaReady && Boolean(image)));
+  const canVision =
+    Boolean(workScene) && !busy && (mode === 'fixture' || (metaReady && Boolean(image)));
   const canTrack =
+    Boolean(workScene) &&
     !busy &&
     !follow &&
     Boolean(memory?.object && memory.observation) &&
     (mode === 'fixture' || (metaReady && (Boolean(image) || camera)));
   const proofCount = status ? Object.values(status.liveEvidence).filter(Boolean).length : 0;
   const confirmedId = currentObservation?.detectionId;
-  const step = !scene && !segmentation ? 1 : !segmentation ? 2 : 3;
+  const step = !workScene ? 0 : !scene && !segmentation ? 1 : !segmentation ? 2 : 3;
+  function pickScene(next: SceneKind) {
+    setWorkScene(next);
+    setChoosingScene(false);
+    setError('');
+    setMessage(
+      next === 'custom'
+        ? 'Working in your own scene. Discover objects, then pin a surface in the iso view.'
+        : `Working in the ${ISO_PRESETS[next].label.toLowerCase()}. Discover objects, then pin a surface in the iso view.`,
+    );
+  }
   const capsuleTone = error ? 'blocked' : busy ? 'busy' : lamp !== 'off' ? 'warm' : 'idle';
 
   const filteredRuns = runs.filter(
@@ -894,6 +920,31 @@ export function App() {
                 </button>
               ))}
             </div>
+          </div>
+          <div className={`probe ${step === 0 ? 'current' : ''}`}>
+            <div className="probe-title">
+              <span className="step">00</span>
+              <h3>Choose the scene</h3>
+            </div>
+            {workScene ? (
+              <div className="scene-chosen">
+                <p>
+                  Working in the <strong>{sceneLabel}</strong>
+                  {workScene !== 'custom' && ISO_SCENE_PARENT[workScene] && (
+                    <> · in the {ISO_PRESETS[ISO_SCENE_PARENT[workScene]!].label.toLowerCase()}</>
+                  )}
+                </p>
+                <button
+                  className="text-button"
+                  disabled={Boolean(busy) || Boolean(pinning)}
+                  onClick={() => setChoosingScene(true)}
+                >
+                  Change
+                </button>
+              </div>
+            ) : (
+              <p>Pick the scene you are working on before running anything.</p>
+            )}
           </div>
           <div className={`probe ${step === 1 ? 'current' : ''}`}>
             <div className="probe-title">
@@ -1297,7 +1348,13 @@ export function App() {
               </div>
             )}
           </div>
-          <div className={`stage-fit ${stageView === 'iso' && !pinning ? 'iso' : ''}`}>
+          {(!workScene || choosingScene) && !pinning && (
+            <ScenePicker value={workScene} custom={memory?.scene} onPick={pickScene} />
+          )}
+          <div
+            className={`stage-fit ${stageView === 'iso' && !pinning ? 'iso' : ''}`}
+            hidden={(!workScene || choosingScene) && !pinning}
+          >
             <div
               className="scene"
               style={
@@ -1476,9 +1533,11 @@ export function App() {
                 {dimensions.width} × {dimensions.height} <span>FRAME 00</span>
               </span>
             </div>
-            {stageView === 'iso' && !pinning && (
+            {stageView === 'iso' && !pinning && workScene && (
               <IsoView
                 mode={mode}
+                kind={workScene}
+                onKind={setWorkScene}
                 memory={memory}
                 image={image}
                 segmentation={segmentation}

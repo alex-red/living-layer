@@ -20,9 +20,10 @@ function compose(
   };
 }
 
-// The illustrated fixture is a top-down desk filling the frame, so its book
-// (left) and bottle (right) sit where the photo shows them.
-const deskScene = compose('desk', 'Desk', { w: 8, d: 6 }, [
+// The office desk is a close view of the office's desk. The illustrated
+// fixture is that desktop filling the frame, so its book (left) and bottle
+// (right) sit where the photo shows them.
+const deskScene = compose('desk', 'Office desk', { w: 8, d: 6 }, [
   ['desk', 'desk', 1, 1, 0, { size: { w: 6, d: 4 } }],
   ['book', 'book', 1.55, 2.6, 2.4, { label: 'Green book', optional: true }],
   ['bottle', 'bottle', 5.55, 2.55, 2.4, { label: 'Sage bottle', optional: true }],
@@ -35,6 +36,8 @@ const officeScene = compose('office', 'Office', { w: 10, d: 8 }, [
   ['desk', 'desk', 1.2, 1.2, 0, { size: { w: 5, d: 3 } }],
   ['monitor', 'monitor', 2.5, 1.5, 2.4, { optional: true }],
   ['keyboard', 'keyboard', 2.7, 3.1, 2.4, { optional: true }],
+  ['book', 'book', 1.35, 1.6, 2.4, { label: 'Green book', optional: true }],
+  ['bottle', 'bottle', 5.4, 3.1, 2.4, { label: 'Sage bottle', optional: true }],
   ['lamp', 'lamp', 5.25, 1.35, 2.4],
   ['chair', 'chair', 3.1, 4.9, 0, { optional: true }],
   ['shelf', 'shelf', 7.2, 0.2, 0, { optional: true }],
@@ -52,6 +55,24 @@ export const ISO_PRESETS: Record<IsoSceneKind, IsoScene> = {
   desk: deskScene,
   fridge: fridgeScene,
 };
+/** Presets that are a close view of part of another: the office desk is in the office. */
+export const ISO_SCENE_PARENT: Partial<Record<IsoSceneKind, IsoSceneKind>> = { desk: 'office' };
+/**
+ * Whether a pin places objects in a scene: its own scene, or a room and its
+ * close view when both have the pinned surface. A pin maps the frame onto the
+ * unit square, so the office desk's top pinned once shows in the office too.
+ */
+export function pinFits(
+  pin: Pick<SurfacePin, 'scene' | 'surfaceId'>,
+  kind: IsoSceneKind | 'custom',
+): boolean {
+  if (pin.scene === kind) return true;
+  if (pin.scene === 'custom' || kind === 'custom') return false;
+  const room = (k: IsoSceneKind) => ISO_SCENE_PARENT[k] ?? k;
+  return (
+    room(pin.scene) === room(kind) && ISO_PRESETS[kind].surfaces.some((s) => s.id === pin.surfaceId)
+  );
+}
 /** A surface of a preset, or of the person's own scene when `kind` is `custom`. */
 export function isoSurface(
   kind: IsoSceneKind | 'custom',

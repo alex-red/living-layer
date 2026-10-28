@@ -14,6 +14,7 @@ import {
   homography,
   invertHomography,
   isoSurface,
+  pinFits,
   projectBox,
   quadIsConvex,
   sceneGuessSchema,
@@ -170,6 +171,19 @@ describe('placing the fixture mug', () => {
     expect(
       zoneFromSurface({ x: 0.5, y: 0.5 }, { x: 0.5, y: 0.5 }, FIXTURE_SURFACE.frame, map.toFrame),
     ).toBeNull();
+  });
+});
+
+describe('the office desk', () => {
+  it('is a close view of the office, and shares its desk pin with it', () => {
+    expect(ISO_PRESETS.desk.label).toBe('Office desk');
+    expect(pinFits(FIXTURE_SURFACE, 'desk')).toBe(true);
+    expect(pinFits(FIXTURE_SURFACE, 'office')).toBe(true);
+    expect(pinFits({ scene: 'office', surfaceId: 'shelf:top' }, 'desk')).toBe(false);
+    expect(pinFits(FIXTURE_SURFACE, 'fridge')).toBe(false);
+    expect(pinFits(FIXTURE_SURFACE, 'custom')).toBe(false);
+    const office = ISO_PRESETS.office.props.map((p) => p.group);
+    expect(office).toEqual(expect.arrayContaining(['book', 'bottle', 'lamp']));
   });
 });
 
