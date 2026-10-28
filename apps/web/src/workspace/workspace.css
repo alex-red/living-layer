@@ -731,6 +731,15 @@
 .drawer-inspect .placeholder {
   padding: 16px 4px;
 }
+/* Provider call toasts stay over the inspector column and above the drawer,
+   so they never cover the canvas you click on. */
+@media (min-width: 1100px) {
+  body .ai-activity {
+    right: 16px;
+    bottom: 56px;
+    width: calc(clamp(300px, 25vw, 380px) - 16px);
+  }
+}
 /* Narrower desktops: the breadcrumb gives way first. */
 @media (max-width: 1279px) {
   .crumbs {
@@ -788,6 +797,7 @@
   .workspace {
     display: flex;
     flex-direction: column;
+    align-items: stretch;
     padding: 12px 16px 0;
   }
   .ws-canvas {

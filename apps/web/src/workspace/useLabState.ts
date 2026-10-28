@@ -427,6 +427,16 @@ export function useLabState() {
     const timer = window.setTimeout(saveNow, 400);
     return () => window.clearTimeout(timer);
   }, [deskReady, memories, ...Object.values(prefs)]);
+  // A reload or a closed tab can come sooner than the pause autosave waits for, so save on the way out too.
+  const flush = useRef(() => {});
+  flush.current = () => {
+    if (deskReady) saveNow();
+  };
+  useEffect(() => {
+    const leave = () => flush.current();
+    window.addEventListener('pagehide', leave);
+    return () => window.removeEventListener('pagehide', leave);
+  }, []);
   /** Put a whole desk on the server, for an import, an undo or redo, or the demo. */
   async function restoreDesk(next: DeskMemory) {
     const saved = await api<DeskMemory>('desk/restore', { mode: next.mode, memory: next });
