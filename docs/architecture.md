@@ -47,12 +47,20 @@ A newer segmentation replaces the current observation. Each segmentation can sti
 
 The first identity is always manual: a person confirms a mug mask with `desk/select`. After that, `desk/track` takes the newest mug segmentation, picks the detection that overlaps the last box most (or the nearest one when none overlap) with `pickTracked`, records it as a `tracked` observation with its overlap, and verifies it in the same request. A frame with no mug changes nothing. Earlier observations are kept, newest first, in the memory's `history` (up to 12), which the lab shows as a timeline and a trail on the scene.
 
-**Following locally (prototype).** Calling SAM for every frame pays for detection when only matching is needed. `Follow locally` in the lab cuts a grayscale template of the mug from the last SAM-confirmed frame and searches each new frame near the last box by normalized cross-correlation (`packages/domain/src/tracker.ts`). Nothing leaves the browser. The live camera is sampled every 100 ms at 160 px wide; in fixture mode each mug move is one step. SAM runs again through the normal `desk/track` path only when:
+**Following locally (prototype).** Calling SAM for every frame pays for detection when only matching is needed. `Follow locally` in the lab cuts a grayscale template of the mug from the last SAM-confirmed frame and searches each new frame near the last box by normalized cross-correlation (`packages/domain/src/tracker.ts`). Nothing leaves the browser. The live camera is sampled every 100 ms at 160 px wide; in fixture mode each mug move is one step.
 
-- **confirm**: the local box sits on the other side of the zone edge for a few samples. Leaving is confirmed too, so the server's last verdict stays right and the next entry still fires the lamp.
-- **re-anchor**: the match stays below 0.55 for a few samples, for example when the mug is covered or moves more than a quarter of the frame between samples.
+- **Masked template.** Only pixels inside SAM's mask are matched, not the whole box, so the desk around the mug isn't part of what's being looked for. When the mug moves onto a different surface, such as a white shirt, the old background can't drag the match down. A mask too plain to match on its own (a white mug with no shading) falls back to the whole box.
+- **Look-alikes.** Each match records its lead over the best match elsewhere in the search area. A lead under 0.1 means two places look like the mug, so the box holds still rather than jumping to the look-alike. A small distance penalty breaks ties in favour of where the mug was.
+- **Lost.** A score under 0.6 or a lead under 0.1 counts as unsure. While unsure, the box holds still and the search widens each step, so a mug that moved fast can still be found.
 
-The lamp only ever fires on a SAM observation. The local box is a reason to look again, never a verdict. The template is only cut from SAM frames, so it doesn't drift, and live SAM checks are rate-limited to one every 5 s. The zone can only be watched when it carries over, meaning the camera is marked fixed. Template matching won't handle big changes in rotation, scale or lighting; those show up as weak matches and fall back to SAM.
+- **Stillness.** Picking the mug up always breaks the match for a moment: a hand covers it, it tilts, it blurs. So neither kind of SAM call below goes out until the area around the mug (the box grown by its own size on each side) has been still for 8 samples, about 0.8 s. "Still" means under 1.5% of pixels changed by more than 24 grey levels, the same rule as the playground's motion gate. Once the mug is set down, the widened search usually finds it again with no SAM call at all. Motion elsewhere in view, like typing, doesn't count.
+
+SAM runs again through the normal `desk/track` path only when:
+
+- **confirm**: the local box sits on the other side of the zone edge for a few samples. Leaving is confirmed too, so the server's last verdict stays right and the next entry still fires the lamp. Live checks wait at least 2 s after the last one.
+- **re-anchor**: the match stays unsure for a few samples. Live re-anchors back off from 2 s to 30 s while the mug stays lost, and reset after about 3 s of good matches. If SAM can't see the mug either, following stays on and tries again later.
+
+The lamp only ever fires on a SAM observation. The local box is a reason to look again, never a verdict. The template is only cut from SAM frames, so it doesn't drift. The zone can only be watched when it carries over, meaning the camera is marked fixed. A white mug against a white shirt has almost no contrast to match on, so expect a re-anchor there rather than a confident local box. Big changes in rotation, scale or lighting also show up as weak matches and fall back to SAM.
 
 ## Lamp results
 

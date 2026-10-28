@@ -5,6 +5,7 @@ import type {
   Mode,
   Scene,
   Segmentation,
+  Detection,
   LampResult,
   DeskMemory,
   ZoneRect,
@@ -64,8 +65,15 @@ function fixtureDesk(svg: string, position: FixturePosition): string {
 /** Local following samples the camera this often, on frames this wide. */
 const FOLLOW_MS = 100;
 const LUMA_WIDTH = 160;
-/** At most one SAM check this often while following the live camera. */
-const CHECK_COOLDOWN_MS = 5000;
+/**
+ * Gaps between SAM checks while following the live camera. A zone crossing
+ * waits briefly; re-anchoring backs off while the mug stays lost, so a mug
+ * that can't be told from its surroundings doesn't call SAM every few frames.
+ */
+const CONFIRM_GAP_MS = 2000;
+const REANCHOR_GAP_MS = { first: 2000, max: 30_000 };
+/** Good local steps in a row (about 3 s) before re-anchoring is trusted to have worked. */
+const RECOVERED_STEPS = 30;
 const lumaCanvas = document.createElement('canvas');
 /** Downsample any image or video frame to grayscale for the local tracker. */
 function lumaOf(source: HTMLImageElement | HTMLVideoElement): LumaFrame {
@@ -88,6 +96,27 @@ function loadImage(src: string): Promise<HTMLImageElement> {
     img.onerror = () => reject(new Error('Could not read the frame for local following.'));
     img.src = src;
   });
+}
+/** SAM's mask for `d`, drawn onto a frame-sized 0/1 grid at the tracker's resolution. */
+function maskOf(
+  d: Detection,
+  frame: Segmentation['frame'],
+  luma: LumaFrame,
+): Uint8Array | undefined {
+  const canvas = document.createElement('canvas');
+  canvas.width = luma.width;
+  canvas.height = luma.height;
+  const context = canvas.getContext('2d', { willReadFrequently: true });
+  if (!context) return undefined;
+  context.scale(luma.width / frame.width, luma.height / frame.height);
+  context.translate(d.box.x, d.box.y);
+  context.scale(d.box.width / d.mask.width, d.box.height / d.mask.height);
+  context.fill(new Path2D(d.mask.svgPath), 'evenodd');
+  const alpha = context.getImageData(0, 0, luma.width, luma.height).data;
+  const mask = new Uint8Array(luma.width * luma.height);
+  // Only pixels mostly inside the mask, so edge pixels blended with the background stay out.
+  for (let i = 0; i < mask.length; i++) mask[i] = alpha[i * 4 + 3]! > 160 ? 1 : 0;
+  return mask;
 }
 const unitBox = (o: DeskObservation): UnitBox => ({
   x: o.box.x / o.frame.width,
@@ -199,13 +228,14 @@ export function App() {
   // Local following: the tracker lives in a ref so the sampling loop never waits on a render.
   const [follow, setFollow] = useState(false);
   const [followView, setFollowView] = useState<{
-    box: UnitBox;
-    score: number;
+    track: LocalTrack;
     verdict: LocalVerdict;
   } | null>(null);
   const [followStats, setFollowStats] = useState({ frames: 0, checks: 0 });
   const localTrack = useRef<LocalTrack | null>(null);
   const lastCheck = useRef(0);
+  const reanchorGap = useRef(REANCHOR_GAP_MS.first);
+  const goodSteps = useRef(0);
   const refresh = async () => {
     const [nextStatus, nextRuns, fixtureDesk, liveDesk] = await Promise.all([
       api<LabStatus>('status'),
@@ -433,14 +463,25 @@ export function App() {
       setSelected(result.event);
       if (result.event.output.action === 'confirmed') light();
       setMessage(`Tracked${costNote(run)}. ${placementMessage(result.event)}`);
-      return { ...result, frame };
+      return { ok: true as const, ...result, frame, segmentation: run.output };
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Tracking failed.');
-      return null;
+      return { ok: false as const, code: (e as { code?: string }).code };
     } finally {
       setBusy('');
       void refresh().catch(() => {});
     }
+  }
+  /** A fresh local track from SAM's box and mask, on the frame SAM saw. */
+  async function seedTrack(
+    src: string,
+    o: DeskObservation,
+    seen: Segmentation | undefined,
+    inside: boolean,
+  ) {
+    const frame = lumaOf(await loadImage(src));
+    const d = seen?.detections.find((x) => x.objectId === o.detectionId);
+    return startLocalTrack(frame, unitBox(o), inside, d && maskOf(d, o.frame, frame));
   }
   /**
    * Start following the mug locally from the current SAM-confirmed observation.
@@ -453,21 +494,19 @@ export function App() {
     if (!o || !src) return;
     setError('');
     try {
-      const next = startLocalTrack(
-        lumaOf(await loadImage(src)),
-        unitBox(o),
-        memory?.placement === 'inside',
-      );
+      const next = await seedTrack(src, o, segmentation, memory?.placement === 'inside');
       if (!next)
         throw new Error('The mug is too small or too plain to follow locally. Keep using Track.');
       localTrack.current = next;
-      setFollowView({ box: next.box, score: next.score, verdict: 'follow' });
+      reanchorGap.current = REANCHOR_GAP_MS.first;
+      goodSteps.current = 0;
+      setFollowView({ track: next, verdict: 'follow' });
       setFollowStats({ frames: 0, checks: 0 });
       setFollow(true);
       if (mode === 'live') await startCamera();
       setMessage(
         localZone
-          ? 'Following locally. SAM is called only when the mug crosses the zone edge or the match gets weak.'
+          ? "Following locally. SAM is called only once the mug is set down and has crossed the zone edge, or can't be found again."
           : 'Following locally. Save a zone and mark the camera fixed so following can watch for the zone.',
       );
     } catch (e) {
@@ -477,18 +516,34 @@ export function App() {
   /** Ask SAM to settle what the local tracker saw, then restart following from its answer. */
   async function followCheck(verdict: LocalVerdict, position?: FixturePosition) {
     lastCheck.current = Date.now();
+    if (verdict === 'reanchor')
+      reanchorGap.current = Math.min(REANCHOR_GAP_MS.max, reanchorGap.current * 2);
     const result = await track({ keepCamera: true, position });
-    const o = result?.memory.observation;
-    if (!result?.frame || !o) return stopFollow();
+    if (!result.ok) {
+      // SAM can't see the mug either (covered, or out of frame): stay lost and try again later.
+      if (result.code === 'track_lost' && localTrack.current) {
+        setError('');
+        setMessage(
+          `SAM can't see the mug either. Still following; next look in ${Math.round(reanchorGap.current / 1000)} s.`,
+        );
+        return;
+      }
+      return stopFollow();
+    }
+    const o = result.memory.observation;
     try {
-      const next = startLocalTrack(
-        lumaOf(await loadImage(result.frame)),
-        unitBox(o),
-        result.memory.placement === 'inside',
-      );
+      const next =
+        o &&
+        (await seedTrack(
+          result.frame ?? '',
+          o,
+          result.segmentation,
+          result.memory.placement === 'inside',
+        ));
       if (!next) throw new Error('SAM found the mug, but it is too small to keep following.');
       localTrack.current = next;
-      setFollowView({ box: next.box, score: next.score, verdict: 'follow' });
+      goodSteps.current = 0;
+      setFollowView({ track: next, verdict: 'follow' });
       setFollowStats((s) => ({ ...s, checks: s.checks + 1 }));
       setMessage(
         (m) =>
@@ -499,10 +554,12 @@ export function App() {
       setError(e instanceof Error ? e.message : 'Could not keep following.');
     }
   }
-  /** Apply one local step, and call SAM if the step asks for it. */
+  /** Apply one local step. A long enough run of good steps resets the re-anchor back-off. */
   function applyStep(step: { track: LocalTrack; verdict: LocalVerdict }) {
     localTrack.current = step.track;
-    setFollowView({ box: step.track.box, score: step.track.score, verdict: step.verdict });
+    goodSteps.current = step.track.lostSteps ? 0 : goodSteps.current + 1;
+    if (goodSteps.current >= RECOVERED_STEPS) reanchorGap.current = REANCHOR_GAP_MS.first;
+    setFollowView(step);
     setFollowStats((s) => ({ ...s, frames: s.frames + 1 }));
   }
   async function followFixture(position: FixturePosition) {
@@ -510,8 +567,12 @@ export function App() {
       const frame = lumaOf(await loadImage(sceneUrl(position)));
       const current = localTrack.current;
       if (!current) return;
-      // Each fixture move is one deliberate frame, so it needn't settle.
-      const step = stepLocalTrack(current, frame, localZone, { settleSteps: 1, lostSteps: 1 });
+      // Each fixture move is one deliberate frame of a mug already set down, so it needn't settle.
+      const step = stepLocalTrack(current, frame, localZone, {
+        settleSteps: 1,
+        lostSteps: 1,
+        quietSteps: 0,
+      });
       applyStep(step);
       if (step.verdict !== 'follow') return void followCheck(step.verdict, position);
       setMessage(
@@ -532,7 +593,8 @@ export function App() {
       if (!el?.videoWidth || !current) return;
       const step = stepLocalTrack(current, lumaOf(el), followLatest.current.zone);
       applyStep(step);
-      if (step.verdict !== 'follow' && Date.now() - lastCheck.current > CHECK_COOLDOWN_MS)
+      const gap = step.verdict === 'confirm' ? CONFIRM_GAP_MS : reanchorGap.current;
+      if (step.verdict !== 'follow' && Date.now() - lastCheck.current > gap)
         void followLatest.current.check(step.verdict);
     }, FOLLOW_MS);
     return () => window.clearInterval(timer);
@@ -925,7 +987,7 @@ export function App() {
             </button>
             <p className="micro">
               {follow
-                ? `${followStats.frames} local step${followStats.frames === 1 ? '' : 's'} · ${followStats.checks} SAM check${followStats.checks === 1 ? '' : 's'}${followView ? ` · match ${followView.score.toFixed(2)}` : ''}${localZone ? '' : ' · no zone to watch: save one and mark the camera fixed'}`
+                ? `${followStats.frames} local step${followStats.frames === 1 ? '' : 's'} · ${followStats.checks} SAM check${followStats.checks === 1 ? '' : 's'}${followView ? ` · match ${followView.track.score.toFixed(2)}, lead ${followView.track.lead.toFixed(2)} · ${followView.track.template.masked ? 'mask' : 'whole box'} template` : ''}${localZone ? '' : ' · no zone to watch: save one and mark the camera fixed'}`
                 : currentObservation
                   ? 'Prototype: template matching in the browser. SAM confirms each zone crossing before the lamp can fire.'
                   : 'Track or confirm the mug in the current frame, then follow it locally.'}
@@ -1261,7 +1323,7 @@ export function App() {
                   className="follow-overlay"
                   viewBox="0 0 1000 1000"
                   preserveAspectRatio="none"
-                  aria-label={`Locally followed mug, match ${followView.score.toFixed(2)}`}
+                  aria-label={`Locally followed mug, match ${followView.track.score.toFixed(2)}`}
                 >
                   {localZone && !(!camera && currentObservation && visibleZone) && (
                     <rect
@@ -1273,22 +1335,28 @@ export function App() {
                     />
                   )}
                   <rect
-                    className={`follow-box ${followView.verdict}`}
-                    x={followView.box.x * 1000}
-                    y={followView.box.y * 1000}
-                    width={followView.box.width * 1000}
-                    height={followView.box.height * 1000}
+                    className={`follow-box ${followView.verdict} ${followView.track.lostSteps ? 'unsure' : ''}`}
+                    x={followView.track.box.x * 1000}
+                    y={followView.track.box.y * 1000}
+                    width={followView.track.box.width * 1000}
+                    height={followView.track.box.height * 1000}
                   />
                 </svg>
               )}
               {follow && followView && (
                 <span
-                  className={`zone-tag follow-tag ${followView.verdict}`}
-                  style={{ left: `${followView.box.x * 100}%`, top: `${followView.box.y * 100}%` }}
+                  className={`zone-tag follow-tag ${followView.verdict} ${followView.track.lostSteps ? 'unsure' : ''}`}
+                  style={{
+                    left: `${followView.track.box.x * 100}%`,
+                    top: `${followView.track.box.y * 100}%`,
+                  }}
                   aria-hidden="true"
                 >
-                  LOCAL · {followView.score.toFixed(2)}
-                  {followView.verdict !== 'follow' && ' · ASKING SAM'}
+                  LOCAL · {followView.track.score.toFixed(2)}
+                  {followView.verdict !== 'follow'
+                    ? ' · ASKING SAM'
+                    : followView.track.lostSteps > 0 &&
+                      (followView.track.stillSteps > 0 ? ' · UNSURE' : ' · MOVING')}
                 </span>
               )}
               <span className="frame-tick tl" aria-hidden="true" />

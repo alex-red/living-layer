@@ -708,13 +708,15 @@ input[type='checkbox'] {
     x var(--t-fast) var(--ease-out),
     y var(--t-fast) var(--ease-out);
 }
-.follow-box:not(.follow) {
+.follow-box:not(.follow),
+.follow-box.unsure {
   stroke: var(--unsure);
 }
 .follow-tag {
   color: var(--seen);
 }
-.follow-tag:not(.follow) {
+.follow-tag:not(.follow),
+.follow-tag.unsure {
   color: var(--unsure);
 }
 
