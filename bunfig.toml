@@ -1,0 +1,10 @@
+[install]
+# Pin new dependencies to exact versions.
+exact = true
+# Hoist into one root node_modules, as npm did, so root tests can import workspace packages.
+linker = "hoisted"
+
+[test]
+# tests/browser holds Playwright specs, which bun test must not pick up.
+root = "tests"
+pathIgnorePatterns = ["tests/browser/**"]

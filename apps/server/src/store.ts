@@ -1,4 +1,4 @@
-import { DatabaseSync } from 'node:sqlite';
+import { Database } from 'bun:sqlite';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
@@ -10,11 +10,13 @@ import {
 } from '@livinglayer/domain';
 import { LabError } from './errors.js';
 
+type Payload = { payload: string };
+
 export class EvidenceStore {
-  private db: DatabaseSync;
+  private db: Database;
   constructor(private dir: string) {
     mkdirSync(dir, { recursive: true, mode: 0o700 });
-    this.db = new DatabaseSync(join(dir, 'livinglayer.sqlite'));
+    this.db = new Database(join(dir, 'livinglayer.sqlite'), { create: true, strict: true });
     this.db.exec(`PRAGMA journal_mode = WAL;
       CREATE TABLE IF NOT EXISTS evidence (id TEXT PRIMARY KEY, created_at TEXT NOT NULL, payload TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS meta_budget (day TEXT PRIMARY KEY, attempts INTEGER NOT NULL);
@@ -22,63 +24,67 @@ export class EvidenceStore {
       CREATE TABLE IF NOT EXISTS placement_claims (segment_id TEXT PRIMARY KEY, created_at TEXT NOT NULL);`);
   }
   save(run: EvidenceRun): void {
-    this.db
-      .prepare('INSERT INTO evidence VALUES (?, ?, ?)')
-      .run(run.id, run.createdAt, JSON.stringify(run));
+    this.db.run('INSERT INTO evidence VALUES (?, ?, ?)', [
+      run.id,
+      run.createdAt,
+      JSON.stringify(run),
+    ]);
   }
   getRun(id: string): EvidenceRun | undefined {
-    const row = this.db.prepare('SELECT payload FROM evidence WHERE id = ?').get(id);
-    return row ? (JSON.parse(String(row.payload)) as EvidenceRun) : undefined;
+    const row = this.db
+      .query<Payload, [string]>('SELECT payload FROM evidence WHERE id = ?')
+      .get(id);
+    return row ? (JSON.parse(row.payload) as EvidenceRun) : undefined;
   }
   latestSegment(mode: Mode): string | undefined {
     const row = this.db
-      .prepare(
+      .query<{ id: string }, [Mode]>(
         "SELECT id FROM evidence WHERE json_extract(payload, '$.mode') = ? AND json_extract(payload, '$.kind') = 'segment' ORDER BY rowid DESC LIMIT 1",
       )
       .get(mode);
-    return row ? String(row.id) : undefined;
+    return row ? row.id : undefined;
   }
   updateRun(run: EvidenceRun): void {
-    this.db
-      .prepare('UPDATE evidence SET payload = ? WHERE id = ?')
-      .run(JSON.stringify(run), run.id);
+    this.db.run('UPDATE evidence SET payload = ? WHERE id = ?', [JSON.stringify(run), run.id]);
   }
   memory(mode: Mode): DeskMemory {
-    const row = this.db.prepare('SELECT payload FROM desk_memory WHERE mode = ?').get(mode);
+    const row = this.db
+      .query<Payload, [Mode]>('SELECT payload FROM desk_memory WHERE mode = ?')
+      .get(mode);
     return row
-      ? (JSON.parse(String(row.payload)) as DeskMemory)
+      ? (JSON.parse(row.payload) as DeskMemory)
       : { mode, object: null, observation: null, zone: null, lastDecision: null };
   }
   saveMemory(memory: DeskMemory): void {
-    this.db
-      .prepare(
-        'INSERT INTO desk_memory VALUES (?, ?) ON CONFLICT(mode) DO UPDATE SET payload = excluded.payload',
-      )
-      .run(memory.mode, JSON.stringify(memory));
+    this.db.run(
+      'INSERT INTO desk_memory VALUES (?, ?) ON CONFLICT(mode) DO UPDATE SET payload = excluded.payload',
+      [memory.mode, JSON.stringify(memory)],
+    );
   }
   claimPlacement(segmentId: string): boolean {
     return (
-      this.db
-        .prepare('INSERT OR IGNORE INTO placement_claims VALUES (?, ?)')
-        .run(segmentId, new Date().toISOString()).changes === 1
+      this.db.run('INSERT OR IGNORE INTO placement_claims VALUES (?, ?)', [
+        segmentId,
+        new Date().toISOString(),
+      ]).changes === 1
     );
   }
   list(): EvidenceRun[] {
     return this.db
-      .prepare('SELECT payload FROM evidence ORDER BY rowid DESC LIMIT 200')
+      .query<Payload, []>('SELECT payload FROM evidence ORDER BY rowid DESC LIMIT 200')
       .all()
-      .map((row) => JSON.parse(String(row.payload)) as EvidenceRun);
+      .map((row) => JSON.parse(row.payload) as EvidenceRun);
   }
   usedToday(): number {
     const row = this.db
-      .prepare('SELECT attempts FROM meta_budget WHERE day = ?')
+      .query<{ attempts: number }, [string]>('SELECT attempts FROM meta_budget WHERE day = ?')
       .get(new Date().toISOString().slice(0, 10));
-    return Number(row?.attempts ?? 0);
+    return row?.attempts ?? 0;
   }
   reserveRequest(limit: number): void {
     const day = new Date().toISOString().slice(0, 10);
     const row = this.db
-      .prepare(
+      .query<{ attempts: number }, [string, number]>(
         `INSERT INTO meta_budget (day, attempts) VALUES (?, 1)
       ON CONFLICT(day) DO UPDATE SET attempts = attempts + 1 WHERE attempts < ? RETURNING attempts`,
       )
@@ -100,11 +106,11 @@ export class EvidenceStore {
   }
   liveEvidence(): LabStatus['liveEvidence'] {
     const runs = this.db
-      .prepare(
+      .query<Payload, []>(
         "SELECT payload FROM evidence WHERE json_extract(payload, '$.mode') = 'live' AND json_extract(payload, '$.status') = 'completed'",
       )
       .all()
-      .map((row) => JSON.parse(String(row.payload)) as EvidenceRun);
+      .map((row) => JSON.parse(row.payload) as EvidenceRun);
     return {
       text: runs.some((r) => r.kind === 'text'),
       discover: runs.some((r) => r.kind === 'discover'),

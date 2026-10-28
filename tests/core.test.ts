@@ -1,9 +1,9 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, mock } from 'bun:test';
 import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import sharp from 'sharp';
-import { parseConfig } from '../apps/server/src/config.js';
+import { parseConfig, type Fetcher } from '../apps/server/src/config.js';
 import { EvidenceStore } from '../apps/server/src/store.js';
 import { fixtureSegmentation } from '../apps/server/src/fixtures.js';
 import { decodeSegmentation, syntheticStream } from '../apps/server/src/sam.js';
@@ -130,7 +130,7 @@ describe('configuration, budget, and images', () => {
 describe('local API and provenance', () => {
   it('runs fixture probes, persists evidence, and never calls a provider', async () => {
     const c = config();
-    const fetcher = vi.fn<typeof fetch>();
+    const fetcher = mock<Fetcher>();
     let app = await buildApp(c, { fetcher });
     for (const [url, body] of [
       ['discover', {}],
@@ -187,7 +187,7 @@ describe('local API and provenance', () => {
     await app.close();
   });
   it('disables live calls and records failure without exposing keys', async () => {
-    const fetcher = vi.fn<typeof fetch>();
+    const fetcher = mock<Fetcher>();
     const app = await buildApp(config({ MODEL_API_KEY: 'never-show-this' }), { fetcher });
     const res = await app.inject({ method: 'POST', url: '/api/text', payload: { mode: 'live' } });
     expect(res.statusCode).toBe(409);
@@ -216,8 +216,7 @@ describe('lamp acceptance vs observation', () => {
       min_color_temp_kelvin: 3000,
       max_color_temp_kelvin: 6000,
     };
-    const fetcher = vi
-      .fn<typeof fetch>()
+    const fetcher = mock<Fetcher>()
       .mockResolvedValueOnce(json(state('off', attrs)))
       .mockResolvedValueOnce(json([]))
       .mockResolvedValueOnce(json(state('on', { brightness: 217, color_temp_kelvin: 3000 })));
@@ -232,13 +231,9 @@ describe('lamp acceptance vs observation', () => {
     expect(fetcher.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(1);
   });
   it('keeps an accepted action unconfirmed if the desired state never appears', async () => {
-    const fetcher = vi
-      .fn<typeof fetch>()
-      .mockImplementation(async (_url, init) =>
-        init?.method === 'POST'
-          ? json([])
-          : json(state('off', { supported_color_modes: ['onoff'] })),
-      );
+    const fetcher = mock<Fetcher>().mockImplementation(async (_url, init) =>
+      init?.method === 'POST' ? json([]) : json(state('off', { supported_color_modes: ['onoff'] })),
+    );
     const result = await new LampAdapter(haConfig(), fetcher, async () => {}).turnOn();
     expect(result.accepted).toBe(true);
     expect(result.stateConfirmed).toBe(false);
@@ -259,8 +254,7 @@ describe('Meta adapter transport contract', () => {
   it('uses Responses text.format, validates data, records usage/request ID and counts failures', async () => {
     const c = metaConfig();
     const store = new EvidenceStore(c.dataDir);
-    const fetcher = vi
-      .fn<typeof fetch>()
+    const fetcher = mock<Fetcher>()
       .mockResolvedValueOnce(
         new Response(
           JSON.stringify({
@@ -336,7 +330,7 @@ describe('stream transport and sanitized failures', () => {
     const wire =
       events.map((event) => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`).join('') +
       'data: [DONE]\n\n';
-    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+    const fetcher = mock<Fetcher>().mockResolvedValue(
       new Response(wire, {
         headers: { 'content-type': 'text/event-stream', 'x-request-id': 'sam-request' },
       }),
@@ -358,7 +352,7 @@ describe('stream transport and sanitized failures', () => {
       MODEL_API_KEY: 'sensitive-credential',
       META_LIVE_ENABLED: 'true',
     });
-    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+    const fetcher = mock<Fetcher>().mockResolvedValue(
       new Response('{"error":{"message":"sensitive-credential private-image"}}', {
         status: 402,
         headers: { 'content-type': 'application/json' },
@@ -382,8 +376,7 @@ describe('stream transport and sanitized failures', () => {
 
 describe('uncertain physical outcomes', () => {
   it('retains acceptance when state verification disconnects, without retrying the action', async () => {
-    const fetcher = vi
-      .fn<typeof fetch>()
+    const fetcher = mock<Fetcher>()
       .mockResolvedValueOnce(json(state('off', { supported_color_modes: ['onoff'] })))
       .mockResolvedValueOnce(json([]))
       .mockRejectedValueOnce(new Error('private HA detail'));

@@ -5,9 +5,8 @@ Thanks for taking a look. Issues and pull requests are both welcome. For anythin
 ## Setup
 
 ```sh
-nvm use        # Node 24, from .nvmrc
-npm ci
-npm run dev
+bun install
+bun run dev
 ```
 
 You don't need any API keys. Fixture mode covers the whole workflow offline.
@@ -15,16 +14,18 @@ You don't need any API keys. Fixture mode covers the whole workflow offline.
 ## Before you open a PR
 
 ```sh
-npm run check
-npm run test:browser   # if you touched the UI
+bun run check
+bun run test:browser   # if you touched the UI
 ```
 
-`check` runs Prettier, `tsc`, the Vitest suite, and a production build. CI runs the same commands.
+`check` runs Prettier, `tsc`, `bun test`, and the web build. CI runs the same commands. The browser tests run Playwright on Node 24 (see `.nvmrc`).
 
 A few conventions:
 
 - Tests should never reach the network. Pass a mock `fetcher` into `buildApp`, as `tests/core.test.ts` does.
-- Dependencies are pinned to exact versions (`.npmrc` sets `save-exact`).
+- Bun is the runtime, package manager, and test runner. Commit `bun.lock`.
+- Prefer Bun's built-ins (`bun:sqlite`, `Bun.file`, `bun test`) over adding a package.
+- Dependencies are pinned to exact versions (`bunfig.toml` sets `exact`).
 - Don't commit anything from `.data/`, real photos, or `.env`.
 
 ## Commit messages

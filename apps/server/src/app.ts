@@ -15,7 +15,7 @@ import {
   type LampResult,
   type Segmentation,
 } from '@livinglayer/domain';
-import { type Config, PROJECT_ROOT } from './config.js';
+import { type Config, type Fetcher, PROJECT_ROOT } from './config.js';
 import { EvidenceStore } from './store.js';
 import { MetaAdapter, type ProviderResult } from './meta.js';
 import { LampAdapter } from './lamp.js';
@@ -26,7 +26,7 @@ import { fixtureScene, fixtureSegmentation, fixtureLamp } from './fixtures.js';
 
 export async function buildApp(
   config: Config,
-  options: { fetcher?: typeof fetch; serveWeb?: boolean } = {},
+  options: { fetcher?: Fetcher; serveWeb?: boolean } = {},
 ) {
   const app = Fastify({ logger: false, bodyLimit: 7_100_000, requestTimeout: 130000 });
   const store = new EvidenceStore(config.dataDir);

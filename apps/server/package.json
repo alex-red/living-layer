@@ -4,10 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "tsx watch src/index.ts",
-    "build": "tsup --config tsup.config.ts"
+    "dev": "bun --env-file=../../.env --watch src/index.ts"
   },
   "dependencies": {
-    "@livinglayer/domain": "*"
+    "@livinglayer/domain": "workspace:*"
   }
 }

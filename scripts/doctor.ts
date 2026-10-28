@@ -2,7 +2,7 @@ import { loadConfig } from '../apps/server/src/config.js';
 try {
   const config = loadConfig();
   console.log('LivingLayer readiness (no network requests)');
-  console.log(`Node ${process.version}; data directory: ${config.dataDir}`);
+  console.log(`Bun ${Bun.version}; data directory: ${config.dataDir}`);
   console.log(
     `Meta key: ${config.modelApiKey ? 'present' : 'missing'}; live enabled: ${config.metaEnabled}`,
   );

@@ -3,7 +3,7 @@ node_modules/
 .data/
 test-results/
 playwright-report/
-package-lock.json
+bun.lock
 licenses/meta-sam-LICENSE.txt
 fixtures/sam-mug.json
 

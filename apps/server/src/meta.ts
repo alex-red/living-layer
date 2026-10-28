@@ -1,7 +1,7 @@
 import OpenAI from 'openai';
 import { z } from 'zod';
 import { sceneSchema, type Usage, type Segmentation } from '@livinglayer/domain';
-import type { Config } from './config.js';
+import type { Config, Fetcher } from './config.js';
 import { LabError } from './errors.js';
 import type { EvidenceStore } from './store.js';
 import { decodeSegmentation, type SamEvent } from './sam.js';
@@ -23,7 +23,7 @@ export class MetaAdapter {
   constructor(
     private config: Config,
     private store: EvidenceStore,
-    fetcher?: typeof fetch,
+    fetcher?: Fetcher,
   ) {
     this.client = new OpenAI({
       baseURL: 'https://api.meta.ai/v1',

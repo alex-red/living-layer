@@ -1,4 +1,3 @@
-import { config as loadDotEnv } from 'dotenv';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
@@ -26,6 +25,9 @@ const schema = z.object({
   HA_ENTITY_ID: z.string().default(''),
   HA_LIVE_ENABLED: flag,
 });
+
+/** The part of `fetch` the adapters use, so tests can pass a plain mock. */
+export type Fetcher = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 
 export interface Config {
   port: number;
@@ -81,7 +83,7 @@ export function parseConfig(env: NodeJS.ProcessEnv, cwd = process.cwd()): Config
   };
 }
 
+/** Bun loads `.env` from the working directory, so run entry points from the project root. */
 export function loadConfig(): Config {
-  loadDotEnv({ path: resolve(PROJECT_ROOT, '.env'), quiet: true });
   return parseConfig(process.env, PROJECT_ROOT);
 }

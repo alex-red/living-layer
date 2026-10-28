@@ -1,5 +1,5 @@
 import type { LampResult } from '@livinglayer/domain';
-import type { Config } from './config.js';
+import type { Config, Fetcher } from './config.js';
 import { LabError } from './errors.js';
 
 interface State {
@@ -9,7 +9,7 @@ interface State {
 export class LampAdapter {
   constructor(
     private config: Config,
-    private fetcher: typeof fetch = fetch,
+    private fetcher: Fetcher = fetch,
     private sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)),
   ) {}
   async turnOn(): Promise<LampResult> {

@@ -63,7 +63,7 @@ export function App() {
   useEffect(() => {
     mounted.current = true;
     void refresh().catch(() =>
-      setError('The local API is unavailable. Start both services with npm run dev.'),
+      setError('The local API is unavailable. Start both services with bun run dev.'),
     );
     return () => {
       mounted.current = false;

@@ -1,10 +1,10 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, mock, spyOn } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { buildApp } from '../apps/server/src/app.js';
-import { parseConfig } from '../apps/server/src/config.js';
+import { parseConfig, type Fetcher } from '../apps/server/src/config.js';
 import { EvidenceStore } from '../apps/server/src/store.js';
 import { deskRoutes } from '../apps/server/src/desk.js';
 import Fastify from 'fastify';
@@ -23,15 +23,21 @@ function config() {
   return parseConfig({ DATA_DIR: dataDir });
 }
 afterEach(() => {
-  vi.useRealTimers();
   dirs.splice(0).forEach((d) => rmSync(d, { recursive: true, force: true }));
 });
+async function waitFor(done: () => boolean, timeoutMs = 1000) {
+  const deadline = Date.now() + timeoutMs;
+  while (!done()) {
+    if (Date.now() > deadline) throw new Error('Timed out waiting for the condition.');
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+}
 const inside = { x: 0.3, y: 0.2, width: 0.4, height: 0.6 };
 const outside = { x: 0, y: 0, width: 0.1, height: 0.1 };
 
 async function setup() {
   const c = config();
-  const fetcher = vi.fn<typeof fetch>();
+  const fetcher = mock<Fetcher>();
   const app = await buildApp(c, { fetcher, serveWeb: false });
   const post = async (path: string, body: object = {}) =>
     app.inject({ method: 'POST', url: `/api/${path}`, payload: { mode: 'fixture', ...body } });
@@ -111,9 +117,9 @@ describe('desk placement', () => {
     const s = await setup();
     const z = await s.zone();
     const ids = { observationId: z.observation!.id, zoneId: z.zone!.id };
-    vi.spyOn(Date, 'now').mockReturnValue(Date.parse(z.observation!.observedAt) + 300001);
+    spyOn(Date, 'now').mockReturnValue(Date.parse(z.observation!.observedAt) + 300001);
     expect((await s.post('desk/verify', ids)).json().output.reason).toContain('stale');
-    vi.restoreAllMocks();
+    mock.restore();
     await s.post('segment', { concept: 'unicorn' });
     expect((await s.post('desk/verify', ids)).json().output).toMatchObject({
       decision: 'blocked',
@@ -168,7 +174,7 @@ describe('desk placement', () => {
     await s.app.close();
     const store = new EvidenceStore(s.c.dataDir);
     let fail!: (error: Error) => void;
-    const action = vi.fn(
+    const action = mock(
       () =>
         new Promise<typeof fixtureLamp>((_resolve, reject) => {
           fail = reject;
@@ -182,7 +188,7 @@ describe('desk placement', () => {
       payload: { mode: 'fixture', observationId: z.observation!.id, zoneId: z.zone!.id },
     };
     const pending = app.inject(request);
-    await vi.waitFor(() => expect(action).toHaveBeenCalledTimes(1));
+    await waitFor(() => action.mock.calls.length === 1);
     expect(store.memory('fixture').lastDecision!.output.action).toBe('pending');
     expect((await app.inject(request)).statusCode).toBe(409);
     fail(new Error('private-token-details'));

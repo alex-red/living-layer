@@ -13,7 +13,7 @@
     "skipLibCheck": true,
     "resolveJsonModule": true,
     "allowImportingTsExtensions": true,
-    "types": ["node", "vite/client"]
+    "types": ["bun", "vite/client"]
   },
   "include": ["apps", "packages", "scripts", "tests", "*.config.ts"]
 }

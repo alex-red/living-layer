@@ -17,11 +17,11 @@ See [docs/architecture.md](docs/architecture.md) for the details.
 
 ## Getting started
 
-You need Node 24+ and npm.
+You need [Bun](https://bun.sh) 1.4+. It installs the packages, runs the server and the tests, and stores data with `bun:sqlite`. The web UI is built with Vite, and the browser tests also need Node 24.
 
 ```sh
-npm ci
-npm run dev
+bun install
+bun run dev
 ```
 
 Open http://127.0.0.1:5173. The API runs on port 4310.
@@ -45,17 +45,17 @@ Then switch to **Live** mode, upload or capture a photo, and go through the same
 You can also run the probes from the command line:
 
 ```sh
-npm run doctor                                     # checks config, makes no network calls
-npm run smoke                                      # offline run against the fixture
-npm run smoke -- --live --image ./desk.jpg         # live run (add --lamp to switch the light)
+bun run doctor                                     # checks config, makes no network calls
+bun run smoke                                      # offline run against the fixture
+bun run smoke --live --image ./desk.jpg            # live run (add --lamp to switch the light)
 ```
 
 ## Development
 
 ```sh
-npm run check          # format, typecheck, unit tests, production build
-npm run test:browser   # Playwright, after `npx playwright install chromium`
-npm run format
+bun run check          # format, typecheck, unit tests, web build
+bun run test:browser   # Playwright, after `bunx playwright install chromium`
+bun run format
 ```
 
 | Path              | What's there                                                                     |
@@ -64,7 +64,7 @@ npm run format
 | `apps/server`     | Fastify API, Meta/SAM and Home Assistant adapters, SQLite store                  |
 | `packages/domain` | Shared types, schemas, and the placement rule                                    |
 | `fixtures`        | Synthetic SAM output for the illustrated desk ([provenance](fixtures/README.md)) |
-| `tests`           | Vitest integration tests and Playwright browser tests                            |
+| `tests`           | `bun test` integration tests and Playwright browser tests                        |
 
 Local data (captures, raw SAM output, SQLite history, exports) is written to `.data/`, which is gitignored. Delete it with the server stopped to start fresh. The evidence export leaves out image bytes but does include object descriptions and your lamp's entity ID, so read it before sharing.
 
