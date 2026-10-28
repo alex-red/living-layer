@@ -154,6 +154,19 @@ export interface PlacementDecision {
   error?: { code: string; message: string };
 }
 export const OBSERVATION_MAX_AGE_MS = 5 * 60 * 1000;
+/** True when the whole box (in frame pixels) fits inside the normalized zone. */
+export function boxInZone(
+  b: Detection['box'],
+  frame: Segmentation['frame'],
+  zone: ZoneRect,
+): boolean {
+  return (
+    b.x / frame.width >= zone.x &&
+    b.y / frame.height >= zone.y &&
+    (b.x + b.width) / frame.width <= zone.x + zone.width &&
+    (b.y + b.height) / frame.height <= zone.y + zone.height
+  );
+}
 export function placementGate(
   memory: DeskMemory,
   now = Date.now(),
@@ -170,13 +183,7 @@ export function placementGate(
     };
   if (!z || z.sourceKey !== o.sourceKey)
     return { decision: 'blocked', reason: 'Draw and save a zone on this observation image.' };
-  const b = o.box;
-  const inside =
-    b.x / o.frame.width >= z.rect.x &&
-    b.y / o.frame.height >= z.rect.y &&
-    (b.x + b.width) / o.frame.width <= z.rect.x + z.rect.width &&
-    (b.y + b.height) / o.frame.height <= z.rect.y + z.rect.height;
-  return inside
+  return boxInZone(o.box, o.frame, z.rect)
     ? {
         decision: 'inside',
         reason: 'The manually confirmed mug box is fully inside the saved zone.',

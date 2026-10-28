@@ -212,6 +212,7 @@ export async function buildApp(
   const dist = resolve(PROJECT_ROOT, 'apps/web/dist');
   if (options.serveWeb !== false && existsSync(dist)) {
     await app.register(staticFiles, { root: dist, index: ['index.html'], list: false });
+    app.get('/playground', (_request, reply) => reply.sendFile('index.html'));
   }
   app.setNotFoundHandler((_request, reply) => {
     void reply.code(404).send({ error: { code: 'not_found', message: 'Route not found.' } });

@@ -9,6 +9,7 @@ import { EvidenceStore } from '../apps/server/src/store.js';
 import { deskRoutes } from '../apps/server/src/desk.js';
 import Fastify from 'fastify';
 import {
+  boxInZone,
   placementGate,
   type DeskMemory,
   type EvidenceRun,
@@ -167,6 +168,13 @@ describe('desk placement', () => {
       }).decision,
     ).toBe('outside');
     await s.app.close();
+  });
+  it('counts a box touching the zone edge as inside and one crossing it as outside', () => {
+    const frame = { width: 200, height: 100 };
+    const zone = { x: 0.25, y: 0.2, width: 0.5, height: 0.6 };
+    expect(boxInZone({ x: 50, y: 20, width: 100, height: 60 }, frame, zone)).toBe(true);
+    expect(boxInZone({ x: 49, y: 20, width: 100, height: 60 }, frame, zone)).toBe(false);
+    expect(boxInZone({ x: 60, y: 30, width: 20, height: 71 }, frame, zone)).toBe(false);
   });
   it('reserves before dispatch and suppresses concurrent/restarted retries even when an action fails', async () => {
     const s = await setup();

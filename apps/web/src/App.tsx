@@ -299,6 +299,9 @@ export function App() {
           {lamp === 'virtual' && <span className="hud-tag">VIRTUAL</span>}
         </div>
         <nav className="topbar-links">
+          <a className="playground-link" href="/playground">
+            Camera playground
+          </a>
           <a className="export" href="/api/evidence" download>
             Export evidence <span aria-hidden="true">↗</span>
           </a>
