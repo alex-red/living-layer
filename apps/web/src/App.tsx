@@ -42,6 +42,18 @@ import { takeHandoff } from './handoff';
 import { MaskOverlay } from './MaskOverlay';
 import { IsoView } from './iso/IsoView';
 import { ScenePicker, type SceneKind } from './iso/ScenePicker';
+import {
+  clearSession,
+  downloadSave,
+  emptyDesk,
+  parseSave,
+  prefsOf,
+  readSession,
+  writeSession,
+  type Prefs,
+  type SessionSave,
+} from './session';
+import { SHORTCUTS, useShortcuts, type ShortcutAction } from './shortcuts';
 import { SurfacePin } from './iso/SurfacePin';
 
 const BUSY: Record<string, string> = {
@@ -55,6 +67,9 @@ const BUSY: Record<string, string> = {
   reset: 'Resetting desk memory',
   track: 'Tracking the mug',
   camera: 'Updating the camera setting',
+  undo: 'Undoing',
+  redo: 'Redoing',
+  restore: 'Loading the save',
 };
 const TRANSITION: Record<NonNullable<PlacementDecision['transition']>, string> = {
   entered: 'Entered the zone',
@@ -158,6 +173,17 @@ const RUN_KINDS: RunKind[] = [
   'placement',
 ];
 const LOG_PAGE = 10;
+/** Undo steps kept per mode. */
+const UNDO_LIMIT = 50;
+/** Whether a desk holds anything a person made: an object, a pin, a scene, a rule. */
+const deskIsBlank = (d: DeskMemory) =>
+  !d.object &&
+  !d.surface &&
+  !d.scene &&
+  !d.zone &&
+  !d.item &&
+  !d.others?.length &&
+  !d.rules?.length;
 type ProbeKind = 'text' | 'discover' | 'segment' | 'lamp';
 const isProbe = (kind: RunKind): kind is ProbeKind =>
   ['text', 'discover', 'segment', 'lamp'].includes(kind);
@@ -211,7 +237,12 @@ export function App() {
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
   }, []);
-  const [mode, setMode] = useState<Mode>('fixture');
+  // The browser's own save: choices and a copy of each desk, read once.
+  const [boot] = useState(() => {
+    const save = readSession();
+    return { save, prefs: prefsOf(save?.prefs) };
+  });
+  const [mode, setMode] = useState<Mode>(boot.prefs.mode);
   const [status, setStatus] = useState<LabStatus>();
   const [runs, setRuns] = useState<EvidenceRun[]>([]);
   const [image, setImage] = useState<string>();
@@ -224,13 +255,17 @@ export function App() {
   const [draftZone, setDraftZone] = useState<ZoneRect>({ x: 0.3, y: 0.2, width: 0.4, height: 0.6 });
   const [drawing, setDrawing] = useState(false);
   const zoneStart = useRef<{ x: number; y: number } | null>(null);
-  const [concept, setConcept] = useState('mug');
-  const [fixturePosition, setFixturePosition] = useState<FixturePosition>('centre');
+  const [concept, setConcept] = useState(boot.prefs.concept);
+  const [fixturePosition, setFixturePosition] = useState<FixturePosition>(
+    boot.prefs.fixturePosition in FIXTURE_POSITIONS
+      ? (boot.prefs.fixturePosition as FixturePosition)
+      : 'centre',
+  );
   const [deskSvg, setDeskSvg] = useState('');
-  const [overlay, setOverlay] = useState(true);
-  const [stageView, setStageView] = useState<'photo' | 'iso'>('photo');
+  const [overlay, setOverlay] = useState(boot.prefs.overlay);
+  const [stageView, setStageView] = useState<'photo' | 'iso'>(boot.prefs.stageView);
   // Scene first: nothing runs until the person says which scene they are in.
-  const [workScene, setWorkScene] = useState<SceneKind | null>(null);
+  const [workScene, setWorkScene] = useState<SceneKind | null>(boot.prefs.workScene);
   const [choosingScene, setChoosingScene] = useState(false);
   const sceneLabel =
     workScene === 'custom'
@@ -249,14 +284,18 @@ export function App() {
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
   const [message, setMessage] = useState(
-    'Start by choosing the scene you are working on. Every fixture result is labeled.',
+    boot.save
+      ? 'Welcome back. Your session was restored from this browser.'
+      : 'Start by choosing the scene you are working on. Every fixture result is labeled.',
   );
   const [selected, setSelected] = useState<EvidenceRun>();
-  const [logKind, setLogKind] = useState<RunKind | 'all'>('all');
-  const [logMode, setLogMode] = useState<Mode | 'all'>('all');
-  const [failuresOnly, setFailuresOnly] = useState(false);
+  const [logKind, setLogKind] = useState<RunKind | 'all'>(
+    RUN_KINDS.includes(boot.prefs.logKind as RunKind) ? (boot.prefs.logKind as RunKind) : 'all',
+  );
+  const [logMode, setLogMode] = useState<Mode | 'all'>(boot.prefs.logMode as Mode | 'all');
+  const [failuresOnly, setFailuresOnly] = useState(boot.prefs.failuresOnly);
   const [logLimit, setLogLimit] = useState(LOG_PAGE);
-  const [sideTab, setSideTab] = useState<'runs' | 'inspect' | 'setup'>('runs');
+  const [sideTab, setSideTab] = useState<Prefs['sideTab']>(boot.prefs.sideTab);
   // Drives the ambient warm-up. Only a confirmed lamp state turns it on.
   const [lamp, setLamp] = useState<'off' | 'virtual' | 'live'>('off');
   const light = () => setLamp(mode === 'fixture' ? 'virtual' : 'live');
@@ -268,7 +307,7 @@ export function App() {
   const closeNetwork = useRef<(() => void) | null>(null);
   const network = useNetworkStreams();
   /** '' for this device's camera, else the id of a network camera. */
-  const [cameraSource, setCameraSource] = useState('');
+  const [cameraSource, setCameraSource] = useState(boot.prefs.cameraSource);
   const file = useRef<HTMLInputElement>(null);
   const imageGeneration = useRef(0);
   const mounted = useRef(true);
@@ -289,9 +328,20 @@ export function App() {
    * refresh can't put back a memory from before a draft or a track.
    */
   const memoryWrites = useRef(0);
-  const setMemory = (next: DeskMemory) => {
+  // Each mode's desks from before (undo) and after (redo) the person's edits.
+  const undo = useRef<Record<Mode, DeskMemory[]>>({ fixture: [], live: [] });
+  const redo = useRef<Record<Mode, DeskMemory[]>>({ fixture: [], live: [] });
+  const [, setHistoryTick] = useState(0);
+  /** A new desk memory; an edit can be undone, a sighting (`undoable` false) can't. */
+  const setMemory = (next: DeskMemory, undoable = true) => {
+    const before = memories[next.mode];
+    if (undoable && before && JSON.stringify(before) !== JSON.stringify(next)) {
+      undo.current[next.mode] = [...undo.current[next.mode], before].slice(-UNDO_LIMIT);
+      redo.current[next.mode] = [];
+      setHistoryTick((t) => t + 1);
+    }
     memoryWrites.current++;
-    setMemories((current) => ({ ...current, [mode]: next }));
+    setMemories((current) => ({ ...current, [next.mode]: next }));
   };
   const refresh = async () => {
     const started = ++memoryWrites.current;
@@ -304,7 +354,164 @@ export function App() {
     setStatus(nextStatus);
     setRuns(nextRuns);
     if (started === memoryWrites.current) setMemories({ fixture: fixtureDesk, live: liveDesk });
+    return { fixture: fixtureDesk, live: liveDesk };
   };
+  // Autosave: choices and desks go to this browser as the person works, once
+  // the server's desks have loaded so an empty first render never overwrites them.
+  const [deskReady, setDeskReady] = useState(false);
+  const [savedAt, setSavedAt] = useState(boot.save?.savedAt ?? '');
+  const [storageOk, setStorageOk] = useState(true);
+  const prefs: Prefs = {
+    mode,
+    workScene,
+    stageView,
+    overlay,
+    concept,
+    fixturePosition,
+    cameraSource,
+    sideTab,
+    logKind,
+    logMode,
+    failuresOnly,
+  };
+  function saveNow() {
+    const ok = writeSession(prefs, memories);
+    setStorageOk(ok);
+    if (ok) setSavedAt(new Date().toISOString());
+    return ok;
+  }
+  useEffect(() => {
+    if (!deskReady) return;
+    const timer = window.setTimeout(saveNow, 400);
+    return () => window.clearTimeout(timer);
+  }, [deskReady, memories, ...Object.values(prefs)]);
+  /** Put a whole desk on the server, for an import, an undo or redo, or the demo. */
+  async function restoreDesk(next: DeskMemory) {
+    const saved = await api<DeskMemory>('desk/restore', { mode: next.mode, memory: next });
+    memoryWrites.current++;
+    setMemories((current) => ({ ...current, [saved.mode]: saved }));
+    return saved;
+  }
+  async function stepHistory(back: boolean) {
+    const from = back ? undo : redo;
+    const to = back ? redo : undo;
+    const target = from.current[mode].at(-1);
+    const current = memory;
+    if (!target || !current || busy || camera) return;
+    setBusy(back ? 'undo' : 'redo');
+    setError('');
+    try {
+      await restoreDesk(target);
+      from.current[mode] = from.current[mode].slice(0, -1);
+      to.current[mode] = [...to.current[mode], current].slice(-UNDO_LIMIT);
+      setHistoryTick((t) => t + 1);
+      setDrawing(false);
+      setPinning(null);
+      setMessage(
+        back ? `Undone. Redo with ${SHORTCUTS.find((k) => k.action === 'redo')!.keys}.` : 'Redone.',
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Undo failed.');
+    } finally {
+      setBusy('');
+    }
+  }
+  function exportSave() {
+    saveNow();
+    downloadSave({
+      app: 'livinglayer',
+      version: 1,
+      savedAt: new Date().toISOString(),
+      prefs,
+      desks: memories,
+    });
+    setMessage(
+      'Save exported. Import it here or in another browser to pick up where you left off.',
+    );
+  }
+  const importFile = useRef<HTMLInputElement>(null);
+  /** Load a save: its desks go to the server, its choices to this page. */
+  async function applySave(save: SessionSave, note: string) {
+    stopCamera();
+    setBusy('restore');
+    setError('');
+    try {
+      for (const m of ['fixture', 'live'] as const) {
+        await restoreDesk(save.desks[m] ?? emptyDesk(m));
+        undo.current[m] = [];
+        redo.current[m] = [];
+      }
+      const next = prefsOf(save.prefs);
+      changeMode(next.mode);
+      setWorkScene(next.workScene);
+      setChoosingScene(false);
+      setStageView(next.stageView);
+      setOverlay(next.overlay);
+      setConcept(next.concept);
+      if (next.fixturePosition in FIXTURE_POSITIONS)
+        setFixturePosition(next.fixturePosition as FixturePosition);
+      setCameraSource(next.cameraSource);
+      setSideTab(next.sideTab);
+      setLogKind(RUN_KINDS.includes(next.logKind as RunKind) ? (next.logKind as RunKind) : 'all');
+      setLogMode(next.logMode as Mode | 'all');
+      setFailuresOnly(next.failuresOnly);
+      setPinning(null);
+      setHistoryTick((t) => t + 1);
+      setMessage(note);
+      void refresh().catch(() => {});
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'The save could not be loaded.');
+    } finally {
+      setBusy('');
+    }
+  }
+  async function importSave(chosen: File) {
+    try {
+      const save = parseSave(await chosen.text());
+      await applySave(save, `Save from ${new Date(save.savedAt).toLocaleString()} imported.`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'The save could not be read.');
+    } finally {
+      if (importFile.current) importFile.current.value = '';
+    }
+  }
+  const [showKeys, setShowKeys] = useState(false);
+  useShortcuts((action: ShortcutAction) => {
+    if (action === 'help') return setShowKeys((v) => !v);
+    if (action === 'escape') {
+      if (showKeys) return setShowKeys(false);
+      if (pinning) return setPinning(null);
+      if (drawing) return setDrawing(false);
+      if (choosingScene && workScene) return setChoosingScene(false);
+      return false;
+    }
+    if (action === 'save') {
+      setMessage(saveNow() ? 'Saved to this browser.' : 'This browser would not store the save.');
+      return;
+    }
+    if (action === 'export') return exportSave();
+    if (action === 'import') return importFile.current?.click();
+    if (action === 'undo' || action === 'redo') return void stepHistory(action === 'undo');
+    if (action === 'photo' || action === 'iso') {
+      if (pinning) return false;
+      setStageView(action);
+      return;
+    }
+    if (action === 'scene' && !busy && !pinning) setChoosingScene(true);
+  });
+  async function resetToDemo() {
+    if (
+      !window.confirm(
+        'Reset everything to the demo? Both desks, your scene, pins, rules and models are cleared, and this browser’s save is replaced. The evidence log is kept. Export a save first to keep a copy.',
+      )
+    )
+      return;
+    clearSession();
+    await applySave(
+      { app: 'livinglayer', version: 1, savedAt: new Date().toISOString(), prefs: {}, desks: {} },
+      'Reset to the demo. Choose a scene to begin.',
+    );
+  }
   useEffect(() => {
     void fetch('/desk.svg')
       .then((r) => r.text())
@@ -313,9 +520,17 @@ export function App() {
   }, []);
   useEffect(() => {
     mounted.current = true;
-    void refresh().catch(() =>
-      setError('The local API is unavailable. Start both services with bun run dev.'),
-    );
+    void refresh()
+      .then(async (desks) => {
+        // A fresh server (new data folder) takes this browser's copy of its desks.
+        for (const m of ['fixture', 'live'] as const) {
+          const local = boot.save?.desks[m];
+          if (local && !deskIsBlank(local) && deskIsBlank(desks[m]))
+            await restoreDesk(local).catch(() => {});
+        }
+        setDeskReady(true);
+      })
+      .catch(() => setError('The local API is unavailable. Start both services with bun run dev.'));
     const handedOff = takeHandoff();
     if (handedOff) {
       changeMode('live');
@@ -541,7 +756,7 @@ export function App() {
         'desk/track',
         { mode, segmentRunId: run.id },
       );
-      setMemory(result.memory);
+      setMemory(result.memory, false);
       setSelected(result.event);
       if (result.event.output.action === 'confirmed') light();
       setMessage(`Tracked${costNote(run)}. ${placementMessage(result.event)}`);
@@ -896,6 +1111,34 @@ export function App() {
           {lamp === 'virtual' && <span className="hud-tag">VIRTUAL</span>}
         </div>
         <nav className="topbar-links">
+          <span className="history" role="group" aria-label="Undo and redo">
+            <button
+              className="icon-button"
+              aria-label="Undo"
+              title={`Undo (${SHORTCUTS[0]!.keys})`}
+              disabled={!undo.current[mode].length || Boolean(busy) || camera}
+              onClick={() => void stepHistory(true)}
+            >
+              ↶
+            </button>
+            <button
+              className="icon-button"
+              aria-label="Redo"
+              title={`Redo (${SHORTCUTS[1]!.keys})`}
+              disabled={!redo.current[mode].length || Boolean(busy) || camera}
+              onClick={() => void stepHistory(false)}
+            >
+              ↷
+            </button>
+          </span>
+          <button
+            className="icon-button"
+            aria-label="Keyboard shortcuts"
+            title="Keyboard shortcuts (?)"
+            onClick={() => setShowKeys(true)}
+          >
+            ?
+          </button>
           <a className="playground-link" href="/playground">
             Camera playground
           </a>
@@ -1698,7 +1941,7 @@ export function App() {
         </section>
         <aside className="lab-side" aria-label="Evidence and setup">
           <div className="side-tabs" role="tablist" aria-label="Side panel">
-            {(['runs', 'inspect', 'setup'] as const).map((tab) => (
+            {(['runs', 'inspect', 'session', 'setup'] as const).map((tab) => (
               <button
                 key={tab}
                 role="tab"
@@ -1711,7 +1954,9 @@ export function App() {
                   ? `Runs · ${filteredRuns.length}`
                   : tab === 'inspect'
                     ? 'Inspect'
-                    : `Setup · ${proofCount}/4`}
+                    : tab === 'session'
+                      ? 'Session'
+                      : `Setup · ${proofCount}/4`}
               </button>
             ))}
           </div>
@@ -1949,6 +2194,77 @@ export function App() {
           <div
             className="side-panel"
             role="tabpanel"
+            id="panel-session"
+            aria-labelledby="tab-session"
+            hidden={sideTab !== 'session'}
+          >
+            <section className="saves" aria-label="Saves">
+              <span className="tiny">SAVED IN THIS BROWSER</span>
+              <p className={storageOk ? '' : 'unsure'}>
+                {!storageOk
+                  ? 'This browser won’t store the session (private window or storage blocked). Export a save to keep your work.'
+                  : savedAt
+                    ? `Saved as you go · last ${new Date(savedAt).toLocaleTimeString()}`
+                    : 'Saved as you go, once the desks have loaded.'}
+              </p>
+              <p className="micro">
+                Your scene, view, camera source, filters and both desks: pins, rules, scenes and
+                models. Photos and the evidence log stay out of saves.
+              </p>
+              <div className="save-actions">
+                <button
+                  className="secondary"
+                  onClick={() =>
+                    setMessage(
+                      saveNow()
+                        ? 'Saved to this browser.'
+                        : 'This browser would not store the save.',
+                    )
+                  }
+                >
+                  Save now
+                </button>
+                <button className="secondary" onClick={exportSave}>
+                  Export save
+                </button>
+                <button
+                  className="secondary"
+                  disabled={Boolean(busy)}
+                  onClick={() => importFile.current?.click()}
+                >
+                  Import save
+                </button>
+                <input
+                  ref={importFile}
+                  type="file"
+                  accept="application/json,.json"
+                  hidden
+                  aria-label="Save file to import"
+                  onChange={(e) => {
+                    const chosen = e.target.files?.[0];
+                    if (chosen) void importSave(chosen);
+                  }}
+                />
+              </div>
+              <span className="tiny">HISTORY</span>
+              <p className="micro">
+                {undo.current[mode].length} step{undo.current[mode].length === 1 ? '' : 's'} to undo
+                · {redo.current[mode].length} to redo in {mode} mode. Undo puts the whole desk back
+                as it was before your last edit.
+              </p>
+              <span className="tiny">START OVER</span>
+              <button
+                className="danger"
+                disabled={Boolean(busy)}
+                onClick={() => void resetToDemo()}
+              >
+                Reset everything to demo
+              </button>
+            </section>
+          </div>
+          <div
+            className="side-panel"
+            role="tabpanel"
             id="panel-setup"
             aria-labelledby="tab-setup"
             hidden={sideTab !== 'setup'}
@@ -2033,6 +2349,37 @@ export function App() {
           </div>
         </aside>
       </main>
+      {showKeys && (
+        <div className="keys-backdrop" onClick={() => setShowKeys(false)}>
+          <div
+            className="keys-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Keyboard shortcuts"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="keys-head">
+              <h3>Keyboard shortcuts</h3>
+              <button className="icon-button" aria-label="Close" onClick={() => setShowKeys(false)}>
+                ×
+              </button>
+            </div>
+            <dl>
+              {SHORTCUTS.map((k) => (
+                <div key={k.action}>
+                  <dt>
+                    {k.keys.split(' ').map((key) => (
+                      <kbd key={key}>{key}</kbd>
+                    ))}
+                  </dt>
+                  <dd>{k.label}</dd>
+                </div>
+              ))}
+            </dl>
+            <p className="micro">Shortcuts wait while you type in a field.</p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -755,6 +755,52 @@ export function deskRoutes(
     // Evidence and one-shot claims intentionally survive reset.
     return memory;
   });
+  /**
+   * Put back a whole desk memory: an imported save, an undo or redo, or the
+   * empty demo desk. The pin and the scene are checked like any other save;
+   * the rest is the lab's own output coming back. Evidence is untouched.
+   */
+  app.post('/api/desk/restore', async (request) => {
+    const { mode, memory } = parseInput(
+      z
+        .object({
+          mode: modeSchema,
+          memory: z
+            .object({
+              mode: modeSchema,
+              object: z
+                .object({ id: z.string().min(1), label: z.string(), createdAt: z.string() })
+                .nullable(),
+              surface: surfacePinSchema.nullable().optional(),
+              scene: isoSceneSchema.nullable().optional(),
+              others: z
+                .array(z.object({ id: z.string().min(1) }).loose())
+                .max(MAX_OTHER_OBJECTS)
+                .optional(),
+              rules: z
+                .array(z.object({ id: z.string().min(1) }).loose())
+                .max(MAX_RULES)
+                .optional(),
+            })
+            .loose(),
+        })
+        .strict(),
+      request.body,
+    );
+    if (memory.mode !== mode)
+      throw new LabError('restore_mode', `This save is for ${memory.mode} mode, not ${mode}.`, 400);
+    available(mode);
+    const next = memory as unknown as DeskMemory;
+    if (next.surface && !isoSurface(next.surface.scene, next.surface.surfaceId, next.scene))
+      throw new LabError('restore_surface', 'The saved pin names a surface the scene lacks.', 400);
+    store.saveMemory({
+      ...next,
+      zone: next.zone ?? null,
+      lastDecision: next.lastDecision ?? null,
+      observation: next.observation ?? null,
+    });
+    return store.memory(mode);
+  });
   app.post('/api/desk/verify', async (request) => {
     const { mode, observationId, zoneId } = parseInput(
       z

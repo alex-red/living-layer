@@ -1590,7 +1590,7 @@ input[type='checkbox'] {
 .side-tabs {
   flex: none;
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: 4px;
   padding: 8px;
   border-bottom: 1px solid var(--line);
@@ -1774,4 +1774,109 @@ button svg {
   width: 16px;
   height: 16px;
   flex: none;
+}
+
+/* Undo, redo and shortcut help in the top bar. */
+.history {
+  display: inline-flex;
+  gap: 2px;
+}
+.icon-button {
+  display: inline-grid;
+  place-items: center;
+  min-width: 32px;
+  min-height: 32px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-button);
+  background: none;
+  color: var(--text-2);
+  font-size: 15px;
+}
+.icon-button:hover:not(:disabled) {
+  color: var(--text);
+  border-color: var(--line-strong);
+}
+
+/* Session: saves kept in this browser, files, and starting over. */
+.saves {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  font-size: 13px;
+}
+.saves > p.unsure {
+  color: var(--unsure);
+}
+.saves .tiny:not(:first-child) {
+  margin-top: 8px;
+}
+.save-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.danger {
+  justify-self: start;
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--blocked);
+  border-radius: var(--r-button);
+  background: var(--blocked-wash);
+  color: var(--blocked);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+/* Keyboard shortcut help. */
+.keys-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgb(5 6 10 / 70%);
+}
+.keys-dialog {
+  width: min(420px, 100%);
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border-radius: var(--r-panel);
+  border: 1px solid var(--line-strong);
+  background: var(--surface-1);
+}
+.keys-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.keys-head h3 {
+  font: 600 15px/20px var(--ui);
+}
+.keys-dialog dl {
+  display: grid;
+  gap: 6px;
+}
+.keys-dialog dl > div {
+  display: grid;
+  grid-template-columns: 110px 1fr;
+  align-items: center;
+  gap: 12px;
+  font-size: 13px;
+}
+.keys-dialog dd {
+  color: var(--text-2);
+}
+.keys-dialog kbd {
+  display: inline-block;
+  min-width: 22px;
+  margin-right: 4px;
+  padding: 1px 6px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-button);
+  background: var(--surface-2);
+  font: 12px/18px var(--mono);
+  text-align: center;
 }

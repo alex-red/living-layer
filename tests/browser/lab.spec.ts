@@ -131,7 +131,8 @@ test('remembers a mug, draws a zone, verifies one virtual action, and retains ev
   await page.getByRole('button', { name: 'Verify placement · virtual lamp', exact: true }).click();
   await expect(page.locator('.placement-result')).toContainText('outside · lamp none');
   await page.reload();
-  await chooseScene(page);
+  // The scene is remembered by this browser, so the lab skips the picker.
+  await expect(page.locator('.scene-chosen')).toContainText('Office desk');
   await expect(page.locator('.placement-result')).toContainText('outside · lamp none');
   await expect(
     page.getByRole('button', { name: 'Verify placement · virtual lamp', exact: true }),
@@ -293,4 +294,37 @@ test('drafts a scene from the illustrated desk, reviews the pin and objects, and
     'true',
   );
   await expect(page.locator('[data-object="tracked"] .iso-item image')).toBeVisible();
+});
+
+test('saves the session as you go, undoes a desk edit, and resets to the demo', async ({
+  page,
+}) => {
+  await freshDesk(page);
+  await page.goto('/');
+  await chooseScene(page);
+  await page.getByRole('button', { name: 'Iso', exact: true }).click();
+  await page.getByRole('button', { name: 'Segment object', exact: true }).click();
+  await page.getByRole('button', { name: 'Confirm mug mask #7', exact: true }).click();
+  await expect(page.locator('.feedback')).toContainText('Mug identity manually confirmed');
+  // Undo puts the desk back as it was: no mug remembered.
+  await page.locator('body').press(process.platform === 'darwin' ? 'Meta+z' : 'Control+z');
+  await expect(page.locator('.feedback')).toContainText('Undone');
+  await expect(page.getByRole('button', { name: 'Redo' })).toBeEnabled();
+  await page.getByRole('button', { name: 'Redo' }).click();
+  await expect(page.locator('.feedback')).toContainText('Redone');
+  // The view and the scene come back after a reload.
+  await page.reload();
+  await expect(page.locator('.scene-chosen')).toContainText('Office desk');
+  await expect(page.getByRole('button', { name: 'Iso', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await page.getByRole('tab', { name: 'Session' }).click();
+  const download = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Export save', exact: true }).click();
+  expect((await download).suggestedFilename()).toMatch(/^livinglayer-save-.*\.json$/);
+  page.once('dialog', (d) => void d.accept());
+  await page.getByRole('button', { name: 'Reset everything to demo', exact: true }).click();
+  await expect(page.locator('.feedback')).toContainText('Reset to the demo');
+  await expect(page.getByRole('group', { name: 'Choose a scene' })).toBeVisible();
 });

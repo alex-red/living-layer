@@ -218,6 +218,34 @@ describe('desk placement', () => {
   });
 });
 
+describe('desk restore', () => {
+  it('puts back a whole saved desk, and refuses another mode or a pin without its surface', async () => {
+    const s = await setup();
+    const saved = await s.zone();
+    await s.post('desk/reset');
+    const restored = await s.post('desk/restore', { memory: saved });
+    expect(restored.statusCode).toBe(200);
+    expect(restored.json<DeskMemory>()).toEqual(saved);
+    expect((await s.app.inject({ url: '/api/desk/fixture' })).json<DeskMemory>()).toEqual(saved);
+    const other = await s.post('desk/restore', { memory: { ...saved, mode: 'live' } });
+    expect(other.statusCode).toBe(400);
+    const pin = {
+      scene: 'custom',
+      surfaceId: 'nowhere',
+      corners: [
+        { x: 0, y: 0 },
+        { x: 10, y: 0 },
+        { x: 10, y: 10 },
+        { x: 0, y: 10 },
+      ],
+      frame: { width: 10, height: 10 },
+    };
+    expect((await s.post('desk/restore', { memory: { ...saved, surface: pin } })).statusCode).toBe(
+      400,
+    );
+  });
+});
+
 describe('desk tracking', () => {
   type Tracked = { memory: DeskMemory; event: EvidenceRun<PlacementDecision> };
   async function track(s: Awaited<ReturnType<typeof setup>>, fixturePosition: string) {
