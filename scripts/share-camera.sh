@@ -4,9 +4,10 @@
 #   WebRTC (WHEP)  http://<this-ip>:8889/cam/whep   what the labs play, ~100 ms latency
 #   RTSP           rtsp://<this-ip>:8554/cam        for VLC, ffplay, Home Assistant, ...
 # The stream is advertised over mDNS as _livinglayer-cam._tcp, so the labs list it
-# without any setup. Needs ffmpeg and mediamtx (https://github.com/bluenviron/mediamtx):
-#   macOS:  brew install ffmpeg mediamtx
-#   Linux:  apt install ffmpeg avahi-utils v4l-utils, plus the mediamtx release binary
+# without any setup. Needs ffmpeg and mediamtx (https://github.com/bluenviron/mediamtx),
+# and offers to install whatever is missing: ffmpeg (and on Linux avahi and v4l-utils)
+# through the package manager, mediamtx through Homebrew or as the checksum-verified
+# release binary in ~/.local/bin.
 # Runs on macOS and Linux (including a Raspberry Pi). Stop it with Ctrl-C.
 set -eu
 
@@ -21,6 +22,7 @@ Usage: scripts/share-camera.sh [options]
   --encoder NAME      ffmpeg H.264 encoder (default: hardware where available, else libx264)
   --name NAME         name the labs show (default: "<hostname> camera")
   --port N            WebRTC/WHEP port (default 8889; RTSP uses 8554, WebRTC media UDP 8189)
+  -y, --yes           install missing dependencies without asking
 EOF
 }
 
@@ -34,9 +36,11 @@ name="$(hostname -s 2>/dev/null || hostname) camera"
 port=8889
 rtsp_port=8554
 list=0
+yes=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --list) list=1 ;;
+    -y|--yes) yes=1 ;;
     --device) device=$2; shift ;;
     --size) size=$2; shift ;;
     --fps) fps=$2; shift ;;
@@ -50,8 +54,115 @@ while [ $# -gt 0 ]; do
   shift
 done
 
-need() { command -v "$1" >/dev/null 2>&1 || { echo "$1 is required. $2" >&2; exit 1; }; }
-need ffmpeg 'Install it with your package manager (brew install ffmpeg / apt install ffmpeg).'
+have() { command -v "$1" >/dev/null 2>&1; }
+# Yes with --yes; no when nobody can answer; otherwise asks, defaulting to yes.
+ask() {
+  [ "$yes" = 1 ] && return 0
+  [ -t 0 ] || return 1
+  printf '%s [Y/n] ' "$1" >&2
+  read -r answer || return 1
+  case "$answer" in [nN]*) return 1 ;; *) return 0 ;; esac
+}
+as_root() { if [ "$(id -u)" = 0 ]; then "$@"; else sudo "$@"; fi; }
+
+# Installs packages by their generic names: ffmpeg, avahi, v4l-utils.
+pkg_install() {
+  if have brew; then
+    brew install "$@"
+  elif have apt-get; then
+    # shellcheck disable=SC2046 # package names never contain spaces
+    set -- $(echo "$@" | sed 's/avahi/avahi-utils/')
+    as_root apt-get update -qq && as_root apt-get install -y "$@"
+  elif have dnf; then
+    # shellcheck disable=SC2046
+    set -- $(echo "$@" | sed 's/ffmpeg/ffmpeg-free/; s/avahi/avahi-tools/')
+    as_root dnf install -y "$@"
+  elif have pacman; then
+    as_root pacman -S --needed --noconfirm "$@"
+  else
+    echo "No supported package manager (brew, apt, dnf, pacman). Install $* yourself." >&2
+    [ "$os" = Darwin ] && echo 'On macOS, Homebrew is at https://brew.sh.' >&2
+    return 1
+  fi
+}
+
+# Homebrew if present, else the release binary for this OS and CPU, checked
+# against the release's published SHA-256 before it is installed.
+install_mediamtx() {
+  if have brew; then
+    brew install mediamtx
+    return
+  fi
+  have curl || { echo 'curl is needed to download mediamtx.' >&2; return 1; }
+  case "$(uname -m)" in
+    x86_64 | amd64) arch=amd64 ;;
+    aarch64 | arm64) arch=arm64 ;;
+    armv7l) arch=armv7 ;;
+    armv6l) arch=armv6 ;;
+    *) echo "mediamtx has no release build for $(uname -m)." >&2; return 1 ;;
+  esac
+  platform=$(echo "$os" | tr '[:upper:]' '[:lower:]')
+  releases=https://github.com/bluenviron/mediamtx/releases
+  tag=$(curl -fsSLI -o /dev/null -w '%{url_effective}' "$releases/latest" | sed 's#.*/tag/##')
+  case "$tag" in v[0-9]*) ;; *) echo 'Could not find the latest mediamtx release.' >&2; return 1 ;; esac
+  asset="mediamtx_${tag}_${platform}_${arch}.tar.gz"
+  dl=$(mktemp -d "${TMPDIR:-/tmp}/mediamtx.XXXXXX")
+  echo "Downloading $asset" >&2
+  if ! curl -fsSL -o "$dl/$asset" "$releases/download/$tag/$asset" ||
+    ! curl -fsSL -o "$dl/checksums.sha256" "$releases/download/$tag/checksums.sha256"; then
+    rm -rf "$dl"
+    echo 'Download failed.' >&2
+    return 1
+  fi
+  expected=$(grep "[ *]$asset\$" "$dl/checksums.sha256" | awk '{print $1}')
+  if have sha256sum; then actual=$(sha256sum "$dl/$asset" | awk '{print $1}'); else actual=$(shasum -a 256 "$dl/$asset" | awk '{print $1}'); fi
+  if [ -z "$expected" ] || [ "$expected" != "$actual" ]; then
+    rm -rf "$dl"
+    echo "Checksum mismatch for $asset; nothing was installed." >&2
+    return 1
+  fi
+  tar -xzf "$dl/$asset" -C "$dl" mediamtx
+  mkdir -p "$HOME/.local/bin"
+  mv "$dl/mediamtx" "$HOME/.local/bin/mediamtx"
+  chmod +x "$HOME/.local/bin/mediamtx"
+  rm -rf "$dl"
+  echo "Installed mediamtx $tag to ~/.local/bin" >&2
+}
+
+find_mediamtx() {
+  mediamtx=$(command -v mediamtx 2>/dev/null || true)
+  [ -n "$mediamtx" ] || { [ -x "$HOME/.local/bin/mediamtx" ] && mediamtx=$HOME/.local/bin/mediamtx; }
+  [ -n "$mediamtx" ]
+}
+
+# Required: ffmpeg, and mediamtx unless only listing cameras.
+missing=''
+have ffmpeg || missing=ffmpeg
+[ "$list" = 1 ] || find_mediamtx || missing="$missing mediamtx"
+missing=${missing# }
+if [ -n "$missing" ]; then
+  if ! ask "Missing: $missing. Install now?"; then
+    echo "Install $missing, then run this again (or pass --yes to have it done for you)." >&2
+    exit 1
+  fi
+  case " $missing " in *' ffmpeg '*) pkg_install ffmpeg || exit 1 ;; esac
+  case " $missing " in *' mediamtx '*) install_mediamtx || exit 1 ;; esac
+  have ffmpeg || { echo 'ffmpeg is still not on PATH.' >&2; exit 1; }
+  [ "$list" = 1 ] || find_mediamtx || { echo 'mediamtx is still not found.' >&2; exit 1; }
+fi
+
+# Recommended on Linux: avahi announces the camera to the labs, v4l-utils
+# finds cameras that already encode H.264 so they skip the re-encode.
+if [ "$os" = Linux ]; then
+  extras=''
+  have avahi-publish-service || extras=avahi
+  have v4l2-ctl || extras="$extras v4l-utils"
+  extras=${extras# }
+  if [ -n "$extras" ] && ask "Recommended: $extras (labs find the camera by itself, H.264 cameras skip the re-encode). Install?"; then
+    # shellcheck disable=SC2086 # one word per package
+    pkg_install $extras || echo "Continuing without $extras." >&2
+  fi
+fi
 
 if [ "$list" = 1 ]; then
   case "$os" in
@@ -61,7 +172,6 @@ if [ "$list" = 1 ]; then
   exit 0
 fi
 
-need mediamtx 'Install it from https://github.com/bluenviron/mediamtx/releases (macOS: brew install mediamtx).'
 
 has_encoder() { ffmpeg -hide_banner -encoders 2>/dev/null | grep -q " $1 "; }
 gop=$fps # a keyframe every second, so a lab that joins late starts within a second
@@ -156,6 +266,6 @@ echo "  Preview page:  http://$ip:$port/cam"
 echo "  RTSP:          rtsp://$ip:$rtsp_port/cam"
 echo 'The camera labs list it automatically. Ctrl-C to stop.'
 
-mediamtx "$work/mediamtx.yml" &
+"$mediamtx" "$work/mediamtx.yml" &
 pids="$pids $!"
 wait "$!"
