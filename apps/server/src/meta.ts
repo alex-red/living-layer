@@ -13,6 +13,9 @@ import {
   photoInventorySchema,
   photoCheckSchema,
   photoCatalog,
+  sparkCeiling,
+  sparkCost,
+  META_PRICES,
   type Usage,
   type Segmentation,
 } from '@livinglayer/domain';
@@ -39,7 +42,7 @@ const usageOf = (u?: ProviderUsage | null): Usage | null =>
  * reasoning counts against the ceiling, so a busy photo needs room: at 4096 a
  * full office desk ran out mid-inventory. Only tokens used are billed.
  */
-const BUDGET = {
+export const SPARK_BUDGET = {
   discover: 8192,
   classify: 8192,
   layout: 16384,
@@ -70,14 +73,58 @@ export class MetaAdapter {
       ...(fetcher ? { fetch: fetcher } : {}),
     });
   }
-  private reserve() {
+  /** The worst-case cost of calls still running, so two at once can't both pass the limit. */
+  private pending = 0;
+  /**
+   * Refuse a call that could take today's spend past the limit, counting its
+   * worst case until it ends. The returned function records what it really
+   * cost (0 when the provider refused it) and releases the reservation.
+   */
+  private reserve(ceilingUsd: number): (actualUsd: number) => void {
     if (!this.config.modelApiKey || !this.config.metaEnabled)
       throw new LabError('meta_not_ready', 'Live Meta calls are not enabled on the server.', 409);
-    this.store.reserveRequest(this.config.maxRequests);
+    const limit = this.store.spendLimit(this.config.spendLimitUsd);
+    const spent = this.store.spentToday() + this.pending;
+    if (spent + ceilingUsd > limit)
+      throw new LabError(
+        'spend_limit',
+        `This call could cost up to $${ceilingUsd.toFixed(4)}, which would pass today's $${limit.toFixed(2)} Meta spending limit ($${spent.toFixed(4)} spent so far). Raise the limit in Setup, or wait for the next UTC day.`,
+        429,
+      );
+    this.store.countRequest();
+    this.pending += ceilingUsd;
+    let settled = false;
+    return (actualUsd) => {
+      if (settled) return;
+      settled = true;
+      this.pending -= ceilingUsd;
+      this.store.addSpend(actualUsd);
+    };
+  }
+  /** Whether calls costing up to `usd` would still fit under today's limit. */
+  canAfford(usd: number): boolean {
+    return (
+      this.store.spentToday() + this.pending + usd <=
+      this.store.spendLimit(this.config.spendLimitUsd)
+    );
+  }
+  /** One Spark call under the spend limit, recording what it cost. */
+  private async spark(
+    images: number,
+    body: OpenAI.Responses.ResponseCreateParamsNonStreaming & { max_output_tokens: number },
+  ) {
+    const settle = this.reserve(sparkCeiling(body.max_output_tokens, images));
+    try {
+      const response = await this.client.responses.create(body);
+      settle(sparkCost(usageOf(response.usage)));
+      return response;
+    } catch (e) {
+      settle(0);
+      throw e;
+    }
   }
   async text(): Promise<ProviderResult<{ text: string }>> {
-    this.reserve();
-    const response = await this.client.responses.create({
+    const response = await this.spark(0, {
       model: this.config.sparkModel,
       input: 'Reply with exactly: LivingLayer connection ready.',
       max_output_tokens: 1024,
@@ -93,11 +140,10 @@ export class MetaAdapter {
     };
   }
   async discover(imageDataUrl: string) {
-    this.reserve();
-    const response = await this.client.responses.create({
+    const response = await this.spark(1, {
       model: this.config.sparkModel,
       store: false,
-      max_output_tokens: BUDGET.discover,
+      max_output_tokens: SPARK_BUDGET.discover,
       input: [
         {
           role: 'user',
@@ -119,15 +165,14 @@ export class MetaAdapter {
         },
       },
     });
-    return this.parsed(response, sceneSchema, 'scene discovery', BUDGET.discover);
+    return this.parsed(response, sceneSchema, 'scene discovery', SPARK_BUDGET.discover);
   }
   /** Which isometric preset fits the photo, and which of its optional props are visible. */
   async classify(imageDataUrl: string) {
-    this.reserve();
-    const response = await this.client.responses.create({
+    const response = await this.spark(1, {
       model: this.config.sparkModel,
       store: false,
-      max_output_tokens: BUDGET.classify,
+      max_output_tokens: SPARK_BUDGET.classify,
       input: [
         {
           role: 'user',
@@ -149,7 +194,7 @@ export class MetaAdapter {
         },
       },
     });
-    return this.parsed(response, sceneGuessSchema, 'scene guess', BUDGET.classify);
+    return this.parsed(response, sceneGuessSchema, 'scene guess', SPARK_BUDGET.classify);
   }
   /**
    * A whole room laid out from the template palette: which templates stand
@@ -157,11 +202,10 @@ export class MetaAdapter {
    * templates, never from the model.
    */
   async layout(imageDataUrl: string) {
-    this.reserve();
-    const response = await this.client.responses.create({
+    const response = await this.spark(1, {
       model: this.config.sparkModel,
       store: false,
-      max_output_tokens: BUDGET.layout,
+      max_output_tokens: SPARK_BUDGET.layout,
       input: [
         {
           role: 'user',
@@ -188,18 +232,17 @@ export class MetaAdapter {
         },
       },
     });
-    return this.parsed(response, sceneDraftSchema, 'scene draft', BUDGET.layout);
+    return this.parsed(response, sceneDraftSchema, 'scene draft', SPARK_BUDGET.layout);
   }
   /**
    * Name the object's archetype and material from its masked crop. Spark
    * classifies; the fitter measures every number from the mask itself.
    */
   async itemClass(cropDataUrl: string, label: string) {
-    this.reserve();
-    const response = await this.client.responses.create({
+    const response = await this.spark(1, {
       model: this.config.sparkModel,
       store: false,
-      max_output_tokens: BUDGET.itemClass,
+      max_output_tokens: SPARK_BUDGET.itemClass,
       input: [
         {
           role: 'user',
@@ -227,7 +270,7 @@ export class MetaAdapter {
         },
       },
     });
-    return this.parsed(response, itemClassSchema, 'item class', BUDGET.itemClass);
+    return this.parsed(response, itemClassSchema, 'item class', SPARK_BUDGET.itemClass);
   }
   /**
    * Spark compares the photo with the model rendered from the same camera and
@@ -235,11 +278,10 @@ export class MetaAdapter {
    * silhouette still matches the mask at least as well.
    */
   async itemCheck(cropDataUrl: string, renderDataUrl: string, summary: string) {
-    this.reserve();
-    const response = await this.client.responses.create({
+    const response = await this.spark(2, {
       model: this.config.sparkModel,
       store: false,
-      max_output_tokens: BUDGET.itemCheck,
+      max_output_tokens: SPARK_BUDGET.itemCheck,
       input: [
         {
           role: 'user',
@@ -268,7 +310,7 @@ export class MetaAdapter {
         },
       },
     });
-    return this.parsed(response, itemCheckSchema, 'item check', BUDGET.itemCheck);
+    return this.parsed(response, itemCheckSchema, 'item check', SPARK_BUDGET.itemCheck);
   }
   /**
    * What is in a photo and roughly where: one entry per thing, each a
@@ -276,11 +318,10 @@ export class MetaAdapter {
    * tiles or turns; SAM and the layout measure those.
    */
   async photoInventory(imageDataUrl: string) {
-    this.reserve();
-    const response = await this.client.responses.create({
+    const response = await this.spark(1, {
       model: this.config.sparkModel,
       store: false,
-      max_output_tokens: BUDGET.photoInventory,
+      max_output_tokens: SPARK_BUDGET.photoInventory,
       input: [
         {
           role: 'user',
@@ -307,7 +348,12 @@ export class MetaAdapter {
         },
       },
     });
-    return this.parsed(response, photoInventorySchema, 'photo inventory', BUDGET.photoInventory);
+    return this.parsed(
+      response,
+      photoInventorySchema,
+      'photo inventory',
+      SPARK_BUDGET.photoInventory,
+    );
   }
   /**
    * Spark compares the photo with the drafted scene drawn from the same
@@ -315,11 +361,10 @@ export class MetaAdapter {
    * keeps an addition only when SAM can outline it.
    */
   async photoCheck(imageDataUrl: string, renderDataUrl: string, listing: string) {
-    this.reserve();
-    const response = await this.client.responses.create({
+    const response = await this.spark(2, {
       model: this.config.sparkModel,
       store: false,
-      max_output_tokens: BUDGET.photoCheck,
+      max_output_tokens: SPARK_BUDGET.photoCheck,
       input: [
         {
           role: 'user',
@@ -347,7 +392,7 @@ export class MetaAdapter {
         },
       },
     });
-    return this.parsed(response, photoCheckSchema, 'photo check', BUDGET.photoCheck);
+    return this.parsed(response, photoCheckSchema, 'photo check', SPARK_BUDGET.photoCheck);
   }
   /**
    * A finished Spark response as the schema's type, or an error that says
@@ -441,7 +486,8 @@ export class MetaAdapter {
     options: { concept?: string; maxMasks?: number } = {},
   ): Promise<ProviderResult<Segmentation> & { raw: string }> {
     const concept = options.concept ?? prompt;
-    this.reserve();
+    // SAM bills per image, so the reservation is also the cost once Meta accepts the call.
+    const settle = this.reserve(META_PRICES.samPerImage);
     const response = await this.client.responses
       .create(
         {
@@ -460,7 +506,17 @@ export class MetaAdapter {
         },
         { timeout: this.config.timeoutMs, signal: AbortSignal.timeout(this.config.timeoutMs) },
       )
-      .withResponse();
+      .withResponse()
+      .then(
+        (r) => {
+          settle(META_PRICES.samPerImage);
+          return r;
+        },
+        (e) => {
+          settle(0);
+          throw e;
+        },
+      );
     let usage: Usage | null = null;
     let model = this.config.samModel;
     let length = 0;

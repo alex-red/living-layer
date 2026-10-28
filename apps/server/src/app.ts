@@ -14,7 +14,6 @@ import {
   isoSceneSchema,
   type SceneDraft,
   estimateCost,
-  runCost,
   type EvidenceRun,
   type RunKind,
   type RunFailure,
@@ -94,13 +93,13 @@ export async function buildApp(
   });
   app.get('/api/status', async () => {
     const history = store.list();
-    const today = new Date().toISOString().slice(0, 10);
     return {
       meta: {
         configured: Boolean(config.modelApiKey),
         enabled: config.metaEnabled,
         usedToday: store.usedToday(),
-        requestLimit: config.maxRequests,
+        spendLimit: store.spendLimit(config.spendLimitUsd),
+        defaultSpendLimit: config.spendLimitUsd,
         sparkModel: config.sparkModel,
         samModel: config.samModel,
         estimates: {
@@ -108,12 +107,10 @@ export async function buildApp(
           discover: estimateCost('discover', history),
           segment: estimateCost('segment', history),
         },
-        spentToday: history
-          .filter((r) => r.createdAt.startsWith(today))
-          .reduce((sum, r) => sum + (runCost(r) ?? 0), 0),
+        spentToday: store.spentToday(),
         note:
           config.modelApiKey && config.metaEnabled
-            ? 'Live calls enabled. The daily allowance counts attempts, not cost.'
+            ? 'Live calls enabled. A call that could take today’s spend past the limit is refused before it is sent.'
             : 'Set MODEL_API_KEY and META_LIVE_ENABLED to make live calls.',
       },
       lamp: {
@@ -212,6 +209,18 @@ export async function buildApp(
       throw Object.assign(safe, { runId: id });
     }
   }
+  /** Change the daily Meta spending limit; null goes back to the one in `.env`. */
+  app.post('/api/settings/spend-limit', async (request) => {
+    const { usd } = parseInput(
+      z.object({ usd: z.number().positive().max(1000).nullable() }).strict(),
+      request.body,
+    );
+    store.setSpendLimit(usd === null ? null : Math.round(usd * 100) / 100);
+    return {
+      spendLimit: store.spendLimit(config.spendLimitUsd),
+      spentToday: store.spentToday(),
+    };
+  });
   app.post('/api/text', async (request) => {
     const { mode } = parseInput(z.object({ mode: modeSchema }).strict(), request.body);
     return run('text', mode, async () =>

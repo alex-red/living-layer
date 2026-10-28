@@ -546,9 +546,11 @@ describe('photo routes, live with a mocked Meta API', () => {
     expect(error.message).toMatch(/broke the expected shape: kind: /);
     await s.app.close();
   });
-  it('refuses before calling anything when today’s allowance cannot cover the draft', async () => {
-    const s = await setup({ META_MAX_REQUESTS_PER_DAY: '2' });
-    expect((await s.post({ check: true })).statusCode).toBe(429);
+  it('refuses before calling anything when the spending limit cannot cover the draft', async () => {
+    const s = await setup({ META_DAILY_SPEND_LIMIT_USD: '0.1' });
+    const res = await s.post({ check: true });
+    expect(res.statusCode).toBe(429);
+    expect(res.json().error.code).toBe('spend_limit');
     expect(s.fetcher).not.toHaveBeenCalled();
     await s.app.close();
   });

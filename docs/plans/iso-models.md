@@ -139,7 +139,7 @@ Meta's models help the fit, but none of them owns it. Each answer is checked aga
 - **Muse Spark** names the archetype and material and describes the object, under strict JSON (`itemClassSchema`). After the fit, it sees the photo next to the model drawn from the same camera in flat colours, and suggests height, width and handle multipliers and a body colour (`itemCheckSchema`). The fitter clamps them to ±20% (±30% for the handle) and keeps them only if the silhouette still matches the mask within 0.01 IoU.
 - **SAM 3D Objects** would turn a crop into a 3D mesh. It needs Linux and an NVIDIA GPU with 32 GB of memory, so it isn't part of the live path. If an offline run is ever wanted for a hero object, its mesh can be voxelized into the same kernel. Turning the mesh into parts would keep the editor and fitter working.
 
-A Spark draft is up to four billed calls: Spark twice, and SAM up to twice. Every call counts against the daily request allowance. Each step is recorded in the fit's `assists`, and the editor shows them. Fixture mode stands in an offline Spark class and makes no calls.
+A Spark draft is up to four billed calls: Spark twice, and SAM up to twice. Every call counts against the daily spending limit. Each step is recorded in the fit's `assists`, and the editor shows them. Fixture mode stands in an offline Spark class and makes no calls.
 
 ## Decisions
 

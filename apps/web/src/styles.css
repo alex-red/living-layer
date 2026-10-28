@@ -2073,3 +2073,51 @@ button svg {
   display: flex;
   gap: 14px;
 }
+
+/* The daily Meta spending limit in Setup. */
+.budget.unsure span {
+  background: var(--unsure);
+}
+.budget.blocked span {
+  background: var(--blocked);
+}
+.session-strip dd.blocked {
+  color: var(--blocked);
+}
+.spend-limit {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 10px;
+  border-radius: var(--r-button);
+  background: var(--surface-2);
+  font-size: 12px;
+  line-height: 18px;
+}
+.spend-limit label {
+  display: grid;
+  gap: 2px;
+}
+.spend-limit label span {
+  color: var(--text-2);
+}
+.spend-limit-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.spend-limit .currency {
+  font-family: var(--mono);
+  color: var(--text-2);
+}
+.spend-limit input {
+  width: 96px;
+  min-height: 32px;
+  padding: 0 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-button);
+  background: var(--surface-1);
+  color: var(--text);
+  font: 13px var(--mono);
+}

@@ -1007,9 +1007,27 @@ export function App() {
   const metaReady = Boolean(
     status?.meta.configured &&
     status.meta.enabled &&
-    status.meta.usedToday < status.meta.requestLimit,
+    status.meta.spentToday < status.meta.spendLimit,
   );
   const lampReady = Boolean(status?.lamp.configured && status.lamp.enabled);
+  const spendShare = status
+    ? Math.min(1, status.meta.spentToday / Math.max(0.01, status.meta.spendLimit))
+    : 0;
+  const spendTone = spendShare >= 1 ? 'blocked' : spendShare >= 0.8 ? 'unsure' : 'ok';
+  const [limitDraft, setLimitDraft] = useState('');
+  useEffect(() => {
+    if (status) setLimitDraft(String(status.meta.spendLimit));
+  }, [status?.meta.spendLimit]);
+  async function saveSpendLimit(usdLimit: number | null) {
+    try {
+      const saved = await api<{ spendLimit: number }>('settings/spend-limit', { usd: usdLimit });
+      setMessage(`Daily Meta spending limit set to ${usd(saved.spendLimit)}.`);
+      setError('');
+      void refresh().catch(() => {});
+    } catch (e) {
+      setError(e instanceof Error ? e : 'The limit could not be saved.');
+    }
+  }
   const canVision =
     Boolean(workScene) && !busy && (mode === 'fixture' || (metaReady && Boolean(image)));
   const canTrack =
@@ -2306,25 +2324,20 @@ export function App() {
                 <dt>META</dt>
                 <dd className={metaReady ? 'ok' : 'unsure'}>
                   {metaReady ? '● ready' : '◌ off'}
-                  {status && (
-                    <small>
-                      {status.meta.usedToday} / {status.meta.requestLimit} calls
-                    </small>
-                  )}
+                  {status && <small>{status.meta.usedToday} calls today</small>}
                 </dd>
-                {status && (
-                  <span className="budget" aria-hidden="true">
-                    <span
-                      style={{
-                        width: `${Math.min(100, (status.meta.usedToday / Math.max(1, status.meta.requestLimit)) * 100)}%`,
-                      }}
-                    />
-                  </span>
-                )}
               </div>
               <div>
                 <dt>SPENT TODAY</dt>
-                <dd>{status ? `≈ ${usd(status.meta.spentToday)}` : '…'}</dd>
+                <dd className={spendTone}>
+                  {status ? `≈ ${usd(status.meta.spentToday)}` : '…'}
+                  {status && <small>of {usd(status.meta.spendLimit)} limit</small>}
+                </dd>
+                {status && (
+                  <span className={`budget ${spendTone}`} aria-hidden="true">
+                    <span style={{ width: `${spendShare * 100}%` }} />
+                  </span>
+                )}
               </div>
               <div>
                 <dt>LAMP</dt>
@@ -2365,10 +2378,58 @@ export function App() {
                 <p>{status?.lamp.note}</p>
                 <small>
                   {status
-                    ? `${status.meta.usedToday} / ${status.meta.requestLimit} Meta attempts today (UTC) · ≈ ${usd(status.meta.spentToday)} spent`
+                    ? `≈ ${usd(status.meta.spentToday)} of ${usd(status.meta.spendLimit)} spent today (UTC) · ${status.meta.usedToday} Meta calls`
                     : 'No outbound calls on startup.'}
                 </small>
               </div>
+              {status && (
+                <form
+                  className="spend-limit"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    const usd = Number(limitDraft);
+                    if (usd > 0 && usd <= 1000) void saveSpendLimit(usd);
+                    else setError('Set a daily limit between $0.01 and $1,000.');
+                  }}
+                >
+                  <label htmlFor="spend-limit">
+                    <strong>Daily Meta spending limit</strong>
+                    <span>
+                      A call that could take today’s spend past this is refused before it is sent.
+                      Resets at midnight UTC.
+                    </span>
+                  </label>
+                  <div className="spend-limit-row">
+                    <span className="currency">$</span>
+                    <input
+                      id="spend-limit"
+                      type="number"
+                      inputMode="decimal"
+                      min="0.01"
+                      max="1000"
+                      step="0.01"
+                      value={limitDraft}
+                      onChange={(e) => setLimitDraft(e.target.value)}
+                    />
+                    <button
+                      className="secondary"
+                      type="submit"
+                      disabled={Number(limitDraft) === status.meta.spendLimit}
+                    >
+                      Save
+                    </button>
+                    {status.meta.spendLimit !== status.meta.defaultSpendLimit && (
+                      <button
+                        className="text-button"
+                        type="button"
+                        onClick={() => void saveSpendLimit(null)}
+                      >
+                        Use .env ({usd(status.meta.defaultSpendLimit)})
+                      </button>
+                    )}
+                  </div>
+                </form>
+              )}
             </aside>
           </div>
         </aside>

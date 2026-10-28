@@ -112,9 +112,8 @@ function hintFor(code?: string, detail?: ProviderFailure): string | null {
     case 'connection':
     case 'local_unreachable':
       return 'Check the network and that the local server is running.';
-    case 'budget':
-    case 'request_budget':
-      return 'Today’s call allowance is used up; raise META_MAX_REQUESTS or wait until tomorrow (UTC).';
+    case 'spend_limit':
+      return 'Raise the daily spending limit in Setup, or wait until midnight UTC.';
     case 'meta_not_ready':
       return 'Set MODEL_API_KEY and META_LIVE_ENABLED, or switch to Fixture.';
     case 'provider_error':

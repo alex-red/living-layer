@@ -3,12 +3,12 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   isMugConcept,
+  runCost,
   type EvidenceRun,
   type LabStatus,
   type DeskMemory,
   type Mode,
 } from '@livinglayer/domain';
-import { LabError } from './errors.js';
 
 type Payload = { payload: string };
 
@@ -20,6 +20,8 @@ export class EvidenceStore {
     this.db.exec(`PRAGMA journal_mode = WAL;
       CREATE TABLE IF NOT EXISTS evidence (id TEXT PRIMARY KEY, created_at TEXT NOT NULL, payload TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS meta_budget (day TEXT PRIMARY KEY, attempts INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS meta_spend (day TEXT PRIMARY KEY, usd REAL NOT NULL);
+      CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS desk_memory (mode TEXT PRIMARY KEY, payload TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS placement_claims (segment_id TEXT PRIMARY KEY, created_at TEXT NOT NULL);`);
   }
@@ -81,19 +83,53 @@ export class EvidenceStore {
       .get(new Date().toISOString().slice(0, 10));
     return row?.attempts ?? 0;
   }
-  reserveRequest(limit: number): void {
+  /** Count one outbound attempt, failed or not. */
+  countRequest(): void {
+    this.db.run(
+      `INSERT INTO meta_budget (day, attempts) VALUES (?, 1)
+      ON CONFLICT(day) DO UPDATE SET attempts = attempts + 1`,
+      [new Date().toISOString().slice(0, 10)],
+    );
+  }
+  /**
+   * What today's live calls (UTC) have cost, from each call's own usage. A day
+   * that began before this ledger existed starts from its saved runs.
+   */
+  spentToday(): number {
     const day = new Date().toISOString().slice(0, 10);
     const row = this.db
-      .query<{ attempts: number }, [string, number]>(
-        `INSERT INTO meta_budget (day, attempts) VALUES (?, 1)
-      ON CONFLICT(day) DO UPDATE SET attempts = attempts + 1 WHERE attempts < ? RETURNING attempts`,
-      )
-      .get(day, limit);
-    if (!row)
-      throw new LabError(
-        'request_budget',
-        'The configured daily Meta request allowance is exhausted.',
-        429,
+      .query<{ usd: number }, [string]>('SELECT usd FROM meta_spend WHERE day = ?')
+      .get(day);
+    if (row) return row.usd;
+    const usd = this.list()
+      .filter((r) => r.createdAt.startsWith(day))
+      .reduce((sum, r) => sum + (runCost(r) ?? 0), 0);
+    this.db.run('INSERT OR IGNORE INTO meta_spend (day, usd) VALUES (?, ?)', [day, usd]);
+    return usd;
+  }
+  addSpend(usd: number): void {
+    if (!(usd > 0)) return;
+    this.spentToday(); // seeds today's row first
+    this.db.run('UPDATE meta_spend SET usd = usd + ? WHERE day = ?', [
+      usd,
+      new Date().toISOString().slice(0, 10),
+    ]);
+  }
+  /** The daily spend limit someone set in the lab, or `fallback` from the config. */
+  spendLimit(fallback: number): number {
+    const row = this.db
+      .query<{ value: string }, [string]>('SELECT value FROM settings WHERE key = ?')
+      .get('spend_limit_usd');
+    const usd = row ? Number(row.value) : NaN;
+    return Number.isFinite(usd) && usd > 0 ? usd : fallback;
+  }
+  /** Set the daily spend limit; null goes back to the config's. */
+  setSpendLimit(usd: number | null): void {
+    if (usd === null) this.db.run('DELETE FROM settings WHERE key = ?', ['spend_limit_usd']);
+    else
+      this.db.run(
+        'INSERT INTO settings VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value',
+        ['spend_limit_usd', String(usd)],
       );
   }
   asset(runId: string, name: string, content: string | Buffer): string {

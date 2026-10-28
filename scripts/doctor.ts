@@ -7,7 +7,7 @@ try {
     `Meta key: ${config.modelApiKey ? 'present' : 'missing'}; live enabled: ${config.metaEnabled}`,
   );
   console.log(
-    `Models: ${config.sparkModel}, ${config.samModel}; request allowance: ${config.maxRequests}/UTC day`,
+    `Models: ${config.sparkModel}, ${config.samModel}; spending limit: $${config.spendLimitUsd}/UTC day (changeable in the lab)`,
   );
   console.log(
     `Home Assistant: ${config.haUrl && config.haToken && config.haEntity ? 'configured' : 'incomplete'}; live enabled: ${config.haEnabled}`,

@@ -12,6 +12,8 @@ import {
   layoutPhoto,
   modeSchema,
   promptBox,
+  sparkCeiling,
+  META_PRICES,
   uniqueParts,
   type Archetype,
   type EvidenceRun,
@@ -27,9 +29,14 @@ import { LabError, parseInput } from './errors.js';
 import { fixturePhotoCheck, fixturePhotoInventory, fixturePhotoSegmentation } from './fixtures.js';
 import { maskedCrop, validateImage } from './images.js';
 import { fixturePhoto, type Runner } from './item.js';
-import type { MetaAdapter } from './meta.js';
+import { SPARK_BUDGET, type MetaAdapter } from './meta.js';
 import type { EvidenceStore } from './store.js';
 
+/** The most a live photo draft can cost: the inventory and SAM, then the check and SAM again. */
+const photoDraftCeiling = (check: boolean) =>
+  sparkCeiling(SPARK_BUDGET.photoInventory, 1) +
+  META_PRICES.samPerImage +
+  (check ? sparkCeiling(SPARK_BUDGET.photoCheck, 2) + META_PRICES.samPerImage : 0);
 /** At most this many objects get a fitted model in one draft; the rest can be modelled later. */
 const MAX_FITTED = 8;
 export type { PhotoDraft };
@@ -56,12 +63,7 @@ const isArchetype = (as: string): as is Archetype => (ARCHETYPES as readonly str
  */
 export function photoRoutes(
   app: FastifyInstance,
-  {
-    store,
-    meta,
-    run,
-    config,
-  }: { store: EvidenceStore; meta: MetaAdapter; run: Runner; config: Config },
+  { store, meta, run }: { store: EvidenceStore; meta: MetaAdapter; run: Runner; config: Config },
 ) {
   /** Save the box-prompted segmentation as a segment run, like any other. */
   function saveSegment(
@@ -109,15 +111,13 @@ export function photoRoutes(
     const live = mode === 'live';
     if (!live && input.imageDataUrl)
       throw new LabError('fixture_image', 'Fixture mode uses only the bundled illustrated desk.');
-    if (live) {
-      const needed = 2 + (input.check ? 1 : 0);
-      if (store.usedToday() + needed > config.maxRequests)
-        throw new LabError(
-          'budget',
-          `A photo draft needs ${needed} calls and only ${Math.max(0, config.maxRequests - store.usedToday())} are left today.`,
-          429,
-        );
-    }
+    // Refuse up front rather than stop halfway, with the inventory already paid for.
+    if (live && !meta.canAfford(photoDraftCeiling(Boolean(input.check))))
+      throw new LabError(
+        'spend_limit',
+        `A photo draft could cost up to $${photoDraftCeiling(Boolean(input.check)).toFixed(3)}, which would pass today's Meta spending limit. Raise the limit in Setup, or wait for the next UTC day.`,
+        429,
+      );
     return run('photo', mode, async (id) => {
       const assists: string[] = [];
       let usage: Usage | null = null;
@@ -203,8 +203,8 @@ export function photoRoutes(
             things: [...inventory.things, ...result.output.missing],
             summary: inventory.summary,
           }).things.slice(inventory.things.length);
-          // Anything missing gets one more SAM call, only if today's allowance has room.
-          if (image && missing.length && store.usedToday() < config.maxRequests) {
+          // Anything missing gets one more SAM call, only if today's spending limit has room.
+          if (image && missing.length && meta.canAfford(META_PRICES.samPerImage)) {
             const more = missing
               .map((t, i) => ({
                 thing: t.id,

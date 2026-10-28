@@ -117,7 +117,7 @@ export function Playground() {
     void loadStatus();
   }, []);
   const canDetect = Boolean(meta?.configured && meta.enabled);
-  const callsLeft = meta ? Math.max(0, meta.requestLimit - meta.usedToday) : 0;
+  const budgetLeft = meta ? Math.max(0, meta.spendLimit - meta.spentToday) : 0;
 
   /**
    * The slow half of the two-speed design: send one captured frame to the
@@ -248,7 +248,7 @@ export function Playground() {
   /**
    * Watching: each time the desk settles after moving, grab the frame and ask
    * SAM for the concept. Spark is skipped here to keep each settle to one
-   * cheap call. Any failure, including the daily allowance running out, stops
+   * cheap call. Any failure, including the daily spending limit being reached, stops
    * watching rather than retrying.
    */
   const motionEpoch = useRef(0);
@@ -955,7 +955,7 @@ export function Playground() {
             <p>
               Frames go to the local server, which asks SAM 3.1 to mask the object and, on a
               captured frame, Muse Spark to name what else is there. Each call counts toward the
-              daily allowance.
+              daily spending limit.
             </p>
             {meta && !canDetect && <p className="pg-mono">{meta.note}</p>}
             <label className="pg-field">
@@ -971,7 +971,12 @@ export function Playground() {
               <input
                 type="checkbox"
                 checked={watch}
-                disabled={!canDetect || !live || !concept.trim() || (!watch && callsLeft === 0)}
+                disabled={
+                  !canDetect ||
+                  !live ||
+                  !concept.trim() ||
+                  (!watch && budgetLeft < (meta?.estimates.segment.usd ?? 0))
+                }
                 onChange={(e) => {
                   setWatch(e.target.checked);
                   watchDue.current = true;
@@ -983,7 +988,7 @@ export function Playground() {
             {meta && canDetect && (
               <p className="pg-mono">
                 {usd(meta.estimates.segment.usd)} per settle, at most one every{' '}
-                {WATCH_GAP_MS / 1000} s · {callsLeft} call{callsLeft === 1 ? '' : 's'} left today
+                {WATCH_GAP_MS / 1000} s · {usd(budgetLeft)} left of today’s limit
                 {sighting && (
                   <>
                     <br />
@@ -1014,7 +1019,8 @@ export function Playground() {
                 + SAM {usd(meta.estimates.segment.usd)}
                 <br />
                 {shot?.spent ? `This frame ≈ ${usd(shot.spent)} · ` : ''}
-                Today ≈ {usd(meta.spentToday)} · {meta.usedToday} / {meta.requestLimit} calls
+                Today ≈ {usd(meta.spentToday)} of {usd(meta.spendLimit)} limit · {meta.usedToday}{' '}
+                calls
               </p>
             )}
             {shot?.scene && shot.scene.objects.length > 0 && (

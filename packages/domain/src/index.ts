@@ -137,13 +137,17 @@ export interface CostEstimate {
 }
 export interface LabStatus {
   meta: Readiness & {
+    /** Outbound attempts today (UTC), failures included. Informational: spend is the cap. */
     usedToday: number;
-    requestLimit: number;
+    /** The most today's live calls may cost, in USD; a call that could pass it is refused. */
+    spendLimit: number;
+    /** The limit `.env` sets, which `spendLimit` overrides once someone changes it in the lab. */
+    defaultSpendLimit: number;
     sparkModel: string;
     samModel: string;
     /** What one more call of each kind is likely to cost. */
     estimates: Record<BilledKind, CostEstimate>;
-    /** Estimated spend on today's live calls (UTC), from recorded usage. */
+    /** Estimated spend on today's live calls (UTC), from each call's recorded usage. */
     spentToday: number;
   };
   /** `lights`: every light entity rules may switch, the main one first. */
@@ -180,14 +184,33 @@ const SPARK_GUESS = {
   text: { input: 40, output: 200 },
   discover: { input: 2_000, output: 1_500 },
 };
+/** What Spark usage costs at list price. */
+export function sparkCost(usage: Usage | null | undefined): number {
+  if (!usage) return 0;
+  const { input, output } = META_PRICES.sparkPerMillion;
+  return (usage.inputTokens * input + usage.outputTokens * output) / 1_000_000;
+}
+/** Input tokens to allow per image before a call; a ~1280 px photo has measured ~1.5k. */
+const SPARK_IMAGE_TOKENS = 3_000;
+/**
+ * The most one Spark call can cost: every output token it is allowed, and
+ * generous input for its images and prompt. The spend limit refuses a call
+ * when this could pass it, so the limit holds even if the call runs long.
+ */
+export function sparkCeiling(maxOutputTokens: number, images: number): number {
+  return sparkCost({
+    inputTokens: images * SPARK_IMAGE_TOKENS + 2_000,
+    outputTokens: maxOutputTokens,
+    totalTokens: 0,
+  });
+}
 /** Estimated cost of one run from its recorded usage, or null when it isn't a billed call. */
 export function runCost(run: Pick<EvidenceRun, 'kind' | 'mode' | 'usage'>): number | null {
   if (run.mode !== 'live') return null;
   if (run.kind === 'segment') return META_PRICES.samPerImage;
   if (!['text', 'discover', 'scene', 'layout', 'item', 'photo'].includes(run.kind) || !run.usage)
     return null;
-  const { input, output } = META_PRICES.sparkPerMillion;
-  return (run.usage.inputTokens * input + run.usage.outputTokens * output) / 1_000_000;
+  return sparkCost(run.usage);
 }
 /** Likely cost of the next call of a kind: the median of past live runs, else a guess. */
 export function estimateCost(kind: BilledKind, history: EvidenceRun[]): CostEstimate {

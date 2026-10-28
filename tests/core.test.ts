@@ -86,15 +86,21 @@ describe('configuration, budget, and images', () => {
     expect(() => config({ HA_URL: 'http://user:pass@localhost' })).toThrow();
     expect(() => config({ META_LIVE_ENABLED: 'yes' })).toThrow();
   });
-  it('persists request allowance across restarts and includes failed attempts', () => {
+  it('persists attempts, spend and the spending limit across restarts', () => {
     const path = dir();
     let store = new EvidenceStore(path);
-    store.reserveRequest(2);
+    store.countRequest();
+    store.addSpend(0.25);
+    store.setSpendLimit(3);
     store.close();
     store = new EvidenceStore(path);
-    store.reserveRequest(2);
+    store.countRequest();
+    store.addSpend(0.5);
     expect(store.usedToday()).toBe(2);
-    expect(() => store.reserveRequest(2)).toThrow('allowance');
+    expect(store.spentToday()).toBeCloseTo(0.75);
+    expect(store.spendLimit(10)).toBe(3);
+    store.setSpendLimit(null);
+    expect(store.spendLimit(10)).toBe(10);
     store.close();
   });
   it('normalizes supported inline images and rejects remote URLs / broken payloads', async () => {
@@ -249,7 +255,7 @@ describe('Meta adapter transport contract', () => {
     config({
       MODEL_API_KEY: 'test-key',
       META_LIVE_ENABLED: 'true',
-      META_MAX_REQUESTS_PER_DAY: '2',
+      META_DAILY_SPEND_LIMIT_USD: '0.05',
     });
   it('uses Responses text.format, validates data, records usage/request ID and counts failures', async () => {
     const c = metaConfig();
@@ -298,8 +304,13 @@ describe('Meta adapter transport contract', () => {
     expect(payload.response_format).toBeUndefined();
     await expect(adapter.text()).rejects.toThrow();
     expect(store.usedToday()).toBe(2);
-    await expect(adapter.text()).rejects.toThrow('allowance');
+    // The discovery's own usage is recorded; the refused call cost nothing.
+    expect(store.spentToday()).toBeCloseTo((10 * 1.25 + 20 * 4.25) / 1_000_000, 10);
+    // Near the limit, a call whose worst case could pass it is refused before it is sent.
+    store.addSpend(0.045);
+    await expect(adapter.text()).rejects.toThrow('spending limit');
     expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(store.usedToday()).toBe(2);
     store.close();
   });
 });
@@ -346,6 +357,22 @@ describe('stream transport and sanitized failures', () => {
     expect(result.usage?.totalTokens).toBe(150);
     expect(store.usedToday()).toBe(1);
     store.close();
+  });
+  it('reports and changes the daily spending limit, and goes back to the .env one', async () => {
+    const app = await buildApp(config({ META_DAILY_SPEND_LIMIT_USD: '10' }), {
+      fetcher: mock<Fetcher>(),
+    });
+    const status = async () => (await app.inject('/api/status')).json().meta;
+    expect(await status()).toMatchObject({ spendLimit: 10, defaultSpendLimit: 10, spentToday: 0 });
+    const set = (usd: unknown) =>
+      app.inject({ method: 'POST', url: '/api/settings/spend-limit', payload: { usd } });
+    expect((await set(2.505)).json()).toMatchObject({ spendLimit: 2.51 });
+    expect((await status()).spendLimit).toBe(2.51);
+    expect((await set(0)).statusCode).toBe(400);
+    expect((await set(5000)).statusCode).toBe(400);
+    await set(null);
+    expect((await status()).spendLimit).toBe(10);
+    await app.close();
   });
   it('keeps billing errors generic in responses and persistent exports', async () => {
     const c = config({
