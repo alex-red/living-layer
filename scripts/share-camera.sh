@@ -254,16 +254,36 @@ else
   echo 'No mDNS publisher (dns-sd or avahi-publish-service): add the WHEP URL below to CAMERA_STREAMS in the lab .env.' >&2
 fi
 
+# Every LAN address, skipping loopback, link-local and VM/container bridges
+# (only their guests could reach those). The primary one, the address of the
+# interface traffic normally leaves by, goes first.
 case "$os" in
-  Darwin) ip=$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || echo localhost) ;;
-  *) ip=$(hostname -I 2>/dev/null | awk '{print $1}') ;;
+  Darwin)
+    primary=$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || true)
+    addresses=$(ifconfig 2>/dev/null | awk '/^[a-z]/ { i = $1 } $1 == "inet" && i !~ /^(lo|bridge)/ { print $2 }')
+    ;;
+  *)
+    primary=$(ip -4 route get 1.1.1.1 2>/dev/null | sed -n 's/.* src \([0-9.]*\).*/\1/p')
+    addresses=$(ip -4 -o addr show scope global 2>/dev/null |
+      awk '$2 !~ /^(lo|docker|br-|veth|virbr)/ { sub(/\/.*/, "", $4); print $4 }')
+    [ -n "$addresses" ] || addresses=$(hostname -I 2>/dev/null | tr ' ' '\n')
+    ;;
 esac
-ip=${ip:-localhost}
+addresses=$(printf '%s\n' "$addresses" | grep -Ev '^(127\.|169\.254\.|$)' || true)
+ip=${primary:-$(printf '%s\n' "$addresses" | head -n1)}
+others=$(printf '%s\n' "$addresses" | grep -vxF "${ip:-none}" | tr '\n' ' ' || true)
+
 how=$([ "$passthrough" = 1 ] && echo 'camera H.264, no re-encode' || echo "$encoder")
-echo "Sharing \"$name\" ($device, $size @ ${fps} fps, $how)"
+echo "Sharing \"$name\" ($device, $size @ ${fps} fps, $how) on the network"
+if [ -z "$ip" ]; then
+  echo 'No network address found: only this machine can connect.' >&2
+  ip=localhost
+fi
+echo "  Network IP:    $ip"
 echo "  WebRTC (WHEP): http://$ip:$port/cam/whep"
 echo "  Preview page:  http://$ip:$port/cam"
 echo "  RTSP:          rtsp://$ip:$rtsp_port/cam"
+[ -z "${others% }" ] || echo "  Also on:       ${others% }"
 echo 'The camera labs list it automatically. Ctrl-C to stop.'
 
 "$mediamtx" "$work/mediamtx.yml" &
