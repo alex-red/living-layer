@@ -7,34 +7,6 @@
   height: 100%;
   min-height: 0;
 }
-.iso-tools {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-}
-.iso-presets {
-  display: inline-flex;
-  padding: 3px;
-  border-radius: var(--r-button);
-  background: var(--surface-2);
-  border: 1px solid var(--line);
-}
-.iso-presets button {
-  min-height: 24px;
-  padding: 0 12px;
-  border: 0;
-  border-radius: 2px;
-  background: none;
-  color: var(--text-2);
-  font-size: 12px;
-  font-weight: 600;
-}
-.iso-presets button[aria-pressed='true'] {
-  background: var(--surface-3);
-  color: var(--text);
-  box-shadow: var(--glass-edge);
-}
 .iso-surface-pick {
   display: inline-flex;
   align-items: center;
@@ -803,34 +775,7 @@
   }
 }
 
-/* Scene first: the lab opens on a choice of scene. */
-.scene-picker {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  display: grid;
-  align-content: start;
-  gap: 16px;
-  padding: 20px;
-  border-radius: var(--r-panel);
-  border: 1px solid var(--line-strong);
-  background: radial-gradient(ellipse at 50% 60%, var(--surface-1), #05060a 75%);
-}
-.scene-picker-head {
-  display: grid;
-  gap: 4px;
-}
-.scene-picker-head h3 {
-  font: 600 17px/22px var(--ui);
-}
-.scene-picker-head p {
-  color: var(--text-2);
-}
-.scene-cards {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 12px;
-}
+/* Scene cards: the onboarding’s ways into a room. */
 .scene-card {
   display: grid;
   grid-template-rows: 140px auto;
@@ -848,9 +793,6 @@
 .scene-card[aria-pressed='true'] {
   border-color: var(--chosen);
   box-shadow: 0 0 0 1px var(--chosen-glow);
-}
-.scene-card.nested {
-  border-style: dashed;
 }
 .scene-card-art {
   display: grid;

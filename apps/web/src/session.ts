@@ -1,21 +1,24 @@
 import type { DeskMemory, Mode } from '@livinglayer/domain';
-import type { SceneKind } from './iso/ScenePicker';
+import type { WorkScene } from './workspace/progress';
 
 /**
  * The session lives in this browser: what the person chose (scene, view,
  * camera source…) and a copy of each mode's desk memory, written as they go.
  * A save file is the same object, so export and import are one format.
  */
+/** The canvas: the photo, the iso room, or both side by side. */
+export type StageView = 'photo' | 'iso' | 'split';
 export interface Prefs {
   mode: Mode;
-  workScene: SceneKind | null;
-  stageView: 'photo' | 'iso';
+  workScene: WorkScene | null;
+  stageView: StageView;
   overlay: boolean;
   concept: string;
   fixturePosition: string;
   /** '' for this device's camera, else the id of a network camera. */
   cameraSource: string;
-  sideTab: 'runs' | 'inspect' | 'session' | 'setup';
+  /** Whether the activity drawer is open. */
+  drawer: boolean;
   logKind: string;
   logMode: string;
   failuresOnly: boolean;
@@ -38,7 +41,7 @@ export const DEFAULT_PREFS: Prefs = {
   concept: 'mug',
   fixturePosition: 'centre',
   cameraSource: '',
-  sideTab: 'runs',
+  drawer: false,
   logKind: 'all',
   logMode: 'all',
   failuresOnly: false,
@@ -57,12 +60,12 @@ export function prefsOf(saved: Partial<Prefs> | undefined): Prefs {
   const text = (v: unknown) => typeof v === 'string' && v.length <= 200;
   one('mode', among('fixture', 'live'));
   one('workScene', among(null, 'office', 'desk', 'fridge', 'custom'));
-  one('stageView', among('photo', 'iso'));
+  one('stageView', among('photo', 'iso', 'split'));
   one('overlay', (v) => typeof v === 'boolean');
   one('concept', (v) => text(v) && (v as string).trim().length > 0);
   one('fixturePosition', text);
   one('cameraSource', text);
-  one('sideTab', among('runs', 'inspect', 'session', 'setup'));
+  one('drawer', (v) => typeof v === 'boolean');
   one('logKind', text);
   one('logMode', among('all', 'fixture', 'live'));
   one('failuresOnly', (v) => typeof v === 'boolean');

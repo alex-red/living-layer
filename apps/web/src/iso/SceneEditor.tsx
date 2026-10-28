@@ -241,7 +241,7 @@ export function SceneEditor({
         </label>
         <span className="tiny">
           {mode === 'fixture'
-            ? 'Fixture: no model calls.'
+            ? 'Demo: no model calls.'
             : `${sparkCheck ? 3 : 2} billed calls: Spark lists, SAM outlines${sparkCheck ? ', Spark checks' : ''}.`}
         </span>
       </div>

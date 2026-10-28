@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import {
   FIXTURE_SURFACE,
   ISO_PRESETS,
-  ISO_SCENE_PARENT,
   guessedScene,
   isoSurface,
   itemHeight,
@@ -21,34 +20,26 @@ import {
   type Mode,
   type SavedItem,
   type SceneGuess,
-  type Segmentation,
   type SurfacePin,
   type ZoneRect,
 } from '@livinglayer/domain';
 import { api } from '../api';
 import { IsoScene, type IsoObject, type IsoZone } from './IsoScene';
 import { ItemEditor } from './ItemEditor';
-import { RulesPanel, type RuleDraft } from './RulesPanel';
 import { SceneEditor, type LayoutRun } from './SceneEditor';
 import type { PhotoRun } from './PhotoReview';
-import type { SceneKind as Kind } from './ScenePicker';
+import type { WorkScene as Kind } from '../workspace/progress';
 import './iso.css';
 
-/** A preset's room and the close views inside it, which share its pins. */
-function family(kind: Kind): Kind[] {
-  if (kind === 'custom') return [];
-  const room = ISO_SCENE_PARENT[kind] ?? kind;
-  const kinds = Object.keys(ISO_PRESETS) as (keyof typeof ISO_PRESETS)[];
-  const members = kinds.filter((k) => k === room || ISO_SCENE_PARENT[k] === room);
-  return members.length > 1 ? members : [];
+/** What the iso canvas shows: the room, the layout editor, or an object's model. */
+export type IsoPanel = 'room' | 'scene' | 'item';
+/** A rule being set up; its zone is dragged out on the iso surface. */
+export interface RuleDraft {
+  objectId: string;
+  lightId: string;
+  label: string;
+  rect: ZoneRect | null;
 }
-type Panel = 'room' | 'scene' | 'rules' | 'item';
-const PANELS: { id: Panel; label: string }[] = [
-  { id: 'room', label: 'Room' },
-  { id: 'scene', label: 'Edit scene' },
-  { id: 'rules', label: 'Objects & rules' },
-  { id: 'item', label: 'Model' },
-];
 
 /** Where one sighting stands on the pinned surface, or null when the pin can't place it. */
 function place(
@@ -83,18 +74,22 @@ export function IsoView({
   mode,
   kind,
   onKind,
+  panel,
+  onPanel,
+  surfaceId,
+  onSurfaceId,
+  modelOf,
+  guess,
+  ruleDraft,
+  onRuleDraft,
   memory,
   image,
-  segmentation,
-  segmentRunId,
   lights,
   lampOn,
   drawing,
   zone,
   busy,
   onDraftZone,
-  onPin,
-  onClearPin,
   onRun,
   onMemory,
   onUpload,
@@ -105,12 +100,20 @@ export function IsoView({
   /** The scene the person chose to work on. */
   kind: Kind;
   onKind: (kind: Kind) => void;
+  panel: IsoPanel;
+  onPanel: (panel: IsoPanel) => void;
+  /** The surface the person picked; the pinned one when unset. */
+  surfaceId?: string;
+  onSurfaceId: (id: string) => void;
+  /** Whose model the item editor shows; the mug when unset. */
+  modelOf?: string;
+  /** Spark's guess of the preset, which may switch props on or off. */
+  guess: SceneGuess | null;
+  ruleDraft: RuleDraft | null;
+  onRuleDraft: (draft: RuleDraft | null) => void;
   memory?: DeskMemory;
   /** The current live photo, for asking Spark about the scene. */
   image?: string;
-  /** The newest segmentation, for remembering and tracking more objects. */
-  segmentation?: Segmentation;
-  segmentRunId?: string;
   /** Lights rules may switch; the first is the main lamp. */
   lights: string[];
   lampOn: boolean;
@@ -119,8 +122,6 @@ export function IsoView({
   zone?: ZoneRect;
   busy: boolean;
   onDraftZone: (zone: ZoneRect) => void;
-  onPin: (scene: Kind, surfaceId: string, label: string) => void;
-  onClearPin: () => void;
   onRun: (
     run: EvidenceRun<SceneGuess | SavedItem | LayoutRun['output'] | PhotoRun['output']>,
   ) => void;
@@ -131,20 +132,11 @@ export function IsoView({
   onError: (error: string | Error) => void;
 }) {
   const pin = memory?.surface ?? (mode === 'fixture' ? FIXTURE_SURFACE : null);
-  const [surfaceId, setSurfaceId] = useState(pin?.surfaceId ?? 'desk:top');
-  const [guess, setGuess] = useState<SceneGuess | null>(null);
   const [asking, setAsking] = useState(false);
-  const [panel, setPanel] = useState<Panel>('room');
-  const [modelOf, setModelOf] = useState<string>();
-  const [ruleDraft, setRuleDraft] = useState<RuleDraft | null>(null);
   // A new scene or pin starts on the pinned surface when it is in this scene.
   useEffect(() => {
-    if (pin && pinFits(pin, kind)) setSurfaceId(pin.surfaceId);
+    if (pin && pinFits(pin, kind)) onSurfaceId(pin.surfaceId);
   }, [kind, pin?.scene, pin?.surfaceId]);
-  useEffect(() => {
-    setGuess(null);
-    setRuleDraft(null);
-  }, [mode]);
 
   const custom = memory?.scene ?? null;
   const scene: Scene =
@@ -153,9 +145,9 @@ export function IsoView({
       : guess?.kind === kind
         ? guessedScene(guess)
         : ISO_PRESETS[kind];
-  const surface = isoSurface(kind, surfaceId, custom) ?? scene.surfaces[0];
+  const surface =
+    isoSurface(kind, surfaceId ?? pin?.surfaceId ?? 'desk:top', custom) ?? scene.surfaces[0];
   const pinned = Boolean(surface && pin && pinFits(pin, kind) && pin.surfaceId === surface.id);
-  const views = family(kind);
   const defaultLight = lights[0] ?? '';
 
   // The mug, then every other remembered object the pin can place.
@@ -214,27 +206,10 @@ export function IsoView({
   for (const rule of memory?.rules ?? [])
     if (rule.placement === 'inside' && rule.lastDecision?.output.action === 'confirmed')
       lit.add(rule.lightId);
-  const drawingRule = panel === 'rules' && Boolean(ruleDraft && ruleMap);
+  const drawingRule = Boolean(ruleDraft && ruleMap);
 
   const target = memory ? modelTarget(memory, modelOf) : null;
 
-  async function ask() {
-    setAsking(true);
-    try {
-      const run = await api<EvidenceRun<SceneGuess>>('scene/classify', {
-        mode,
-        ...(mode === 'live' ? { imageDataUrl: image } : {}),
-      });
-      setGuess(run.output);
-      // The person chose the scene; Spark may only move between a room and its close views.
-      if (run.output.kind !== kind && views.includes(run.output.kind)) onKind(run.output.kind);
-      onRun(run);
-    } catch (e) {
-      onError(e instanceof Error ? e : 'Scene guess failed.');
-    } finally {
-      setAsking(false);
-    }
-  }
   async function send<T>(path: string, body: object, done: (r: T) => void) {
     setAsking(true);
     try {
@@ -249,65 +224,6 @@ export function IsoView({
 
   return (
     <div className="iso-view">
-      <div className="iso-tools">
-        {views.length > 0 && (
-          <div className="iso-presets" role="group" aria-label="Scene view">
-            {views.map((k) => (
-              <button key={k} aria-pressed={kind === k} onClick={() => onKind(k)}>
-                {k === 'custom' ? 'Custom' : ISO_PRESETS[k].label}
-              </button>
-            ))}
-          </div>
-        )}
-        {scene.surfaces.length > 1 && (
-          <label className="iso-surface-pick">
-            <span className="tiny">SURFACE</span>
-            <select value={surface?.id} onChange={(e) => setSurfaceId(e.target.value)}>
-              {scene.surfaces.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.label}
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
-        <span className="iso-actions">
-          <button
-            className="secondary"
-            disabled={off || (mode === 'live' && !image)}
-            onClick={() => void ask()}
-          >
-            {asking ? 'Asking Spark…' : 'Guess scene'}
-          </button>
-          <button
-            className="secondary"
-            disabled={off || !surface || (mode === 'live' && !image)}
-            onClick={() => surface && onPin(kind, surface.id, surface.label.toLowerCase())}
-          >
-            {pinned && memory?.surface ? 'Re-pin surface' : 'Pin surface'}
-          </button>
-          {memory?.surface && (
-            <button className="secondary" disabled={off} onClick={onClearPin}>
-              Clear pin
-            </button>
-          )}
-        </span>
-      </div>
-      <div className="iso-panels" role="group" aria-label="Iso panel">
-        {PANELS.map((p) => (
-          <button
-            key={p.id}
-            aria-pressed={panel === p.id}
-            disabled={p.id === 'item' && !memory?.object}
-            onClick={() => {
-              setPanel(p.id);
-              if (p.id === 'item') setModelOf(undefined);
-            }}
-          >
-            {p.label}
-          </button>
-        ))}
-      </div>
       <div className={`iso-frame ${panel === 'item' || panel === 'scene' ? 'editing' : ''}`}>
         {panel === 'item' ? (
           <ItemEditor
@@ -316,7 +232,7 @@ export function IsoView({
             busy={off}
             sparkNote={
               mode === 'fixture'
-                ? 'Fixture: no model call. Drafts fit the illustrated mug’s own pixels.'
+                ? 'Demo: no model call. Drafts fit the illustrated mug’s own pixels.'
                 : 'A Spark draft makes up to four billed calls (Spark twice, SAM up to twice) and sends only the masked crop.'
             }
             cropUrl={
@@ -363,8 +279,8 @@ export function IsoView({
             onPhotoSaved={(m) => {
               onMemory(m);
               onKind('custom');
-              if (m.surface?.scene === 'custom') setSurfaceId(m.surface.surfaceId);
-              setPanel('room');
+              if (m.surface?.scene === 'custom') onSurfaceId(m.surface.surfaceId);
+              onPanel('room');
               const n = (m.object ? 1 : 0) + (m.others?.length ?? 0);
               onMessage(
                 `Scene saved from the photo${m.surface ? ', pinned' : ''}${n ? `, tracking ${n} object${n === 1 ? '' : 's'}` : ''}.`,
@@ -376,7 +292,7 @@ export function IsoView({
                 onMemory(m);
                 if (next) {
                   onKind('custom');
-                  setSurfaceId(
+                  onSurfaceId(
                     m.surface?.scene === 'custom'
                       ? m.surface.surfaceId
                       : (next.surfaces[0]?.id ?? ''),
@@ -403,7 +319,7 @@ export function IsoView({
             onDrag={(a, b) => {
               if (drawingRule && ruleTarget && ruleMap) {
                 const rect = zoneFromSurface(a, b, ruleTarget.frame, ruleMap.toFrame);
-                if (rect) setRuleDraft((d) => d && { ...d, rect });
+                if (rect && ruleDraft) onRuleDraft({ ...ruleDraft, rect });
                 return;
               }
               if (!mug || !o) return;
@@ -420,30 +336,9 @@ export function IsoView({
               : `ISO · ${scene.label.toUpperCase()} · ${surface?.label.toUpperCase() ?? 'NO SURFACE'}${pinned ? (memory?.surface ? ' · PINNED' : ' · FIXTURE') : ''}`}
         </span>
       </div>
-      {panel === 'rules' && (
-        <RulesPanel
-          mode={mode}
-          memory={memory}
-          segmentation={segmentation}
-          segmentRunId={segmentRunId}
-          lights={lights}
-          busy={off}
-          draft={ruleDraft}
-          onDraft={setRuleDraft}
-          onModel={(id) => {
-            setModelOf(id === memory?.object?.id ? undefined : id);
-            setPanel('item');
-          }}
-          onResult={(m, message) => {
-            onMemory(m);
-            onMessage(message);
-          }}
-          onError={onError}
-        />
-      )}
-      {(panel === 'room' || panel === 'rules') && (
+      {panel === 'room' && (
         <p className="iso-note" role="status">
-          {ruleDraft && !ruleMap && panel === 'rules'
+          {ruleDraft && !ruleMap
             ? 'Pin a surface for the frame this object was seen in, then draw its zone.'
             : note ||
               (guess?.kind === kind

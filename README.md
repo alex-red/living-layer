@@ -11,7 +11,7 @@ It's an early local lab, not a product. One desk, one mug, one lamp.
 3. **Remember**: you confirm a mask belongs to your mug. Identity is manual for now.
 4. **Place**: draw a zone on the same image. If the mug's whole box fits inside it, Living Layer turns on one Home Assistant light.
 
-Or start from one photo: in the **Iso** view, open **Edit scene** and choose **Upload a photo**. It takes two billed calls, or three with the check:
+Or start from one photo: when the lab asks for your room, choose **Photograph your office** (or, on a room you already have, select it in the outline and choose **Edit layout**). It takes two billed calls, or three with the check:
 
 1. Spark lists what's in the photo, each thing with a loose box.
 2. SAM 3.1 outlines every box in a single call.
@@ -49,7 +49,7 @@ Copy `.env.example` to `.env` and fill in what you need. Restart the server afte
 | ------------------------------------ | ----------------------------------------------------------------------------------------- |
 | `MODEL_API_KEY`                      | Meta API key. Stays on the server and is never sent to the browser.                       |
 | `META_LIVE_ENABLED`                  | Set to `true` to allow live Meta calls.                                                   |
-| `META_DAILY_SPEND_LIMIT_USD`         | Daily cap on Meta spend in USD (default 10). Changeable in the lab's Setup tab.           |
+| `META_DAILY_SPEND_LIMIT_USD`         | Daily cap on Meta spend in USD (default 10). Changeable from the lab's spend pill.        |
 | `HA_URL`, `HA_TOKEN`, `HA_ENTITY_ID` | Home Assistant origin, a long-lived token, and one `light.*` entity.                      |
 | `HA_EXTRA_ENTITY_IDS`                | Optional. More `light.*` entities that extra placement rules may switch, comma-separated. |
 | `HA_LIVE_ENABLED`                    | Set to `true` to allow the lamp to be switched.                                           |

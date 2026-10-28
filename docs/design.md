@@ -94,7 +94,7 @@ Display flourish: the large title and big numerals (such as the `0 / 4` checklis
 - **Radii:** nearly square. 2 for chips, inputs and buttons, 3 for cards, 4 for panels and the scene frame. Only status dots, checklist rings and the shutter stay round.
 - **HUD brackets:** detections and the scene frame get corner ticks (four L-shaped 12 px strokes) instead of full boxes. Brackets are our "cyberpunk" shape. Cut, chamfered panel corners are not; see [originality](#originality).
 - **Density:** the labs are dense tools. Buttons and inputs are 32 px tall (28 px for tabs and segmented controls), and the body text is 13 px.
-- **Desktop:** content max width 1440 px, 12 columns, 24 px gutters. The scene takes 8 columns and the probe bench 4. The evidence log sits full width below.
+- **Desktop:** content max width 1440 px, 12 columns, 24 px gutters. The scene outline sits on the left, the canvas in the middle and the inspector on the right. The activity drawer (the evidence log) sits full width below. See [plans/workspace.md](plans/workspace.md).
 - **Mobile (under 768 px):** a single column with the scene first. The current step's primary action sits in a sticky bottom bar within thumb reach. There must be no horizontal scroll; a browser test already checks this.
 
 ## Materials and texture
@@ -104,7 +104,7 @@ Display flourish: the large title and big numerals (such as the `0 / 4` checklis
 | Material | Background           | Blur | Use                             |
 | -------- | -------------------- | ---- | ------------------------------- |
 | Thin     | `--surface-1` at 55% | 12px | Overlays on the scene, tooltips |
-| Regular  | `--surface-1` at 72% | 20px | Probe bench, top bar            |
+| Regular  | `--surface-1` at 72% | 20px | Outline, inspector, top bar     |
 | Thick    | `--surface-2` at 88% | 28px | Sheets, the status capsule      |
 
 Every glass layer gets `backdrop-filter: blur() saturate(140%)`, a `--line` border, and a 1 px inner top highlight: `inset 0 1px 0 rgb(255 255 255 / 6%)`. Under `prefers-reduced-transparency`, glass becomes the solid surface colour.
@@ -139,7 +139,7 @@ Under `prefers-reduced-motion`, every sweep, ignition and shimmer becomes a 150 
 
 **Status capsule.** A floating glass pill, top centre, inspired by the Dynamic Island. It shows the current operation ("Discovering objects", "Lamp on · confirmed") with a signal dot, and replaces today's feedback bar. It expands to show an error message and collapses after 4 s. It's also the `aria-live` region.
 
-**Mode switch.** An iOS-style segmented control (`Fixture | Live`) with a sliding thumb. In Live mode, a small `LIVE` HUD tag appears in the top bar.
+**Mode switch.** An iOS-style segmented control (`Demo | Live`; the code calls demo mode `fixture`) with a sliding thumb. In Live mode, a small `LIVE` HUD tag appears in the top bar.
 
 **Privacy dots.** While the camera is streaming, a green dot shows next to the camera button, and in the status capsule, following Apple's camera indicator. Users already know this pattern; don't restyle it.
 
@@ -196,7 +196,7 @@ The mood is "lo-fi cyberpunk". The look must not be Cyberpunk 2077's. This is a 
 
 The desk lab and the camera playground both use Quiet Neon. Tokens live in `apps/web/src/tokens.css`, and Inter and JetBrains Mono are self-hosted through `@fontsource-variable`. In place:
 
-- The void background, ambient light, grain, and glass top bar and probe bench.
+- The void background, ambient light, grain, and the glass top bar, outline and inspector.
 - Frame and detection brackets, the scan-line sweep, cyan masks that turn magenta once confirmed, and the dashed-to-solid zone.
 - The status capsule (it replaces the old feedback bar), the segmented mode switch, and the `LIVE` tag.
 - The lamp ignition and ambient warm-up. A virtual lamp warms the room at half strength and shows a `VIRTUAL` tag, which settles the open decision below.
@@ -207,8 +207,7 @@ The desk lab and the camera playground both use Quiet Neon. Tokens live in `apps
 
 Still to do:
 
-- The sticky bottom action bar on mobile.
-- On mobile, the inspector as a sheet that slides up from the bottom. It currently sits inline above the checklist.
+- On mobile, the inspector as a sheet that slides up from the bottom. It currently sits inline under the canvas, with its main action sticky at the bottom.
 - A browser test that checks reduced motion turns the animations off.
 
 The fixture image `desk.svg` stays byte-for-byte as it is, because its geometry matches the synthetic mask exactly. It sits inside the frame at true colour, so there's no need to change it.
