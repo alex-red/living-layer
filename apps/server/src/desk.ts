@@ -32,10 +32,12 @@ import {
   type PlacementDecision,
   type LampResult,
   type IsoScene,
+  type SurfacePin,
 } from '@livinglayer/domain';
 import { EvidenceStore } from './store.js';
 import { LabError, parseInput, safeError } from './errors.js';
-import { rescore } from './item.js';
+import { keepLocked, rescore } from './item.js';
+import type { PhotoDraft } from './photo.js';
 
 export function deskRoutes(
   app: FastifyInstance,
@@ -578,6 +580,97 @@ export function deskRoutes(
       memory.surface = null;
     store.saveMemory(memory);
     return memory;
+  });
+  /**
+   * Save a reviewed photo draft in one go: the scene, the pin, and the
+   * objects the person ticked, each remembered from its own mask with the
+   * model fitted to it. The first ticked object becomes the main one (the
+   * mug), so identity stays a person's choice, as it does for a mask.
+   */
+  app.post('/api/scene/from-photo/save', async (request) => {
+    const { mode, runId, scene, pin, track } = parseInput(
+      z
+        .object({
+          mode: modeSchema,
+          runId: z.string().uuid(),
+          scene: isoSceneSchema,
+          pin: surfacePinSchema.nullable(),
+          track: z.array(z.string().min(1).max(24)).max(1 + MAX_OTHER_OBJECTS),
+        })
+        .strict(),
+      request.body,
+    );
+    available(mode);
+    const draftRun = store.getRun(runId);
+    if (
+      !draftRun ||
+      draftRun.kind !== 'photo' ||
+      draftRun.mode !== mode ||
+      draftRun.status !== 'completed'
+    )
+      throw new LabError('photo_draft', 'Draft a scene from a photo first.', 409);
+    const draft = draftRun.output as PhotoDraft;
+    const segment = store.getRun(draft.segmentRunId);
+    if (!segment || store.latestSegment(mode) !== segment.id)
+      throw new LabError(
+        'photo_stale',
+        'A newer segmentation came after this photo draft. Draft the photo again.',
+        409,
+      );
+    const segmentation = segment.output as Segmentation;
+    if (pin && (pin.scene !== 'custom' || !isoSurface('custom', pin.surfaceId, scene as IsoScene)))
+      throw new LabError('surface_unknown', 'The pin must be on a surface of the drafted scene.');
+    const picked = track.map((thingId) => {
+      const detectionId = draft.detections[thingId];
+      const detection = segmentation.detections.find((d) => d.objectId === detectionId);
+      const thing = draft.inventory.things.find((t) => t.id === thingId);
+      if (!detection || !thing)
+        throw new LabError('photo_object', 'Pick objects that SAM outlined in this draft.');
+      return { thing, detection };
+    });
+    let memory = store.memory(mode);
+    if ((memory.others?.length ?? 0) + Math.max(0, picked.length - 1) > MAX_OTHER_OBJECTS)
+      throw new LabError(
+        'object_limit',
+        `Up to ${MAX_OTHER_OBJECTS} more objects can be remembered. Forget one, or tick fewer.`,
+        409,
+      );
+    memory.scene = scene as IsoScene;
+    memory.surface = pin as SurfacePin | null;
+    store.saveMemory(memory);
+    const label = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+    const model = (thingId: string, previous: ReturnType<typeof modelTarget>) => {
+      const item = draft.items[thingId];
+      return item ? { ...item, ...uniqueParts(keepLocked(item, previous?.item)) } : null;
+    };
+    const [main, ...rest] = picked;
+    if (main) {
+      const fresh = !memory.object;
+      observe(memory, segment, segmentation, main.detection, 'manual', null);
+      memory = store.memory(mode);
+      if (fresh && memory.object) memory.object.label = label(main.thing.label);
+      const item = model(main.thing.id, modelTarget(memory));
+      if (item) setModel(memory, memory.object!.id, item);
+    }
+    for (const { thing, detection } of rest) {
+      const id = randomUUID();
+      const observation = sightingOf(id, segment, segmentation, detection, 'manual', null);
+      memory.others = [
+        ...(memory.others ?? []),
+        {
+          id,
+          label: label(thing.label),
+          concept: thing.label,
+          createdAt: new Date().toISOString(),
+          observation,
+          history: [],
+          item: model(thing.id, null),
+        },
+      ];
+      store.save(evidence('observation', mode, observation));
+    }
+    store.saveMemory(memory);
+    return store.memory(mode);
   });
   /** Save an edited model of the remembered object, or remove it. */
   app.post('/api/item/save', async (request) => {

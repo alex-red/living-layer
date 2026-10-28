@@ -229,3 +229,47 @@ test('drafts a custom room offline, saves it, and lights a rule’s lamp', async
   await expect(page.locator('.feedback')).toContainText('Whole desk: inside, light confirmed');
   await expect(page.locator('[data-prop="lamp"] .iso-lamp.lit')).toBeVisible();
 });
+
+test('drafts a scene from the illustrated desk, reviews the pin and objects, and saves it in one go', async ({
+  page,
+}) => {
+  await freshDesk(page);
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Iso', exact: true }).click();
+  await page.getByRole('button', { name: 'Edit scene', exact: true }).click();
+  await page.getByRole('button', { name: 'Draft from the illustrated desk', exact: true }).click();
+  const rows = page.locator('.photo-things tbody tr');
+  await expect(rows).toHaveCount(4);
+  await expect(rows.first()).toContainText('pinned surface');
+  await expect(page.locator('.photo-review .iso-note')).toContainText('Scene match');
+  // With nothing remembered yet, the mug is offered as the main object.
+  const mug = rows.filter({ hasText: 'cream mug' });
+  await expect(mug.getByRole('checkbox')).toBeChecked();
+  await expect(mug).toContainText('main');
+  await rows.filter({ hasText: 'sage bottle' }).getByRole('checkbox').check();
+  // A dragged corner lays the scene out again.
+  // Corner 3 sits on the photo's bottom-right edge; press just inside it.
+  const photo = (await page.locator('.photo-review-photo svg').boundingBox())!;
+  const [cx, cy] = [photo.x + photo.width - 4, photo.y + photo.height - 4];
+  await page.mouse.move(cx, cy);
+  await page.mouse.down();
+  await page.mouse.move(cx - 30, cy - 30, { steps: 4 });
+  await page.mouse.up();
+  await expect(page.getByRole('slider', { name: 'Pin corner 3' })).not.toHaveAttribute(
+    'aria-valuetext',
+    '960, 640',
+  );
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: '.data/screenshots/photo-review-mobile.png', fullPage: true });
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.getByRole('button', { name: 'Save scene and track 2', exact: true }).click();
+  await expect(page.locator('.feedback')).toContainText(
+    'Scene saved from the photo, pinned, tracking 2 objects',
+  );
+  await expect(page.getByRole('button', { name: 'Custom', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await expect(page.locator('[data-object="tracked"] .iso-item image')).toBeVisible();
+});

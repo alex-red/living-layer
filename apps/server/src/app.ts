@@ -29,6 +29,7 @@ import { LabError, parseInput, safeError } from './errors.js';
 import { validateImage } from './images.js';
 import { deskRoutes } from './desk.js';
 import { itemRoutes } from './item.js';
+import { photoRoutes } from './photo.js';
 import {
   fixtureScene,
   fixtureSceneGuess,
@@ -258,6 +259,7 @@ export async function buildApp(
     });
   });
   itemRoutes(app, { store, meta, run });
+  photoRoutes(app, { store, meta, run, config });
   app.post('/api/segment', async (request) => {
     const input = parseInput(segmentRequestSchema, request.body);
     return run('segment', input.mode, async (id) => {

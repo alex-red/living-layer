@@ -13,3 +13,5 @@ The absent-target fixture returns a finalized empty output-text lane and a compl
 Real captures and raw SAM responses belong under ignored `.data/evidence/`, with explicit provenance and consent before publishing. Fixture evidence must retain `mode: "fixture"`; it never advances live proof.
 
 The parser is governed by the [SAM license](../licenses/meta-sam-LICENSE.txt). No third-party photographs or frontend assets are bundled.
+
+The photo draft's fixture (`fixturePhotoInventory` and `fixturePhotoSegmentation` in `apps/server/src/fixtures.ts`) is hand-authored as well. Its desktop, book and bottle masks are polygons copied from `desk.svg`'s own shapes and handed over as already-decoded detections, not SAM wire text. The mug reuses the synthetic mask above under the id its box prompt would have. No codec was used to make them.

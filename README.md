@@ -11,6 +11,19 @@ It's an early local lab, not a product. One desk, one mug, one lamp.
 3. **Remember**: you confirm a mask belongs to your mug. Identity is manual for now.
 4. **Place**: draw a zone on the same image. If the mug's whole box fits inside it, Living Layer turns on one Home Assistant light.
 
+Or start from one photo: in the **Iso** view, open **Edit scene** and choose **Upload a photo**. It takes two billed calls, or three with the check:
+
+1. Spark lists what's in the photo, each thing with a loose box.
+2. SAM 3.1 outlines every box in a single call.
+3. Code measures the rest from the masks:
+   - pins the desktop from its outline;
+   - works out the camera from those four corners;
+   - stands each thing where its outline meets the desk or the floor;
+   - fits a pixel-art model to each object;
+   - scores the drawing against the masks.
+
+You then review the draft: drag a corner, change or remove things, tick what to track. Save keeps it all in one go.
+
 Everything runs on your machine. The server binds to `127.0.0.1` and rejects other hosts and origins. A bundled synthetic fixture lets you run the whole loop with no API key, camera, or lamp.
 
 See [docs/architecture.md](docs/architecture.md) for the details.

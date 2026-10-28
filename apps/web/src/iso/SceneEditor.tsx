@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   ISO_PRESETS,
   PROP_TEMPLATES,
@@ -17,9 +17,11 @@ import {
   type Mode,
   type SceneDraft,
   type TemplateId,
+  type DeskMemory,
 } from '@livinglayer/domain';
 import { api } from '../api';
 import { IsoScene } from './IsoScene';
+import { PhotoReview, type PhotoRun } from './PhotoReview';
 
 export type LayoutRun = EvidenceRun<{ draft: SceneDraft; scene: Scene }>;
 const EMPTY: Scene = {
@@ -51,8 +53,11 @@ export function SceneEditor({
   image,
   lights,
   busy,
+  memory,
   onSave,
   onDrafted,
+  onUpload,
+  onPhotoSaved,
   onError,
 }: {
   mode: Mode;
@@ -63,14 +68,21 @@ export function SceneEditor({
   image?: string;
   lights: string[];
   busy: boolean;
+  memory?: DeskMemory;
   onSave: (scene: Scene | null) => void;
-  onDrafted: (run: LayoutRun) => void;
+  onDrafted: (run: LayoutRun | PhotoRun) => void;
+  /** Prepare a chosen photo as the lab's current frame, and return it. */
+  onUpload?: (file: File) => Promise<string | undefined>;
+  onPhotoSaved: (memory: DeskMemory) => void;
   onError: (message: string) => void;
 }) {
   const [draft, setDraft] = useState<Scene>(saved ?? asCustom(base));
   const [selected, setSelected] = useState<string>();
   const [summary, setSummary] = useState('');
   const [drafting, setDrafting] = useState(false);
+  const [photo, setPhoto] = useState<{ run: PhotoRun; url: string } | null>(null);
+  const [sparkCheck, setSparkCheck] = useState(true);
+  const file = useRef<HTMLInputElement>(null);
   useEffect(() => {
     if (saved) setDraft(saved);
   }, [saved]);
@@ -86,6 +98,41 @@ export function SceneEditor({
     setSelected(undefined);
     setSummary('');
   }
+  /** Spark lists what is in the photo, SAM outlines it, and the layout measures the rest. */
+  async function fromPhoto(url?: string) {
+    if (mode === 'live' && !url) return;
+    setDrafting(true);
+    try {
+      const run = await api<PhotoRun>('scene/from-photo', {
+        mode,
+        check: sparkCheck,
+        ...(mode === 'live' ? { imageDataUrl: url } : {}),
+      });
+      setPhoto({ run, url: mode === 'live' ? url! : '/desk.svg' });
+      onDrafted(run);
+    } catch (e) {
+      onError(e instanceof Error ? e.message : 'The photo could not be drafted.');
+    } finally {
+      setDrafting(false);
+    }
+  }
+  if (photo)
+    return (
+      <PhotoReview
+        mode={mode}
+        run={photo.run}
+        photoUrl={photo.url}
+        memory={memory}
+        busy={busy}
+        onSaved={(m) => {
+          setPhoto(null);
+          if (m.scene) setDraft(m.scene);
+          onPhotoSaved(m);
+        }}
+        onCancel={() => setPhoto(null)}
+        onError={onError}
+      />
+    );
   async function askSpark() {
     setDrafting(true);
     try {
@@ -146,6 +193,57 @@ export function SceneEditor({
         >
           {drafting ? 'Drafting…' : 'Draft with Spark'}
         </button>
+      </div>
+      <div className="scene-editor-tools photo-start" role="group" aria-label="Scene from a photo">
+        <span className="tiny">FROM A PHOTO</span>
+        {mode === 'fixture' ? (
+          <button className="primary" disabled={busy || drafting} onClick={() => void fromPhoto()}>
+            {drafting ? 'Drafting…' : 'Draft from the illustrated desk'}
+          </button>
+        ) : (
+          <>
+            <button
+              className="primary"
+              disabled={busy || drafting || !onUpload}
+              onClick={() => file.current?.click()}
+            >
+              {drafting ? 'Drafting…' : 'Upload a photo'}
+            </button>
+            <input
+              ref={file}
+              type="file"
+              accept="image/png,image/jpeg"
+              hidden
+              aria-label="Photo to draft a scene from"
+              onChange={async (e) => {
+                const chosen = e.target.files?.[0];
+                e.target.value = '';
+                const url = chosen && onUpload ? await onUpload(chosen) : undefined;
+                if (url) await fromPhoto(url);
+              }}
+            />
+            <button
+              className="secondary"
+              disabled={busy || drafting || !image}
+              onClick={() => void fromPhoto(image)}
+            >
+              Use the current photo
+            </button>
+          </>
+        )}
+        <label className="photo-check">
+          <input
+            type="checkbox"
+            checked={sparkCheck}
+            onChange={(e) => setSparkCheck(e.target.checked)}
+          />
+          <span>Spark checks the drawing</span>
+        </label>
+        <span className="tiny">
+          {mode === 'fixture'
+            ? 'Fixture: no model calls.'
+            : `${sparkCheck ? 3 : 2} billed calls: Spark lists, SAM outlines${sparkCheck ? ', Spark checks' : ''}.`}
+        </span>
       </div>
       <div className="scene-editor-body">
         <div className="scene-palette" role="group" aria-label="Add a prop">

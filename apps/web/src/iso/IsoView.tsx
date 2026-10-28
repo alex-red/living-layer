@@ -29,6 +29,7 @@ import { IsoScene, type IsoObject, type IsoZone } from './IsoScene';
 import { ItemEditor } from './ItemEditor';
 import { RulesPanel, type RuleDraft } from './RulesPanel';
 import { SceneEditor, type LayoutRun } from './SceneEditor';
+import type { PhotoRun } from './PhotoReview';
 import './iso.css';
 
 type Kind = IsoSceneKind | 'custom';
@@ -85,6 +86,7 @@ export function IsoView({
   onClearPin,
   onRun,
   onMemory,
+  onUpload,
   onMessage,
   onError,
 }: {
@@ -105,8 +107,12 @@ export function IsoView({
   onDraftZone: (zone: ZoneRect) => void;
   onPin: (scene: Kind, surfaceId: string, label: string) => void;
   onClearPin: () => void;
-  onRun: (run: EvidenceRun<SceneGuess | SavedItem | LayoutRun['output']>) => void;
+  onRun: (
+    run: EvidenceRun<SceneGuess | SavedItem | LayoutRun['output'] | PhotoRun['output']>,
+  ) => void;
   onMemory: (memory: DeskMemory) => void;
+  /** Prepare a chosen photo as the current frame, and return it. */
+  onUpload?: (file: File) => Promise<string | undefined>;
   onMessage: (message: string) => void;
   onError: (message: string) => void;
 }) {
@@ -347,7 +353,19 @@ export function IsoView({
             image={image}
             lights={lights}
             busy={off}
+            memory={memory}
             onDrafted={onRun}
+            onUpload={onUpload}
+            onPhotoSaved={(m) => {
+              onMemory(m);
+              setKind('custom');
+              if (m.surface?.scene === 'custom') setSurfaceId(m.surface.surfaceId);
+              setPanel('room');
+              const n = (m.object ? 1 : 0) + (m.others?.length ?? 0);
+              onMessage(
+                `Scene saved from the photo${m.surface ? ', pinned' : ''}${n ? `, tracking ${n} object${n === 1 ? '' : 's'}` : ''}.`,
+              );
+            }}
             onError={onError}
             onSave={(next) =>
               void send<DeskMemory>('scene/save', { scene: next }, (m) => {

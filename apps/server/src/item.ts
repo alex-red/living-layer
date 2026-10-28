@@ -66,7 +66,7 @@ const PART_CONCEPTS: Partial<Record<Archetype, { handle?: string; inside?: strin
 
 /** The fixture desk is an SVG the web draws; rasterize it once, as the camera would see it. */
 let fixtureDesk: Buffer | null = null;
-async function fixturePhoto(): Promise<Buffer> {
+export async function fixturePhoto(): Promise<Buffer> {
   fixtureDesk ??= await sharp(readFileSync(resolve(PROJECT_ROOT, 'apps/web/public/desk.svg')))
     .png()
     .toBuffer();
@@ -142,12 +142,12 @@ async function viewPng(item: IsoItem, elevation: number, width: number): Promise
     .toBuffer();
 }
 /** A saved crop back as fitter input. */
-async function cropInput(png: Buffer, label: string): Promise<FitInput> {
+export async function cropInput(png: Buffer, label: string): Promise<FitInput> {
   const { data, info } = await sharp(png).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
   return { rgba: new Uint8Array(data), width: info.width, height: info.height, label };
 }
 /** Keep the parts a person locked: they replace the fitted part of the same id, or join it. */
-function keepLocked(fitted: IsoItem, previous: IsoItem | null | undefined): IsoItem {
+export function keepLocked(fitted: IsoItem, previous: IsoItem | null | undefined): IsoItem {
   const locked = previous?.parts.filter((p) => p.locked) ?? [];
   if (!locked.length) return fitted;
   const parts = fitted.parts.map((p) => locked.find((l) => l.id === p.id) ?? p);

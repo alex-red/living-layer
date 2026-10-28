@@ -79,6 +79,7 @@ export type RunKind =
   | 'segment'
   | 'scene'
   | 'layout'
+  | 'photo'
   | 'item'
   | 'lamp'
   | 'observation'
@@ -159,7 +160,7 @@ const SPARK_GUESS = {
 export function runCost(run: Pick<EvidenceRun, 'kind' | 'mode' | 'usage'>): number | null {
   if (run.mode !== 'live') return null;
   if (run.kind === 'segment') return META_PRICES.samPerImage;
-  if (!['text', 'discover', 'scene', 'layout', 'item'].includes(run.kind) || !run.usage)
+  if (!['text', 'discover', 'scene', 'layout', 'item', 'photo'].includes(run.kind) || !run.usage)
     return null;
   const { input, output } = META_PRICES.sparkPerMillion;
   return (run.usage.inputTokens * input + run.usage.outputTokens * output) / 1_000_000;
@@ -511,3 +512,4 @@ export * from './color.js';
 export * from './iso-voxel.js';
 export * from './iso-archetypes.js';
 export * from './item-fit.js';
+export * from './photo-scene.js';

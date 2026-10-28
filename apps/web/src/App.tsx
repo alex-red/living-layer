@@ -379,17 +379,19 @@ export function App() {
     );
     if (follow && localTrack.current) void followFixture(next);
   }
-  async function upload(chosen?: File) {
+  /** Prepare a chosen photo as the current frame; returns it, or nothing on failure. */
+  async function upload(chosen?: File): Promise<string | undefined> {
     if (!chosen) return;
     const generation = ++imageGeneration.current;
     setError('');
+    let url: string | undefined;
     try {
       if (!['image/png', 'image/jpeg'].includes(chosen.type) || chosen.size > 10_000_000)
         throw new Error('Choose a PNG or JPEG under 10 MB.');
       const bitmap = await createImageBitmap(chosen, { imageOrientation: 'from-image' });
       try {
         if (mounted.current && generation === imageGeneration.current)
-          captureCanvas(bitmap, bitmap.width, bitmap.height);
+          url = captureCanvas(bitmap, bitmap.width, bitmap.height);
       } finally {
         bitmap.close();
       }
@@ -397,6 +399,7 @@ export function App() {
       setError(e instanceof Error ? e.message : 'Could not open that image.');
     }
     if (file.current) file.current.value = '';
+    return url;
   }
   async function startCamera() {
     if (cameraPending || stream.current) return;
@@ -1472,11 +1475,14 @@ export function App() {
                       ? `Model drafted: ${(run.output as SavedItem).parts.length} parts. Edit it, then save.`
                       : run.kind === 'layout'
                         ? 'Scene drafted. Review it in the scene editor, then save.'
-                        : `Scene guess saved: ${(run.output as SceneGuess).kind}. ${(run.output as SceneGuess).summary}`,
+                        : run.kind === 'photo'
+                          ? 'Scene drafted from the photo. Review the pin and the objects, then save.'
+                          : `Scene guess saved: ${(run.output as SceneGuess).kind}. ${(run.output as SceneGuess).summary}`,
                   );
                   void refresh();
                 }}
                 onMemory={setMemory}
+                onUpload={upload}
                 onMessage={(text) => {
                   setMessage(text);
                   void refresh();

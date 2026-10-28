@@ -10,12 +10,16 @@ import {
   itemCheckSchema,
   sceneDraftSchema,
   templateCatalog,
+  photoInventorySchema,
+  photoCheckSchema,
+  photoCatalog,
   type Usage,
   type Segmentation,
 } from '@livinglayer/domain';
 import type { Config, Fetcher } from './config.js';
 import { LabError } from './errors.js';
 import type { EvidenceStore } from './store.js';
+import { buildObjectPrompt, type PromptBox } from '@meta-sam/parser';
 import { decodeSegmentation, type SamEvent } from './sam.js';
 
 export interface ProviderResult<T> {
@@ -301,6 +305,85 @@ export class MetaAdapter {
     });
     return this.parsed(response, itemCheckSchema, 'item check');
   }
+  /**
+   * What is in a photo and roughly where: one entry per thing, each a
+   * template or an object archetype with a loose box. Spark gives no sizes,
+   * tiles or turns; SAM and the layout measure those.
+   */
+  async photoInventory(imageDataUrl: string) {
+    this.reserve();
+    const response = await this.client.responses.create({
+      model: this.config.sparkModel,
+      store: false,
+      max_output_tokens: 4096,
+      input: [
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'input_text',
+              text: [
+                'List the furniture and objects in this photo so they can be drawn as a small isometric scene.',
+                photoCatalog(),
+                'For each thing give: a short id (lowercase, like desk or mug-1); a short grounded label from what you see (no names, owners or brands); as, the closest template or object model; role: surface for what things stand on (a desk, a table, a cabinet top, a shelf), furniture for anything else that stands on the floor, object for small movable things; on, the id of what it stands on, or floor; and box, a loose box around it as x1, y1, x2, y2 from 0 to 1000 across and down the photo.',
+                'Include the main surface if there is one. Use at most 16 things, only what is clearly visible, biggest first. Do not guess sizes or distances. Summarise the scene in one short sentence.',
+              ].join('\n'),
+            },
+            { type: 'input_image', image_url: imageDataUrl, detail: 'auto' },
+          ],
+        },
+      ],
+      text: {
+        format: {
+          type: 'json_schema',
+          name: 'photo_inventory',
+          strict: true,
+          schema: z.toJSONSchema(photoInventorySchema),
+        },
+      },
+    });
+    return this.parsed(response, photoInventorySchema, 'photo inventory');
+  }
+  /**
+   * Spark compares the photo with the drafted scene drawn from the same
+   * camera, and names what is missing or should not be there. The layout
+   * keeps an addition only when SAM can outline it.
+   */
+  async photoCheck(imageDataUrl: string, renderDataUrl: string, listing: string) {
+    this.reserve();
+    const response = await this.client.responses.create({
+      model: this.config.sparkModel,
+      store: false,
+      max_output_tokens: 2048,
+      input: [
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'input_text',
+              text: [
+                'The first image is a photo; the second is a simple scene drawn from the same camera in flat colours.',
+                `The scene has: ${listing}.`,
+                photoCatalog(),
+                'In missing, list up to four clearly visible things the scene lacks, in the same form (id, label, as, role, on, box from 0 to 1000). In extra, give the ids of things in the scene that are not in the photo. Explain the main difference in one short sentence.',
+              ].join('\n'),
+            },
+            { type: 'input_image', image_url: imageDataUrl, detail: 'auto' },
+            { type: 'input_image', image_url: renderDataUrl, detail: 'auto' },
+          ],
+        },
+      ],
+      text: {
+        format: {
+          type: 'json_schema',
+          name: 'photo_check',
+          strict: true,
+          schema: z.toJSONSchema(photoCheckSchema),
+        },
+      },
+    });
+    return this.parsed(response, photoCheckSchema, 'photo check');
+  }
   private parsed<T>(
     response: OpenAI.Responses.Response & { _request_id?: string | null },
     schema: z.ZodType<T>,
@@ -324,12 +407,33 @@ export class MetaAdapter {
       usage: usageOf(response.usage),
     };
   }
-  async segment(
+  /**
+   * Outline up to 16 boxes in one SAM call. Each object comes back under its
+   * own id, so a mask is labelled by the box that asked for it.
+   */
+  async segmentBoxes(
     imageDataUrl: string,
-    concept: string,
+    boxes: { id: number; box: PromptBox }[],
     width: number,
     height: number,
+  ) {
+    const prompt = buildObjectPrompt({
+      size: { width, height },
+      objects: boxes.map((b) => ({ id: b.id, prompts: [{ box: b.box }] })),
+    });
+    return this.segment(imageDataUrl, prompt, width, height, {
+      concept: 'photo scene',
+      maxMasks: 16,
+    });
+  }
+  async segment(
+    imageDataUrl: string,
+    prompt: string,
+    width: number,
+    height: number,
+    options: { concept?: string; maxMasks?: number } = {},
   ): Promise<ProviderResult<Segmentation> & { raw: string }> {
+    const concept = options.concept ?? prompt;
     this.reserve();
     const response = await this.client.responses
       .create(
@@ -340,7 +444,7 @@ export class MetaAdapter {
             {
               role: 'user',
               content: [
-                { type: 'input_text', text: concept },
+                { type: 'input_text', text: prompt },
                 { type: 'input_image', image_url: imageDataUrl, detail: 'auto' },
               ],
             },
@@ -376,7 +480,7 @@ export class MetaAdapter {
         stream.controller.abort();
       }
     }
-    const decoded = await decodeSegmentation(tapped(), concept, width, height);
+    const decoded = await decodeSegmentation(tapped(), concept, width, height, options.maxMasks);
     return { ...decoded, model, requestId: response.request_id ?? null, usage };
   }
 }
