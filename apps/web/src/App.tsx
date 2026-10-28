@@ -10,8 +10,9 @@ import type {
   ZoneRect,
   PlacementDecision,
 } from '@livinglayer/domain';
-import { OBSERVATION_MAX_AGE_MS, isMugConcept } from '@livinglayer/domain';
+import { OBSERVATION_MAX_AGE_MS, isMugConcept, runCost } from '@livinglayer/domain';
 import { api } from './api';
+import { estimateLabel, usd } from './cost';
 import { Glyph } from './Glyph';
 import { MaskOverlay } from './MaskOverlay';
 
@@ -184,6 +185,10 @@ export function App() {
         .catch(() => setError('Camera playback failed. Stop the camera and try an upload.'));
     }
   }, [camera]);
+  function costNote(run: EvidenceRun) {
+    const cost = runCost(run);
+    return cost === null ? '' : ` · ≈ ${usd(cost)}`;
+  }
   async function execute(kind: 'text' | 'discover' | 'segment' | 'lamp', overrideConcept?: string) {
     setBusy(kind);
     setError('');
@@ -205,7 +210,7 @@ export function App() {
       setMessage(
         kind === 'segment' && run.status === 'no_match'
           ? 'No match. The previous mask has been cleared.'
-          : `${mode === 'fixture' ? 'Fixture' : 'Live'} ${kind} probe saved · ${run.durationMs} ms.`,
+          : `${mode === 'fixture' ? 'Fixture' : 'Live'} ${kind} probe saved · ${run.durationMs} ms${costNote(run)}.`,
       );
       await refresh();
     } catch (e) {
@@ -575,6 +580,9 @@ export function App() {
                 {busy === 'discover' ? 'Discovering…' : 'Discover objects'}
                 <Glyph type="arrow" />
               </button>
+              {mode === 'live' && status && (
+                <p className="micro">{estimateLabel(status.meta.estimates.discover)}</p>
+              )}
             </div>
             <div className={`probe ${step === 2 ? 'current' : ''}`}>
               <div className="probe-title">
@@ -609,6 +617,9 @@ export function App() {
               >
                 Test absent target <span>↗</span>
               </button>
+              {mode === 'live' && status && (
+                <p className="micro">{estimateLabel(status.meta.estimates.segment, 'image')}</p>
+              )}
               <p className="micro">
                 {segmentation
                   ? `${segmentation.detections.length} mask(s) · official Meta parser · ${mode}`
@@ -782,6 +793,9 @@ export function App() {
               >
                 {busy === 'text' ? 'Checking…' : 'Run text smoke test'} <span>↗</span>
               </button>
+              {mode === 'live' && status && (
+                <p className="micro">{estimateLabel(status.meta.estimates.text)}</p>
+              )}
             </div>
           </aside>
         </div>
@@ -826,7 +840,7 @@ export function App() {
                       {run.status.replace('_', ' ')}
                     </span>
                     <span>
-                      {run.durationMs} ms <span className="row-arrow">↗</span>
+                      {run.durationMs} ms{costNote(run)} <span className="row-arrow">↗</span>
                     </span>
                   </button>
                 ))
@@ -874,7 +888,7 @@ export function App() {
               <p>{status?.lamp.note}</p>
               <small>
                 {status
-                  ? `${status.meta.usedToday} / ${status.meta.requestLimit} Meta attempts today (UTC)`
+                  ? `${status.meta.usedToday} / ${status.meta.requestLimit} Meta attempts today (UTC) · ≈ ${usd(status.meta.spentToday)} spent`
                   : 'No outbound calls on startup.'}
               </small>
             </div>

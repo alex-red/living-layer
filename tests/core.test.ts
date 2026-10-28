@@ -11,7 +11,7 @@ import { validateImage } from '../apps/server/src/images.js';
 import { buildApp } from '../apps/server/src/app.js';
 import { LampAdapter } from '../apps/server/src/lamp.js';
 import { MetaAdapter } from '../apps/server/src/meta.js';
-import { sceneSchema } from '@livinglayer/domain';
+import { estimateCost, runCost, sceneSchema, type EvidenceRun } from '@livinglayer/domain';
 
 const dirs: string[] = [];
 function dir() {
@@ -371,6 +371,36 @@ describe('stream transport and sanitized failures', () => {
     expect(exported).not.toContain('private-image');
     expect((await app.inject('/api/status')).json().meta.usedToday).toBe(1);
     await app.close();
+  });
+});
+
+describe('cost estimates', () => {
+  const run = (kind: EvidenceRun['kind'], inputTokens: number, outputTokens: number) =>
+    ({
+      kind,
+      mode: 'live',
+      usage: { inputTokens, outputTokens, totalTokens: inputTokens + outputTokens },
+    }) as EvidenceRun;
+  it('prices Spark by tokens, SAM per image, and fixture runs at nothing', () => {
+    expect(runCost(run('discover', 1_000_000, 0))).toBeCloseTo(1.25);
+    expect(runCost(run('discover', 0, 1_000_000))).toBeCloseTo(4.25);
+    expect(runCost(run('segment', 5_000, 5_000))).toBe(0.0025);
+    expect(runCost({ ...run('discover', 1_000, 1_000), mode: 'fixture' })).toBeNull();
+    expect(runCost({ ...run('discover', 0, 0), usage: null })).toBeNull();
+  });
+  it('estimates from the median of live runs, falling back to a guess', () => {
+    expect(estimateCost('discover', []).basis).toBe('guess');
+    const history = [
+      run('discover', 1_000, 0),
+      run('discover', 3_000, 0),
+      run('discover', 100_000, 0),
+    ];
+    expect(estimateCost('discover', history)).toEqual({
+      usd: 0.00375,
+      basis: 'history',
+      samples: 3,
+    });
+    expect(estimateCost('segment', history)).toEqual({ usd: 0.0025, basis: 'list', samples: 0 });
   });
 });
 

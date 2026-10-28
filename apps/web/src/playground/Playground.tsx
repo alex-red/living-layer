@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type CSSProperties, type PointerEvent } from 'react';
 import type { EvidenceRun, LabStatus, Scene, Segmentation, ZoneRect } from '@livinglayer/domain';
-import { boxInZone } from '@livinglayer/domain';
+import { boxInZone, runCost } from '@livinglayer/domain';
 import { api } from '../api';
+import { usd } from '../cost';
 import { Glyph } from '../Glyph';
 import { MaskOverlay } from '../MaskOverlay';
 import { useCamera } from './useCamera';
@@ -18,6 +19,8 @@ interface Shot {
   takenAt: Date;
   scene?: Scene;
   segmentation?: Segmentation;
+  /** Estimated spend on live calls for this frame, in USD. */
+  spent?: number;
 }
 type Point = { x: number; y: number };
 type Tone = 'idle' | 'seen' | 'ok' | 'unsure' | 'blocked';
@@ -78,10 +81,13 @@ export function Playground() {
     };
   }, []);
 
-  useEffect(() => {
-    api<LabStatus>('status')
+  function loadStatus() {
+    return api<LabStatus>('status')
       .then((s) => setMeta(s.meta))
       .catch(() => setDetectError('The local server is unreachable, so detection is off.'));
+  }
+  useEffect(() => {
+    void loadStatus();
   }, []);
   const canDetect = Boolean(meta?.configured && meta.enabled);
 
@@ -94,6 +100,7 @@ export function Playground() {
     const run = ++detectRun.current;
     const patch = (fields: Partial<Shot>) =>
       setShot((s) => (s?.id === target.id ? { ...s, ...fields } : s));
+    let spent = target.spent ?? 0;
     setDetectError('');
     try {
       if (!only) {
@@ -102,8 +109,9 @@ export function Playground() {
           mode: 'live',
           imageDataUrl: target.url,
         });
+        spent += runCost(found) ?? 0;
         if (run !== detectRun.current) return;
-        patch({ scene: found.output });
+        patch({ scene: found.output, spent });
       }
       setDetecting('segment');
       const masked = await api<EvidenceRun<Segmentation>>('segment', {
@@ -111,8 +119,9 @@ export function Playground() {
         imageDataUrl: target.url,
         concept: only ?? concept.trim(),
       });
+      spent += runCost(masked) ?? 0;
       if (run !== detectRun.current) return;
-      patch({ segmentation: masked.output });
+      patch({ segmentation: masked.output, spent });
       if (masked.status === 'no_match')
         setDetectError(`No ${masked.output.concept} in this frame.`);
     } catch (e) {
@@ -120,6 +129,7 @@ export function Playground() {
         setDetectError(e instanceof Error ? e.message : 'Detection failed.');
     } finally {
       if (run === detectRun.current) setDetecting('');
+      void loadStatus();
     }
   }
   function leaveReview() {
@@ -640,6 +650,19 @@ export function Playground() {
                 {detecting ? 'Detecting…' : 'Detect objects'}
               </button>
             </div>
+            {meta && (
+              <p className="pg-mono">
+                ≈ {usd(meta.estimates.discover.usd + meta.estimates.segment.usd)} per detection ·
+                Spark {usd(meta.estimates.discover.usd)}
+                {meta.estimates.discover.basis === 'guess'
+                  ? ' (rough guess until a live run)'
+                  : ` (median of ${meta.estimates.discover.samples})`}{' '}
+                + SAM {usd(meta.estimates.segment.usd)}
+                <br />
+                {shot?.spent ? `This frame ≈ ${usd(shot.spent)} · ` : ''}
+                Today ≈ {usd(meta.spentToday)} · {meta.usedToday} / {meta.requestLimit} calls
+              </p>
+            )}
             {shot?.scene && shot.scene.objects.length > 0 && (
               <div className="pg-chips" role="group" aria-label="Objects Muse Spark named">
                 {shot.scene.objects.map((o) => (
@@ -647,7 +670,7 @@ export function Playground() {
                     key={o.label}
                     className={`pg-chip ${masks?.concept === o.category ? 'on' : ''}`}
                     disabled={Boolean(detecting)}
-                    title={o.appearance}
+                    title={`${o.appearance} · re-mask for ${usd(meta?.estimates.segment.usd ?? 0)}`}
                     onClick={() => {
                       setConcept(o.category);
                       void detect(shot, o.category);

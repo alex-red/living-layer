@@ -9,6 +9,8 @@ import {
   imageRequestSchema,
   segmentRequestSchema,
   FIXTURE_ID,
+  estimateCost,
+  runCost,
   type EvidenceRun,
   type RunKind,
   type Mode,
@@ -65,29 +67,41 @@ export async function buildApp(
       .code(normalized.statusCode)
       .send({ error: { code: normalized.code, message: normalized.message } });
   });
-  app.get('/api/status', async () => ({
-    meta: {
-      configured: Boolean(config.modelApiKey),
-      enabled: config.metaEnabled,
-      usedToday: store.usedToday(),
-      requestLimit: config.maxRequests,
-      sparkModel: config.sparkModel,
-      samModel: config.samModel,
-      note:
-        config.modelApiKey && config.metaEnabled
-          ? 'Live calls enabled. The daily allowance counts attempts, not cost.'
-          : 'Set MODEL_API_KEY and META_LIVE_ENABLED to make live calls.',
-    },
-    lamp: {
-      configured: Boolean(config.haUrl && config.haToken && config.haEntity),
-      enabled: config.haEnabled,
-      note:
-        config.haEnabled && config.haUrl && config.haToken && config.haEntity
-          ? 'One configured light; explicit actions only.'
-          : 'Set the HA_* variables and HA_LIVE_ENABLED to control a lamp.',
-    },
-    liveEvidence: store.liveEvidence(),
-  }));
+  app.get('/api/status', async () => {
+    const history = store.list();
+    const today = new Date().toISOString().slice(0, 10);
+    return {
+      meta: {
+        configured: Boolean(config.modelApiKey),
+        enabled: config.metaEnabled,
+        usedToday: store.usedToday(),
+        requestLimit: config.maxRequests,
+        sparkModel: config.sparkModel,
+        samModel: config.samModel,
+        estimates: {
+          text: estimateCost('text', history),
+          discover: estimateCost('discover', history),
+          segment: estimateCost('segment', history),
+        },
+        spentToday: history
+          .filter((r) => r.createdAt.startsWith(today))
+          .reduce((sum, r) => sum + (runCost(r) ?? 0), 0),
+        note:
+          config.modelApiKey && config.metaEnabled
+            ? 'Live calls enabled. The daily allowance counts attempts, not cost.'
+            : 'Set MODEL_API_KEY and META_LIVE_ENABLED to make live calls.',
+      },
+      lamp: {
+        configured: Boolean(config.haUrl && config.haToken && config.haEntity),
+        enabled: config.haEnabled,
+        note:
+          config.haEnabled && config.haUrl && config.haToken && config.haEntity
+            ? 'One configured light; explicit actions only.'
+            : 'Set the HA_* variables and HA_LIVE_ENABLED to control a lamp.',
+      },
+      liveEvidence: store.liveEvidence(),
+    };
+  });
   deskRoutes(app, store, async (mode) => (mode === 'fixture' ? fixtureLamp : lamp.turnOn()));
   app.get('/api/runs', async () => store.list());
   app.get('/api/evidence', async (_request, reply) =>
