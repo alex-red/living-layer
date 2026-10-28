@@ -6,6 +6,7 @@ import { usd } from '../cost';
 import { Glyph } from '../Glyph';
 import { sendToLab } from '../handoff';
 import { MaskOverlay } from '../MaskOverlay';
+import { PixelFeed, type PixelPalette } from './PixelFeed';
 import { useCamera } from './useCamera';
 import { useMotionGate, type Stillness } from './useMotionGate';
 import './playground.css';
@@ -60,6 +61,10 @@ export function Playground() {
   const camera = useCamera();
   const [mirror, setMirror] = useState(true);
   const [guides, setGuides] = useState(true);
+  const [pixelArt, setPixelArt] = useState(false);
+  const [blockPx, setBlockPx] = useState(8);
+  const [palette, setPalette] = useState<PixelPalette>('neon');
+  const [dither, setDither] = useState(true);
   const [threshold, setThreshold] = useState(1.5);
   const [settleMs, setSettleMs] = useState(800);
   const [showCells, setShowCells] = useState(false);
@@ -494,6 +499,13 @@ export function Playground() {
                 hidden={!live || reviewing}
                 aria-label="Live camera preview"
               />
+              <PixelFeed
+                video={camera.video}
+                active={pixelArt && live && !reviewing}
+                blockPx={blockPx}
+                palette={palette}
+                dither={dither}
+              />
               {shot && <img src={shot.url} alt="Captured frame" />}
               {shot?.segmentation && (
                 <MaskOverlay key={shot.id} segmentation={shot.segmentation} cover />
@@ -715,6 +727,51 @@ export function Playground() {
               </label>
             )}
             {camera.info?.label && <p className="pg-mono">{camera.info.label}</p>}
+            <label className="pg-switch">
+              <input
+                type="checkbox"
+                checked={pixelArt}
+                onChange={(e) => setPixelArt(e.target.checked)}
+              />
+              Pixel-art preview
+            </label>
+            {pixelArt && (
+              <>
+                <label className="pg-field">
+                  <span>
+                    Pixel size <b>{blockPx} px</b>
+                  </span>
+                  <input
+                    type="range"
+                    min="2"
+                    max="32"
+                    step="1"
+                    value={blockPx}
+                    onChange={(e) => setBlockPx(Number(e.target.value))}
+                  />
+                </label>
+                <label className="pg-field">
+                  <span>Palette</span>
+                  <select
+                    value={palette}
+                    onChange={(e) => setPalette(e.target.value as PixelPalette)}
+                  >
+                    <option value="neon">Quiet Neon</option>
+                    <option value="mono">Mono, 4 tones</option>
+                    <option value="full">Full colour, posterized</option>
+                  </select>
+                </label>
+                <label className="pg-switch">
+                  <input
+                    type="checkbox"
+                    checked={dither}
+                    onChange={(e) => setDither(e.target.checked)}
+                  />
+                  Ordered dithering
+                </label>
+                <p>Preview only. Captures and the motion gate still use the clean feed.</p>
+              </>
+            )}
             <input
               ref={file}
               type="file"

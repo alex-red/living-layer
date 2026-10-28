@@ -13,7 +13,7 @@
     "skipLibCheck": true,
     "resolveJsonModule": true,
     "allowImportingTsExtensions": true,
-    "types": ["bun", "vite/client"]
+    "types": ["bun", "vite/client", "@webgpu/types"]
   },
   "include": ["apps", "packages", "scripts", "tests", "*.config.ts"]
 }
