@@ -15,9 +15,11 @@ test('fixture desk completes discovery, mask, absent target, lamp and export wit
     return route.continue();
   });
   await page.goto('/');
-  await expect(page.getByRole('heading', { name: 'A little context.' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Desk lab' })).toBeVisible();
   await page.getByRole('button', { name: 'Discover objects', exact: true }).click();
-  await expect(page.getByRole('button', { name: /cream mug/ })).toBeVisible();
+  await expect(
+    page.locator('.object-grid').getByRole('button', { name: /cream mug/ }),
+  ).toBeVisible();
   await page.getByRole('button', { name: 'Segment object', exact: true }).click();
   await expect(page.getByLabel('1 segmentation masks')).toBeVisible();
   await expect(page.locator('.mask-overlay path')).toHaveCount(1);
@@ -59,7 +61,9 @@ test('mobile workbench fits its viewport', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/');
   await page.getByRole('button', { name: 'Discover objects', exact: true }).click();
-  await expect(page.getByRole('button', { name: /cream mug/ })).toBeVisible();
+  await expect(
+    page.locator('.object-grid').getByRole('button', { name: /cream mug/ }),
+  ).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: '.data/screenshots/desk-fixture-mobile.png', fullPage: true });
 });
@@ -69,7 +73,10 @@ test('remembers a mug, draws a zone, verifies one virtual action, and retains ev
 }) => {
   await page.goto('/');
   await page.getByRole('button', { name: 'Discover objects', exact: true }).click();
-  await page.getByRole('button', { name: /cream mug/ }).click();
+  await page
+    .locator('.object-grid')
+    .getByRole('button', { name: /cream mug/ })
+    .click();
   await page.getByRole('button', { name: 'Segment object', exact: true }).click();
   await page.getByRole('button', { name: 'Confirm mug mask #7', exact: true }).click();
   await expect(page.locator('.feedback')).toContainText('Mug identity manually confirmed');

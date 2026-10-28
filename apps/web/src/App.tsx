@@ -9,11 +9,13 @@ import type {
   DeskMemory,
   ZoneRect,
   PlacementDecision,
+  RunKind,
 } from '@livinglayer/domain';
 import { OBSERVATION_MAX_AGE_MS, isMugConcept, runCost } from '@livinglayer/domain';
 import { api } from './api';
 import { estimateLabel, usd } from './cost';
 import { Glyph } from './Glyph';
+import { takeHandoff } from './handoff';
 import { MaskOverlay } from './MaskOverlay';
 
 const BUSY: Record<string, string> = {
@@ -32,6 +34,50 @@ const RESULT_GLYPH: Record<EvidenceRun['status'], string> = {
   unconfirmed: '◌',
   failed: '×',
 };
+const RUN_KINDS: RunKind[] = [
+  'text',
+  'discover',
+  'segment',
+  'lamp',
+  'observation',
+  'zone',
+  'placement',
+];
+const LOG_PAGE = 10;
+type ProbeKind = 'text' | 'discover' | 'segment' | 'lamp';
+const isProbe = (kind: RunKind): kind is ProbeKind =>
+  ['text', 'discover', 'segment', 'lamp'].includes(kind);
+
+/** One short line on what a run returned, for the log and the inspector. */
+function runDetail(run: EvidenceRun): string {
+  const output = run.output as Record<string, unknown> | null;
+  if (run.status === 'failed')
+    return (output?.error as { message?: string } | undefined)?.message ?? 'Failed';
+  switch (run.kind) {
+    case 'segment': {
+      const s = run.output as Segmentation;
+      return `"${s.concept}" · ${s.detections.length} mask${s.detections.length === 1 ? '' : 's'}`;
+    }
+    case 'discover': {
+      const s = run.output as Scene;
+      return `${s.objects.length} object${s.objects.length === 1 ? '' : 's'}: ${s.objects.map((o) => o.label).join(', ')}`;
+    }
+    case 'lamp':
+      return `state ${(run.output as LampResult).state}`;
+    case 'placement': {
+      const p = run.output as PlacementDecision;
+      return `${p.decision} · lamp ${p.action}`;
+    }
+    default:
+      return '';
+  }
+}
+function median(values: number[]): number | null {
+  if (!values.length) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[mid]! : Math.round((sorted[mid - 1]! + sorted[mid]!) / 2);
+}
 
 export function App() {
   const [now, setNow] = useState(Date.now());
@@ -60,6 +106,11 @@ export function App() {
     'Start with the illustrated desk. Every fixture result is labeled.',
   );
   const [selected, setSelected] = useState<EvidenceRun>();
+  const [logKind, setLogKind] = useState<RunKind | 'all'>('all');
+  const [logMode, setLogMode] = useState<Mode | 'all'>('all');
+  const [failuresOnly, setFailuresOnly] = useState(false);
+  const [logLimit, setLogLimit] = useState(LOG_PAGE);
+  const inspector = useRef<HTMLElement>(null);
   // Drives the ambient warm-up. Only a confirmed lamp state turns it on.
   const [lamp, setLamp] = useState<'off' | 'virtual' | 'live'>('off');
   const light = () => setLamp(mode === 'fixture' ? 'virtual' : 'live');
@@ -87,6 +138,17 @@ export function App() {
     void refresh().catch(() =>
       setError('The local API is unavailable. Start both services with bun run dev.'),
     );
+    const handedOff = takeHandoff();
+    if (handedOff) {
+      changeMode('live');
+      const frame = new Image();
+      frame.onload = () => {
+        if (!mounted.current) return;
+        captureCanvas(frame, frame.naturalWidth, frame.naturalHeight);
+        setMessage('Frame from the camera playground, prepared locally. Run a live probe on it.');
+      };
+      frame.src = handedOff;
+    }
     return () => {
       mounted.current = false;
       cameraGeneration.current++;
@@ -287,6 +349,77 @@ export function App() {
   const confirmedId = currentObservation?.detectionId;
   const step = !scene && !segmentation ? 1 : !segmentation ? 2 : 3;
   const capsuleTone = error ? 'blocked' : busy ? 'busy' : lamp !== 'off' ? 'warm' : 'idle';
+
+  const filteredRuns = runs.filter(
+    (run) =>
+      (logKind === 'all' || run.kind === logKind) &&
+      (logMode === 'all' || run.mode === logMode) &&
+      (!failuresOnly || run.status === 'failed'),
+  );
+  const logStats = {
+    failed: filteredRuns.filter((r) => r.status === 'failed').length,
+    medianMs: median(filteredRuns.map((r) => r.durationMs)),
+    cost: filteredRuns.reduce((sum, r) => sum + (runCost(r) ?? 0), 0),
+  };
+  function inspect(run: EvidenceRun) {
+    setSelected(run);
+    requestAnimationFrame(() =>
+      inspector.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }),
+    );
+  }
+  /** Why a saved probe can't be repeated right now, or null if it can. */
+  function rerunBlock(run: EvidenceRun): string | null {
+    if (!isProbe(run.kind)) return 'Only probes can be repeated. Use the bench for desk steps.';
+    if (run.mode !== mode) return `Switch to ${run.mode} mode to repeat this run.`;
+    if (busy) return 'Wait for the current call to finish.';
+    if (camera) return 'Capture or stop the camera first.';
+    if (run.kind === 'lamp')
+      return mode === 'live' && !lampReady ? 'The lamp is not set up.' : null;
+    if (mode === 'live' && !metaReady) return 'Live Meta calls are not available.';
+    if (run.kind !== 'text' && mode === 'live' && !image) return 'Add a desk photo first.';
+    return null;
+  }
+  function rerun(run: EvidenceRun) {
+    if (!isProbe(run.kind) || rerunBlock(run)) return;
+    const again = run.kind === 'segment' ? (run.output as Segmentation).concept : undefined;
+    if (again) setConcept(again);
+    void execute(run.kind, again);
+  }
+  /**
+   * A saved mask can go back on the scene when it was made from the image on
+   * screen now: always for the fixture, and for a live photo when its source
+   * hash matches the mask already showing.
+   */
+  function canRestore(run: EvidenceRun): boolean {
+    if (busy || camera || run.mode !== mode || run.status === 'failed') return false;
+    if (run.kind === 'discover') return mode === 'fixture';
+    if (run.kind !== 'segment') return false;
+    const key = (run.output as Segmentation).sourceKey;
+    return mode === 'fixture' || (Boolean(key) && key === segmentation?.sourceKey);
+  }
+  function restore(run: EvidenceRun) {
+    if (run.kind === 'discover') {
+      setScene(run.output as Scene);
+      setMessage('Saved discovery restored to the scene.');
+      return;
+    }
+    const restored = run.output as Segmentation;
+    setSegmentation(restored);
+    setSegmentRunId(run.id);
+    setConcept(restored.concept);
+    setDrawing(false);
+    setLamp('off');
+    setMessage(`Mask from run ${run.id.slice(0, 8)} restored. You can confirm it as before.`);
+  }
+  function copyRun(run: EvidenceRun) {
+    navigator.clipboard
+      .writeText(JSON.stringify(run, null, 2))
+      .then(() => setMessage(`Run ${run.id.slice(0, 8)} copied as JSON.`))
+      .catch(() => setError('The clipboard is unavailable. Select the JSON below instead.'));
+  }
+  const sorted = segmentation
+    ? [...segmentation.detections].sort((a, b) => (b.confidence ?? 0) - (a.confidence ?? 0))
+    : [];
   return (
     <div className={`shell lamp-${lamp}`}>
       <header className="topbar">
@@ -300,7 +433,9 @@ export function App() {
         <div className={`feedback ${capsuleTone}`} role="status" aria-live="polite">
           {camera && <span className="privacy-dot" aria-label="Camera on" />}
           <span className="dot" />
-          <span className="feedback-text">{busy ? `${BUSY[busy] ?? 'Working'}…` : message}</span>
+          <span className="feedback-text">
+            {busy ? `${BUSY[busy] ?? 'Working'}…` : error || message}
+          </span>
           {lamp === 'virtual' && <span className="hud-tag">VIRTUAL</span>}
         </div>
         <nav className="topbar-links">
@@ -313,34 +448,56 @@ export function App() {
         </nav>
       </header>
       <main>
-        <section className="intro">
+        <section className="bench-head">
           <div>
-            <p className="eyebrow">
-              <span className="dot" /> EXPERIMENTAL
-            </p>
-            <h1>
-              A little context.
-              <br />
-              <em>A living space.</em>
-            </h1>
+            <h1>Desk lab</h1>
             <p className="lede">
-              Find the objects. See the mask. Test one light.
-              <br />
-              Select a mug. Mark a zone. Verify one placement.
+              Probe Spark, SAM and the lamp one call at a time. Every run is saved to the evidence
+              log, where you can inspect it, repeat it, or put its result back on the scene.
             </p>
           </div>
-          <aside className="session-note">
-            <span className="edition">LOCAL ONLY · LOOPBACK API</span>
-            <span className="tiny">THE EXPERIMENT</span>
-            <p>
-              Can we turn a desk scene
-              <br />
-              into something actionable?
-            </p>
-            <span className="note-rule" />
-            <span className="tiny">SPARK → SAM → HOME ASSISTANT</span>
-            <span className="note-foot">Manual placement checks · one action per observation</span>
-          </aside>
+          <dl className="session-strip" aria-label="Session">
+            <div>
+              <dt>SPARK</dt>
+              <dd>{status?.meta.sparkModel ?? '…'}</dd>
+            </div>
+            <div>
+              <dt>SAM</dt>
+              <dd>{status?.meta.samModel ?? '…'}</dd>
+            </div>
+            <div>
+              <dt>META</dt>
+              <dd className={metaReady ? 'ok' : 'unsure'}>
+                {metaReady ? '● ready' : '◌ off'}
+                {status && (
+                  <small>
+                    {status.meta.usedToday} / {status.meta.requestLimit} calls
+                  </small>
+                )}
+              </dd>
+              {status && (
+                <span className="budget" aria-hidden="true">
+                  <span
+                    style={{
+                      width: `${Math.min(100, (status.meta.usedToday / Math.max(1, status.meta.requestLimit)) * 100)}%`,
+                    }}
+                  />
+                </span>
+              )}
+            </div>
+            <div>
+              <dt>SPENT TODAY</dt>
+              <dd>{status ? `≈ ${usd(status.meta.spentToday)}` : '…'}</dd>
+            </div>
+            <div>
+              <dt>LAMP</dt>
+              <dd className={lampReady ? 'ok' : 'unsure'}>{lampReady ? '● ready' : '◌ off'}</dd>
+            </div>
+            <div>
+              <dt>LIVE PROOF</dt>
+              <dd>{proofCount} / 4</dd>
+            </div>
+          </dl>
         </section>
         <div className="workspace-heading">
           <h2>
@@ -599,8 +756,12 @@ export function App() {
                   value={concept}
                   maxLength={80}
                   onChange={(e) => setConcept(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && canVision && concept.trim() && !camera)
+                      void execute('segment');
+                  }}
                 />
-                <span>TEXT PROMPT</span>
+                <span>↵ TO RUN</span>
               </div>
               <button
                 className="primary"
@@ -620,11 +781,53 @@ export function App() {
               {mode === 'live' && status && (
                 <p className="micro">{estimateLabel(status.meta.estimates.segment, 'image')}</p>
               )}
-              <p className="micro">
-                {segmentation
-                  ? `${segmentation.detections.length} mask(s) · official Meta parser · ${mode}`
-                  : 'Crop-local mask → source-pixel overlay'}
-              </p>
+              {segmentation && sorted.length > 0 ? (
+                <table className="detections">
+                  <caption>
+                    {sorted.length} mask{sorted.length === 1 ? '' : 's'} for “{segmentation.concept}
+                    ” · {segmentation.frame.width}×{segmentation.frame.height}
+                  </caption>
+                  <thead>
+                    <tr>
+                      <th scope="col">ID</th>
+                      <th scope="col">SCORE</th>
+                      <th scope="col">BOX X,Y W×H</th>
+                      <th scope="col">AREA</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {sorted.map((d) => (
+                      <tr key={d.objectId} className={d.objectId === confirmedId ? 'chosen' : ''}>
+                        <td>
+                          {d.objectId === confirmedId ? '✓ ' : ''}#{d.objectId}
+                        </td>
+                        <td>{d.confidence != null ? d.confidence.toFixed(2) : '—'}</td>
+                        <td>
+                          {Math.round(d.box.x)},{Math.round(d.box.y)} {Math.round(d.box.width)}×
+                          {Math.round(d.box.height)}
+                        </td>
+                        <td>
+                          {/* The mask raster is crop-local, so scale its fill up to the box. */}
+                          {(
+                            ((d.mask.foregroundPixels / (d.mask.width * d.mask.height)) *
+                              d.box.width *
+                              d.box.height *
+                              100) /
+                            (segmentation.frame.width * segmentation.frame.height)
+                          ).toFixed(1)}
+                          %
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              ) : (
+                <p className="micro">
+                  {segmentation
+                    ? `No “${segmentation.concept}” found · ${mode}`
+                    : 'Crop-local mask → source-pixel overlay'}
+                </p>
+              )}
             </div>
             <div className={`probe placement-controls ${step === 3 ? 'current chosen' : ''}`}>
               <div className="probe-title">
@@ -812,18 +1015,71 @@ export function App() {
               </h2>
               <span className="tiny">LOCAL · PERSISTENT · EXPORTABLE</span>
             </div>
+            <div className="log-filters" role="group" aria-label="Filter the evidence log">
+              <label>
+                Kind
+                <select
+                  value={logKind}
+                  onChange={(e) => {
+                    setLogKind(e.target.value as RunKind | 'all');
+                    setLogLimit(LOG_PAGE);
+                  }}
+                >
+                  <option value="all">All kinds</option>
+                  {RUN_KINDS.map((kind) => (
+                    <option key={kind} value={kind}>
+                      {kind}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Mode
+                <select
+                  value={logMode}
+                  onChange={(e) => {
+                    setLogMode(e.target.value as Mode | 'all');
+                    setLogLimit(LOG_PAGE);
+                  }}
+                >
+                  <option value="all">Both modes</option>
+                  <option value="fixture">Fixture</option>
+                  <option value="live">Live</option>
+                </select>
+              </label>
+              <label className="overlay-toggle">
+                <input
+                  type="checkbox"
+                  checked={failuresOnly}
+                  onChange={(e) => {
+                    setFailuresOnly(e.target.checked);
+                    setLogLimit(LOG_PAGE);
+                  }}
+                />{' '}
+                Failures only
+              </label>
+              <p className="log-stats" aria-live="polite">
+                {filteredRuns.length} run{filteredRuns.length === 1 ? '' : 's'}
+                {logStats.failed > 0 && (
+                  <span className="failed"> · × {logStats.failed} failed</span>
+                )}
+                {logStats.medianMs !== null && ` · median ${logStats.medianMs} ms`}
+                {logStats.cost > 0 && ` · ≈ ${usd(logStats.cost)}`}
+              </p>
+            </div>
             <div className="evidence-table">
               <div className="table-head">
                 <span>PROBE / SOURCE</span>
                 <span>RESULT</span>
                 <span>DURATION</span>
               </div>
-              {runs.length ? (
-                runs.slice(0, 8).map((run) => (
+              {filteredRuns.length ? (
+                filteredRuns.slice(0, logLimit).map((run) => (
                   <button
                     className={`run-row ${selected?.id === run.id ? 'selected' : ''}`}
                     key={run.id}
-                    onClick={() => setSelected(run)}
+                    aria-pressed={selected?.id === run.id}
+                    onClick={() => inspect(run)}
                   >
                     <span>
                       <strong>{run.kind}</strong>
@@ -831,9 +1087,11 @@ export function App() {
                         {new Date(run.createdAt).toLocaleTimeString([], {
                           hour: '2-digit',
                           minute: '2-digit',
+                          second: '2-digit',
                         })}{' '}
                         <b className={`badge ${run.mode}`}>{run.mode}</b>
                       </small>
+                      {runDetail(run) && <em className="run-detail">{runDetail(run)}</em>}
                     </span>
                     <span className={`result ${run.status}`}>
                       <span aria-hidden="true">{RESULT_GLYPH[run.status]}</span>{' '}
@@ -845,54 +1103,167 @@ export function App() {
                   </button>
                 ))
               ) : (
-                <div className="empty-evidence">No probes yet. Start with discovery above.</div>
+                <div className="empty-evidence">
+                  {runs.length
+                    ? 'No runs match these filters.'
+                    : 'No probes yet. Start with discovery above.'}
+                </div>
+              )}
+              {filteredRuns.length > logLimit && (
+                <button className="log-more" onClick={() => setLogLimit((n) => n + LOG_PAGE * 2)}>
+                  Show more · {filteredRuns.length - logLimit} older
+                </button>
               )}
             </div>
-            {selected && (
-              <details className="inspector" key={selected.id}>
-                <summary>
-                  Inspect {selected.kind} evidence <code>{selected.id.slice(0, 8)}</code>
-                </summary>
-                {selected.kind === 'lamp' && <p>{(selected.output as LampResult).explanation}</p>}
-                <pre>{JSON.stringify(selected, null, 2)}</pre>
-              </details>
-            )}
           </div>
-          <aside className="readiness">
-            <span className="tiny">LIVE PROOF CHECKLIST</span>
-            <h3>
-              {proofCount}
-              <span> / 4</span>
-            </h3>
-            <p>Fixture runs never count toward live proof.</p>
-            {(['text', 'discover', 'segment', 'lamp'] as const).map((kind) => (
-              <div className="proof-row" key={kind}>
-                <span className={`ring ${status?.liveEvidence[kind] ? 'done' : ''}`}>
-                  {status?.liveEvidence[kind] ? '✓' : ''}
-                </span>
-                {
+          <div className="evidence-side">
+            {selected && (
+              <section
+                className="inspector"
+                key={selected.id}
+                ref={inspector}
+                aria-label={`${selected.kind} run ${selected.id.slice(0, 8)}`}
+              >
+                <header className="inspector-head">
+                  <div>
+                    <span className="tiny">RUN INSPECTOR</span>
+                    <h3>
+                      <span className="inspector-kind">{selected.kind}</span>{' '}
+                      <code>{selected.id.slice(0, 8)}</code>
+                    </h3>
+                  </div>
+                  <span className={`result ${selected.status}`}>
+                    <span aria-hidden="true">{RESULT_GLYPH[selected.status]}</span>{' '}
+                    {selected.status.replace('_', ' ')}
+                  </span>
+                  <button
+                    className="inspector-close"
+                    aria-label="Close inspector"
+                    onClick={() => setSelected(undefined)}
+                  >
+                    ×
+                  </button>
+                </header>
+                {runDetail(selected) && <p className="inspector-detail">{runDetail(selected)}</p>}
+                {selected.kind === 'lamp' && <p>{(selected.output as LampResult).explanation}</p>}
+                <dl className="inspector-facts">
+                  <div>
+                    <dt>MODE</dt>
+                    <dd>{selected.mode}</dd>
+                  </div>
+                  <div>
+                    <dt>MODEL</dt>
+                    <dd>{selected.model ?? '—'}</dd>
+                  </div>
+                  <div>
+                    <dt>PROMPT</dt>
+                    <dd>{selected.promptVersion}</dd>
+                  </div>
+                  <div>
+                    <dt>DURATION</dt>
+                    <dd>{selected.durationMs} ms</dd>
+                  </div>
+                  <div>
+                    <dt>TOKENS IN / OUT</dt>
+                    <dd>
+                      {selected.usage
+                        ? `${selected.usage.inputTokens} / ${selected.usage.outputTokens}`
+                        : '—'}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>EST. COST</dt>
+                    <dd>{runCost(selected) === null ? '—' : `≈ ${usd(runCost(selected)!)}`}</dd>
+                  </div>
+                  <div>
+                    <dt>REQUEST ID</dt>
+                    <dd>{selected.requestId ?? '—'}</dd>
+                  </div>
+                  <div>
+                    <dt>CREATED</dt>
+                    <dd>{new Date(selected.createdAt).toLocaleString()}</dd>
+                  </div>
+                  <div>
+                    <dt>ASSETS</dt>
+                    <dd>{selected.assets.length ? selected.assets.join(', ') : '—'}</dd>
+                  </div>
+                </dl>
+                <div className="inspector-actions">
+                  {isProbe(selected.kind) && (
+                    <button
+                      className="secondary"
+                      disabled={Boolean(rerunBlock(selected))}
+                      title={rerunBlock(selected) ?? undefined}
+                      onClick={() => rerun(selected)}
+                    >
+                      Run again
+                      {selected.kind === 'segment' &&
+                        ` · “${(selected.output as Segmentation).concept}”`}
+                    </button>
+                  )}
+                  {(selected.kind === 'segment' || selected.kind === 'discover') && (
+                    <button
+                      className="secondary"
+                      disabled={!canRestore(selected)}
+                      title={
+                        canRestore(selected)
+                          ? undefined
+                          : 'Only results made from the image on screen can go back on it.'
+                      }
+                      onClick={() => restore(selected)}
+                    >
+                      Show on scene
+                    </button>
+                  )}
+                  <button className="text-button" onClick={() => copyRun(selected)}>
+                    Copy JSON
+                  </button>
+                </div>
+                {isProbe(selected.kind) && rerunBlock(selected) && (
+                  <p className="micro">{rerunBlock(selected)}</p>
+                )}
+                <details>
+                  <summary>Raw evidence</summary>
+                  <pre>{JSON.stringify(selected, null, 2)}</pre>
+                </details>
+              </section>
+            )}
+            <aside className="readiness">
+              <span className="tiny">LIVE PROOF CHECKLIST</span>
+              <h3>
+                {proofCount}
+                <span> / 4</span>
+              </h3>
+              <p>Fixture runs never count toward live proof.</p>
+              {(['text', 'discover', 'segment', 'lamp'] as const).map((kind) => (
+                <div className="proof-row" key={kind}>
+                  <span className={`ring ${status?.liveEvidence[kind] ? 'done' : ''}`}>
+                    {status?.liveEvidence[kind] ? '✓' : ''}
+                  </span>
                   {
-                    text: 'Spark connection',
-                    discover: 'Real desk discovery',
-                    segment: 'Real mug mask',
-                    lamp: 'HA state observed',
-                  }[kind]
-                }
-                <small>{status?.liveEvidence[kind] ? 'Saved' : 'Pending'}</small>
+                    {
+                      text: 'Spark connection',
+                      discover: 'Real desk discovery',
+                      segment: 'Real mug mask',
+                      lamp: 'HA state observed',
+                    }[kind]
+                  }
+                  <small>{status?.liveEvidence[kind] ? 'Saved' : 'Pending'}</small>
+                </div>
+              ))}
+              <div className="setup-note">
+                <strong>{metaReady ? 'Meta calls enabled' : 'Meta access pending'}</strong>
+                <p>{status?.meta.note ?? 'Checking local configuration…'}</p>
+                <strong>{lampReady ? 'Lamp adapter enabled' : 'Lamp setup pending'}</strong>
+                <p>{status?.lamp.note}</p>
+                <small>
+                  {status
+                    ? `${status.meta.usedToday} / ${status.meta.requestLimit} Meta attempts today (UTC) · ≈ ${usd(status.meta.spentToday)} spent`
+                    : 'No outbound calls on startup.'}
+                </small>
               </div>
-            ))}
-            <div className="setup-note">
-              <strong>{metaReady ? 'Meta calls enabled' : 'Meta access pending'}</strong>
-              <p>{status?.meta.note ?? 'Checking local configuration…'}</p>
-              <strong>{lampReady ? 'Lamp adapter enabled' : 'Lamp setup pending'}</strong>
-              <p>{status?.lamp.note}</p>
-              <small>
-                {status
-                  ? `${status.meta.usedToday} / ${status.meta.requestLimit} Meta attempts today (UTC) · ≈ ${usd(status.meta.spentToday)} spent`
-                  : 'No outbound calls on startup.'}
-              </small>
-            </div>
-          </aside>
+            </aside>
+          </div>
         </section>
       </main>
       <footer>

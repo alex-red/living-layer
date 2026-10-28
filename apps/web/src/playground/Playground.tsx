@@ -4,6 +4,7 @@ import { boxInZone, runCost } from '@livinglayer/domain';
 import { api } from '../api';
 import { usd } from '../cost';
 import { Glyph } from '../Glyph';
+import { sendToLab } from '../handoff';
 import { MaskOverlay } from '../MaskOverlay';
 import { useCamera } from './useCamera';
 import { useMotionGate, type Stillness } from './useMotionGate';
@@ -17,15 +18,28 @@ interface Shot {
   motion: number;
   state: Stillness;
   takenAt: Date;
+  /** Where the frame came from. A file has no motion reading. */
+  source: 'camera' | 'file';
   scene?: Scene;
   segmentation?: Segmentation;
   /** Estimated spend on live calls for this frame, in USD. */
   spent?: number;
 }
+/** A mask SAM returned for the live view while watching. */
+interface Sighting {
+  segmentation: Segmentation;
+  takenAt: Date;
+  ms: number;
+  cost: number;
+  /** The desk moved after this frame was grabbed, so the mask may no longer line up. */
+  stale: boolean;
+}
 type Point = { x: number; y: number };
 type Tone = 'idle' | 'seen' | 'ok' | 'unsure' | 'blocked';
 
 const UNIT = { width: 1, height: 1 };
+/** The shortest gap between two automatic calls, however often the desk settles. */
+const WATCH_GAP_MS = 3000;
 const clamp = (n: number, min = 0, max = 1) => Math.max(min, Math.min(max, n));
 const pct = (n: number) => `${Math.round(n * 100)}%`;
 const time = (d: Date) =>
@@ -63,7 +77,9 @@ export function Playground() {
   const shotId = useRef(0);
   const [meta, setMeta] = useState<LabStatus['meta']>();
   const [concept, setConcept] = useState('mug');
-  const [autoDetect, setAutoDetect] = useState(false);
+  const [watch, setWatch] = useState(false);
+  const [sighting, setSighting] = useState<Sighting>();
+  const [watchBusy, setWatchBusy] = useState(false);
   const [detecting, setDetecting] = useState<'' | 'discover' | 'segment'>('');
   const [detectError, setDetectError] = useState('');
   const detectRun = useRef(0);
@@ -90,6 +106,7 @@ export function Playground() {
     void loadStatus();
   }, []);
   const canDetect = Boolean(meta?.configured && meta.enabled);
+  const callsLeft = meta ? Math.max(0, meta.requestLimit - meta.usedToday) : 0;
 
   /**
    * The slow half of the two-speed design: send one captured frame to the
@@ -139,7 +156,8 @@ export function Playground() {
     setShot(undefined);
   }
 
-  function capture() {
+  /** Draw the current video frame, at most 1280 px on its long side, as a JPEG. */
+  function grabFrame() {
     const el = camera.video.current;
     if (!el?.videoWidth) return;
     const scale = Math.min(1, 1280 / Math.max(el.videoWidth, el.videoHeight));
@@ -150,25 +168,143 @@ export function Playground() {
     if (!context) return;
     // The preview may be mirrored. The captured frame never is.
     context.drawImage(el, 0, 0, canvas.width, canvas.height);
+    return { url: canvas.toDataURL('image/jpeg', 0.9), width: canvas.width, height: canvas.height };
+  }
+
+  function capture() {
+    const frame = grabFrame();
+    if (!frame) return;
+    // A fresh mask from watching belongs to this same still scene, so keep it.
+    const carried = sighting && !sighting.stale ? sighting : undefined;
     const next: Shot = {
       id: ++shotId.current,
-      url: canvas.toDataURL('image/jpeg', 0.9),
-      width: canvas.width,
-      height: canvas.height,
+      ...frame,
+      segmentation: carried?.segmentation,
+      spent: carried?.cost,
       motion: motion.score,
       state: motion.state,
       takenAt: new Date(),
+      source: 'camera',
     };
     setShot(next);
     setFlash((n) => n + 1);
-    if (autoDetect && canDetect && concept.trim()) void detect(next);
   }
 
+  /** A saved desk photo stands in for the camera, so detection and zones work without one. */
+  const file = useRef<HTMLInputElement>(null);
+  async function openFile(chosen?: File) {
+    if (file.current) file.current.value = '';
+    if (!chosen) return;
+    try {
+      if (!['image/png', 'image/jpeg'].includes(chosen.type) || chosen.size > 10_000_000)
+        throw new Error('Choose a PNG or JPEG under 10 MB.');
+      const bitmap = await createImageBitmap(chosen, { imageOrientation: 'from-image' });
+      const scale = Math.min(1, 1280 / Math.max(bitmap.width, bitmap.height));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.round(bitmap.width * scale);
+      canvas.height = Math.round(bitmap.height * scale);
+      canvas.getContext('2d')?.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+      bitmap.close();
+      detectRun.current++;
+      setDetecting('');
+      setDetectError('');
+      setShot({
+        id: ++shotId.current,
+        url: canvas.toDataURL('image/jpeg', 0.9),
+        width: canvas.width,
+        height: canvas.height,
+        motion: 0,
+        state: 'still',
+        takenAt: new Date(),
+        source: 'file',
+      });
+    } catch (e) {
+      setDetectError(e instanceof Error ? e.message : 'Could not open that image.');
+    }
+  }
+  function reopen(k: Shot) {
+    detectRun.current++;
+    setDetecting('');
+    setDetectError('');
+    setDrawing(false);
+    setShot(k);
+  }
+  function openInLab(k: Shot) {
+    if (!sendToLab(k.url))
+      setDetectError('This browser blocked session storage, so the frame cannot move to the lab.');
+  }
+
+  /**
+   * Watching: each time the desk settles after moving, grab the frame and ask
+   * SAM for the concept. Spark is skipped here to keep each settle to one
+   * cheap call. Any failure, including the daily allowance running out, stops
+   * watching rather than retrying.
+   */
+  const motionEpoch = useRef(0);
+  const lastWatch = useRef(0);
+  async function watchDetect() {
+    const frame = grabFrame();
+    if (!frame) return;
+    const epoch = motionEpoch.current;
+    lastWatch.current = performance.now();
+    setWatchBusy(true);
+    setDetectError('');
+    try {
+      const run = await api<EvidenceRun<Segmentation>>('segment', {
+        mode: 'live',
+        imageDataUrl: frame.url,
+        concept: concept.trim(),
+      });
+      setSighting({
+        segmentation: run.output,
+        takenAt: new Date(),
+        ms: run.durationMs,
+        cost: runCost(run) ?? 0,
+        stale: epoch !== motionEpoch.current,
+      });
+    } catch (e) {
+      setWatch(false);
+      setDetectError(
+        `${e instanceof Error ? e.message : 'Detection failed.'} Watching has stopped.`,
+      );
+    } finally {
+      setWatchBusy(false);
+      void loadStatus();
+    }
+  }
+  useEffect(() => {
+    if (!live) {
+      setWatch(false);
+      setSighting(undefined);
+    }
+  }, [live]);
+
   // Auto-capture fires once each time the scene comes to rest after moving.
+  // Watching does the same, and also fires once on the first still frame.
   const sawMotion = useRef(false);
+  const watchDue = useRef(true);
   const lastState = useRef<Stillness>('settling');
   useEffect(() => {
-    if (motion.state === 'moving') sawMotion.current = true;
+    if (motion.state === 'moving') {
+      sawMotion.current = true;
+      watchDue.current = true;
+      if (lastState.current !== 'moving') {
+        motionEpoch.current++;
+        setSighting((s) => (s && !s.stale ? { ...s, stale: true } : s));
+      }
+    }
+    if (
+      watch &&
+      live &&
+      !reviewing &&
+      !watchBusy &&
+      watchDue.current &&
+      motion.state === 'still' &&
+      performance.now() - lastWatch.current > WATCH_GAP_MS
+    ) {
+      watchDue.current = false;
+      void watchDetect();
+    }
     if (
       autoCapture &&
       live &&
@@ -185,7 +321,7 @@ export function Playground() {
 
   function keep() {
     if (!shot) return;
-    setKept((list) => [shot, ...list].slice(0, 6));
+    setKept((list) => [shot, ...list.filter((k) => k.id !== shot.id)].slice(0, 6));
     leaveReview();
   }
 
@@ -212,33 +348,42 @@ export function Playground() {
     }));
   }
 
-  // A real detection on the frozen frame wins over the test box. The rule
-  // checks the most confident one, like the lab does.
-  const masks = shot?.segmentation;
+  // A real detection wins over the test box: the frozen frame's while
+  // reviewing, otherwise the latest watch result if the desk hasn't moved since.
+  // The rule checks the most confident one, like the lab does.
+  const liveMasks = live && !reviewing && sighting && !sighting.stale ? sighting : undefined;
+  const masks = reviewing ? shot?.segmentation : liveMasks?.segmentation;
   const best = masks?.detections.reduce<(typeof masks.detections)[number] | undefined>(
     (top, d) => (!top || (d.confidence ?? 0) > (top.confidence ?? 0) ? d : top),
     undefined,
   );
-  const showTestBox = testBox && (live || shot) && !best;
+  // While watching, only a real mask counts: the test box would hide a miss.
+  const watchingLive = watch && live && !reviewing;
+  const showTestBox = testBox && (live || shot) && !best && !watchingLive;
   const subject = best
     ? { box: best.box, frame: masks!.frame, name: `${masks!.concept} #${best.objectId}` }
     : showTestBox
       ? { box, frame: UNIT, name: 'The test box' }
       : undefined;
+  const wait = (text: string) => ({ tone: 'unsure' as const, glyph: '◌', text });
   const verdict: { tone: Tone; glyph: string; text: string } = !zone
     ? { tone: 'idle', glyph: '○', text: 'Draw a zone to try the placement rule.' }
-    : !subject
-      ? {
-          tone: 'idle',
-          glyph: '○',
-          text: 'Detect objects on a captured frame, or turn on the test box.',
-        }
-      : live && !reviewing && motion.state !== 'still'
-        ? {
-            tone: 'unsure',
-            glyph: '◌',
-            text: 'Waiting for the scene to settle. The rule only runs on a still frame.',
-          }
+    : live && !reviewing && motion.state !== 'still'
+      ? wait('Waiting for the scene to settle. The rule only runs on a still frame.')
+      : !subject
+        ? watchingLive
+          ? watchBusy || !liveMasks
+            ? wait(`Looking for the ${concept.trim()}…`)
+            : {
+                tone: 'idle',
+                glyph: '×',
+                text: `No ${liveMasks.segmentation.concept} in view. No lamp action.`,
+              }
+          : {
+              tone: 'idle',
+              glyph: '○',
+              text: 'Watch the desk or detect on a captured frame, or turn on the test box.',
+            }
         : boxInZone(subject.box, subject.frame, zone)
           ? {
               tone: 'ok',
@@ -255,20 +400,30 @@ export function Playground() {
     ? { tone: 'blocked', text: camera.error }
     : camera.state === 'opening'
       ? { tone: 'seen', text: 'Waiting for camera permission' }
-      : detecting
-        ? {
-            tone: 'seen',
-            text: detecting === 'discover' ? 'Naming objects in the frame…' : 'Masking the object…',
-          }
-        : reviewing
-          ? { tone: 'seen', text: 'Frame captured · keep it or retake' }
-          : !live
-            ? { tone: 'idle', text: 'Camera off' }
-            : motion.state === 'moving'
-              ? { tone: 'unsure', text: 'Motion detected' }
-              : motion.state === 'settling'
-                ? { tone: 'unsure', text: 'Settling…' }
-                : { tone: 'ok', text: 'Scene still · ready to capture' };
+      : watchBusy && !reviewing
+        ? { tone: 'seen', text: `Looking for the ${concept.trim()}…` }
+        : detecting
+          ? {
+              tone: 'seen',
+              text:
+                detecting === 'discover' ? 'Naming objects in the frame…' : 'Masking the object…',
+            }
+          : reviewing
+            ? { tone: 'seen', text: 'Frame captured · keep it or retake' }
+            : !live
+              ? { tone: 'idle', text: 'Camera off' }
+              : motion.state === 'moving'
+                ? { tone: 'unsure', text: 'Motion detected' }
+                : motion.state === 'settling'
+                  ? { tone: 'unsure', text: 'Settling…' }
+                  : liveMasks
+                    ? {
+                        tone: 'seen',
+                        text: liveMasks.segmentation.detections.length
+                          ? `Watching · ${liveMasks.segmentation.detections.length} ${liveMasks.segmentation.concept} in view`
+                          : `Watching · no ${liveMasks.segmentation.concept} in view`,
+                      }
+                    : { tone: 'ok', text: 'Scene still · ready to capture' };
 
   const aspect = shot
     ? `${shot.width} / ${shot.height}`
@@ -340,7 +495,9 @@ export function Playground() {
                 aria-label="Live camera preview"
               />
               {shot && <img src={shot.url} alt="Captured frame" />}
-              {shot?.segmentation && <MaskOverlay key={shot.id} segmentation={shot.segmentation} />}
+              {shot?.segmentation && (
+                <MaskOverlay key={shot.id} segmentation={shot.segmentation} cover />
+              )}
               {showCells && live && !reviewing && motion.columns > 0 && (
                 <div
                   className="pg-cells"
@@ -356,6 +513,15 @@ export function Playground() {
                 </div>
               )}
             </div>
+            {live && !reviewing && sighting && (
+              <MaskOverlay
+                key={sighting.takenAt.getTime()}
+                segmentation={sighting.segmentation}
+                mirror={flip}
+                cover
+                stale={sighting.stale}
+              />
+            )}
 
             {!live && !shot && (
               <div className="pg-empty">
@@ -366,6 +532,9 @@ export function Playground() {
                     : 'Start the camera to try the viewfinder.'}
                 </p>
                 <small>Frames stay in this tab unless you ask to detect objects.</small>
+                <button className="pg-button tertiary" onClick={() => file.current?.click()}>
+                  <Glyph type="upload" /> Or open a desk photo
+                </button>
               </div>
             )}
 
@@ -447,7 +616,11 @@ export function Playground() {
             {shot && (
               <div className="pg-review">
                 <p>
-                  {shot.state === 'still' ? (
+                  {shot.source === 'file' ? (
+                    <>
+                      <span className="ok">✓</span> Opened from a file · {shot.width}×{shot.height}
+                    </>
+                  ) : shot.state === 'still' ? (
                     <>
                       <span className="ok">✓</span> Captured while still · motion{' '}
                       {shot.motion.toFixed(1)}%
@@ -460,8 +633,13 @@ export function Playground() {
                   )}
                 </p>
                 <div>
+                  <button className="pg-button tertiary" onClick={() => openInLab(shot)}>
+                    Open in desk lab
+                  </button>
                   <button className="pg-button secondary" onClick={leaveReview}>
-                    Retake
+                    {shot.source === 'file' || kept.some((k) => k.id === shot.id)
+                      ? 'Close'
+                      : 'Retake'}
                   </button>
                   <button className="pg-button primary" onClick={keep}>
                     Keep frame
@@ -537,6 +715,16 @@ export function Playground() {
               </label>
             )}
             {camera.info?.label && <p className="pg-mono">{camera.info.label}</p>}
+            <input
+              ref={file}
+              type="file"
+              accept="image/png,image/jpeg"
+              hidden
+              onChange={(e) => void openFile(e.target.files?.[0])}
+            />
+            <button className="pg-button tertiary" onClick={() => file.current?.click()}>
+              <Glyph type="upload" /> Open a desk photo instead
+            </button>
           </section>
 
           <section className={`pg-card ${live && !reviewing ? 'current' : ''}`}>
@@ -613,7 +801,7 @@ export function Playground() {
             </label>
           </section>
 
-          <section className={`pg-card ${reviewing && !drawing ? 'current' : ''}`}>
+          <section className={`pg-card ${(reviewing || watch) && !drawing ? 'current' : ''}`}>
             <div className="pg-card-title">
               <span className="pg-step">03</span>
               <h2>Detect</h2>
@@ -623,13 +811,14 @@ export function Playground() {
                 </span>
               ) : (
                 <span className={`pg-hud ${canDetect ? 'ok' : 'unsure'}`}>
-                  {meta ? (canDetect ? 'LIVE' : 'OFF') : '…'}
+                  {!meta ? '…' : !canDetect ? 'OFF' : watch ? 'WATCHING' : 'LIVE'}
                 </span>
               )}
             </div>
             <p>
-              Sends the captured frame to the local server, which asks Muse Spark to name objects
-              and SAM 3.1 to mask the one you pick. Each call counts toward the daily allowance.
+              Frames go to the local server, which asks SAM 3.1 to mask the object and, on a
+              captured frame, Muse Spark to name what else is there. Each call counts toward the
+              daily allowance.
             </p>
             {meta && !canDetect && <p className="pg-mono">{meta.note}</p>}
             <label className="pg-field">
@@ -641,13 +830,41 @@ export function Playground() {
                 placeholder="mug"
               />
             </label>
+            <label className="pg-switch">
+              <input
+                type="checkbox"
+                checked={watch}
+                disabled={!canDetect || !live || !concept.trim() || (!watch && callsLeft === 0)}
+                onChange={(e) => {
+                  setWatch(e.target.checked);
+                  watchDue.current = true;
+                  if (!e.target.checked) setSighting(undefined);
+                }}
+              />
+              Watch the desk: mask the {concept.trim() || 'object'} each time it settles
+            </label>
+            {meta && canDetect && (
+              <p className="pg-mono">
+                {usd(meta.estimates.segment.usd)} per settle, at most one every{' '}
+                {WATCH_GAP_MS / 1000} s · {callsLeft} call{callsLeft === 1 ? '' : 's'} left today
+                {sighting && (
+                  <>
+                    <br />
+                    Last look {time(sighting.takenAt)} · {sighting.segmentation.detections.length}{' '}
+                    {sighting.segmentation.concept} · {(sighting.ms / 1000).toFixed(1)} s ·{' '}
+                    {usd(sighting.cost)}
+                    {sighting.stale && ' · moved since, waiting to settle'}
+                  </>
+                )}
+              </p>
+            )}
             <div className="pg-row">
               <button
                 className="pg-button primary"
                 disabled={!shot || !canDetect || Boolean(detecting) || !concept.trim()}
                 onClick={() => shot && void detect(shot)}
               >
-                {detecting ? 'Detecting…' : 'Detect objects'}
+                {detecting ? 'Detecting…' : 'Detect on this frame'}
               </button>
             </div>
             {meta && (
@@ -681,15 +898,6 @@ export function Playground() {
                 ))}
               </div>
             )}
-            <label className="pg-switch">
-              <input
-                type="checkbox"
-                checked={autoDetect}
-                disabled={!canDetect}
-                onChange={(e) => setAutoDetect(e.target.checked)}
-              />
-              Detect on every capture
-            </label>
             {detectError && (
               <p className="pg-verdict unsure" role="alert">
                 <span>◌</span>
@@ -763,8 +971,14 @@ export function Playground() {
           {kept.length ? (
             <ol>
               {kept.map((k) => (
-                <li key={k.id}>
-                  <img src={k.url} alt={`Kept frame ${k.id}`} />
+                <li key={k.id} className={shot?.id === k.id ? 'open' : ''}>
+                  <button
+                    className="pg-thumb"
+                    onClick={() => reopen(k)}
+                    aria-label={`Open kept frame ${k.id}`}
+                  >
+                    <img src={k.url} alt="" />
+                  </button>
                   <span className="pg-mono">
                     #{String(k.id).padStart(2, '0')} · {time(k.takenAt)}
                     <br />
@@ -773,15 +987,19 @@ export function Playground() {
                       ? ` · ${k.segmentation.detections.length} ${k.segmentation.concept}`
                       : ''}{' '}
                     <span className={k.state === 'still' ? 'ok' : 'unsure'}>
-                      {k.state === 'still' ? '✓' : '◌'}
+                      {k.source === 'file' ? 'FILE' : k.state === 'still' ? '✓' : '◌'}
                     </span>
                   </span>
+                  <button className="pg-button tertiary" onClick={() => openInLab(k)}>
+                    Open in desk lab
+                  </button>
                 </li>
               ))}
             </ol>
           ) : (
             <p className="pg-placeholder">
-              Frames you keep show up here. They're gone when you close the tab.
+              Frames you keep show up here. Open one again to re-detect or test the zone, or send it
+              to the desk lab to run the full placement check. They're gone when you close the tab.
             </p>
           )}
         </section>

@@ -200,13 +200,15 @@ The desk lab and the camera playground both use Quiet Neon. Tokens live in `apps
 - Frame and detection brackets, the scan-line sweep, cyan masks that turn magenta once confirmed, and the dashed-to-solid zone.
 - The status capsule (it replaces the old feedback bar), the segmented mode switch, and the `LIVE` tag.
 - The lamp ignition and ambient warm-up. A virtual lamp warms the room at half strength and shows a `VIRTUAL` tag, which settles the open decision below.
-- The evidence log with status glyphs, the inspector, and the checklist rings.
+- The evidence log with status glyphs, filters and summary stats; the inspector as a sticky side panel that can repeat a probe or put its result back on the scene; and the checklist rings.
+- A session strip under the page title with the models, the Meta call budget, spend, lamp state and live proof.
+- Frames move from the camera playground to the desk lab through session storage, never through the server.
 - Reduced-motion, reduced-transparency and high-contrast fallbacks.
 
 Still to do:
 
 - The sticky bottom action bar on mobile.
-- The inspector as a sheet that slides in, rather than an inline panel.
+- On mobile, the inspector as a sheet that slides up from the bottom. It currently sits inline above the checklist.
 - A browser test that checks reduced motion turns the animations off.
 
 The fixture image `desk.svg` stays byte-for-byte as it is, because its geometry matches the synthetic mask exactly. It sits inside the frame at true colour, so there's no need to change it.

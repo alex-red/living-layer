@@ -738,11 +738,29 @@
   animation: pg-rise var(--t-base) var(--ease-out);
 }
 .pg-strip img {
+  display: block;
   width: 100%;
   aspect-ratio: 16 / 10;
   object-fit: cover;
   border-radius: 12px;
   border: 1px solid var(--line);
+}
+.pg-thumb {
+  padding: 0;
+  border: 0;
+  border-radius: 12px;
+  background: none;
+  cursor: pointer;
+  transition: box-shadow var(--t-fast);
+}
+.pg-thumb:hover {
+  box-shadow: 0 0 0 1px var(--seen-glow);
+}
+.pg-strip li.open .pg-thumb {
+  box-shadow: 0 0 0 2px var(--seen);
+}
+.pg-strip li > .pg-button {
+  justify-self: start;
 }
 .pg-placeholder {
   color: var(--text-3);
@@ -810,4 +828,12 @@
     -webkit-backdrop-filter: none;
     background: var(--surface-1);
   }
+}
+
+/* A watch mask from before the desk last moved: kept for context, clearly old. */
+.pg .mask-overlay {
+  transition: opacity var(--t-base) var(--ease-out);
+}
+.pg .mask-overlay.stale {
+  opacity: 0.3;
 }
