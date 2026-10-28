@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import sharp from 'sharp';
 
 test('fixture desk completes discovery, mask, absent target, lamp and export without external requests', async ({
@@ -100,7 +100,9 @@ test('remembers a mug, draws a zone, verifies one virtual action, and retains ev
   await expect(page.locator('.readiness h3')).toHaveText('0 / 4');
   await page.screenshot({ path: '.data/screenshots/placement-desktop.png', fullPage: true });
   await page.getByRole('button', { name: 'Verify placement · virtual lamp', exact: true }).click();
-  await expect(page.locator('.placement-result')).toContainText('blocked · lamp none');
+  // The lamp fires only on entering: a second check while still inside takes no action.
+  await expect(page.locator('.placement-result')).toContainText('inside · lamp none');
+  await expect(page.locator('.placement-result')).toContainText('Still inside');
   await page.getByRole('button', { name: 'Draw / edit zone' }).click();
   for (const [field, value] of [
     ['x', '0'],
@@ -124,15 +126,32 @@ test('remembers a mug, draws a zone, verifies one virtual action, and retains ev
   await page.screenshot({ path: '.data/screenshots/placement-mobile.png', fullPage: true });
 });
 
+/**
+ * The browser tests share one data directory across runs, so start the iso
+ * tests from a desk with no object, model, rules, custom scene or pin.
+ */
+async function freshDesk(page: Page) {
+  for (const [path, data] of [
+    ['desk/reset', {}],
+    ['scene/save', { scene: null }],
+    ['desk/surface', { pin: null }],
+  ] as const)
+    expect(
+      (await page.request.post(`/api/${path}`, { data: { mode: 'fixture', ...data } })).ok(),
+    ).toBe(true);
+}
+
 test('draws the remembered mug in the isometric desk and follows it to a new frame', async ({
   page,
 }) => {
+  await freshDesk(page);
   await page.goto('/');
   await page.getByRole('button', { name: 'Segment object', exact: true }).click();
   await page.getByRole('button', { name: 'Confirm mug mask #7', exact: true }).click();
   await expect(page.locator('.feedback')).toContainText('Mug identity manually confirmed');
   await page.getByRole('button', { name: 'Iso', exact: true }).click();
-  const mug = page.locator('[data-object="tracked"] ellipse');
+  // The first ellipse is the top of the mug, plain marker or model body.
+  const mug = page.locator('[data-object="tracked"] ellipse').first();
   await expect(mug).toBeVisible();
   const before = Number(await mug.getAttribute('cx'));
   for (const preset of ['Office', 'Fridge', 'Desk'])
@@ -164,6 +183,7 @@ test('draws the remembered mug in the isometric desk and follows it to a new fra
 });
 
 test('drafts a custom room offline, saves it, and lights a rule’s lamp', async ({ page }) => {
+  await freshDesk(page);
   await page.goto('/');
   await page.getByRole('button', { name: 'Segment object', exact: true }).click();
   await page.getByRole('button', { name: 'Confirm mug mask #7', exact: true }).click();
