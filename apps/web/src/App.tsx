@@ -13,6 +13,24 @@ import type {
 import { OBSERVATION_MAX_AGE_MS, isMugConcept } from '@livinglayer/domain';
 import { api } from './api';
 import { Glyph } from './Glyph';
+import { MaskOverlay } from './MaskOverlay';
+
+const BUSY: Record<string, string> = {
+  text: 'Checking the connection',
+  discover: 'Discovering objects',
+  segment: 'Finding the shape',
+  lamp: 'Switching the lamp',
+  select: 'Remembering the mug',
+  zone: 'Saving the zone',
+  verify: 'Checking placement',
+  reset: 'Resetting desk memory',
+};
+const RESULT_GLYPH: Record<EvidenceRun['status'], string> = {
+  completed: '✓',
+  no_match: '◌',
+  unconfirmed: '◌',
+  failed: '×',
+};
 
 export function App() {
   const [now, setNow] = useState(Date.now());
@@ -41,6 +59,9 @@ export function App() {
     'Start with the illustrated desk. Every fixture result is labeled.',
   );
   const [selected, setSelected] = useState<EvidenceRun>();
+  // Drives the ambient warm-up. Only a confirmed lamp state turns it on.
+  const [lamp, setLamp] = useState<'off' | 'virtual' | 'live'>('off');
+  const light = () => setLamp(mode === 'fixture' ? 'virtual' : 'live');
   const [camera, setCamera] = useState(false);
   const [cameraPending, setCameraPending] = useState(false);
   const cameraGeneration = useRef(0);
@@ -81,6 +102,7 @@ export function App() {
     stopCamera();
     imageGeneration.current++;
     setMode(next);
+    setLamp('off');
     setImage(undefined);
     setDimensions({ width: 960, height: 640 });
     setScene(undefined);
@@ -172,6 +194,8 @@ export function App() {
         ...(kind === 'segment' ? { concept: overrideConcept ?? concept } : {}),
       });
       if (kind === 'discover') setScene(run.output as Scene);
+      if (kind === 'discover' || kind === 'segment') setLamp('off');
+      if (kind === 'lamp' && (run.output as LampResult).stateConfirmed) light();
       if (kind === 'segment') {
         setSegmentation(run.output as Segmentation);
         setSegmentRunId(run.id);
@@ -203,11 +227,13 @@ export function App() {
       if (path === 'verify') {
         const event = result as EvidenceRun<PlacementDecision>;
         setSelected(event);
+        if (event.output.action === 'confirmed') light();
         setMessage(
           `${mode === 'fixture' ? 'Virtual' : 'Live'} placement: ${event.output.reason} Lamp: ${event.output.action}.${event.output.error ? ` ${event.output.error.message}` : ''}`,
         );
       } else {
         setMemories((current) => ({ ...current, [mode]: result as DeskMemory }));
+        if (path === 'reset') setLamp('off');
         setMessage(
           path === 'select'
             ? 'Mug identity manually confirmed. Draw or edit its zone next.'
@@ -253,21 +279,30 @@ export function App() {
   const lampReady = Boolean(status?.lamp.configured && status.lamp.enabled);
   const canVision = !busy && (mode === 'fixture' || (metaReady && Boolean(image)));
   const proofCount = status ? Object.values(status.liveEvidence).filter(Boolean).length : 0;
+  const confirmedId = currentObservation?.detectionId;
+  const step = !scene && !segmentation ? 1 : !segmentation ? 2 : 3;
+  const capsuleTone = error ? 'blocked' : busy ? 'busy' : lamp !== 'off' ? 'warm' : 'idle';
   return (
-    <div className="shell">
+    <div className={`shell lamp-${lamp}`}>
       <header className="topbar">
-        <a className="brand" href="/" aria-label="LivingLayer home">
+        <a className="brand" href="/" aria-label="Living Layer home">
           <span className="brand-icon">
             <Glyph />
           </span>
-          LivingLayer<span className="wordmark-sub">DESK LAB</span>
+          Living Layer<span className="wordmark-sub">DESK LAB</span>
+          {mode === 'live' && <span className="live-tag">LIVE</span>}
         </a>
-        <span className="edition">
-          LOCAL ONLY <span>LOOPBACK API</span>
-        </span>
-        <a className="export" href="/api/evidence" download>
-          Export evidence <span aria-hidden="true">↗</span>
-        </a>
+        <div className={`feedback ${capsuleTone}`} role="status" aria-live="polite">
+          {camera && <span className="privacy-dot" aria-label="Camera on" />}
+          <span className="dot" />
+          <span className="feedback-text">{busy ? `${BUSY[busy] ?? 'Working'}…` : message}</span>
+          {lamp === 'virtual' && <span className="hud-tag">VIRTUAL</span>}
+        </div>
+        <nav className="topbar-links">
+          <a className="export" href="/api/evidence" download>
+            Export evidence <span aria-hidden="true">↗</span>
+          </a>
+        </nav>
       </header>
       <main>
         <section className="intro">
@@ -287,6 +322,7 @@ export function App() {
             </p>
           </div>
           <aside className="session-note">
+            <span className="edition">LOCAL ONLY · LOOPBACK API</span>
             <span className="tiny">THE EXPERIMENT</span>
             <p>
               Can we turn a desk scene
@@ -319,7 +355,7 @@ export function App() {
           <section className="observation" aria-label="Scene and segmentation">
             <div className="scene-toolbar">
               <span>
-                <span className={`dot ${mode === 'live' ? 'gold' : ''}`} />
+                <span className={`dot ${mode === 'live' ? 'live' : ''}`} />
                 {mode === 'fixture'
                   ? 'ILLUSTRATED FIXTURE'
                   : image
@@ -359,43 +395,11 @@ export function App() {
                 </div>
               )}
               {!camera && segmentation && overlay && (
-                <svg
-                  className="mask-overlay"
-                  viewBox={`0 0 ${segmentation.frame.width} ${segmentation.frame.height}`}
-                  aria-label={`${segmentation.detections.length} segmentation masks`}
-                >
-                  {segmentation.detections.map((d, i) => (
-                    <g key={`${d.objectId}-${i}`}>
-                      <path
-                        d={d.mask.svgPath}
-                        transform={`translate(${d.box.x} ${d.box.y}) scale(${d.box.width / d.mask.width} ${d.box.height / d.mask.height})`}
-                        fill="#dcab35"
-                        fillRule="evenodd"
-                        fillOpacity=".48"
-                      />
-                      <rect
-                        x={d.box.x}
-                        y={d.box.y}
-                        width={d.box.width}
-                        height={d.box.height}
-                        rx="3"
-                        stroke="#9c7010"
-                        strokeWidth="2"
-                        fill="none"
-                        strokeDasharray="6 4"
-                      />
-                      <text
-                        x={d.box.x}
-                        y={d.box.y - 10}
-                        fill="#334a3c"
-                        fontSize="16"
-                        fontFamily="monospace"
-                      >
-                        {segmentation.concept} / #{d.objectId}
-                      </text>
-                    </g>
-                  ))}
-                </svg>
+                <MaskOverlay
+                  key={segmentRunId}
+                  segmentation={segmentation}
+                  chosenId={confirmedId}
+                />
               )}
               {!camera && currentObservation && visibleZone && (
                 <svg
@@ -434,6 +438,21 @@ export function App() {
                   />
                 </svg>
               )}
+              {!camera && currentObservation && visibleZone && (
+                <span
+                  className={`zone-tag ${drawing ? 'drawing' : ''}`}
+                  style={{ left: `${visibleZone.x * 100}%`, top: `${visibleZone.y * 100}%` }}
+                  aria-hidden="true"
+                >
+                  ZN-01
+                  {drawing &&
+                    ` · ${Math.round(visibleZone.width * 100)}×${Math.round(visibleZone.height * 100)}%`}
+                </span>
+              )}
+              <span className="frame-tick tl" aria-hidden="true" />
+              <span className="frame-tick tr" aria-hidden="true" />
+              <span className="frame-tick bl" aria-hidden="true" />
+              <span className="frame-tick br" aria-hidden="true" />
               <span className="frame-label">
                 {dimensions.width} × {dimensions.height} <span>FRAME 00</span>
               </span>
@@ -534,7 +553,7 @@ export function App() {
                   : 'Each button makes one explicit live operation.'}
               </p>
             </div>
-            <div className="probe">
+            <div className={`probe ${step === 1 ? 'current' : ''}`}>
               <div className="probe-title">
                 <span className="step">01</span>
                 <h3>Discover the scene</h3>
@@ -554,7 +573,7 @@ export function App() {
                 <Glyph type="arrow" />
               </button>
             </div>
-            <div className="probe">
+            <div className={`probe ${step === 2 ? 'current' : ''}`}>
               <div className="probe-title">
                 <span className="step">02</span>
                 <h3>Find the shape</h3>
@@ -573,7 +592,7 @@ export function App() {
                 <span>TEXT PROMPT</span>
               </div>
               <button
-                className="secondary"
+                className="primary"
                 disabled={!canVision || !concept.trim() || camera}
                 onClick={() => void execute('segment')}
               >
@@ -593,7 +612,7 @@ export function App() {
                   : 'Crop-local mask → source-pixel overlay'}
               </p>
             </div>
-            <div className="probe placement-controls">
+            <div className={`probe placement-controls ${step === 3 ? 'current chosen' : ''}`}>
               <div className="probe-title">
                 <span className="step">03</span>
                 <h3>Remember & place</h3>
@@ -678,7 +697,7 @@ export function App() {
                 expire after 5 minutes. A still photo does not prove the current physical scene.
               </p>
               <button
-                className="primary"
+                className="physical"
                 disabled={
                   Boolean(busy) ||
                   drawing ||
@@ -720,7 +739,7 @@ export function App() {
                 </p>
               )}
               <button
-                className="text-button"
+                className="text-button destructive"
                 disabled={Boolean(busy) || !memory?.object}
                 onClick={() => void deskAction('reset')}
               >
@@ -739,7 +758,7 @@ export function App() {
                   : 'Turns on your configured lamp. Check the physical effect separately.'}
               </p>
               <button
-                className="secondary"
+                className="physical"
                 disabled={Boolean(busy) || (mode === 'live' && !lampReady)}
                 onClick={() => void execute('lamp')}
               >
@@ -762,10 +781,6 @@ export function App() {
               </button>
             </div>
           </aside>
-        </div>
-        <div className="feedback" role="status" aria-live="polite">
-          <span className="dot" />
-          {message}
         </div>
         {error && (
           <div className="error" role="alert">
@@ -803,7 +818,10 @@ export function App() {
                         <b className={`badge ${run.mode}`}>{run.mode}</b>
                       </small>
                     </span>
-                    <span className={`result ${run.status}`}>{run.status.replace('_', ' ')}</span>
+                    <span className={`result ${run.status}`}>
+                      <span aria-hidden="true">{RESULT_GLYPH[run.status]}</span>{' '}
+                      {run.status.replace('_', ' ')}
+                    </span>
                     <span>
                       {run.durationMs} ms <span className="row-arrow">↗</span>
                     </span>
@@ -832,7 +850,9 @@ export function App() {
             <p>Fixture runs never count toward live proof.</p>
             {(['text', 'discover', 'segment', 'lamp'] as const).map((kind) => (
               <div className="proof-row" key={kind}>
-                <span>{status?.liveEvidence[kind] ? '✓' : '○'}</span>
+                <span className={`ring ${status?.liveEvidence[kind] ? 'done' : ''}`}>
+                  {status?.liveEvidence[kind] ? '✓' : ''}
+                </span>
                 {
                   {
                     text: 'Spark connection',
@@ -861,7 +881,7 @@ export function App() {
       <footer>
         <span>
           <Glyph />
-          LivingLayer
+          Living Layer
         </span>
         <p>Perception first. A little magic later.</p>
         <span className="tiny">MIT LICENSED</span>

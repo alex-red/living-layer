@@ -1,0 +1,66 @@
+/* Quiet Neon design tokens. See docs/design.md for what each one is for. */
+
+:root {
+  color-scheme: dark;
+
+  /* Surfaces */
+  --void: #0a0c12;
+  --surface-1: #11141d;
+  --surface-2: #181c28;
+  --surface-3: #212637;
+  --line: rgb(170 185 255 / 10%);
+  --line-strong: rgb(170 185 255 / 18%);
+
+  /* Text */
+  --text: #ece9f2;
+  --text-2: #a9aec2;
+  --text-3: #7c8299;
+
+  /* Signals: cyan is what the model sees, magenta is what you chose,
+     amber is what happened in the room. */
+  --seen: #6fd3e0;
+  --seen-glow: rgb(111 211 224 / 25%);
+  --seen-wash: rgb(111 211 224 / 10%);
+  --chosen: #e68cc4;
+  --chosen-glow: rgb(230 140 196 / 25%);
+  --chosen-wash: rgb(230 140 196 / 10%);
+  --warm: #ffb866;
+  --warm-glow: rgb(255 184 102 / 25%);
+  --warm-wash: rgb(255 184 102 / 10%);
+  --ok: #86d9aa;
+  --ok-glow: rgb(134 217 170 / 25%);
+  --unsure: #ae9bf5;
+  --unsure-wash: rgb(174 155 245 / 10%);
+  --blocked: #f27c83;
+  --blocked-wash: rgb(242 124 131 / 10%);
+
+  /* Type */
+  --ui: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter Variable', system-ui, sans-serif;
+  --mono: ui-monospace, 'SF Mono', 'JetBrains Mono Variable', Menlo, monospace;
+
+  /* Shape */
+  --r-chip: 8px;
+  --r-button: 12px;
+  --r-card: 16px;
+  --r-panel: 24px;
+
+  /* Glass */
+  --glass-thin: rgb(17 20 29 / 55%);
+  --glass-regular: rgb(17 20 29 / 72%);
+  --glass-thick: rgb(24 28 40 / 88%);
+  --glass-edge: inset 0 1px 0 rgb(255 255 255 / 6%);
+
+  /* Motion */
+  --t-fast: 150ms;
+  --t-base: 250ms;
+  --t-slow: 400ms;
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --spring: linear(0, 0.35 12%, 0.82 30%, 1.04 46%, 1.02 60%, 1);
+}
+
+@media (prefers-contrast: more) {
+  :root {
+    --line: rgb(170 185 255 / 40%);
+    --line-strong: rgb(170 185 255 / 60%);
+  }
+}
