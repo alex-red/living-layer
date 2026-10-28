@@ -1,9 +1,12 @@
 /* Camera playground. Tokens come from tokens.css. */
 
 .pg {
-  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  height: 100dvh;
   color: var(--text);
-  font: 400 15px/22px var(--ui);
+  font: 400 13px/19px var(--ui);
   background:
     radial-gradient(ellipse 70% 55% at 35% 40%, rgb(111 211 224 / 6%), transparent 70%), var(--void);
   -webkit-font-smoothing: antialiased;
@@ -13,7 +16,7 @@
 }
 .pg h2 {
   margin: 0;
-  font: 600 17px/22px var(--ui);
+  font: 600 14px/20px var(--ui);
 }
 .pg p {
   margin: 0;
@@ -72,8 +75,8 @@
   display: grid;
   grid-template-columns: 1fr auto 1fr;
   align-items: center;
-  gap: 16px;
-  padding: 10px 24px;
+  gap: 10px;
+  padding: 4px 12px;
   border-width: 0 0 1px;
   background: rgb(17 20 29 / 72%);
 }
@@ -82,7 +85,7 @@
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  min-height: 44px;
+  min-height: 32px;
   color: var(--text);
   text-decoration: none;
   font-weight: 600;
@@ -104,11 +107,11 @@
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  min-height: 36px;
-  padding: 0 16px;
-  border-radius: 999px;
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 2px;
   background: rgb(24 28 40 / 88%);
-  font-size: 13px;
+  font-size: 12px;
   white-space: nowrap;
   transition: border-color var(--t-base) var(--ease-out);
 }
@@ -146,16 +149,40 @@
 }
 
 /* Layout */
+/* Workspace shell: camera and motion | viewfinder | detect and zone. The
+   side panels scroll on their own so the viewfinder stays put. */
 .pg-main {
+  flex: 1;
+  min-height: 0;
   display: grid;
-  grid-template-columns: minmax(0, 8fr) minmax(300px, 4fr);
-  gap: 24px;
-  max-width: 1440px;
-  margin: 0 auto;
-  padding: 24px;
+  grid-template-columns: clamp(280px, 22vw, 340px) minmax(0, 1fr) clamp(300px, 24vw, 380px);
+  gap: 8px;
+  padding: 8px;
+}
+.pg-panel {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.pg-scene {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  min-height: 0;
+}
+.pg-fit {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  container-type: size;
+}
+.pg-fit .pg-stage {
+  width: min(100cqw, calc(100cqh * var(--ar, 1.78)));
 }
 .pg-strip {
-  grid-column: 1 / -1;
+  flex: none;
 }
 
 /* Stage */
@@ -163,8 +190,7 @@
   position: relative;
   overflow: hidden;
   width: 100%;
-  max-height: calc(100vh - 200px);
-  border-radius: 24px;
+  border-radius: 4px;
   border: 1px solid var(--line-strong);
   background: #05060a;
   box-shadow:
@@ -172,12 +198,6 @@
     0 24px 64px rgb(0 0 0 / 40%);
   touch-action: none;
   user-select: none;
-}
-@supports (corner-shape: squircle) {
-  .pg-stage,
-  .pg-card {
-    corner-shape: squircle;
-  }
 }
 .pg-stage.drawing {
   cursor: crosshair;
@@ -222,13 +242,13 @@
     radial-gradient(circle at 50% 45%, var(--surface-2), #05060a 70%);
 }
 .pg-empty svg {
-  width: 32px;
-  height: 32px;
+  width: 24px;
+  height: 24px;
   color: var(--seen);
 }
 .pg-empty small {
   color: var(--text-3);
-  font-size: 13px;
+  font-size: 12px;
 }
 
 .pg-guides {
@@ -328,7 +348,7 @@
 .pg-corner {
   position: absolute;
   padding: 4px 8px;
-  border-radius: 8px;
+  border-radius: 2px;
   background: rgb(10 12 18 / 55%);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
@@ -357,7 +377,7 @@
 }
 .pg-zone {
   border: 1.5px solid var(--chosen);
-  border-radius: 8px;
+  border-radius: 2px;
   background: var(--chosen-wash);
   box-shadow: inset 0 0 24px var(--chosen-glow);
   pointer-events: none;
@@ -382,7 +402,7 @@
   bottom: calc(100% + 6px);
   left: -1px;
   padding: 2px 6px;
-  border-radius: 6px;
+  border-radius: 2px;
   background: rgb(10 12 18 / 70%);
   white-space: nowrap;
 }
@@ -416,12 +436,12 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: 10px;
   flex-wrap: wrap;
-  padding: 12px 12px 12px 16px;
-  border-radius: 16px;
+  padding: 8px 8px 8px 12px;
+  border-radius: 3px;
   background: rgb(24 28 40 / 88%);
-  font-size: 14px;
+  font-size: 13px;
   animation: pg-rise var(--t-base) var(--ease-out);
 }
 .pg-review div {
@@ -437,11 +457,12 @@
 
 /* Shutter bar */
 .pg-shutter-bar {
+  flex: none;
   display: grid;
   grid-template-columns: 1fr auto 1fr;
   align-items: center;
-  gap: 16px;
-  padding: 16px 8px 0;
+  gap: 10px;
+  padding: 0 8px;
 }
 .pg-shutter-bar .pg-switch:last-child {
   justify-self: end;
@@ -449,8 +470,8 @@
 .pg-shutter {
   display: grid;
   place-items: center;
-  width: 64px;
-  height: 64px;
+  width: 44px;
+  height: 44px;
   padding: 0;
   border: 3px solid var(--text);
   border-radius: 50%;
@@ -460,8 +481,8 @@
     opacity var(--t-fast);
 }
 .pg-shutter span {
-  width: 48px;
-  height: 48px;
+  width: 32px;
+  height: 32px;
   border-radius: 50%;
   background: var(--text);
   transition: transform var(--t-fast) var(--ease-out);
@@ -484,20 +505,20 @@
 .pg-panel {
   display: grid;
   align-content: start;
-  gap: 16px;
+  gap: 8px;
 }
 .pg-card {
   display: grid;
-  gap: 12px;
-  padding: 20px;
-  border-radius: 16px;
+  gap: 10px;
+  padding: 10px;
+  border-radius: 3px;
   background: rgb(17 20 29 / 72%);
   transition: border-color var(--t-base) var(--ease-out);
 }
 .pg-card > p:not([class]) {
   color: var(--text-2);
-  font-size: 14px;
-  line-height: 20px;
+  font-size: 12px;
+  line-height: 18px;
 }
 .pg-card.current {
   box-shadow:
@@ -518,7 +539,7 @@
   margin-left: auto;
 }
 .pg-step {
-  font: 500 13px/16px var(--mono);
+  font: 500 12px/16px var(--mono);
   color: var(--text-3);
 }
 .pg-row {
@@ -533,11 +554,11 @@
   align-items: center;
   justify-content: center;
   gap: 8px;
-  min-height: 44px;
-  padding: 0 18px;
+  min-height: 32px;
+  padding: 0 12px;
   border: 1px solid transparent;
-  border-radius: 12px;
-  font: 600 15px/20px var(--ui);
+  border-radius: 2px;
+  font: 600 13px/18px var(--ui);
   transition:
     background var(--t-fast),
     border-color var(--t-fast),
@@ -573,7 +594,7 @@
 .pg-field {
   display: grid;
   gap: 6px;
-  font-size: 13px;
+  font-size: 12px;
   color: var(--text-2);
 }
 .pg-field > span {
@@ -581,20 +602,20 @@
   justify-content: space-between;
 }
 .pg-field b {
-  font: 500 13px/16px var(--mono);
+  font: 500 12px/16px var(--mono);
   color: var(--text);
   font-variant-numeric: tabular-nums;
 }
 .pg-field select,
 .pg-field input:not([type]) {
-  min-height: 44px;
+  min-height: 32px;
   padding: 0 12px;
   border: 1px solid var(--line-strong);
-  border-radius: 8px;
+  border-radius: 2px;
   background: var(--surface-2);
   color: var(--text);
   font: inherit;
-  font-size: 14px;
+  font-size: 13px;
 }
 .pg-field input[type='range'] {
   width: 100%;
@@ -605,8 +626,8 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  min-height: 44px;
-  font-size: 14px;
+  min-height: 32px;
+  font-size: 13px;
   color: var(--text-2);
   cursor: pointer;
 }
@@ -624,14 +645,14 @@
   gap: 8px;
 }
 .pg-chip {
-  min-height: 36px;
-  padding: 0 14px;
+  min-height: 28px;
+  padding: 0 10px;
   border: 1px solid var(--line-strong);
-  border-radius: 18px;
+  border-radius: 3px;
   background: var(--surface-2);
   color: var(--text-2);
   font: inherit;
-  font-size: 13px;
+  font-size: 12px;
   cursor: pointer;
 }
 .pg-chip:hover:not(:disabled) {
@@ -650,14 +671,14 @@
 .pg-meter {
   position: relative;
   height: 6px;
-  border-radius: 3px;
+  border-radius: 2px;
   background: var(--surface-3);
   overflow: visible;
 }
 .pg-meter span {
   display: block;
   height: 100%;
-  border-radius: 3px;
+  border-radius: 2px;
   background: var(--ok);
   transition: width 80ms linear;
 }
@@ -693,11 +714,11 @@
 .pg-verdict {
   display: flex;
   gap: 10px;
-  padding: 12px 14px;
-  border-radius: 12px;
+  padding: 8px 10px;
+  border-radius: 2px;
   background: var(--surface-2);
-  font-size: 14px;
-  line-height: 20px;
+  font-size: 13px;
+  line-height: 18px;
   color: var(--text-2);
 }
 .pg-verdict span {
@@ -718,23 +739,29 @@
 .pg-strip-head {
   display: flex;
   align-items: center;
-  gap: 16px;
-  margin-bottom: 12px;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.pg-strip-head h2 {
+  font-size: 12px;
+  line-height: 18px;
 }
 .pg-strip-head .pg-button {
   margin-left: auto;
 }
 .pg-strip ol {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-  gap: 16px;
+  grid-auto-flow: column;
+  grid-auto-columns: 148px;
+  gap: 10px;
+  overflow-x: auto;
   margin: 0;
-  padding: 0;
+  padding: 0 0 4px;
   list-style: none;
 }
 .pg-strip li {
   display: grid;
-  gap: 8px;
+  gap: 4px;
   animation: pg-rise var(--t-base) var(--ease-out);
 }
 .pg-strip img {
@@ -742,13 +769,13 @@
   width: 100%;
   aspect-ratio: 16 / 10;
   object-fit: cover;
-  border-radius: 12px;
+  border-radius: 2px;
   border: 1px solid var(--line);
 }
 .pg-thumb {
   padding: 0;
   border: 0;
-  border-radius: 12px;
+  border-radius: 2px;
   background: none;
   cursor: pointer;
   transition: box-shadow var(--t-fast);
@@ -764,10 +791,37 @@
 }
 .pg-placeholder {
   color: var(--text-3);
-  font-size: 14px;
+  font-size: 12px;
+}
+.pg-strip li .pg-mono {
+  font-size: 11px;
+  line-height: 15px;
 }
 
 /* Mobile */
+@media (max-width: 1099px) {
+  .pg {
+    height: auto;
+    min-height: 100vh;
+  }
+  .pg-main {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+  .pg-scene {
+    grid-column: 1 / -1;
+    order: -1;
+  }
+  .pg-panel {
+    overflow: visible;
+  }
+  .pg-fit {
+    container-type: normal;
+  }
+  .pg-fit .pg-stage {
+    width: 100%;
+    max-height: 70vh;
+  }
+}
 @media (max-width: 767px) {
   .pg-top {
     grid-template-columns: 1fr auto;
@@ -783,11 +837,11 @@
   }
   .pg-main {
     grid-template-columns: minmax(0, 1fr);
-    gap: 16px;
-    padding: 16px;
+    gap: 8px;
+    padding: 12px 16px;
   }
   .pg-stage {
-    border-radius: 16px;
+    border-radius: 3px;
   }
   .pg-corner.tr {
     display: none;
@@ -852,8 +906,14 @@
   inset: auto 12px 12px;
   margin: 0;
   padding: 6px 10px;
-  border-radius: 6px;
+  border-radius: 2px;
   background: var(--surface-2);
   color: var(--blocked);
-  font-size: 13px;
+  font-size: 12px;
+}
+
+.pg button svg {
+  width: 16px;
+  height: 16px;
+  flex: none;
 }

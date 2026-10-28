@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type PointerEvent } from 'react';
+import { useEffect, useRef, useState, type CSSProperties, type PointerEvent } from 'react';
 import type {
   EvidenceRun,
   LabStatus,
@@ -184,7 +184,7 @@ export function App() {
   const [logMode, setLogMode] = useState<Mode | 'all'>('all');
   const [failuresOnly, setFailuresOnly] = useState(false);
   const [logLimit, setLogLimit] = useState(LOG_PAGE);
-  const inspector = useRef<HTMLElement>(null);
+  const [sideTab, setSideTab] = useState<'runs' | 'inspect' | 'setup'>('runs');
   // Drives the ambient warm-up. Only a confirmed lamp state turns it on.
   const [lamp, setLamp] = useState<'off' | 'virtual' | 'live'>('off');
   const light = () => setLamp(mode === 'fixture' ? 'virtual' : 'live');
@@ -654,9 +654,7 @@ export function App() {
   };
   function inspect(run: EvidenceRun) {
     setSelected(run);
-    requestAnimationFrame(() =>
-      inspector.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }),
-    );
+    setSideTab('inspect');
   }
   /** Why a saved probe can't be repeated right now, or null if it can. */
   function rerunBlock(run: EvidenceRun): string | null {
@@ -714,13 +712,17 @@ export function App() {
   return (
     <div className={`shell lamp-${lamp}`}>
       <header className="topbar">
-        <a className="brand" href="/" aria-label="Living Layer home">
-          <span className="brand-icon">
-            <Glyph />
-          </span>
-          Living Layer<span className="wordmark-sub">DESK LAB</span>
-          {mode === 'live' && <span className="live-tag">LIVE</span>}
-        </a>
+        <div className="topbar-id">
+          <a className="brand" href="/" aria-label="Living Layer home">
+            <span className="brand-icon">
+              <Glyph />
+            </span>
+            Living Layer
+          </a>
+          <h1 className="page-title">
+            Desk lab{mode === 'live' && <span className="live-tag">LIVE</span>}
+          </h1>
+        </div>
         <div className={`feedback ${capsuleTone}`} role="status" aria-live="polite">
           {camera && <span className="privacy-dot" aria-label="Camera on" />}
           <span className="dot" />
@@ -738,98 +740,417 @@ export function App() {
           </a>
         </nav>
       </header>
-      <main>
-        <section className="bench-head">
-          <div>
-            <h1>Desk lab</h1>
-            <p className="lede">
-              Probe Spark, SAM and the lamp one call at a time. Every run is saved to the evidence
-              log, where you can inspect it, repeat it, or put its result back on the scene.
-            </p>
+      <main className="lab">
+        <aside className="lab-controls" aria-label="Probe bench">
+          <div className="pane-head">
+            <span className="tiny">PROBE BENCH</span>
+            <div className="mode-switch" aria-label="Data source">
+              {(['fixture', 'live'] as const).map((value) => (
+                <button
+                  key={value}
+                  disabled={Boolean(busy) || camera || cameraPending}
+                  aria-pressed={mode === value}
+                  onClick={() => changeMode(value)}
+                >
+                  {value === 'fixture' ? 'Fixture' : 'Live'}
+                </button>
+              ))}
+            </div>
           </div>
-          <dl className="session-strip" aria-label="Session">
-            <div>
-              <dt>SPARK</dt>
-              <dd>{status?.meta.sparkModel ?? '…'}</dd>
+          <div className={`probe ${step === 1 ? 'current' : ''}`}>
+            <div className="probe-title">
+              <span className="step">01</span>
+              <h3>Discover the scene</h3>
+              <span className="model-tag">SPARK</span>
             </div>
-            <div>
-              <dt>SAM</dt>
-              <dd>{status?.meta.samModel ?? '…'}</dd>
+            <p>Name up to three objects and describe the desk.</p>
+            <button
+              className="primary"
+              disabled={!canVision || camera}
+              onClick={() => void execute('discover')}
+            >
+              {busy === 'discover' ? 'Discovering…' : 'Discover objects'}
+              <Glyph type="arrow" />
+            </button>
+            {mode === 'live' && status && (
+              <p className="micro">{estimateLabel(status.meta.estimates.discover)}</p>
+            )}
+          </div>
+          <div className={`probe ${step === 2 ? 'current' : ''}`}>
+            <div className="probe-title">
+              <span className="step">02</span>
+              <h3>Find the shape</h3>
+              <span className="model-tag">SAM 3.1</span>
             </div>
-            <div>
-              <dt>META</dt>
-              <dd className={metaReady ? 'ok' : 'unsure'}>
-                {metaReady ? '● ready' : '◌ off'}
-                {status && (
-                  <small>
-                    {status.meta.usedToday} / {status.meta.requestLimit} calls
-                  </small>
-                )}
-              </dd>
-              {status && (
-                <span className="budget" aria-hidden="true">
-                  <span
-                    style={{
-                      width: `${Math.min(100, (status.meta.usedToday / Math.max(1, status.meta.requestLimit)) * 100)}%`,
-                    }}
-                  />
-                </span>
-              )}
+            <label className="input-label" htmlFor="concept">
+              Object concept
+            </label>
+            <div className="concept-input">
+              <input
+                id="concept"
+                value={concept}
+                maxLength={80}
+                onChange={(e) => setConcept(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && canVision && concept.trim() && !camera)
+                    void execute('segment');
+                }}
+              />
+              <span>↵ TO RUN</span>
             </div>
-            <div>
-              <dt>SPENT TODAY</dt>
-              <dd>{status ? `≈ ${usd(status.meta.spentToday)}` : '…'}</dd>
+            <button
+              className="primary"
+              disabled={!canVision || !concept.trim() || camera}
+              onClick={() => void execute('segment')}
+            >
+              {busy === 'segment' ? 'Decoding…' : 'Segment object'}
+              <Glyph type="arrow" />
+            </button>
+            <button
+              className="text-button"
+              disabled={!canVision || camera}
+              onClick={() => void execute('segment', 'unicorn')}
+            >
+              Test absent target <span>↗</span>
+            </button>
+            {mode === 'live' && status && (
+              <p className="micro">{estimateLabel(status.meta.estimates.segment, 'image')}</p>
+            )}
+            {segmentation && sorted.length > 0 ? (
+              <table className="detections">
+                <caption>
+                  {sorted.length} mask{sorted.length === 1 ? '' : 's'} for “{segmentation.concept}”
+                  · {segmentation.frame.width}×{segmentation.frame.height}
+                </caption>
+                <thead>
+                  <tr>
+                    <th scope="col">ID</th>
+                    <th scope="col">SCORE</th>
+                    <th scope="col">BOX X,Y W×H</th>
+                    <th scope="col">AREA</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sorted.map((d) => (
+                    <tr key={d.objectId} className={d.objectId === confirmedId ? 'chosen' : ''}>
+                      <td>
+                        {d.objectId === confirmedId ? '✓ ' : ''}#{d.objectId}
+                      </td>
+                      <td>{d.confidence != null ? d.confidence.toFixed(2) : '—'}</td>
+                      <td>
+                        {Math.round(d.box.x)},{Math.round(d.box.y)} {Math.round(d.box.width)}×
+                        {Math.round(d.box.height)}
+                      </td>
+                      <td>
+                        {/* The mask raster is crop-local, so scale its fill up to the box. */}
+                        {(
+                          ((d.mask.foregroundPixels / (d.mask.width * d.mask.height)) *
+                            d.box.width *
+                            d.box.height *
+                            100) /
+                          (segmentation.frame.width * segmentation.frame.height)
+                        ).toFixed(1)}
+                        %
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <p className="micro">
+                {segmentation
+                  ? `No “${segmentation.concept}” found · ${mode}`
+                  : 'Crop-local mask → source-pixel overlay'}
+              </p>
+            )}
+          </div>
+          <div className={`probe placement-controls ${step === 3 ? 'current chosen' : ''}`}>
+            <div className="probe-title">
+              <span className="step">03</span>
+              <h3>Remember & place</h3>
+              <span className="model-tag">ZONE</span>
             </div>
-            <div>
-              <dt>LAMP</dt>
-              <dd className={lampReady ? 'ok' : 'unsure'}>{lampReady ? '● ready' : '◌ off'}</dd>
-            </div>
-            <div>
-              <dt>LIVE PROOF</dt>
-              <dd>{proofCount} / 4</dd>
-            </div>
-          </dl>
-        </section>
-        <div className="workspace-heading">
-          <h2>
-            01 <span>The observation desk</span>
-          </h2>
-          <div className="mode-switch" aria-label="Data source">
-            {(['fixture', 'live'] as const).map((value) => (
+            <p>
+              Confirm the mug once, then Track follows it. The lamp fires when its whole box enters
+              the zone.
+            </p>
+            {segmentation?.detections.map((d) => (
               <button
-                key={value}
-                disabled={Boolean(busy) || camera || cameraPending}
-                aria-pressed={mode === value}
-                onClick={() => changeMode(value)}
+                key={d.objectId}
+                className="secondary"
+                disabled={Boolean(busy) || !segmentRunId || !isMugConcept(segmentation.concept)}
+                onClick={() => void deskAction('select', { segmentRunId, detectionId: d.objectId })}
               >
-                {value === 'fixture' ? 'Fixture' : 'Live'}
+                Confirm mug mask #{d.objectId}
               </button>
             ))}
+            {memory?.object && (
+              <p className="micro">
+                {memory.object.label} · {memory.object.id.slice(0, 8)}
+                <br />
+                {memory.observation
+                  ? `Last observed ${new Date(memory.observation.observedAt).toLocaleTimeString()} · ${memory.observation.identity} identity`
+                  : 'No observation'}
+                {observationStale && ' · STALE: segment a new frame.'}
+                {!currentObservation && ' · Segment and confirm the current frame to continue.'}
+              </p>
+            )}
+            <button
+              className="primary"
+              disabled={!canTrack}
+              onClick={() => void track()}
+              title="Segment the mug in the current frame, match it to the remembered mug, and verify the zone"
+            >
+              {busy === 'track'
+                ? 'Tracking…'
+                : mode === 'live' && camera
+                  ? 'Capture & track'
+                  : 'Track the mug'}
+              <Glyph type="arrow" />
+            </button>
+            <p className="micro">
+              {!memory?.observation
+                ? 'Confirm a mug mask by hand first; tracking starts from it.'
+                : mode === 'fixture'
+                  ? 'Move the mug with the buttons under the scene, then track.'
+                  : `${status ? estimateLabel(status.meta.estimates.segment, 'track') : 'One SAM call per track'}. Move the mug, start the camera, then capture & track.`}
+            </p>
+            <button
+              className="secondary"
+              disabled={follow ? false : Boolean(busy) || !currentObservation}
+              onClick={() => (follow ? stopFollow() : void startFollow())}
+              title="Follow the mug frame to frame in the browser, calling SAM only at the zone edge or when the match gets weak"
+            >
+              {follow ? 'Stop following' : 'Follow locally'}
+            </button>
+            <p className="micro">
+              {follow
+                ? `${followStats.frames} local step${followStats.frames === 1 ? '' : 's'} · ${followStats.checks} SAM check${followStats.checks === 1 ? '' : 's'}${followView ? ` · match ${followView.score.toFixed(2)}` : ''}${localZone ? '' : ' · no zone to watch: save one and mark the camera fixed'}`
+                : currentObservation
+                  ? 'Prototype: template matching in the browser. SAM confirms each zone crossing before the lamp can fire.'
+                  : 'Track or confirm the mug in the current frame, then follow it locally.'}
+            </p>
+            <label className="overlay-toggle">
+              <input
+                type="checkbox"
+                checked={Boolean(memory?.fixedCamera)}
+                disabled={Boolean(busy) || !memory}
+                onChange={(e) => void deskAction('camera', { fixed: e.target.checked })}
+              />
+              Camera is fixed: keep the zone for new frames of the same size
+            </label>
+            <button
+              className="text-button"
+              disabled={Boolean(busy) || !currentObservation || camera}
+              onClick={() => {
+                setDraftZone(memory?.zone?.rect ?? { x: 0.3, y: 0.2, width: 0.4, height: 0.6 });
+                setDrawing(true);
+              }}
+            >
+              Draw / edit zone ↗
+            </button>
+            {drawing && (
+              <div className="zone-editor">
+                <p className="micro">Drag a rectangle on the image, or enter percentages below.</p>
+                <div className="zone-fields">
+                  {(['x', 'y', 'width', 'height'] as const).map((key) => (
+                    <label key={key}>
+                      Zone {key} %
+                      <input
+                        type="number"
+                        min="0"
+                        max="100"
+                        step="1"
+                        value={Math.round(draftZone[key] * 100)}
+                        disabled={Boolean(busy)}
+                        onChange={(e) =>
+                          setDraftZone((z) => ({ ...z, [key]: Number(e.target.value) / 100 }))
+                        }
+                      />
+                    </label>
+                  ))}
+                </div>
+                <button
+                  className="secondary"
+                  disabled={Boolean(busy) || !currentObservation}
+                  onClick={() =>
+                    void deskAction('zone', {
+                      observationId: currentObservation?.id,
+                      rect: draftZone,
+                    })
+                  }
+                >
+                  Save zone
+                </button>
+              </div>
+            )}
+            <p className="micro">
+              {!memory?.zone
+                ? 'No saved zone.'
+                : memory.fixedCamera
+                  ? 'Zone saved; carried to same-size frames while the camera is marked fixed.'
+                  : 'Zone saved for its source image.'}{' '}
+              Observations expire after 5 minutes. A still photo does not prove the current physical
+              scene.
+            </p>
+            <button
+              className="physical"
+              disabled={
+                Boolean(busy) ||
+                drawing ||
+                !currentObservation ||
+                !memory?.zone ||
+                (mode === 'live' && !lampReady)
+              }
+              onClick={() =>
+                void deskAction('verify', {
+                  observationId: currentObservation?.id,
+                  zoneId: memory?.zone?.id,
+                })
+              }
+            >
+              {busy === 'verify'
+                ? 'Checking placement…'
+                : mode === 'fixture'
+                  ? 'Verify placement · virtual lamp'
+                  : 'Verify placement · turn on lamp'}
+            </button>
+            {memory?.lastDecision && (
+              <p className="placement-result" role="note">
+                {memory.lastDecision.mode.toUpperCase()} · {memory.lastDecision.output.decision} ·
+                lamp {memory.lastDecision.output.action}
+                <br />
+                {memory.lastDecision.output.reason}
+                {memory.lastDecision.output.error && (
+                  <>
+                    <br />
+                    {memory.lastDecision.output.error.message}
+                  </>
+                )}
+                {memory.lastDecision.output.lamp && (
+                  <>
+                    <br />
+                    {memory.lastDecision.output.lamp.explanation}
+                  </>
+                )}
+              </p>
+            )}
+            {sightings.length > 0 && (
+              <div className="timeline">
+                <div className="section-label">
+                  <span>MOVEMENT</span>
+                  <span>
+                    {sightings.length} SIGHTING{sightings.length === 1 ? '' : 'S'}
+                  </span>
+                </div>
+                <ol>
+                  {sightings.map((o, i) => {
+                    const here = centre(o);
+                    const before = sightings[i + 1];
+                    const moved = before
+                      ? Math.hypot(here.x - centre(before).x, here.y - centre(before).y) * 100
+                      : null;
+                    const verdict = verdictFor(o);
+                    return (
+                      <li key={o.id} className={i === 0 ? 'current' : ''}>
+                        <span className={`transition ${verdict?.transition ?? 'none'}`}>
+                          {verdict?.transition
+                            ? TRANSITION[verdict.transition]
+                            : verdict
+                              ? 'Blocked'
+                              : 'Not checked'}
+                        </span>
+                        <span className="micro">
+                          {new Date(o.observedAt).toLocaleTimeString([], {
+                            hour: '2-digit',
+                            minute: '2-digit',
+                            second: '2-digit',
+                          })}{' '}
+                          · {o.identity} · at {Math.round(here.x * 100)},{Math.round(here.y * 100)}%
+                          {moved !== null && ` · moved ${moved.toFixed(1)}%`}
+                          {o.overlap != null && ` · overlap ${o.overlap.toFixed(2)}`}
+                          {verdict?.assumedFixedCamera && ' · carried zone'}
+                        </span>
+                      </li>
+                    );
+                  })}
+                </ol>
+              </div>
+            )}
+            <button
+              className="text-button destructive"
+              disabled={Boolean(busy) || !memory?.object}
+              onClick={() => void deskAction('reset')}
+            >
+              Reset desk memory
+            </button>
           </div>
-        </div>
-        <div className="workspace">
-          <section className="observation" aria-label="Scene and segmentation">
-            <div className="scene-toolbar">
-              <span>
-                <span className={`dot ${mode === 'live' ? 'live' : ''}`} />
-                {mode === 'fixture'
-                  ? 'ILLUSTRATED FIXTURE'
-                  : image
-                    ? 'LOCAL DESK PHOTO'
-                    : 'AWAITING DESK PHOTO'}
-              </span>
-              <label className="overlay-toggle">
-                <input
-                  type="checkbox"
-                  checked={overlay}
-                  onChange={(e) => setOverlay(e.target.checked)}
-                />{' '}
-                Mask overlay
-              </label>
+          <div className="probe">
+            <div className="probe-title">
+              <span className="step">04</span>
+              <h3>Test one light</h3>
+              <span className="model-tag">HA</span>
             </div>
+            <p>
+              {mode === 'fixture'
+                ? 'Virtual lamp only. No hardware action.'
+                : 'Turns on your configured lamp. Check the physical effect separately.'}
+            </p>
+            <button
+              className="physical"
+              disabled={Boolean(busy) || (mode === 'live' && !lampReady)}
+              onClick={() => void execute('lamp')}
+            >
+              {busy === 'lamp'
+                ? 'Checking state…'
+                : mode === 'fixture'
+                  ? 'Simulate lamp action'
+                  : 'Turn on desk lamp'}
+              <Glyph type="arrow" />
+            </button>
+          </div>
+          <div className="connection">
+            <span className="tiny">CONNECTION CHECK</span>
+            <button
+              className="text-button"
+              disabled={Boolean(busy) || (mode === 'live' && !metaReady)}
+              onClick={() => void execute('text')}
+            >
+              {busy === 'text' ? 'Checking…' : 'Run text smoke test'} <span>↗</span>
+            </button>
+            {mode === 'live' && status && (
+              <p className="micro">{estimateLabel(status.meta.estimates.text)}</p>
+            )}
+          </div>
+        </aside>
+        <section className="lab-stage" aria-label="Scene and segmentation">
+          <div className="scene-toolbar">
+            <span>
+              <span className={`dot ${mode === 'live' ? 'live' : ''}`} />
+              {mode === 'fixture'
+                ? 'ILLUSTRATED FIXTURE'
+                : image
+                  ? 'LOCAL DESK PHOTO'
+                  : 'AWAITING DESK PHOTO'}
+            </span>
+            <label className="overlay-toggle">
+              <input
+                type="checkbox"
+                checked={overlay}
+                onChange={(e) => setOverlay(e.target.checked)}
+              />{' '}
+              Mask overlay
+            </label>
+          </div>
+          <div className="stage-fit">
             <div
               className="scene"
-              style={{ aspectRatio: `${dimensions.width} / ${dimensions.height}` }}
+              style={
+                {
+                  aspectRatio: `${dimensions.width} / ${dimensions.height}`,
+                  '--ar': dimensions.width / dimensions.height,
+                } as CSSProperties
+              }
             >
               {camera ? (
                 <video ref={video} muted playsInline aria-label="Desk camera preview" />
@@ -978,505 +1299,138 @@ export function App() {
                 {dimensions.width} × {dimensions.height} <span>FRAME 00</span>
               </span>
             </div>
-            <div className="scene-bottom">
-              <span>
-                {mode === 'fixture'
-                  ? 'Synthetic scene. Move the mug to test tracking; no inference or physical action.'
-                  : 'Your photo is sent to Meta for live vision probes.'}
-              </span>
-              {mode === 'fixture' && (
-                <div className="capture-actions" role="group" aria-label="Move the fixture mug">
-                  {(Object.keys(FIXTURE_POSITIONS) as FixturePosition[]).map((p) => (
+          </div>
+          <div className="scene-bottom">
+            <span>
+              {mode === 'fixture'
+                ? 'Synthetic scene. Move the mug to test tracking; no inference or physical action.'
+                : 'Your photo is sent to Meta for live vision probes.'}
+            </span>
+            {mode === 'fixture' && (
+              <div className="capture-actions" role="group" aria-label="Move the fixture mug">
+                {(Object.keys(FIXTURE_POSITIONS) as FixturePosition[]).map((p) => (
+                  <button
+                    key={p}
+                    aria-pressed={fixturePosition === p}
+                    disabled={Boolean(busy)}
+                    onClick={() => moveFixtureMug(p)}
+                  >
+                    {FIXTURE_POSITIONS[p].label}
+                  </button>
+                ))}
+              </div>
+            )}
+            {mode === 'live' && (
+              <div className="capture-actions">
+                <input
+                  ref={file}
+                  type="file"
+                  accept="image/png,image/jpeg"
+                  hidden
+                  onChange={(e) => void upload(e.target.files?.[0])}
+                />
+                {camera ? (
+                  <>
                     <button
-                      key={p}
-                      aria-pressed={fixturePosition === p}
                       disabled={Boolean(busy)}
-                      onClick={() => moveFixtureMug(p)}
+                      onClick={() => {
+                        if (video.current?.videoWidth) {
+                          captureCanvas(
+                            video.current,
+                            video.current.videoWidth,
+                            video.current.videoHeight,
+                          );
+                          stopCamera();
+                        }
+                      }}
                     >
-                      {FIXTURE_POSITIONS[p].label}
+                      Capture frame
+                    </button>
+                    <button onClick={stopCamera}>Stop camera</button>
+                  </>
+                ) : (
+                  <>
+                    <button disabled={Boolean(busy)} onClick={() => file.current?.click()}>
+                      <Glyph type="upload" /> Upload
+                    </button>
+                    <button
+                      disabled={Boolean(busy) || cameraPending}
+                      onClick={() => void startCamera()}
+                    >
+                      <Glyph type="camera" /> {cameraPending ? 'Opening…' : 'Camera'}
+                    </button>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+          <div className="observed">
+            <div className="section-label">
+              <span>DISCOVERED OBJECTS</span>
+              <span>
+                {scene
+                  ? `${scene.objects.length.toString().padStart(2, '0')} OBJECTS`
+                  : 'AWAITING PROBE'}
+              </span>
+            </div>
+            {scene ? (
+              <>
+                <p className="scene-summary">{scene.summary}</p>
+                <div className="object-grid">
+                  {scene.objects.map((object, i) => (
+                    <button
+                      key={i}
+                      disabled={Boolean(busy)}
+                      onClick={() => setConcept(object.category)}
+                      className={`object-card ${concept === object.category ? 'chosen' : ''}`}
+                    >
+                      <span className="object-number">0{i + 1}</span>
+                      <strong>{object.label}</strong>
+                      <small>{object.appearance}</small>
+                      <span className="object-category">
+                        {object.category} <span>↗</span>
+                      </span>
                     </button>
                   ))}
                 </div>
-              )}
-              {mode === 'live' && (
-                <div className="capture-actions">
-                  <input
-                    ref={file}
-                    type="file"
-                    accept="image/png,image/jpeg"
-                    hidden
-                    onChange={(e) => void upload(e.target.files?.[0])}
-                  />
-                  {camera ? (
-                    <>
-                      <button
-                        disabled={Boolean(busy)}
-                        onClick={() => {
-                          if (video.current?.videoWidth) {
-                            captureCanvas(
-                              video.current,
-                              video.current.videoWidth,
-                              video.current.videoHeight,
-                            );
-                            stopCamera();
-                          }
-                        }}
-                      >
-                        Capture frame
-                      </button>
-                      <button onClick={stopCamera}>Stop camera</button>
-                    </>
-                  ) : (
-                    <>
-                      <button disabled={Boolean(busy)} onClick={() => file.current?.click()}>
-                        <Glyph type="upload" /> Upload
-                      </button>
-                      <button
-                        disabled={Boolean(busy) || cameraPending}
-                        onClick={() => void startCamera()}
-                      >
-                        <Glyph type="camera" /> {cameraPending ? 'Opening…' : 'Camera'}
-                      </button>
-                    </>
-                  )}
-                </div>
-              )}
-            </div>
-            <div className="observed">
-              <div className="section-label">
-                <span>DISCOVERED OBJECTS</span>
-                <span>
-                  {scene
-                    ? `${scene.objects.length.toString().padStart(2, '0')} OBJECTS`
-                    : 'AWAITING PROBE'}
-                </span>
-              </div>
-              {scene ? (
-                <>
-                  <p className="scene-summary">{scene.summary}</p>
-                  <div className="object-grid">
-                    {scene.objects.map((object, i) => (
-                      <button
-                        key={i}
-                        disabled={Boolean(busy)}
-                        onClick={() => setConcept(object.category)}
-                        className={`object-card ${concept === object.category ? 'chosen' : ''}`}
-                      >
-                        <span className="object-number">0{i + 1}</span>
-                        <strong>{object.label}</strong>
-                        <small>{object.appearance}</small>
-                        <span className="object-category">
-                          {object.category} <span>↗</span>
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                  {!scene.objects.length && <p>No suitable objects were returned.</p>}
-                </>
-              ) : (
-                <p className="placeholder">Run discovery to name up to three visible objects.</p>
-              )}
-            </div>
-          </section>
-          <aside className="controls">
-            <div className="control-header">
-              <span className="tiny">THE PROBE BENCH</span>
-              <h2>One step at a time.</h2>
-              <p>
-                {mode === 'fixture'
-                  ? 'Exercise the pipeline with known inputs.'
-                  : 'Each button makes one explicit live operation.'}
-              </p>
-            </div>
-            <div className={`probe ${step === 1 ? 'current' : ''}`}>
-              <div className="probe-title">
-                <span className="step">01</span>
-                <h3>Discover the scene</h3>
-                <span className="model-tag">SPARK</span>
-              </div>
-              <p>
-                Grounded labels, a short description.
-                <br />
-                Three objects at most.
-              </p>
-              <button
-                className="primary"
-                disabled={!canVision || camera}
-                onClick={() => void execute('discover')}
-              >
-                {busy === 'discover' ? 'Discovering…' : 'Discover objects'}
-                <Glyph type="arrow" />
-              </button>
-              {mode === 'live' && status && (
-                <p className="micro">{estimateLabel(status.meta.estimates.discover)}</p>
-              )}
-            </div>
-            <div className={`probe ${step === 2 ? 'current' : ''}`}>
-              <div className="probe-title">
-                <span className="step">02</span>
-                <h3>Find the shape</h3>
-                <span className="model-tag">SAM 3.1</span>
-              </div>
-              <label className="input-label" htmlFor="concept">
-                Object concept
-              </label>
-              <div className="concept-input">
-                <input
-                  id="concept"
-                  value={concept}
-                  maxLength={80}
-                  onChange={(e) => setConcept(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && canVision && concept.trim() && !camera)
-                      void execute('segment');
-                  }}
-                />
-                <span>↵ TO RUN</span>
-              </div>
-              <button
-                className="primary"
-                disabled={!canVision || !concept.trim() || camera}
-                onClick={() => void execute('segment')}
-              >
-                {busy === 'segment' ? 'Decoding…' : 'Segment object'}
-                <Glyph type="arrow" />
-              </button>
-              <button
-                className="text-button"
-                disabled={!canVision || camera}
-                onClick={() => void execute('segment', 'unicorn')}
-              >
-                Test absent target <span>↗</span>
-              </button>
-              {mode === 'live' && status && (
-                <p className="micro">{estimateLabel(status.meta.estimates.segment, 'image')}</p>
-              )}
-              {segmentation && sorted.length > 0 ? (
-                <table className="detections">
-                  <caption>
-                    {sorted.length} mask{sorted.length === 1 ? '' : 's'} for “{segmentation.concept}
-                    ” · {segmentation.frame.width}×{segmentation.frame.height}
-                  </caption>
-                  <thead>
-                    <tr>
-                      <th scope="col">ID</th>
-                      <th scope="col">SCORE</th>
-                      <th scope="col">BOX X,Y W×H</th>
-                      <th scope="col">AREA</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {sorted.map((d) => (
-                      <tr key={d.objectId} className={d.objectId === confirmedId ? 'chosen' : ''}>
-                        <td>
-                          {d.objectId === confirmedId ? '✓ ' : ''}#{d.objectId}
-                        </td>
-                        <td>{d.confidence != null ? d.confidence.toFixed(2) : '—'}</td>
-                        <td>
-                          {Math.round(d.box.x)},{Math.round(d.box.y)} {Math.round(d.box.width)}×
-                          {Math.round(d.box.height)}
-                        </td>
-                        <td>
-                          {/* The mask raster is crop-local, so scale its fill up to the box. */}
-                          {(
-                            ((d.mask.foregroundPixels / (d.mask.width * d.mask.height)) *
-                              d.box.width *
-                              d.box.height *
-                              100) /
-                            (segmentation.frame.width * segmentation.frame.height)
-                          ).toFixed(1)}
-                          %
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              ) : (
-                <p className="micro">
-                  {segmentation
-                    ? `No “${segmentation.concept}” found · ${mode}`
-                    : 'Crop-local mask → source-pixel overlay'}
-                </p>
-              )}
-            </div>
-            <div className={`probe placement-controls ${step === 3 ? 'current chosen' : ''}`}>
-              <div className="probe-title">
-                <span className="step">03</span>
-                <h3>Remember & place</h3>
-                <span className="model-tag">ZONE</span>
-              </div>
-              <p>
-                Confirm the mug by hand once. After that, Track follows it from frame to frame. The
-                whole box must fit inside the zone, and the lamp fires only when the mug enters.
-              </p>
-              {segmentation?.detections.map((d) => (
-                <button
-                  key={d.objectId}
-                  className="secondary"
-                  disabled={Boolean(busy) || !segmentRunId || !isMugConcept(segmentation.concept)}
-                  onClick={() =>
-                    void deskAction('select', { segmentRunId, detectionId: d.objectId })
-                  }
-                >
-                  Confirm mug mask #{d.objectId}
-                </button>
-              ))}
-              {memory?.object && (
-                <p className="micro">
-                  {memory.object.label} · {memory.object.id.slice(0, 8)}
-                  <br />
-                  {memory.observation
-                    ? `Last observed ${new Date(memory.observation.observedAt).toLocaleTimeString()} · ${memory.observation.identity} identity`
-                    : 'No observation'}
-                  {observationStale && ' · STALE: segment a new frame.'}
-                  {!currentObservation && ' · Segment and confirm the current frame to continue.'}
-                </p>
-              )}
-              <button
-                className="primary"
-                disabled={!canTrack}
-                onClick={() => void track()}
-                title="Segment the mug in the current frame, match it to the remembered mug, and verify the zone"
-              >
-                {busy === 'track'
-                  ? 'Tracking…'
-                  : mode === 'live' && camera
-                    ? 'Capture & track'
-                    : 'Track the mug'}
-                <Glyph type="arrow" />
-              </button>
-              <p className="micro">
-                {!memory?.observation
-                  ? 'Confirm a mug mask by hand first; tracking starts from it.'
-                  : mode === 'fixture'
-                    ? 'Move the mug with the buttons under the scene, then track.'
-                    : `${status ? estimateLabel(status.meta.estimates.segment, 'track') : 'One SAM call per track'}. Move the mug, start the camera, then capture & track.`}
-              </p>
-              <button
-                className="secondary"
-                disabled={follow ? false : Boolean(busy) || !currentObservation}
-                onClick={() => (follow ? stopFollow() : void startFollow())}
-                title="Follow the mug frame to frame in the browser, calling SAM only at the zone edge or when the match gets weak"
-              >
-                {follow ? 'Stop following' : 'Follow locally'}
-              </button>
-              <p className="micro">
-                {follow
-                  ? `${followStats.frames} local step${followStats.frames === 1 ? '' : 's'} · ${followStats.checks} SAM check${followStats.checks === 1 ? '' : 's'}${followView ? ` · match ${followView.score.toFixed(2)}` : ''}${localZone ? '' : ' · no zone to watch: save one and mark the camera fixed'}`
-                  : currentObservation
-                    ? 'Prototype: template matching in the browser. SAM confirms each zone crossing before the lamp can fire.'
-                    : 'Track or confirm the mug in the current frame, then follow it locally.'}
-              </p>
-              <label className="overlay-toggle">
-                <input
-                  type="checkbox"
-                  checked={Boolean(memory?.fixedCamera)}
-                  disabled={Boolean(busy) || !memory}
-                  onChange={(e) => void deskAction('camera', { fixed: e.target.checked })}
-                />
-                Camera is fixed: keep the zone for new frames of the same size
-              </label>
-              <button
-                className="text-button"
-                disabled={Boolean(busy) || !currentObservation || camera}
-                onClick={() => {
-                  setDraftZone(memory?.zone?.rect ?? { x: 0.3, y: 0.2, width: 0.4, height: 0.6 });
-                  setDrawing(true);
-                }}
-              >
-                Draw / edit zone ↗
-              </button>
-              {drawing && (
-                <div className="zone-editor">
-                  <p className="micro">
-                    Drag a rectangle on the image, or enter percentages below.
-                  </p>
-                  <div className="zone-fields">
-                    {(['x', 'y', 'width', 'height'] as const).map((key) => (
-                      <label key={key}>
-                        Zone {key} %
-                        <input
-                          type="number"
-                          min="0"
-                          max="100"
-                          step="1"
-                          value={Math.round(draftZone[key] * 100)}
-                          disabled={Boolean(busy)}
-                          onChange={(e) =>
-                            setDraftZone((z) => ({ ...z, [key]: Number(e.target.value) / 100 }))
-                          }
-                        />
-                      </label>
-                    ))}
-                  </div>
-                  <button
-                    className="secondary"
-                    disabled={Boolean(busy) || !currentObservation}
-                    onClick={() =>
-                      void deskAction('zone', {
-                        observationId: currentObservation?.id,
-                        rect: draftZone,
-                      })
-                    }
-                  >
-                    Save zone
-                  </button>
-                </div>
-              )}
-              <p className="micro">
-                {!memory?.zone
-                  ? 'No saved zone.'
-                  : memory.fixedCamera
-                    ? 'Zone saved; carried to same-size frames while the camera is marked fixed.'
-                    : 'Zone saved for its source image.'}{' '}
-                Observations expire after 5 minutes. A still photo does not prove the current
-                physical scene.
-              </p>
-              <button
-                className="physical"
-                disabled={
-                  Boolean(busy) ||
-                  drawing ||
-                  !currentObservation ||
-                  !memory?.zone ||
-                  (mode === 'live' && !lampReady)
-                }
-                onClick={() =>
-                  void deskAction('verify', {
-                    observationId: currentObservation?.id,
-                    zoneId: memory?.zone?.id,
-                  })
-                }
-              >
-                {busy === 'verify'
-                  ? 'Checking placement…'
-                  : mode === 'fixture'
-                    ? 'Verify placement · virtual lamp'
-                    : 'Verify placement · turn on lamp'}
-              </button>
-              {memory?.lastDecision && (
-                <p className="placement-result" role="note">
-                  {memory.lastDecision.mode.toUpperCase()} · {memory.lastDecision.output.decision} ·
-                  lamp {memory.lastDecision.output.action}
-                  <br />
-                  {memory.lastDecision.output.reason}
-                  {memory.lastDecision.output.error && (
-                    <>
-                      <br />
-                      {memory.lastDecision.output.error.message}
-                    </>
-                  )}
-                  {memory.lastDecision.output.lamp && (
-                    <>
-                      <br />
-                      {memory.lastDecision.output.lamp.explanation}
-                    </>
-                  )}
-                </p>
-              )}
-              {sightings.length > 0 && (
-                <div className="timeline">
-                  <div className="section-label">
-                    <span>MOVEMENT</span>
-                    <span>
-                      {sightings.length} SIGHTING{sightings.length === 1 ? '' : 'S'}
-                    </span>
-                  </div>
-                  <ol>
-                    {sightings.map((o, i) => {
-                      const here = centre(o);
-                      const before = sightings[i + 1];
-                      const moved = before
-                        ? Math.hypot(here.x - centre(before).x, here.y - centre(before).y) * 100
-                        : null;
-                      const verdict = verdictFor(o);
-                      return (
-                        <li key={o.id} className={i === 0 ? 'current' : ''}>
-                          <span className={`transition ${verdict?.transition ?? 'none'}`}>
-                            {verdict?.transition
-                              ? TRANSITION[verdict.transition]
-                              : verdict
-                                ? 'Blocked'
-                                : 'Not checked'}
-                          </span>
-                          <span className="micro">
-                            {new Date(o.observedAt).toLocaleTimeString([], {
-                              hour: '2-digit',
-                              minute: '2-digit',
-                              second: '2-digit',
-                            })}{' '}
-                            · {o.identity} · at {Math.round(here.x * 100)},
-                            {Math.round(here.y * 100)}%
-                            {moved !== null && ` · moved ${moved.toFixed(1)}%`}
-                            {o.overlap != null && ` · overlap ${o.overlap.toFixed(2)}`}
-                            {verdict?.assumedFixedCamera && ' · carried zone'}
-                          </span>
-                        </li>
-                      );
-                    })}
-                  </ol>
-                </div>
-              )}
-              <button
-                className="text-button destructive"
-                disabled={Boolean(busy) || !memory?.object}
-                onClick={() => void deskAction('reset')}
-              >
-                Reset desk memory
-              </button>
-            </div>
-            <div className="probe">
-              <div className="probe-title">
-                <span className="step">04</span>
-                <h3>Test one light</h3>
-                <span className="model-tag">HA</span>
-              </div>
-              <p>
-                {mode === 'fixture'
-                  ? 'Virtual lamp only. No hardware action.'
-                  : 'Turns on your configured lamp. Check the physical effect separately.'}
-              </p>
-              <button
-                className="physical"
-                disabled={Boolean(busy) || (mode === 'live' && !lampReady)}
-                onClick={() => void execute('lamp')}
-              >
-                {busy === 'lamp'
-                  ? 'Checking state…'
-                  : mode === 'fixture'
-                    ? 'Simulate lamp action'
-                    : 'Turn on desk lamp'}
-                <Glyph type="arrow" />
-              </button>
-            </div>
-            <div className="connection">
-              <span className="tiny">CONNECTION CHECK</span>
-              <button
-                className="text-button"
-                disabled={Boolean(busy) || (mode === 'live' && !metaReady)}
-                onClick={() => void execute('text')}
-              >
-                {busy === 'text' ? 'Checking…' : 'Run text smoke test'} <span>↗</span>
-              </button>
-              {mode === 'live' && status && (
-                <p className="micro">{estimateLabel(status.meta.estimates.text)}</p>
-              )}
-            </div>
-          </aside>
-        </div>
-        {error && (
-          <div className="error" role="alert">
-            {error}
+                {!scene.objects.length && <p>No suitable objects were returned.</p>}
+              </>
+            ) : (
+              <p className="placeholder">Discovered objects show up here.</p>
+            )}
           </div>
-        )}
-        <section className="evidence-section">
-          <div>
-            <div className="workspace-heading">
-              <h2>
-                02 <span>The evidence notebook</span>
-              </h2>
-              <span className="tiny">LOCAL · PERSISTENT · EXPORTABLE</span>
+          {error && (
+            <div className="error" role="alert">
+              {error}
             </div>
+          )}
+        </section>
+        <aside className="lab-side" aria-label="Evidence and setup">
+          <div className="side-tabs" role="tablist" aria-label="Side panel">
+            {(['runs', 'inspect', 'setup'] as const).map((tab) => (
+              <button
+                key={tab}
+                role="tab"
+                id={`tab-${tab}`}
+                aria-selected={sideTab === tab}
+                aria-controls={`panel-${tab}`}
+                onClick={() => setSideTab(tab)}
+              >
+                {tab === 'runs'
+                  ? `Runs · ${filteredRuns.length}`
+                  : tab === 'inspect'
+                    ? 'Inspect'
+                    : `Setup · ${proofCount}/4`}
+              </button>
+            ))}
+          </div>
+          <div
+            className="side-panel"
+            role="tabpanel"
+            id="panel-runs"
+            aria-labelledby="tab-runs"
+            hidden={sideTab !== 'runs'}
+          >
             <div className="log-filters" role="group" aria-label="Filter the evidence log">
               <label>
                 Kind
@@ -1578,12 +1532,17 @@ export function App() {
               )}
             </div>
           </div>
-          <div className="evidence-side">
-            {selected && (
+          <div
+            className="side-panel"
+            role="tabpanel"
+            id="panel-inspect"
+            aria-labelledby="tab-inspect"
+            hidden={sideTab !== 'inspect'}
+          >
+            {selected ? (
               <section
                 className="inspector"
                 key={selected.id}
-                ref={inspector}
                 aria-label={`${selected.kind} run ${selected.id.slice(0, 8)}`}
               >
                 <header className="inspector-head">
@@ -1601,7 +1560,10 @@ export function App() {
                   <button
                     className="inspector-close"
                     aria-label="Close inspector"
-                    onClick={() => setSelected(undefined)}
+                    onClick={() => {
+                      setSelected(undefined);
+                      setSideTab('runs');
+                    }}
                   >
                     ×
                   </button>
@@ -1689,7 +1651,59 @@ export function App() {
                   <pre>{JSON.stringify(selected, null, 2)}</pre>
                 </details>
               </section>
+            ) : (
+              <p className="placeholder">Pick a run in Runs to inspect it.</p>
             )}
+          </div>
+          <div
+            className="side-panel"
+            role="tabpanel"
+            id="panel-setup"
+            aria-labelledby="tab-setup"
+            hidden={sideTab !== 'setup'}
+          >
+            <dl className="session-strip" aria-label="Session">
+              <div>
+                <dt>SPARK</dt>
+                <dd>{status?.meta.sparkModel ?? '…'}</dd>
+              </div>
+              <div>
+                <dt>SAM</dt>
+                <dd>{status?.meta.samModel ?? '…'}</dd>
+              </div>
+              <div>
+                <dt>META</dt>
+                <dd className={metaReady ? 'ok' : 'unsure'}>
+                  {metaReady ? '● ready' : '◌ off'}
+                  {status && (
+                    <small>
+                      {status.meta.usedToday} / {status.meta.requestLimit} calls
+                    </small>
+                  )}
+                </dd>
+                {status && (
+                  <span className="budget" aria-hidden="true">
+                    <span
+                      style={{
+                        width: `${Math.min(100, (status.meta.usedToday / Math.max(1, status.meta.requestLimit)) * 100)}%`,
+                      }}
+                    />
+                  </span>
+                )}
+              </div>
+              <div>
+                <dt>SPENT TODAY</dt>
+                <dd>{status ? `≈ ${usd(status.meta.spentToday)}` : '…'}</dd>
+              </div>
+              <div>
+                <dt>LAMP</dt>
+                <dd className={lampReady ? 'ok' : 'unsure'}>{lampReady ? '● ready' : '◌ off'}</dd>
+              </div>
+              <div>
+                <dt>LIVE PROOF</dt>
+                <dd>{proofCount} / 4</dd>
+              </div>
+            </dl>
             <aside className="readiness">
               <span className="tiny">LIVE PROOF CHECKLIST</span>
               <h3>
@@ -1726,16 +1740,8 @@ export function App() {
               </div>
             </aside>
           </div>
-        </section>
+        </aside>
       </main>
-      <footer>
-        <span>
-          <Glyph />
-          Living Layer
-        </span>
-        <p>Perception first. A little magic later.</p>
-        <span className="tiny">MIT LICENSED</span>
-      </footer>
     </div>
   );
 }

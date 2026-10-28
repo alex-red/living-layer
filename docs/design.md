@@ -91,9 +91,9 @@ Display flourish: the large title and big numerals (such as the `0 / 4` checklis
 ## Space, shape, and layout
 
 - **Grid:** 4 px base. Spacing steps are 4, 8, 12, 16, 24, 32, 48, 64, 96.
-- **Radii:** 8 for chips and inputs, 12 for buttons, 16 for cards, 24 for panels and the scene frame. Use `corner-shape: squircle` inside `@supports`, so supporting browsers get Apple's continuous corners and others fall back to normal rounding.
+- **Radii:** nearly square. 2 for chips, inputs and buttons, 3 for cards, 4 for panels and the scene frame. Only status dots, checklist rings and the shutter stay round.
 - **HUD brackets:** detections and the scene frame get corner ticks (four L-shaped 12 px strokes) instead of full boxes. Brackets are our "cyberpunk" shape. Cut, chamfered panel corners are not; see [originality](#originality).
-- **Hit targets:** at least 44 × 44 px, however small the visible control is.
+- **Density:** the labs are dense tools. Buttons and inputs are 32 px tall (28 px for tabs and segmented controls), and the body text is 13 px.
 - **Desktop:** content max width 1440 px, 12 columns, 24 px gutters. The scene takes 8 columns and the probe bench 4. The evidence log sits full width below.
 - **Mobile (under 768 px):** a single column with the scene first. The current step's primary action sits in a sticky bottom bar within thumb reach. There must be no horizontal scroll; a browser test already checks this.
 
@@ -179,7 +179,7 @@ Cyberpunk flavour lives only in HUD labels and IDs (`OBS-0142`, `ZN-01`, `SIG 0.
 
 - Text contrast is 4.5:1 or better (all the tokens above pass on panels), and UI parts are at least 3:1.
 - Every interactive element gets a visible focus ring: 2 px `--seen` with a 2 px `--void` gap, using `:focus-visible`.
-- Hit targets are at least 44 px, and text is never smaller than 11 px.
+- Controls are at least 28 px tall, and text is never smaller than 11 px.
 - Honour `prefers-reduced-motion`, `prefers-reduced-transparency`, and `prefers-contrast: more`. Under high contrast, lines go to 40% and grain is turned off.
 - Masks and zones carry text labels as well as colour. The mask overlay toggle stays available.
 - Nothing flashes more than three times a second.
@@ -189,7 +189,7 @@ Cyberpunk flavour lives only in HUD labels and IDs (`OBS-0142`, `ZN-01`, `SIG 0.
 The mood is "lo-fi cyberpunk". The look must not be Cyberpunk 2077's. This is a public hackathon entry, and the rules disqualify assets we don't have the rights to. So:
 
 - No CD Projekt logos, typefaces, UI screenshots, sound, or name in the product.
-- Don't make yellow-on-black the main scheme, and don't use chamfered or cut-corner panels, glitch-sliced type, or the game's HUD layouts. Our shapes are Apple's continuous corners plus our own HUD brackets.
+- Don't make yellow-on-black the main scheme, and don't use chamfered or cut-corner panels, glitch-sliced type, or the game's HUD layouts. Our shapes are near-square panels with soft 2–4 px corners, plus our own HUD brackets.
 - No Apple assets either: no SF Symbols, no bundled SF fonts, and no copied system UI artwork. Patterns like the Dynamic Island or privacy dots are fine as interaction ideas, drawn our own way.
 
 ## Implementation status

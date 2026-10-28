@@ -38,11 +38,11 @@
   --ui: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter Variable', system-ui, sans-serif;
   --mono: ui-monospace, 'SF Mono', 'JetBrains Mono Variable', Menlo, monospace;
 
-  /* Shape */
-  --r-chip: 8px;
-  --r-button: 12px;
-  --r-card: 16px;
-  --r-panel: 24px;
+  /* Shape: nearly square, so the scene reads as an instrument, not an app. */
+  --r-chip: 2px;
+  --r-button: 2px;
+  --r-card: 3px;
+  --r-panel: 4px;
 
   /* Glass */
   --glass-thin: rgb(17 20 29 / 55%);

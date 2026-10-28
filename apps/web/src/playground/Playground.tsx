@@ -435,6 +435,11 @@ export function Playground() {
     : camera.info?.width
       ? `${camera.info.width} / ${camera.info.height}`
       : '16 / 9';
+  const aspectNumber = shot
+    ? shot.width / shot.height
+    : camera.info?.width && camera.info.height
+      ? camera.info.width / camera.info.height
+      : 16 / 9;
   const peak = Math.max(threshold * 3, ...motion.history);
   const spark = motion.history.map((s, i) => `${(i / 89) * 180},${36 - (s / peak) * 34}`).join(' ');
 
@@ -455,241 +460,7 @@ export function Playground() {
       </header>
 
       <main className="pg-main">
-        <section className="pg-scene" aria-label="Camera viewfinder">
-          <div
-            className={`pg-stage ${drawing ? 'drawing' : ''}`}
-            style={{ aspectRatio: aspect }}
-            onPointerDown={(e) => {
-              if (!drawing) return;
-              const p = point(e);
-              drag.current = { kind: 'draw', start: p };
-              setZone({ ...p, width: 0, height: 0 });
-              e.currentTarget.setPointerCapture(e.pointerId);
-            }}
-            onPointerMove={(e) => {
-              const d = drag.current;
-              if (!d) return;
-              const p = point(e);
-              if (d.kind === 'draw')
-                setZone({
-                  x: Math.min(d.start.x, p.x),
-                  y: Math.min(d.start.y, p.y),
-                  width: Math.abs(d.start.x - p.x),
-                  height: Math.abs(d.start.y - p.y),
-                });
-              else
-                setBox((b) => ({
-                  ...b,
-                  x: clamp(p.x - d.dx, 0, 1 - b.width),
-                  y: clamp(p.y - d.dy, 0, 1 - b.height),
-                }));
-            }}
-            onPointerUp={() => {
-              drag.current = null;
-            }}
-            onPointerCancel={() => {
-              drag.current = null;
-            }}
-          >
-            <div className={`pg-media ${flip ? 'mirrored' : ''}`}>
-              <video
-                ref={camera.video}
-                muted
-                playsInline
-                hidden={!live || reviewing}
-                aria-label="Live camera preview"
-              />
-              <PixelFeed
-                video={camera.video}
-                active={pixelArt && live && !reviewing}
-                blockPx={blockPx}
-                palette={palette}
-                dither={dither}
-              />
-              {shot && <img src={shot.url} alt="Captured frame" />}
-              {shot?.segmentation && (
-                <MaskOverlay key={shot.id} segmentation={shot.segmentation} cover />
-              )}
-              {showCells && live && !reviewing && motion.columns > 0 && (
-                <div
-                  className="pg-cells"
-                  aria-hidden="true"
-                  style={{
-                    gridTemplateColumns: `repeat(${motion.columns}, 1fr)`,
-                    gridTemplateRows: `repeat(${motion.rows}, 1fr)`,
-                  }}
-                >
-                  {motion.cells.map((on, i) => (
-                    <span key={i} className={on ? 'on' : ''} />
-                  ))}
-                </div>
-              )}
-            </div>
-            {live && !reviewing && sighting && (
-              <MaskOverlay
-                key={sighting.takenAt.getTime()}
-                segmentation={sighting.segmentation}
-                mirror={flip}
-                cover
-                stale={sighting.stale}
-              />
-            )}
-
-            {!live && !shot && (
-              <div className="pg-empty">
-                <Glyph type="camera" />
-                <p>
-                  {camera.state === 'opening'
-                    ? 'Allow camera access in your browser.'
-                    : 'Start the camera to try the viewfinder.'}
-                </p>
-                <small>Frames stay in this tab unless you ask to detect objects.</small>
-                <button className="pg-button tertiary" onClick={() => file.current?.click()}>
-                  <Glyph type="upload" /> Or open a desk photo
-                </button>
-              </div>
-            )}
-
-            {guides && (live || shot) && (
-              <div className="pg-guides" aria-hidden="true">
-                <span className="v1" />
-                <span className="v2" />
-                <span className="h1" />
-                <span className="h2" />
-                <span className="reticle" />
-              </div>
-            )}
-
-            {zone && (
-              <div
-                className={`pg-zone ${drawing ? 'drawing' : ''}`}
-                style={place(zone)}
-                aria-label="Placement zone"
-              >
-                <span className="pg-tag chosen">ZN-01</span>
-                {drawing && (
-                  <span className="pg-size">
-                    {pct(zone.width)} × {pct(zone.height)}
-                  </span>
-                )}
-              </div>
-            )}
-
-            {showTestBox && (
-              <div
-                className={`pg-box ${!drawing ? 'movable' : ''}`}
-                style={place(box)}
-                role="slider"
-                tabIndex={drawing ? -1 : 0}
-                aria-label="Test box. Use the arrow keys to move it."
-                aria-valuetext={`${pct(box.x)} from left, ${pct(box.y)} from top`}
-                onPointerDown={(e) => {
-                  if (drawing) return;
-                  e.stopPropagation();
-                  const p = point(e);
-                  drag.current = { kind: 'move', dx: p.x - box.x, dy: p.y - box.y };
-                  e.currentTarget.setPointerCapture(e.pointerId);
-                }}
-                onKeyDown={(e) => {
-                  const step = e.shiftKey ? 0.05 : 0.01;
-                  const moves: Record<string, [number, number]> = {
-                    ArrowLeft: [flip ? step : -step, 0],
-                    ArrowRight: [flip ? -step : step, 0],
-                    ArrowUp: [0, -step],
-                    ArrowDown: [0, step],
-                  };
-                  const m = moves[e.key];
-                  if (!m) return;
-                  e.preventDefault();
-                  nudge(...m);
-                }}
-              >
-                <Brackets />
-                <span className="pg-tag seen">TEST BOX · SIM</span>
-              </div>
-            )}
-
-            <Brackets />
-            <span className="pg-hud pg-corner tl">
-              {camera.info?.width
-                ? `CAM-01 · ${camera.info.width}×${camera.info.height}${camera.info.frameRate ? ` · ${camera.info.frameRate} FPS` : ''}`
-                : 'CAM-01 · NO SIGNAL'}
-            </span>
-            <span className="pg-hud pg-corner tr">
-              {reviewing ? 'FROZEN' : !live ? '' : flip ? 'MIRRORED' : 'TRUE VIEW'}
-            </span>
-            {live && !reviewing && (
-              <span className="pg-hud pg-corner bl">
-                MOT {motion.score.toFixed(1)}% · STILL {(motion.stillFor / 1000).toFixed(1)}s
-              </span>
-            )}
-            {flash > 0 && <span key={flash} className="pg-flash" aria-hidden="true" />}
-
-            {shot && (
-              <div className="pg-review">
-                <p>
-                  {shot.source === 'file' ? (
-                    <>
-                      <span className="ok">✓</span> Opened from a file · {shot.width}×{shot.height}
-                    </>
-                  ) : shot.state === 'still' ? (
-                    <>
-                      <span className="ok">✓</span> Captured while still · motion{' '}
-                      {shot.motion.toFixed(1)}%
-                    </>
-                  ) : (
-                    <>
-                      <span className="unsure">◌</span> Captured before the scene settled. Masks may
-                      blur.
-                    </>
-                  )}
-                </p>
-                <div>
-                  <button className="pg-button tertiary" onClick={() => openInLab(shot)}>
-                    Open in desk lab
-                  </button>
-                  <button className="pg-button secondary" onClick={leaveReview}>
-                    {shot.source === 'file' || kept.some((k) => k.id === shot.id)
-                      ? 'Close'
-                      : 'Retake'}
-                  </button>
-                  <button className="pg-button primary" onClick={keep}>
-                    Keep frame
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-
-          <div className="pg-shutter-bar">
-            <label className="pg-switch">
-              <input
-                type="checkbox"
-                checked={mirror}
-                onChange={(e) => setMirror(e.target.checked)}
-              />
-              Mirror preview
-            </label>
-            <button
-              className={`pg-shutter ${motion.state}`}
-              disabled={!live || reviewing}
-              onClick={capture}
-              aria-label="Capture frame"
-            >
-              <span />
-            </button>
-            <label className="pg-switch">
-              <input
-                type="checkbox"
-                checked={guides}
-                onChange={(e) => setGuides(e.target.checked)}
-              />
-              Guides
-            </label>
-          </div>
-        </section>
-
-        <aside className="pg-panel">
+        <aside className="pg-panel pg-left" aria-label="Camera and motion">
           <section className={`pg-card ${live ? 'current' : ''}`}>
             <div className="pg-card-title">
               <span className="pg-step">01</span>
@@ -857,7 +628,290 @@ export function Playground() {
               Capture automatically when the desk settles
             </label>
           </section>
+        </aside>
+        <section className="pg-scene" aria-label="Camera viewfinder">
+          <div className="pg-fit">
+            <div
+              className={`pg-stage ${drawing ? 'drawing' : ''}`}
+              style={{ aspectRatio: aspect, '--ar': aspectNumber } as CSSProperties}
+              onPointerDown={(e) => {
+                if (!drawing) return;
+                const p = point(e);
+                drag.current = { kind: 'draw', start: p };
+                setZone({ ...p, width: 0, height: 0 });
+                e.currentTarget.setPointerCapture(e.pointerId);
+              }}
+              onPointerMove={(e) => {
+                const d = drag.current;
+                if (!d) return;
+                const p = point(e);
+                if (d.kind === 'draw')
+                  setZone({
+                    x: Math.min(d.start.x, p.x),
+                    y: Math.min(d.start.y, p.y),
+                    width: Math.abs(d.start.x - p.x),
+                    height: Math.abs(d.start.y - p.y),
+                  });
+                else
+                  setBox((b) => ({
+                    ...b,
+                    x: clamp(p.x - d.dx, 0, 1 - b.width),
+                    y: clamp(p.y - d.dy, 0, 1 - b.height),
+                  }));
+              }}
+              onPointerUp={() => {
+                drag.current = null;
+              }}
+              onPointerCancel={() => {
+                drag.current = null;
+              }}
+            >
+              <div className={`pg-media ${flip ? 'mirrored' : ''}`}>
+                <video
+                  ref={camera.video}
+                  muted
+                  playsInline
+                  hidden={!live || reviewing}
+                  aria-label="Live camera preview"
+                />
+                <PixelFeed
+                  video={camera.video}
+                  active={pixelArt && live && !reviewing}
+                  blockPx={blockPx}
+                  palette={palette}
+                  dither={dither}
+                />
+                {shot && <img src={shot.url} alt="Captured frame" />}
+                {shot?.segmentation && (
+                  <MaskOverlay key={shot.id} segmentation={shot.segmentation} cover />
+                )}
+                {showCells && live && !reviewing && motion.columns > 0 && (
+                  <div
+                    className="pg-cells"
+                    aria-hidden="true"
+                    style={{
+                      gridTemplateColumns: `repeat(${motion.columns}, 1fr)`,
+                      gridTemplateRows: `repeat(${motion.rows}, 1fr)`,
+                    }}
+                  >
+                    {motion.cells.map((on, i) => (
+                      <span key={i} className={on ? 'on' : ''} />
+                    ))}
+                  </div>
+                )}
+              </div>
+              {live && !reviewing && sighting && (
+                <MaskOverlay
+                  key={sighting.takenAt.getTime()}
+                  segmentation={sighting.segmentation}
+                  mirror={flip}
+                  cover
+                  stale={sighting.stale}
+                />
+              )}
 
+              {!live && !shot && (
+                <div className="pg-empty">
+                  <Glyph type="camera" />
+                  <p>
+                    {camera.state === 'opening'
+                      ? 'Allow camera access in your browser.'
+                      : 'Start the camera to try the viewfinder.'}
+                  </p>
+                  <small>Frames stay in this tab unless you ask to detect objects.</small>
+                  <button className="pg-button tertiary" onClick={() => file.current?.click()}>
+                    <Glyph type="upload" /> Or open a desk photo
+                  </button>
+                </div>
+              )}
+
+              {guides && (live || shot) && (
+                <div className="pg-guides" aria-hidden="true">
+                  <span className="v1" />
+                  <span className="v2" />
+                  <span className="h1" />
+                  <span className="h2" />
+                  <span className="reticle" />
+                </div>
+              )}
+
+              {zone && (
+                <div
+                  className={`pg-zone ${drawing ? 'drawing' : ''}`}
+                  style={place(zone)}
+                  aria-label="Placement zone"
+                >
+                  <span className="pg-tag chosen">ZN-01</span>
+                  {drawing && (
+                    <span className="pg-size">
+                      {pct(zone.width)} × {pct(zone.height)}
+                    </span>
+                  )}
+                </div>
+              )}
+
+              {showTestBox && (
+                <div
+                  className={`pg-box ${!drawing ? 'movable' : ''}`}
+                  style={place(box)}
+                  role="slider"
+                  tabIndex={drawing ? -1 : 0}
+                  aria-label="Test box. Use the arrow keys to move it."
+                  aria-valuetext={`${pct(box.x)} from left, ${pct(box.y)} from top`}
+                  onPointerDown={(e) => {
+                    if (drawing) return;
+                    e.stopPropagation();
+                    const p = point(e);
+                    drag.current = { kind: 'move', dx: p.x - box.x, dy: p.y - box.y };
+                    e.currentTarget.setPointerCapture(e.pointerId);
+                  }}
+                  onKeyDown={(e) => {
+                    const step = e.shiftKey ? 0.05 : 0.01;
+                    const moves: Record<string, [number, number]> = {
+                      ArrowLeft: [flip ? step : -step, 0],
+                      ArrowRight: [flip ? -step : step, 0],
+                      ArrowUp: [0, -step],
+                      ArrowDown: [0, step],
+                    };
+                    const m = moves[e.key];
+                    if (!m) return;
+                    e.preventDefault();
+                    nudge(...m);
+                  }}
+                >
+                  <Brackets />
+                  <span className="pg-tag seen">TEST BOX · SIM</span>
+                </div>
+              )}
+
+              <Brackets />
+              <span className="pg-hud pg-corner tl">
+                {camera.info?.width
+                  ? `CAM-01 · ${camera.info.width}×${camera.info.height}${camera.info.frameRate ? ` · ${camera.info.frameRate} FPS` : ''}`
+                  : 'CAM-01 · NO SIGNAL'}
+              </span>
+              <span className="pg-hud pg-corner tr">
+                {reviewing ? 'FROZEN' : !live ? '' : flip ? 'MIRRORED' : 'TRUE VIEW'}
+              </span>
+              {live && !reviewing && (
+                <span className="pg-hud pg-corner bl">
+                  MOT {motion.score.toFixed(1)}% · STILL {(motion.stillFor / 1000).toFixed(1)}s
+                </span>
+              )}
+              {flash > 0 && <span key={flash} className="pg-flash" aria-hidden="true" />}
+
+              {shot && (
+                <div className="pg-review">
+                  <p>
+                    {shot.source === 'file' ? (
+                      <>
+                        <span className="ok">✓</span> Opened from a file · {shot.width}×
+                        {shot.height}
+                      </>
+                    ) : shot.state === 'still' ? (
+                      <>
+                        <span className="ok">✓</span> Captured while still · motion{' '}
+                        {shot.motion.toFixed(1)}%
+                      </>
+                    ) : (
+                      <>
+                        <span className="unsure">◌</span> Captured before the scene settled. Masks
+                        may blur.
+                      </>
+                    )}
+                  </p>
+                  <div>
+                    <button className="pg-button tertiary" onClick={() => openInLab(shot)}>
+                      Open in desk lab
+                    </button>
+                    <button className="pg-button secondary" onClick={leaveReview}>
+                      {shot.source === 'file' || kept.some((k) => k.id === shot.id)
+                        ? 'Close'
+                        : 'Retake'}
+                    </button>
+                    <button className="pg-button primary" onClick={keep}>
+                      Keep frame
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="pg-shutter-bar">
+            <label className="pg-switch">
+              <input
+                type="checkbox"
+                checked={mirror}
+                onChange={(e) => setMirror(e.target.checked)}
+              />
+              Mirror preview
+            </label>
+            <button
+              className={`pg-shutter ${motion.state}`}
+              disabled={!live || reviewing}
+              onClick={capture}
+              aria-label="Capture frame"
+            >
+              <span />
+            </button>
+            <label className="pg-switch">
+              <input
+                type="checkbox"
+                checked={guides}
+                onChange={(e) => setGuides(e.target.checked)}
+              />
+              Guides
+            </label>
+          </div>
+          <section className="pg-strip" aria-label="Kept frames">
+            <div className="pg-strip-head">
+              <h2>Kept frames</h2>
+              <span className="pg-hud">THIS TAB ONLY · {kept.length} / 6</span>
+              {kept.length > 0 && (
+                <button className="pg-button tertiary" onClick={() => setKept([])}>
+                  Clear
+                </button>
+              )}
+            </div>
+            {kept.length ? (
+              <ol>
+                {kept.map((k) => (
+                  <li key={k.id} className={shot?.id === k.id ? 'open' : ''}>
+                    <button
+                      className="pg-thumb"
+                      onClick={() => reopen(k)}
+                      aria-label={`Open kept frame ${k.id}`}
+                    >
+                      <img src={k.url} alt="" />
+                    </button>
+                    <span className="pg-mono">
+                      #{String(k.id).padStart(2, '0')} · {time(k.takenAt)}
+                      <br />
+                      {k.width}×{k.height} · MOT {k.motion.toFixed(1)}%
+                      {k.segmentation
+                        ? ` · ${k.segmentation.detections.length} ${k.segmentation.concept}`
+                        : ''}{' '}
+                      <span className={k.state === 'still' ? 'ok' : 'unsure'}>
+                        {k.source === 'file' ? 'FILE' : k.state === 'still' ? '✓' : '◌'}
+                      </span>
+                    </span>
+                    <button className="pg-button tertiary" onClick={() => openInLab(k)}>
+                      Open in desk lab
+                    </button>
+                  </li>
+                ))}
+              </ol>
+            ) : (
+              <p className="pg-placeholder">
+                Frames you keep show up here. Open one again to re-detect or test the zone, or send
+                it to the desk lab to run the full placement check. They're gone when you close the
+                tab.
+              </p>
+            )}
+          </section>
+        </section>
+        <aside className="pg-panel pg-right" aria-label="Detection and zone">
           <section className={`pg-card ${(reviewing || watch) && !drawing ? 'current' : ''}`}>
             <div className="pg-card-title">
               <span className="pg-step">03</span>
@@ -1014,52 +1068,6 @@ export function Playground() {
             </p>
           </section>
         </aside>
-
-        <section className="pg-strip" aria-label="Kept frames">
-          <div className="pg-strip-head">
-            <h2>Kept frames</h2>
-            <span className="pg-hud">THIS TAB ONLY · {kept.length} / 6</span>
-            {kept.length > 0 && (
-              <button className="pg-button tertiary" onClick={() => setKept([])}>
-                Clear
-              </button>
-            )}
-          </div>
-          {kept.length ? (
-            <ol>
-              {kept.map((k) => (
-                <li key={k.id} className={shot?.id === k.id ? 'open' : ''}>
-                  <button
-                    className="pg-thumb"
-                    onClick={() => reopen(k)}
-                    aria-label={`Open kept frame ${k.id}`}
-                  >
-                    <img src={k.url} alt="" />
-                  </button>
-                  <span className="pg-mono">
-                    #{String(k.id).padStart(2, '0')} · {time(k.takenAt)}
-                    <br />
-                    {k.width}×{k.height} · MOT {k.motion.toFixed(1)}%
-                    {k.segmentation
-                      ? ` · ${k.segmentation.detections.length} ${k.segmentation.concept}`
-                      : ''}{' '}
-                    <span className={k.state === 'still' ? 'ok' : 'unsure'}>
-                      {k.source === 'file' ? 'FILE' : k.state === 'still' ? '✓' : '◌'}
-                    </span>
-                  </span>
-                  <button className="pg-button tertiary" onClick={() => openInLab(k)}>
-                    Open in desk lab
-                  </button>
-                </li>
-              ))}
-            </ol>
-          ) : (
-            <p className="pg-placeholder">
-              Frames you keep show up here. Open one again to re-detect or test the zone, or send it
-              to the desk lab to run the full placement check. They're gone when you close the tab.
-            </p>
-          )}
-        </section>
       </main>
     </div>
   );
