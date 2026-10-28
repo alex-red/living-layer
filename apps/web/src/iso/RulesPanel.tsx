@@ -60,7 +60,7 @@ export function RulesPanel({
     message: string,
     events?: EvidenceRun<PlacementDecision>[],
   ) => void;
-  onError: (message: string) => void;
+  onError: (error: string | Error) => void;
 }) {
   const [pending, setPending] = useState(false);
   const [pick, setPick] = useState('');
@@ -90,7 +90,7 @@ export function RulesPanel({
     try {
       done(await api<T>(path, { mode, ...body }));
     } catch (e) {
-      onError(e instanceof Error ? e.message : 'The request failed.');
+      onError(e instanceof Error ? e : 'The request failed.');
     } finally {
       setPending(false);
     }

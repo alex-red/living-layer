@@ -17,7 +17,7 @@ import {
   type Segmentation,
 } from '@livinglayer/domain';
 import type { Config, Fetcher } from './config.js';
-import { LabError } from './errors.js';
+import { LabError, ident } from './errors.js';
 import type { EvidenceStore } from './store.js';
 import { buildObjectPrompt, type PromptBox } from '@meta-sam/parser';
 import { decodeSegmentation, type SamEvent } from './sam.js';
@@ -34,6 +34,27 @@ const usageOf = (u?: ProviderUsage | null): Usage | null =>
   u
     ? { inputTokens: u.input_tokens, outputTokens: u.output_tokens, totalTokens: u.total_tokens }
     : null;
+/**
+ * Output-token ceilings per call. Spark reasons before it answers and the
+ * reasoning counts against the ceiling, so a busy photo needs room: at 4096 a
+ * full office desk ran out mid-inventory. Only tokens used are billed.
+ */
+const BUDGET = {
+  discover: 8192,
+  classify: 8192,
+  layout: 16384,
+  itemClass: 4096,
+  itemCheck: 4096,
+  photoInventory: 16384,
+  photoCheck: 12288,
+} as const;
+/** The first few schema problems, as paths and messages, for the error shown. */
+function issues(error: z.ZodError): string {
+  return error.issues
+    .slice(0, 3)
+    .map((i) => `${i.path.join('.') || 'root'}: ${i.message}`)
+    .join('; ');
+}
 export class MetaAdapter {
   private client: OpenAI;
   constructor(
@@ -76,7 +97,7 @@ export class MetaAdapter {
     const response = await this.client.responses.create({
       model: this.config.sparkModel,
       store: false,
-      max_output_tokens: 4096,
+      max_output_tokens: BUDGET.discover,
       input: [
         {
           role: 'user',
@@ -98,27 +119,7 @@ export class MetaAdapter {
         },
       },
     });
-    if (response.status !== 'completed')
-      throw new LabError('incomplete_response', 'Spark did not complete scene discovery.', 502);
-    let data: unknown;
-    try {
-      data = JSON.parse(response.output_text);
-    } catch {
-      throw new LabError('invalid_scene', 'Spark did not return a JSON scene.', 502);
-    }
-    const result = sceneSchema.safeParse(data);
-    if (!result.success)
-      throw new LabError(
-        'invalid_scene',
-        'Spark returned a scene outside the bounded object contract.',
-        502,
-      );
-    return {
-      output: result.data,
-      model: response.model,
-      requestId: response._request_id ?? null,
-      usage: usageOf(response.usage),
-    };
+    return this.parsed(response, sceneSchema, 'scene discovery', BUDGET.discover);
   }
   /** Which isometric preset fits the photo, and which of its optional props are visible. */
   async classify(imageDataUrl: string) {
@@ -126,7 +127,7 @@ export class MetaAdapter {
     const response = await this.client.responses.create({
       model: this.config.sparkModel,
       store: false,
-      max_output_tokens: 4096,
+      max_output_tokens: BUDGET.classify,
       input: [
         {
           role: 'user',
@@ -148,23 +149,7 @@ export class MetaAdapter {
         },
       },
     });
-    if (response.status !== 'completed')
-      throw new LabError('incomplete_response', 'Spark did not complete the scene guess.', 502);
-    let data: unknown;
-    try {
-      data = JSON.parse(response.output_text);
-    } catch {
-      throw new LabError('invalid_scene', 'Spark did not return a JSON scene guess.', 502);
-    }
-    const result = sceneGuessSchema.safeParse(data);
-    if (!result.success)
-      throw new LabError('invalid_scene', 'Spark returned a scene outside the preset list.', 502);
-    return {
-      output: result.data,
-      model: response.model,
-      requestId: response._request_id ?? null,
-      usage: usageOf(response.usage),
-    };
+    return this.parsed(response, sceneGuessSchema, 'scene guess', BUDGET.classify);
   }
   /**
    * A whole room laid out from the template palette: which templates stand
@@ -176,7 +161,7 @@ export class MetaAdapter {
     const response = await this.client.responses.create({
       model: this.config.sparkModel,
       store: false,
-      max_output_tokens: 4096,
+      max_output_tokens: BUDGET.layout,
       input: [
         {
           role: 'user',
@@ -203,27 +188,7 @@ export class MetaAdapter {
         },
       },
     });
-    if (response.status !== 'completed')
-      throw new LabError('incomplete_response', 'Spark did not complete the scene draft.', 502);
-    let data: unknown;
-    try {
-      data = JSON.parse(response.output_text);
-    } catch {
-      throw new LabError('invalid_scene', 'Spark did not return a JSON scene draft.', 502);
-    }
-    const result = sceneDraftSchema.safeParse(data);
-    if (!result.success)
-      throw new LabError(
-        'invalid_scene',
-        'Spark returned a layout outside the template list.',
-        502,
-      );
-    return {
-      output: result.data,
-      model: response.model,
-      requestId: response._request_id ?? null,
-      usage: usageOf(response.usage),
-    };
+    return this.parsed(response, sceneDraftSchema, 'scene draft', BUDGET.layout);
   }
   /**
    * Name the object's archetype and material from its masked crop. Spark
@@ -234,7 +199,7 @@ export class MetaAdapter {
     const response = await this.client.responses.create({
       model: this.config.sparkModel,
       store: false,
-      max_output_tokens: 1024,
+      max_output_tokens: BUDGET.itemClass,
       input: [
         {
           role: 'user',
@@ -262,7 +227,7 @@ export class MetaAdapter {
         },
       },
     });
-    return this.parsed(response, itemClassSchema, 'item class');
+    return this.parsed(response, itemClassSchema, 'item class', BUDGET.itemClass);
   }
   /**
    * Spark compares the photo with the model rendered from the same camera and
@@ -274,7 +239,7 @@ export class MetaAdapter {
     const response = await this.client.responses.create({
       model: this.config.sparkModel,
       store: false,
-      max_output_tokens: 1024,
+      max_output_tokens: BUDGET.itemCheck,
       input: [
         {
           role: 'user',
@@ -303,7 +268,7 @@ export class MetaAdapter {
         },
       },
     });
-    return this.parsed(response, itemCheckSchema, 'item check');
+    return this.parsed(response, itemCheckSchema, 'item check', BUDGET.itemCheck);
   }
   /**
    * What is in a photo and roughly where: one entry per thing, each a
@@ -315,7 +280,7 @@ export class MetaAdapter {
     const response = await this.client.responses.create({
       model: this.config.sparkModel,
       store: false,
-      max_output_tokens: 4096,
+      max_output_tokens: BUDGET.photoInventory,
       input: [
         {
           role: 'user',
@@ -342,7 +307,7 @@ export class MetaAdapter {
         },
       },
     });
-    return this.parsed(response, photoInventorySchema, 'photo inventory');
+    return this.parsed(response, photoInventorySchema, 'photo inventory', BUDGET.photoInventory);
   }
   /**
    * Spark compares the photo with the drafted scene drawn from the same
@@ -354,7 +319,7 @@ export class MetaAdapter {
     const response = await this.client.responses.create({
       model: this.config.sparkModel,
       store: false,
-      max_output_tokens: 2048,
+      max_output_tokens: BUDGET.photoCheck,
       input: [
         {
           role: 'user',
@@ -382,24 +347,66 @@ export class MetaAdapter {
         },
       },
     });
-    return this.parsed(response, photoCheckSchema, 'photo check');
+    return this.parsed(response, photoCheckSchema, 'photo check', BUDGET.photoCheck);
   }
+  /**
+   * A finished Spark response as the schema's type, or an error that says
+   * exactly why not: the stop reason, the provider's own message, the tokens
+   * used against the limit, or which fields broke the contract.
+   */
   private parsed<T>(
     response: OpenAI.Responses.Response & { _request_id?: string | null },
     schema: z.ZodType<T>,
     what: string,
+    maxOutputTokens: number,
   ): ProviderResult<T> {
-    if (response.status !== 'completed')
-      throw new LabError('incomplete_response', `Spark did not complete the ${what}.`, 502);
+    const usage = usageOf(response.usage);
+    const detail = {
+      provider: 'Spark' as const,
+      step: what,
+      model: response.model,
+      requestId: response._request_id ?? null,
+      usage,
+      maxOutputTokens,
+    };
+    if (response.status !== 'completed') {
+      // The stop reason and error code are enums; the provider's free text is never passed on.
+      const reason = ident(response.incomplete_details?.reason ?? response.status) ?? 'unknown';
+      const code = ident(response.error?.code);
+      const used = usage ? ` after ${usage.outputTokens.toLocaleString('en')} output tokens` : '';
+      const message =
+        reason === 'max_output_tokens'
+          ? `Spark ran out of room before finishing the ${what}: it hit its ${maxOutputTokens.toLocaleString('en')}-token output limit${used}. The answer was cut off, so nothing was kept.`
+          : reason === 'content_filter'
+            ? `Spark's content filter stopped the ${what}${used}. Try a different photo.`
+            : response.status === 'failed'
+              ? `Spark failed the ${what}${code ? ` with error ${code}` : ''}${used}.`
+              : `Spark stopped the ${what} with status “${reason}”${used}.`;
+      throw new LabError('incomplete_response', message, 502, {
+        ...detail,
+        reason,
+        ...(code ? { providerCode: code } : {}),
+      });
+    }
     let data: unknown;
     try {
       data = JSON.parse(response.output_text);
     } catch {
-      throw new LabError('invalid_item', `Spark did not return a JSON ${what}.`, 502);
+      throw new LabError(
+        'invalid_response',
+        `Spark's ${what} was not valid JSON (${response.output_text.length.toLocaleString('en')} characters).`,
+        502,
+        { ...detail, reason: 'invalid_json' },
+      );
     }
     const result = schema.safeParse(data);
     if (!result.success)
-      throw new LabError('invalid_item', `Spark returned a ${what} outside the contract.`, 502);
+      throw new LabError(
+        'invalid_response',
+        `Spark's ${what} broke the expected shape: ${issues(result.error)}.`,
+        502,
+        { ...detail, reason: 'schema_mismatch' },
+      );
     return {
       output: result.data,
       model: response.model,

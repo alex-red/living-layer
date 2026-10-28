@@ -128,7 +128,7 @@ export function IsoView({
   /** Prepare a chosen photo as the current frame, and return it. */
   onUpload?: (file: File) => Promise<string | undefined>;
   onMessage: (message: string) => void;
-  onError: (message: string) => void;
+  onError: (error: string | Error) => void;
 }) {
   const pin = memory?.surface ?? (mode === 'fixture' ? FIXTURE_SURFACE : null);
   const [surfaceId, setSurfaceId] = useState(pin?.surfaceId ?? 'desk:top');
@@ -230,7 +230,7 @@ export function IsoView({
       if (run.output.kind !== kind && views.includes(run.output.kind)) onKind(run.output.kind);
       onRun(run);
     } catch (e) {
-      onError(e instanceof Error ? e.message : 'Scene guess failed.');
+      onError(e instanceof Error ? e : 'Scene guess failed.');
     } finally {
       setAsking(false);
     }
@@ -240,7 +240,7 @@ export function IsoView({
     try {
       done(await api<T>(path, { mode, ...body }));
     } catch (e) {
-      onError(e instanceof Error ? e.message : 'The request failed.');
+      onError(e instanceof Error ? e : 'The request failed.');
     } finally {
       setAsking(false);
     }

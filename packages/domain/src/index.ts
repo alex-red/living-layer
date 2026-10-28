@@ -99,6 +99,30 @@ export interface EvidenceRun<T = unknown> {
   output: T;
   assets: string[];
 }
+/**
+ * What went wrong in a call to an AI provider, as far as it is safe to show:
+ * the stop reason, status and codes, never the provider's free text, keys or inputs.
+ */
+export interface ProviderFailure {
+  provider: 'Spark' | 'SAM' | 'Meta';
+  /** What the call was for, such as "photo inventory". */
+  step?: string;
+  model?: string | null;
+  requestId?: string | null;
+  /** The HTTP status, when the provider answered with an error. */
+  httpStatus?: number;
+  /** Why the response stopped: max_output_tokens, content_filter, failed… */
+  reason?: string;
+  /** The provider's error code or type, when it is an identifier. Free text is never kept. */
+  providerCode?: string;
+  usage?: Usage | null;
+  /** The output-token limit the call was made with. */
+  maxOutputTokens?: number;
+}
+/** A failed run's output. */
+export interface RunFailure {
+  error: { code: string; message: string; detail?: ProviderFailure };
+}
 export interface Readiness {
   configured: boolean;
   enabled: boolean;

@@ -53,7 +53,7 @@ export function PhotoReview({
   busy: boolean;
   onSaved: (memory: DeskMemory) => void;
   onCancel: () => void;
-  onError: (message: string) => void;
+  onError: (error: string | Error) => void;
 }) {
   const draft = run.output;
   const frame = draft.segmentation.frame;
@@ -127,7 +127,7 @@ export function PhotoReview({
       });
       onSaved(saved);
     } catch (e) {
-      onError(e instanceof Error ? e.message : 'The scene could not be saved.');
+      onError(e instanceof Error ? e : 'The scene could not be saved.');
     } finally {
       setSaving(false);
     }

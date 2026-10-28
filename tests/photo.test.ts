@@ -496,6 +496,56 @@ describe('photo routes, live with a mocked Meta API', () => {
     expect(result.output).toEqual({ missing: [], extra: ['desk'], note: 'Close.' });
     await s.app.close();
   });
+  it('says exactly why Spark stopped, and keeps the failed run’s model and tokens', async () => {
+    const s = await setup();
+    s.fetcher.mockImplementation(
+      async () =>
+        new Response(
+          JSON.stringify({
+            id: 'resp_spark',
+            object: 'response',
+            model: 'muse-spark-1.3',
+            status: 'incomplete',
+            incomplete_details: { reason: 'max_output_tokens' },
+            output: [],
+            usage: { input_tokens: 1500, output_tokens: 16384, total_tokens: 17884 },
+          }),
+          { headers: { 'content-type': 'application/json', 'x-request-id': 'req-cut' } },
+        ),
+    );
+    const res = await s.post({});
+    expect(res.statusCode).toBe(502);
+    const { error } = res.json<{
+      error: { code: string; message: string; runId: string; detail: Record<string, unknown> };
+    }>();
+    expect(error.message).toContain('16,384-token output limit');
+    expect(error.message).toContain('photo inventory');
+    expect(error.detail).toMatchObject({
+      provider: 'Spark',
+      step: 'photo inventory',
+      reason: 'max_output_tokens',
+      requestId: 'req-cut',
+      maxOutputTokens: 16384,
+      usage: { outputTokens: 16384 },
+    });
+    const runs = (await s.app.inject({ url: '/api/runs' })).json<EvidenceRun[]>();
+    const failed = runs.find((r) => r.id === error.runId)!;
+    expect(failed.status).toBe('failed');
+    expect(failed.model).toBe('muse-spark-1.3');
+    expect(failed.usage?.outputTokens).toBe(16384);
+    await s.app.close();
+  });
+  it('names the fields when Spark answers outside the contract', async () => {
+    const s = await setup();
+    s.fetcher.mockImplementation(async () =>
+      sparkResponse({ kind: 'garage', things: [], summary: '' }),
+    );
+    const res = await s.post({});
+    const { error } = res.json<{ error: { code: string; message: string } }>();
+    expect(error.code).toBe('invalid_response');
+    expect(error.message).toMatch(/broke the expected shape: kind: /);
+    await s.app.close();
+  });
   it('refuses before calling anything when today’s allowance cannot cover the draft', async () => {
     const s = await setup({ META_MAX_REQUESTS_PER_DAY: '2' });
     expect((await s.post({ check: true })).statusCode).toBe(429);

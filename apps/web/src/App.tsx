@@ -34,12 +34,13 @@ import {
   toLuma,
   zoneApplies,
 } from '@livinglayer/domain';
-import { api } from './api';
+import { api, ApiError } from './api';
 import { openStream, useNetworkStreams } from './streams';
 import { estimateLabel, usd } from './cost';
 import { Glyph } from './Glyph';
 import { takeHandoff } from './handoff';
 import { MaskOverlay } from './MaskOverlay';
+import { ErrorCard, ProviderActivity, type Issue } from './ProviderUi';
 import { IsoView } from './iso/IsoView';
 import { ScenePicker, type SceneKind } from './iso/ScenePicker';
 import {
@@ -282,7 +283,19 @@ export function App() {
     label: string;
   } | null>(null);
   const [busy, setBusy] = useState('');
-  const [error, setError] = useState('');
+  const [issue, setIssue] = useState<Issue | null>(null);
+  const error = issue?.message ?? '';
+  /** Show a failure: a plain sentence, or an API error with the provider's own reason. */
+  const setError = (e: string | Error) =>
+    setIssue(
+      !e
+        ? null
+        : typeof e === 'string'
+          ? { message: e }
+          : e instanceof ApiError
+            ? { message: e.message, code: e.code, detail: e.detail, runId: e.runId }
+            : { message: e.message },
+    );
   const [message, setMessage] = useState(
     boot.save
       ? 'Welcome back. Your session was restored from this browser.'
@@ -411,7 +424,7 @@ export function App() {
         back ? `Undone. Redo with ${SHORTCUTS.find((k) => k.action === 'redo')!.keys}.` : 'Redone.',
       );
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Undo failed.');
+      setError(e instanceof Error ? e : 'Undo failed.');
     } finally {
       setBusy('');
     }
@@ -460,7 +473,7 @@ export function App() {
       setMessage(note);
       void refresh().catch(() => {});
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'The save could not be loaded.');
+      setError(e instanceof Error ? e : 'The save could not be loaded.');
     } finally {
       setBusy('');
     }
@@ -470,7 +483,7 @@ export function App() {
       const save = parseSave(await chosen.text());
       await applySave(save, `Save from ${new Date(save.savedAt).toLocaleString()} imported.`);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'The save could not be read.');
+      setError(e instanceof Error ? e : 'The save could not be read.');
     } finally {
       if (importFile.current) importFile.current.value = '';
     }
@@ -635,7 +648,7 @@ export function App() {
         bitmap.close();
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not open that image.');
+      setError(e instanceof Error ? e : 'Could not open that image.');
     }
     if (file.current) file.current.value = '';
     return url;
@@ -717,7 +730,7 @@ export function App() {
       );
       await refresh();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Probe failed.');
+      setError(e instanceof Error ? e : 'Probe failed.');
       if (kind === 'segment') setSegmentation(undefined);
       void refresh().catch(() => {});
     } finally {
@@ -762,7 +775,7 @@ export function App() {
       setMessage(`Tracked${costNote(run)}. ${placementMessage(result.event)}`);
       return { ok: true as const, ...result, frame, segmentation: run.output };
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Tracking failed.');
+      setError(e instanceof Error ? e : 'Tracking failed.');
       return { ok: false as const, code: (e as { code?: string }).code };
     } finally {
       setBusy('');
@@ -807,7 +820,7 @@ export function App() {
           : 'Following locally. Save a zone and mark the camera fixed so following can watch for the zone.',
       );
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not start following.');
+      setError(e instanceof Error ? e : 'Could not start following.');
     }
   }
   /** Ask SAM to settle what the local tracker saw, then restart following from its answer. */
@@ -848,7 +861,7 @@ export function App() {
       );
     } catch (e) {
       stopFollow();
-      setError(e instanceof Error ? e.message : 'Could not keep following.');
+      setError(e instanceof Error ? e : 'Could not keep following.');
     }
   }
   /** Apply one local step. A long enough run of good steps resets the re-anchor back-off. */
@@ -877,7 +890,7 @@ export function App() {
       );
     } catch (e) {
       stopFollow();
-      setError(e instanceof Error ? e.message : 'Could not follow the mug.');
+      setError(e instanceof Error ? e : 'Could not follow the mug.');
     }
   }
   // The sampling loop reads the newest zone and handler through a ref, so renders don't restart it.
@@ -944,7 +957,7 @@ export function App() {
       }
       await refresh();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Desk operation failed.');
+      setError(e instanceof Error ? e : 'Desk operation failed.');
     } finally {
       setBusy('');
     }
@@ -1933,10 +1946,21 @@ export function App() {
               <p className="placeholder">Discovered objects show up here.</p>
             )}
           </div>
-          {error && (
-            <div className="error" role="alert">
-              {error}
-            </div>
+          {issue && (
+            <ErrorCard
+              issue={issue}
+              onDismiss={() => setIssue(null)}
+              onInspect={(runId) =>
+                void refresh()
+                  .catch(() => null)
+                  .then(() =>
+                    api<EvidenceRun[]>('runs').then((all) => {
+                      const run = all.find((x) => x.id === runId);
+                      if (run) inspect(run);
+                    }),
+                  )
+              }
+            />
           )}
         </section>
         <aside className="lab-side" aria-label="Evidence and setup">
@@ -2349,6 +2373,7 @@ export function App() {
           </div>
         </aside>
       </main>
+      <ProviderActivity />
       {showKeys && (
         <div className="keys-backdrop" onClick={() => setShowKeys(false)}>
           <div

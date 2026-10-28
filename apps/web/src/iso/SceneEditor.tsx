@@ -74,7 +74,7 @@ export function SceneEditor({
   /** Prepare a chosen photo as the lab's current frame, and return it. */
   onUpload?: (file: File) => Promise<string | undefined>;
   onPhotoSaved: (memory: DeskMemory) => void;
-  onError: (message: string) => void;
+  onError: (error: string | Error) => void;
 }) {
   const [draft, setDraft] = useState<Scene>(saved ?? asCustom(base));
   const [selected, setSelected] = useState<string>();
@@ -111,7 +111,7 @@ export function SceneEditor({
       setPhoto({ run, url: mode === 'live' ? url! : '/desk.svg' });
       onDrafted(run);
     } catch (e) {
-      onError(e instanceof Error ? e.message : 'The photo could not be drafted.');
+      onError(e instanceof Error ? e : 'The photo could not be drafted.');
     } finally {
       setDrafting(false);
     }
@@ -145,7 +145,7 @@ export function SceneEditor({
       setSelected(undefined);
       onDrafted(run);
     } catch (e) {
-      onError(e instanceof Error ? e.message : 'Scene draft failed.');
+      onError(e instanceof Error ? e : 'Scene draft failed.');
     } finally {
       setDrafting(false);
     }

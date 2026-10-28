@@ -17,6 +17,7 @@ import {
   runCost,
   type EvidenceRun,
   type RunKind,
+  type RunFailure,
   type Mode,
   type LampResult,
   type Segmentation,
@@ -81,9 +82,15 @@ export async function buildApp(
             'The request could not be processed.',
             status >= 400 && status < 500 ? status : 500,
           );
-    void reply
-      .code(normalized.statusCode)
-      .send({ error: { code: normalized.code, message: normalized.message } });
+    const runId = (error as { runId?: string }).runId;
+    void reply.code(normalized.statusCode).send({
+      error: {
+        code: normalized.code,
+        message: normalized.message,
+        ...(normalized.detail ? { detail: normalized.detail } : {}),
+        ...(runId ? { runId } : {}),
+      },
+    });
   });
   app.get('/api/status', async () => {
     const history = store.list();
@@ -183,14 +190,26 @@ export async function buildApp(
       store.save(evidence);
       return evidence;
     } catch (error) {
-      const safe = safeError(error);
+      const safe = safeError(error, kind);
+      const failure: RunFailure = {
+        error: {
+          code: safe.code,
+          message: safe.message,
+          ...(safe.detail ? { detail: safe.detail } : {}),
+        },
+      };
       store.save({
         ...base,
+        // What the provider reported, so a failed call shows its model and cost too.
+        model: safe.detail?.model ?? null,
+        requestId: safe.detail?.requestId ?? null,
+        usage: safe.detail?.usage ?? null,
         status: 'failed',
         durationMs: Math.round(performance.now() - start),
-        output: { error: { code: safe.code, message: safe.message } },
+        output: failure,
       });
-      throw safe;
+      // The run id lets the page open the failed run in the inspector.
+      throw Object.assign(safe, { runId: id });
     }
   }
   app.post('/api/text', async (request) => {
