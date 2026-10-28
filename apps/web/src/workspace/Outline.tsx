@@ -95,124 +95,142 @@ export function Outline() {
   const done = progress.steps.filter((s) => s.state === 'done').length;
 
   return (
-    <aside className="ws-outline" aria-label="Scene outline">
-      <div className="pane-head">
-        <span className="tiny">
-          SCENE · {done}/{progress.steps.length}
-        </span>
-        <button
-          className="text-button"
-          disabled={Boolean(busy) || Boolean(pinning)}
-          onClick={() => lab.setChoosingScene(true)}
-        >
-          {progress.room ? 'Change' : 'Choose'}
-        </button>
-      </div>
-      {!progress.room ? (
-        <p className="ol-empty">Choose the room you are working in to begin.</p>
-      ) : (
-        <ul className="ol-tree">
-          <Row
-            label={roomLabel(progress.room, memory)}
-            detail={progress.room === 'custom' ? 'from your photo' : 'room'}
-            state={step.office!.state}
-            target={{ kind: 'room' }}
-          />
-          {progress.view ? (
-            <Row
-              label={selectionLabel(lab, { kind: 'view' })}
-              detail={step.desk!.state === 'done' ? 'close view · pinned' : 'close view · pin it'}
-              state={step.desk!.state}
-              depth={1}
-              target={{ kind: 'view' }}
-            />
-          ) : (
-            !mainSurface(lab) && (
-              <li className="ol-note">This room has no surface yet. Edit its layout to add one.</li>
-            )
-          )}
-          {rows.view.map((r) => surface(r, 2))}
-          {memory?.object && (
-            <Row
-              label={memory.object.label}
-              detail={lab.currentObservation ? 'tracked · in this frame' : 'tracked'}
-              tone="chosen"
-              depth={objectDepth}
-              target={{ kind: 'object', id: 'main' }}
-            />
-          )}
-          {(memory?.others ?? []).map((o) => (
-            <Row
-              key={o.id}
-              label={o.label}
-              detail={o.concept}
-              tone="chosen"
-              depth={objectDepth}
-              target={{ kind: 'object', id: o.id }}
-            />
-          ))}
-          {suggested.map(({ o, index }) => (
-            <Row
-              key={`s${index}`}
-              label={o.label}
-              detail={
-                isMugConcept(o.category) && !memory?.object ? 'suggested · the mug?' : 'suggested'
-              }
-              tone="seen"
-              depth={objectDepth}
-              target={{ kind: 'suggested', index }}
-            />
-          ))}
-          <Row
-            label="Add object"
-            detail={step.objects!.state === 'current' ? 'next: find the mug' : undefined}
-            tone="add"
-            depth={objectDepth}
-            target={{ kind: 'add' }}
-          />
-          {rows.room.map((r) => surface(r, 1))}
-        </ul>
+    <>
+      {lab.outlineOpen && (
+        <div
+          className="sheet-backdrop"
+          aria-hidden="true"
+          onClick={() => lab.setOutlineOpen(false)}
+        />
       )}
-      {progress.room && (
-        <>
-          <div className="pane-head ol-section">
-            <span className="tiny">RULES</span>
-          </div>
+      <aside className={`ws-outline ${lab.outlineOpen ? 'open' : ''}`} aria-label="Scene outline">
+        <div className="pane-head">
+          <button
+            className="icon-button sheet-close"
+            aria-label="Close the outline"
+            onClick={() => lab.setOutlineOpen(false)}
+          >
+            ×
+          </button>
+          <span className="tiny">
+            SCENE · {done}/{progress.steps.length}
+          </span>
+          <button
+            className="text-button"
+            disabled={Boolean(busy) || Boolean(pinning)}
+            onClick={() => lab.setChoosingScene(true)}
+          >
+            {progress.room ? 'Change' : 'Choose'}
+          </button>
+        </div>
+        {!progress.room ? (
+          <p className="ol-empty">Choose the room you are working in to begin.</p>
+        ) : (
           <ul className="ol-tree">
+            <Row
+              label={roomLabel(progress.room, memory)}
+              detail={progress.room === 'custom' ? 'from your photo' : 'room'}
+              state={step.office!.state}
+              target={{ kind: 'room' }}
+            />
+            {progress.view ? (
+              <Row
+                label={selectionLabel(lab, { kind: 'view' })}
+                detail={step.desk!.state === 'done' ? 'close view · pinned' : 'close view · pin it'}
+                state={step.desk!.state}
+                depth={1}
+                target={{ kind: 'view' }}
+              />
+            ) : (
+              !mainSurface(lab) && (
+                <li className="ol-note">
+                  This room has no surface yet. Edit its layout to add one.
+                </li>
+              )
+            )}
+            {rows.view.map((r) => surface(r, 2))}
             {memory?.object && (
               <Row
-                label="Mug zone"
-                detail={memory.zone ? `→ ${lab.lights[0] ?? 'main lamp'}` : 'draw a zone'}
-                state={memory.zone ? (memory.lastDecision ? 'done' : 'current') : 'current'}
-                target={{ kind: 'rule', id: 'main' }}
+                label={memory.object.label}
+                detail={lab.currentObservation ? 'tracked · in this frame' : 'tracked'}
+                tone="chosen"
+                depth={objectDepth}
+                target={{ kind: 'object', id: 'main' }}
               />
             )}
-            {(memory?.rules ?? []).map((r) => (
+            {(memory?.others ?? []).map((o) => (
               <Row
-                key={r.id}
-                label={r.label}
-                detail={`→ ${r.lightId}`}
-                state={r.lastDecision ? 'done' : 'todo'}
-                target={{ kind: 'rule', id: r.id }}
+                key={o.id}
+                label={o.label}
+                detail={o.concept}
+                tone="chosen"
+                depth={objectDepth}
+                target={{ kind: 'object', id: o.id }}
+              />
+            ))}
+            {suggested.map(({ o, index }) => (
+              <Row
+                key={`s${index}`}
+                label={o.label}
+                detail={
+                  isMugConcept(o.category) && !memory?.object ? 'suggested · the mug?' : 'suggested'
+                }
+                tone="seen"
+                depth={objectDepth}
+                target={{ kind: 'suggested', index }}
               />
             ))}
             <Row
-              label="Add rule"
+              label="Add object"
+              detail={step.objects!.state === 'current' ? 'next: find the mug' : undefined}
               tone="add"
-              target={{ kind: 'new-rule' }}
-              onSelect={() =>
-                lab.startRule(
-                  memory?.object && memory.observation
-                    ? memory.object.id
-                    : memory!.others!.find((o) => o.observation)!.id,
-                )
-              }
-              disabled={!canRule || Boolean(busy)}
-              title={canRule ? undefined : 'Remember an object first.'}
+              depth={objectDepth}
+              target={{ kind: 'add' }}
             />
+            {rows.room.map((r) => surface(r, 1))}
           </ul>
-        </>
-      )}
-    </aside>
+        )}
+        {progress.room && (
+          <>
+            <div className="pane-head ol-section">
+              <span className="tiny">RULES</span>
+            </div>
+            <ul className="ol-tree">
+              {memory?.object && (
+                <Row
+                  label="Mug zone"
+                  detail={memory.zone ? `→ ${lab.lights[0] ?? 'main lamp'}` : 'draw a zone'}
+                  state={memory.zone ? (memory.lastDecision ? 'done' : 'current') : 'current'}
+                  target={{ kind: 'rule', id: 'main' }}
+                />
+              )}
+              {(memory?.rules ?? []).map((r) => (
+                <Row
+                  key={r.id}
+                  label={r.label}
+                  detail={`→ ${r.lightId}`}
+                  state={r.lastDecision ? 'done' : 'todo'}
+                  target={{ kind: 'rule', id: r.id }}
+                />
+              ))}
+              <Row
+                label="Add rule"
+                tone="add"
+                target={{ kind: 'new-rule' }}
+                onSelect={() =>
+                  lab.startRule(
+                    memory?.object && memory.observation
+                      ? memory.object.id
+                      : memory!.others!.find((o) => o.observation)!.id,
+                  )
+                }
+                disabled={!canRule || Boolean(busy)}
+                title={canRule ? undefined : 'Remember an object first.'}
+              />
+            </ul>
+          </>
+        )}
+      </aside>
+    </>
   );
 }

@@ -236,5 +236,7 @@ The open decisions above went with the proposals: the office can't be skipped in
 - **Progress.** `sceneProgress` in `workspace/progress.ts` is pure and tested in `tests/workspace.test.ts`, with the selection's URL hash. Only the desk waits for the room. Objects, the zone and the run are suggestions, never locks.
 - **The desk step.** A preset office's desk is pinned by hand on a close photo, as before. The demo desk comes pinned. A room drafted from a photo has no close view, so its "desk" step is its main surface, which the draft pins itself.
 - **IsoView** is controlled now: the canvas sets its panel (`room`, `scene`, `item`), surface, model target, Spark guess and rule draft. Its own toolbars and tabs are gone.
-- **Not built.** Selecting an object doesn't yet highlight its mask or marker on the canvas. The Layers menu is still the single mask overlay toggle. On mobile the outline sits under the inspector rather than in a sheet.
+- **Selection on the canvas.** The selected object is ringed where it was last seen: a solid box on the photo when that is the current frame, dashed for an earlier frame of the same size, and a ring on the floor in the iso room. A selected rule's zone glows.
+- **Layers.** A Layers menu over the canvas switches masks, the mug's trail and saved zones, on the photo and in the room. A zone being drawn always shows.
+- **Phones.** The outline is a sheet that slides up from a button under the status capsule, and closes when you pick a row or press Escape.
 - **Tests.** `tests/browser/lab.spec.ts` is updated for the new controls but hasn't been run against this build yet.

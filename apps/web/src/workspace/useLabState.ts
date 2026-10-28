@@ -272,6 +272,8 @@ export function useLabState() {
   );
   const [deskSvg, setDeskSvg] = useState('');
   const [overlay, setOverlay] = useState(boot.prefs.overlay);
+  const [showTrail, setShowTrail] = useState(boot.prefs.trail);
+  const [showZones, setShowZones] = useState(boot.prefs.zones);
   const [stageView, setStageView] = useState<StageView>(boot.prefs.stageView);
   // Scene first: nothing runs until the person says which scene they are in.
   const [workScene, setWorkScene] = useState<WorkScene | null>(boot.prefs.workScene);
@@ -287,6 +289,8 @@ export function useLabState() {
   };
   // What the iso canvas is doing: showing the room, editing the layout, or editing a model.
   const [isoPanel, setIsoPanel] = useState<IsoPanel>('room');
+  // On phones the outline is a sheet that slides up over the page.
+  const [outlineOpen, setOutlineOpen] = useState(false);
   const [modelOf, setModelOf] = useState<string>();
   const [isoSurfaceId, setIsoSurfaceId] = useState<string>();
   const [ruleDraft, setRuleDraft] = useState<RuleDraft | null>(null);
@@ -402,6 +406,8 @@ export function useLabState() {
     workScene,
     stageView,
     overlay,
+    trail: showTrail,
+    zones: showZones,
     concept,
     fixturePosition,
     cameraSource,
@@ -486,6 +492,8 @@ export function useLabState() {
       setIsoPanel('room');
       setRuleDraft(null);
       setOverlay(next.overlay);
+      setShowTrail(next.trail);
+      setShowZones(next.zones);
       setConcept(next.concept);
       if (next.fixturePosition in FIXTURE_POSITIONS)
         setFixturePosition(next.fixturePosition as FixturePosition);
@@ -519,6 +527,7 @@ export function useLabState() {
     if (action === 'help') return setShowKeys((v) => !v);
     if (action === 'escape') {
       if (showKeys) return setShowKeys(false);
+      if (outlineOpen) return setOutlineOpen(false);
       if (pinning) return setPinning(null);
       if (drawing) return setDrawing(false);
       if (ruleDraft) return setRuleDraft(null);
@@ -1100,6 +1109,7 @@ export function useLabState() {
   }
   /** Show one node of the outline, and move the canvas to the scene it is in. */
   function select(next: Selection | null) {
+    setOutlineOpen(false);
     if (next?.kind !== 'new-rule') setRuleDraft(null);
     if (next?.kind === 'room' && progress.room) setWorkScene(progress.room);
     if (next?.kind === 'view' && progress.view) setWorkScene(progress.view);
@@ -1251,6 +1261,10 @@ export function useLabState() {
     deskSvg,
     overlay,
     setOverlay,
+    showTrail,
+    setShowTrail,
+    showZones,
+    setShowZones,
     stageView,
     setStageView,
     workScene,
@@ -1259,6 +1273,8 @@ export function useLabState() {
     setChoosingScene,
     selection,
     select,
+    outlineOpen,
+    setOutlineOpen,
     isoPanel,
     setIsoPanel,
     modelOf,

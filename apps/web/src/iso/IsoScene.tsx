@@ -107,6 +107,8 @@ export interface IsoObject {
   item?: IsoItem;
   /** Off the pinned surface or from another frame size: drawn, but marked unsure. */
   unsure?: boolean;
+  /** Selected in the outline: its footprint is ringed. */
+  focused?: boolean;
 }
 /** A zone on the active surface, as corners in surface coordinates. */
 export interface IsoZone {
@@ -117,6 +119,8 @@ export interface IsoZone {
   kind: 'main' | 'rule' | 'draft';
   /** The object is inside it at the last check. */
   inside?: boolean;
+  /** Selected in the outline. */
+  focused?: boolean;
 }
 /** Picking and dragging whole groups, for the scene editor. */
 export interface IsoEditing {
@@ -133,7 +137,21 @@ function ObjectMarker({ box, object }: { box: IsoBox; object: IsoObject }) {
     z: box.at.z + box.size.h,
   });
   return (
-    <g className={`iso-object ${object.unsure ? 'unsure' : ''}`} data-object={object.id}>
+    <g
+      className={`iso-object ${object.unsure ? 'unsure' : ''} ${object.focused ? 'focused' : ''}`}
+      data-object={object.id}
+    >
+      {object.focused && (
+        <polygon
+          className="iso-focus"
+          points={pts([
+            { x: box.at.x - 0.15, y: box.at.y - 0.15, z: box.at.z },
+            { x: box.at.x + box.size.w + 0.15, y: box.at.y - 0.15, z: box.at.z },
+            { x: box.at.x + box.size.w + 0.15, y: box.at.y + box.size.d + 0.15, z: box.at.z },
+            { x: box.at.x - 0.15, y: box.at.y + box.size.d + 0.15, z: box.at.z },
+          ])}
+        />
+      )}
       {object.item ? (
         <ItemSprite item={object.item} origin={box.at} scale={box.size.w} />
       ) : (
@@ -343,7 +361,7 @@ export function IsoScene({
                 {zones.map((z) => (
                   <polygon
                     key={z.id}
-                    className={`iso-zone ${z.kind} ${z.inside ? 'inside' : ''}`}
+                    className={`iso-zone ${z.kind} ${z.inside ? 'inside' : ''} ${z.focused ? 'focused' : ''}`}
                     data-zone={z.id}
                     points={pts(z.quad.map((uv) => onSurface(uv)!))}
                   />

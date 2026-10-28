@@ -94,7 +94,13 @@ test('mobile workbench fits its viewport', async ({ page }) => {
   await page.goto('/');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await chooseScene(page);
+  // On a phone the outline is a sheet: open it from the top bar, pick a row, and it closes.
+  await page.getByRole('button', { name: 'Scene outline' }).click();
   await addObject(page);
+  await expect(page.getByRole('button', { name: 'Scene outline' })).toHaveAttribute(
+    'aria-expanded',
+    'false',
+  );
   await page.getByRole('button', { name: 'Discover objects', exact: true }).click();
   await expect(
     page.locator('.object-grid').getByRole('button', { name: /cream mug/ }),

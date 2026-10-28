@@ -121,6 +121,20 @@
 .iso-object.unsure text {
   fill: var(--unsure);
 }
+/* Selected in the outline: a ring on the floor around it, and a brighter zone. */
+.iso-focus {
+  fill: var(--chosen-wash);
+  stroke: var(--chosen);
+  stroke-width: 1.5;
+  stroke-dasharray: 4 3;
+}
+.iso-object.focused text {
+  font-weight: 700;
+}
+.iso-zone.focused {
+  stroke-width: 2.5;
+  filter: drop-shadow(0 0 14px var(--chosen-glow));
+}
 /* Amber only for lamps, and only once an action on their light is confirmed. */
 .iso-lamp.lit image {
   filter: drop-shadow(0 0 6px var(--warm-glow));

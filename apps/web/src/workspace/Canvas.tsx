@@ -14,6 +14,7 @@ import { SurfacePin } from '../iso/SurfacePin';
 import type { StageView } from '../session';
 import { useLab } from './LabContext';
 import { DeskStep, Onboarding } from './Onboarding';
+import { Popover } from './Popover';
 import { fixtureDesk } from './useLabState';
 
 const VIEWS: { id: StageView; label: string }[] = [
@@ -84,6 +85,25 @@ export function Canvas() {
     zone,
   } = lab;
   const onboarding = (!workScene || choosingScene) && !pinning;
+  const sel = lab.selection;
+  const focus = {
+    object: sel?.kind === 'object' ? (sel.id === 'main' ? 'tracked' : sel.id) : undefined,
+    zone: sel?.kind === 'rule' ? sel.id : undefined,
+  };
+  // The selected object's latest sighting, ringed on the photo when it was seen on a frame this size.
+  const focusSeen =
+    sel?.kind === 'object'
+      ? sel.id === 'main'
+        ? memory?.observation
+        : memory?.others?.find((o) => o.id === sel.id)?.observation
+      : null;
+  const focusBox =
+    focusSeen &&
+    !camera &&
+    focusSeen.frame.width === dimensions.width &&
+    focusSeen.frame.height === dimensions.height
+      ? focusSeen
+      : null;
   const showIso = stageView !== 'photo' && !pinning && Boolean(workScene);
   return (
     <section className="ws-canvas" aria-label="Scene and segmentation">
@@ -92,14 +112,42 @@ export function Canvas() {
           <span className={`dot ${mode === 'live' ? 'live' : ''}`} />
           {mode === 'fixture' ? 'DEMO DESK' : image ? 'LOCAL DESK PHOTO' : 'AWAITING DESK PHOTO'}
         </span>
-        <label className="overlay-toggle">
-          <input
-            type="checkbox"
-            checked={overlay}
-            onChange={(e) => lab.setOverlay(e.target.checked)}
-          />{' '}
-          Mask overlay
-        </label>
+        <Popover
+          label="Layers"
+          className="layers"
+          button={(open, toggle) => (
+            <button className="secondary layers-button" aria-expanded={open} onClick={toggle}>
+              Layers
+              <small>{[overlay, lab.showTrail, lab.showZones].filter(Boolean).length}/3</small>
+            </button>
+          )}
+        >
+          {() => (
+            <div className="layers-menu">
+              <span className="tiny">SHOW ON THE CANVAS</span>
+              {(
+                [
+                  ['Masks', 'What SAM outlined in this frame', overlay, lab.setOverlay],
+                  ['Trail', 'Where the mug has been', lab.showTrail, lab.setShowTrail],
+                  [
+                    'Zones',
+                    'Saved zones, on the photo and in the room',
+                    lab.showZones,
+                    lab.setShowZones,
+                  ],
+                ] as const
+              ).map(([name, hint, on, set]) => (
+                <label key={name} className="overlay-toggle">
+                  <input type="checkbox" checked={on} onChange={(e) => set(e.target.checked)} />
+                  <span>
+                    {name}
+                    <small>{hint}</small>
+                  </span>
+                </label>
+              ))}
+            </div>
+          )}
+        </Popover>
         <div className="mode-switch stage-view three" aria-label="Stage view">
           {VIEWS.map((v) => (
             <button
@@ -151,7 +199,7 @@ export function Canvas() {
               <small>Prepared locally · sent only on an explicit live probe</small>
             </div>
           )}
-          {!camera && segmentation && overlay && trail.length > 1 && (
+          {!camera && segmentation && lab.showTrail && trail.length > 1 && (
             <svg
               className="trail-overlay"
               viewBox={`0 0 ${segmentation.frame.width} ${segmentation.frame.height}`}
@@ -181,7 +229,7 @@ export function Canvas() {
               chosenId={lab.confirmedId}
             />
           )}
-          {!camera && currentObservation && visibleZone && (
+          {!camera && currentObservation && visibleZone && (drawing || lab.showZones) && (
             <svg
               className={`zone-overlay ${drawing ? 'drawing' : ''}`}
               viewBox="0 0 1000 1000"
@@ -218,7 +266,7 @@ export function Canvas() {
               />
             </svg>
           )}
-          {!camera && currentObservation && visibleZone && (
+          {!camera && currentObservation && visibleZone && (drawing || lab.showZones) && (
             <span
               className={`zone-tag ${drawing ? 'drawing' : ''}`}
               style={{ left: `${visibleZone.x * 100}%`, top: `${visibleZone.y * 100}%` }}
@@ -229,6 +277,21 @@ export function Canvas() {
               {drawing &&
                 ` · ${Math.round(visibleZone.width * 100)}×${Math.round(visibleZone.height * 100)}%`}
             </span>
+          )}
+          {focusBox && (
+            <svg
+              className="focus-overlay"
+              viewBox={`0 0 ${focusBox.frame.width} ${focusBox.frame.height}`}
+              aria-label={`Selected: last seen here${focusBox.id === lab.currentObservation?.id ? '' : ', in an earlier frame'}`}
+            >
+              <rect
+                className={focusBox.id === lab.currentObservation?.id ? '' : 'earlier'}
+                x={focusBox.box.x - 6}
+                y={focusBox.box.y - 6}
+                width={focusBox.box.width + 12}
+                height={focusBox.box.height + 12}
+              />
+            </svg>
           )}
           {follow && followView && (
             <svg
@@ -308,6 +371,8 @@ export function Canvas() {
             guess={lab.guess}
             ruleDraft={lab.ruleDraft}
             onRuleDraft={lab.setRuleDraft}
+            focus={focus}
+            layers={{ trail: lab.showTrail, zones: lab.showZones }}
             memory={memory}
             image={image}
             lights={lab.lights}

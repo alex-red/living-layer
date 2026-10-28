@@ -1,47 +1,11 @@
-import { useEffect, useState, type ReactNode } from 'react';
 import { ISO_PRESETS } from '@livinglayer/domain';
 import { Glyph } from '../Glyph';
 import { estimateLabel, usd } from '../cost';
 import { SHORTCUTS } from '../shortcuts';
 import { useLab } from './LabContext';
+import { Popover } from './Popover';
 import { BUSY } from './useLabState';
 import { selectionLabel } from './labels';
-
-/** A panel that drops from a top-bar button and closes on a click outside it. */
-function Popover({
-  label,
-  button,
-  className,
-  children,
-}: {
-  label: string;
-  button: (open: boolean, toggle: () => void) => ReactNode;
-  className?: string;
-  children: (close: () => void) => ReactNode;
-}) {
-  const [open, setOpen] = useState(false);
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setOpen(false);
-    };
-    window.addEventListener('keydown', onKey, true);
-    return () => window.removeEventListener('keydown', onKey, true);
-  }, [open]);
-  return (
-    <span className="popover-anchor">
-      {button(open, () => setOpen((v) => !v))}
-      {open && (
-        <>
-          <span className="popover-backdrop" onClick={() => setOpen(false)} />
-          <div className={`popover ${className ?? ''}`} role="dialog" aria-label={label}>
-            {children(() => setOpen(false))}
-          </div>
-        </>
-      )}
-    </span>
-  );
-}
 
 /** Models, Meta access, spend, the lamp, and the live proof checklist. */
 function Readiness() {
@@ -361,6 +325,16 @@ export function TopBar() {
           </nav>
         )}
       </div>
+      {progress.room && (
+        <button
+          className="outline-toggle"
+          aria-label="Scene outline"
+          aria-expanded={lab.outlineOpen}
+          onClick={() => lab.setOutlineOpen(!lab.outlineOpen)}
+        >
+          <span aria-hidden="true">☰</span> {crumbs.at(-1)?.label}
+        </button>
+      )}
       <div className={`feedback ${lab.capsuleTone}`} role="status" aria-live="polite">
         {camera && <span className="privacy-dot" aria-label="Camera on" />}
         <span className="dot" />

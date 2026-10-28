@@ -82,6 +82,8 @@ export function IsoView({
   guess,
   ruleDraft,
   onRuleDraft,
+  focus,
+  layers = { trail: true, zones: true },
   memory,
   image,
   lights,
@@ -111,6 +113,10 @@ export function IsoView({
   guess: SceneGuess | null;
   ruleDraft: RuleDraft | null;
   onRuleDraft: (draft: RuleDraft | null) => void;
+  /** What the outline has selected, ringed in the room: `tracked` is the mug, `main` its zone. */
+  focus?: { object?: string; zone?: string };
+  /** Which canvas layers show: the mug's trail, and saved zones (a draft always shows). */
+  layers?: { trail: boolean; zones: boolean };
   memory?: DeskMemory;
   /** The current live photo, for asking Spark about the scene. */
   image?: string;
@@ -201,6 +207,15 @@ export function IsoView({
       label: ruleDraft.label || 'New zone',
       quad: zoneOnSurface(ruleDraft.rect, ruleTarget.frame, ruleMap.toSurface),
     });
+  if (!layers.trail) trail.length = 0;
+  if (!layers.zones)
+    zones.splice(
+      0,
+      zones.length,
+      ...zones.filter((z) => z.kind === 'draft' || (drawing && z.kind === 'main')),
+    );
+  for (const o of objects) o.focused = o.id === focus?.object;
+  for (const z of zones) z.focused = z.id === focus?.zone;
   const lit = new Set<string>();
   if (lampOn && defaultLight) lit.add(defaultLight);
   for (const rule of memory?.rules ?? [])
