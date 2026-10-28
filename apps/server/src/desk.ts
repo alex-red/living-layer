@@ -35,6 +35,7 @@ import {
 } from '@livinglayer/domain';
 import { EvidenceStore } from './store.js';
 import { LabError, parseInput, safeError } from './errors.js';
+import { rescore } from './item.js';
 
 export function deskRoutes(
   app: FastifyInstance,
@@ -603,6 +604,8 @@ export function deskRoutes(
         segmentRunId: target.item?.segmentRunId ?? null,
         swatches: target.item?.swatches ?? [],
         updatedAt: new Date().toISOString(),
+        // An edit keeps its fit record, scored again against the same crop.
+        fit: await rescore(store, item, target.item?.fit),
       },
     );
     store.saveMemory(memory);

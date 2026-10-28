@@ -11,27 +11,13 @@ import {
   type IsoProp,
   type IsoScene as Scene,
   type IsoSurface,
-  type IsoTone,
   type IsoVec,
   type Point,
   type Quad,
 } from '@livinglayer/domain';
-import { ItemParts } from './IsoItem';
+import { ItemSprite } from './IsoItem';
+import { TONES, propSprite } from './sprites';
 
-/** Muted materials for the dark room. The signal colours stay for the overlay. */
-const TONES: Record<IsoTone, string> = {
-  floor: '#171b27',
-  wall: '#202535',
-  wood: '#5b4c3f',
-  steel: '#4a5164',
-  fabric: '#3a4659',
-  paper: '#c9c3b5',
-  book: '#3c554a',
-  glass: '#5f7c88',
-  appliance: '#8d93a1',
-  plant: '#4d6a54',
-  ceramic: '#b3a796',
-};
 export function shade(hex: string, k: number): string {
   const n = parseInt(hex.slice(1), 16);
   const c = [n >> 16, (n >> 8) & 255, n & 255].map((v) => Math.round(v * (1 - k)));
@@ -149,7 +135,7 @@ function ObjectMarker({ box, object }: { box: IsoBox; object: IsoObject }) {
   return (
     <g className={`iso-object ${object.unsure ? 'unsure' : ''}`} data-object={object.id}>
       {object.item ? (
-        <ItemParts item={object.item} origin={box.at} scale={box.size.w} />
+        <ItemSprite item={object.item} origin={box.at} scale={box.size.w} />
       ) : (
         <Solid box={box} color={TONES.ceramic} shape="cylinder" />
       )}
@@ -157,6 +143,29 @@ function ObjectMarker({ box, object }: { box: IsoBox; object: IsoObject }) {
         {object.unsure ? '◌ ' : '✓ '}
         {object.label.toUpperCase()}
       </text>
+    </g>
+  );
+}
+/**
+ * A prop drawn by the voxel kernel, with its flat faces kept underneath,
+ * invisible, so picking and dragging follow the prop's shape, not its image.
+ */
+function PropSprite({ prop, lit }: { prop: IsoProp; lit: boolean }) {
+  const sprite = propSprite(prop, lit);
+  const at = toIso(prop.at);
+  return (
+    <g
+      className={`iso-prop tone-${prop.tone} ${prop.role === 'lamp' ? 'iso-lamp' : ''} ${lit ? 'lit' : ''}`}
+    >
+      <image
+        href={sprite.url}
+        x={at.sx + sprite.x}
+        y={at.sy + sprite.y}
+        width={sprite.width}
+        height={sprite.height}
+        preserveAspectRatio="none"
+      />
+      <Solid box={prop} color={TONES[prop.tone]} shape={prop.shape} className="iso-hit-shape" />
     </g>
   );
 }
@@ -324,12 +333,7 @@ export function IsoScene({
                 : undefined
             }
           >
-            <Solid
-              box={item}
-              color={TONES[item.prop.tone]}
-              shape={item.prop.shape}
-              className={`iso-prop tone-${item.prop.tone} ${item.prop.role === 'lamp' ? 'iso-lamp' : ''} ${lit(item.prop) ? 'lit' : ''}`}
-            />
+            <PropSprite prop={item.prop} lit={lit(item.prop)} />
             {item.prop.id === surface?.propId && !editing && (
               <>
                 <polygon

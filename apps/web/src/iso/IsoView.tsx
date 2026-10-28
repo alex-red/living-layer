@@ -306,8 +306,20 @@ export function IsoView({
             busy={off}
             sparkNote={
               mode === 'fixture'
-                ? 'Fixture: no model call. Mug drafts use the illustrated mug’s own colours.'
-                : 'A Spark draft is one billed call and sends only the masked crop.'
+                ? 'Fixture: no model call. Drafts fit the illustrated mug’s own pixels.'
+                : 'A Spark draft makes up to four billed calls (Spark twice, SAM up to twice) and sends only the masked crop.'
+            }
+            cropUrl={
+              target?.item?.fit?.crop
+                ? `/api/item/crop?mode=${mode}${modelOf ? `&objectId=${modelOf}` : ''}&v=${encodeURIComponent(target.item.fit.crop)}`
+                : null
+            }
+            onRefit={(item) =>
+              void send<DeskMemory>(
+                'item/refit',
+                { item, ...(modelOf ? { objectId: modelOf } : {}) },
+                onMemory,
+              )
             }
             onDraft={(source) =>
               void send<{ run: EvidenceRun<SavedItem>; memory: DeskMemory }>(

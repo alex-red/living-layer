@@ -13,15 +13,6 @@ import {
   buildScene,
   isoSceneSchema,
   type SceneDraft,
-  isMugConcept,
-  modelTarget,
-  setModel,
-  mugItem,
-  sampledItem,
-  swatchesOf,
-  uniqueParts,
-  type IsoItem,
-  type SavedItem,
   estimateCost,
   runCost,
   type EvidenceRun,
@@ -35,14 +26,14 @@ import { EvidenceStore } from './store.js';
 import { MetaAdapter, type ProviderResult } from './meta.js';
 import { LampAdapter } from './lamp.js';
 import { LabError, parseInput, safeError } from './errors.js';
-import { maskedCrop, validateImage } from './images.js';
+import { validateImage } from './images.js';
 import { deskRoutes } from './desk.js';
+import { itemRoutes } from './item.js';
 import {
   fixtureScene,
   fixtureSceneGuess,
   fixtureSegmentation,
   fixtureLamp,
-  fixtureSwatches,
   fixtureLampFor,
   fixtureSceneDraft,
 } from './fixtures.js';
@@ -266,86 +257,7 @@ export async function buildApp(
       return { ...result, assets: [store.asset(id, 'source.png', image.bytes)] };
     });
   });
-  /**
-   * Draft a model of the remembered object from the mask of its current
-   * sighting. `sampled` stays local: a template in the mask's colours and
-   * proportions. `spark` also sends the masked crop to Spark for a part list.
-   */
-  app.post('/api/item/draft', async (request) => {
-    const { mode, source, objectId } = parseInput(
-      z
-        .object({
-          mode: modeSchema,
-          source: z.enum(['sampled', 'spark']),
-          objectId: z.string().uuid().optional(),
-        })
-        .strict(),
-      request.body,
-    );
-    const object = modelTarget(store.memory(mode), objectId);
-    const sighting = object?.observation;
-    if (!object || !sighting)
-      throw new LabError(
-        'item_identity',
-        'Confirm the object by hand first, then draft its model.',
-        409,
-      );
-    const event = await run('item', mode, async (id) => {
-      const segment = store.getRun(sighting.segmentRunId);
-      const segmentation = segment?.output as Segmentation | undefined;
-      const detection = segmentation?.detections.find((d) => d.objectId === sighting.detectionId);
-      if (!segment || !segmentation || !detection)
-        throw new LabError(
-          'item_source',
-          'The segmentation behind this sighting is missing. Segment a new frame.',
-          409,
-        );
-      const ratio = detection.box.height / detection.box.width;
-      const mug = isMugConcept(segmentation.concept);
-      const saved = (item: IsoItem, from: SavedItem['source'], swatches = fixtureSwatches) => ({
-        ...uniqueParts(item),
-        source: from,
-        segmentRunId: segment.id,
-        swatches,
-        updatedAt: new Date().toISOString(),
-      });
-      // The fixture desk is an SVG drawn in the browser, so its colours are known, not sampled.
-      if (mode === 'fixture')
-        return {
-          output: saved(
-            mug
-              ? mugItem(fixtureSwatches[0]!.hex, fixtureSwatches[1]!.hex, object.label)
-              : sampledItem(object.label, ratio, fixtureSwatches, false),
-            'fixture',
-          ),
-        };
-      const photo = segment.assets.find((a) => a.endsWith('/source.png'));
-      const bytes = photo ? store.readAsset(photo) : null;
-      if (!bytes)
-        throw new LabError('item_source', 'The photo behind this sighting is missing.', 409);
-      const crop = await maskedCrop(bytes, detection);
-      const swatches = swatchesOf(crop.rgba);
-      const assets = [store.asset(id, 'item-crop.png', crop.png)];
-      if (source === 'sampled')
-        return {
-          output: saved(sampledItem(object.label, ratio, swatches, mug), 'sampled', swatches),
-          assets,
-        };
-      const result = await meta.item(
-        `data:image/png;base64,${crop.png.toString('base64')}`,
-        object.label,
-        ratio,
-        swatches,
-      );
-      return { ...result, output: saved(result.output, 'spark', swatches), assets };
-    });
-    const latest = store.memory(mode);
-    if (modelTarget(latest, object.id)) {
-      setModel(latest, object.id, event.output as SavedItem);
-      store.saveMemory(latest);
-    }
-    return { run: event, memory: latest };
-  });
+  itemRoutes(app, { store, meta, run });
   app.post('/api/segment', async (request) => {
     const input = parseInput(segmentRequestSchema, request.body);
     return run('segment', input.mode, async (id) => {

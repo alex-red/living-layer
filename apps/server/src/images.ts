@@ -73,3 +73,28 @@ export async function maskedCrop(source: Buffer, detection: Detection) {
   const png = await crop.png().toBuffer();
   return { rgba, png, width, height };
 }
+
+/**
+ * SAM detections on a crop as one 0/1 mask of the crop's size: each
+ * detection's path is drawn into its box. Used for part masks (a handle, a
+ * liquid) that guide the item fitter.
+ */
+export async function detectionBits(
+  detections: Detection[],
+  width: number,
+  height: number,
+): Promise<Uint8Array | null> {
+  if (!detections.length) return null;
+  const clean = (d: string) => d.replace(/[^MLHVZmlhvz0-9.,\s-]/g, '');
+  const shapes = detections
+    .map(
+      ({ box, mask }) =>
+        `<g transform="translate(${box.x} ${box.y}) scale(${box.width / mask.width} ${box.height / mask.height})"><path d="${clean(mask.svgPath)}" fill="#fff" fill-rule="evenodd"/></g>`,
+    )
+    .join('');
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">${shapes}</svg>`;
+  const alpha = await sharp(Buffer.from(svg)).extractChannel('alpha').raw().toBuffer();
+  const bits = new Uint8Array(width * height);
+  for (let i = 0; i < bits.length; i++) bits[i] = alpha[i]! >= 128 ? 1 : 0;
+  return bits;
+}

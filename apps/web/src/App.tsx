@@ -264,7 +264,18 @@ export function App() {
   const lastCheck = useRef(0);
   const reanchorGap = useRef(REANCHOR_GAP_MS.first);
   const goodSteps = useRef(0);
+  /**
+   * Bumped by every memory write. A refresh applies its desk memory only if
+   * nothing newer landed while it was in flight, so a slow fire-and-forget
+   * refresh can't put back a memory from before a draft or a track.
+   */
+  const memoryWrites = useRef(0);
+  const setMemory = (next: DeskMemory) => {
+    memoryWrites.current++;
+    setMemories((current) => ({ ...current, [mode]: next }));
+  };
   const refresh = async () => {
+    const started = ++memoryWrites.current;
     const [nextStatus, nextRuns, fixtureDesk, liveDesk] = await Promise.all([
       api<LabStatus>('status'),
       api<EvidenceRun[]>('runs'),
@@ -273,7 +284,7 @@ export function App() {
     ]);
     setStatus(nextStatus);
     setRuns(nextRuns);
-    setMemories({ fixture: fixtureDesk, live: liveDesk });
+    if (started === memoryWrites.current) setMemories({ fixture: fixtureDesk, live: liveDesk });
   };
   useEffect(() => {
     void fetch('/desk.svg')
@@ -487,7 +498,7 @@ export function App() {
         'desk/track',
         { mode, segmentRunId: run.id },
       );
-      setMemories((current) => ({ ...current, [mode]: result.memory }));
+      setMemory(result.memory);
       setSelected(result.event);
       if (result.event.output.action === 'confirmed') light();
       setMessage(`Tracked${costNote(run)}. ${placementMessage(result.event)}`);
@@ -644,7 +655,7 @@ export function App() {
         if (event.output.action === 'confirmed') light();
         setMessage(placementMessage(event));
       } else {
-        setMemories((current) => ({ ...current, [mode]: result as DeskMemory }));
+        setMemory(result as DeskMemory);
         if (path === 'reset') {
           setLamp('off');
           stopFollow();
@@ -1465,7 +1476,7 @@ export function App() {
                   );
                   void refresh();
                 }}
-                onMemory={(next) => setMemories((current) => ({ ...current, [mode]: next }))}
+                onMemory={setMemory}
                 onMessage={(text) => {
                   setMessage(text);
                   void refresh();

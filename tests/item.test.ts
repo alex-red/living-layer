@@ -1,24 +1,31 @@
-import { afterEach, describe, expect, it, mock } from 'bun:test';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { afterEach, describe, expect, it, mock, setDefaultTimeout } from 'bun:test';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import sharp from 'sharp';
 import { buildApp } from '../apps/server/src/app.js';
 import { parseConfig, type Fetcher } from '../apps/server/src/config.js';
-import { maskedCrop } from '../apps/server/src/images.js';
+import { detectionBits, maskedCrop } from '../apps/server/src/images.js';
+import { syntheticStream } from '../apps/server/src/sam.js';
 import {
+  deltaE,
+  hexLab,
   isoItemSchema,
-  itemHeight,
   mugItem,
   rotateItem,
-  sampledItem,
-  swatchesOf,
+  clusterColours,
+  rgbLab,
   uniqueParts,
   type DeskMemory,
   type EvidenceRun,
   type SavedItem,
   type Segmentation,
 } from '@livinglayer/domain';
+
+// These tests run the fitter and the sprite renderer: about a second at most
+// on a quiet machine, but a busy one (a parallel build, say) stretches them
+// several times over, past bun's 5 s default.
+setDefaultTimeout(30_000);
 
 describe('item models', () => {
   it('accepts the mug template and rejects parts outside the contract', () => {
@@ -46,44 +53,18 @@ describe('item models', () => {
     });
     expect(rotateItem(mug, -1)).toEqual(rotateItem(mug, 3));
   });
-  it('drafts a sampled mug in the photo proportions and colours', () => {
-    const item = sampledItem(
-      'Blue mug',
-      1.2,
-      [
-        { hex: '#2244aa', share: 0.7 },
-        { hex: '#331100', share: 0.3 },
-      ],
-      true,
-    );
-    expect(isoItemSchema.safeParse(item).success).toBe(true);
-    expect(item.parts[0]!.color).toBe('#2244aa');
-    expect(itemHeight(item)).toBeCloseTo(1.2 * 1.1 + 0.02);
-    const plain = sampledItem('Bottle', 2.5, [], false);
-    expect(plain.parts).toHaveLength(1);
-    expect(itemHeight(plain)).toBe(2.5);
-  });
   it('gives repeated part ids a suffix', () => {
     const mug = mugItem();
     const twice = uniqueParts({ ...mug, parts: [...mug.parts, mug.parts[0]!] });
     expect(new Set(twice.parts.map((p) => p.id)).size).toBe(4);
   });
-  it('counts only opaque pixels, most common colour first', () => {
-    const px = (r: number, g: number, b: number, a = 255) => [r, g, b, a];
-    const rgba = new Uint8Array([
-      ...px(250, 10, 10),
-      ...px(240, 20, 12),
-      ...px(245, 15, 8),
-      ...px(10, 10, 250),
-      ...px(0, 255, 0, 0),
-      ...px(0, 255, 0, 0),
-      ...px(0, 255, 0, 0),
-      ...px(0, 255, 0, 0),
-    ]);
-    const swatches = swatchesOf(rgba);
-    expect(swatches).toHaveLength(2);
-    expect(swatches[0]!.hex).toBe('#f50f0a');
-    expect(swatches[0]!.share).toBeCloseTo(0.75);
+  it('finds the main colours in OKLab, largest first, and stops adding clusters when they stop helping', () => {
+    const red = rgbLab([245, 15, 10]);
+    const blue = rgbLab([10, 10, 250]);
+    const { clusters } = clusterColours([red, red, red, blue, red, red, blue, red]);
+    expect(clusters).toHaveLength(2);
+    expect(clusters[0]!.hex).toBe('#f50f0a');
+    expect(clusters[0]!.share).toBeCloseTo(0.75);
   });
 });
 
@@ -113,9 +94,11 @@ describe('masked crop', () => {
       mask: { width: 10, height: 10, foregroundPixels: 50, svgPath: 'M0 0L5 0L5 10L0 10Z' },
     });
     expect([crop.width, crop.height]).toEqual([40, 40]);
-    const swatches = swatchesOf(crop.rgba);
-    expect(swatches[0]!.hex).toBe('#ff0000');
-    expect(swatches[0]!.share).toBeGreaterThan(0.95);
+    const opaqueRed = [...Array(40 * 40).keys()].filter(
+      (p) =>
+        crop.rgba[p * 4 + 3]! >= 128 && crop.rgba[p * 4]! === 255 && crop.rgba[p * 4 + 2]! === 0,
+    ).length;
+    expect(opaqueRed / (40 * 40)).toBeGreaterThan(0.45);
     const opaque = [...crop.rgba].filter((_, i) => i % 4 === 3 && crop.rgba[i]! >= 128).length;
     expect(opaque / (40 * 40)).toBeCloseTo(0.5, 1);
   });
@@ -152,13 +135,40 @@ describe('item routes', () => {
     expect(drafted.run.kind).toBe('item');
     expect(drafted.run.output.source).toBe('fixture');
     expect(drafted.memory.item?.segmentRunId).toBe(segment.id);
-    expect(drafted.memory.item?.parts.map((p) => p.id)).toEqual(['body', 'coffee', 'handle']);
+    // The fixture runs the real fitter on the illustrated desk's own pixels.
+    expect(drafted.memory.item?.parts.map((p) => p.id)).toEqual(['body', 'handle']);
+    const fit = drafted.memory.item!.fit!;
+    expect(fit.archetype).toBe('mug');
+    expect(fit.iou).toBeGreaterThan(0.85);
+    expect(fit.views).toBe(1);
+    expect(fit.assists[0]).toContain('Spark: mug');
+    const body = drafted.memory.item!.parts[0]!;
+    expect(body.shape).toBe('lathe');
+    // Cream body with coffee in it, as drawn.
+    expect(deltaE(hexLab(body.color), hexLab('#ece5d0'))).toBeLessThan(3);
+    expect(deltaE(hexLab(body.inside!.liquid!), hexLab('#73604c'))).toBeLessThan(5);
+    const crop = await s.app.inject({ method: 'GET', url: '/api/item/crop?mode=fixture' });
+    expect(crop.statusCode).toBe(200);
+    expect(crop.headers['content-type']).toBe('image/png');
     expect(s.fetcher).not.toHaveBeenCalled();
+
+    // A refit keeps a locked part as the person left it.
+    const locked = {
+      label: drafted.memory.item!.label,
+      parts: drafted.memory.item!.parts.map((p) =>
+        p.id === 'handle' ? { ...p, color: '#3c554a', locked: true } : p,
+      ),
+    };
+    const refit = (await s.post('item/refit', { item: locked })).json<DeskMemory>();
+    expect(refit.item?.parts.find((p) => p.id === 'handle')?.color).toBe('#3c554a');
+    expect(refit.item?.fit?.iou).toBeGreaterThan(0.8);
 
     const edited = mugItem('#3c554a');
     const saved = (await s.post('item/save', { item: edited })).json<DeskMemory>();
     expect(saved.item?.parts[0]!.color).toBe('#3c554a');
     expect(saved.item?.source).toBe('fixture');
+    // An edit is scored again against the same crop: a green body matches its colour worse.
+    expect(saved.item?.fit?.deltaE).toBeGreaterThan(fit.deltaE);
     const extra = await s.post('item/save', { item: { ...edited, source: 'spark' } });
     expect(extra.statusCode).toBe(400);
 
@@ -169,7 +179,130 @@ describe('item routes', () => {
       memory: DeskMemory;
     }>();
     expect(tracked.memory.item?.parts[0]!.color).toBe('#3c554a');
+    // Drafting from the new sighting fuses its shape with the first one.
+    const fused = (await s.post('item/draft', { source: 'sampled' })).json<{
+      memory: DeskMemory;
+    }>();
+    expect(fused.memory.item?.fit?.views).toBe(2);
+    expect(fused.memory.item?.fit?.assists).toContain('Fused with 1 earlier view');
     const reset = (await s.post('desk/reset')).json<DeskMemory>();
     expect(reset.item ?? null).toBeNull();
+  });
+});
+
+describe('live item drafts with Meta’s help', () => {
+  const fixture = JSON.parse(readFileSync('fixtures/sam-mug.json', 'utf8')) as { wire: string };
+  /** SAM's event stream for a wire, as the hosted API sends it. */
+  async function samResponse(wire: string) {
+    const events = [];
+    for await (const event of syntheticStream(wire))
+      events.push(
+        event.type === 'response.completed'
+          ? { ...event, response: { id: 'resp_sam', model: 'sam-3.1', status: 'completed' } }
+          : event,
+      );
+    const body =
+      events.map((e) => `event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`).join('') +
+      'data: [DONE]\n\n';
+    return new Response(body, { headers: { 'content-type': 'text/event-stream' } });
+  }
+  const sparkResponse = (output: object) =>
+    new Response(
+      JSON.stringify({
+        id: 'resp_spark',
+        object: 'response',
+        model: 'muse-spark-1.3',
+        status: 'completed',
+        output: [
+          {
+            type: 'message',
+            role: 'assistant',
+            content: [{ type: 'output_text', text: JSON.stringify(output), annotations: [] }],
+          },
+        ],
+        usage: { input_tokens: 100, output_tokens: 20, total_tokens: 120 },
+      }),
+      { headers: { 'content-type': 'application/json', 'x-request-id': 'req-spark' } },
+    );
+
+  it('classifies with Spark, asks SAM for parts and keeps Spark’s check only if it holds up', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'livinglayer-item-live-'));
+    dirs.push(dataDir);
+    const asked: string[] = [];
+    const fetcher = mock<Fetcher>().mockImplementation(async (_url, init) => {
+      const body = JSON.parse(String(init?.body));
+      if (body.model === 'sam-3.1') {
+        const concept = body.input[0].content[0].text as string;
+        asked.push(`sam:${concept}`);
+        // The whole desk photo shows the mug; inside the crop, no parts are found.
+        return samResponse(concept === 'mug' ? fixture.wire : '');
+      }
+      const name = body.text.format.name as string;
+      asked.push(`spark:${name}`);
+      return sparkResponse(
+        name === 'item_class'
+          ? { archetype: 'mug', material: 'gloss', description: 'A cream mug.', backside: null }
+          : { height: 1.05, radius: 1, handleReach: 1, body: null, note: 'Slightly taller.' },
+      );
+    });
+    const app = await buildApp(
+      parseConfig({ DATA_DIR: dataDir, MODEL_API_KEY: 'test-key', META_LIVE_ENABLED: 'true' }),
+      { fetcher, serveWeb: false },
+    );
+    const post = (path: string, body: object) =>
+      app.inject({ method: 'POST', url: `/api/${path}`, payload: { mode: 'live', ...body } });
+    // A live photo: the illustrated desk, rasterized as a camera would deliver it.
+    const photo = await sharp(readFileSync('apps/web/public/desk.svg')).png().toBuffer();
+    const segment = (
+      await post('segment', {
+        concept: 'mug',
+        imageDataUrl: `data:image/png;base64,${photo.toString('base64')}`,
+      })
+    ).json<EvidenceRun<Segmentation>>();
+    expect(segment.output.detections[0]?.objectId).toBe('7');
+    await post('desk/select', { segmentRunId: segment.id, detectionId: '7' });
+    const drafted = await post('item/draft', { source: 'spark' });
+    expect(drafted.statusCode).toBe(200);
+    const { run, memory } = drafted.json<{ run: EvidenceRun<SavedItem>; memory: DeskMemory }>();
+    expect(asked).toEqual([
+      'sam:mug',
+      'spark:item_class',
+      'sam:mug handle',
+      'sam:coffee',
+      'spark:item_check',
+    ]);
+    expect(run.output.source).toBe('spark');
+    expect(run.usage?.totalTokens).toBe(240);
+    expect(run.assets.some((a) => a.endsWith('/item-render.png'))).toBe(true);
+    const fit = memory.item!.fit!;
+    expect(fit.archetype).toBe('mug');
+    expect(fit.iou).toBeGreaterThan(0.85);
+    expect(fit.assists).toEqual([
+      'Spark: mug, gloss. A cream mug.',
+      'SAM: mug handle not found',
+      'SAM: coffee not found',
+      expect.stringMatching(/^Spark check \((kept|not kept)\): Slightly taller\.$/),
+    ]);
+    expect(memory.item!.parts[0]!.material).toBe('gloss');
+    await app.close();
+  });
+  it('turns SAM part detections into a mask of the crop', async () => {
+    const bits = await detectionBits(
+      [
+        {
+          objectId: '1',
+          confidence: 0.9,
+          box: { x: 10, y: 5, width: 20, height: 10 },
+          mask: { width: 2, height: 1, foregroundPixels: 1, svgPath: 'M0 0L1 0L1 1L0 1Z' },
+        },
+      ],
+      40,
+      20,
+    );
+    // The left half of the box: x 10 to 20, y 5 to 15.
+    expect(bits![7 * 40 + 15]).toBe(1);
+    expect(bits![7 * 40 + 25]).toBe(0);
+    expect(bits![2 * 40 + 15]).toBe(0);
+    expect(await detectionBits([], 40, 20)).toBeNull();
   });
 });

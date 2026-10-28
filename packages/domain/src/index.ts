@@ -507,3 +507,7 @@ export function placementGate(
 export * from './tracker.js';
 export * from './iso.js';
 export * from './iso-item.js';
+export * from './color.js';
+export * from './iso-voxel.js';
+export * from './iso-archetypes.js';
+export * from './item-fit.js';

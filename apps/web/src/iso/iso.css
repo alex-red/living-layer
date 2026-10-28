@@ -81,10 +81,17 @@
   stroke-width: 0.75;
   stroke-linejoin: round;
 }
-/* Glass shelves let the view see what sits under them, as in a real fridge. */
-.iso-prop.tone-glass .side,
-.iso-prop.tone-glass .top {
-  fill-opacity: 0.35;
+/* Props and items are pixel-art sprites from the voxel kernel: keep the pixels crisp. */
+.iso-scene image,
+.item-preview image {
+  image-rendering: pixelated;
+  pointer-events: none;
+}
+/* A prop's flat faces stay underneath, invisible, for picking and dragging. */
+.iso-prop .iso-hit-shape .side,
+.iso-prop .iso-hit-shape .top {
+  fill-opacity: 0;
+  stroke: none;
 }
 .iso-surface {
   fill: none;
@@ -143,10 +150,8 @@
   fill: var(--unsure);
 }
 /* Amber only for lamps, and only once an action on their light is confirmed. */
-.iso-lamp.lit .top,
-.iso-lamp.lit .side {
-  fill: var(--warm);
-  stroke: var(--warm);
+.iso-lamp.lit image {
+  filter: drop-shadow(0 0 6px var(--warm-glow));
 }
 .iso-glow {
   mix-blend-mode: screen;
@@ -373,15 +378,107 @@
   min-height: 160px;
   width: 100%;
 }
-.item-part.selected .side,
-.item-part.selected .top {
+/* Lathe profile: radius across, height up. */
+.item-profile {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.item-profile svg {
+  width: 100%;
+  max-width: 180px;
+  aspect-ratio: 1;
+  touch-action: none;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+}
+.item-profile .axis {
+  stroke: var(--line-strong);
+  stroke-dasharray: 2 3;
+}
+.item-profile .outline {
+  fill: var(--chosen-wash);
   stroke: var(--chosen);
   stroke-width: 1.5;
+  stroke-linejoin: round;
 }
-.iso-item .side,
-.iso-item .top {
-  stroke: rgb(5 6 10 / 45%);
-  stroke-width: 0.75;
+.item-profile circle {
+  fill: var(--surface-1);
+  stroke: var(--chosen);
+  stroke-width: 1.5;
+  cursor: grab;
+}
+.item-profile circle.active {
+  fill: var(--chosen);
+}
+.item-lock {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.item-paint,
+.item-inside {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--line);
+}
+.item-paint ul {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.item-paint-layer {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.item-views {
+  display: flex;
+  gap: 4px;
+}
+.item-views button {
+  min-height: 26px;
+}
+.item-photo {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 160px;
+}
+/* The crop scaled to a fixed height; the model's silhouette is sized as a share of it. */
+.item-photo-frame {
+  position: relative;
+  max-width: 100%;
+  overflow: hidden;
+}
+.item-photo-frame img {
+  display: block;
+  height: 240px;
+  width: auto;
+  image-rendering: pixelated;
+}
+.item-photo-frame .item-photo-model {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+}
+.item-fit {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.item-fit ul {
+  margin: 0;
+  padding-left: 16px;
+  color: var(--text-2);
+  font-size: 12px;
 }
 @media (max-width: 767px) {
   .item-editor {
@@ -389,10 +486,12 @@
   }
 }
 /* In the room, the remembered object keeps its magenta outline. */
-.iso-object .iso-item .side,
-.iso-object .iso-item .top {
-  stroke: var(--chosen);
-  stroke-width: 1;
+.iso-object .iso-item image {
+  filter: drop-shadow(0 0 0.6px var(--chosen)) drop-shadow(0 0 6px var(--chosen-glow));
+}
+.iso-object.unsure .iso-item image {
+  opacity: 0.7;
+  filter: drop-shadow(0 0 0.6px var(--unsure));
 }
 
 /* Extra zones: dashed until the object is inside at a check. */
@@ -419,13 +518,13 @@
 .iso-scene.editing [data-group] {
   cursor: grab;
 }
-.iso-scene.editing [data-group].selected .side,
-.iso-scene.editing [data-group].selected .top {
+.iso-scene.editing [data-group].selected .iso-hit-shape .side,
+.iso-scene.editing [data-group].selected .iso-hit-shape .top {
   stroke: var(--chosen);
   stroke-width: 1.5;
 }
-.iso-scene.editing [data-group].overlap .side,
-.iso-scene.editing [data-group].overlap .top {
+.iso-scene.editing [data-group].overlap .iso-hit-shape .side,
+.iso-scene.editing [data-group].overlap .iso-hit-shape .top {
   stroke: var(--unsure);
   stroke-dasharray: 3 3;
 }

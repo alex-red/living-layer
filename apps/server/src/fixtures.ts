@@ -8,7 +8,6 @@ import {
   type Scene,
   type SceneGuess,
   type SceneDraft,
-  type Swatch,
   type LampResult,
 } from '@livinglayer/domain';
 import { PROJECT_ROOT } from './config.js';
@@ -48,11 +47,6 @@ export const fixtureSceneDraft: SceneDraft = {
   ],
   summary: 'An illustrated desk against a wall, with a lamp, a book, a bottle and a chair.',
 };
-/** The illustrated mug's own colours: its cream body and the coffee in it. */
-export const fixtureSwatches: Swatch[] = [
-  { hex: '#ece5d0', share: 0.82 },
-  { hex: '#73604c', share: 0.18 },
-];
 /** The synthetic mug mask, moved to `position` the same way the web redraws the desk. */
 export async function fixtureSegmentation(concept: string, position: FixturePosition = 'centre') {
   const fixture = JSON.parse(

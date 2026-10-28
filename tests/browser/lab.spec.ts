@@ -165,18 +165,23 @@ test('draws the remembered mug in the isometric desk and follows it to a new fra
   await expect(page.locator('.iso-trail')).toBeVisible();
   await page.getByRole('button', { name: 'Model', exact: true }).click();
   await page.getByRole('button', { name: 'Sample a draft', exact: true }).click();
+  // The fitter measures a turned body and a handle from the illustrated mug.
   await expect(page.getByRole('listbox', { name: 'Item parts' }).getByRole('option')).toHaveCount(
-    3,
+    2,
   );
+  await expect(page.locator('.item-fit')).toContainText('MATCH');
+  await page.getByRole('button', { name: 'Photo vs model', exact: true }).click();
+  await expect(page.getByAltText("The model's silhouette from the photo's camera")).toBeVisible();
+  await page.getByRole('button', { name: 'Model', exact: true }).last().click();
   await page.getByRole('button', { name: 'Colour #3c554a' }).click();
   await page.getByRole('button', { name: 'Save model', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Save model', exact: true })).toBeDisabled();
   await page.getByRole('button', { name: 'Room', exact: true }).click();
-  await expect(page.locator('[data-object="tracked"] [data-part="handle"]')).toBeVisible();
-  await expect(page.locator('[data-object="tracked"] [data-part="body"] .top')).toHaveAttribute(
-    'fill',
-    '#3c554a',
-  );
+  // The model is one pixel-art sprite; the group lists the parts it was built from.
+  const model = page.locator('[data-object="tracked"] .iso-item');
+  await expect(model.locator('image')).toBeVisible();
+  await expect(model).toHaveAttribute('data-parts', 'body handle');
+  await expect(model).toHaveAttribute('data-colors', /^#3c554a /);
   await page.setViewportSize({ width: 390, height: 844 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: '.data/screenshots/iso-mobile.png', fullPage: true });

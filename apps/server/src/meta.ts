@@ -4,10 +4,12 @@ import {
   sceneSchema,
   sceneGuessSchema,
   presetCatalog,
-  isoItemSchema,
+  ARCHETYPES,
+  ITEM_MATERIALS,
+  itemClassSchema,
+  itemCheckSchema,
   sceneDraftSchema,
   templateCatalog,
-  type Swatch,
   type Usage,
   type Segmentation,
 } from '@livinglayer/domain';
@@ -220,15 +222,15 @@ export class MetaAdapter {
     };
   }
   /**
-   * A first model of one object from its masked crop: a few simple parts in
-   * item space, coloured from the sampled swatches where they fit.
+   * Name the object's archetype and material from its masked crop. Spark
+   * classifies; the fitter measures every number from the mask itself.
    */
-  async item(cropDataUrl: string, label: string, ratio: number, swatches: Swatch[]) {
+  async itemClass(cropDataUrl: string, label: string) {
     this.reserve();
     const response = await this.client.responses.create({
       model: this.config.sparkModel,
       store: false,
-      max_output_tokens: 4096,
+      max_output_tokens: 1024,
       input: [
         {
           role: 'user',
@@ -237,11 +239,10 @@ export class MetaAdapter {
               type: 'input_text',
               text: [
                 `This is a cropped photo of one object, a ${label}, with the background removed.`,
-                'Describe it as 1 to 8 simple parts for a small isometric model. Shapes: cylinder, box, cone (taper is the top radius as a share of the bottom one), handle (a half loop; its longer side is how far it reaches, its shorter side its thickness), lid (a flat cylinder with a knob).',
-                'Coordinates: x runs left to right, y back to front, z up. The footprint fits in x and y from 0 to 1 and z starts at 0. Use the same units for height.',
-                `The object is about ${ratio.toFixed(2)} times as tall as it is wide in the photo.`,
-                `Colours sampled from its pixels, most common first: ${swatches.map((s) => s.hex).join(', ') || 'none'}. Prefer them; use lowercase #rrggbb.`,
-                'Model only what is visible. Set taper to 1 for shapes that are not cones.',
+                `Pick the archetype that best describes its shape: ${ARCHETYPES.join(', ')}. Use generic only when none fits.`,
+                `Pick its main surface material: ${ITEM_MATERIALS.join(', ')}.`,
+                'Describe what you see in one short sentence (colours, print, handle side).',
+                'If the photo hints at what the hidden back looks like, say so in backside; otherwise null.',
               ].join('\n'),
             },
             { type: 'input_image', image_url: cropDataUrl, detail: 'auto' },
@@ -251,23 +252,71 @@ export class MetaAdapter {
       text: {
         format: {
           type: 'json_schema',
-          name: 'iso_item',
+          name: 'item_class',
           strict: true,
-          schema: z.toJSONSchema(isoItemSchema),
+          schema: z.toJSONSchema(itemClassSchema),
         },
       },
     });
+    return this.parsed(response, itemClassSchema, 'item class');
+  }
+  /**
+   * Spark compares the photo with the model rendered from the same camera and
+   * suggests bounded corrections. The fitter keeps them only if the
+   * silhouette still matches the mask at least as well.
+   */
+  async itemCheck(cropDataUrl: string, renderDataUrl: string, summary: string) {
+    this.reserve();
+    const response = await this.client.responses.create({
+      model: this.config.sparkModel,
+      store: false,
+      max_output_tokens: 1024,
+      input: [
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'input_text',
+              text: [
+                'The first image is a photo of an object; the second is a simple model of it, drawn from the same angle with flat colours.',
+                `The model is: ${summary}.`,
+                'Suggest corrections as multipliers between 0.8 and 1.2 (1 for no change): height, radius (width), handleReach (1 if there is no handle).',
+                'If the model body colour is clearly wrong, give the right one as lowercase #rrggbb in body; otherwise null.',
+                'Explain the main difference in one short sentence.',
+              ].join('\n'),
+            },
+            { type: 'input_image', image_url: cropDataUrl, detail: 'auto' },
+            { type: 'input_image', image_url: renderDataUrl, detail: 'auto' },
+          ],
+        },
+      ],
+      text: {
+        format: {
+          type: 'json_schema',
+          name: 'item_check',
+          strict: true,
+          schema: z.toJSONSchema(itemCheckSchema),
+        },
+      },
+    });
+    return this.parsed(response, itemCheckSchema, 'item check');
+  }
+  private parsed<T>(
+    response: OpenAI.Responses.Response & { _request_id?: string | null },
+    schema: z.ZodType<T>,
+    what: string,
+  ): ProviderResult<T> {
     if (response.status !== 'completed')
-      throw new LabError('incomplete_response', 'Spark did not complete the item model.', 502);
+      throw new LabError('incomplete_response', `Spark did not complete the ${what}.`, 502);
     let data: unknown;
     try {
       data = JSON.parse(response.output_text);
     } catch {
-      throw new LabError('invalid_item', 'Spark did not return a JSON item model.', 502);
+      throw new LabError('invalid_item', `Spark did not return a JSON ${what}.`, 502);
     }
-    const result = isoItemSchema.safeParse(data);
+    const result = schema.safeParse(data);
     if (!result.success)
-      throw new LabError('invalid_item', 'Spark returned a model outside the part contract.', 502);
+      throw new LabError('invalid_item', `Spark returned a ${what} outside the contract.`, 502);
     return {
       output: result.data,
       model: response.model,
