@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import type { IsoScene, SurfacePin } from './iso.js';
+import type { SavedItem } from './iso-item.js';
 
 export const modeSchema = z.enum(['fixture', 'live']);
 export type Mode = z.infer<typeof modeSchema>;
@@ -72,7 +74,16 @@ export interface Usage {
   totalTokens: number;
 }
 export type RunKind =
-  'text' | 'discover' | 'segment' | 'lamp' | 'observation' | 'zone' | 'placement';
+  | 'text'
+  | 'discover'
+  | 'segment'
+  | 'scene'
+  | 'layout'
+  | 'item'
+  | 'lamp'
+  | 'observation'
+  | 'zone'
+  | 'placement';
 export interface EvidenceRun<T = unknown> {
   id: string;
   kind: RunKind;
@@ -110,7 +121,8 @@ export interface LabStatus {
     /** Estimated spend on today's live calls (UTC), from recorded usage. */
     spentToday: number;
   };
-  lamp: Readiness;
+  /** `lights`: every light entity rules may switch, the main one first. */
+  lamp: Readiness & { lights: string[] };
   liveEvidence: { text: boolean; discover: boolean; segment: boolean; lamp: boolean };
 }
 export interface ApiFailure {
@@ -147,7 +159,8 @@ const SPARK_GUESS = {
 export function runCost(run: Pick<EvidenceRun, 'kind' | 'mode' | 'usage'>): number | null {
   if (run.mode !== 'live') return null;
   if (run.kind === 'segment') return META_PRICES.samPerImage;
-  if ((run.kind !== 'text' && run.kind !== 'discover') || !run.usage) return null;
+  if (!['text', 'discover', 'scene', 'layout', 'item'].includes(run.kind) || !run.usage)
+    return null;
   const { input, output } = META_PRICES.sparkPerMillion;
   return (run.usage.inputTokens * input + run.usage.outputTokens * output) / 1_000_000;
 }
@@ -230,6 +243,16 @@ export interface DeskMemory {
   history?: DeskObservation[];
   /** The last inside/outside verdict, so the lamp fires only on entering the zone. */
   placement?: 'inside' | 'outside' | null;
+  /** Corners that tie frames of one size to a surface of an isometric scene. */
+  surface?: SurfacePin | null;
+  /** Further remembered objects, each followed like the mug. */
+  others?: TrackedObject[];
+  /** Further zones, each tied to one object and one light. */
+  rules?: PlacementRule[];
+  /** The person's own isometric scene, built from templates or drafted by Spark. */
+  scene?: IsoScene | null;
+  /** A detailed model of the remembered object, drafted from its mask and editable. */
+  item?: SavedItem | null;
 }
 export interface PlacementDecision {
   observationId: string | null;
@@ -245,6 +268,8 @@ export interface PlacementDecision {
   assumedFixedCamera?: boolean;
   lamp?: LampResult;
   error?: { code: string; message: string };
+  /** Set when an extra placement rule, not the main zone, made this decision. */
+  ruleId?: string;
 }
 export const OBSERVATION_MAX_AGE_MS = 5 * 60 * 1000;
 /** True when the whole box (in frame pixels) fits inside the normalized zone. */
@@ -309,14 +334,139 @@ export function pickTracked(
 }
 /** Whether the saved zone applies to the current observation, and whether only by assumption. */
 export function zoneApplies(memory: DeskMemory): { applies: boolean; carried: boolean } {
-  const o = memory.observation;
-  const z = memory.zone;
+  return zoneAppliesTo(memory.observation, memory.zone, memory.fixedCamera);
+}
+/** Whether a zone applies to an observation: the same image, or by the fixed-camera assumption. */
+export function zoneAppliesTo(
+  o: DeskObservation | null | undefined,
+  z: { sourceKey: string; frame?: Segmentation['frame'] } | null | undefined,
+  fixedCamera = false,
+): { applies: boolean; carried: boolean } {
   if (!o || !z) return { applies: false, carried: false };
   if (z.sourceKey === o.sourceKey) return { applies: true, carried: false };
   const sameSize = z.frame?.width === o.frame.width && z.frame?.height === o.frame.height;
-  return memory.fixedCamera && sameSize
+  return fixedCamera && sameSize
     ? { applies: true, carried: true }
     : { applies: false, carried: false };
+}
+
+/** Another remembered object, beside the mug. Any concept SAM can segment. */
+export interface TrackedObject {
+  id: string;
+  label: string;
+  /** The SAM concept it was confirmed from; tracking only follows the same one. */
+  concept: string;
+  createdAt: string;
+  observation: DeskObservation | null;
+  history?: DeskObservation[];
+  item?: SavedItem | null;
+}
+/** A zone beyond the main one: when `objectId` enters it, switch `lightId` on. */
+export interface PlacementRule {
+  id: string;
+  label: string;
+  objectId: string;
+  lightId: string;
+  zone: { sourceKey: string; rect: ZoneRect; frame: Segmentation['frame'] };
+  placement?: 'inside' | 'outside' | null;
+  lastDecision?: EvidenceRun<PlacementDecision> | null;
+}
+export const MAX_OTHER_OBJECTS = 4;
+export const MAX_RULES = 8;
+/** Virtual lights in fixture mode. The first stands for the main desk lamp. */
+export const FIXTURE_LIGHTS = ['light.fixture_desk', 'light.fixture_shelf', 'light.fixture_fridge'];
+export const ruleInputSchema = z
+  .object({
+    id: z.string().uuid().optional(),
+    label: z.string().trim().min(1).max(40),
+    objectId: z.string().uuid(),
+    lightId: z.string().regex(/^light\.[a-z0-9_]+$/),
+    rect: zoneRectSchema,
+  })
+  .strict();
+/** The observation and name of the mug or another remembered object, by id. */
+export function objectById(
+  memory: DeskMemory,
+  objectId: string,
+): { label: string; concept: string; observation: DeskObservation | null } | null {
+  if (memory.object?.id === objectId)
+    return { label: memory.object.label, concept: 'mug', observation: memory.observation };
+  const other = memory.others?.find((o) => o.id === objectId);
+  return other
+    ? { label: other.label, concept: other.concept, observation: other.observation }
+    : null;
+}
+/** The mug (no id, or its id) or another remembered object, with its model. */
+export function modelTarget(
+  memory: DeskMemory,
+  objectId?: string,
+): {
+  id: string;
+  label: string;
+  observation: DeskObservation | null;
+  item: SavedItem | null;
+} | null {
+  if (!objectId || objectId === memory.object?.id)
+    return memory.object
+      ? {
+          id: memory.object.id,
+          label: memory.object.label,
+          observation: memory.observation,
+          item: memory.item ?? null,
+        }
+      : null;
+  const other = memory.others?.find((o) => o.id === objectId);
+  return other
+    ? { id: other.id, label: other.label, observation: other.observation, item: other.item ?? null }
+    : null;
+}
+/** Store a model on the mug or on another remembered object. */
+export function setModel(memory: DeskMemory, objectId: string, item: SavedItem | null): void {
+  if (objectId === memory.object?.id) memory.item = item;
+  else {
+    const other = memory.others?.find((o) => o.id === objectId);
+    if (other) other.item = item;
+  }
+}
+/** The placement rule for one extra zone; the same checks as the main one. */
+export function ruleGate(
+  memory: DeskMemory,
+  rule: PlacementRule,
+  now = Date.now(),
+): Pick<PlacementDecision, 'decision' | 'reason' | 'assumedFixedCamera'> {
+  const target = objectById(memory, rule.objectId);
+  const o = target?.observation;
+  if (!target || !o)
+    return {
+      decision: 'blocked',
+      reason: `Confirm the ${target?.label ?? 'object'} in a segmentation first.`,
+    };
+  const age = now - Date.parse(o.observedAt);
+  if (!Number.isFinite(age) || age < 0 || age > OBSERVATION_MAX_AGE_MS)
+    return {
+      decision: 'blocked',
+      reason: `The last sighting of the ${target.label} is stale. Track it in a new frame.`,
+    };
+  const zone = zoneAppliesTo(o, rule.zone, memory.fixedCamera);
+  if (!zone.applies)
+    return {
+      decision: 'blocked',
+      reason: memory.fixedCamera
+        ? `The zone "${rule.label}" was drawn on a frame of another size.`
+        : `The zone "${rule.label}" was drawn on another image. Mark the camera as fixed to carry it over.`,
+    };
+  const assumption = zone.carried ? ' (zone carried over: camera assumed fixed)' : '';
+  return boxInZone(o.box, o.frame, rule.zone.rect)
+    ? {
+        decision: 'inside',
+        reason: `The ${target.label} box is fully inside "${rule.label}"${assumption}.`,
+        assumedFixedCamera: zone.carried,
+      }
+    : {
+        decision: 'outside',
+        reason: `The ${target.label} box is outside or crosses "${rule.label}"${assumption}.`,
+        assumedFixedCamera: zone.carried,
+      };
 }
 export function placementGate(
   memory: DeskMemory,
@@ -355,3 +505,5 @@ export function placementGate(
       };
 }
 export * from './tracker.js';
+export * from './iso.js';
+export * from './iso-item.js';

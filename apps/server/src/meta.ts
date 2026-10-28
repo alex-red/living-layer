@@ -1,6 +1,16 @@
 import OpenAI from 'openai';
 import { z } from 'zod';
-import { sceneSchema, type Usage, type Segmentation } from '@livinglayer/domain';
+import {
+  sceneSchema,
+  sceneGuessSchema,
+  presetCatalog,
+  isoItemSchema,
+  sceneDraftSchema,
+  templateCatalog,
+  type Swatch,
+  type Usage,
+  type Segmentation,
+} from '@livinglayer/domain';
 import type { Config, Fetcher } from './config.js';
 import { LabError } from './errors.js';
 import type { EvidenceStore } from './store.js';
@@ -97,6 +107,167 @@ export class MetaAdapter {
         'Spark returned a scene outside the bounded object contract.',
         502,
       );
+    return {
+      output: result.data,
+      model: response.model,
+      requestId: response._request_id ?? null,
+      usage: usageOf(response.usage),
+    };
+  }
+  /** Which isometric preset fits the photo, and which of its optional props are visible. */
+  async classify(imageDataUrl: string) {
+    this.reserve();
+    const response = await this.client.responses.create({
+      model: this.config.sparkModel,
+      store: false,
+      max_output_tokens: 4096,
+      input: [
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'input_text',
+              text: `Pick the scene preset that best matches this photo: office (a room with a desk), desk (a close view of a desktop), or fridge (the inside of a fridge). Then list which of that preset's optional props are visible, using only these ids:\n${presetCatalog()}\nDescribe only what is visible, in one short sentence.`,
+            },
+            { type: 'input_image', image_url: imageDataUrl, detail: 'auto' },
+          ],
+        },
+      ],
+      text: {
+        format: {
+          type: 'json_schema',
+          name: 'scene_guess',
+          strict: true,
+          schema: z.toJSONSchema(sceneGuessSchema),
+        },
+      },
+    });
+    if (response.status !== 'completed')
+      throw new LabError('incomplete_response', 'Spark did not complete the scene guess.', 502);
+    let data: unknown;
+    try {
+      data = JSON.parse(response.output_text);
+    } catch {
+      throw new LabError('invalid_scene', 'Spark did not return a JSON scene guess.', 502);
+    }
+    const result = sceneGuessSchema.safeParse(data);
+    if (!result.success)
+      throw new LabError('invalid_scene', 'Spark returned a scene outside the preset list.', 502);
+    return {
+      output: result.data,
+      model: response.model,
+      requestId: response._request_id ?? null,
+      usage: usageOf(response.usage),
+    };
+  }
+  /**
+   * A whole room laid out from the template palette: which templates stand
+   * where on a grid, as Spark reads the photo. Geometry comes from the
+   * templates, never from the model.
+   */
+  async layout(imageDataUrl: string) {
+    this.reserve();
+    const response = await this.client.responses.create({
+      model: this.config.sparkModel,
+      store: false,
+      max_output_tokens: 4096,
+      input: [
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'input_text',
+              text: [
+                'Lay out the furniture and objects in this photo as a small isometric scene, using only these templates:',
+                templateCatalog(),
+                'Choose a grid from 4 to 14 tiles each way. x runs left to right across the photo, y from the back of the room toward the camera; (x, y) is the back-left corner of the template. turns rotates it by quarter turns.',
+                'Put things that stand on a surface at the x and y of that surface; their height is worked out for you. Use at most 24 items, only for what is visible, and describe the scene in one short sentence.',
+              ].join('\n'),
+            },
+            { type: 'input_image', image_url: imageDataUrl, detail: 'auto' },
+          ],
+        },
+      ],
+      text: {
+        format: {
+          type: 'json_schema',
+          name: 'scene_draft',
+          strict: true,
+          schema: z.toJSONSchema(sceneDraftSchema),
+        },
+      },
+    });
+    if (response.status !== 'completed')
+      throw new LabError('incomplete_response', 'Spark did not complete the scene draft.', 502);
+    let data: unknown;
+    try {
+      data = JSON.parse(response.output_text);
+    } catch {
+      throw new LabError('invalid_scene', 'Spark did not return a JSON scene draft.', 502);
+    }
+    const result = sceneDraftSchema.safeParse(data);
+    if (!result.success)
+      throw new LabError(
+        'invalid_scene',
+        'Spark returned a layout outside the template list.',
+        502,
+      );
+    return {
+      output: result.data,
+      model: response.model,
+      requestId: response._request_id ?? null,
+      usage: usageOf(response.usage),
+    };
+  }
+  /**
+   * A first model of one object from its masked crop: a few simple parts in
+   * item space, coloured from the sampled swatches where they fit.
+   */
+  async item(cropDataUrl: string, label: string, ratio: number, swatches: Swatch[]) {
+    this.reserve();
+    const response = await this.client.responses.create({
+      model: this.config.sparkModel,
+      store: false,
+      max_output_tokens: 4096,
+      input: [
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'input_text',
+              text: [
+                `This is a cropped photo of one object, a ${label}, with the background removed.`,
+                'Describe it as 1 to 8 simple parts for a small isometric model. Shapes: cylinder, box, cone (taper is the top radius as a share of the bottom one), handle (a half loop; its longer side is how far it reaches, its shorter side its thickness), lid (a flat cylinder with a knob).',
+                'Coordinates: x runs left to right, y back to front, z up. The footprint fits in x and y from 0 to 1 and z starts at 0. Use the same units for height.',
+                `The object is about ${ratio.toFixed(2)} times as tall as it is wide in the photo.`,
+                `Colours sampled from its pixels, most common first: ${swatches.map((s) => s.hex).join(', ') || 'none'}. Prefer them; use lowercase #rrggbb.`,
+                'Model only what is visible. Set taper to 1 for shapes that are not cones.',
+              ].join('\n'),
+            },
+            { type: 'input_image', image_url: cropDataUrl, detail: 'auto' },
+          ],
+        },
+      ],
+      text: {
+        format: {
+          type: 'json_schema',
+          name: 'iso_item',
+          strict: true,
+          schema: z.toJSONSchema(isoItemSchema),
+        },
+      },
+    });
+    if (response.status !== 'completed')
+      throw new LabError('incomplete_response', 'Spark did not complete the item model.', 502);
+    let data: unknown;
+    try {
+      data = JSON.parse(response.output_text);
+    } catch {
+      throw new LabError('invalid_item', 'Spark did not return a JSON item model.', 502);
+    }
+    const result = isoItemSchema.safeParse(data);
+    if (!result.success)
+      throw new LabError('invalid_item', 'Spark returned a model outside the part contract.', 502);
     return {
       output: result.data,
       model: response.model,

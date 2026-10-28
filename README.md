@@ -32,13 +32,14 @@ In **Fixture** mode, click _Discover objects_, then _Segment object_, _Confirm m
 
 Copy `.env.example` to `.env` and fill in what you need. Restart the server after editing it.
 
-| Variable                             | Purpose                                                              |
-| ------------------------------------ | -------------------------------------------------------------------- |
-| `MODEL_API_KEY`                      | Meta API key. Stays on the server and is never sent to the browser.  |
-| `META_LIVE_ENABLED`                  | Set to `true` to allow live Meta calls.                              |
-| `META_MAX_REQUESTS_PER_DAY`          | Daily cap on outbound attempts, failures included (default 20).      |
-| `HA_URL`, `HA_TOKEN`, `HA_ENTITY_ID` | Home Assistant origin, a long-lived token, and one `light.*` entity. |
-| `HA_LIVE_ENABLED`                    | Set to `true` to allow the lamp to be switched.                      |
+| Variable                             | Purpose                                                                                   |
+| ------------------------------------ | ----------------------------------------------------------------------------------------- |
+| `MODEL_API_KEY`                      | Meta API key. Stays on the server and is never sent to the browser.                       |
+| `META_LIVE_ENABLED`                  | Set to `true` to allow live Meta calls.                                                   |
+| `META_MAX_REQUESTS_PER_DAY`          | Daily cap on outbound attempts, failures included (default 20).                           |
+| `HA_URL`, `HA_TOKEN`, `HA_ENTITY_ID` | Home Assistant origin, a long-lived token, and one `light.*` entity.                      |
+| `HA_EXTRA_ENTITY_IDS`                | Optional. More `light.*` entities that extra placement rules may switch, comma-separated. |
+| `HA_LIVE_ENABLED`                    | Set to `true` to allow the lamp to be switched.                                           |
 
 Then switch to **Live** mode, upload or capture a photo, and go through the same steps. Photos are only sent to Meta when you press a probe button.
 

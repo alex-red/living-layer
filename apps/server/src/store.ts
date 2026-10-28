@@ -1,5 +1,5 @@
 import { Database } from 'bun:sqlite';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   isMugConcept,
@@ -103,6 +103,15 @@ export class EvidenceStore {
     mkdirSync(path, { recursive: true, mode: 0o700 });
     writeFileSync(join(path, name), content, { mode: 0o600 });
     return `${runId}/${name}`;
+  }
+  readAsset(asset: string): Buffer | null {
+    const [runId, name] = asset.split('/');
+    if (!runId || !name || !/^[a-z0-9-]+$/.test(runId) || !/^[a-z0-9.-]+$/.test(name)) return null;
+    try {
+      return readFileSync(join(this.dir, 'evidence', runId, name));
+    } catch {
+      return null;
+    }
   }
   liveEvidence(): LabStatus['liveEvidence'] {
     const runs = this.db

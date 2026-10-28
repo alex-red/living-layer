@@ -9,6 +9,19 @@ import {
   imageRequestSchema,
   segmentRequestSchema,
   fixtureSourceKey,
+  FIXTURE_LIGHTS,
+  buildScene,
+  isoSceneSchema,
+  type SceneDraft,
+  isMugConcept,
+  modelTarget,
+  setModel,
+  mugItem,
+  sampledItem,
+  swatchesOf,
+  uniqueParts,
+  type IsoItem,
+  type SavedItem,
   estimateCost,
   runCost,
   type EvidenceRun,
@@ -22,9 +35,17 @@ import { EvidenceStore } from './store.js';
 import { MetaAdapter, type ProviderResult } from './meta.js';
 import { LampAdapter } from './lamp.js';
 import { LabError, parseInput, safeError } from './errors.js';
-import { validateImage } from './images.js';
+import { maskedCrop, validateImage } from './images.js';
 import { deskRoutes } from './desk.js';
-import { fixtureScene, fixtureSegmentation, fixtureLamp } from './fixtures.js';
+import {
+  fixtureScene,
+  fixtureSceneGuess,
+  fixtureSegmentation,
+  fixtureLamp,
+  fixtureSwatches,
+  fixtureLampFor,
+  fixtureSceneDraft,
+} from './fixtures.js';
 
 export async function buildApp(
   config: Config,
@@ -93,6 +114,7 @@ export async function buildApp(
       },
       lamp: {
         configured: Boolean(config.haUrl && config.haToken && config.haEntity),
+        lights: config.haLights,
         enabled: config.haEnabled,
         note:
           config.haEnabled && config.haUrl && config.haToken && config.haEntity
@@ -102,7 +124,17 @@ export async function buildApp(
       liveEvidence: store.liveEvidence(),
     };
   });
-  deskRoutes(app, store, async (mode) => (mode === 'fixture' ? fixtureLamp : lamp.turnOn()));
+  deskRoutes(
+    app,
+    store,
+    async (mode, entityId) =>
+      mode === 'fixture'
+        ? entityId
+          ? fixtureLampFor(entityId)
+          : fixtureLamp
+        : lamp.turnOn(entityId),
+    (mode) => (mode === 'fixture' ? FIXTURE_LIGHTS : config.haLights),
+  );
   app.get('/api/runs', async () => store.list());
   app.get('/api/evidence', async (_request, reply) =>
     reply.header('Content-Disposition', 'attachment; filename="livinglayer-evidence.json"').send({
@@ -186,6 +218,133 @@ export async function buildApp(
       const result = await meta.discover(image.dataUrl);
       return { ...result, assets: [store.asset(id, 'source.png', image.bytes)] };
     });
+  });
+  /**
+   * Draft a whole scene from a photo: Spark places templates on a grid, the
+   * server builds and checks the geometry. Nothing is saved until the person
+   * saves it from the scene editor.
+   */
+  app.post('/api/scene/draft', async (request) => {
+    const input = parseInput(imageRequestSchema, request.body);
+    return run('layout', input.mode, async (id) => {
+      if (input.mode === 'fixture') {
+        if (input.imageDataUrl)
+          throw new LabError(
+            'fixture_image',
+            'Fixture mode uses only the bundled illustrated desk.',
+          );
+        return { output: drafted(fixtureSceneDraft) };
+      }
+      const image = await validateImage(input.imageDataUrl);
+      const result = await meta.layout(image.dataUrl);
+      return {
+        ...result,
+        output: drafted(result.output),
+        assets: [store.asset(id, 'source.png', image.bytes)],
+      };
+    });
+  });
+  function drafted(draft: SceneDraft) {
+    const scene = buildScene(draft);
+    if (!isoSceneSchema.safeParse(scene).success)
+      throw new LabError('invalid_scene', 'The drafted layout did not fit its grid.', 502);
+    return { draft, scene };
+  }
+  app.post('/api/scene/classify', async (request) => {
+    const input = parseInput(imageRequestSchema, request.body);
+    return run('scene', input.mode, async (id) => {
+      if (input.mode === 'fixture') {
+        if (input.imageDataUrl)
+          throw new LabError(
+            'fixture_image',
+            'Fixture mode uses only the bundled illustrated desk.',
+          );
+        return { output: fixtureSceneGuess };
+      }
+      const image = await validateImage(input.imageDataUrl);
+      const result = await meta.classify(image.dataUrl);
+      return { ...result, assets: [store.asset(id, 'source.png', image.bytes)] };
+    });
+  });
+  /**
+   * Draft a model of the remembered object from the mask of its current
+   * sighting. `sampled` stays local: a template in the mask's colours and
+   * proportions. `spark` also sends the masked crop to Spark for a part list.
+   */
+  app.post('/api/item/draft', async (request) => {
+    const { mode, source, objectId } = parseInput(
+      z
+        .object({
+          mode: modeSchema,
+          source: z.enum(['sampled', 'spark']),
+          objectId: z.string().uuid().optional(),
+        })
+        .strict(),
+      request.body,
+    );
+    const object = modelTarget(store.memory(mode), objectId);
+    const sighting = object?.observation;
+    if (!object || !sighting)
+      throw new LabError(
+        'item_identity',
+        'Confirm the object by hand first, then draft its model.',
+        409,
+      );
+    const event = await run('item', mode, async (id) => {
+      const segment = store.getRun(sighting.segmentRunId);
+      const segmentation = segment?.output as Segmentation | undefined;
+      const detection = segmentation?.detections.find((d) => d.objectId === sighting.detectionId);
+      if (!segment || !segmentation || !detection)
+        throw new LabError(
+          'item_source',
+          'The segmentation behind this sighting is missing. Segment a new frame.',
+          409,
+        );
+      const ratio = detection.box.height / detection.box.width;
+      const mug = isMugConcept(segmentation.concept);
+      const saved = (item: IsoItem, from: SavedItem['source'], swatches = fixtureSwatches) => ({
+        ...uniqueParts(item),
+        source: from,
+        segmentRunId: segment.id,
+        swatches,
+        updatedAt: new Date().toISOString(),
+      });
+      // The fixture desk is an SVG drawn in the browser, so its colours are known, not sampled.
+      if (mode === 'fixture')
+        return {
+          output: saved(
+            mug
+              ? mugItem(fixtureSwatches[0]!.hex, fixtureSwatches[1]!.hex, object.label)
+              : sampledItem(object.label, ratio, fixtureSwatches, false),
+            'fixture',
+          ),
+        };
+      const photo = segment.assets.find((a) => a.endsWith('/source.png'));
+      const bytes = photo ? store.readAsset(photo) : null;
+      if (!bytes)
+        throw new LabError('item_source', 'The photo behind this sighting is missing.', 409);
+      const crop = await maskedCrop(bytes, detection);
+      const swatches = swatchesOf(crop.rgba);
+      const assets = [store.asset(id, 'item-crop.png', crop.png)];
+      if (source === 'sampled')
+        return {
+          output: saved(sampledItem(object.label, ratio, swatches, mug), 'sampled', swatches),
+          assets,
+        };
+      const result = await meta.item(
+        `data:image/png;base64,${crop.png.toString('base64')}`,
+        object.label,
+        ratio,
+        swatches,
+      );
+      return { ...result, output: saved(result.output, 'spark', swatches), assets };
+    });
+    const latest = store.memory(mode);
+    if (modelTarget(latest, object.id)) {
+      setModel(latest, object.id, event.output as SavedItem);
+      store.saveMemory(latest);
+    }
+    return { run: event, memory: latest };
   });
   app.post('/api/segment', async (request) => {
     const input = parseInput(segmentRequestSchema, request.body);

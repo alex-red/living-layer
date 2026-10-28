@@ -17,11 +17,15 @@ import type {
   LocalVerdict,
   LumaFrame,
   UnitBox,
+  IsoSceneKind,
+  SceneGuess,
+  SavedItem,
 } from '@livinglayer/domain';
 import {
   FIXTURE_POSITIONS,
   OBSERVATION_MAX_AGE_MS,
   isMugConcept,
+  FIXTURE_LIGHTS,
   runCost,
   startLocalTrack,
   stepLocalTrack,
@@ -33,6 +37,8 @@ import { estimateLabel, usd } from './cost';
 import { Glyph } from './Glyph';
 import { takeHandoff } from './handoff';
 import { MaskOverlay } from './MaskOverlay';
+import { IsoView } from './iso/IsoView';
+import { SurfacePin } from './iso/SurfacePin';
 
 const BUSY: Record<string, string> = {
   text: 'Checking the connection',
@@ -139,6 +145,9 @@ const RUN_KINDS: RunKind[] = [
   'text',
   'discover',
   'segment',
+  'scene',
+  'layout',
+  'item',
   'lamp',
   'observation',
   'zone',
@@ -162,6 +171,18 @@ function runDetail(run: EvidenceRun): string {
     case 'discover': {
       const s = run.output as Scene;
       return `${s.objects.length} object${s.objects.length === 1 ? '' : 's'}: ${s.objects.map((o) => o.label).join(', ')}`;
+    }
+    case 'scene': {
+      const g = run.output as SceneGuess;
+      return `${g.kind} · ${g.visibleProps.length} prop${g.visibleProps.length === 1 ? '' : 's'} seen`;
+    }
+    case 'layout': {
+      const l = run.output as { draft: { items: unknown[]; summary: string } };
+      return `${l.draft.items.length} templates · ${l.draft.summary}`;
+    }
+    case 'item': {
+      const item = run.output as SavedItem;
+      return `${item.label} · ${item.parts.length} parts · ${item.source}`;
     }
     case 'lamp':
       return `state ${(run.output as LampResult).state}`;
@@ -203,6 +224,13 @@ export function App() {
   const [fixturePosition, setFixturePosition] = useState<FixturePosition>('centre');
   const [deskSvg, setDeskSvg] = useState('');
   const [overlay, setOverlay] = useState(true);
+  const [stageView, setStageView] = useState<'photo' | 'iso'>('photo');
+  // Clicking a surface's corners on the photo, for the iso view.
+  const [pinning, setPinning] = useState<{
+    scene: IsoSceneKind | 'custom';
+    surfaceId: string;
+    label: string;
+  } | null>(null);
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
   const [message, setMessage] = useState(
@@ -600,7 +628,7 @@ export function App() {
     return () => window.clearInterval(timer);
   }, [follow, camera, busy, mode]);
   async function deskAction(
-    path: 'select' | 'zone' | 'verify' | 'reset' | 'camera',
+    path: 'select' | 'zone' | 'verify' | 'reset' | 'camera' | 'surface',
     fields: object = {},
   ) {
     setBusy(path);
@@ -633,8 +661,16 @@ export function App() {
                 ? saved.fixedCamera
                   ? 'Camera marked fixed. The zone now carries over to new frames of the same size.'
                   : 'Camera no longer marked fixed. A zone applies only to the image it was drawn on.'
-                : 'Desk memory reset. Evidence and action deduplication are retained.',
+                : path === 'surface'
+                  ? saved.surface
+                    ? 'Surface pinned. The iso view places the mug on it for frames of this size.'
+                    : 'Surface pin cleared.'
+                  : 'Desk memory reset. Evidence and action deduplication are retained.',
         );
+        if (path === 'surface') {
+          setPinning(null);
+          setStageView('iso');
+        }
         setDrawing(false);
       }
       await refresh();
@@ -1203,8 +1239,25 @@ export function App() {
               />{' '}
               Mask overlay
             </label>
+            {pinning ? (
+              <button className="secondary" onClick={() => setPinning(null)}>
+                Cancel pin
+              </button>
+            ) : (
+              <div className="mode-switch stage-view" aria-label="Stage view">
+                {(['photo', 'iso'] as const).map((value) => (
+                  <button
+                    key={value}
+                    aria-pressed={stageView === value}
+                    onClick={() => setStageView(value)}
+                  >
+                    {value === 'photo' ? 'Photo' : 'Iso'}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
-          <div className="stage-fit">
+          <div className={`stage-fit ${stageView === 'iso' && !pinning ? 'iso' : ''}`}>
             <div
               className="scene"
               style={
@@ -1359,6 +1412,22 @@ export function App() {
                       (followView.track.stillSteps > 0 ? ' · UNSURE' : ' · MOVING')}
                 </span>
               )}
+              {pinning && !camera && (
+                <SurfacePin
+                  frame={dimensions}
+                  label={pinning.label}
+                  onDone={(corners) =>
+                    void deskAction('surface', {
+                      pin: {
+                        scene: pinning.scene,
+                        surfaceId: pinning.surfaceId,
+                        corners,
+                        frame: dimensions,
+                      },
+                    })
+                  }
+                />
+              )}
               <span className="frame-tick tl" aria-hidden="true" />
               <span className="frame-tick tr" aria-hidden="true" />
               <span className="frame-tick bl" aria-hidden="true" />
@@ -1367,6 +1436,43 @@ export function App() {
                 {dimensions.width} × {dimensions.height} <span>FRAME 00</span>
               </span>
             </div>
+            {stageView === 'iso' && !pinning && (
+              <IsoView
+                mode={mode}
+                memory={memory}
+                image={image}
+                segmentation={segmentation}
+                segmentRunId={segmentRunId}
+                lights={mode === 'fixture' ? FIXTURE_LIGHTS : (status?.lamp.lights ?? [])}
+                lampOn={lamp !== 'off'}
+                drawing={drawing}
+                zone={visibleZone ?? undefined}
+                busy={Boolean(busy) || camera || cameraPending}
+                onDraftZone={setDraftZone}
+                onPin={(scene, surfaceId, label) => {
+                  setDrawing(false);
+                  setPinning({ scene, surfaceId, label });
+                }}
+                onClearPin={() => void deskAction('surface', { pin: null })}
+                onRun={(run) => {
+                  setSelected(run);
+                  setMessage(
+                    run.kind === 'item'
+                      ? `Model drafted: ${(run.output as SavedItem).parts.length} parts. Edit it, then save.`
+                      : run.kind === 'layout'
+                        ? 'Scene drafted. Review it in the scene editor, then save.'
+                        : `Scene guess saved: ${(run.output as SceneGuess).kind}. ${(run.output as SceneGuess).summary}`,
+                  );
+                  void refresh();
+                }}
+                onMemory={(next) => setMemories((current) => ({ ...current, [mode]: next }))}
+                onMessage={(text) => {
+                  setMessage(text);
+                  void refresh();
+                }}
+                onError={setError}
+              />
+            )}
           </div>
           <div className="scene-bottom">
             <span>

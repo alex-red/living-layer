@@ -23,6 +23,8 @@ const schema = z.object({
   HA_URL: z.string().default(''),
   HA_TOKEN: z.string().default(''),
   HA_ENTITY_ID: z.string().default(''),
+  /** More lights that placement rules may switch, comma-separated. */
+  HA_EXTRA_ENTITY_IDS: z.string().default(''),
   HA_LIVE_ENABLED: flag,
 });
 
@@ -41,6 +43,8 @@ export interface Config {
   haUrl: string;
   haToken: string;
   haEntity: string;
+  /** Every light a rule may switch: the main one first, then the extras. */
+  haLights: string[];
   haEnabled: boolean;
 }
 
@@ -67,6 +71,13 @@ export function parseConfig(env: NodeJS.ProcessEnv, cwd = process.cwd()): Config
   if (value.HA_ENTITY_ID && !/^light\.[a-z0-9_]+$/.test(value.HA_ENTITY_ID)) {
     throw new Error('HA_ENTITY_ID must identify one light entity.');
   }
+  const extras = value.HA_EXTRA_ENTITY_IDS.split(',')
+    .map((e) => e.trim())
+    .filter(Boolean);
+  if (extras.some((e) => !/^light\.[a-z0-9_]+$/.test(e)))
+    throw new Error('HA_EXTRA_ENTITY_IDS must list light entities, separated by commas.');
+  if (extras.length && !value.HA_ENTITY_ID)
+    throw new Error('Set HA_ENTITY_ID, the main light, before listing extra lights.');
   return {
     port: value.PORT,
     dataDir: resolve(cwd, value.DATA_DIR),
@@ -79,6 +90,7 @@ export function parseConfig(env: NodeJS.ProcessEnv, cwd = process.cwd()): Config
     haUrl: value.HA_URL.replace(/\/$/, ''),
     haToken: value.HA_TOKEN,
     haEntity: value.HA_ENTITY_ID,
+    haLights: [...new Set([value.HA_ENTITY_ID, ...extras].filter(Boolean))],
     haEnabled: value.HA_LIVE_ENABLED,
   };
 }

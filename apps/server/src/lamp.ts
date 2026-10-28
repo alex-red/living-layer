@@ -12,7 +12,8 @@ export class LampAdapter {
     private fetcher: Fetcher = fetch,
     private sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)),
   ) {}
-  async turnOn(): Promise<LampResult> {
+  /** Switch one configured light on: the main one unless a rule names another. */
+  async turnOn(entity = this.config.haEntity): Promise<LampResult> {
     const c = this.config;
     if (!c.haEnabled || !c.haUrl || !c.haToken || !c.haEntity) {
       throw new LabError(
@@ -21,6 +22,8 @@ export class LampAdapter {
         409,
       );
     }
+    if (!c.haLights.includes(entity))
+      throw new LabError('lamp_unknown', 'That light is not one of the configured entities.', 409);
     const signal = AbortSignal.timeout(c.timeoutMs);
     const request = async (path: string, body?: unknown) => {
       const response = await this.fetcher(`${c.haUrl}/api/${path}`, {
@@ -38,7 +41,7 @@ export class LampAdapter {
         );
       return response;
     };
-    const statePath = `states/${c.haEntity}`;
+    const statePath = `states/${entity}`;
     const before = (await (await request(statePath)).json()) as State;
     if (!before || typeof before.state !== 'string' || !before.attributes)
       throw new LabError('ha_state', 'Home Assistant returned an invalid state.', 502);
@@ -66,7 +69,7 @@ export class LampAdapter {
       if (Number.isFinite(min) && Number.isFinite(max) && min > 0 && max >= min)
         desired.color_temp_kelvin = Math.round(Math.max(min, Math.min(max, 2700)));
     }
-    await request('services/light/turn_on', { entity_id: c.haEntity, ...desired });
+    await request('services/light/turn_on', { entity_id: entity, ...desired });
     let latest = before;
     for (let i = 0; i < 6; i++) {
       try {
@@ -75,7 +78,7 @@ export class LampAdapter {
           throw new Error('Invalid state');
       } catch {
         return {
-          entityId: c.haEntity,
+          entityId: entity,
           accepted: true,
           stateConfirmed: false,
           physicalEffectVerified: false,
@@ -95,7 +98,7 @@ export class LampAdapter {
           Math.abs(temperature - desired.color_temp_kelvin) <= 100);
       if (matches)
         return {
-          entityId: c.haEntity,
+          entityId: entity,
           accepted: true,
           stateConfirmed: true,
           physicalEffectVerified: false,
@@ -107,7 +110,7 @@ export class LampAdapter {
       if (i < 5) await this.sleep(500);
     }
     return {
-      entityId: c.haEntity,
+      entityId: entity,
       accepted: true,
       stateConfirmed: false,
       physicalEffectVerified: false,
