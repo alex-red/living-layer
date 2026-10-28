@@ -33,6 +33,7 @@ import {
   zoneApplies,
 } from '@livinglayer/domain';
 import { api } from './api';
+import { openStream, useNetworkStreams } from './streams';
 import { estimateLabel, usd } from './cost';
 import { Glyph } from './Glyph';
 import { takeHandoff } from './handoff';
@@ -250,6 +251,10 @@ export function App() {
   const cameraGeneration = useRef(0);
   const video = useRef<HTMLVideoElement>(null);
   const stream = useRef<MediaStream | null>(null);
+  const closeNetwork = useRef<(() => void) | null>(null);
+  const network = useNetworkStreams();
+  /** '' for this device's camera, else the id of a network camera. */
+  const [cameraSource, setCameraSource] = useState('');
   const file = useRef<HTMLInputElement>(null);
   const imageGeneration = useRef(0);
   const mounted = useRef(true);
@@ -311,7 +316,7 @@ export function App() {
     return () => {
       mounted.current = false;
       cameraGeneration.current++;
-      stream.current?.getTracks().forEach((t) => t.stop());
+      releaseStream();
     };
   }, []);
   function stopFollow() {
@@ -319,11 +324,16 @@ export function App() {
     setFollow(false);
     setFollowView(null);
   }
+  function releaseStream() {
+    stream.current?.getTracks().forEach((t) => t.stop());
+    stream.current = null;
+    closeNetwork.current?.();
+    closeNetwork.current = null;
+  }
   const stopCamera = () => {
     stopFollow();
     cameraGeneration.current++;
-    stream.current?.getTracks().forEach((t) => t.stop());
-    stream.current = null;
+    releaseStream();
     setCamera(false);
   };
   function changeMode(next: Mode) {
@@ -406,20 +416,36 @@ export function App() {
     setError('');
     setCameraPending(true);
     const generation = ++cameraGeneration.current;
+    const remote = network.streams.find((s) => s.id === cameraSource);
     try {
-      const media = await navigator.mediaDevices.getUserMedia({
-        video: { width: { ideal: 1280 }, height: { ideal: 720 } },
-        audio: false,
-      });
+      const opened = remote
+        ? await openStream(remote.whep, () => {
+            if (!mounted.current || generation !== cameraGeneration.current) return;
+            stopCamera();
+            setError(`The network camera "${remote.name}" stopped sending.`);
+          })
+        : {
+            media: await navigator.mediaDevices.getUserMedia({
+              video: { width: { ideal: 1280 }, height: { ideal: 720 } },
+              audio: false,
+            }),
+            close: undefined,
+          };
       if (!mounted.current || generation !== cameraGeneration.current) {
-        media.getTracks().forEach((t) => t.stop());
+        opened.media.getTracks().forEach((t) => t.stop());
+        opened.close?.();
         return;
       }
-      stream.current = media;
+      stream.current = opened.media;
+      closeNetwork.current = opened.close ?? null;
       setCamera(true);
     } catch {
       if (mounted.current && generation === cameraGeneration.current)
-        setError('Camera access is unavailable. Upload a desk photo instead.');
+        setError(
+          remote
+            ? `Could not reach the network camera "${remote.name}". Is the share still running?`
+            : 'Camera access is unavailable. Upload a desk photo instead.',
+        );
     } finally {
       if (mounted.current) setCameraPending(false);
     }
@@ -1550,6 +1576,21 @@ export function App() {
                     >
                       <Glyph type="camera" /> {cameraPending ? 'Opening…' : 'Camera'}
                     </button>
+                    {network.streams.length > 0 && (
+                      <select
+                        aria-label="Camera source"
+                        value={cameraSource}
+                        disabled={cameraPending}
+                        onChange={(e) => setCameraSource(e.target.value)}
+                      >
+                        <option value="">This device</option>
+                        {network.streams.map((s) => (
+                          <option key={s.id} value={s.id}>
+                            {s.name} · {s.host}
+                          </option>
+                        ))}
+                      </select>
+                    )}
                   </>
                 )}
               </div>

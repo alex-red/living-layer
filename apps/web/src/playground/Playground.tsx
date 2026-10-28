@@ -7,7 +7,8 @@ import { Glyph } from '../Glyph';
 import { sendToLab } from '../handoff';
 import { MaskOverlay } from '../MaskOverlay';
 import { PixelFeed, type PixelPalette } from './PixelFeed';
-import { useCamera } from './useCamera';
+import { networkSource, useCamera } from './useCamera';
+import { useNetworkStreams } from '../streams';
 import { useMotionGate, type Stillness } from './useMotionGate';
 import './playground.css';
 
@@ -59,6 +60,11 @@ function Brackets() {
 
 export function Playground() {
   const camera = useCamera();
+  const network = useNetworkStreams();
+  /** A source value from the picker: a network camera, or a local device id. */
+  const source = (value: string) =>
+    network.streams.find((s) => networkSource(s) === value) ??
+    (value.startsWith('net:') ? '' : value);
   const [mirror, setMirror] = useState(true);
   const [guides, setGuides] = useState(true);
   const [pixelArt, setPixelArt] = useState(false);
@@ -476,27 +482,47 @@ export function Playground() {
               <button
                 className="pg-button primary"
                 disabled={camera.state === 'opening'}
-                onClick={() => void camera.start(camera.deviceId)}
+                onClick={() => void camera.start(source(camera.deviceId))}
               >
                 <Glyph type="camera" /> {camera.state === 'opening' ? 'Opening…' : 'Start camera'}
               </button>
             )}
-            {camera.devices.length > 1 && (
+            {(camera.devices.length > 1 || network.streams.length > 0) && (
               <label className="pg-field">
                 <span>Device</span>
                 <select
                   value={camera.deviceId}
                   disabled={camera.state === 'opening'}
-                  onChange={(e) => void camera.start(e.target.value)}
+                  onChange={(e) => void camera.start(source(e.target.value))}
                 >
-                  {camera.devices.map((d, i) => (
-                    <option key={d.deviceId} value={d.deviceId}>
-                      {d.label || `Camera ${i + 1}`}
-                    </option>
-                  ))}
+                  {camera.devices.length ? (
+                    camera.devices.map((d, i) => (
+                      <option key={d.deviceId} value={d.deviceId}>
+                        {d.label || `Camera ${i + 1}`}
+                      </option>
+                    ))
+                  ) : (
+                    <option value="">This device's camera</option>
+                  )}
+                  {network.streams.length > 0 && (
+                    <optgroup label="Network">
+                      {network.streams.map((s) => (
+                        <option key={s.id} value={networkSource(s)}>
+                          {s.name} · {s.host}
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
                 </select>
               </label>
             )}
+            <button
+              className="pg-button tertiary"
+              disabled={network.scanning}
+              onClick={() => void network.scan()}
+            >
+              {network.scanning ? 'Looking for network cameras…' : 'Find network cameras'}
+            </button>
             {camera.info?.label && <p className="pg-mono">{camera.info.label}</p>}
             <label className="pg-switch">
               <input

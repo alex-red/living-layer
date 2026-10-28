@@ -53,6 +53,7 @@ Copy `.env.example` to `.env` and fill in what you need. Restart the server afte
 | `HA_URL`, `HA_TOKEN`, `HA_ENTITY_ID` | Home Assistant origin, a long-lived token, and one `light.*` entity.                      |
 | `HA_EXTRA_ENTITY_IDS`                | Optional. More `light.*` entities that extra placement rules may switch, comma-separated. |
 | `HA_LIVE_ENABLED`                    | Set to `true` to allow the lamp to be switched.                                           |
+| `CAMERA_STREAMS`                     | Optional. WHEP URLs of network cameras, for networks where mDNS discovery is blocked.     |
 
 Then switch to **Live** mode, upload or capture a photo, and go through the same steps. Photos are only sent to Meta when you press a probe button.
 
@@ -63,6 +64,16 @@ bun run doctor                                     # checks config, makes no net
 bun run smoke                                      # offline run against the fixture
 bun run smoke --live --image ./desk.jpg            # live run (add --lamp to switch the light)
 ```
+
+### Network cameras
+
+Any Mac or Linux machine (a Raspberry Pi with a USB webcam works) can share its camera with the labs:
+
+```sh
+scripts/share-camera.sh                            # --list, --device, --size, --fps, --name; see --help
+```
+
+It needs `ffmpeg` and [MediaMTX](https://github.com/bluenviron/mediamtx). The camera is encoded once to H.264 (VideoToolbox on macOS, passed through untouched on Linux when the camera already outputs H.264) and served as WebRTC (WHEP, what the labs play, around 100 ms of latency) and RTSP. It is advertised over mDNS, so it shows up as a camera source in the desk lab and the playground; **Find network cameras** rescans.
 
 ## Development
 

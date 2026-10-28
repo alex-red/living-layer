@@ -30,6 +30,7 @@ import { validateImage } from './images.js';
 import { deskRoutes } from './desk.js';
 import { itemRoutes } from './item.js';
 import { photoRoutes } from './photo.js';
+import { streamRoutes, type NetworkStream } from './streams.js';
 import {
   fixtureScene,
   fixtureSceneGuess,
@@ -41,7 +42,11 @@ import {
 
 export async function buildApp(
   config: Config,
-  options: { fetcher?: Fetcher; serveWeb?: boolean } = {},
+  options: {
+    fetcher?: Fetcher;
+    serveWeb?: boolean;
+    browseCameras?: () => Promise<NetworkStream[]>;
+  } = {},
 ) {
   const app = Fastify({ logger: false, bodyLimit: 7_100_000, requestTimeout: 130000 });
   const store = new EvidenceStore(config.dataDir);
@@ -127,6 +132,7 @@ export async function buildApp(
         : lamp.turnOn(entityId),
     (mode) => (mode === 'fixture' ? FIXTURE_LIGHTS : config.haLights),
   );
+  streamRoutes(app, config, options.browseCameras);
   app.get('/api/runs', async () => store.list());
   app.get('/api/evidence', async (_request, reply) =>
     reply.header('Content-Disposition', 'attachment; filename="livinglayer-evidence.json"').send({

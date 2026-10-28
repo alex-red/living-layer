@@ -26,6 +26,8 @@ const schema = z.object({
   /** More lights that placement rules may switch, comma-separated. */
   HA_EXTRA_ENTITY_IDS: z.string().default(''),
   HA_LIVE_ENABLED: flag,
+  /** Network camera WHEP URLs, comma-separated, for networks where mDNS discovery is blocked. */
+  CAMERA_STREAMS: z.string().default(''),
 });
 
 /** The part of `fetch` the adapters use, so tests can pass a plain mock. */
@@ -46,6 +48,7 @@ export interface Config {
   /** Every light a rule may switch: the main one first, then the extras. */
   haLights: string[];
   haEnabled: boolean;
+  cameraStreams: string[];
 }
 
 export function parseConfig(env: NodeJS.ProcessEnv, cwd = process.cwd()): Config {
@@ -78,6 +81,14 @@ export function parseConfig(env: NodeJS.ProcessEnv, cwd = process.cwd()): Config
     throw new Error('HA_EXTRA_ENTITY_IDS must list light entities, separated by commas.');
   if (extras.length && !value.HA_ENTITY_ID)
     throw new Error('Set HA_ENTITY_ID, the main light, before listing extra lights.');
+  const cameraStreams = value.CAMERA_STREAMS.split(',')
+    .map((e) => e.trim())
+    .filter(Boolean);
+  for (const stream of cameraStreams) {
+    const url = URL.parse(stream);
+    if (!url || !['http:', 'https:'].includes(url.protocol) || url.username || url.password)
+      throw new Error('CAMERA_STREAMS must list HTTP(S) WHEP URLs without credentials.');
+  }
   return {
     port: value.PORT,
     dataDir: resolve(cwd, value.DATA_DIR),
@@ -92,6 +103,7 @@ export function parseConfig(env: NodeJS.ProcessEnv, cwd = process.cwd()): Config
     haEntity: value.HA_ENTITY_ID,
     haLights: [...new Set([value.HA_ENTITY_ID, ...extras].filter(Boolean))],
     haEnabled: value.HA_LIVE_ENABLED,
+    cameraStreams,
   };
 }
 

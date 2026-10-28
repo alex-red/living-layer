@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { openStream, type NetworkStream } from '../streams';
 
 export interface CameraInfo {
   width: number;
@@ -7,14 +8,20 @@ export interface CameraInfo {
   label: string;
 }
 
+/** `deviceId` value for a network camera source. */
+export const networkSource = (s: NetworkStream) => `net:${s.id}`;
+
 /**
- * Owns one webcam stream. Permission is only requested by `start`, and every
+ * Owns one camera stream: a local webcam, or a network camera shared with
+ * `scripts/share-camera.sh`. Permission is only requested by `start`, and every
  * track is stopped on `stop`, on unmount, and when a newer start supersedes an
  * older one that is still waiting on the permission prompt.
  */
 export function useCamera() {
   const video = useRef<HTMLVideoElement>(null);
   const stream = useRef<MediaStream | null>(null);
+  const closeNetwork = useRef<(() => void) | null>(null);
+  const networkName = useRef('');
   const generation = useRef(0);
   const [state, setState] = useState<'off' | 'opening' | 'on'>('off');
   const [error, setError] = useState('');
@@ -25,6 +32,8 @@ export function useCamera() {
   const release = () => {
     stream.current?.getTracks().forEach((t) => t.stop());
     stream.current = null;
+    closeNetwork.current?.();
+    closeNetwork.current = null;
   };
 
   const stop = useCallback(() => {
@@ -35,17 +44,44 @@ export function useCamera() {
   }, []);
 
   const start = useCallback(
-    async (nextDeviceId = '') => {
+    async (source: string | NetworkStream = '') => {
       const current = ++generation.current;
       release();
       setError('');
       setState('opening');
+      if (typeof source !== 'string') {
+        try {
+          const opened = await openStream(source.whep, () => {
+            if (current !== generation.current) return;
+            stop();
+            setError(`The network camera "${source.name}" stopped sending.`);
+          });
+          if (current !== generation.current) {
+            opened.close();
+            return;
+          }
+          stream.current = opened.media;
+          closeNetwork.current = opened.close;
+          networkName.current = source.name;
+          setDeviceId(networkSource(source));
+          setState('on');
+        } catch {
+          if (current !== generation.current) return;
+          release();
+          setState('off');
+          setError(
+            `Could not reach the network camera "${source.name}". Is the share still running?`,
+          );
+        }
+        return;
+      }
+      networkName.current = '';
       try {
         const media = await navigator.mediaDevices.getUserMedia({
           video: {
             width: { ideal: 1280 },
             height: { ideal: 720 },
-            ...(nextDeviceId ? { deviceId: { exact: nextDeviceId } } : {}),
+            ...(source ? { deviceId: { exact: source } } : {}),
           },
           audio: false,
         });
@@ -64,7 +100,7 @@ export function useCamera() {
         const all = await navigator.mediaDevices.enumerateDevices();
         if (current !== generation.current) return;
         setDevices(all.filter((d) => d.kind === 'videoinput'));
-        setDeviceId(track?.getSettings().deviceId ?? nextDeviceId);
+        setDeviceId(track?.getSettings().deviceId ?? source);
         setState('on');
       } catch {
         if (current !== generation.current) return;
@@ -86,7 +122,7 @@ export function useCamera() {
         width: el.videoWidth,
         height: el.videoHeight,
         frameRate: settings?.frameRate ? Math.round(settings.frameRate) : null,
-        label: stream.current?.getVideoTracks()[0]?.label ?? '',
+        label: networkName.current || (stream.current?.getVideoTracks()[0]?.label ?? ''),
       });
     };
     el.addEventListener('loadedmetadata', read);
