@@ -1,0 +1,1623 @@
+<title>Quiet Neon Specimen</title>
+<meta name="claude:viewport-fit-sides" content="cover" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link
+  rel="stylesheet"
+  href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+/>
+<style>
+  /* Layout: a dark room. One hero scene that runs the real loop, then the system laid out as a lab bench below. */
+  :root {
+    color-scheme: dark;
+    --void: #0a0c12;
+    --surface-1: #11141d;
+    --surface-2: #181c28;
+    --surface-3: #212637;
+    --line: rgb(170 185 255 / 10%);
+    --line-strong: rgb(170 185 255 / 18%);
+    --text: #ece9f2;
+    --text-2: #a9aec2;
+    --text-3: #7c8299;
+    --seen: #6fd3e0;
+    --chosen: #e68cc4;
+    --warm: #ffb866;
+    --ok: #86d9aa;
+    --unsure: #ae9bf5;
+    --blocked: #f27c83;
+    --seen-glow: rgb(111 211 224 / 25%);
+    --chosen-glow: rgb(230 140 196 / 25%);
+    --warm-glow: rgb(255 184 102 / 30%);
+    --seen-wash: rgb(111 211 224 / 12%);
+    --chosen-wash: rgb(230 140 196 / 10%);
+    --warm-wash: rgb(255 184 102 / 12%);
+    --ui: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', system-ui, sans-serif;
+    --mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, monospace;
+    --t-fast: 150ms;
+    --t-base: 250ms;
+    --t-slow: 400ms;
+    --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+    --spring: linear(0, 0.35 12%, 0.75 25%, 1.04 42%, 1.08 52%, 1.02 70%, 1);
+  }
+  html {
+    background: var(--void);
+  }
+  body {
+    background: var(--void);
+    color: var(--text);
+    font: 15px/22px var(--ui);
+    font-synthesis: none;
+    -webkit-font-smoothing: antialiased;
+  }
+  * {
+    box-sizing: border-box;
+  }
+  [hidden] {
+    display: none !important;
+  }
+  .ambient {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    transition: opacity 1.2s var(--ease-out);
+  }
+  .ambient.cool {
+    background: radial-gradient(70% 55% at 50% 18%, rgb(111 211 224 / 7%), transparent 70%);
+  }
+  .ambient.warm {
+    background: radial-gradient(70% 55% at 50% 18%, rgb(255 184 102 / 9%), transparent 70%);
+    opacity: 0;
+  }
+  html.lit .ambient.warm {
+    opacity: 1;
+  }
+  html.lit .ambient.cool {
+    opacity: 0;
+  }
+  .grain {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 50;
+    opacity: 0.045;
+    mix-blend-mode: overlay;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+  .page {
+    position: relative;
+    z-index: 1;
+    max-width: 1240px;
+    margin: 0 auto;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    padding-block: 24px 96px;
+    display: grid;
+    gap: 88px;
+  }
+
+  /* Type */
+  .hud {
+    font: 500 11px/14px var(--mono);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-3);
+  }
+  .hud-value {
+    font: 500 13px/16px var(--mono);
+    font-variant-numeric: tabular-nums;
+  }
+  h1,
+  h2,
+  h3 {
+    margin: 0;
+    text-wrap: balance;
+  }
+  h1 {
+    font-size: clamp(28px, 5vw, 34px);
+    line-height: 1.2;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+  }
+  h2 {
+    font-size: 22px;
+    line-height: 28px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+  h3 {
+    font-size: 17px;
+    line-height: 22px;
+    font-weight: 600;
+  }
+  p {
+    margin: 0;
+  }
+  .split {
+    text-shadow:
+      -1px 0 var(--seen-glow),
+      1px 0 var(--chosen-glow);
+  }
+  .lede {
+    color: var(--text-2);
+    max-width: 62ch;
+  }
+
+  /* Shapes */
+  .r8 {
+    border-radius: 8px;
+  }
+  .glass {
+    background: rgb(17 20 29 / 72%);
+    backdrop-filter: blur(20px) saturate(140%);
+    -webkit-backdrop-filter: blur(20px) saturate(140%);
+    border: 1px solid var(--line);
+    box-shadow: inset 0 1px 0 rgb(255 255 255 / 6%);
+  }
+  @supports (corner-shape: squircle) {
+    .glass,
+    .btn,
+    .frame,
+    .card {
+      corner-shape: squircle;
+    }
+  }
+  @media (prefers-reduced-transparency: reduce) {
+    .glass {
+      background: var(--surface-1);
+      backdrop-filter: none;
+      -webkit-backdrop-filter: none;
+    }
+  }
+
+  /* Top bar */
+  .topbar {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+    padding: 10px 12px 10px 16px;
+    border-radius: 20px;
+  }
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-weight: 600;
+    font-size: 17px;
+    letter-spacing: -0.01em;
+  }
+  .brand svg {
+    color: var(--seen);
+  }
+  .topbar .spacer {
+    flex: 1;
+  }
+  .live-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 8px;
+    border-radius: 6px;
+    border: 1px solid var(--line-strong);
+    color: var(--text-2);
+  }
+
+  /* Segmented control */
+  .seg {
+    position: relative;
+    display: inline-grid;
+    grid-template-columns: 1fr 1fr;
+    padding: 3px;
+    border-radius: 12px;
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+  }
+  .seg button {
+    position: relative;
+    z-index: 1;
+    min-width: 84px;
+    min-height: 36px;
+    border: 0;
+    background: none;
+    color: var(--text-2);
+    font: 500 14px var(--ui);
+    border-radius: 9px;
+    cursor: pointer;
+  }
+  .seg button[aria-pressed='true'] {
+    color: var(--text);
+  }
+  .seg .thumb {
+    position: absolute;
+    top: 3px;
+    bottom: 3px;
+    left: 3px;
+    width: calc(50% - 3px);
+    border-radius: 9px;
+    background: var(--surface-3);
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 7%),
+      0 2px 8px rgb(0 0 0 / 35%);
+    transition: transform var(--t-base) var(--spring);
+  }
+  .seg[data-value='live'] .thumb {
+    transform: translateX(100%);
+  }
+
+  /* Hero */
+  .hero {
+    display: grid;
+    gap: 20px;
+  }
+  .hero-head {
+    display: grid;
+    gap: 10px;
+    padding-top: 24px;
+  }
+  .bench {
+    display: grid;
+    grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+    gap: 20px;
+    align-items: start;
+  }
+  .frame {
+    position: relative;
+    border-radius: 24px;
+    padding: 10px;
+    background: var(--surface-1);
+    border: 1px solid var(--line);
+    box-shadow:
+      inset 0 0 60px rgb(0 0 0 / 50%),
+      0 30px 80px rgb(0 0 0 / 45%);
+    background-image: repeating-linear-gradient(
+      to bottom,
+      rgb(255 255 255 / 3%) 0 1px,
+      transparent 1px 3px
+    );
+  }
+  .scene {
+    position: relative;
+    border-radius: 16px;
+    overflow: hidden;
+    aspect-ratio: 3 / 2;
+    max-width: 100%;
+    background: #10131c;
+  }
+  .scene svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+  .ticks {
+    position: absolute;
+    inset: 4px;
+    pointer-events: none;
+    --c: var(--line-strong);
+    background:
+      linear-gradient(var(--c), var(--c)) top left / 14px 1.5px,
+      linear-gradient(var(--c), var(--c)) top left / 1.5px 14px,
+      linear-gradient(var(--c), var(--c)) top right / 14px 1.5px,
+      linear-gradient(var(--c), var(--c)) top right / 1.5px 14px,
+      linear-gradient(var(--c), var(--c)) bottom left / 14px 1.5px,
+      linear-gradient(var(--c), var(--c)) bottom left / 1.5px 14px,
+      linear-gradient(var(--c), var(--c)) bottom right / 14px 1.5px,
+      linear-gradient(var(--c), var(--c)) bottom right / 1.5px 14px;
+    background-repeat: no-repeat;
+  }
+  .frame-meta {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 6px 2px;
+  }
+
+  /* Status capsule */
+  .capsule {
+    position: absolute;
+    top: 14px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    max-width: calc(100% - 28px);
+    padding: 8px 14px 8px 12px;
+    border-radius: 999px;
+    background: rgb(24 28 40 / 88%);
+    backdrop-filter: blur(28px) saturate(140%);
+    -webkit-backdrop-filter: blur(28px) saturate(140%);
+    border: 1px solid var(--line-strong);
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 7%),
+      0 10px 30px rgb(0 0 0 / 45%);
+    font-size: 13px;
+    line-height: 18px;
+    white-space: nowrap;
+    transition:
+      padding var(--t-base) var(--spring),
+      border-color var(--t-base);
+  }
+  .capsule span:last-child {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .capsule.pop {
+    animation: pop var(--t-slow) var(--spring);
+  }
+  @keyframes pop {
+    0% {
+      transform: translateX(-50%) scale(0.92);
+    }
+    100% {
+      transform: translateX(-50%) scale(1);
+    }
+  }
+  .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex: none;
+    background: var(--c, var(--text-3));
+    box-shadow: 0 0 10px var(--c, transparent);
+  }
+  .dot.seen {
+    --c: var(--seen);
+  }
+  .dot.chosen {
+    --c: var(--chosen);
+  }
+  .dot.warm {
+    --c: var(--warm);
+  }
+  .dot.ok {
+    --c: var(--ok);
+  }
+  .dot.unsure {
+    --c: var(--unsure);
+  }
+  .dot.blocked {
+    --c: var(--blocked);
+  }
+  .dot.cam {
+    --c: #34c759;
+  }
+
+  /* Scene layers */
+  .det {
+    opacity: 0;
+    transition: opacity var(--t-base) var(--ease-out);
+  }
+  .det .br {
+    fill: none;
+    stroke: var(--seen);
+    stroke-width: 2.5;
+    stroke-linecap: round;
+    transition: stroke var(--t-base);
+  }
+  .det text {
+    font: 500 15px var(--mono);
+    letter-spacing: 0.06em;
+    fill: var(--seen);
+    transition: fill var(--t-base);
+  }
+  [data-stage] .det {
+    opacity: 1;
+  }
+  .mask {
+    fill: var(--seen);
+    fill-opacity: 0;
+    stroke: var(--seen);
+    stroke-opacity: 0;
+    stroke-width: 1.5;
+    transition:
+      fill-opacity var(--t-slow) var(--ease-out),
+      stroke-opacity var(--t-slow) var(--ease-out);
+  }
+  .scan {
+    fill: var(--seen);
+    opacity: 0;
+  }
+  .scan-glow {
+    fill: url(#scanGlow);
+    opacity: 0;
+  }
+  [data-stage='segment'] .mask,
+  [data-stage='confirm'] .mask,
+  [data-stage='zone'] .mask,
+  [data-stage='lit'] .mask {
+    fill-opacity: 0.24;
+    stroke-opacity: 0.9;
+  }
+  .sweep .scan,
+  .sweep .scan-glow {
+    animation: sweep 520ms var(--ease-out) both;
+  }
+  @keyframes sweep {
+    0% {
+      transform: translateY(0);
+      opacity: 1;
+    }
+    85% {
+      opacity: 1;
+    }
+    100% {
+      transform: translateY(150px);
+      opacity: 0;
+    }
+  }
+  [data-stage='confirm'] #det-mug .br,
+  [data-stage='zone'] #det-mug .br,
+  [data-stage='lit'] #det-mug .br {
+    stroke: var(--chosen);
+  }
+  [data-stage='confirm'] #det-mug text,
+  [data-stage='zone'] #det-mug text,
+  [data-stage='lit'] #det-mug text {
+    fill: var(--chosen);
+  }
+  .zone {
+    opacity: 0;
+    transition: opacity var(--t-base);
+  }
+  .zone rect {
+    fill: var(--chosen-wash);
+    stroke: var(--chosen);
+    stroke-width: 2;
+    stroke-dasharray: 10 8;
+    transition: stroke-dasharray var(--t-slow) var(--ease-out);
+  }
+  .zone text {
+    font: 500 15px var(--mono);
+    letter-spacing: 0.06em;
+    fill: var(--chosen);
+  }
+  [data-stage='zone'] .zone,
+  [data-stage='lit'] .zone {
+    opacity: 1;
+  }
+  [data-stage='zone'] .zone rect,
+  [data-stage='lit'] .zone rect {
+    stroke-dasharray: 1000 0;
+    filter: drop-shadow(0 0 10px var(--chosen-glow));
+  }
+  .cone {
+    opacity: 0;
+    transition: opacity 600ms var(--ease-out);
+  }
+  .shade-glow {
+    opacity: 0;
+    transition: opacity 600ms;
+  }
+  [data-stage='lit'] .cone,
+  [data-stage='lit'] .shade-glow {
+    opacity: 1;
+  }
+  .ignite .cone,
+  .ignite .shade-glow {
+    animation: ignite 340ms linear both;
+  }
+  @keyframes ignite {
+    0% {
+      opacity: 0;
+    }
+    25% {
+      opacity: 0.85;
+    }
+    40% {
+      opacity: 0.25;
+    }
+    60% {
+      opacity: 1;
+    }
+    72% {
+      opacity: 0.55;
+    }
+    100% {
+      opacity: 1;
+    }
+  }
+
+  /* Probe bench */
+  .steps {
+    display: grid;
+    gap: 12px;
+    padding: 12px;
+    border-radius: 24px;
+  }
+  .step {
+    position: relative;
+    display: grid;
+    gap: 10px;
+    padding: 14px 14px 14px 18px;
+    border-radius: 16px;
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    transition:
+      opacity var(--t-base),
+      border-color var(--t-base);
+  }
+  .step::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 14px;
+    bottom: 14px;
+    width: 2px;
+    border-radius: 2px;
+    background: transparent;
+    transition: background var(--t-base);
+  }
+  .step.current::before {
+    background: var(--rule, var(--seen));
+  }
+  .step.waiting {
+    opacity: 0.55;
+  }
+  .step-head {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+  .step-head .hud {
+    color: var(--text-3);
+  }
+  .step-head .tag {
+    margin-left: auto;
+  }
+  .step p {
+    font-size: 14px;
+    line-height: 20px;
+    color: var(--text-2);
+  }
+  .why {
+    font-size: 13px;
+    color: var(--text-3);
+  }
+
+  /* Buttons */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-height: 44px;
+    padding: 0 16px;
+    border-radius: 12px;
+    border: 1px solid transparent;
+    font: 600 15px var(--ui);
+    cursor: pointer;
+    transition:
+      transform var(--t-fast) var(--ease-out),
+      box-shadow var(--t-base),
+      background var(--t-base),
+      opacity var(--t-base);
+  }
+  .btn:active {
+    transform: scale(0.97);
+  }
+  .btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    transform: none;
+  }
+  .btn.primary {
+    background: var(--seen);
+    color: var(--void);
+  }
+  .btn.primary:hover:not(:disabled) {
+    box-shadow: 0 0 24px var(--seen-glow);
+  }
+  .btn.physical {
+    background: var(--warm);
+    color: var(--void);
+  }
+  .btn.physical:hover:not(:disabled) {
+    box-shadow: 0 0 28px var(--warm-glow);
+  }
+  .btn.secondary {
+    background: rgb(33 38 55 / 70%);
+    border-color: var(--line-strong);
+    color: var(--text);
+    box-shadow: inset 0 1px 0 rgb(255 255 255 / 6%);
+  }
+  .btn.secondary:hover:not(:disabled) {
+    background: var(--surface-3);
+  }
+  .btn.tertiary,
+  .btn.destructive {
+    background: none;
+    padding: 0 6px;
+    font-weight: 500;
+    color: var(--text-2);
+  }
+  .btn.destructive {
+    color: var(--blocked);
+  }
+  .btn.tertiary:hover:not(:disabled),
+  .btn.destructive:hover:not(:disabled) {
+    text-decoration: underline;
+    text-underline-offset: 4px;
+  }
+  .btn.wide {
+    width: 100%;
+  }
+  :focus-visible {
+    outline: 2px solid var(--seen);
+    outline-offset: 2px;
+    box-shadow: 0 0 0 2px var(--void);
+  }
+  .row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+  }
+
+  /* Sections */
+  section.sys {
+    display: grid;
+    gap: 24px;
+  }
+  .sec-head {
+    display: grid;
+    gap: 8px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--line);
+  }
+  .sec-head .hud {
+    color: var(--seen);
+  }
+  .grid {
+    display: grid;
+    gap: 12px;
+  }
+  .g2 {
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr));
+  }
+  .g3 {
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
+  }
+  .g6 {
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr));
+  }
+  .card {
+    min-width: 0;
+    padding: 18px;
+    border-radius: 16px;
+    background: var(--surface-1);
+    border: 1px solid var(--line);
+    display: grid;
+    gap: 12px;
+    align-content: start;
+  }
+  .principle {
+    display: grid;
+    gap: 6px;
+  }
+  .principle p {
+    color: var(--text-2);
+    font-size: 14px;
+    line-height: 20px;
+  }
+
+  /* Swatches */
+  .swatch {
+    display: grid;
+    gap: 10px;
+  }
+  .chip {
+    height: 64px;
+    border-radius: 12px;
+    border: 1px solid var(--line);
+  }
+  .sig-chip {
+    height: 64px;
+    border-radius: 12px;
+    display: grid;
+    place-items: center;
+    font: 600 15px var(--ui);
+    color: var(--void);
+  }
+  .sw-meta {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    align-items: baseline;
+  }
+  .sw-meta strong {
+    font-weight: 600;
+  }
+  .sw-use {
+    font-size: 13px;
+    line-height: 18px;
+    color: var(--text-2);
+  }
+  .ratio {
+    color: var(--ok);
+  }
+  .ratio.warn {
+    color: var(--unsure);
+  }
+
+  /* Type specimen */
+  .type-row {
+    display: grid;
+    grid-template-columns: 150px minmax(0, 1fr);
+    gap: 16px;
+    align-items: baseline;
+    padding-block: 14px;
+    border-bottom: 1px solid var(--line);
+  }
+  .type-row:last-child {
+    border-bottom: 0;
+  }
+  .type-row .hud {
+    display: grid;
+    gap: 2px;
+  }
+  .type-row .hud span {
+    color: var(--text-3);
+    letter-spacing: 0.04em;
+    text-transform: none;
+  }
+  .sample {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  /* Materials */
+  .mat-stage {
+    position: relative;
+    min-height: 220px;
+    border-radius: 20px;
+    overflow: hidden;
+    padding: 18px;
+    display: grid;
+    gap: 12px;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 170px), 1fr));
+    align-items: end;
+    background:
+      radial-gradient(circle at 18% 30%, rgb(111 211 224 / 55%), transparent 26%),
+      radial-gradient(circle at 70% 25%, rgb(230 140 196 / 50%), transparent 24%),
+      radial-gradient(circle at 85% 80%, rgb(255 184 102 / 50%), transparent 22%),
+      repeating-linear-gradient(90deg, rgb(255 255 255 / 4%) 0 2px, transparent 2px 22px),
+      var(--surface-1);
+  }
+  .mat {
+    min-height: 120px;
+    border-radius: 16px;
+    padding: 14px;
+    border: 1px solid var(--line);
+    box-shadow: inset 0 1px 0 rgb(255 255 255 / 6%);
+    display: grid;
+    align-content: space-between;
+    gap: 8px;
+  }
+  .mat.thin {
+    background: rgb(17 20 29 / 55%);
+    backdrop-filter: blur(12px) saturate(140%);
+    -webkit-backdrop-filter: blur(12px) saturate(140%);
+  }
+  .mat.regular {
+    background: rgb(17 20 29 / 72%);
+    backdrop-filter: blur(20px) saturate(140%);
+    -webkit-backdrop-filter: blur(20px) saturate(140%);
+  }
+  .mat.thick {
+    background: rgb(24 28 40 / 88%);
+    backdrop-filter: blur(28px) saturate(140%);
+    -webkit-backdrop-filter: blur(28px) saturate(140%);
+  }
+
+  /* Evidence log */
+  .log {
+    display: grid;
+    border-radius: 16px;
+    overflow: hidden;
+    border: 1px solid var(--line);
+    background: var(--surface-1);
+  }
+  .log-row {
+    display: grid;
+    grid-template-columns: 76px minmax(0, 1fr) auto 72px;
+    gap: 12px;
+    align-items: center;
+    min-height: 48px;
+    padding: 0 16px;
+    border-bottom: 1px solid var(--line);
+    font: 500 13px var(--mono);
+    font-variant-numeric: tabular-nums;
+  }
+  .log-row:last-child {
+    border-bottom: 0;
+  }
+  .log-row .t {
+    color: var(--text-3);
+  }
+  .log-row .k {
+    color: var(--text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .log-row .k small {
+    color: var(--text-3);
+    font-size: 11px;
+    margin-left: 8px;
+    letter-spacing: 0.06em;
+  }
+  .log-row .ms {
+    text-align: right;
+    color: var(--text-2);
+  }
+  .status {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 8px;
+    border-radius: 6px;
+    font-size: 12px;
+    color: var(--c);
+    background: color-mix(in srgb, var(--c) 12%, transparent);
+  }
+  .log-row.new {
+    animation: slidein var(--t-slow) var(--ease-out);
+  }
+  @keyframes slidein {
+    from {
+      opacity: 0;
+      transform: translateY(-8px);
+    }
+  }
+
+  /* Checklist */
+  .check {
+    display: grid;
+    gap: 14px;
+  }
+  .big {
+    font-size: 48px;
+    line-height: 1;
+    font-weight: 700;
+    letter-spacing: -0.03em;
+    font-variant-numeric: tabular-nums;
+  }
+  .big span {
+    color: var(--text-3);
+    font-weight: 500;
+    font-size: 28px;
+  }
+  .check-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 14px;
+  }
+  .check-row .hud {
+    margin-left: auto;
+  }
+  .ring {
+    width: 20px;
+    height: 20px;
+    flex: none;
+  }
+  .ring circle {
+    fill: none;
+    stroke-width: 2;
+  }
+  .ring .track {
+    stroke: var(--line-strong);
+  }
+  .ring .fill {
+    stroke: var(--ok);
+    stroke-linecap: round;
+    stroke-dasharray: 50.3;
+    transform: rotate(-90deg);
+    transform-origin: center;
+  }
+
+  /* Scales */
+  .space-row {
+    display: flex;
+    align-items: end;
+    gap: 14px;
+    flex-wrap: wrap;
+  }
+  .space {
+    display: grid;
+    gap: 6px;
+    justify-items: start;
+  }
+  .space i {
+    display: block;
+    background: var(--seen-wash);
+    border: 1px solid rgb(111 211 224 / 40%);
+    border-radius: 2px;
+  }
+  .radius-row {
+    display: flex;
+    gap: 14px;
+    flex-wrap: wrap;
+  }
+  .radius-row div {
+    width: 76px;
+    height: 76px;
+    border: 1.5px solid var(--line-strong);
+    border-top-color: var(--chosen);
+    border-left-color: var(--chosen);
+    background: var(--surface-2);
+    display: grid;
+    place-items: end start;
+    padding: 8px;
+  }
+  @supports (corner-shape: squircle) {
+    .radius-row div {
+      corner-shape: squircle;
+    }
+  }
+
+  .motion-demo {
+    display: grid;
+    gap: 14px;
+  }
+  .bar {
+    height: 3px;
+    border-radius: 2px;
+    background: var(--surface-3);
+    overflow: hidden;
+    position: relative;
+  }
+  .bar::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    width: 40%;
+    background: linear-gradient(90deg, transparent, var(--seen), transparent);
+    animation: shimmer 1.4s var(--ease-out) infinite;
+  }
+  @keyframes shimmer {
+    from {
+      transform: translateX(-100%);
+    }
+    to {
+      transform: translateX(260%);
+    }
+  }
+  .ease-track {
+    position: relative;
+    height: 44px;
+    border-radius: 12px;
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+  }
+  .ease-track b {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    width: 22px;
+    height: 22px;
+    border-radius: 7px;
+    background: var(--seen);
+    box-shadow: 0 0 16px var(--seen-glow);
+    transition: transform var(--t-slow) var(--ease-out);
+  }
+  .ease-track.spring b {
+    background: var(--chosen);
+    box-shadow: 0 0 16px var(--chosen-glow);
+    transition-timing-function: var(--spring);
+  }
+  .ease-track.go b {
+    transform: translateX(calc(var(--w, 200px) - 42px));
+  }
+
+  .voice {
+    display: grid;
+    gap: 10px;
+  }
+  .say {
+    padding: 12px 14px;
+    border-radius: 12px;
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    font-size: 14px;
+  }
+  .say.no {
+    color: var(--text-3);
+    text-decoration: line-through;
+    text-decoration-color: rgb(242 124 131 / 60%);
+  }
+  .yes-no {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+
+  footer {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    justify-content: space-between;
+    padding-top: 24px;
+    border-top: 1px solid var(--line);
+    color: var(--text-3);
+    font-size: 13px;
+  }
+
+  @media (max-width: 880px) {
+    .bench {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .type-row {
+      grid-template-columns: minmax(0, 1fr);
+      gap: 6px;
+    }
+    .log-row {
+      grid-template-columns: 52px minmax(0, 1fr) auto;
+    }
+    .log-row .ms {
+      display: none;
+    }
+    .capsule {
+      font-size: 12px;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 150ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 150ms !important;
+    }
+    .sweep .scan,
+    .sweep .scan-glow,
+    .ignite .cone,
+    .ignite .shade-glow {
+      animation: none !important;
+    }
+    .ambient {
+      transition: none !important;
+    }
+    .bar::after {
+      animation: none !important;
+      opacity: 0.5;
+    }
+  }
+</style>
+
+<div class="ambient cool" aria-hidden="true"></div>
+<div class="ambient warm" aria-hidden="true"></div>
+<div class="grain" aria-hidden="true"></div>
+
+<div class="page">
+  <header class="topbar glass">
+    <span class="brand">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+        <path d="m12 3 9 5-9 5-9-5 9-5Z" />
+        <path d="m3 12 9 5 9-5M3 16l9 5 9-5" />
+      </svg>
+      Living Layer
+    </span>
+    <span class="hud">Quiet Neon · v0.1</span>
+    <span class="spacer"></span>
+    <span class="live-tag hud" id="liveTag" hidden><span class="dot blocked"></span>Live</span>
+    <div class="seg" id="modeSeg" data-value="fixture" role="group" aria-label="Data source">
+      <span class="thumb" aria-hidden="true"></span>
+      <button type="button" id="seg-fixture" aria-pressed="true" data-v="fixture">Fixture</button>
+      <button type="button" id="seg-live" aria-pressed="false" data-v="live">Live</button>
+    </div>
+  </header>
+
+  <section class="hero" aria-labelledby="hero-title">
+    <div class="hero-head">
+      <span class="hud">Design specimen</span>
+      <h1 id="hero-title" class="split">A quiet room, and one warm light.</h1>
+      <p class="lede">
+        This is the Living Layer interface language running the real loop: find objects, see the
+        mask, confirm the mug, mark a zone, and switch the lamp. Press the amber button to see the
+        one moment that is allowed to glow warm.
+      </p>
+    </div>
+
+    <div class="bench">
+      <div class="frame">
+        <div class="scene" id="scene" data-stage="zone">
+          <div class="capsule" id="capsule" role="status" aria-live="polite">
+            <span class="dot chosen" id="capDot"></span>
+            <span id="capText">Zone ZN-01 saved · ready to verify</span>
+          </div>
+          <svg viewBox="0 0 960 640" role="img" aria-label="Illustrated desk at night with a mug, a book, a bottle and a desk lamp">
+            <defs>
+              <linearGradient id="wall" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0" stop-color="#151a29" />
+                <stop offset="1" stop-color="#0e111a" />
+              </linearGradient>
+              <linearGradient id="desk" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0" stop-color="#1d2232" />
+                <stop offset="1" stop-color="#121521" />
+              </linearGradient>
+              <radialGradient id="coneFill" cx="0.5" cy="0" r="1">
+                <stop offset="0" stop-color="#ffb866" stop-opacity="0.55" />
+                <stop offset="0.6" stop-color="#ffb866" stop-opacity="0.12" />
+                <stop offset="1" stop-color="#ffb866" stop-opacity="0" />
+              </radialGradient>
+              <radialGradient id="pool" cx="0.5" cy="0.5" r="0.5">
+                <stop offset="0" stop-color="#ffb866" stop-opacity="0.35" />
+                <stop offset="1" stop-color="#ffb866" stop-opacity="0" />
+              </radialGradient>
+              <linearGradient id="scanGlow" x1="0" y1="1" x2="0" y2="0">
+                <stop offset="0" stop-color="#6fd3e0" stop-opacity="0.5" />
+                <stop offset="1" stop-color="#6fd3e0" stop-opacity="0" />
+              </linearGradient>
+            </defs>
+            <rect width="960" height="640" fill="url(#wall)" />
+            <!-- window with distant city -->
+            <rect x="560" y="40" width="330" height="200" rx="10" fill="#0c0f18" stroke="#232a3d" />
+            <g opacity="0.55">
+              <rect x="590" y="150" width="26" height="90" fill="#1c2236" />
+              <rect x="624" y="120" width="34" height="120" fill="#181e31" />
+              <rect x="668" y="165" width="22" height="75" fill="#1c2236" />
+              <rect x="700" y="100" width="40" height="140" fill="#171c2e" />
+              <rect x="750" y="140" width="30" height="100" fill="#1c2236" />
+              <rect x="790" y="115" width="44" height="125" fill="#181e31" />
+              <rect x="842" y="160" width="26" height="80" fill="#1c2236" />
+              <g fill="#6fd3e0" opacity="0.7">
+                <rect x="632" y="132" width="4" height="3" />
+                <rect x="644" y="150" width="4" height="3" />
+                <rect x="712" y="118" width="4" height="3" />
+                <rect x="724" y="160" width="4" height="3" />
+                <rect x="802" y="130" width="4" height="3" />
+              </g>
+              <g fill="#e68cc4" opacity="0.7">
+                <rect x="760" y="156" width="4" height="3" />
+                <rect x="816" y="176" width="4" height="3" />
+                <rect x="600" y="170" width="4" height="3" />
+              </g>
+            </g>
+            <path d="M560 140h330M725 40v200" stroke="#232a3d" />
+            <!-- desk -->
+            <path d="M0 400 L960 360 L960 640 L0 640 Z" fill="url(#desk)" />
+            <path d="M0 400 L960 360" stroke="#2c3348" stroke-width="2" />
+            <!-- lamp light -->
+            <g class="cone">
+              <path d="M210 168 L120 470 L470 470 L282 168 Z" fill="url(#coneFill)" />
+              <ellipse cx="300" cy="470" rx="230" ry="46" fill="url(#pool)" />
+            </g>
+            <!-- lamp -->
+            <ellipse cx="170" cy="452" rx="64" ry="14" fill="#262c3f" />
+            <path d="M170 448 L140 300 L246 168" stroke="#39415a" stroke-width="10" stroke-linecap="round" fill="none" />
+            <circle cx="140" cy="300" r="9" fill="#39415a" />
+            <path d="M206 140 L292 156 L276 188 L196 174 Z" fill="#2f3650" />
+            <path class="shade-glow" d="M196 174 L276 188" stroke="#ffd4a0" stroke-width="5" stroke-linecap="round" />
+            <!-- book -->
+            <g transform="rotate(-4 700 404)">
+              <rect x="622" y="384" width="150" height="38" rx="5" fill="#2c3b44" />
+              <rect x="622" y="384" width="150" height="9" rx="4" fill="#3b4f59" />
+            </g>
+            <!-- bottle -->
+            <rect x="808" y="222" width="58" height="212" rx="22" fill="#28304a" />
+            <rect x="824" y="188" width="26" height="40" rx="7" fill="#323b58" />
+            <rect x="818" y="262" width="10" height="120" rx="5" fill="#3a4466" />
+            <!-- mug -->
+            <path d="M538 330 h18 a32 32 0 0 1 0 64 h-18" stroke="#c9c4d6" stroke-width="14" fill="none" />
+            <rect x="430" y="300" width="112" height="138" rx="16" fill="#d9d4e3" />
+            <ellipse cx="486" cy="304" rx="56" ry="10" fill="#bfb9cc" />
+            <rect x="444" y="330" width="8" height="80" rx="4" fill="#ece8f2" opacity="0.7" />
+
+            <!-- zone -->
+            <g class="zone">
+              <rect x="380" y="272" width="250" height="196" rx="10" />
+              <text x="384" y="494">ZN-01 · 26% × 31%</text>
+            </g>
+
+            <!-- detections -->
+            <g class="det" id="det-book">
+              <path class="br" d="M612 382 v-14 h14 M762 368 h14 v14 M776 420 v14 h-14 M626 434 h-14 v-14" />
+              <text x="612" y="358">BOOK · #3</text>
+            </g>
+            <g class="det" id="det-bottle">
+              <path class="br" d="M798 196 v-14 h14 M864 182 h14 v14 M878 430 v14 h-14 M812 444 h-14 v-14" />
+              <text x="776" y="172">BOTTLE · #5</text>
+            </g>
+            <g class="det" id="det-mug">
+              <g id="maskGroup">
+                <path class="mask" d="M446 300 h80 a16 16 0 0 1 16 16 v14 h14 a32 32 0 0 1 0 64 h-14 v28 a16 16 0 0 1 -16 16 h-80 a16 16 0 0 1 -16 -16 v-106 a16 16 0 0 1 16 -16 Z M542 344 v36 h14 a18 18 0 0 0 0 -36 Z" fill-rule="evenodd" />
+                <rect class="scan-glow" x="420" y="262" width="176" height="30" />
+                <rect class="scan" x="420" y="290" width="176" height="2" />
+              </g>
+              <path class="br" d="M420 304 v-14 h14 M582 290 h14 v14 M596 432 v14 h-14 M434 446 h-14 v-14" />
+              <text x="420" y="278" id="mugTag">MUG · #7 · 0.94</text>
+            </g>
+          </svg>
+          <div class="ticks" aria-hidden="true"></div>
+        </div>
+        <div class="frame-meta">
+          <span class="hud">960 × 640 · Frame 00</span>
+          <span class="hud" id="frameMode">Fixture · synthetic scene</span>
+        </div>
+      </div>
+
+      <div class="steps glass" aria-label="Probe bench">
+        <div class="step" id="st-1">
+          <div class="step-head">
+            <span class="hud">01</span>
+            <h3>Discover the scene</h3>
+            <span class="hud tag">Spark</span>
+          </div>
+          <p>Names up to three objects you could move.</p>
+          <button type="button" class="btn primary wide" data-go="discover">Discover objects</button>
+        </div>
+        <div class="step" id="st-2">
+          <div class="step-head">
+            <span class="hud">02</span>
+            <h3>Find the shape</h3>
+            <span class="hud tag">SAM 3.1</span>
+          </div>
+          <button type="button" class="btn primary wide" data-go="segment">Segment mug</button>
+        </div>
+        <div class="step" id="st-3" style="--rule: var(--chosen)">
+          <div class="step-head">
+            <span class="hud">03</span>
+            <h3>Remember and place</h3>
+            <span class="hud tag">Zone</span>
+          </div>
+          <div class="row">
+            <button type="button" class="btn secondary" data-go="confirm">Confirm mask #7</button>
+            <button type="button" class="btn secondary" data-go="zone">Save zone</button>
+          </div>
+          <button type="button" class="btn physical wide" id="verify" data-go="lit">Verify · turn on lamp</button>
+          <p class="why" id="verifyWhy" hidden>Save a zone around the confirmed mug first.</p>
+        </div>
+        <div class="row" style="justify-content: space-between; padding: 0 4px">
+          <button type="button" class="btn tertiary" id="replay">Replay the loop</button>
+          <button type="button" class="btn destructive" data-go="reset">Reset desk</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="sys" aria-labelledby="p-title">
+    <div class="sec-head">
+      <span class="hud">00 · Principles</span>
+      <h2 id="p-title">Apple sets the rules. The city sets the mood.</h2>
+    </div>
+    <div class="grid g3">
+      <div class="card principle">
+        <span class="hud" style="color: var(--warm)">The one warm light</span>
+        <p>Amber is the lamp's own 2700&nbsp;K. If something glows warm, a real light is involved.</p>
+      </div>
+      <div class="card principle">
+        <span class="hud" style="color: var(--seen)">Colour means a source</span>
+        <p>Cyan is what the model saw. Magenta is what you decided. Amber is what happened in the room.</p>
+      </div>
+      <div class="card principle">
+        <span class="hud">Never grade the evidence</span>
+        <p>Grain and scanlines live on the frame. The pixels a decision used stay true colour.</p>
+      </div>
+      <div class="card principle">
+        <span class="hud">Defer to the scene</span>
+        <p>The camera frame is the hero. Everything around it is glass and type.</p>
+      </div>
+      <div class="card principle">
+        <span class="hud">Telemetry whispers</span>
+        <p>Mono labels like <span class="hud-value" style="color: var(--seen)">OBS-0142</span> add flavour. Instructions stay plain sentences.</p>
+      </div>
+      <div class="card principle">
+        <span class="hud">Calm by default</span>
+        <p>Nothing flickers on its own. Motion happens because something changed.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="sys" aria-labelledby="c-title">
+    <div class="sec-head">
+      <span class="hud">01 · Colour</span>
+      <h2 id="c-title">Night surfaces, six signals</h2>
+      <p class="lede">Contrast ratios are measured against Surface 1, where most text sits.</p>
+    </div>
+    <div class="grid g6" id="surfaces"></div>
+    <div class="grid g6" id="texts"></div>
+    <div class="grid g3" id="signals"></div>
+  </section>
+
+  <section class="sys" aria-labelledby="t-title">
+    <div class="sec-head">
+      <span class="hud">02 · Type</span>
+      <h2 id="t-title">San Francisco where it lives, Inter everywhere else</h2>
+      <p class="lede">Apple's text styles, tightened for a dense tool. Nothing goes below 11&nbsp;px.</p>
+    </div>
+    <div class="card" style="gap: 0; padding-block: 4px">
+      <div class="type-row"><span class="hud">Large title<span>34 / 41 · 700</span></span><span class="sample split" style="font-size: 34px; line-height: 41px; font-weight: 700; letter-spacing: -0.02em">My desk mug</span></div>
+      <div class="type-row"><span class="hud">Title 2<span>22 / 28 · 600</span></span><span class="sample" style="font-size: 22px; line-height: 28px; font-weight: 600">The observation desk</span></div>
+      <div class="type-row"><span class="hud">Headline<span>17 / 22 · 600</span></span><span class="sample" style="font-size: 17px; line-height: 22px; font-weight: 600">Remember and place</span></div>
+      <div class="type-row"><span class="hud">Body<span>15 / 22 · 400</span></span><span class="sample">Draw a zone around the mug. The whole box has to fit inside it.</span></div>
+      <div class="type-row"><span class="hud">Callout<span>14 / 20 · 400</span></span><span class="sample" style="font-size: 14px; line-height: 20px; color: var(--text-2)">Observations go stale after five minutes.</span></div>
+      <div class="type-row"><span class="hud">Footnote<span>13 / 18 · 400</span></span><span class="sample" style="font-size: 13px; line-height: 18px; color: var(--text-3)">Last observed 21:14:08 · manual identity</span></div>
+      <div class="type-row"><span class="hud">HUD label<span>11 / 14 · mono</span></span><span class="sample hud" style="color: var(--text-2)">Discovered objects · 03</span></div>
+      <div class="type-row"><span class="hud">HUD value<span>13 / 16 · mono</span></span><span class="sample hud-value" style="color: var(--seen)">OBS-0142 · SIG 0.94 · T+212ms</span></div>
+    </div>
+  </section>
+
+  <section class="sys" aria-labelledby="m-title">
+    <div class="sec-head">
+      <span class="hud">03 · Materials</span>
+      <h2 id="m-title">Glass at night</h2>
+      <p class="lede">Three blur levels, each with a hairline and a 1&nbsp;px top highlight. With reduced transparency they turn solid.</p>
+    </div>
+    <div class="mat-stage">
+      <div class="mat thin"><span class="hud">Thin · 55% · 12px</span><span style="font-size: 14px; color: var(--text-2)">Tooltips and tags over the scene</span></div>
+      <div class="mat regular"><span class="hud">Regular · 72% · 20px</span><span style="font-size: 14px; color: var(--text-2)">Top bar and probe bench</span></div>
+      <div class="mat thick"><span class="hud">Thick · 88% · 28px</span><span style="font-size: 14px; color: var(--text-2)">Sheets and the status capsule</span></div>
+    </div>
+  </section>
+
+  <section class="sys" aria-labelledby="k-title">
+    <div class="sec-head">
+      <span class="hud">04 · Components</span>
+      <h2 id="k-title">Controls, status, and evidence</h2>
+    </div>
+    <div class="grid g2">
+      <div class="card">
+        <span class="hud">Buttons · one filled button per step</span>
+        <div class="row">
+          <button type="button" class="btn primary">Discover objects</button>
+          <button type="button" class="btn physical">Turn on lamp</button>
+        </div>
+        <div class="row">
+          <button type="button" class="btn secondary">Save zone</button>
+          <button type="button" class="btn tertiary">Test absent target</button>
+          <button type="button" class="btn destructive">Reset desk</button>
+        </div>
+        <div class="row">
+          <button type="button" class="btn primary" disabled>Discover objects</button>
+          <span class="why">Disabled: add a desk photo first.</span>
+        </div>
+      </div>
+      <div class="card">
+        <span class="hud">Status capsule states</span>
+        <div class="grid" style="gap: 10px">
+          <div class="capsule" style="position: static; transform: none; width: fit-content"><span class="dot seen"></span>Discovering objects…</div>
+          <div class="capsule" style="position: static; transform: none; width: fit-content"><span class="dot unsure"></span>Lamp accepted · state not confirmed</div>
+          <div class="capsule" style="position: static; transform: none; width: fit-content"><span class="dot blocked"></span>Blocked · this segmentation already acted</div>
+          <div class="capsule" style="position: static; transform: none; width: fit-content"><span class="dot cam"></span>Camera on</div>
+        </div>
+      </div>
+      <div class="card">
+        <span class="hud">Evidence log</span>
+        <div class="log" id="log">
+          <div class="log-row"><span class="t">21:14:31</span><span class="k">placement<small>FIXTURE</small></span><span class="status" style="--c: var(--ok)">✓ confirmed</span><span class="ms">212 ms</span></div>
+          <div class="log-row"><span class="t">21:14:20</span><span class="k">zone<small>FIXTURE</small></span><span class="status" style="--c: var(--chosen)">● saved</span><span class="ms">4 ms</span></div>
+          <div class="log-row"><span class="t">21:14:08</span><span class="k">segment · mug<small>FIXTURE</small></span><span class="status" style="--c: var(--seen)">● 1 mask</span><span class="ms">38 ms</span></div>
+          <div class="log-row"><span class="t">21:09:52</span><span class="k">segment · mug<small>FIXTURE</small></span><span class="status" style="--c: var(--unsure)">◌ stale</span><span class="ms">41 ms</span></div>
+          <div class="log-row"><span class="t">21:09:40</span><span class="k">placement<small>FIXTURE</small></span><span class="status" style="--c: var(--blocked)">✕ blocked</span><span class="ms">2 ms</span></div>
+        </div>
+      </div>
+      <div class="card check">
+        <span class="hud">Live checklist</span>
+        <div class="big split">2<span> / 4</span></div>
+        <div class="check-row"><svg class="ring" viewBox="0 0 20 20" aria-hidden="true"><circle class="track" cx="10" cy="10" r="8" /><circle class="fill" cx="10" cy="10" r="8" stroke-dashoffset="0" /></svg>Spark connection<span class="hud">Saved</span></div>
+        <div class="check-row"><svg class="ring" viewBox="0 0 20 20" aria-hidden="true"><circle class="track" cx="10" cy="10" r="8" /><circle class="fill" cx="10" cy="10" r="8" stroke-dashoffset="0" /></svg>Real desk discovery<span class="hud">Saved</span></div>
+        <div class="check-row"><svg class="ring" viewBox="0 0 20 20" aria-hidden="true"><circle class="track" cx="10" cy="10" r="8" /><circle class="fill" cx="10" cy="10" r="8" stroke-dashoffset="50.3" /></svg>Real mug mask<span class="hud">Pending</span></div>
+        <div class="check-row"><svg class="ring" viewBox="0 0 20 20" aria-hidden="true"><circle class="track" cx="10" cy="10" r="8" /><circle class="fill" cx="10" cy="10" r="8" stroke-dashoffset="50.3" /></svg>Lamp state observed<span class="hud">Pending</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="sys" aria-labelledby="mo-title">
+    <div class="sec-head">
+      <span class="hud">05 · Motion</span>
+      <h2 id="mo-title">Moves only when something changed</h2>
+      <p class="lede">Ease-out for most things, a small spring for the things you touch. With reduced motion, everything becomes a short fade.</p>
+    </div>
+    <div class="grid g2">
+      <div class="card motion-demo">
+        <span class="hud">Ease-out · 400ms vs spring · segmented control, capsule</span>
+        <div class="ease-track" id="e1"><b></b></div>
+        <div class="ease-track spring" id="e2"><b></b></div>
+        <div class="row">
+          <button type="button" class="btn secondary" id="playEase">Play</button>
+          <span class="hud">150 · 250 · 400 ms</span>
+        </div>
+      </div>
+      <div class="card motion-demo">
+        <span class="hud">Busy · a shimmer on the acting card, never a spinner on the scene</span>
+        <div class="bar"></div>
+        <p style="font-size: 14px; color: var(--text-2)">Key moments: mask scan sweep (520&nbsp;ms), zone settling from dashed to solid, and the lamp ignition, which has two dips in 340&nbsp;ms, stays under three flashes a second, and only happens once.</p>
+        <div class="row">
+          <button type="button" class="btn secondary" data-go="segment">Replay mask sweep</button>
+          <button type="button" class="btn physical" data-go="lit">Replay ignition</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="sys" aria-labelledby="s-title">
+    <div class="sec-head">
+      <span class="hud">06 · Space and shape</span>
+      <h2 id="s-title">A 4&nbsp;px grid and continuous corners</h2>
+    </div>
+    <div class="grid g2">
+      <div class="card">
+        <span class="hud">Spacing</span>
+        <div class="space-row" id="spaces"></div>
+      </div>
+      <div class="card">
+        <span class="hud">Radii · chips, buttons, cards, panels</span>
+        <div class="radius-row">
+          <div style="border-radius: 8px"><span class="hud">8</span></div>
+          <div style="border-radius: 12px"><span class="hud">12</span></div>
+          <div style="border-radius: 16px"><span class="hud">16</span></div>
+          <div style="border-radius: 24px"><span class="hud">24</span></div>
+        </div>
+        <p class="why">HUD brackets mark what the model found. Panels never get cut corners.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="sys" aria-labelledby="v-title">
+    <div class="sec-head">
+      <span class="hud">07 · Voice</span>
+      <h2 id="v-title">Plain sentences, quiet labels</h2>
+    </div>
+    <div class="grid g2">
+      <div class="card voice">
+        <span class="hud" style="color: var(--ok)">Write this</span>
+        <div class="say">Draw a zone around the mug.</div>
+        <div class="say">The lamp says it's on. Check that it actually lit up.</div>
+        <div class="say">This photo is older than five minutes. Take a new one.</div>
+      </div>
+      <div class="card voice">
+        <span class="hud" style="color: var(--blocked)">Not this</span>
+        <div class="say no">Initialize spatial bounding protocol on target asset.</div>
+        <div class="say no">Lamp activated successfully!</div>
+        <div class="say no">Neural link desynced. Re-jack the feed, choom.</div>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <span>Living Layer · Quiet Neon design specimen</span>
+    <span>Inspired by Apple's HIG and lo-fi cyberpunk. No CD Projekt or Apple assets are used.</span>
+  </footer>
+</div>
+
+<script>
+  const surfaces = [
+    ['Void', '--void', '#0A0C12', 'Page background'],
+    ['Surface 1', '--surface-1', '#11141D', 'Panels'],
+    ['Surface 2', '--surface-2', '#181C28', 'Cards, inputs'],
+    ['Surface 3', '--surface-3', '#212637', 'Raised, hover'],
+  ];
+  const texts = [
+    ['Text', '#ECE9F2', '15.3:1', 'Primary'],
+    ['Text 2', '#A9AEC2', '8.3:1', 'Secondary, labels'],
+    ['Text 3', '#7C8299', '4.8:1', 'Hints. Not on Surface 3.'],
+  ];
+  const signals = [
+    ['Seen', '#6FD3E0', '10.6:1', 'What the model saw: objects, masks, output'],
+    ['Chosen', '#E68CC4', '7.8:1', 'What you decided: identity, zones'],
+    ['Warm', '#FFB866', '10.8:1', 'What happened in the room: the lamp. Nothing else.'],
+    ['OK', '#86D9AA', '11.0:1', 'Confirmed state, passing checks'],
+    ['Unsure', '#AE9BF5', '7.7:1', 'Stale, unconfirmed, uncertain'],
+    ['Blocked', '#F27C83', '7.0:1', 'Errors, blocked, destructive'],
+  ];
+  const card = (inner) => `<div class="card swatch">${inner}</div>`;
+  document.getElementById('surfaces').innerHTML = surfaces
+    .map(([n, t, hex, use]) =>
+      card(`<div class="chip" style="background:var(${t})"></div>
+        <div class="sw-meta"><strong>${n}</strong><span class="hud-value" style="color:var(--text-3)">${hex}</span></div>
+        <div class="sw-use">${use}</div>`),
+    )
+    .join('');
+  document.getElementById('texts').innerHTML = texts
+    .map(([n, hex, r, use]) =>
+      card(`<div class="chip" style="background:var(--surface-1);display:grid;place-items:center;font-size:22px;font-weight:600;color:${hex}">Aa</div>
+        <div class="sw-meta"><strong>${n}</strong><span class="hud-value ratio">${r}</span></div>
+        <div class="sw-use">${use} · <span class="hud-value" style="color:var(--text-3)">${hex}</span></div>`),
+    )
+    .join('');
+  document.getElementById('signals').innerHTML = signals
+    .map(([n, hex, r, use]) =>
+      card(`<div class="sig-chip" style="background:${hex};box-shadow:0 0 30px ${hex}33">${n}</div>
+        <div class="sw-meta"><strong style="color:${hex}">${n}</strong><span class="hud-value ratio">${r}</span></div>
+        <div class="sw-use">${use} · <span class="hud-value" style="color:var(--text-3)">${hex}</span></div>`),
+    )
+    .join('');
+  document.getElementById('spaces').innerHTML = [4, 8, 12, 16, 24, 32, 48, 64]
+    .map((s) => `<div class="space"><i style="width:${s}px;height:${s}px"></i><span class="hud">${s}</span></div>`)
+    .join('');
+
+  const scene = document.getElementById('scene');
+  const capsule = document.getElementById('capsule');
+  const capDot = document.getElementById('capDot');
+  const capText = document.getElementById('capText');
+  const root = document.documentElement;
+  const states = {
+    idle: ['', 'Ready · fixture desk loaded'],
+    discover: ['seen', 'Found 3 objects · mug, book, bottle'],
+    segment: ['seen', 'SAM 3.1 · 1 mask for "mug"'],
+    confirm: ['chosen', 'My desk mug · identity confirmed'],
+    zone: ['chosen', 'Zone ZN-01 saved · ready to verify'],
+    lit: ['warm', 'Inside zone · lamp on · state confirmed'],
+  };
+  const order = ['idle', 'discover', 'segment', 'confirm', 'zone', 'lit'];
+  const steps = { discover: 'st-1', segment: 'st-2', confirm: 'st-3', zone: 'st-3', lit: 'st-3' };
+
+  function say(stage) {
+    const [dot, text] = states[stage];
+    capDot.className = `dot ${dot}`;
+    capText.textContent = text;
+    capsule.classList.remove('pop');
+    void capsule.offsetWidth;
+    capsule.classList.add('pop');
+  }
+  function restart(cls) {
+    scene.classList.remove(cls);
+    void scene.offsetWidth;
+    scene.classList.add(cls);
+  }
+  function setStage(stage) {
+    if (stage === 'reset') stage = 'idle';
+    if (stage === 'idle') scene.removeAttribute('data-stage');
+    else scene.dataset.stage = stage;
+    root.classList.toggle('lit', stage === 'lit');
+    if (stage === 'segment') restart('sweep');
+    if (stage === 'lit') restart('ignite');
+    say(stage);
+    const idx = order.indexOf(stage);
+    for (const id of ['st-1', 'st-2', 'st-3']) {
+      const el = document.getElementById(id);
+      el.classList.toggle('current', steps[order[Math.min(idx + 1, 5)]] === id && stage !== 'lit');
+    }
+    const ready = idx >= order.indexOf('zone');
+    document.getElementById('verify').disabled = !ready;
+    document.getElementById('verifyWhy').hidden = ready;
+    if (stage === 'lit') addLog();
+  }
+  function addLog() {
+    const log = document.getElementById('log');
+    const t = new Date().toTimeString().slice(0, 8);
+    const row = document.createElement('div');
+    row.className = 'log-row new';
+    row.innerHTML = `<span class="t">${t}</span><span class="k">placement<small>FIXTURE</small></span><span class="status" style="--c: var(--ok)">✓ confirmed</span><span class="ms">${180 + Math.round(Math.random() * 60)} ms</span>`;
+    log.prepend(row);
+    while (log.children.length > 5) log.lastElementChild.remove();
+  }
+  document.addEventListener('click', (e) => {
+    const go = e.target.closest('[data-go]');
+    if (!go) return;
+    const stage = go.dataset.go;
+    if (stage === 'lit' && order.indexOf(scene.dataset.stage || 'idle') < order.indexOf('zone')) setStage('zone');
+    setStage(stage);
+    if (go.closest('.motion-demo')) scene.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  });
+  let timers = [];
+  document.getElementById('replay').addEventListener('click', () => {
+    timers.forEach(clearTimeout);
+    timers = [];
+    const seq = ['idle', 'discover', 'segment', 'confirm', 'zone', 'lit'];
+    seq.forEach((s, i) => timers.push(setTimeout(() => setStage(s), i * 1100)));
+  });
+
+  const seg = document.getElementById('modeSeg');
+  seg.addEventListener('click', (e) => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    seg.dataset.value = b.dataset.v;
+    seg.querySelectorAll('button').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+    const live = b.dataset.v === 'live';
+    document.getElementById('liveTag').hidden = !live;
+    document.getElementById('frameMode').textContent = live ? 'Live · your photo, true colour' : 'Fixture · synthetic scene';
+  });
+
+  document.getElementById('playEase').addEventListener('click', () => {
+    for (const id of ['e1', 'e2']) {
+      const el = document.getElementById(id);
+      el.style.setProperty('--w', `${el.clientWidth}px`);
+      el.classList.toggle('go');
+    }
+  });
+
+  setStage('zone');
+</script>
