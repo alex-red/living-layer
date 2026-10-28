@@ -10,8 +10,16 @@ import type {
   ZoneRect,
   PlacementDecision,
   RunKind,
+  DeskObservation,
+  FixturePosition,
 } from '@livinglayer/domain';
-import { OBSERVATION_MAX_AGE_MS, isMugConcept, runCost } from '@livinglayer/domain';
+import {
+  FIXTURE_POSITIONS,
+  OBSERVATION_MAX_AGE_MS,
+  isMugConcept,
+  runCost,
+  zoneApplies,
+} from '@livinglayer/domain';
 import { api } from './api';
 import { estimateLabel, usd } from './cost';
 import { Glyph } from './Glyph';
@@ -27,7 +35,30 @@ const BUSY: Record<string, string> = {
   zone: 'Saving the zone',
   verify: 'Checking placement',
   reset: 'Resetting desk memory',
+  track: 'Tracking the mug',
+  camera: 'Updating the camera setting',
 };
+const TRANSITION: Record<NonNullable<PlacementDecision['transition']>, string> = {
+  entered: 'Entered the zone',
+  stayed_inside: 'Still inside',
+  left: 'Left the zone',
+  stayed_outside: 'Still outside',
+};
+/** Redraw the fixture desk with the mug, its coffee and its shadow moved together. */
+function fixtureDesk(svg: string, position: FixturePosition): string {
+  const { dx, dy } = FIXTURE_POSITIONS[position];
+  if (!dx && !dy) return '/desk.svg';
+  const moved = svg
+    .replace('translate(350 180)', `translate(${350 + dx} ${180 + dy})`)
+    .replace('cx="485" cy="455"', `cx="${485 + dx}" cy="${455 + dy}"`)
+    .replace('cx="450" cy="245"', `cx="${450 + dx}" cy="${245 + dy}"`);
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(moved)}`;
+}
+/** Box centre as a share of the frame, for comparing observations across frames. */
+const centre = (o: DeskObservation) => ({
+  x: (o.box.x + o.box.width / 2) / o.frame.width,
+  y: (o.box.y + o.box.height / 2) / o.frame.height,
+});
 const RESULT_GLYPH: Record<EvidenceRun['status'], string> = {
   completed: '✓',
   no_match: '◌',
@@ -99,6 +130,8 @@ export function App() {
   const [drawing, setDrawing] = useState(false);
   const zoneStart = useRef<{ x: number; y: number } | null>(null);
   const [concept, setConcept] = useState('mug');
+  const [fixturePosition, setFixturePosition] = useState<FixturePosition>('centre');
+  const [deskSvg, setDeskSvg] = useState('');
   const [overlay, setOverlay] = useState(true);
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
@@ -134,6 +167,12 @@ export function App() {
     setMemories({ fixture: fixtureDesk, live: liveDesk });
   };
   useEffect(() => {
+    void fetch('/desk.svg')
+      .then((r) => r.text())
+      .then(setDeskSvg)
+      .catch(() => {});
+  }, []);
+  useEffect(() => {
     mounted.current = true;
     void refresh().catch(() =>
       setError('The local API is unavailable. Start both services with bun run dev.'),
@@ -165,6 +204,7 @@ export function App() {
     stopCamera();
     imageGeneration.current++;
     setMode(next);
+    setFixturePosition('centre');
     setLamp('off');
     setImage(undefined);
     setDimensions({ width: 960, height: 640 });
@@ -187,7 +227,8 @@ export function App() {
     const context = canvas.getContext('2d');
     if (!context) throw new Error('This browser cannot prepare the image.');
     context.drawImage(source, 0, 0, canvas.width, canvas.height);
-    setImage(canvas.toDataURL('image/png'));
+    const url = canvas.toDataURL('image/png');
+    setImage(url);
     setDimensions({ width: canvas.width, height: canvas.height });
     setScene(undefined);
     setSegmentation(undefined);
@@ -195,6 +236,18 @@ export function App() {
     setDrawing(false);
     setMessage(
       'Photo prepared locally. Live probes send this image to Meta only when you press a probe button.',
+    );
+    return url;
+  }
+  function moveFixtureMug(next: FixturePosition) {
+    setFixturePosition(next);
+    setScene(undefined);
+    setSegmentation(undefined);
+    setSegmentRunId(undefined);
+    setDrawing(false);
+    setLamp('off');
+    setMessage(
+      `Mug moved to ${FIXTURE_POSITIONS[next].label.toLowerCase()}. This counts as a new frame: track it or segment it.`,
     );
   }
   async function upload(chosen?: File) {
@@ -259,6 +312,7 @@ export function App() {
         mode,
         ...(['discover', 'segment'].includes(kind) && image ? { imageDataUrl: image } : {}),
         ...(kind === 'segment' ? { concept: overrideConcept ?? concept } : {}),
+        ...(kind === 'segment' && mode === 'fixture' ? { fixturePosition } : {}),
       });
       if (kind === 'discover') setScene(run.output as Scene);
       if (kind === 'discover' || kind === 'segment') setLamp('off');
@@ -283,7 +337,52 @@ export function App() {
       setBusy('');
     }
   }
-  async function deskAction(path: 'select' | 'zone' | 'verify' | 'reset', fields: object = {}) {
+  function placementMessage(event: EvidenceRun<PlacementDecision>) {
+    const o = event.output;
+    const moved = o.transition ? `${TRANSITION[o.transition]}. ` : '';
+    return `${mode === 'fixture' ? 'Virtual' : 'Live'} placement: ${moved}${o.reason} Lamp: ${o.action}.${o.error ? ` ${o.error.message}` : ''}`;
+  }
+  /**
+   * One tracking step: take the current frame (capturing from the camera if it
+   * is running), segment the mug, let the server match it to the remembered
+   * mug, and verify the zone. One SAM call in live mode.
+   */
+  async function track() {
+    setBusy('track');
+    setError('');
+    try {
+      let frame = image;
+      if (mode === 'live' && camera && video.current?.videoWidth) {
+        frame = captureCanvas(video.current, video.current.videoWidth, video.current.videoHeight);
+        stopCamera();
+      }
+      const run = await api<EvidenceRun<Segmentation>>('segment', {
+        mode,
+        concept: 'mug',
+        ...(mode === 'fixture' ? { fixturePosition } : { imageDataUrl: frame }),
+      });
+      setSegmentation(run.output);
+      setSegmentRunId(run.id);
+      setLamp('off');
+      const result = await api<{ memory: DeskMemory; event: EvidenceRun<PlacementDecision> }>(
+        'desk/track',
+        { mode, segmentRunId: run.id },
+      );
+      setMemories((current) => ({ ...current, [mode]: result.memory }));
+      setSelected(result.event);
+      if (result.event.output.action === 'confirmed') light();
+      setMessage(`Tracked${costNote(run)}. ${placementMessage(result.event)}`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Tracking failed.');
+    } finally {
+      setBusy('');
+      void refresh().catch(() => {});
+    }
+  }
+  async function deskAction(
+    path: 'select' | 'zone' | 'verify' | 'reset' | 'camera',
+    fields: object = {},
+  ) {
     setBusy(path);
     setError('');
     try {
@@ -295,18 +394,23 @@ export function App() {
         const event = result as EvidenceRun<PlacementDecision>;
         setSelected(event);
         if (event.output.action === 'confirmed') light();
-        setMessage(
-          `${mode === 'fixture' ? 'Virtual' : 'Live'} placement: ${event.output.reason} Lamp: ${event.output.action}.${event.output.error ? ` ${event.output.error.message}` : ''}`,
-        );
+        setMessage(placementMessage(event));
       } else {
         setMemories((current) => ({ ...current, [mode]: result as DeskMemory }));
         if (path === 'reset') setLamp('off');
+        const saved = result as DeskMemory;
         setMessage(
           path === 'select'
             ? 'Mug identity manually confirmed. Draw or edit its zone next.'
             : path === 'zone'
-              ? 'Zone saved for this exact image. Review it before verifying placement.'
-              : 'Desk memory reset. Evidence and action deduplication are retained.',
+              ? saved.fixedCamera
+                ? 'Zone saved. The camera is marked fixed, so it carries over to new frames of this size.'
+                : 'Zone saved for this exact image. Review it before verifying placement.'
+              : path === 'camera'
+                ? saved.fixedCamera
+                  ? 'Camera marked fixed. The zone now carries over to new frames of the same size.'
+                  : 'Camera no longer marked fixed. A zone applies only to the image it was drawn on.'
+                : 'Desk memory reset. Evidence and action deduplication are retained.',
         );
         setDrawing(false);
       }
@@ -326,11 +430,23 @@ export function App() {
   const observationStale = memory?.observation
     ? now - Date.parse(memory.observation.observedAt) > OBSERVATION_MAX_AGE_MS
     : false;
-  const visibleZone = drawing
-    ? draftZone
-    : currentObservation && memory?.zone && memory.zone.sourceKey === segmentation?.sourceKey
-      ? memory.zone.rect
-      : null;
+  const zone = memory && currentObservation ? zoneApplies(memory) : null;
+  const visibleZone = drawing ? draftZone : zone?.applies && memory?.zone ? memory.zone.rect : null;
+  // Where the mug has been, newest first, with the verdict each sighting got.
+  const sightings = memory?.observation ? [memory.observation, ...(memory.history ?? [])] : [];
+  const verdictFor = (o: DeskObservation) =>
+    runs.find(
+      (r): r is EvidenceRun<PlacementDecision> =>
+        r.kind === 'placement' && (r.output as PlacementDecision).observationId === o.id,
+    )?.output;
+  // Earlier boxes only line up with this frame when the frame is the same size.
+  const trail = segmentation
+    ? sightings.filter(
+        (o) =>
+          o.frame.width === segmentation.frame.width &&
+          o.frame.height === segmentation.frame.height,
+      )
+    : [];
   function zonePoint(e: PointerEvent<SVGSVGElement>) {
     const bounds = e.currentTarget.getBoundingClientRect();
     return {
@@ -345,6 +461,10 @@ export function App() {
   );
   const lampReady = Boolean(status?.lamp.configured && status.lamp.enabled);
   const canVision = !busy && (mode === 'fixture' || (metaReady && Boolean(image)));
+  const canTrack =
+    !busy &&
+    Boolean(memory?.object && memory.observation) &&
+    (mode === 'fixture' || (metaReady && (Boolean(image) || camera)));
   const proofCount = status ? Object.values(status.liveEvidence).filter(Boolean).length : 0;
   const confirmedId = currentObservation?.detectionId;
   const step = !scene && !segmentation ? 1 : !segmentation ? 2 : 3;
@@ -544,7 +664,13 @@ export function App() {
                 <video ref={video} muted playsInline aria-label="Desk camera preview" />
               ) : mode === 'fixture' || image ? (
                 <img
-                  src={mode === 'fixture' ? '/desk.svg' : image}
+                  src={
+                    mode === 'fixture'
+                      ? deskSvg
+                        ? fixtureDesk(deskSvg, fixturePosition)
+                        : '/desk.svg'
+                      : image
+                  }
                   alt={
                     mode === 'fixture'
                       ? 'Illustrated desk with a mug, book, and bottle; synthetic fixture'
@@ -558,6 +684,29 @@ export function App() {
                   <p>Upload a photo or capture a frame to begin.</p>
                   <small>Prepared locally · sent only on an explicit live probe</small>
                 </div>
+              )}
+              {!camera && segmentation && overlay && trail.length > 1 && (
+                <svg
+                  className="trail-overlay"
+                  viewBox={`0 0 ${segmentation.frame.width} ${segmentation.frame.height}`}
+                  aria-label={`Trail of ${trail.length} sightings`}
+                >
+                  <polyline
+                    points={[...trail]
+                      .reverse()
+                      .map((o) => `${o.box.x + o.box.width / 2},${o.box.y + o.box.height / 2}`)
+                      .join(' ')}
+                  />
+                  {trail.slice(1).map((o) => (
+                    <rect
+                      key={o.id}
+                      x={o.box.x}
+                      y={o.box.y}
+                      width={o.box.width}
+                      height={o.box.height}
+                    />
+                  ))}
+                </svg>
               )}
               {!camera && segmentation && overlay && (
                 <MaskOverlay
@@ -610,6 +759,7 @@ export function App() {
                   aria-hidden="true"
                 >
                   ZN-01
+                  {!drawing && zone?.carried && ' · CARRIED'}
                   {drawing &&
                     ` · ${Math.round(visibleZone.width * 100)}×${Math.round(visibleZone.height * 100)}%`}
                 </span>
@@ -625,9 +775,23 @@ export function App() {
             <div className="scene-bottom">
               <span>
                 {mode === 'fixture'
-                  ? 'Synthetic scene. No camera, inference, or physical action.'
+                  ? 'Synthetic scene. Move the mug to test tracking; no inference or physical action.'
                   : 'Your photo is sent to Meta for live vision probes.'}
               </span>
+              {mode === 'fixture' && (
+                <div className="capture-actions" role="group" aria-label="Move the fixture mug">
+                  {(Object.keys(FIXTURE_POSITIONS) as FixturePosition[]).map((p) => (
+                    <button
+                      key={p}
+                      aria-pressed={fixturePosition === p}
+                      disabled={Boolean(busy)}
+                      onClick={() => moveFixtureMug(p)}
+                    >
+                      {FIXTURE_POSITIONS[p].label}
+                    </button>
+                  ))}
+                </div>
+              )}
               {mode === 'live' && (
                 <div className="capture-actions">
                   <input
@@ -836,8 +1000,8 @@ export function App() {
                 <span className="model-tag">ZONE</span>
               </div>
               <p>
-                Confirm a specific mug mask. Identity is manual; the whole box must fit inside the
-                zone.
+                Confirm the mug by hand once. After that, Track follows it from frame to frame. The
+                whole box must fit inside the zone, and the lamp fires only when the mug enters.
               </p>
               {segmentation?.detections.map((d) => (
                 <button
@@ -856,12 +1020,41 @@ export function App() {
                   {memory.object.label} · {memory.object.id.slice(0, 8)}
                   <br />
                   {memory.observation
-                    ? `Last observed ${new Date(memory.observation.observedAt).toLocaleTimeString()} · manual identity`
+                    ? `Last observed ${new Date(memory.observation.observedAt).toLocaleTimeString()} · ${memory.observation.identity} identity`
                     : 'No observation'}
                   {observationStale && ' · STALE: segment a new frame.'}
                   {!currentObservation && ' · Segment and confirm the current frame to continue.'}
                 </p>
               )}
+              <button
+                className="primary"
+                disabled={!canTrack}
+                onClick={() => void track()}
+                title="Segment the mug in the current frame, match it to the remembered mug, and verify the zone"
+              >
+                {busy === 'track'
+                  ? 'Tracking…'
+                  : mode === 'live' && camera
+                    ? 'Capture & track'
+                    : 'Track the mug'}
+                <Glyph type="arrow" />
+              </button>
+              <p className="micro">
+                {!memory?.observation
+                  ? 'Confirm a mug mask by hand first; tracking starts from it.'
+                  : mode === 'fixture'
+                    ? 'Move the mug with the buttons under the scene, then track.'
+                    : `${status ? estimateLabel(status.meta.estimates.segment, 'track') : 'One SAM call per track'}. Move the mug, start the camera, then capture & track.`}
+              </p>
+              <label className="overlay-toggle">
+                <input
+                  type="checkbox"
+                  checked={Boolean(memory?.fixedCamera)}
+                  disabled={Boolean(busy) || !memory}
+                  onChange={(e) => void deskAction('camera', { fixed: e.target.checked })}
+                />
+                Camera is fixed: keep the zone for new frames of the same size
+              </label>
               <button
                 className="text-button"
                 disabled={Boolean(busy) || !currentObservation || camera}
@@ -910,8 +1103,13 @@ export function App() {
                 </div>
               )}
               <p className="micro">
-                {memory?.zone ? 'Zone saved for its source image.' : 'No saved zone.'} Observations
-                expire after 5 minutes. A still photo does not prove the current physical scene.
+                {!memory?.zone
+                  ? 'No saved zone.'
+                  : memory.fixedCamera
+                    ? 'Zone saved; carried to same-size frames while the camera is marked fixed.'
+                    : 'Zone saved for its source image.'}{' '}
+                Observations expire after 5 minutes. A still photo does not prove the current
+                physical scene.
               </p>
               <button
                 className="physical"
@@ -954,6 +1152,49 @@ export function App() {
                     </>
                   )}
                 </p>
+              )}
+              {sightings.length > 0 && (
+                <div className="timeline">
+                  <div className="section-label">
+                    <span>MOVEMENT</span>
+                    <span>
+                      {sightings.length} SIGHTING{sightings.length === 1 ? '' : 'S'}
+                    </span>
+                  </div>
+                  <ol>
+                    {sightings.map((o, i) => {
+                      const here = centre(o);
+                      const before = sightings[i + 1];
+                      const moved = before
+                        ? Math.hypot(here.x - centre(before).x, here.y - centre(before).y) * 100
+                        : null;
+                      const verdict = verdictFor(o);
+                      return (
+                        <li key={o.id} className={i === 0 ? 'current' : ''}>
+                          <span className={`transition ${verdict?.transition ?? 'none'}`}>
+                            {verdict?.transition
+                              ? TRANSITION[verdict.transition]
+                              : verdict
+                                ? 'Blocked'
+                                : 'Not checked'}
+                          </span>
+                          <span className="micro">
+                            {new Date(o.observedAt).toLocaleTimeString([], {
+                              hour: '2-digit',
+                              minute: '2-digit',
+                              second: '2-digit',
+                            })}{' '}
+                            · {o.identity} · at {Math.round(here.x * 100)},
+                            {Math.round(here.y * 100)}%
+                            {moved !== null && ` · moved ${moved.toFixed(1)}%`}
+                            {o.overlap != null && ` · overlap ${o.overlap.toFixed(2)}`}
+                            {verdict?.assumedFixedCamera && ' · carried zone'}
+                          </span>
+                        </li>
+                      );
+                    })}
+                  </ol>
+                </div>
               )}
               <button
                 className="text-button destructive"

@@ -8,7 +8,7 @@ import {
   modeSchema,
   imageRequestSchema,
   segmentRequestSchema,
-  FIXTURE_ID,
+  fixtureSourceKey,
   estimateCost,
   runCost,
   type EvidenceRun,
@@ -196,12 +196,14 @@ export async function buildApp(
             'fixture_image',
             'Fixture mode uses only the bundled illustrated desk.',
           );
-        const result = await fixtureSegmentation(input.concept);
+        const result = await fixtureSegmentation(input.concept, input.fixturePosition);
         return {
-          output: { ...result.output, sourceKey: FIXTURE_ID },
+          output: { ...result.output, sourceKey: fixtureSourceKey(input.fixturePosition) },
           assets: [store.asset(id, 'synthetic-sam.txt', result.raw)],
         };
       }
+      if (input.fixturePosition)
+        throw new LabError('fixture_position', 'Fixture positions apply only in fixture mode.');
       const image = await validateImage(input.imageDataUrl);
       const result = await meta.segment(image.dataUrl, input.concept, image.width, image.height);
       return {

@@ -1,6 +1,12 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { isMugConcept, type Scene, type LampResult } from '@livinglayer/domain';
+import {
+  FIXTURE_POSITIONS,
+  isMugConcept,
+  type FixturePosition,
+  type Scene,
+  type LampResult,
+} from '@livinglayer/domain';
 import { PROJECT_ROOT } from './config.js';
 import { decodeSegmentation, syntheticStream } from './sam.js';
 
@@ -16,16 +22,20 @@ export const fixtureScene: Scene = {
     { label: 'sage bottle', category: 'bottle', appearance: 'Tall sage bottle on the right.' },
   ],
 };
-export async function fixtureSegmentation(concept: string) {
+/** The synthetic mug mask, moved to `position` the same way the web redraws the desk. */
+export async function fixtureSegmentation(concept: string, position: FixturePosition = 'centre') {
   const fixture = JSON.parse(
     readFileSync(resolve(PROJECT_ROOT, 'fixtures/sam-mug.json'), 'utf8'),
   ) as { width: number; height: number; wire: string };
-  return decodeSegmentation(
+  const result = await decodeSegmentation(
     syntheticStream(isMugConcept(concept) ? fixture.wire : ''),
     concept,
     fixture.width,
     fixture.height,
   );
+  const { dx, dy } = FIXTURE_POSITIONS[position];
+  for (const d of result.output.detections) d.box = { ...d.box, x: d.box.x + dx, y: d.box.y + dy };
+  return result;
 }
 export const fixtureLamp: LampResult = {
   entityId: 'light.fixture_desk',

@@ -10,9 +10,12 @@ import { deskRoutes } from '../apps/server/src/desk.js';
 import Fastify from 'fastify';
 import {
   boxInZone,
+  pickTracked,
   placementGate,
+  type Detection,
   type DeskMemory,
   type EvidenceRun,
+  type PlacementDecision,
   type Segmentation,
 } from '@livinglayer/domain';
 import { fixtureLamp } from '../apps/server/src/fixtures.js';
@@ -75,7 +78,12 @@ describe('desk placement', () => {
       url: '/api/desk/verify',
       payload: { mode: 'fixture', ...ids },
     });
-    expect(again.json().output).toMatchObject({ decision: 'blocked', action: 'none' });
+    // Still inside: the lamp fires only on entering, so a repeat check does nothing.
+    expect(again.json().output).toMatchObject({
+      decision: 'inside',
+      transition: 'stayed_inside',
+      action: 'none',
+    });
     const exportData = (await app.inject('/api/evidence')).json();
     expect(exportData.runs.map((r: EvidenceRun) => r.kind)).toEqual(
       expect.arrayContaining(['observation', 'zone', 'placement']),
@@ -207,5 +215,79 @@ describe('desk placement', () => {
     expect(action).toHaveBeenCalledTimes(1);
     await app.close();
     store.close();
+  });
+});
+
+describe('desk tracking', () => {
+  type Tracked = { memory: DeskMemory; event: EvidenceRun<PlacementDecision> };
+  async function track(s: Awaited<ReturnType<typeof setup>>, fixturePosition: string) {
+    const seg = (await s.post('segment', { concept: 'mug', fixturePosition })).json<EvidenceRun>();
+    return s.post('desk/track', { segmentRunId: seg.id });
+  }
+  it('carries the zone on a fixed camera and fires the lamp only on entering', async () => {
+    const s = await setup();
+    await s.zone();
+    await s.post('desk/camera', { fixed: true });
+    const steps: Tracked[] = [];
+    for (const spot of ['right', 'centre', 'centre', 'front', 'centre'])
+      steps.push((await track(s, spot)).json<Tracked>());
+    expect(steps.map((t) => [t.event.output.transition, t.event.output.action])).toEqual([
+      ['stayed_outside', 'none'],
+      ['entered', 'confirmed'],
+      ['stayed_inside', 'none'],
+      ['left', 'none'],
+      ['entered', 'confirmed'],
+    ]);
+    expect(steps[0]!.event.output.assumedFixedCamera).toBe(true);
+    const last = steps.at(-1)!.memory;
+    expect(last.observation).toMatchObject({ identity: 'tracked' });
+    expect(last.history).toHaveLength(5);
+    expect(last.history![0]!.box.y).toBe(290);
+    expect(s.fetcher).not.toHaveBeenCalled();
+    await s.app.close();
+  });
+  it('drops the zone on a new image unless the camera is marked fixed', async () => {
+    const s = await setup();
+    await s.zone();
+    const moved = (await track(s, 'right')).json<Tracked>();
+    expect(moved.memory.zone).toBeNull();
+    expect(moved.event.output).toMatchObject({ decision: 'blocked', action: 'none' });
+    expect(moved.event.output.transition).toBeUndefined();
+    await s.app.close();
+  });
+  it('needs one manual confirmation before tracking, and changes nothing on an empty frame', async () => {
+    const s = await setup();
+    await s.post('desk/reset');
+    expect((await track(s, 'centre')).json().error.code).toBe('track_identity');
+    await s.post('desk/select', {
+      segmentRunId: (await s.post('segment', { concept: 'mug' })).json().id,
+      detectionId: '7',
+    });
+    const before = (await s.app.inject('/api/desk/fixture')).json<DeskMemory>();
+    const empty = (await s.post('segment', { concept: 'unicorn' })).json<EvidenceRun>();
+    const lost = await s.post('desk/track', { segmentRunId: empty.id });
+    expect(lost.statusCode).toBe(400);
+    const after = (await s.app.inject('/api/desk/fixture')).json<DeskMemory>();
+    expect(after.observation!.id).toBe(before.observation!.id);
+    await s.app.close();
+  });
+  it('matches the detection overlapping the last box, and refuses to guess between several', () => {
+    const frame = { width: 100, height: 100 };
+    const det = (objectId: string, x: number): Detection => ({
+      objectId,
+      confidence: 0.9,
+      box: { x, y: 10, width: 20, height: 20 },
+      mask: { width: 1, height: 1, foregroundPixels: 1, svgPath: 'M0 0Z' },
+    });
+    const two = [det('a', 10), det('b', 60)];
+    expect(pickTracked(two, frame)).toBeNull();
+    expect(pickTracked([two[0]!], frame)?.detection.objectId).toBe('a');
+    const previous = { box: { x: 55, y: 10, width: 20, height: 20 }, frame };
+    expect(pickTracked(two, frame, previous)?.detection.objectId).toBe('b');
+    const far = { box: { x: 90, y: 80, width: 5, height: 5 }, frame };
+    expect(pickTracked(two, frame, far)).toMatchObject({
+      detection: { objectId: 'b' },
+      overlap: 0,
+    });
   });
 });

@@ -597,6 +597,28 @@ input[type='checkbox'] {
 .mask-overlay {
   pointer-events: none;
 }
+/* Where the tracked mug has been: faint earlier boxes joined by its path. */
+.trail-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.trail-overlay polyline,
+.trail-overlay rect {
+  fill: none;
+  stroke: var(--seen);
+  stroke-width: 1px;
+  vector-effect: non-scaling-stroke;
+}
+.trail-overlay polyline {
+  stroke-dasharray: 4 4;
+  opacity: 0.7;
+}
+.trail-overlay rect {
+  opacity: 0.25;
+}
 .detection {
   --signal: var(--seen);
   --signal-glow: var(--seen-glow);
@@ -1506,4 +1528,44 @@ footer > span:first-child {
   body::after {
     display: none;
   }
+}
+
+/* Fixture mug positions */
+.capture-actions button[aria-pressed='true'] {
+  border-color: var(--seen);
+  color: var(--seen);
+}
+
+/* Movement timeline: newest sighting first. Amber marks the lamp-worthy entry. */
+.timeline ol {
+  display: grid;
+  gap: 6px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.timeline li {
+  display: grid;
+  gap: 2px;
+  padding: 8px 12px;
+  border-radius: var(--r-button);
+  background: var(--surface-2);
+}
+.timeline li.current {
+  box-shadow: inset 2px 0 0 var(--seen);
+}
+.timeline .transition {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-2);
+}
+.timeline .transition.entered {
+  color: var(--warm);
+}
+.timeline .transition.stayed_inside {
+  color: var(--ok);
+}
+.timeline .transition.left,
+.timeline .transition.none {
+  color: var(--unsure);
 }

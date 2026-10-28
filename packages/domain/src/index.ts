@@ -26,9 +26,22 @@ export const imageRequestSchema = z
     imageDataUrl: z.string().max(7_000_000).optional(),
   })
   .strict();
+/**
+ * Where the fixture mug sits. The illustrated desk is redrawn with the mug
+ * offset by this many frame pixels, and the synthetic mask moves with it, so
+ * the tracking loop can be tested without a camera or any model call.
+ */
+export const FIXTURE_POSITIONS = {
+  centre: { label: 'Centre', dx: 0, dy: 0 },
+  right: { label: 'Right', dx: 100, dy: -20 },
+  front: { label: 'Front left', dx: -50, dy: 110 },
+} as const;
+export type FixturePosition = keyof typeof FIXTURE_POSITIONS;
+export const fixturePositionSchema = z.enum(['centre', 'right', 'front']);
 export const segmentRequestSchema = imageRequestSchema
   .extend({
     concept: z.string().trim().min(1).max(80),
+    fixturePosition: fixturePositionSchema.optional(),
   })
   .strict();
 
@@ -107,6 +120,10 @@ export interface ApiFailure {
 export const MAX_IMAGE_PIXELS = 4_000_000;
 export const MAX_MASK_PIXELS = 4_000_000;
 export const FIXTURE_ID = 'illustrated-desk-v1';
+/** Each fixture position is its own source image, as a new photo would be. */
+export function fixtureSourceKey(position: FixturePosition = 'centre'): string {
+  return position === 'centre' ? FIXTURE_ID : `${FIXTURE_ID}@${position}`;
+}
 
 /**
  * Meta's published list prices in USD, from dev.meta.ai/docs/pricing-rate-limits.
@@ -192,14 +209,27 @@ export interface DeskObservation {
   sourceKey: string;
   frame: Segmentation['frame'];
   box: Detection['box'];
-  identity: 'manual';
+  /** `manual`: a person picked the mask. `tracked`: matched to the previous observation. */
+  identity: 'manual' | 'tracked';
+  /** Overlap (IoU) with the previous observation's box, when there was one. */
+  overlap?: number | null;
 }
 export interface DeskMemory {
   mode: Mode;
   object: { id: string; label: string; createdAt: string } | null;
   observation: DeskObservation | null;
-  zone: { id: string; sourceKey: string; rect: ZoneRect } | null;
+  /** `frame` is the size of the image the zone was drawn on; older zones lack it. */
+  zone: { id: string; sourceKey: string; rect: ZoneRect; frame?: Segmentation['frame'] } | null;
   lastDecision: EvidenceRun<PlacementDecision> | null;
+  /**
+   * Opt-in: the camera hasn't moved, so a zone carries over to any new frame of
+   * the same size. Off, a zone only applies to the exact image it was drawn on.
+   */
+  fixedCamera?: boolean;
+  /** Earlier observations of the object, newest first. */
+  history?: DeskObservation[];
+  /** The last inside/outside verdict, so the lamp fires only on entering the zone. */
+  placement?: 'inside' | 'outside' | null;
 }
 export interface PlacementDecision {
   observationId: string | null;
@@ -209,6 +239,10 @@ export interface PlacementDecision {
   decision: 'inside' | 'outside' | 'blocked';
   reason: string;
   action: 'none' | 'pending' | 'confirmed' | 'unconfirmed' | 'failed';
+  /** How this verdict compares with the previous one. Absent when blocked. */
+  transition?: 'entered' | 'stayed_inside' | 'left' | 'stayed_outside';
+  /** The zone was drawn on another frame and applied because the camera is marked fixed. */
+  assumedFixedCamera?: boolean;
   lamp?: LampResult;
   error?: { code: string; message: string };
 }
@@ -226,10 +260,68 @@ export function boxInZone(
     (b.y + b.height) / frame.height <= zone.y + zone.height
   );
 }
+export const HISTORY_LIMIT = 12;
+const normalize = (b: Detection['box'], f: Segmentation['frame']) => ({
+  x: b.x / f.width,
+  y: b.y / f.height,
+  width: b.width / f.width,
+  height: b.height / f.height,
+});
+/** Intersection over union of two boxes, each measured against its own frame. */
+export function boxOverlap(
+  a: Detection['box'],
+  aFrame: Segmentation['frame'],
+  b: Detection['box'],
+  bFrame: Segmentation['frame'],
+): number {
+  const p = normalize(a, aFrame);
+  const q = normalize(b, bFrame);
+  const w = Math.min(p.x + p.width, q.x + q.width) - Math.max(p.x, q.x);
+  const h = Math.min(p.y + p.height, q.y + q.height) - Math.max(p.y, q.y);
+  const inter = Math.max(0, w) * Math.max(0, h);
+  const union = p.width * p.height + q.width * q.height - inter;
+  return union > 0 ? inter / union : 0;
+}
+/**
+ * Pick which detection is the remembered object: the one overlapping its last
+ * box most, or the nearest when none overlap. With no previous box, only a
+ * lone detection is safe to take; several mean a person has to choose.
+ */
+export function pickTracked(
+  detections: Detection[],
+  frame: Segmentation['frame'],
+  previous?: { box: Detection['box']; frame: Segmentation['frame'] },
+): { detection: Detection; overlap: number | null } | null {
+  if (!detections.length) return null;
+  if (!previous)
+    return detections.length === 1 ? { detection: detections[0]!, overlap: null } : null;
+  const last = normalize(previous.box, previous.frame);
+  const scored = detections.map((d) => {
+    const n = normalize(d.box, frame);
+    const distance = Math.hypot(
+      n.x + n.width / 2 - (last.x + last.width / 2),
+      n.y + n.height / 2 - (last.y + last.height / 2),
+    );
+    return { d, overlap: boxOverlap(d.box, frame, previous.box, previous.frame), distance };
+  });
+  scored.sort((a, b) => b.overlap - a.overlap || a.distance - b.distance);
+  return { detection: scored[0]!.d, overlap: scored[0]!.overlap };
+}
+/** Whether the saved zone applies to the current observation, and whether only by assumption. */
+export function zoneApplies(memory: DeskMemory): { applies: boolean; carried: boolean } {
+  const o = memory.observation;
+  const z = memory.zone;
+  if (!o || !z) return { applies: false, carried: false };
+  if (z.sourceKey === o.sourceKey) return { applies: true, carried: false };
+  const sameSize = z.frame?.width === o.frame.width && z.frame?.height === o.frame.height;
+  return memory.fixedCamera && sameSize
+    ? { applies: true, carried: true }
+    : { applies: false, carried: false };
+}
 export function placementGate(
   memory: DeskMemory,
   now = Date.now(),
-): Pick<PlacementDecision, 'decision' | 'reason'> {
+): Pick<PlacementDecision, 'decision' | 'reason' | 'assumedFixedCamera'> {
   const o = memory.observation;
   const z = memory.zone;
   if (!o || !memory.object || o.objectId !== memory.object.id)
@@ -240,15 +332,25 @@ export function placementGate(
       decision: 'blocked',
       reason: 'Observation is stale. Segment a new frame and confirm the mug.',
     };
-  if (!z || z.sourceKey !== o.sourceKey)
-    return { decision: 'blocked', reason: 'Draw and save a zone on this observation image.' };
+  const zone = zoneApplies(memory);
+  if (!z || !zone.applies)
+    return {
+      decision: 'blocked',
+      reason: memory.fixedCamera
+        ? 'Draw and save a zone on a frame of this size.'
+        : 'Draw and save a zone on this observation image, or mark the camera as fixed.',
+    };
+  const who = o.identity === 'tracked' ? 'tracked' : 'manually confirmed';
+  const assumption = zone.carried ? ' (zone carried over: camera assumed fixed)' : '';
   return boxInZone(o.box, o.frame, z.rect)
     ? {
         decision: 'inside',
-        reason: 'The manually confirmed mug box is fully inside the saved zone.',
+        reason: `The ${who} mug box is fully inside the saved zone${assumption}.`,
+        assumedFixedCamera: zone.carried,
       }
     : {
         decision: 'outside',
-        reason: 'The mug box is outside or crosses the zone boundary. No lamp action.',
+        reason: `The mug box is outside or crosses the zone boundary${assumption}. No lamp action.`,
+        assumedFixedCamera: zone.carried,
       };
 }
