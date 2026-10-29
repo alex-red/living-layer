@@ -2,11 +2,13 @@ import { useEffect, useState } from 'react';
 import {
   DEMO_SURFACE,
   ISO_PRESETS,
+  fixtureBox,
   guessedScene,
   isoSurface,
   itemHeight,
   modelTarget,
   pinFits,
+  rotateItem,
   projectBox,
   surfaceMap,
   zoneFromSurface,
@@ -14,6 +16,7 @@ import {
   type DeskMemory,
   type DeskObservation,
   type EvidenceRun,
+  type FixtureInput,
   type IsoItem,
   type IsoScene as Scene,
   type IsoSurface,
@@ -24,7 +27,7 @@ import {
   type ZoneRect,
 } from '@livinglayer/domain';
 import { api } from '../api';
-import { IsoScene, type IsoObject, type IsoZone } from './IsoScene';
+import { IsoScene, type IsoFixture, type IsoObject, type IsoZone } from './IsoScene';
 import { ItemEditor } from './ItemEditor';
 import { SceneEditor, type LayoutRun } from './SceneEditor';
 import type { PhotoRun } from './PhotoReview';
@@ -40,6 +43,9 @@ export interface RuleDraft {
   label: string;
   rect: ZoneRect | null;
 }
+
+/** A fixture waiting to be put down: everything about it but where it stands. */
+export type FixturePlacing = Omit<FixtureInput, 'at' | 'surfaceId'>;
 
 /** Where one sighting stands on the pinned surface, or null when the pin can't place it. */
 function place(
@@ -82,6 +88,9 @@ export function IsoView({
   guess,
   ruleDraft,
   onRuleDraft,
+  placing,
+  onPlace,
+  onFixture,
   focus,
   layers = { trail: true, zones: true },
   memory,
@@ -113,8 +122,13 @@ export function IsoView({
   guess: SceneGuess | null;
   ruleDraft: RuleDraft | null;
   onRuleDraft: (draft: RuleDraft | null) => void;
+  /** A fixture to put down with a click in the room. */
+  placing?: FixturePlacing | null;
+  onPlace?: (where: { at: { x: number; y: number }; surfaceId: string | null }) => void;
+  /** A click on a fixture in the room. */
+  onFixture?: (id: string) => void;
   /** What the outline has selected, ringed in the room: `tracked` is the mug, `main` its zone. */
-  focus?: { object?: string; zone?: string };
+  focus?: { object?: string; zone?: string; fixture?: string };
   /** Which canvas layers show: the mug's trail, and saved zones (a draft always shows). */
   layers?: { trail: boolean; zones: boolean };
   memory?: DeskMemory;
@@ -222,6 +236,19 @@ export function IsoView({
     if (rule.placement === 'inside' && rule.lastDecision?.output.action === 'confirmed')
       lit.add(rule.entityId);
   const drawingRule = Boolean(ruleDraft && ruleMap);
+  // Fixtures in this scene; one being moved is drawn only where the pointer is.
+  const fixtures: IsoFixture[] = (memory?.fixtures ?? [])
+    .filter((f) => f.scene === kind && f.id !== placing?.id)
+    .map((f) => ({
+      id: f.id,
+      label: f.label,
+      box: fixtureBox(f, custom),
+      item: rotateItem(f.model, f.turns),
+      glow: f.control.kind === 'light' && f.state === 'on',
+      ...(f.control.kind === 'none' ? {} : { state: f.state ?? null }),
+      focused: f.id === focus?.fixture,
+    }));
+  const turned = placing ? placing.turns % 2 === 1 : false;
 
   const target = memory ? modelTarget(memory, modelOf) : null;
 
@@ -326,6 +353,22 @@ export function IsoView({
             scene={scene}
             surface={surface}
             objects={objects}
+            fixtures={fixtures}
+            onFixture={onFixture}
+            placing={
+              placing && onPlace && placing.scene === kind
+                ? {
+                    label: placing.label,
+                    item: rotateItem(placing.model, placing.turns),
+                    size: {
+                      w: turned ? placing.size.d : placing.size.w,
+                      d: turned ? placing.size.w : placing.size.d,
+                      h: placing.size.h,
+                    },
+                    onPlace,
+                  }
+                : undefined
+            }
             trail={trail}
             zones={zones}
             litLights={lit}

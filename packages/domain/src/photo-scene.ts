@@ -103,7 +103,7 @@ export function cleanInventory(inventory: PhotoInventory): PhotoInventory {
 }
 /** A thing's rough box in frame pixels, or null when it is too small to prompt SAM with. */
 export function promptBox(
-  t: PhotoThing,
+  t: Pick<PhotoThing, 'box'>,
   frame: Segmentation['frame'],
 ): { left: number; top: number; right: number; bottom: number } | null {
   const sx = frame.width / 1000;

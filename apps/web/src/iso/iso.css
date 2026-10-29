@@ -867,3 +867,31 @@
   min-height: 28px;
   font-size: 12px;
 }
+/* Fixtures stand where a person put them; a click selects one. */
+.iso-fixture {
+  cursor: pointer;
+}
+.iso-fixture text {
+  fill: var(--text-2);
+  font: 500 10px/1 var(--mono);
+  letter-spacing: 0.08em;
+  text-anchor: middle;
+  pointer-events: none;
+}
+.iso-fixture.focused text {
+  fill: var(--text);
+  font-weight: 700;
+}
+/* A switch that is on shows in its label; amber stays for lights. */
+.iso-fixture.on text {
+  fill: var(--ok);
+}
+.iso-ghost {
+  opacity: 0.6;
+  pointer-events: none;
+}
+.iso-place-hit {
+  fill: transparent;
+  cursor: crosshair;
+  touch-action: none;
+}

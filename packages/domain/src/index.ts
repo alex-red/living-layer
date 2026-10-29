@@ -215,7 +215,10 @@ export function sparkCeiling(maxOutputTokens: number, images: number): number {
 export function runCost(run: Pick<EvidenceRun, 'kind' | 'mode' | 'usage'>): number | null {
   if (run.mode !== 'live') return null;
   if (run.kind === 'segment') return META_PRICES.samPerImage;
-  if (!['text', 'discover', 'scene', 'layout', 'item', 'photo'].includes(run.kind) || !run.usage)
+  if (
+    !['text', 'discover', 'scene', 'layout', 'item', 'photo', 'fixture'].includes(run.kind) ||
+    !run.usage
+  )
     return null;
   return sparkCost(run.usage);
 }

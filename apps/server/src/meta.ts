@@ -7,6 +7,7 @@ import {
   ARCHETYPES,
   ITEM_MATERIALS,
   itemClassSchema,
+  fixtureClassSchema,
   itemCheckSchema,
   sceneDraftSchema,
   templateCatalog,
@@ -47,6 +48,7 @@ export const SPARK_BUDGET = {
   classify: 8192,
   layout: 16384,
   itemClass: 4096,
+  fixtureClass: 8192,
   itemCheck: 4096,
   photoInventory: 16384,
   photoCheck: 12288,
@@ -271,6 +273,48 @@ export class MetaAdapter {
       },
     });
     return this.parsed(response, itemClassSchema, 'item class', SPARK_BUDGET.itemClass);
+  }
+  /**
+   * Spark names the one thing in a reference photo for a fixture: what to
+   * model it as, a loose box for SAM, whether it looks like a light or a
+   * switch, and its usual size. It never gives the model's numbers.
+   */
+  async fixtureClass(imageDataUrl: string, hint?: string) {
+    const response = await this.spark(1, {
+      model: this.config.sparkModel,
+      store: false,
+      max_output_tokens: SPARK_BUDGET.fixtureClass,
+      input: [
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'input_text',
+              text: [
+                `This is a reference photo of one thing someone wants to add to a model of their room${hint ? `: ${hint}` : ''}.`,
+                'Name the main thing in a few plain words (label).',
+                `Pick the archetype that best describes its shape: ${ARCHETYPES.join(', ')}. Use generic only when none fits.`,
+                `Pick its main surface material: ${ITEM_MATERIALS.join(', ')}.`,
+                'control: light for a lamp, bulb or light strip; switch for anything else that turns on and off (a fan, a smart plug, a wall switch, a monitor); none for everything else.',
+                'Describe what you see in one short sentence (colours, shape, details).',
+                'box: a loose box around the whole thing, in thousandths of the image width (x1, x2) and height (y1, y2), top-left first.',
+                'sizeCm: its usual real width, depth and height in centimetres.',
+              ].join('\n'),
+            },
+            { type: 'input_image', image_url: imageDataUrl, detail: 'auto' },
+          ],
+        },
+      ],
+      text: {
+        format: {
+          type: 'json_schema',
+          name: 'fixture_class',
+          strict: true,
+          schema: z.toJSONSchema(fixtureClassSchema),
+        },
+      },
+    });
+    return this.parsed(response, fixtureClassSchema, 'fixture class', SPARK_BUDGET.fixtureClass);
   }
   /**
    * Spark compares the photo with the model rendered from the same camera and

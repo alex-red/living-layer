@@ -3,6 +3,7 @@ import {
   ISO_PRESETS,
   pinFits,
   type DeskMemory,
+  type Fixture,
   type IsoSurface,
   type Mode,
 } from '@livinglayer/domain';
@@ -84,7 +85,16 @@ export function selectionLabel(lab: Lab, s: Selection): string {
         : (memory?.rules?.find((r) => r.id === s.id)?.label ?? 'Rule');
     case 'new-rule':
       return 'New rule';
+    case 'fixture':
+      return memory?.fixtures?.find((f) => f.id === s.id)?.label ?? 'Fixture';
+    case 'new-fixture':
+      return 'Add a fixture';
   }
+}
+/** What a fixture is and, for a light or switch, its last confirmed state. */
+export function controlLabel(f: Pick<Fixture, 'control' | 'state'>): string {
+  if (f.control.kind === 'none') return 'just a thing';
+  return `${f.control.kind} · ${f.state ?? 'unknown'}`;
 }
 
 /** "40 s ago", "6 min ago". */

@@ -3,8 +3,11 @@ import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import {
   DEMO_REFERENCES,
+  META_PRICES,
   MAX_FIXTURES,
   isoSceneKindSchema,
+  promptBox,
+  sparkCeiling,
   sizeInTiles,
   fixtureEntity,
   fixtureInputSchema,
@@ -12,17 +15,29 @@ import {
   modeSchema,
   uniqueParts,
   type DeskMemory,
+  type Detection,
   type Fixture,
+  type FixtureClass,
   type FixtureDraft,
   type LampResult,
   type Mode,
+  type Usage,
 } from '@livinglayer/domain';
 import { LabError, parseInput } from './errors.js';
 import { demoFixtureClass, demoReference } from './demo.js';
-import { maskedCrop } from './images.js';
+import { maskedCrop, validateImage } from './images.js';
 import { draftModel, rescore, type Runner } from './item.js';
-import type { MetaAdapter } from './meta.js';
+import { SPARK_BUDGET, type MetaAdapter } from './meta.js';
 import type { EvidenceStore } from './store.js';
+
+/**
+ * The most a live draft can cost: Spark names the thing, SAM outlines it,
+ * SAM looks for up to two parts, and Spark checks one render.
+ */
+const fixtureDraftCeiling = () =>
+  sparkCeiling(SPARK_BUDGET.fixtureClass, 1) +
+  3 * META_PRICES.samPerImage +
+  sparkCeiling(SPARK_BUDGET.itemCheck, 2);
 
 /** Switch one light or switch, through Home Assistant or the demo's virtual adapter. */
 export type Control = (mode: Mode, entityId: string, action: 'on' | 'off') => Promise<LampResult>;
@@ -68,22 +83,25 @@ export function fixtureRoutes(
         .object({
           mode: modeSchema,
           scene: z.union([isoSceneKindSchema, z.literal('custom')]),
+          /** Demo: one of the bundled pictures. */
           reference: z.enum(DEMO_REFERENCES).optional(),
+          /** Live: the person's photo of the thing. */
+          imageDataUrl: z.string().max(7_000_000).optional(),
+          /** What the person says it is; Spark is told, and it names the draft. */
           label: z.string().trim().min(1).max(40).optional(),
         })
         .strict(),
       request.body,
     );
     const { mode, scene } = input;
-    if (mode !== 'demo')
+    const live = mode === 'live';
+    if (live ? input.reference : input.imageDataUrl || !input.reference)
       throw new LabError(
-        'fixture_live',
-        'Drafting a fixture from your own photo isn’t built yet. Use demo mode.',
-        501,
+        'demo_image',
+        live
+          ? 'Live mode drafts from your own photo, not the bundled pictures.'
+          : 'Demo mode drafts only from the bundled pictures.',
       );
-    if (!input.reference)
-      throw new LabError('demo_image', 'Demo mode drafts only from the bundled pictures.');
-    const reference = input.reference;
     const custom = store.memory(mode).scene;
     if (scene === 'custom' && !custom)
       throw new LabError(
@@ -91,13 +109,61 @@ export function fixtureRoutes(
         'Save your own scene before drafting fixtures for it.',
         409,
       );
+    // Refuse up front rather than stop halfway, with Spark's answer already paid for.
+    if (live && !meta.canAfford(fixtureDraftCeiling()))
+      throw new LabError(
+        'spend_limit',
+        `A fixture draft could cost up to $${fixtureDraftCeiling().toFixed(3)}, which would pass today's Meta spending limit. Raise the limit in Setup, or wait for the next UTC day.`,
+        429,
+      );
     const event = await run('fixture', mode, async (id) => {
-      const cls = demoFixtureClass[reference];
-      const { png, detection } = await demoReference(reference);
+      let usage: Usage | null = null;
+      let model: string | undefined;
+      let requestId: string | null = null;
+      const assets: string[] = [];
+      // 1. The photo, and what is in it: Spark live, the hand-written class in the demo.
+      let png: Buffer;
+      let cls: FixtureClass;
+      let detection: Detection;
+      if (live) {
+        const image = await validateImage(input.imageDataUrl);
+        png = image.bytes;
+        const named = await meta.fixtureClass(image.dataUrl, input.label);
+        cls = named.output;
+        usage = named.usage;
+        model = named.model;
+        requestId = named.requestId;
+        // 2. SAM outlines whatever is inside Spark's box.
+        const frame = { width: image.width, height: image.height };
+        const box = promptBox(cls, frame);
+        if (!box)
+          throw new LabError('fixture_none', `The ${cls.label} is too small in the photo.`, 422);
+        const outlined = await meta.segmentBoxes(
+          image.dataUrl,
+          [{ id: 1, box }],
+          frame.width,
+          frame.height,
+        );
+        assets.push(store.asset(id, 'sam-output.txt', outlined.raw));
+        const found = [...outlined.output.detections].sort(
+          (a, b) => b.mask.foregroundPixels - a.mask.foregroundPixels,
+        )[0];
+        if (!found)
+          throw new LabError(
+            'fixture_none',
+            `Couldn’t find the ${cls.label.toLowerCase()} in the photo. Try one thing, filling most of the frame.`,
+            422,
+          );
+        detection = found;
+      } else {
+        cls = demoFixtureClass[input.reference!];
+        ({ png, detection } = await demoReference(input.reference!));
+      }
       const label = input.label ?? cls.label;
       const crop = await maskedCrop(png, detection);
       const referenceAsset = store.asset(id, 'reference.png', png);
       const cropAsset = store.asset(id, 'item-crop.png', crop.png);
+      // 3. The same modelling as objects: part masks and Spark's check when live.
       const drafted = await draftModel(meta, store, id, {
         crop,
         cropUrl: `data:image/png;base64,${crop.png.toString('base64')}`,
@@ -105,8 +171,16 @@ export function fixtureRoutes(
         archetype: cls.archetype,
         material: cls.material,
         elevation: null,
-        live: false,
+        live,
       });
+      if (drafted.usage)
+        usage = usage
+          ? {
+              inputTokens: usage.inputTokens + drafted.usage.inputTokens,
+              outputTokens: usage.outputTokens + drafted.usage.outputTokens,
+              totalTokens: usage.totalTokens + drafted.usage.totalTokens,
+            }
+          : drafted.usage;
       const draft: FixtureDraft = {
         label,
         archetype: drafted.fitted.archetype,
@@ -114,7 +188,7 @@ export function fixtureRoutes(
         description: cls.description,
         model: {
           ...uniqueParts(drafted.item),
-          source: 'demo',
+          source: live ? 'spark' : 'demo',
           segmentRunId: null,
           swatches: drafted.fitted.swatches,
           updatedAt: new Date().toISOString(),
@@ -126,13 +200,22 @@ export function fixtureRoutes(
             elevation: drafted.fitted.elevation,
             views: 1,
             crop: cropAsset,
-            assists: [`Demo: ${cls.description}`, ...drafted.assists],
+            assists: [
+              `${live ? 'Spark' : 'Demo'}: ${cls.archetype}, ${cls.material}. ${cls.description}`,
+              ...drafted.assists,
+            ],
           },
         },
         size: sizeInTiles(cls.sizeCm, scene, custom),
         reference: { runId: id, asset: referenceAsset },
       };
-      return { output: draft, assets: [referenceAsset, cropAsset, ...drafted.assets] };
+      return {
+        output: draft,
+        assets: [referenceAsset, cropAsset, ...assets, ...drafted.assets],
+        usage,
+        ...(model ? { model } : {}),
+        requestId,
+      };
     });
     return { run: event, draft: event.output as FixtureDraft };
   });
@@ -193,6 +276,14 @@ export function fixtureRoutes(
       : [...fixtures, fixture];
     store.saveMemory(memory);
     return memory;
+  });
+  /** The reference photo a fixture was drafted from, for review and the inspector. */
+  app.get('/api/fixtures/reference', async (request, reply) => {
+    const { runId } = parseInput(z.object({ runId: z.string().uuid() }).strict(), request.query);
+    const drafted = store.getRun(runId);
+    const png = drafted?.kind === 'fixture' ? store.readAsset(`${runId}/reference.png`) : null;
+    if (!png) throw new LabError('fixture_reference', 'That draft has no reference photo.', 404);
+    return reply.type('image/png').header('cache-control', 'private, max-age=3600').send(png);
   });
   /** Rules that switched the fixture keep its entity and lose the link to it. */
   app.post('/api/fixtures/delete', async (request) => {
