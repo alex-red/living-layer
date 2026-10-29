@@ -528,6 +528,21 @@ describe('photo routes, offline', () => {
     );
     expect(served.statusCode).toBe(200);
     expect(served.headers['content-type']).toBe('image/png');
+    // The desk close up is drawn from the frame and keeps its framing, so frames that size map by scale.
+    const desk = (await s.post('scene/illustrate', { view: 'desk' })).json<{ memory: DeskMemory }>()
+      .memory.deskIllustration!;
+    expect(desk.drawnFrom).toEqual({ width: 960, height: 640 });
+    expect(desk.desk).toBeNull();
+    const pin = layout.pin!;
+    expect(framePointInPicture(pin, desk, { width: 960, height: 640 }, { x: 480, y: 320 })).toEqual(
+      {
+        x: desk.frame.width / 2,
+        y: desk.frame.height / 2,
+      },
+    );
+    expect(
+      framePointInPicture(pin, desk, { width: 1280, height: 720 }, { x: 480, y: 320 }),
+    ).toBeNull();
     // A new photo makes a new room, so its old picture goes.
     const again = (await s.post('scene/from-photo')).json<EvidenceRun<PhotoDraft>>();
     const resaved = await s.post('scene/from-photo/save', {
@@ -537,6 +552,7 @@ describe('photo routes, offline', () => {
       track: [],
     });
     expect(resaved.json<DeskMemory>().illustration ?? null).toBeNull();
+    expect(resaved.json<DeskMemory>().deskIllustration ?? null).toBeNull();
     expect(s.fetcher).not.toHaveBeenCalled();
     await s.app.close();
   });
@@ -822,6 +838,38 @@ describe('photo routes, live with a mocked Meta API', () => {
     // A cent for the picture and SAM's price for the outline, both counted against the limit.
     const status = (await s.app.inject('/api/status')).json<{ meta: { spentToday: number } }>();
     expect(status.meta.spentToday).toBeCloseTo(0.0125, 6);
+
+    // The desk: a close frame and the room picture as style, shaped like the frame, and no SAM call.
+    const calls = s.fetcher.mock.calls.length;
+    const frame = await sharp({
+      create: { width: 1280, height: 720, channels: 3, background: '#d8c9a8' },
+    })
+      .png()
+      .toBuffer();
+    const deskRes = await s.app.inject({
+      method: 'POST',
+      url: '/api/scene/illustrate',
+      payload: {
+        mode: 'live',
+        view: 'desk',
+        imageDataUrl: `data:image/png;base64,${frame.toString('base64')}`,
+      },
+    });
+    expect(deskRes.statusCode, deskRes.body).toBe(200);
+    expect(s.fetcher.mock.calls.length).toBe(calls + 1);
+    expect(edit!.size).toBe('1280x720');
+    const sent = edit!.images as { image_url: string }[];
+    expect(sent).toHaveLength(2);
+    expect(sent[1]!.image_url).toMatch(/^data:image\/jpeg;base64,/);
+    expect(String(edit!.prompt)).toContain('art style of the second image');
+    const desk = deskRes.json<{ memory: DeskMemory }>().memory.deskIllustration!;
+    expect(desk.drawnFrom).toEqual({ width: 1280, height: 720 });
+    // The room picture is kept beside it.
+    expect(deskRes.json<{ memory: DeskMemory }>().memory.illustration?.asset).toBe(
+      illustration.asset,
+    );
+    const after = (await s.app.inject('/api/status')).json<{ meta: { spentToday: number } }>();
+    expect(after.meta.spentToday).toBeCloseTo(0.0225, 6);
     await s.app.close();
   });
 });

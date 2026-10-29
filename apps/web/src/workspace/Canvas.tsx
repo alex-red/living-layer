@@ -66,7 +66,7 @@ export function Canvas() {
   const lab = useLab();
   const boxStart = useRef<{ x: number; y: number } | null>(null);
   // The Picture layer is offered once the room has a picture.
-  const picture = Boolean(lab.memory?.illustration);
+  const picture = Boolean(lab.memory?.illustration || lab.memory?.deskIllustration);
   const {
     mode,
     image,

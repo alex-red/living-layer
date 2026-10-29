@@ -1274,7 +1274,7 @@ export function useLabState() {
    * Draw the photographed room as a picture from the current photo (one
    * image call and one SAM call, live), and show it.
    */
-  async function illustrate() {
+  async function illustrate(view: 'room' | 'desk' = 'room') {
     if (busy) return;
     setBusy('illustrate');
     setError('');
@@ -1283,15 +1283,21 @@ export function useLabState() {
         run: EvidenceRun;
         segment: EvidenceRun<Segmentation> | null;
         memory: DeskMemory;
-      }>('scene/illustrate', { mode, ...(mode === 'live' ? { imageDataUrl: image } : {}) });
+      }>('scene/illustrate', {
+        mode,
+        view,
+        ...(mode === 'live' ? { imageDataUrl: image } : {}),
+      });
       setMemory(result.memory);
       setSelected(result.run);
       setShowPicture(true);
       if (stageView === 'photo') setStageView('iso');
       setMessage(
-        result.memory.illustration?.desk
-          ? `Drew the room as a picture${costNote(result.run)}. The mug and zones sit on its desk.`
-          : `Drew the room as a picture${costNote(result.run)}, but SAM found no desk in it, so nothing can be placed on it.`,
+        view === 'desk'
+          ? `Drew the desk from this frame${costNote(result.run)}. Sightings in frames this size show on it.`
+          : result.memory.illustration?.desk
+            ? `Drew the room as a picture${costNote(result.run)}. The mug and zones sit on its desk.`
+            : `Drew the room as a picture${costNote(result.run)}, but SAM found no desk in it, so nothing can be placed on it.`,
       );
       void refresh().catch(() => {});
     } catch (e) {

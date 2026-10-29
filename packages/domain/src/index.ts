@@ -316,6 +316,8 @@ export interface DeskMemory {
   scene?: IsoScene | null;
   /** A clean isometric picture of that scene's room, drawn from its photo. */
   illustration?: SceneIllustration | null;
+  /** The room's desk close up, redrawn from a close camera frame in the room picture's style. */
+  deskIllustration?: SceneIllustration | null;
   /** A detailed model of the remembered object, drafted from its mask and editable. */
   item?: SavedItem | null;
   /** Things placed in a room by hand: lamps, switches, a mouse. Reset keeps them. */

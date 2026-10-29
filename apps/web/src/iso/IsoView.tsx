@@ -261,17 +261,22 @@ export function IsoView({
       focused: f.id === focus?.fixture,
     }));
   const turned = placing ? placing.turns % 2 === 1 : false;
-  // The photographed room shows as its picture, unless something is being drawn or placed on the model.
+  // The photographed room and its desk show as their pictures, unless something is being drawn or placed on the model.
+  const viewPicture =
+    kind === 'custom'
+      ? memory?.illustration
+      : kind === 'custom-desk'
+        ? memory?.deskIllustration
+        : null;
   const picture =
-    kind === 'custom' &&
+    viewPicture &&
     layers.picture !== false &&
-    memory?.illustration &&
     pin?.scene === 'custom' &&
-    memory.illustration.surfaceId === pin.surfaceId &&
+    viewPicture.surfaceId === pin.surfaceId &&
     !drawing &&
     !ruleDraft &&
     !placing
-      ? memory.illustration
+      ? viewPicture
       : null;
 
   const target = memory ? modelTarget(memory, modelOf) : null;

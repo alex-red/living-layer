@@ -214,31 +214,47 @@ function SetupPanel() {
  * the current photo, SAM finds the desk in it, and the room shows as that
  * picture with the mug and zones on its desk.
  */
-function PictureControls() {
+function PictureControls({ view = 'room' }: { view?: 'room' | 'desk' }) {
   const lab = useLab();
-  const { memory, mode, image, busy } = lab;
+  const { memory, mode, image, busy, dimensions } = lab;
   const pinned = memory?.surface?.scene === 'custom';
-  const has = Boolean(memory?.illustration);
+  const picture = view === 'desk' ? memory?.deskIllustration : memory?.illustration;
   const needPhoto = mode === 'live' && !image;
+  const what = view === 'desk' ? 'desk' : 'room';
+  const drawnFrom = picture?.drawnFrom;
+  const otherSize =
+    drawnFrom && (drawnFrom.width !== dimensions.width || drawnFrom.height !== dimensions.height);
   return (
     <div className="picture-controls">
       <button
         className="secondary"
         disabled={Boolean(busy) || !pinned || needPhoto || (mode === 'live' && !lab.metaReady)}
-        onClick={() => void lab.illustrate()}
+        onClick={() => void lab.illustrate(view)}
       >
-        {busy === 'illustrate' ? 'Drawing…' : has ? 'Redraw the picture' : 'Draw it as a picture'}
+        {busy === 'illustrate'
+          ? 'Drawing…'
+          : picture
+            ? `Redraw the ${what} picture`
+            : view === 'desk'
+              ? 'Draw the desk as a picture'
+              : 'Draw it as a picture'}
       </button>
       <p className="micro">
         {!pinned
           ? 'Pin the desk first: the picture is tied to it.'
           : needPhoto
-            ? 'Add the room’s photo first; the picture is drawn from it.'
+            ? view === 'desk'
+              ? 'Capture a close frame of the desk first; the picture is drawn from it.'
+              : 'Add the room’s photo first; the picture is drawn from it.'
             : mode === 'demo'
-              ? 'Demo: shows a ready-made picture of the illustrated desk, with no model calls.'
-              : has && memory?.illustration && !memory.illustration.desk
-                ? 'SAM found no desk in the last picture, so the mug and zones can’t be placed on it. Redraw to try again.'
-                : 'Muse Image redraws the current photo as isometric line art, and SAM finds its desk: one image and one SAM call, about $0.0125.'}
+              ? `Demo: shows a ready-made picture of the illustrated desk, with no model calls.`
+              : view === 'desk'
+                ? otherSize
+                  ? `The desk picture was drawn from a ${drawnFrom!.width}×${drawnFrom!.height} frame, so only sightings in frames that size show on it. Redraw from this frame to match.`
+                  : `Muse Image redraws this close frame of the desk${memory?.illustration ? ' in the room picture’s style' : ''}, keeping its framing, so what the camera tracks lands on it: one image call, about $0.01.`
+                : picture && !picture.desk
+                  ? 'SAM found no desk in the last picture, so the mug and zones can’t be placed on it. Redraw to try again.'
+                  : 'Muse Image redraws the current photo as isometric line art, and SAM finds its desk: one image and one SAM call, about $0.0125.'}
       </p>
     </div>
   );
@@ -410,6 +426,9 @@ function SurfacePanel({ id, closeView }: { id: string; closeView?: boolean }) {
           The {label} is shared with the {roomLabel(progress.room, memory).toLowerCase()}, so what
           you place here shows there too.
         </p>
+      )}
+      {closeView && row.pinned && progress.view === 'custom-desk' && (
+        <PictureControls view="desk" />
       )}
       <div className="save-actions">
         {findable && (

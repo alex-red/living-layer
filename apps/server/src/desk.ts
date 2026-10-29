@@ -708,8 +708,9 @@ export function deskRoutes(
       : (scene as IsoScene);
     if (memory.fixtures) memory.fixtures = settleFixtures(memory.fixtures, memory.scene);
     memory.surface = pin as SurfacePin | null;
-    // A new photo is a new room: the old picture of it no longer fits.
+    // A new photo is a new room: the old pictures of it no longer fit.
     memory.illustration = null;
+    memory.deskIllustration = null;
     store.saveMemory(memory);
     const label = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
     const model = (thingId: string, previous: ReturnType<typeof modelTarget>) => {
@@ -848,6 +849,7 @@ export function deskRoutes(
               surface: surfacePinSchema.nullable().optional(),
               scene: isoSceneSchema.nullable().optional(),
               illustration: sceneIllustrationSchema.nullable().optional(),
+              deskIllustration: sceneIllustrationSchema.nullable().optional(),
               others: z
                 .array(z.object({ id: z.string().min(1) }).loose())
                 .max(MAX_OTHER_OBJECTS)

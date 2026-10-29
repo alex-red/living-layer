@@ -18,21 +18,43 @@ export const illustrationRef = z.string().regex(/^[a-z0-9-]{1,64}\/illustration\
  * the pin's order, so the pin's unit square maps onto them: a point the camera
  * sees on the desk lands on the desk in the picture.
  */
+const frameSchema = z
+  .object({ width: z.number().int().positive(), height: z.number().int().positive() })
+  .strict();
 export const sceneIllustrationSchema = z
   .object({
     asset: illustrationRef,
-    frame: z
-      .object({ width: z.number().int().positive(), height: z.number().int().positive() })
-      .strict(),
+    frame: frameSchema,
     /** The surface of the scene the corners belong to. */
     surfaceId: z.string().min(1).max(40),
     /** The top's corners in picture pixels, or null when no desk was found in it. */
     desk: z.tuple([pointSchema, pointSchema, pointSchema, pointSchema]).nullable(),
+    /**
+     * The camera frame a desk picture redraws, keeping its composition: a point
+     * of a frame this size maps onto the picture by scale alone.
+     */
+    drawnFrom: frameSchema.optional(),
     createdAt: z.string(),
   })
   .strict();
 export type SceneIllustration = z.infer<typeof sceneIllustrationSchema>;
 
+/**
+ * A close camera frame of the desk redrawn in the room picture's style, when
+ * there is one (the second image). The frame's composition is kept, so what
+ * the camera tracks maps straight onto the drawing.
+ */
+export function deskIllustrationPrompt(withStyle: boolean): string {
+  return (
+    'Redraw the desk in the first image (a close camera photo) as a clean illustration of the desk top ' +
+    'and everything standing on it' +
+    (withStyle
+      ? ', in exactly the art style of the second image: the same line weight, flat colours and soft lighting.'
+      : ': crisp outlines, flat colours and soft even lighting.') +
+    ' Keep the camera’s viewpoint and framing, and every object where it is in the photo, with its shape ' +
+    'and colour. Plain black background beyond the desk, no text, no labels.'
+  );
+}
 /** What the image model is asked for: the photo redrawn as clean isometric line art. */
 export const ILLUSTRATION_PROMPT =
   'Redraw this photo as a clean isometric 2.5D illustration of the same room: a true isometric ' +
@@ -91,9 +113,10 @@ export function alignCorners(picture: Quad, pin: Quad): Quad {
 }
 
 /**
- * A camera frame point in picture pixels, through the pinned surface: frame
- * to the surface's unit square by the pin, then onto the picture's desk top.
- * Null when the picture has no desk or the frame isn't the pin's size.
+ * A camera frame point in picture pixels. A desk picture redraws one frame,
+ * so a frame of that size maps by scale. A room picture goes through the
+ * pinned surface: frame to the surface's unit square by the pin, then onto the
+ * picture's desk top. Null when the picture can't place a frame of this size.
  */
 export function framePointInPicture(
   pin: SurfacePin,
@@ -101,6 +124,14 @@ export function framePointInPicture(
   frame: Segmentation['frame'],
   p: Point,
 ): Point | null {
+  const from = picture.drawnFrom;
+  if (from)
+    return frame.width === from.width && frame.height === from.height
+      ? {
+          x: (p.x / from.width) * picture.frame.width,
+          y: (p.y / from.height) * picture.frame.height,
+        }
+      : null;
   if (!picture.desk || frame.width !== pin.frame.width || frame.height !== pin.frame.height)
     return null;
   const toUnit = homography(pin.corners, UNIT);

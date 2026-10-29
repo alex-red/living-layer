@@ -523,11 +523,16 @@ export class MetaAdapter {
     });
   }
   /**
-   * Redraw a photo with Muse Image's edit endpoint: one image in, one PNG
-   * out. Built-in search and tools are off, so the picture comes from the
-   * photo and the prompt alone.
+   * Redraw a photo with Muse Image's edit endpoint: the photo, and any style
+   * references after it, in; one PNG out, shaped like `size` (`WxH`, an aspect
+   * ratio) when given. Built-in search and tools are off, so the picture comes
+   * from the images and the prompt alone.
    */
-  async illustrate(imageDataUrl: string, prompt: string): Promise<ProviderResult<Buffer>> {
+  async illustrate(
+    images: string[],
+    prompt: string,
+    size = 'auto',
+  ): Promise<ProviderResult<Buffer>> {
     const settle = this.reserve(META_PRICES.imagePerImage);
     try {
       const response = await this.client
@@ -538,8 +543,8 @@ export class MetaAdapter {
           body: {
             model: this.config.imageModel,
             prompt,
-            images: [{ image_url: imageDataUrl }],
-            size: 'auto',
+            images: images.map((image_url) => ({ image_url })),
+            size,
             output_format: 'png',
             tool_enablement: {
               enable_image_search: false,

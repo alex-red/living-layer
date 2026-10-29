@@ -5,6 +5,7 @@ import sharp from 'sharp';
 import { z } from 'zod';
 import {
   ILLUSTRATION_PROMPT,
+  deskIllustrationPrompt,
   META_PRICES,
   alignCorners,
   illustrationRef,
@@ -14,6 +15,7 @@ import {
   type DeskMemory,
   type Detection,
   type EvidenceRun,
+  type Mode,
   type Quad,
   type SceneIllustration,
   type Segmentation,
@@ -37,6 +39,9 @@ export const DEMO_PICTURE_DESK: Quad = [
   { x: 0.949, y: 0.517 },
   { x: 0.311, y: 0.879 },
 ];
+/** The illustrated desk redrawn close up in the demo picture's style; it keeps the demo frame's composition. */
+const DEMO_DESK_PICTURE = resolve(PROJECT_ROOT, 'apps/server/assets/demo-desk-illustration.webp');
+const DEMO_FRAME = { width: 960, height: 640 };
 const areaOf = (d: Detection) =>
   (d.mask.foregroundPixels * d.box.width * d.box.height) / (d.mask.width * d.mask.height);
 
@@ -61,10 +66,17 @@ export function illustrationRoutes(
 ) {
   app.post('/api/scene/illustrate', async (request): Promise<Illustrated> => {
     const input = parseInput(
-      z.object({ mode: modeSchema, imageDataUrl: z.string().max(7_000_000).optional() }).strict(),
+      z
+        .object({
+          mode: modeSchema,
+          imageDataUrl: z.string().max(7_000_000).optional(),
+          /** The room, from its photo; or its desk, from a close camera frame. */
+          view: z.enum(['room', 'desk']).default('room'),
+        })
+        .strict(),
       request.body,
     );
-    const { mode } = input;
+    const { mode, view } = input;
     const live = mode === 'live';
     if (!live && input.imageDataUrl)
       throw new LabError('demo_image', 'Demo mode uses only the bundled illustrated desk.');
@@ -81,6 +93,7 @@ export function illustrationRoutes(
         'Draft your room from a photo and pin its desk first: the picture is tied to the pinned desk.',
         409,
       );
+    if (view === 'desk') return drawDesk(input.imageDataUrl, mode, pin.surfaceId);
     if (live && !meta.canAfford(META_PRICES.imagePerImage + META_PRICES.samPerImage))
       throw new LabError(
         'spend_limit',
@@ -93,7 +106,7 @@ export function illustrationRoutes(
     let png: Buffer = Buffer.alloc(0);
     const drawn = await run('illustration', mode, async (id) => {
       const result = image
-        ? await meta.illustrate(image.dataUrl, ILLUSTRATION_PROMPT)
+        ? await meta.illustrate([image.dataUrl], ILLUSTRATION_PROMPT)
         : { output: readFileSync(DEMO_PICTURE), model: 'demo', requestId: null, usage: null };
       png = await sharp(result.output).png().toBuffer();
       const asset = store.asset(id, 'illustration.png', png);
@@ -142,6 +155,68 @@ export function illustrationRoutes(
       illustration,
     };
   });
+  /**
+   * The desk close up: a close camera frame redrawn by Muse Image (one image,
+   * $0.01) in the room picture's style when there is one, shaped like the
+   * frame and keeping its composition. What the camera tracks in frames of
+   * that size maps onto it by scale, so it needs no SAM call.
+   */
+  async function drawDesk(
+    imageDataUrl: string | undefined,
+    mode: Mode,
+    surfaceId: string,
+  ): Promise<Illustrated> {
+    const live = mode === 'live';
+    if (live && !meta.canAfford(META_PRICES.imagePerImage))
+      throw new LabError(
+        'spend_limit',
+        "Drawing the desk would pass today's Meta spending limit. Raise the limit in Setup, or wait for the next UTC day.",
+        429,
+      );
+    const image = live ? await validateImage(imageDataUrl) : null;
+    const room = store.memory(mode).illustration;
+    const style = room ? store.readAsset(room.asset) : null;
+    let png: Buffer = Buffer.alloc(0);
+    const drawn = await run('illustration', mode, async (id) => {
+      const references = style
+        ? [
+            `data:image/jpeg;base64,${(await sharp(style).resize(1280, 1280, { fit: 'inside' }).jpeg().toBuffer()).toString('base64')}`,
+          ]
+        : [];
+      const result = image
+        ? await meta.illustrate(
+            [image.dataUrl, ...references],
+            deskIllustrationPrompt(Boolean(style)),
+            `${image.width}x${image.height}`,
+          )
+        : { output: readFileSync(DEMO_DESK_PICTURE), model: 'demo', requestId: null, usage: null };
+      png = await sharp(result.output).png().toBuffer();
+      const asset = store.asset(id, 'illustration.png', png);
+      return {
+        ...result,
+        output: { asset },
+        assets: [asset, ...(image ? [store.asset(id, 'source.png', image.bytes)] : [])],
+      };
+    });
+    const size = await sharp(png).metadata();
+    const illustration: SceneIllustration = {
+      asset: (drawn.output as { asset: string }).asset,
+      frame: { width: size.width!, height: size.height! },
+      surfaceId,
+      desk: null,
+      drawnFrom: image ? { width: image.width, height: image.height } : DEMO_FRAME,
+      createdAt: new Date().toISOString(),
+    };
+    store.saveMemory({ ...store.memory(mode), deskIllustration: illustration });
+    return {
+      memory: store.memory(mode),
+      run: { ...drawn, output: { illustration } } as EvidenceRun<{
+        illustration: SceneIllustration;
+      }>,
+      segment: null,
+      illustration,
+    };
+  }
   /** A room's picture. */
   app.get('/api/scene/illustration', async (request, reply) => {
     const { asset } = parseInput(z.object({ asset: illustrationRef }).strict(), request.query);
