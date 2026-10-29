@@ -27,6 +27,9 @@ import {
   type ZoneRect,
 } from '@livinglayer/domain';
 import { api } from '../api';
+import { ZoomPan } from '../ZoomPan';
+import type { BaseRect } from './BaseHandles';
+import type { Tool } from '../workspace/ToolStrip';
 import { IsoScene, type IsoFixture, type IsoObject, type IsoZone } from './IsoScene';
 import { ItemEditor } from './ItemEditor';
 import { IllustrationView } from './IllustrationView';
@@ -93,6 +96,9 @@ export function IsoView({
   onPlace,
   onFixture,
   onMoveFixture,
+  onResizeFixture,
+  tool = 'select',
+  hand = false,
   lightsOn,
   focus,
   layers = { trail: true, zones: true },
@@ -132,6 +138,12 @@ export function IsoView({
   onFixture?: (id: string) => void;
   /** Move a fixture by dragging it on the room's picture. */
   onMoveFixture?: (id: string, to: { x: number; y: number; surfaceId: string | null }) => void;
+  /** Stretch a fixture's base by its handles, to a footprint already turned. */
+  onResizeFixture?: (id: string, rect: BaseRect) => Promise<void> | void;
+  /** The canvas tool: fixtures move with Select, stretch with Scale. */
+  tool?: Tool;
+  /** Every drag pans the room, for the hand tool. */
+  hand?: boolean;
   /** Lights whose last confirmed action turned them on, from any source. */
   lightsOn?: Set<string>;
   /** What the outline has selected, ringed in the room: `tracked` is the mug, `main` its zone. */
@@ -383,57 +395,67 @@ export function IsoView({
               })
             }
           />
-        ) : picture && memory && pin ? (
-          <IllustrationView
-            illustration={picture}
-            pin={pin}
-            memory={memory}
-            focus={focus}
-            showZones={layers.zones}
-            fixtures={(memory.fixtures ?? []).filter(
-              (f) => f.scene === pin.scene && f.id !== placing?.id,
-            )}
-            custom={custom}
-            {...(onFixture ? { onFixture } : {})}
-            {...(onMoveFixture ? { onMoveFixture } : {})}
-          />
         ) : (
-          <IsoScene
-            scene={scene}
-            surface={surface}
-            objects={objects}
-            fixtures={fixtures}
-            onFixture={onFixture}
-            placing={
-              placing && onPlace && placing.scene === kind
-                ? {
-                    label: placing.label,
-                    item: rotateItem(placing.model, placing.turns),
-                    size: {
-                      w: turned ? placing.size.d : placing.size.w,
-                      d: turned ? placing.size.w : placing.size.d,
-                      h: placing.size.h,
-                    },
-                    onPlace,
+          <ZoomPan
+            className="iso-zoom"
+            hand={hand}
+            resetKey={`${kind} ${picture ? 'picture' : 'model'}`}
+          >
+            {picture && memory && pin ? (
+              <IllustrationView
+                illustration={picture}
+                pin={pin}
+                memory={memory}
+                focus={focus}
+                showZones={layers.zones}
+                fixtures={(memory.fixtures ?? []).filter(
+                  (f) => f.scene === pin.scene && f.id !== placing?.id,
+                )}
+                custom={custom}
+                {...(onFixture ? { onFixture } : {})}
+                {...(onMoveFixture && tool === 'select' ? { onMoveFixture } : {})}
+                {...(onResizeFixture && tool === 'scale' ? { onResizeFixture } : {})}
+              />
+            ) : (
+              <IsoScene
+                scene={scene}
+                surface={surface}
+                objects={objects}
+                fixtures={fixtures}
+                onFixture={onFixture}
+                onResizeFixture={tool === 'scale' ? onResizeFixture : undefined}
+                placing={
+                  placing && onPlace && placing.scene === kind
+                    ? {
+                        label: placing.label,
+                        item: rotateItem(placing.model, placing.turns),
+                        size: {
+                          w: turned ? placing.size.d : placing.size.w,
+                          d: turned ? placing.size.w : placing.size.d,
+                          h: placing.size.h,
+                        },
+                        onPlace,
+                      }
+                    : undefined
+                }
+                trail={trail}
+                zones={zones}
+                litLights={lit}
+                defaultLight={defaultLight}
+                drawing={drawingRule || (drawing && Boolean(mug))}
+                onDrag={(a, b) => {
+                  if (drawingRule && ruleTarget && ruleMap) {
+                    const rect = zoneFromSurface(a, b, ruleTarget.frame, ruleMap.toFrame);
+                    if (rect && ruleDraft) onRuleDraft({ ...ruleDraft, rect });
+                    return;
                   }
-                : undefined
-            }
-            trail={trail}
-            zones={zones}
-            litLights={lit}
-            defaultLight={defaultLight}
-            drawing={drawingRule || (drawing && Boolean(mug))}
-            onDrag={(a, b) => {
-              if (drawingRule && ruleTarget && ruleMap) {
-                const rect = zoneFromSurface(a, b, ruleTarget.frame, ruleMap.toFrame);
-                if (rect && ruleDraft) onRuleDraft({ ...ruleDraft, rect });
-                return;
-              }
-              if (!mug || !o) return;
-              const next = zoneFromSurface(a, b, o.frame, mug.map.toFrame);
-              if (next) onDraftZone(next);
-            }}
-          />
+                  if (!mug || !o) return;
+                  const next = zoneFromSurface(a, b, o.frame, mug.map.toFrame);
+                  if (next) onDraftZone(next);
+                }}
+              />
+            )}
+          </ZoomPan>
         )}
         <span className="iso-tag" aria-hidden="true">
           {panel === 'item'

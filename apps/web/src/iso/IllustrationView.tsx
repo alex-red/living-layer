@@ -3,6 +3,7 @@ import {
   fixtureBox,
   framePointInPicture,
   pictureToScene,
+  pictureToSceneAt,
   scenePointInPicture,
   type Fixture,
   type IsoScene,
@@ -14,6 +15,7 @@ import {
   type SurfacePin,
   type ZoneRect,
 } from '@livinglayer/domain';
+import { BaseHandles, type BaseRect } from './BaseHandles';
 
 export const illustrationUrl = (asset: string) =>
   `/api/scene/illustration?asset=${encodeURIComponent(asset)}`;
@@ -33,6 +35,9 @@ interface Placed {
   top: Point;
   lit: boolean;
   focused: boolean;
+  /** Its footprint in the scene, and the height it stands at. */
+  rect: BaseRect;
+  z: number;
 }
 interface Area {
   id: string;
@@ -50,6 +55,7 @@ interface Area {
  * outlined where they stand in the scene, and pick like they do on the model.
  * On the room's picture they can be dragged to where the picture shows them,
  * or nudged with the arrow keys; the drop goes back through the same mapping.
+ * The selected one has handles that stretch its base.
  */
 export function IllustrationView({
   illustration,
@@ -61,6 +67,7 @@ export function IllustrationView({
   custom = null,
   onFixture,
   onMoveFixture,
+  onResizeFixture,
 }: {
   illustration: SceneIllustration;
   pin: SurfacePin;
@@ -73,11 +80,15 @@ export function IllustrationView({
   onFixture?: (id: string) => void;
   /** Move a fixture's footprint centre to a point of the scene. */
   onMoveFixture?: (id: string, to: { x: number; y: number; surfaceId: string | null }) => void;
+  /** Give a fixture a new footprint, already turned. */
+  onResizeFixture?: (id: string, rect: BaseRect) => Promise<void> | void;
 }) {
   const svg = useRef<SVGSVGElement>(null);
   const [drag, setDrag] = useState<{ id: string; start: Point; delta: Point } | null>(null);
+  const [stretching, setStretching] = useState<{ id: string; rect: BaseRect } | null>(null);
   // Only the room's picture maps back to the scene; a desk redrawn from a frame doesn't.
-  const movable = Boolean(onMoveFixture && !illustration.drawnFrom && illustration.desk);
+  const mappable = Boolean(!illustration.drawnFrom && illustration.desk);
+  const movable = Boolean(onMoveFixture && mappable);
   const pointerAt = (e: PointerEvent) => {
     const m = svg.current?.getScreenCTM();
     if (!m) return null;
@@ -124,7 +135,10 @@ export function IllustrationView({
       markers.push({ id: other.id, label: other.label, at, focused: focus?.object === other.id });
   }
   const placed: Placed[] = fixtures.flatMap((f) => {
-    const { at, size } = fixtureBox(f, custom);
+    const box = fixtureBox(f, custom);
+    const s = stretching?.id === f.id ? stretching.rect : null;
+    const at = s ? { ...box.at, x: s.x, y: s.y } : box.at;
+    const size = s ? { ...box.size, w: s.w, d: s.d } : box.size;
     const to = (x: number, y: number, z: number) =>
       scenePointInPicture(pin, illustration, custom, { x, y, z });
     const base = [
@@ -145,6 +159,8 @@ export function IllustrationView({
         top,
         lit: f.control.kind === 'light' && f.state === 'on',
         focused: focus?.fixture === f.id,
+        rect: { x: at.x, y: at.y, w: size.w, d: size.d },
+        z: at.z,
       },
     ];
   });
@@ -179,6 +195,7 @@ export function IllustrationView({
     <svg
       ref={svg}
       className="illustration"
+      data-pan
       viewBox={`0 0 ${width} ${height}`}
       preserveAspectRatio="xMidYMid meet"
       role="img"
@@ -217,7 +234,12 @@ export function IllustrationView({
           onPointerDown={(e: PointerEvent<SVGGElement>) => {
             const start = pointerAt(e);
             if (!start) return;
-            e.currentTarget.setPointerCapture(e.pointerId);
+            // Synthetic events (tests, assistive tech) may have no pointer to capture.
+            try {
+              e.currentTarget.setPointerCapture(e.pointerId);
+            } catch {
+              /* dragging still works while the pointer stays over the fixture */
+            }
             setDrag({ id: f.id, start, delta: { x: 0, y: 0 } });
           }}
           onPointerMove={(e: PointerEvent<SVGGElement>) => {
@@ -265,6 +287,29 @@ export function IllustrationView({
           </text>
         </g>
       ))}
+      {mappable &&
+        onResizeFixture &&
+        placed
+          .filter((f) => f.focused && drag?.id !== f.id)
+          .map((f) => (
+            <BaseHandles
+              key={`handles-${f.id}`}
+              rect={f.rect}
+              z={f.z}
+              label={f.label}
+              radius={unit * 0.7}
+              project={(x, y, z) => scenePointInPicture(pin, illustration, custom, { x, y, z })}
+              unproject={(e, z) => {
+                const p = pointerAt(e);
+                return p && pictureToSceneAt(pin, illustration, custom, p, z);
+              }}
+              onPreview={(rect) => setStretching(rect && { id: f.id, rect })}
+              // The stretched base stays drawn until the save lands, so it doesn't snap back first.
+              onDone={(rect) =>
+                void Promise.resolve(onResizeFixture(f.id, rect)).finally(() => setStretching(null))
+              }
+            />
+          ))}
       {markers.map((m) => (
         <g
           key={m.id}

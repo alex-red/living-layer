@@ -1000,3 +1000,20 @@
   display: grid;
   gap: 6px;
 }
+
+/* Handles on the selected fixture's base: corners stretch two sides, edge middles one. */
+.base-handles circle {
+  fill: #05060a;
+  stroke: var(--chosen);
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+  cursor: move;
+  touch-action: none;
+}
+.base-handles circle.edge {
+  fill: var(--chosen);
+}
+.base-handles circle:hover {
+  stroke-width: 2.5;
+  filter: drop-shadow(0 0 4px var(--chosen));
+}

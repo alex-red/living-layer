@@ -15,6 +15,7 @@ import {
   mugItem,
   placeTemplate,
   pictureToScene,
+  pictureToSceneAt,
   isDismissed,
   scenePointInPicture,
   placeholderModel,
@@ -243,6 +244,22 @@ describe('moving a fixture on the room picture', () => {
     expect(down.surfaceId).toBeNull();
     expect(down.x).toBeCloseTo(onFloor.x);
     expect(down.y).toBeCloseTo(onFloor.y);
+  });
+  it('follows a point across a plane at any height, for stretching a base', () => {
+    for (const p of [
+      { x: 2.25, y: 1.5, z: 0 },
+      { x: 4.1, y: 2.7, z: 1.8 },
+    ]) {
+      const back = pictureToSceneAt(
+        pin,
+        picture,
+        null,
+        scenePointInPicture(pin, picture, null, p)!,
+        p.z,
+      )!;
+      expect(back.x).toBeCloseTo(p.x);
+      expect(back.y).toBeCloseTo(p.y);
+    }
   });
   it('doesn’t map back on a picture redrawn from a frame', () => {
     expect(

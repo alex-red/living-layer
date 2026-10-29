@@ -73,6 +73,7 @@ import {
   type WorkScene,
 } from './progress';
 import { sceneOf } from './labels';
+import type { Tool } from './ToolStrip';
 
 export const BUSY: Record<string, string> = {
   text: 'Checking the connection',
@@ -302,6 +303,8 @@ export function useLabState() {
   const [showPicture, setShowPicture] = useState(boot.prefs.picture);
   const [showZones, setShowZones] = useState(boot.prefs.zones);
   const [stageView, setStageView] = useState<StageView>(boot.prefs.stageView);
+  // What a drag on the canvas does.
+  const [tool, setTool] = useState<Tool>('select');
   // Scene first: nothing runs until the person says which scene they are in.
   const [workScene, setWorkScene] = useState<WorkScene | null>(boot.prefs.workScene);
   const [choosingScene, setChoosingScene] = useState(false);
@@ -586,6 +589,7 @@ export function useLabState() {
       if (boxing) return setBoxing(null);
       if (isoPanel !== 'room') return setIsoPanel('room');
       if (choosingScene && workScene) return setChoosingScene(false);
+      if (tool !== 'select') return setTool('select');
       return false;
     }
     if (action === 'save') {
@@ -602,6 +606,7 @@ export function useLabState() {
       return;
     }
     if (action === 'scene' && !busy && !pinning) setChoosingScene(true);
+    if (action === 'select' || action === 'scale' || action === 'hand') setTool(action);
   });
   async function resetToDemo() {
     if (
@@ -1574,6 +1579,8 @@ export function useLabState() {
     selection,
     select,
     outlineOpen,
+    tool,
+    setTool,
     setOutlineOpen,
     isoPanel,
     setIsoPanel,

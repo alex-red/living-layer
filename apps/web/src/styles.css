@@ -477,8 +477,8 @@ input[type='checkbox'] {
   pointer-events: none;
   box-shadow: inset 0 0 0 1px rgb(255 255 255 / 4%);
 }
-.scene > img,
-.scene > video {
+.zoom-pan-content > img,
+.zoom-pan-content > video {
   display: block;
   width: 100%;
   height: 100%;
@@ -1838,4 +1838,69 @@ button svg {
   background: var(--surface-1);
   color: var(--text);
   font: 13px var(--mono);
+}
+
+/* Zoom and pan: the view clips, its content moves; the controls stay put. */
+.zoom-pan {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  touch-action: pinch-zoom;
+}
+.zoom-pan-content {
+  position: absolute;
+  inset: 0;
+  transform-origin: 0 0;
+}
+.zoom-pan.zoomed [data-pan] {
+  cursor: grab;
+}
+.zoom-pan.grab,
+.zoom-pan.grab * {
+  cursor: grab !important;
+}
+.zoom-pan.panning,
+.zoom-pan.panning * {
+  cursor: grabbing !important;
+}
+.zoom-controls {
+  position: absolute;
+  top: 10px;
+  right: 36px;
+  z-index: 6;
+  display: flex;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: rgb(17 20 29 / 72%);
+  backdrop-filter: blur(12px) saturate(140%);
+  opacity: 0.55;
+  transition: opacity 120ms;
+}
+.zoom-pan:hover > .zoom-controls,
+.zoom-pan.zoomed > .zoom-controls,
+.zoom-controls:focus-within {
+  opacity: 1;
+}
+.zoom-controls button {
+  min-width: 26px;
+  height: 24px;
+  padding: 0 6px;
+  border: 0;
+  background: none;
+  color: var(--text-2);
+  font: 500 12px/1 var(--mono);
+}
+.zoom-controls button:hover:not(:disabled) {
+  color: var(--text);
+}
+.zoom-controls .zoom-level {
+  min-width: 46px;
+  border-inline: 1px solid var(--line);
+}
+.iso-zoom > .zoom-pan-content {
+  display: grid;
+  place-items: center;
+}
+.iso-zoom > .zoom-controls {
+  right: 10px;
 }

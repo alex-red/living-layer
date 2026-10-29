@@ -202,6 +202,30 @@ function pictureFit(picture: SceneIllustration, surface: IsoSurface) {
   return { a, b, c, tile };
 }
 /**
+ * The point of the scene at height `z` that a point of the room picture
+ * shows, for following the pointer across a plane, as a resize handle does.
+ * Null where `pictureToScene` would be.
+ */
+export function pictureToSceneAt(
+  pin: SurfacePin,
+  picture: SceneIllustration,
+  custom: IsoScene | null,
+  pt: Point,
+  z: number,
+): { x: number; y: number } | null {
+  const pinned = isoSurface(pin.scene, pin.surfaceId, custom);
+  const fit = pinned && pictureFit(picture, pinned);
+  if (!pinned || !fit) return null;
+  const { a, b, c, tile } = fit;
+  const det = a.x * b.y - a.y * b.x;
+  if (Math.abs(det) < 1e-9) return null;
+  const qx = pt.x - c.x;
+  const qy = pt.y - c.y + (z - pinned.z) * tile;
+  const u = (qx * b.y - qy * b.x) / det;
+  const v = (a.x * qy - a.y * qx) / det;
+  return { x: pinned.rect.x + u * pinned.rect.w, y: pinned.rect.y + v * pinned.rect.d };
+}
+/**
  * Where a point of the room picture is in the scene: on the highest surface
  * whose top it falls on, else on the floor. The inverse of drawing, for
  * dragging a fixture to where the picture shows it. Null on a picture
@@ -213,21 +237,8 @@ export function pictureToScene(
   custom: IsoScene | null,
   pt: Point,
 ): { x: number; y: number; surfaceId: string | null } | null {
-  const pinned = isoSurface(pin.scene, pin.surfaceId, custom);
-  if (!pinned) return null;
-  const fit = pictureFit(picture, pinned);
-  if (!fit) return null;
-  const { a, b, c, tile } = fit;
-  const det = a.x * b.y - a.y * b.x;
-  if (Math.abs(det) < 1e-9) return null;
-  // The scene point at height z that the picture point shows.
-  const at = (z: number) => {
-    const qx = pt.x - c.x;
-    const qy = pt.y - c.y + (z - pinned.z) * tile;
-    const u = (qx * b.y - qy * b.x) / det;
-    const v = (a.x * qy - a.y * qx) / det;
-    return { x: pinned.rect.x + u * pinned.rect.w, y: pinned.rect.y + v * pinned.rect.d };
-  };
+  if (!pictureToSceneAt(pin, picture, custom, pt, 0)) return null;
+  const at = (z: number) => pictureToSceneAt(pin, picture, custom, pt, z)!;
   const scene = pin.scene === 'custom' ? custom : ISO_PRESETS[pin.scene];
   const surfaces = [...(scene?.surfaces ?? [])].sort((p, q) => q.z - p.z);
   for (const s of surfaces) {

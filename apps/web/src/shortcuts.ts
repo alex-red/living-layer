@@ -1,7 +1,19 @@
 import { useEffect, useRef } from 'react';
 
 export type ShortcutAction =
-  'undo' | 'redo' | 'save' | 'export' | 'import' | 'photo' | 'iso' | 'scene' | 'escape' | 'help';
+  | 'undo'
+  | 'redo'
+  | 'save'
+  | 'export'
+  | 'import'
+  | 'photo'
+  | 'iso'
+  | 'scene'
+  | 'select'
+  | 'scale'
+  | 'hand'
+  | 'escape'
+  | 'help';
 
 const MAC = typeof navigator !== 'undefined' && /Mac|iP(hone|ad)/.test(navigator.platform);
 export const MOD = MAC ? '⌘' : 'Ctrl';
@@ -16,12 +28,15 @@ export const SHORTCUTS: { action: ShortcutAction; keys: string; label: string }[
   { action: 'photo', keys: 'P', label: 'Photo view' },
   { action: 'iso', keys: 'I', label: 'Iso view' },
   { action: 'scene', keys: 'C', label: 'Change the scene' },
+  { action: 'select', keys: 'V', label: 'Select and move fixtures' },
+  { action: 'scale', keys: 'S', label: 'Scale a fixture’s base' },
+  { action: 'hand', keys: 'H', label: 'Pan the view' },
   { action: 'escape', keys: 'Esc', label: 'Cancel a pin, a zone or the scene picker' },
   { action: 'help', keys: '?', label: 'Show these shortcuts' },
 ];
 
 /** Typing in a field keeps its own keys, undo included. */
-function typing(target: EventTarget | null) {
+export function typing(target: EventTarget | null) {
   const el = target as HTMLElement | null;
   return Boolean(
     el &&
@@ -50,7 +65,15 @@ export function shortcutFor(e: KeyboardEvent): ShortcutAction | null {
   // Some keyboards (and synthetic events) report Shift+/ rather than '?'.
   if (e.key === '?' || (e.key === '/' && e.shiftKey)) return 'help';
   if (e.shiftKey) return null;
-  return key === 'p' ? 'photo' : key === 'i' ? 'iso' : key === 'c' ? 'scene' : null;
+  const plain: Record<string, ShortcutAction> = {
+    p: 'photo',
+    i: 'iso',
+    c: 'scene',
+    v: 'select',
+    s: 'scale',
+    h: 'hand',
+  };
+  return plain[key] ?? null;
 }
 
 /** Calls `run` for each workspace shortcut; it returns false to let the key through. */

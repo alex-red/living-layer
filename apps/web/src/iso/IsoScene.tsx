@@ -18,6 +18,7 @@ import {
   type PropFace,
   type Quad,
 } from '@livinglayer/domain';
+import { BaseHandles, type BaseRect } from './BaseHandles';
 import { ItemSprite } from './IsoItem';
 import { TONES, propSprite } from './sprites';
 
@@ -310,6 +311,7 @@ export function IsoScene({
   objects = [],
   fixtures = [],
   onFixture,
+  onResizeFixture,
   placing,
   trail = [],
   zones = [],
@@ -325,6 +327,8 @@ export function IsoScene({
   fixtures?: IsoFixture[];
   /** A click on a fixture selects it. */
   onFixture?: (id: string) => void;
+  /** Stretch the selected fixture's base by its handles, to a footprint already turned. */
+  onResizeFixture?: (id: string, rect: BaseRect) => Promise<void> | void;
   placing?: IsoPlacing;
   trail?: Point[];
   zones?: IsoZone[];
@@ -341,6 +345,21 @@ export function IsoScene({
   const drag = useRef<{ group: string; z: number; last: { x: number; y: number } } | null>(null);
   const [hover, setHover] = useState(false);
   const [ghost, setGhost] = useState<{ at: IsoVec; surfaceId: string | null } | null>(null);
+  const [stretching, setStretching] = useState<{ id: string; rect: BaseRect } | null>(null);
+  // A base being stretched is drawn at its new size while the drag goes on.
+  const shown = stretching
+    ? fixtures.map((f) =>
+        f.id === stretching.id
+          ? {
+              ...f,
+              box: {
+                at: { ...f.box.at, x: stretching.rect.x, y: stretching.rect.y },
+                size: { ...f.box.size, w: stretching.rect.w, d: stretching.rect.d },
+              },
+            }
+          : f,
+      )
+    : fixtures;
   const floor: IsoVec[] = [
     { x: 0, y: 0, z: 0 },
     { x: scene.grid.w, y: 0, z: 0 },
@@ -369,7 +388,7 @@ export function IsoScene({
   const items: Drawable[] = [
     ...scene.props.map((prop) => ({ ...prop, kind: 'prop' as const, prop })),
     ...objects.map((object) => ({ ...object.box, kind: 'object' as const, object })),
-    ...fixtures.map((fixture) => ({ ...fixture.box, kind: 'fixture' as const, fixture })),
+    ...shown.map((fixture) => ({ ...fixture.box, kind: 'fixture' as const, fixture })),
   ];
   const lit = (p: IsoProp) =>
     p.role === 'lamp' && Boolean(litLights?.has(p.lightId ?? defaultLight));
@@ -426,6 +445,7 @@ export function IsoScene({
     <svg
       ref={svg}
       className={`iso-scene ${editing ? 'editing' : ''}`}
+      data-pan={editing ? undefined : ''}
       viewBox={`${minX} ${minY} ${maxX - minX} ${maxY - minY}`}
       role="img"
       aria-label={`Isometric ${scene.label.toLowerCase()}${described}`}
@@ -446,11 +466,12 @@ export function IsoScene({
         drag.current = null;
       }}
     >
-      <polygon className="iso-floor" points={pts(floor)} />
+      <polygon className="iso-floor" data-pan points={pts(floor)} />
       {Array.from({ length: scene.grid.w - 1 }, (_, i) => (
         <polyline
           key={`gx${i}`}
           className="iso-grid"
+          data-pan
           points={pts([
             { x: i + 1, y: 0, z: 0 },
             { x: i + 1, y: scene.grid.d, z: 0 },
@@ -461,6 +482,7 @@ export function IsoScene({
         <polyline
           key={`gy${i}`}
           className="iso-grid"
+          data-pan
           points={pts([
             { x: 0, y: i + 1, z: 0 },
             { x: scene.grid.w, y: i + 1, z: 0 },
@@ -585,6 +607,30 @@ export function IsoScene({
           />
         );
       })}
+      {onResizeFixture &&
+        !editing &&
+        !drawing &&
+        !placing &&
+        shown
+          .filter((f) => f.focused)
+          .map((f) => (
+            <BaseHandles
+              key={`handles-${f.id}`}
+              rect={{ x: f.box.at.x, y: f.box.at.y, w: f.box.size.w, d: f.box.size.d }}
+              z={f.box.at.z}
+              label={f.label}
+              radius={5}
+              project={(x, y, z) => {
+                const p = toIso({ x, y, z });
+                return { x: p.sx, y: p.sy };
+              }}
+              unproject={(e, z) => world(e, z)}
+              onPreview={(rect) => setStretching(rect && { id: f.id, rect })}
+              onDone={(rect) =>
+                void Promise.resolve(onResizeFixture(f.id, rect)).finally(() => setStretching(null))
+              }
+            />
+          ))}
       {placing && ghost && (
         <g className="iso-ghost" aria-hidden="true">
           <ItemSprite
