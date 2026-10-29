@@ -334,7 +334,8 @@ test('drafts a scene from the illustrated desk, reviews the pin and objects, and
   await chooseScene(page, 'Draft from the demo photo');
   await page.getByRole('button', { name: 'Draft from the illustrated desk', exact: true }).click();
   const rows = page.locator('.photo-things tbody tr');
-  await expect(rows).toHaveCount(4);
+  // The draft fits a model per object and renders the check, which takes a few seconds on CI.
+  await expect(rows).toHaveCount(4, { timeout: 20_000 });
   await expect(rows.first()).toContainText('pinned surface');
   await expect(page.locator('.photo-review .iso-note')).toContainText('Scene match');
   // With nothing remembered yet, the mug is offered as the main object.
