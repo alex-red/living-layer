@@ -1,5 +1,9 @@
 import {
+  fixtureBox,
   framePointInPicture,
+  scenePointInPicture,
+  type Fixture,
+  type IsoScene,
   type DeskMemory,
   type DeskObservation,
   type Point,
@@ -18,6 +22,15 @@ interface Marker {
   at: Point;
   focused: boolean;
 }
+interface Placed {
+  id: string;
+  label: string;
+  /** The footprint's corners, and where the label's leader starts: the top's centre. */
+  base: Point[];
+  top: Point;
+  lit: boolean;
+  focused: boolean;
+}
 interface Area {
   id: string;
   label?: string;
@@ -30,7 +43,8 @@ interface Area {
  * The room as its picture: an image model's isometric drawing of the photo,
  * with what the camera tracks laid on its desk top. A sighting's foot and a
  * zone's corners go from the frame to the pinned surface by the pin, then onto
- * the picture's desk top, so they land where the desk is drawn.
+ * the picture's desk top, so they land where the desk is drawn. Fixtures are
+ * outlined where they stand in the scene, and pick like they do on the model.
  */
 export function IllustrationView({
   illustration,
@@ -38,12 +52,19 @@ export function IllustrationView({
   memory,
   focus,
   showZones,
+  fixtures = [],
+  custom = null,
+  onFixture,
 }: {
   illustration: SceneIllustration;
   pin: SurfacePin;
   memory: DeskMemory;
-  focus?: { object?: string; zone?: string };
+  focus?: { object?: string; zone?: string; fixture?: string };
   showZones: boolean;
+  /** The pinned scene's fixtures. */
+  fixtures?: Fixture[];
+  custom?: IsoScene | null;
+  onFixture?: (id: string) => void;
 }) {
   const toPicture = (frame: Segmentation['frame'], p: Point) =>
     framePointInPicture(pin, illustration, frame, p);
@@ -77,6 +98,29 @@ export function IllustrationView({
     if (at)
       markers.push({ id: other.id, label: other.label, at, focused: focus?.object === other.id });
   }
+  const placed: Placed[] = fixtures.flatMap((f) => {
+    const { at, size } = fixtureBox(f, custom);
+    const to = (x: number, y: number, z: number) =>
+      scenePointInPicture(pin, illustration, custom, { x, y, z });
+    const base = [
+      to(at.x, at.y, at.z),
+      to(at.x + size.w, at.y, at.z),
+      to(at.x + size.w, at.y + size.d, at.z),
+      to(at.x, at.y + size.d, at.z),
+    ];
+    const top = to(at.x + size.w / 2, at.y + size.d / 2, at.z + size.h);
+    if (!top || !base.every(Boolean)) return [];
+    return [
+      {
+        id: f.id,
+        label: f.label,
+        base: base as Point[],
+        top,
+        lit: f.control.kind === 'light' && f.state === 'on',
+        focused: focus?.fixture === f.id,
+      },
+    ];
+  });
   const areas: Area[] = [];
   if (showZones) {
     const frame = memory.zone?.frame ?? memory.observation?.frame;
@@ -127,6 +171,33 @@ export function IllustrationView({
               {a.label.toUpperCase()}
             </text>
           )}
+        </g>
+      ))}
+      {placed.map((f) => (
+        <g
+          key={f.id}
+          className={`illustration-fixture ${f.lit ? 'lit' : ''} ${f.focused ? 'focused' : ''}`}
+          data-fixture={f.id}
+          role={onFixture ? 'button' : undefined}
+          aria-label={onFixture ? `Select the ${f.label.toLowerCase()}` : undefined}
+          onClick={onFixture ? () => onFixture(f.id) : undefined}
+        >
+          <polygon points={pts(f.base)} />
+          <line
+            x1={f.top.x}
+            y1={f.top.y}
+            x2={f.top.x - unit * 3}
+            y2={f.top.y - unit * 4}
+            strokeWidth={unit * 0.25}
+          />
+          <text
+            x={f.top.x - unit * 3.4}
+            y={f.top.y - unit * 4.4}
+            fontSize={unit * 1.6}
+            textAnchor="end"
+          >
+            {f.label.toUpperCase()}
+          </text>
         </g>
       ))}
       {markers.map((m) => (

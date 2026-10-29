@@ -979,7 +979,8 @@
 .scan-list .scan-existing {
   color: var(--ok);
 }
-.scan-list .scan-library {
+.scan-list .scan-library,
+.scan-list .scan-fitted {
   color: var(--seen);
 }
 .scan-list .scan-placeholder {

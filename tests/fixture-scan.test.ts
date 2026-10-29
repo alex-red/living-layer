@@ -1,10 +1,11 @@
 import { afterEach, describe, expect, it, mock } from 'bun:test';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import sharp from 'sharp';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { buildApp } from '../apps/server/src/app.js';
 import { parseConfig, type Fetcher } from '../apps/server/src/config.js';
+import { syntheticStream } from '../apps/server/src/sam.js';
 import {
   DEMO_SURFACE,
   ISO_PRESETS,
@@ -12,12 +13,16 @@ import {
   libraryScore,
   mapScan,
   mugItem,
+  placeTemplate,
+  scenePointInPicture,
   placeholderModel,
   type DeskMemory,
   type EvidenceRun,
   type Fixture,
   type FixtureScan,
   type MappedThing,
+  type Point,
+  type SurfacePin,
   type ScannedThing,
 } from '@livinglayer/domain';
 
@@ -171,6 +176,57 @@ describe('mapping a scan into the room the view is part of', () => {
   });
 });
 
+describe('fixtures on the room picture', () => {
+  it('places scene points on the drawn desk, raised by their height', () => {
+    const pin = { ...DEMO_SURFACE, scene: 'office' as const };
+    const top = ISO_PRESETS.office.surfaces.find((s) => s.id === 'desk:top')!;
+    const picture = {
+      asset: 'x/illustration.png',
+      frame: { width: 1000, height: 800 },
+      surfaceId: 'desk:top',
+      desk: [
+        { x: 100, y: 400 },
+        { x: 600, y: 150 },
+        { x: 900, y: 300 },
+        { x: 400, y: 550 },
+      ] as [Point, Point, Point, Point],
+      createdAt: '',
+    };
+    const at = (x: number, y: number, z: number) =>
+      scenePointInPicture(pin, picture, null, { x, y, z })!;
+    expect(at(top.rect.x, top.rect.y, top.z)).toEqual({ x: 100, y: 400 });
+    const far = at(top.rect.x + top.rect.w, top.rect.y + top.rect.d, top.z);
+    expect(far.x).toBeCloseTo(900);
+    expect(far.y).toBeCloseTo(300);
+    // Off the desk it stays on the same plane, without running off to a horizon.
+    const floor = at(0, 0, 0);
+    expect(Math.abs(floor.x)).toBeLessThan(2000);
+    expect(floor.y).toBeGreaterThan(at(0, 0, top.z).y);
+  });
+});
+
+describe('standing on what is nearby', () => {
+  it('snaps a flat thing just past the pinned edge onto the surface', () => {
+    // The mouse's box ends a little above the desk's back edge in the photo.
+    const scan: FixtureScan = {
+      things: [
+        thing({ label: 'mouse', archetype: 'device', box: { x1: 450, y1: 0, x2: 550, y2: 2 } }),
+      ],
+    };
+    const pin = {
+      ...DEMO_SURFACE,
+      corners: [
+        { x: 0, y: 20 },
+        { x: 960, y: 20 },
+        { x: 960, y: 640 },
+        { x: 0, y: 640 },
+      ] as SurfacePin['corners'],
+    };
+    const [mouse] = mapScan({ scan, pin, custom: null, library: [], room: 12, entities: [] });
+    expect(mouse!.fixture!.surfaceId).toBe('desk:top');
+  });
+});
+
 async function setup(env: Record<string, string> = {}, fetcher: Fetcher = mock<Fetcher>()) {
   const dataDir = mkdtempSync(join(tmpdir(), 'livinglayer-scan-'));
   dirs.push(dataDir);
@@ -180,28 +236,30 @@ async function setup(env: Record<string, string> = {}, fetcher: Fetcher = mock<F
   });
   const post = (path: string, body: object = {}) =>
     app.inject({ method: 'POST', url: `/api/${path}`, payload: { mode: 'demo', ...body } });
-  return { app, post };
+  return { app, post, dataDir };
 }
 type Scanned = { run: EvidenceRun; mapped: MappedThing[]; memory: DeskMemory };
 
 describe('scanning the demo desk', () => {
-  it('adds what stays put with placeholders, then finds it already there', async () => {
+  it('adds what stays put with models fitted to their outlines, then finds it there', async () => {
     const s = await setup();
     const first = await s.post('fixtures/scan');
     expect(first.statusCode, first.body).toBe(200);
     const one = first.json<Scanned>();
     expect(one.run).toMatchObject({ kind: 'fixture', mode: 'demo', status: 'completed' });
     expect(one.mapped.map((m) => [m.label, m.match])).toEqual([
-      ['Green book', 'placeholder'],
-      ['Sage bottle', 'placeholder'],
+      ['Green book', 'fitted'],
+      ['Sage bottle', 'fitted'],
     ]);
     expect(one.memory.fixtures).toHaveLength(2);
     expect(one.memory.fixtures![0]).toMatchObject({
       scene: 'desk',
       surfaceId: 'desk:top',
-      model: { source: 'placeholder' },
+      model: { source: 'sampled', fit: { crop: `${one.run.id}/item-crop-1.png` } },
       control: { kind: 'none' },
+      scanned: true,
     });
+    expect(one.memory.fixtures![0]!.model.fit!.iou).toBeGreaterThan(0.5);
     const two = (await s.post('fixtures/scan')).json<Scanned>();
     expect(two.mapped.map((m) => m.match)).toEqual(['existing', 'existing']);
     expect(two.memory.fixtures).toHaveLength(2);
@@ -254,6 +312,7 @@ describe('scanning the demo desk', () => {
       createdAt: _c,
       updatedAt: _u,
       state: _s,
+      scanned: _n,
       link: _k,
       model,
       ...rest
@@ -270,6 +329,30 @@ describe('scanning the demo desk', () => {
     const renamed = saved.json<DeskMemory>().fixtures!.filter((f) => f.link === officeBook.link);
     expect(renamed.map((f) => f.label)).toEqual(['Field guide', 'Field guide']);
     expect((await s.post('fixtures/scan', { scene: 'fridge' })).statusCode).toBe(409);
+  });
+  it('re-places what a scan left as it was, and keeps what a person moved', async () => {
+    const s = await setup();
+    const one = (await s.post('fixtures/scan')).json<Scanned>();
+    const book = one.memory.fixtures!.find((f) => f.label === 'Green book')!;
+    const { id, createdAt: _c, updatedAt: _u, state: _s, scanned: _n, model, ...rest } = book;
+    await s.post('fixtures/save', {
+      fixture: {
+        ...rest,
+        id,
+        surfaceId: null,
+        at: { x: 0, y: 0 },
+        model: { label: model.label, parts: model.parts },
+      },
+    });
+    const two = (await s.post('fixtures/scan')).json<Scanned>();
+    expect(two.mapped[0]!.note).not.toMatch(/moved/);
+    expect(two.memory.fixtures!.find((f) => f.id === id)).toMatchObject({
+      surfaceId: null,
+      at: { x: 0, y: 0 },
+    });
+    expect(two.mapped[1]!.note).toMatch(
+      /moved to where the scan found it, modelled from its outline/,
+    );
   });
   it('takes no photo in the demo', async () => {
     const s = await setup();
@@ -296,10 +379,29 @@ describe('scanning live, with a mocked Meta API', () => {
       }),
       { headers: { 'content-type': 'application/json', 'x-request-id': 'req-spark' } },
     );
+  const sam = JSON.parse(readFileSync('testdata/sam-mug.json', 'utf8')) as { wire: string };
+  async function samResponse(wire: string) {
+    const events = [];
+    for await (const event of syntheticStream(wire))
+      events.push(
+        event.type === 'response.completed'
+          ? { ...event, response: { id: 'resp_sam', model: 'sam-3.1', status: 'completed' } }
+          : event,
+      );
+    const body =
+      events.map((e) => `event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`).join('') +
+      'data: [DONE]\n\n';
+    return new Response(body, { headers: { 'content-type': 'text/event-stream' } });
+  }
   async function live(env: Record<string, string> = {}) {
     const prompts: string[] = [];
     const fetcher = mock<Fetcher>().mockImplementation(async (_url, init) => {
       const body = JSON.parse(String(init?.body));
+      // SAM outlines the lamp from Spark's box: the mug's mask stands in for it.
+      if (body.model === 'sam-3.1') {
+        prompts.push('sam');
+        return samResponse(`<0f>1${sam.wire.replace(/^<0f>7/, '')}`);
+      }
       prompts.push(`${body.text.format.name}: ${body.input[0].content[0].text}`);
       return sparkResponse({
         things: [
@@ -307,7 +409,7 @@ describe('scanning live, with a mocked Meta API', () => {
             label: 'desk lamp',
             archetype: 'lamp',
             control: 'light',
-            box: { x1: 700, y1: 100, x2: 860, y2: 600 },
+            box: { x1: 360, y1: 270, x2: 640, y2: 730 },
           }),
         ],
       });
@@ -339,17 +441,52 @@ describe('scanning live, with a mocked Meta API', () => {
     const res = await s.scan();
     expect(res.statusCode, res.body).toBe(200);
     const r = res.json<Scanned>();
-    expect(s.prompts).toHaveLength(1);
+    expect(s.prompts).toHaveLength(2);
     expect(s.prompts[0]).toMatch(/^fixture_scan: /);
     expect(s.prompts[0]).toContain('followed separately: Mug');
+    expect(s.prompts[1]).toBe('sam');
     expect(r.run).toMatchObject({ kind: 'fixture', mode: 'live', status: 'completed' });
-    expect(r.run.assets).toContain(`${r.run.id}/source.png`);
+    expect(r.run.assets).toEqual(
+      expect.arrayContaining([
+        `${r.run.id}/source.png`,
+        `${r.run.id}/sam-output.txt`,
+        `${r.run.id}/item-crop-1.png`,
+      ]),
+    );
     expect(r.memory.fixtures).toHaveLength(1);
     expect(r.memory.fixtures![0]).toMatchObject({
       label: 'Desk lamp',
       surfaceId: 'desk:top',
-      model: { source: 'placeholder' },
+      model: { source: 'sampled' },
     });
+  });
+  it('scans a drafted room from the photo it was drafted from when none is sent', async () => {
+    const s = await live();
+    const memory = (await s.app.inject('/api/desk/live')).json<DeskMemory>();
+    // Without a photo of its own, a preset's pin has nothing to scan.
+    await pin(s);
+    expect((await s.post('fixtures/scan', { mode: 'live' })).statusCode).toBe(400);
+    const runId = crypto.randomUUID();
+    const photo = await sharp(readFileSync('apps/web/public/desk.svg')).png().toBuffer();
+    const dir = join(s.dataDir, 'evidence', runId);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'source.png'), photo);
+    const desk = placeTemplate('desk', 'desk', 1, 1);
+    const scene = { kind: 'custom', label: 'Mine', grid: { w: 8, d: 8 }, ...desk };
+    const restored = await s.post('desk/restore', {
+      mode: 'live',
+      memory: {
+        ...memory,
+        scene,
+        scenePhoto: `${runId}/source.png`,
+        surface: { ...DEMO_SURFACE, scene: 'custom' },
+      },
+    });
+    expect(restored.statusCode, restored.body).toBe(200);
+    const res = await s.post('fixtures/scan', { mode: 'live' });
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json<Scanned>().memory.fixtures![0]).toMatchObject({ scene: 'custom' });
+    expect(s.prompts).toEqual([expect.stringMatching(/^fixture_scan/), 'sam']);
   });
   it('needs a pin, and refuses before any call past today’s limit', async () => {
     const s = await live();

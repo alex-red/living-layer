@@ -5,6 +5,11 @@ import {
   DEMO_REFERENCES,
   DEMO_SURFACE,
   mapScan,
+  outlineOf,
+  type IsoItem,
+  type ItemFitRecord,
+  type Outline,
+  type Swatch,
   fixtureGroup,
   linkedFixtures,
   pinFits,
@@ -33,9 +38,15 @@ import {
 } from '@livinglayer/domain';
 import { LabError, parseInput } from './errors.js';
 import sharp from 'sharp';
-import { demoDeskThing, demoFixtureClass, demoFixtureScan, demoReference } from './demo.js';
+import {
+  demoDeskThing,
+  demoFixtureClass,
+  demoFixtureScan,
+  demoPhotoSegmentation,
+  demoReference,
+} from './demo.js';
 import { maskedCrop, validateImage } from './images.js';
-import { draftModel, pinElevation, rescore, type Runner } from './item.js';
+import { demoPhoto, draftModel, pinElevation, rescore, type Runner } from './item.js';
 import { SPARK_BUDGET, type MetaAdapter } from './meta.js';
 import type { EvidenceStore } from './store.js';
 
@@ -68,6 +79,68 @@ async function around(
     .png()
     .toBuffer();
 }
+
+/**
+ * The photo a room was drafted from, as a data URL, for scanning the room
+ * when no newer photo is sent: its pin was set on that photo. Rooms saved
+ * before the photo was kept fall back to the one their picture was drawn from.
+ */
+async function roomPhoto(
+  memory: DeskMemory,
+  scene: string,
+  store: EvidenceStore,
+): Promise<string | undefined> {
+  if (scene !== 'custom') return undefined;
+  const drawn = memory.illustration?.asset.split('/')[0];
+  for (const asset of [memory.scenePhoto, drawn && `${drawn}/source.png`]) {
+    const bytes = asset ? store.readAsset(asset) : null;
+    // A saved PNG can be large; Spark needs no more than a good JPEG.
+    if (bytes)
+      return `data:image/jpeg;base64,${(await sharp(bytes).jpeg({ quality: 90 }).toBuffer()).toString('base64')}`;
+  }
+  return undefined;
+}
+
+/**
+ * Each scanned thing's outline, by its place in the scan: SAM from Spark's
+ * boxes live (one call), or the illustrated desk's own outlines in the demo,
+ * matched by how much they overlap the box. Null where nothing was outlined.
+ */
+async function outlinedThings(
+  { meta, store }: { meta: MetaAdapter; store: EvidenceStore },
+  scan: FixtureScan,
+  frame: { width: number; height: number },
+  dataUrl: string | null,
+  runId: string,
+  assets: string[],
+): Promise<(Detection | null)[]> {
+  const boxes = scan.things.map((t) => promptBox(t, frame));
+  let detections: Detection[];
+  if (dataUrl) {
+    const prompts = boxes.flatMap((box, i) => (box ? [{ id: i + 1, box }] : []));
+    if (!prompts.length) return scan.things.map(() => null);
+    const outlined = await meta.segmentBoxes(dataUrl, prompts, frame.width, frame.height);
+    assets.push(store.asset(runId, 'sam-output.txt', outlined.raw));
+    detections = outlined.output.detections;
+    return boxes.map((_, i) => pickLargest(detections.filter((d) => d.objectId === String(i + 1))));
+  }
+  detections = (await demoPhotoSegmentation()).detections;
+  return boxes.map((box) => {
+    if (!box) return null;
+    const overlap = (d: Detection) => {
+      const w = Math.min(box.right, d.box.x + d.box.width) - Math.max(box.left, d.box.x);
+      const h = Math.min(box.bottom, d.box.y + d.box.height) - Math.max(box.top, d.box.y);
+      const inter = Math.max(0, w) * Math.max(0, h);
+      const union =
+        (box.right - box.left) * (box.bottom - box.top) + d.box.width * d.box.height - inter;
+      return union > 0 ? inter / union : 0;
+    };
+    const best = [...detections].sort((a, b) => overlap(b) - overlap(a))[0];
+    return best && overlap(best) >= 0.2 ? best : null;
+  });
+}
+const pickLargest = (ds: Detection[]) =>
+  [...ds].sort((a, b) => b.mask.foregroundPixels - a.mask.foregroundPixels)[0] ?? null;
 
 /** Switch one light or switch, through Home Assistant or the demo's virtual adapter. */
 export type Control = (mode: Mode, entityId: string, action: 'on' | 'off') => Promise<LampResult>;
@@ -318,8 +391,10 @@ export function fixtureRoutes(
    * fits: its own, or the room it is a close view of. A thing found in the
    * other scene is linked with it, so both are one fixture. A
    * thing the scene already has is left alone; one a fixture elsewhere matches
-   * is placed with that fixture's model; anything else is added with a
-   * placeholder model to draft properly later. Demo mode scans the
+   * is placed with that fixture's model; anything else is added with a model
+   * fitted to what SAM outlined of it (one call for all of Spark's boxes), or
+   * a placeholder when SAM found nothing. The masks also say where each thing
+   * touches down, which a loose box doesn't. Demo mode scans the
    * illustrated desk, which fills the frame, with no model call.
    */
   app.post('/api/fixtures/scan', async (request) => {
@@ -352,23 +427,83 @@ export function fixtureRoutes(
         'The pin is on another scene: scan its own scene, or the room it is a close view of.',
         409,
       );
-    const ceiling = sparkCeiling(SPARK_BUDGET.fixtureScan, 1);
+    const ceiling = sparkCeiling(SPARK_BUDGET.fixtureScan, 1) + META_PRICES.samPerImage;
     if (live && !meta.canAfford(ceiling))
       throw new LabError(
         'spend_limit',
         `A scan could cost up to $${ceiling.toFixed(3)}, which would pass today's Meta spending limit. Raise the limit in Setup, or wait for the next UTC day.`,
         429,
       );
-    const image = live ? await validateImage(imageDataUrl) : null;
+    const image = live
+      ? await validateImage(imageDataUrl ?? (await roomPhoto(before, pin.scene, store)))
+      : null;
     const tracked = [before.object?.label, ...(before.others ?? []).map((o) => o.label)].filter(
       (l): l is string => Boolean(l),
     );
+    // What each fitted model was fitted to, by its place in the scan.
+    const fits: ({ fit: ItemFitRecord; swatches: Swatch[] } | undefined)[] = [];
     const event = await run('fixture', mode, async (id) => {
       const result = image
         ? await meta.fixtureScan(image.dataUrl, tracked)
         : { output: demoFixtureScan, model: 'demo', requestId: null, usage: null };
       const scan: FixtureScan = result.output;
+      const assets = image ? [store.asset(id, 'source.png', image.bytes)] : [];
+      // 2. SAM outlines every thing from Spark's box, in one call.
+      const png = image ? image.bytes : await demoPhoto();
+      const frame = image
+        ? { width: image.width, height: image.height }
+        : { width: 960, height: 640 };
+      const outlined = await outlinedThings(
+        { meta, store },
+        scan,
+        frame,
+        image?.dataUrl ?? null,
+        id,
+        assets,
+      );
+      // 3. Each outline is modelled by the fitter, with no further calls.
       const memory = store.memory(mode);
+      const outlines: (Outline | null)[] = [];
+      const models: (IsoItem | null)[] = [];
+      for (const [i, thing] of scan.things.entries()) {
+        const detection = outlined[i];
+        outlines.push(detection ? outlineOf(detection, frame) : null);
+        if (!detection) {
+          models.push(null);
+          continue;
+        }
+        const crop = await maskedCrop(png, detection);
+        const cropAsset = store.asset(id, `item-crop-${i + 1}.png`, crop.png);
+        assets.push(cropAsset);
+        const label = thing.label.charAt(0).toUpperCase() + thing.label.slice(1);
+        const drafted = await draftModel(meta, store, id, {
+          crop,
+          cropUrl: `data:image/png;base64,${crop.png.toString('base64')}`,
+          label,
+          archetype: thing.archetype,
+          material: thing.material,
+          elevation: pinElevation(memory, mode),
+          live: false,
+          knownHeight: thing.sizeCm.h / Math.max(thing.sizeCm.w, thing.sizeCm.d),
+        });
+        models.push(drafted.item);
+        fits[i] = {
+          fit: {
+            archetype: drafted.fitted.archetype,
+            params: drafted.params,
+            iou: drafted.score.iou,
+            deltaE: drafted.score.deltaE,
+            elevation: drafted.fitted.elevation,
+            views: 1,
+            crop: cropAsset,
+            assists: [
+              `Scan: ${thing.archetype}, ${thing.material}, outlined by SAM`,
+              ...drafted.assists,
+            ],
+          },
+          swatches: drafted.fitted.swatches,
+        };
+      }
       const library = memory.fixtures ?? [];
       const mapped = mapScan({
         scan,
@@ -378,12 +513,10 @@ export function fixtureRoutes(
         library,
         room: MAX_FIXTURES - library.length,
         entities: entities(mode),
+        outlines,
+        models,
       });
-      return {
-        ...result,
-        output: { scan, mapped },
-        assets: image ? [store.asset(id, 'source.png', image.bytes)] : [],
-      };
+      return { ...result, output: { scan, mapped }, assets };
     });
     const { mapped } = event.output as { scan: FixtureScan; mapped: MappedThing[] };
     // Read again: the scan took a while, and the memory may have changed meanwhile.
@@ -399,15 +532,27 @@ export function fixtureRoutes(
     };
     for (const m of mapped) {
       const here = m.match === 'existing' ? library.find((f) => f.id === m.fixtureId) : undefined;
+      if (here && m.moveTo) Object.assign(here, m.moveTo, { updatedAt: now });
+      const fit = fits[mapped.indexOf(m)];
+      if (here && m.remodel && fit)
+        here.model = {
+          ...uniqueParts(m.remodel),
+          source: 'sampled',
+          segmentRunId: null,
+          swatches: fit.swatches,
+          updatedAt: now,
+          fit: fit.fit,
+        };
       const link = here && linkWith(m);
       if (here && link) {
         for (const f of linkedFixtures(library, here)) f.link = link;
         here.link = link;
       }
     }
-    const added: Fixture[] = mapped.flatMap((m) => {
+    const added: Fixture[] = mapped.flatMap((m, i) => {
       if (!m.fixture) return [];
       const link = linkWith(m);
+      const fit = m.match === 'fitted' ? fits[i] : undefined;
       const known = m.match === 'library' ? library.find((f) => f.id === m.fixtureId) : undefined;
       const { model, ...rest } = m.fixture;
       return [
@@ -418,14 +563,15 @@ export function fixtureRoutes(
             ? { ...known.model, ...uniqueParts(model), updatedAt: now }
             : {
                 ...uniqueParts(model),
-                source: 'placeholder',
+                source: fit ? 'sampled' : 'placeholder',
                 segmentRunId: null,
-                swatches: [],
+                swatches: fit?.swatches ?? [],
                 updatedAt: now,
-                fit: null,
+                fit: fit?.fit ?? null,
               },
           state: null,
           ...(link ? { link } : {}),
+          scanned: true,
           createdAt: now,
           updatedAt: now,
         },

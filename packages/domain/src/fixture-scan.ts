@@ -15,10 +15,18 @@ import {
   surfaceWorld,
   type IsoScene,
   type IsoSceneKind,
+  type IsoSurface,
   type Point,
   type SurfacePin,
 } from './iso.js';
-import { cameraFromPin, onPinnedSurface, unprojectPoint } from './photo-scene.js';
+import type { Detection, Segmentation } from './index.js';
+import {
+  cameraFromPin,
+  maskBits,
+  onPinnedSurface,
+  projectPoint,
+  unprojectPoint,
+} from './photo-scene.js';
 
 /**
  * Scan and map: Spark lists what stays put in a view's photo, and each thing
@@ -67,6 +75,8 @@ export type ScanMatch =
   | 'existing'
   /** Placed with the model of a fixture saved in another scene, or another of its kind. */
   | 'library'
+  /** Placed with a model fitted to what SAM outlined of it. */
+  | 'fitted'
   /** Placed with a placeholder model. */
   | 'placeholder';
 export interface MappedThing {
@@ -74,6 +84,10 @@ export interface MappedThing {
   match: ScanMatch;
   /** The fixture it is (existing) or was modelled on (library). */
   fixtureId?: string;
+  /** Where a fixture the last scan placed moves to: it follows the latest scan. */
+  moveTo?: Pick<FixtureInput, 'at' | 'surfaceId'>;
+  /** A model fitted to its outline, for a fixture the last scan placed. */
+  remodel?: IsoItem;
   /** The same thing in another scene, to link with: a room and its close view. */
   linkTo?: string;
   /** What to save, for a library or placeholder thing; null when it is skipped. */
@@ -112,6 +126,38 @@ export function libraryScore(
   return jaccard >= 0.5 ? 0.6 : 0;
 }
 
+/**
+ * Where an outlined thing touches what it stands on, and how big it is, as
+ * shares of the photo: the middle of the mask's lowest few rows. A loose box
+ * runs past the thing; the mask stops where it does.
+ */
+export interface Outline {
+  foot: Point;
+  size: { w: number; h: number };
+}
+export function outlineOf(d: Detection, frame: Segmentation['frame']): Outline | null {
+  const scale = Math.min(1, 480 / Math.max(frame.width, frame.height));
+  const bits = maskBits(d, frame, scale);
+  let bottom = -1;
+  for (let y = bits.height - 1; y >= 0 && bottom < 0; y--)
+    for (let x = 0; x < bits.width; x++) if (bits.data[y * bits.width + x]) bottom = y;
+  if (bottom < 0) return null;
+  // The lowest rows, a few percent of its height: a base, legs, a mouse's belly.
+  const band = Math.max(1, Math.round(d.box.height * scale * 0.04));
+  let sum = 0;
+  let n = 0;
+  for (let y = Math.max(0, bottom - band); y <= bottom; y++)
+    for (let x = 0; x < bits.width; x++)
+      if (bits.data[y * bits.width + x]) {
+        sum += x + 0.5;
+        n++;
+      }
+  return {
+    foot: { x: sum / n / bits.width, y: (bottom + 1) / bits.height },
+    size: { w: d.box.width / frame.width, h: d.box.height / frame.height },
+  };
+}
+
 /** A model from the shape's usual proportions in the thing's colour, until it is drafted properly. */
 export function placeholderModel(
   label: string,
@@ -123,40 +169,132 @@ export function placeholderModel(
   return buildItem(label, { ...fit, material });
 }
 
+const inside = (poly: Point[], p: Point) => {
+  let hit = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const a = poly[i]!;
+    const b = poly[j]!;
+    if (a.y > p.y !== b.y > p.y && p.x < ((b.x - a.x) * (p.y - a.y)) / (b.y - a.y) + a.x)
+      hit = !hit;
+  }
+  return hit;
+};
+/** The nearest point of a polygon's edge to p, and how far it is. */
+function nearestEdge(poly: Point[], p: Point): { at: Point; distance: number } {
+  let best = { at: poly[0]!, distance: Infinity };
+  for (let i = 0; i < poly.length; i++) {
+    const a = poly[i]!;
+    const b = poly[(i + 1) % poly.length]!;
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const t = Math.max(
+      0,
+      Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / (dx * dx + dy * dy || 1)),
+    );
+    const at = { x: a.x + t * dx, y: a.y + t * dy };
+    const distance = Math.hypot(p.x - at.x, p.y - at.y);
+    if (distance < best.distance) best = { at, distance };
+  }
+  return best;
+}
+/** How far past a surface's outline a thing's foot may be, as a share of its box's larger side. */
+const REACH = 0.6;
+
 /**
- * Where a thing stands, from where its box meets the ground in the photo:
- * on the pinned surface when its foot lands on it, else on the floor below
- * the camera, else in front of the surface. A centre point in scene tiles.
+ * Where a thing stands, from where its box meets the ground in the photo.
+ * Every surface of the scene is drawn into the frame by the pin's camera;
+ * the thing stands on the highest one its foot is on, or else the nearest
+ * one its foot is within reach of (a monitor's base sits behind the desk's
+ * drawn edge, a laptop hangs over it), at the nearest point of it. Anything
+ * else stands on the floor below the camera when that is in the room, else
+ * on the nearest surface, else in front of the pinned one. A centre point in scene tiles.
  */
 function standing(
   pin: SurfacePin,
   scene: IsoSceneKind | 'custom',
   custom: IsoScene | null,
   foot: Point,
+  boxSize: number,
 ): { centre: Point; surfaceId: string | null } | null {
   // The pin maps the frame onto the surface's unit square, so the same
   // surface in a room and its close view takes the thing to the same spot.
-  const surface = isoSurface(scene, pin.surfaceId, custom);
-  if (!surface) return null;
-  const uv = onPinnedSurface(pin, foot);
-  const EDGE = 0.04;
-  if (uv && uv.x >= -EDGE && uv.x <= 1 + EDGE && uv.y >= -EDGE && uv.y <= 1 + EDGE) {
-    const at = surfaceWorld(surface, {
-      x: Math.min(1, Math.max(0, uv.x)),
-      y: Math.min(1, Math.max(0, uv.y)),
-    });
-    return { centre: { x: at.x, y: at.y }, surfaceId: surface.id };
-  }
-  const { w, d } = surface.rect;
+  const pinned = isoSurface(scene, pin.surfaceId, custom);
+  const all = (scene === 'custom' ? custom : ISO_PRESETS[scene])?.surfaces ?? [];
+  if (!pinned) return null;
+  const { w, d } = pinned.rect;
   const camera = cameraFromPin(pin.corners, pin.frame, w, [d, d]);
-  const floor = camera && unprojectPoint(camera, foot, -surface.z);
-  if (floor)
-    return {
-      centre: { x: surface.rect.x + floor.X, y: surface.rect.y + floor.Y },
-      surfaceId: null,
-    };
+  const outline = (s: IsoSurface): Point[] | null => {
+    if (s.id === pinned.id) return [...pin.corners];
+    if (!camera) return null;
+    const { x, y } = pinned.rect;
+    const z = s.z - pinned.z;
+    const r = s.rect;
+    const ps = [
+      projectPoint(camera, r.x - x, r.y - y, z),
+      projectPoint(camera, r.x + r.w - x, r.y - y, z),
+      projectPoint(camera, r.x + r.w - x, r.y + r.d - y, z),
+      projectPoint(camera, r.x - x, r.y + r.d - y, z),
+    ];
+    return ps.every(Boolean) ? (ps as Point[]) : null;
+  };
+  // Where a frame point lands on a surface's plane, as shares of it.
+  const onPlane = (s: IsoSurface, p: Point): Point | null => {
+    if (s.id === pinned.id) return onPinnedSurface(pin, p);
+    const hit = camera && unprojectPoint(camera, p, s.z - pinned.z);
+    return hit
+      ? {
+          x: (pinned.rect.x + hit.X - s.rect.x) / s.rect.w,
+          y: (pinned.rect.y + hit.Y - s.rect.y) / s.rect.d,
+        }
+      : null;
+  };
+  const reach = REACH * boxSize;
+  const near = all
+    .map((s) => {
+      const poly = outline(s);
+      if (!poly) return null;
+      if (inside(poly, foot)) return { s, at: foot, distance: 0 };
+      const edge = nearestEdge(poly, foot);
+      return { s, at: edge.at, distance: edge.distance };
+    })
+    .filter((x) => x !== null)
+    // Standing on two at once (a shelf drawn over the desk): the higher one.
+    .sort((a, b) =>
+      a.distance === 0 && b.distance === 0 ? b.s.z - a.s.z : a.distance - b.distance,
+    );
+  const onto = (hit: (typeof near)[number] | undefined) => {
+    const uv = hit && onPlane(hit.s, hit.at);
+    if (!hit || !uv) return null;
+    const at = surfaceWorld(hit.s, {
+      x: Math.min(0.98, Math.max(0.02, uv.x)),
+      y: Math.min(0.98, Math.max(0.02, uv.y)),
+    });
+    return { centre: { x: at.x, y: at.y }, surfaceId: hit.s.id };
+  };
+  const found = near[0] && near[0].distance <= reach ? near[0] : undefined;
+  const standsOn = onto(found);
+  if (standsOn) return standsOn;
+  const floor = camera && unprojectPoint(camera, foot, -pinned.z);
+  const grid = (scene === 'custom' ? custom : ISO_PRESETS[scene])?.grid;
+  const centre = floor && { x: pinned.rect.x + floor.X, y: pinned.rect.y + floor.Y };
+  // A floor spot off the grid is the camera looking past the room or up at
+  // something high, like a shelf drafted a little off: the nearest surface
+  // is a better guess than the room's edge.
+  const M = 0.5;
+  if (
+    centre &&
+    grid &&
+    centre.x > -M &&
+    centre.y > -M &&
+    centre.x < grid.w + M &&
+    centre.y < grid.d + M
+  )
+    return { centre, surfaceId: null };
+  const nearest = onto(near[0]);
+  if (nearest) return nearest;
+  const across = onPinnedSurface(pin, foot)?.x ?? 0.5;
   return {
-    centre: { x: surface.rect.x + (uv?.x ?? 0.5) * w, y: surface.rect.y + d + 0.5 },
+    centre: { x: pinned.rect.x + Math.min(1, Math.max(0, across)) * w, y: pinned.rect.y + d + 0.5 },
     surfaceId: null,
   };
 }
@@ -211,9 +349,15 @@ export function mapScan({
   library,
   room,
   entities,
+  outlines = [],
+  models = [],
 }: {
   /** Of a photo the pin's camera took, at any size. */
   scan: FixtureScan;
+  /** What SAM outlined of each thing, by its place in the scan. */
+  outlines?: (Outline | null)[];
+  /** A model fitted to each thing's mask, to use instead of a placeholder. */
+  models?: (IsoItem | null)[];
   pin: SurfacePin;
   scene?: IsoSceneKind | 'custom';
   custom: IsoScene | null;
@@ -235,37 +379,66 @@ export function mapScan({
         (!present.has(fixtureGroup(x.f)) || (self && fixtureGroup(self) === fixtureGroup(x.f))),
     )?.f;
   let left = room;
-  return scan.things.map((thing): MappedThing => {
+  return scan.things.map((thing, index): MappedThing => {
     const ranked = library
       .map((f) => ({ f, score: libraryScore(thing, f) }))
       .filter((x) => x.score >= 0.5)
       .sort((a, b) => b.score - a.score);
+    // Where it touches down, in the pin's frame (shares travel across sizes):
+    // its mask's lowest rows when SAM outlined it, else its box's bottom centre.
+    const outline = outlines[index];
+    const share = outline ?? {
+      foot: {
+        x: (thing.box.x1 + thing.box.x2) / 2000,
+        y: Math.max(thing.box.y1, thing.box.y2) / 1000,
+      },
+      size: {
+        w: Math.abs(thing.box.x2 - thing.box.x1) / 1000,
+        h: Math.abs(thing.box.y2 - thing.box.y1) / 1000,
+      },
+    };
+    const where = standing(
+      pin,
+      scene,
+      custom,
+      { x: share.foot.x * pin.frame.width, y: share.foot.y * pin.frame.height },
+      Math.max(share.size.h * pin.frame.height, share.size.w * pin.frame.width),
+    );
+    const fitted = models[index] ?? null;
     const here = ranked.find((x) => x.f.scene === scene && !claimed.has(x.f.id));
     if (here) {
       claimed.add(here.f.id);
       const other = linkable(ranked, here.f);
       const link = other && fixtureGroup(other) !== fixtureGroup(here.f) ? other : undefined;
       if (link) present.add(fixtureGroup(link));
+      // What a scan placed and nobody has touched since follows the latest scan.
+      const follows = here.f.scanned || here.f.model.source === 'placeholder';
+      const {
+        id: _id,
+        model,
+        createdAt: _c,
+        updatedAt: _u,
+        state: _s,
+        link: _l,
+        scanned: _n,
+        ...rest
+      } = here.f;
+      const moveTo = where && follows ? place({ ...rest, model }, where, custom, grid) : undefined;
+      const remodel = fitted && follows ? { ...fitted, label: here.f.model.label } : undefined;
       return {
         label: here.f.label,
         match: 'existing',
         fixtureId: here.f.id,
         ...(link ? { linkTo: link.id } : {}),
+        ...(moveTo ? { moveTo } : {}),
+        ...(remodel ? { remodel } : {}),
         fixture: null,
-        note: link
-          ? `Already in the room as the ${here.f.label.toLowerCase()}; now linked with the one in the other scene.`
-          : `Already in the room as the ${here.f.label.toLowerCase()}.`,
+        note: `Already in the room as the ${here.f.label.toLowerCase()}${moveTo ? ', moved to where the scan found it' : ''}${remodel ? ', modelled from its outline' : ''}${link ? '; now linked with the one in the other scene' : ''}.`,
       };
     }
     const label = thing.label.charAt(0).toUpperCase() + thing.label.slice(1);
     if (left <= 0)
       return { label, match: 'placeholder', fixture: null, note: 'No room for more fixtures.' };
-    // Its box's bottom centre, in the pin's frame: thousandths travel across sizes.
-    const foot = {
-      x: ((thing.box.x1 + thing.box.x2) / 2000) * pin.frame.width,
-      y: (Math.max(thing.box.y1, thing.box.y2) / 1000) * pin.frame.height,
-    };
-    const where = standing(pin, scene, custom, foot);
     if (!where)
       return { label, match: 'placeholder', fixture: null, note: 'The pin’s surface is gone.' };
     // The same thing elsewhere first; else another of its kind, unlinked.
@@ -295,7 +468,7 @@ export function mapScan({
         scene,
         turns: 0,
         size: sizeInTiles(thing.sizeCm, scene, custom),
-        model: placeholderModel(label, thing.archetype, thing.color, thing.material),
+        model: fitted ?? placeholderModel(label, thing.archetype, thing.color, thing.material),
         reference: null,
         control: { kind: 'none' },
       };
@@ -314,9 +487,11 @@ export function mapScan({
         }
       : {
           label,
-          match: 'placeholder',
+          match: fitted ? 'fitted' : 'placeholder',
           fixture,
-          note: `Placed with a placeholder ${thing.archetype} model.`,
+          note: fitted
+            ? `Placed with a ${thing.archetype} model fitted to its outline.`
+            : `Placed with a placeholder ${thing.archetype} model.`,
         };
   });
 }

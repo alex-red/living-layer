@@ -8,7 +8,15 @@ import {
   type Quad,
   type SurfacePin,
 } from './iso.js';
-import { fitSurfaceQuad, maskBits, surfaceTop } from './photo-scene.js';
+import { isoSurface } from './iso-presets.js';
+import { worldSurface, type IsoScene, type IsoVec } from './iso.js';
+import {
+  cameraFromPin,
+  fitSurfaceQuad,
+  maskBits,
+  projectPoint,
+  surfaceTop,
+} from './photo-scene.js';
 
 /** A room's picture: `runId/illustration.png` in the evidence store. */
 export const illustrationRef = z.string().regex(/^[a-z0-9-]{1,64}\/illustration\.png$/);
@@ -137,4 +145,48 @@ export function framePointInPicture(
   const toUnit = homography(pin.corners, UNIT);
   const toPicture = homography(UNIT, picture.desk);
   return toUnit && toPicture ? applyHomography(toPicture, applyHomography(toUnit, p)) : null;
+}
+
+/**
+ * Where a point of the pinned scene shows in its picture. On the room's
+ * picture the desk top is known, so a point is placed on that plane and
+ * raised or lowered by its height: the picture is drawn in parallel
+ * projection, where up is up the page at about a tile's length per tile. On
+ * a picture redrawn from a frame, the point goes through the pin's camera
+ * into the frame first, when the pin was set on frames of that size.
+ */
+export function scenePointInPicture(
+  pin: SurfacePin,
+  picture: SceneIllustration,
+  custom: IsoScene | null,
+  p: IsoVec,
+): Point | null {
+  const surface = isoSurface(pin.scene, pin.surfaceId, custom);
+  if (!surface) return null;
+  if (picture.drawnFrom) {
+    const { w, d } = surface.rect;
+    const camera = cameraFromPin(pin.corners, pin.frame, w, [d, d]);
+    const at =
+      camera && projectPoint(camera, p.x - surface.rect.x, p.y - surface.rect.y, p.z - surface.z);
+    return at && framePointInPicture(pin, picture, pin.frame, at);
+  }
+  const desk = picture.desk;
+  if (!desk) return null;
+  // Parallel projection maps the plane affinely; a homography through four
+  // drawn corners would run off to a horizon away from the desk.
+  const [d0, d1, d2, d3] = desk;
+  const a = { x: (d1.x - d0.x + d2.x - d3.x) / 2, y: (d1.y - d0.y + d2.y - d3.y) / 2 };
+  const b = { x: (d3.x - d0.x + d2.x - d1.x) / 2, y: (d3.y - d0.y + d2.y - d1.y) / 2 };
+  const c = {
+    x: (d0.x + d1.x + d2.x + d3.x) / 4 - (a.x + b.x) / 2,
+    y: (d0.y + d1.y + d2.y + d3.y) / 4 - (a.y + b.y) / 2,
+  };
+  const uv = worldSurface(surface, p);
+  const on = { x: c.x + uv.x * a.x + uv.y * b.x, y: c.y + uv.x * a.y + uv.y * b.y };
+  const len = (a: Point, b: Point) => Math.hypot(b.x - a.x, b.y - a.y);
+  const tile =
+    ((len(desk[0], desk[1]) + len(desk[3], desk[2])) / surface.rect.w +
+      (len(desk[0], desk[3]) + len(desk[1], desk[2])) / surface.rect.d) /
+    4;
+  return { x: on.x, y: on.y - (p.z - surface.z) * tile };
 }

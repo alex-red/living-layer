@@ -708,6 +708,8 @@ export function deskRoutes(
       : (scene as IsoScene);
     if (memory.fixtures) memory.fixtures = settleFixtures(memory.fixtures, memory.scene);
     memory.surface = pin as SurfacePin | null;
+    memory.scenePhoto =
+      mode === 'live' && store.readAsset(`${runId}/source.png`) ? `${runId}/source.png` : null;
     // A new photo is a new room: the old pictures of it no longer fit.
     memory.illustration = null;
     memory.deskIllustration = null;
@@ -821,6 +823,7 @@ export function deskRoutes(
       scene: store.memory(mode).scene ?? null,
       // The scene's pictures are part of the scene, so they stay with it.
       illustration: store.memory(mode).illustration ?? null,
+      scenePhoto: store.memory(mode).scenePhoto ?? null,
       deskIllustration: store.memory(mode).deskIllustration ?? null,
       history: [],
       placement: null,
@@ -851,6 +854,11 @@ export function deskRoutes(
                 .nullable(),
               surface: surfacePinSchema.nullable().optional(),
               scene: isoSceneSchema.nullable().optional(),
+              scenePhoto: z
+                .string()
+                .regex(/^[a-z0-9-]{1,64}\/source\.png$/)
+                .nullable()
+                .optional(),
               illustration: sceneIllustrationSchema.nullable().optional(),
               deskIllustration: sceneIllustrationSchema.nullable().optional(),
               others: z

@@ -67,6 +67,8 @@ export interface Fixture extends Omit<FixtureInput, 'id' | 'model'> {
    * link: what it is and what it switches stay the same in each.
    */
   link?: string;
+  /** Placed by a scan and not saved by hand since: it follows the latest scan. */
+  scanned?: boolean;
   createdAt: string;
   updatedAt: string;
 }

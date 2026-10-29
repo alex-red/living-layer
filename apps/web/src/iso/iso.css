@@ -947,6 +947,45 @@
 .illustration-marker.focused ellipse {
   fill: var(--chosen);
 }
+.illustration-fixture {
+  cursor: pointer;
+}
+.illustration-fixture polygon {
+  fill: var(--seen-wash);
+  stroke: var(--seen);
+  stroke-width: 1.5;
+  stroke-opacity: 0.7;
+  vector-effect: non-scaling-stroke;
+}
+.illustration-fixture line {
+  stroke: var(--seen);
+  stroke-opacity: 0.7;
+}
+.illustration-fixture text {
+  fill: var(--seen);
+  font-family: var(--mono);
+  font-weight: 500;
+  paint-order: stroke;
+  stroke: #05060a;
+  stroke-width: 0.25em;
+}
+.illustration-fixture:hover polygon,
+.illustration-fixture.focused polygon {
+  fill: var(--seen-glow);
+  stroke-opacity: 1;
+  filter: drop-shadow(0 0 8px var(--seen-glow));
+}
+.illustration-fixture.lit polygon {
+  fill: var(--warm-wash);
+  stroke: var(--warm);
+  filter: drop-shadow(0 0 10px var(--warm-glow));
+}
+.illustration-fixture.lit text {
+  fill: var(--warm);
+}
+.illustration-fixture.lit line {
+  stroke: var(--warm);
+}
 .picture-controls {
   display: grid;
   gap: 6px;

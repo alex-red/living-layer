@@ -197,16 +197,23 @@ function useScenes(): { id: WorkScene; label: string }[] {
 const MATCH_LABEL: Record<MappedThing['match'], string> = {
   existing: 'In the room',
   library: 'From the library',
+  fitted: 'Fitted',
   placeholder: 'Placeholder',
 };
 
 /**
  * Scan and map the pinned view into the room or its close view: what stays
  * put in the desk photo is found, matched against the fixtures already
- * saved, and the rest added with placeholder models. Scanning both scenes
+ * saved, and the rest added with models fitted to SAM's outlines. Scanning both scenes
  * links each thing across them.
  */
-function ScanView({ initial }: { initial: WorkScene | null }) {
+export function ScanFixtures({
+  initial,
+  open = false,
+}: {
+  initial: WorkScene | null;
+  open?: boolean;
+}) {
   const lab = useLab();
   const { call, off } = useCall();
   const [mapped, setMapped] = useState<MappedThing[] | null>(null);
@@ -216,13 +223,16 @@ function ScanView({ initial }: { initial: WorkScene | null }) {
   const scenes = useScenes().filter((s) => pin && pinFits(pin, s.id));
   const [chosen, setChosen] = useState<WorkScene | null>(initial);
   const scene = scenes.find((s) => s.id === chosen)?.id ?? scenes[0]?.id ?? null;
-  const blocked = (live && !lab.image) || !scene;
+  // A drafted room can be scanned from the photo it was drafted from.
+  const roomPhoto =
+    pin?.scene === 'custom' && Boolean(lab.memory?.scenePhoto || lab.memory?.illustration);
+  const blocked = (live && !lab.image && !roomPhoto) || !scene;
   return (
-    <Details summary="Scan and map this view">
+    <Details summary="Scan and map fixtures" open={open}>
       <p className="micro">
         {live
-          ? 'Spark lists what stays put in the desk photo, and each thing is placed through the pin. A fixture you already have is reused; anything new gets a placeholder model to draft later.'
-          : 'Scans the illustrated desk with no model call. A fixture you already have is reused; anything new gets a placeholder model.'}
+          ? `Spark lists what stays put in ${lab.image ? 'the desk photo' : 'the room’s photo'}, SAM outlines each one, and each is placed through the pin where it touches down. A fixture you already have is reused; anything new is modelled from its outline.`
+          : 'Scans the illustrated desk with no model call. A fixture you already have is reused; anything new is modelled from its outline.'}
       </p>
       {scenes.length > 1 && (
         <div className="mode-switch" role="group" aria-label="Scene to map into">
@@ -257,7 +267,9 @@ function ScanView({ initial }: { initial: WorkScene | null }) {
       >
         {off ? 'Scanning…' : 'Scan and map'}
       </button>
-      <Cost>One Spark call, refused up front if today’s limit can’t cover it.</Cost>
+      <Cost>
+        One Spark call and one SAM call, refused up front if today’s limit can’t cover them.
+      </Cost>
       {mapped && mapped.length > 0 && (
         <ul className="scan-list">
           {mapped.map((m, i) => (
@@ -444,7 +456,7 @@ export function NewFixturePanel() {
         >
           Or box it on the desk photo →
         </button>
-        <ScanView initial={target} />
+        <ScanFixtures initial={target} />
         {!live && (
           <div className="object-grid">
             {DEMO_REFERENCES.map((r) => (

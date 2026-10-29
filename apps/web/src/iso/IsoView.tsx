@@ -387,6 +387,11 @@ export function IsoView({
             memory={memory}
             focus={focus}
             showZones={layers.zones}
+            fixtures={(memory.fixtures ?? []).filter(
+              (f) => f.scene === pin.scene && f.id !== placing?.id,
+            )}
+            custom={custom}
+            {...(onFixture ? { onFixture } : {})}
           />
         ) : (
           <IsoScene

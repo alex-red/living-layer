@@ -7,6 +7,7 @@ import type {
   Segmentation,
   Detection,
   FixtureDraft,
+  MappedThing,
   LampResult,
   DeskMemory,
   ZoneRect,
@@ -234,6 +235,12 @@ export function runDetail(run: EvidenceRun): string {
       return `${item.label} · ${item.parts.length} parts · ${item.source}`;
     }
     case 'fixture': {
+      // A scan maps several things; a draft models one.
+      if (run.output && typeof run.output === 'object' && 'mapped' in run.output) {
+        const { mapped } = run.output as { mapped: MappedThing[] };
+        const added = mapped.filter((m) => m.fixture).length;
+        return `scan · ${mapped.length} found · ${added} added${mapped.length ? `: ${mapped.map((m) => m.label).join(', ')}` : ''}`;
+      }
       const f = run.output as FixtureDraft;
       return `${f.label} · ${f.model.parts.length} parts · looks like ${f.suggested === 'none' ? 'just a thing' : `a ${f.suggested}`}`;
     }

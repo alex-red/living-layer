@@ -314,6 +314,8 @@ export interface DeskMemory {
   rules?: PlacementRule[];
   /** The person's own isometric scene, built from templates or drafted by Spark. */
   scene?: IsoScene | null;
+  /** The photo that scene was drafted from, as an evidence asset (live only). */
+  scenePhoto?: string | null;
   /** A clean isometric picture of that scene's room, drawn from its photo. */
   illustration?: SceneIllustration | null;
   /** The room's desk close up, redrawn from a close camera frame in the room picture's style. */

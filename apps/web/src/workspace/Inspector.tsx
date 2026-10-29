@@ -12,7 +12,7 @@ import { estimateLabel } from '../cost';
 import { Glyph } from '../Glyph';
 import { useLab } from './LabContext';
 import { Cost, Details, Panel, useCall } from './panel';
-import { FixturePanel, LampPanel, NewFixturePanel } from './FixturePanel';
+import { FixturePanel, LampPanel, NewFixturePanel, ScanFixtures } from './FixturePanel';
 import { ago, mainSurface, roomLabel, surfaceRows } from './labels';
 import { pinScene, viewLabel, type Selection } from './progress';
 import { TRANSITION, centre } from './useLabState';
@@ -293,6 +293,7 @@ function RoomPanel() {
         layout opens in the canvas.
       </p>
       {room === 'custom' && <PictureControls />}
+      <ScanFixtures initial={pinScene(room)} open />
       {progress.view && (
         <button className="text-button" onClick={() => lab.select({ kind: 'view' })}>
           {progress.pinned ? 'Open the' : 'Next: set up the'}{' '}
@@ -429,6 +430,9 @@ function SurfacePanel({ id, closeView }: { id: string; closeView?: boolean }) {
       )}
       {closeView && row.pinned && progress.view === 'custom-desk' && (
         <PictureControls view="desk" />
+      )}
+      {closeView && row.pinned && progress.view && (
+        <ScanFixtures initial={pinScene(progress.view)} open />
       )}
       <div className="save-actions">
         {findable && (
