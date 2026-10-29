@@ -1,6 +1,7 @@
 import {
   DEMO_SURFACE,
   ISO_PRESETS,
+  closeViewOf,
   pinFits,
   type DeskMemory,
   type Fixture,
@@ -8,14 +9,16 @@ import {
   type Mode,
 } from '@livinglayer/domain';
 import type { Lab } from './useLabState';
-import type { Selection, WorkScene } from './progress';
+import { pinScene, viewLabel, type Selection, type WorkScene } from './progress';
 
 /** The scene a preset kind or the person's own scene stands for. */
 export function sceneOf(kind: WorkScene, memory?: DeskMemory | null) {
+  if (kind === 'custom-desk') return memory?.scene ? closeViewOf(memory.scene) : null;
   return kind === 'custom' ? (memory?.scene ?? null) : ISO_PRESETS[kind];
 }
 export function roomLabel(room: WorkScene | null, memory?: DeskMemory | null): string {
   if (!room) return '';
+  if (room === 'custom-desk') return viewLabel(room);
   return room === 'custom' ? (memory?.scene?.label ?? 'My room') : ISO_PRESETS[room].label;
 }
 
@@ -39,10 +42,12 @@ export function surfaceRows(lab: Lab): { view: SurfaceRow[]; room: SurfaceRow[] 
   const row = (scene: WorkScene) => (surface: IsoSurface) => ({
     surface,
     scene,
-    pinned: Boolean(pin && pinFits(pin, scene) && pin.surfaceId === surface.id),
+    pinned: Boolean(pin && pinFits(pin, pinScene(scene)) && pin.surfaceId === surface.id),
   });
   if (!progress.room) return { view: [], room: [] };
-  const view = progress.view ? ISO_PRESETS[progress.view].surfaces.map(row(progress.view)) : [];
+  const view = progress.view
+    ? (sceneOf(progress.view, memory)?.surfaces ?? []).map(row(progress.view))
+    : [];
   const ids = new Set(view.map((r) => r.surface.id));
   const room = (sceneOf(progress.room, memory)?.surfaces ?? [])
     .filter((s) => !ids.has(s.id))
@@ -63,7 +68,7 @@ export function selectionLabel(lab: Lab, s: Selection): string {
       return roomLabel(progress.room, memory);
     case 'view':
       return progress.view
-        ? ISO_PRESETS[progress.view].label
+        ? viewLabel(progress.view)
         : (mainSurface(lab)?.surface.label ?? 'Surface');
     case 'surface': {
       const rows = surfaceRows(lab);

@@ -2,14 +2,21 @@ import {
   DEMO_SURFACE,
   ISO_PRESETS,
   ISO_SCENE_PARENT,
+  closeViewOf,
+  mainDesk,
   pinFits,
   type DeskMemory,
   type IsoSceneKind,
   type Mode,
 } from '@livinglayer/domain';
 
-/** The scene the work is in: a preset room or close view, or the person's own scene. */
-export type WorkScene = IsoSceneKind | 'custom';
+/**
+ * The scene the work is in: a preset room or close view, or the person's own
+ * scene and its office desk close view (`custom-desk`).
+ */
+export type WorkScene = IsoSceneKind | 'custom' | 'custom-desk';
+/** A close view inside a room: the office desk. */
+export type ViewScene = IsoSceneKind | 'custom-desk';
 
 /**
  * What the inspector shows: a node of the scene outline. `main` is the mug,
@@ -43,20 +50,35 @@ export interface Progress {
   /** The room the work is in, or null before one is chosen. */
   room: WorkScene | null;
   /** The close view inside the room, when it has one: the office desk. */
-  view: IsoSceneKind | null;
+  view: ViewScene | null;
+  /** The desktop surface of the close view, which its pin goes on. */
+  deskId: string | null;
   /** Whether the desk (or the room's main surface) is pinned to a camera frame. */
   pinned: boolean;
 }
 
 /** The room a scene belongs to: the office desk is in the office. */
 export function roomOf(scene: WorkScene): WorkScene {
-  return scene === 'custom' ? scene : (ISO_SCENE_PARENT[scene] ?? scene);
+  if (scene === 'custom' || scene === 'custom-desk') return 'custom';
+  return ISO_SCENE_PARENT[scene] ?? scene;
 }
-/** The close view inside a room, if it has one. */
-export function viewOf(room: WorkScene): IsoSceneKind | null {
-  if (room === 'custom') return null;
+/** The close view inside a room, if it has one: a photographed room has one when it has a desk. */
+export function viewOf(room: WorkScene, memory?: DeskMemory | null): ViewScene | null {
+  if (room === 'custom' || room === 'custom-desk')
+    return memory?.scene && closeViewOf(memory.scene) ? 'custom-desk' : null;
   const kinds = Object.keys(ISO_PRESETS) as IsoSceneKind[];
   return kinds.find((k) => ISO_SCENE_PARENT[k] === room) ?? null;
+}
+/** The scene a pin is saved under: the photographed desk shares its room's surfaces. */
+export const pinScene = (scene: WorkScene): IsoSceneKind | 'custom' =>
+  scene === 'custom-desk' ? 'custom' : scene;
+/** What a close view is called. */
+export const viewLabel = (view: ViewScene): string =>
+  view === 'custom-desk' ? 'Office desk' : ISO_PRESETS[view].label;
+/** The desktop a close view is pinned on. */
+export function deskOf(view: ViewScene, memory?: DeskMemory | null): string | null {
+  if (view !== 'custom-desk') return 'desk:top';
+  return memory?.scene ? (mainDesk(memory.scene)?.id ?? null) : null;
 }
 
 /**
@@ -75,20 +97,21 @@ export function sceneProgress({
   memory?: DeskMemory | null;
 }): Progress {
   const room = workScene ? roomOf(workScene) : null;
-  const view = room ? viewOf(room) : null;
+  const view = room ? viewOf(room, memory) : null;
+  const deskId = view ? deskOf(view, memory) : null;
   const pin = memory?.surface ?? (mode === 'demo' ? DEMO_SURFACE : null);
   const pinned = Boolean(
     room &&
     pin &&
     (room === 'custom'
-      ? pin.scene === 'custom' && Boolean(memory?.scene)
-      : pinFits(pin, view ?? room)),
+      ? pin.scene === 'custom' && Boolean(memory?.scene) && (view ? pin.surfaceId === deskId : true)
+      : pinFits(pin, pinScene(view ?? room))),
   );
   const objects = (memory?.object ? 1 : 0) + (memory?.others?.length ?? 0);
   const rules = (memory?.zone ? 1 : 0) + (memory?.rules?.length ?? 0);
   const ran = Boolean(memory?.lastDecision || memory?.rules?.some((r) => r.lastDecision));
   const roomLabel = room === 'custom' ? (memory?.scene?.label ?? 'your room') : room;
-  const deskLabel = view ? ISO_PRESETS[view].label : room ? 'Main surface' : 'Office desk';
+  const deskLabel = view ? viewLabel(view) : room ? 'Main surface' : 'Office desk';
 
   const done: Record<StepId, boolean> = {
     office: Boolean(room),
@@ -142,7 +165,7 @@ export function sceneProgress({
       detail: state === 'locked' ? 'Set up the office first.' : detail[id][done[id] ? 0 : 1],
     };
   });
-  return { steps, next, room, view, pinned };
+  return { steps, next, room, view, deskId, pinned };
 }
 
 /** Where a step is worked on. */

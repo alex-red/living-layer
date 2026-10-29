@@ -10,9 +10,11 @@ import {
   ISO_PRESETS,
   addTemplate,
   buildScene,
+  closeViewOf,
   depthOrder,
   groupBounds,
   isoSceneSchema,
+  mainDesk,
   moveGroup,
   overlappingGroups,
   placeTemplate,
@@ -361,5 +363,43 @@ describe('several lights', () => {
     expect(result.entityId).toBe('light.shelf');
     expect(calls.some((c) => c.endsWith('/api/states/light.shelf'))).toBe(true);
     await expect(lamp.turnOn('light.kitchen')).rejects.toThrow();
+  });
+});
+
+describe('close view of a photographed room', () => {
+  function office() {
+    const desk = placeTemplate('desk', 'desk', 3, 2);
+    const top = desk.surfaces[0]!;
+    const monitor = placeTemplate('monitor', 'monitor', 4, 2.5, top.z);
+    const book = placeTemplate('book', 'book', 0, 6);
+    return asCustom({
+      kind: 'custom',
+      label: 'Den',
+      grid: { w: 10, d: 10 },
+      props: [...desk.props, ...monitor.props, ...book.props],
+      surfaces: [...desk.surfaces, ...monitor.surfaces, ...book.surfaces],
+    });
+  }
+
+  it('keeps the desk and what stands on it, moved to the corner with its ids', () => {
+    const room = office();
+    const top = mainDesk(room)!;
+    expect(top.propId.startsWith('desk')).toBe(true);
+    const view = closeViewOf(room)!;
+    expect(view.label).toBe('Office desk');
+    expect(new Set(view.props.map((p) => p.group))).toEqual(new Set(['desk', 'monitor']));
+    expect(Math.min(...view.props.map((p) => p.at.x))).toBe(1);
+    expect(Math.min(...view.props.map((p) => p.at.y))).toBe(1);
+    const moved = view.surfaces.find((s) => s.id === top.id)!;
+    expect(moved.rect.w).toBe(top.rect.w);
+    expect(moved.rect.x - top.rect.x).toBe(-2);
+    expect(isoSceneSchema.safeParse(view).success).toBe(true);
+  });
+
+  it('has none without a desk or table', () => {
+    const shelf = placeTemplate('shelf', 'shelf', 1, 1);
+    const room = asCustom({ ...office(), props: shelf.props, surfaces: shelf.surfaces });
+    expect(mainDesk(room)).toBeNull();
+    expect(closeViewOf(room)).toBeNull();
   });
 });

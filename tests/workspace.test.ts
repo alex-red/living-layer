@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'bun:test';
-import type { DeskMemory, SurfacePin } from '@livinglayer/domain';
+import { placeTemplate, type DeskMemory, type SurfacePin } from '@livinglayer/domain';
 import { emptyDesk } from '../apps/web/src/session.js';
-import { controlLabel } from '../apps/web/src/workspace/labels.js';
+import { controlLabel, sceneOf } from '../apps/web/src/workspace/labels.js';
 import {
   parseSelection,
+  roomOf,
   sceneProgress,
   selectionForStep,
   selectionHash,
@@ -89,6 +90,39 @@ describe('scene progress', () => {
     expect(p.steps[1]!.label).toBe('Main surface');
     const own = { ...memory, surface: { ...deskPin, scene: 'custom' as const } };
     expect(sceneProgress({ mode: 'live', workScene: 'custom', memory: own }).pinned).toBe(true);
+  });
+
+  it('gives a photographed room with a desk its own office desk view', () => {
+    const desk = placeTemplate('desk', 'desk', 2, 2);
+    const shelf = placeTemplate('shelf', 'shelf', 0, 6);
+    const memory = {
+      ...emptyDesk('live'),
+      scene: {
+        kind: 'custom',
+        label: 'Den',
+        grid: { w: 8, d: 8 },
+        props: [...desk.props, ...shelf.props],
+        surfaces: [...desk.surfaces, ...shelf.surfaces],
+      },
+    } as unknown as DeskMemory;
+    const top = desk.surfaces[0]!.id;
+    expect(roomOf('custom-desk')).toBe('custom');
+    const p = sceneProgress({ mode: 'live', workScene: 'custom', memory });
+    expect(p.view).toBe('custom-desk');
+    expect(p.deskId).toBe(top);
+    expect(p.steps[1]!.label).toBe('Office desk');
+    expect(p.next).toBe('desk');
+    expect(sceneOf('custom-desk', memory)?.props.some((x) => x.group === 'shelf')).toBe(false);
+    // Only the desktop counts as the desk's pin; the shelf is a room surface.
+    const shelfPin = { ...deskPin, scene: 'custom' as const, surfaceId: shelf.surfaces[0]!.id };
+    const onShelf = { ...memory, surface: shelfPin };
+    expect(sceneProgress({ mode: 'live', workScene: 'custom', memory: onShelf }).pinned).toBe(
+      false,
+    );
+    const onDesk = { ...memory, surface: { ...shelfPin, surfaceId: top } };
+    expect(sceneProgress({ mode: 'live', workScene: 'custom-desk', memory: onDesk }).pinned).toBe(
+      true,
+    );
   });
 });
 

@@ -64,7 +64,7 @@ export function prefsOf(saved: Partial<Prefs> | undefined): Prefs {
       values.includes(v);
   const text = (v: unknown) => typeof v === 'string' && v.length <= 200;
   one('mode', among('demo', 'live'));
-  one('workScene', among(null, 'office', 'desk', 'fridge', 'custom'));
+  one('workScene', among(null, 'office', 'desk', 'fridge', 'custom', 'custom-desk'));
   one('stageView', among('photo', 'iso', 'split'));
   one('overlay', (v) => typeof v === 'boolean');
   one('trail', (v) => typeof v === 'boolean');

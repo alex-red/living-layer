@@ -1,6 +1,7 @@
 import { ISO_PRESETS } from '@livinglayer/domain';
 import { IsoScene } from '../iso/IsoScene';
 import { useLab } from './LabContext';
+import { pinScene } from './progress';
 
 /**
  * Scene first. The office comes before its desk, because the desk is a close
@@ -92,8 +93,15 @@ export function DeskStep() {
   const lab = useLab();
   const { image, camera, busy, cameraPending, progress } = lab;
   // Not while the room itself is being drafted: the desk comes after.
-  if (!progress.view || progress.pinned || lab.mode !== 'live' || lab.isoPanel === 'scene')
+  if (
+    !progress.view ||
+    !progress.deskId ||
+    progress.pinned ||
+    lab.mode !== 'live' ||
+    lab.isoPanel === 'scene'
+  )
     return null;
+  const desk = { scene: pinScene(progress.view), surfaceId: progress.deskId };
   return (
     <div className="desk-step" role="note" aria-label="Set up the office desk">
       <span className="tiny">STEP 2 OF 2 · THE DESK</span>
@@ -111,18 +119,14 @@ export function DeskStep() {
             <button
               className="primary"
               disabled={Boolean(busy)}
-              onClick={() =>
-                void lab.autoPin({ scene: progress.view!, surfaceId: 'desk:top', label: 'desktop' })
-              }
+              onClick={() => void lab.autoPin({ ...desk, label: 'desktop' })}
             >
               {busy === 'autopin' ? 'Finding the desktop…' : 'Find the desktop'}
             </button>
             <button
               className="secondary"
               disabled={Boolean(busy)}
-              onClick={() =>
-                lab.setPinning({ scene: progress.view!, surfaceId: 'desk:top', label: 'desktop' })
-              }
+              onClick={() => lab.setPinning({ ...desk, label: 'desktop' })}
             >
               Pin by hand
             </button>

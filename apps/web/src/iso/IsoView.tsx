@@ -4,7 +4,7 @@ import {
   ISO_PRESETS,
   fixtureBox,
   guessedScene,
-  isoSurface,
+  closeViewOf,
   itemHeight,
   modelTarget,
   pinFits,
@@ -31,7 +31,7 @@ import { IsoScene, type IsoFixture, type IsoObject, type IsoZone } from './IsoSc
 import { ItemEditor } from './ItemEditor';
 import { SceneEditor, type LayoutRun } from './SceneEditor';
 import type { PhotoRun } from './PhotoReview';
-import type { WorkScene as Kind } from '../workspace/progress';
+import { pinScene, type WorkScene as Kind } from '../workspace/progress';
 import './iso.css';
 
 /** What the iso canvas shows: the room, the layout editor, or an object's model. */
@@ -155,19 +155,24 @@ export function IsoView({
   const [asking, setAsking] = useState(false);
   // A new scene or pin starts on the pinned surface when it is in this scene.
   useEffect(() => {
-    if (pin && pinFits(pin, kind)) onSurfaceId(pin.surfaceId);
+    if (pin && pinFits(pin, pinScene(kind))) onSurfaceId(pin.surfaceId);
   }, [kind, pin?.scene, pin?.surfaceId]);
 
   const custom = memory?.scene ?? null;
   const scene: Scene =
     kind === 'custom'
       ? (custom ?? ISO_PRESETS.desk)
-      : guess?.kind === kind
-        ? guessedScene(guess)
-        : ISO_PRESETS[kind];
+      : kind === 'custom-desk'
+        ? ((custom && closeViewOf(custom)) ?? ISO_PRESETS.desk)
+        : guess?.kind === kind
+          ? guessedScene(guess)
+          : ISO_PRESETS[kind];
   const surface =
-    isoSurface(kind, surfaceId ?? pin?.surfaceId ?? 'desk:top', custom) ?? scene.surfaces[0];
-  const pinned = Boolean(surface && pin && pinFits(pin, kind) && pin.surfaceId === surface.id);
+    scene.surfaces.find((s) => s.id === (surfaceId ?? pin?.surfaceId ?? 'desk:top')) ??
+    scene.surfaces[0];
+  const pinned = Boolean(
+    surface && pin && pinFits(pin, pinScene(kind)) && pin.surfaceId === surface.id,
+  );
   const defaultLight = lights[0] ?? '';
 
   // The mug, then every other remembered object the pin can place.

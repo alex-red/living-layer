@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import {
-  ISO_PRESETS,
   MAX_OTHER_OBJECTS,
   OBSERVATION_MAX_AGE_MS,
   isMugConcept,
@@ -15,7 +14,7 @@ import { useLab } from './LabContext';
 import { Cost, Details, Panel, useCall } from './panel';
 import { FixturePanel, NewFixturePanel } from './FixturePanel';
 import { ago, mainSurface, roomLabel, surfaceRows } from './labels';
-import type { Selection } from './progress';
+import { pinScene, viewLabel, type Selection } from './progress';
 import { TRANSITION, centre } from './useLabState';
 
 type Events = { memory: DeskMemory; events: EvidenceRun<PlacementDecision>[] };
@@ -246,7 +245,7 @@ function RoomPanel() {
       {progress.view && (
         <button className="text-button" onClick={() => lab.select({ kind: 'view' })}>
           {progress.pinned ? 'Open the' : 'Next: set up the'}{' '}
-          {ISO_PRESETS[progress.view].label.toLowerCase()} →
+          {viewLabel(progress.view).toLowerCase()} →
         </button>
       )}
       <label className="field">
@@ -319,9 +318,9 @@ function SurfacePanel({ id, closeView }: { id: string; closeView?: boolean }) {
   const label = row.surface.label.toLowerCase();
   const demoPin = mode === 'demo' && !memory?.surface && row.pinned;
   const needPhoto = mode === 'live' && !image;
-  const title = closeView && progress.view ? ISO_PRESETS[progress.view].label : row.surface.label;
+  const title = closeView && progress.view ? viewLabel(progress.view) : row.surface.label;
   // The fitter measures desk-shaped tops: a desk or a table, seen from above its front edge.
-  const findable = /^(desk|table)/.test(row.surface.id);
+  const findable = /^(desk|table)/.test(row.surface.id) || row.surface.id === progress.deskId;
   return (
     <Panel
       tiny={
@@ -382,7 +381,9 @@ function SurfacePanel({ id, closeView }: { id: string; closeView?: boolean }) {
           <button
             className={row.pinned || needPhoto ? 'secondary' : 'primary'}
             disabled={Boolean(busy) || Boolean(pinning) || lab.camera || needPhoto}
-            onClick={() => void lab.autoPin({ scene: row.scene, surfaceId: row.surface.id, label })}
+            onClick={() =>
+              void lab.autoPin({ scene: pinScene(row.scene), surfaceId: row.surface.id, label })
+            }
           >
             {busy === 'autopin' ? 'Finding…' : row.pinned ? 'Find it again' : `Find the ${label}`}
           </button>
@@ -392,7 +393,7 @@ function SurfacePanel({ id, closeView }: { id: string; closeView?: boolean }) {
           disabled={Boolean(busy) || Boolean(pinning) || lab.camera || needPhoto}
           onClick={() => {
             lab.setDrawing(false);
-            lab.setPinning({ scene: row.scene, surfaceId: row.surface.id, label });
+            lab.setPinning({ scene: pinScene(row.scene), surfaceId: row.surface.id, label });
           }}
         >
           {row.pinned && memory?.surface ? 'Re-pin surface' : 'Pin surface'}
@@ -1103,7 +1104,7 @@ function body(lab: ReturnType<typeof useLab>, s: Selection | null) {
     case 'room':
       return <RoomPanel />;
     case 'view': {
-      if (progress.view) return <SurfacePanel id="desk:top" closeView />;
+      if (progress.view && progress.deskId) return <SurfacePanel id={progress.deskId} closeView />;
       const main = mainSurface(lab);
       return main ? <SurfacePanel id={main.surface.id} /> : <RoomPanel />;
     }

@@ -1,11 +1,11 @@
-import { ISO_PRESETS } from '@livinglayer/domain';
 import { Glyph } from '../Glyph';
 import { estimateLabel, usd } from '../cost';
 import { SHORTCUTS } from '../shortcuts';
 import { useLab } from './LabContext';
 import { Popover } from './Popover';
 import { BUSY } from './useLabState';
-import { selectionLabel } from './labels';
+import { roomLabel as labelOfRoom, selectionLabel } from './labels';
+import { viewLabel } from './progress';
 
 /** Models, Meta access, spend, the lamp, and the live proof checklist. */
 function Readiness() {
@@ -281,10 +281,7 @@ export function KeysDialog() {
 export function TopBar() {
   const lab = useLab();
   const { mode, busy, camera, cameraPending, status, undo, redo, progress } = lab;
-  const roomLabel =
-    progress.room === 'custom'
-      ? (lab.memory?.scene?.label ?? 'My room')
-      : progress.room && ISO_PRESETS[progress.room].label;
+  const roomLabel = labelOfRoom(progress.room, lab.memory);
   const crumbs: { label: string; onClick?: () => void }[] = [];
   if (roomLabel) crumbs.push({ label: roomLabel, onClick: () => lab.select({ kind: 'room' }) });
   const inView =
@@ -292,7 +289,7 @@ export function TopBar() {
     ['view', 'object', 'suggested', 'add'].includes(lab.selection?.kind ?? '');
   if (progress.view && inView)
     crumbs.push({
-      label: ISO_PRESETS[progress.view].label,
+      label: viewLabel(progress.view),
       onClick: () => lab.select({ kind: 'view' }),
     });
   const leaf = lab.selection && selectionLabel(lab, lab.selection);

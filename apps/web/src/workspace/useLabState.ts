@@ -60,11 +60,13 @@ import {
   sceneProgress,
   selectionForStep,
   selectionHash,
+  viewLabel,
   viewOf,
   type Selection,
   type StepId,
   type WorkScene,
 } from './progress';
+import { sceneOf } from './labels';
 
 export const BUSY: Record<string, string> = {
   text: 'Checking the connection',
@@ -310,10 +312,16 @@ export function useLabState() {
   const sceneLabel =
     workScene === 'custom'
       ? (memory?.scene?.label ?? 'Custom')
-      : workScene && ISO_PRESETS[workScene].label;
-  // A removed custom scene, or one this mode doesn't have, means choosing again.
+      : workScene === 'custom-desk'
+        ? viewLabel(workScene)
+        : workScene && ISO_PRESETS[workScene].label;
+  // A removed custom scene, or one this mode doesn't have, means choosing again;
+  // a room whose desk was taken out has no desk view left.
   useEffect(() => {
-    if (workScene === 'custom' && memory && !memory.scene) setWorkScene(null);
+    if ((workScene === 'custom' || workScene === 'custom-desk') && memory && !memory.scene)
+      setWorkScene(null);
+    else if (workScene === 'custom-desk' && memory && !viewOf('custom', memory))
+      setWorkScene('custom');
   }, [workScene, memory]);
   // Clicking a surface's corners on the photo, for the iso view.
   const [pinning, setPinning] = useState<{
@@ -1132,7 +1140,9 @@ export function useLabState() {
     const after = sceneProgress({ mode, workScene: next, memory });
     setSelection(after.next ? selectionForStep(after.next, memory) : { kind: 'room' });
     const label =
-      next === 'custom' ? 'your own scene' : `the ${ISO_PRESETS[next].label.toLowerCase()}`;
+      next === 'custom'
+        ? 'your own scene'
+        : `the ${(next === 'custom-desk' ? viewLabel(next) : ISO_PRESETS[next].label).toLowerCase()}`;
     setMessage(
       after.next === 'desk'
         ? `Working in ${label}. Next, get close to the desk and pin its top.`
@@ -1153,7 +1163,7 @@ export function useLabState() {
     if (next?.kind === 'surface') {
       setIsoSurfaceId(next.id);
       const inView =
-        progress.view && ISO_PRESETS[progress.view].surfaces.some((x) => x.id === next.id);
+        progress.view && sceneOf(progress.view, memory)?.surfaces.some((x) => x.id === next.id);
       if (progress.room) setWorkScene(inView ? progress.view! : progress.room);
     }
     if (isoPanel === 'scene' && next?.kind !== 'room') setIsoPanel('room');
@@ -1171,6 +1181,8 @@ export function useLabState() {
     if (stageView === 'photo') setStageView('iso');
   }
   function editLayout() {
+    // The layout is edited in the whole room, never in its desk view.
+    if (workScene === 'custom-desk') setWorkScene('custom');
     setIsoPanel('scene');
     if (stageView === 'photo') setStageView('iso');
   }
@@ -1270,7 +1282,7 @@ export function useLabState() {
       });
       setGuess(run.output);
       const room = roomOf(workScene);
-      if (run.output.kind !== workScene && [room, viewOf(room)].includes(run.output.kind))
+      if (run.output.kind !== workScene && [room, viewOf(room, memory)].includes(run.output.kind))
         setWorkScene(run.output.kind);
       setSelected(run);
       setMessage(`Scene guess saved: ${run.output.kind}. ${run.output.summary}`);

@@ -544,3 +544,66 @@ export function templateCatalog(): string {
     return `${id}: ${t.label.toLowerCase()}, ${t.size.w}×${t.size.d} tiles${t.onTop ? ', stands on a surface' : ''}`;
   }).join('\n');
 }
+
+/** The biggest desk or table top in a scene: where the work happens. */
+export function mainDesk(scene: IsoScene): IsoSurface | null {
+  const byId = new Map(scene.props.map((p) => [p.id, p]));
+  const isDesk = (s: IsoSurface) => {
+    const t = byId.get(s.propId)?.template;
+    return t ? t === 'desk' || t === 'table' : /desk|table/i.test(`${s.id} ${s.label}`);
+  };
+  return (
+    scene.surfaces.filter(isDesk).sort((a, b) => b.rect.w * b.rect.d - a.rect.w * a.rect.d)[0] ??
+    null
+  );
+}
+
+/**
+ * The close view of a person's room: its biggest desk or table and every
+ * group standing on it, moved to the grid's corner. Surfaces keep their ids,
+ * so one pin on the desktop places objects in the room and in its close view,
+ * as with the preset office and office desk.
+ */
+export function closeViewOf(scene: IsoScene, label = 'Office desk'): IsoScene | null {
+  const byId = new Map(scene.props.map((p) => [p.id, p]));
+  const desk = mainDesk(scene);
+  const deskGroup = desk && byId.get(desk.propId)?.group;
+  if (!desk || !deskGroup) return null;
+  const { rect } = desk;
+  const standsOn = (p: IsoProp) => {
+    const cx = p.at.x + p.size.w / 2;
+    const cy = p.at.y + p.size.d / 2;
+    return (
+      p.at.z >= desk.z - 0.05 &&
+      cx >= rect.x &&
+      cx <= rect.x + rect.w &&
+      cy >= rect.y &&
+      cy <= rect.y + rect.d
+    );
+  };
+  const groups = new Set([
+    deskGroup,
+    ...scene.props.filter((p) => p.group !== deskGroup && standsOn(p)).map((p) => p.group),
+  ]);
+  const props = scene.props.filter((p) => groups.has(p.group));
+  const x0 = Math.min(...props.map((p) => p.at.x));
+  const y0 = Math.min(...props.map((p) => p.at.y));
+  const x1 = Math.max(...props.map((p) => p.at.x + p.size.w));
+  const y1 = Math.max(...props.map((p) => p.at.y + p.size.d));
+  // A tile of floor around the desk, so the view has room to breathe.
+  const dx = 1 - x0;
+  const dy = 1 - y0;
+  const own = new Set(props.map((p) => p.id));
+  return {
+    kind: 'custom',
+    label,
+    grid: {
+      w: Math.min(16, Math.max(2, Math.ceil(x1 - x0) + 2)),
+      d: Math.min(16, Math.max(2, Math.ceil(y1 - y0) + 2)),
+    },
+    props: props.map((p) => ({ ...p, at: { ...p.at, x: p.at.x + dx, y: p.at.y + dy } })),
+    surfaces: scene.surfaces
+      .filter((s) => own.has(s.propId))
+      .map((s) => ({ ...s, rect: { ...s.rect, x: s.rect.x + dx, y: s.rect.y + dy } })),
+  };
+}

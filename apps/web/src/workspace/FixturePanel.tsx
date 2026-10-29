@@ -20,8 +20,12 @@ import { itemSprite } from '../iso/sprites';
 import type { FixturePlacing } from '../iso/IsoView';
 import { useLab } from './LabContext';
 import { controlLabel, roomLabel } from './labels';
+import { pinScene } from './progress';
 import { Details, Panel, useCall } from './panel';
-import type { WorkScene } from './progress';
+import type { IsoSceneKind } from '@livinglayer/domain';
+
+/** Fixtures stand in a room or a preset close view; a photographed room's desk view is the room's own. */
+type WorkScene = IsoSceneKind | 'custom';
 
 const KIND_LABEL: Record<ControlKind, string> = {
   light: 'Light',
@@ -169,8 +173,12 @@ const controlOf = (kind: ControlKind, entity: string): FixtureControl =>
 function useScenes(): { id: WorkScene; label: string }[] {
   const { progress, memory } = useLab();
   return [
-    ...(progress.room ? [{ id: progress.room, label: roomLabel(progress.room, memory) }] : []),
-    ...(progress.view ? [{ id: progress.view, label: ISO_PRESETS[progress.view].label }] : []),
+    ...(progress.room
+      ? [{ id: pinScene(progress.room), label: roomLabel(progress.room, memory) }]
+      : []),
+    ...(progress.view && progress.view !== 'custom-desk'
+      ? [{ id: progress.view, label: ISO_PRESETS[progress.view].label }]
+      : []),
   ];
 }
 
@@ -186,7 +194,7 @@ export function NewFixturePanel() {
   const [label, setLabel] = useState('');
   const [kind, setKind] = useState<ControlKind>('none');
   const [entity, setEntity] = useState('');
-  const [scene, setScene] = useState<WorkScene | null>(lab.workScene);
+  const [scene, setScene] = useState<WorkScene | null>(lab.workScene && pinScene(lab.workScene));
   const [pending, setPending] = useState(false);
   /** What the person says it is, before drafting; Spark is told. */
   const [hint, setHint] = useState('');
