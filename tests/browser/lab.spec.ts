@@ -285,8 +285,9 @@ test('drafts a custom room offline, saves it, and lights a rule’s lamp', async
   await page.locator('.scene-canvas [data-prop="lamp"]').dispatchEvent('pointerdown');
   await page.getByLabel('Lamp light').selectOption('light.demo_shelf');
   await page.getByRole('button', { name: 'Save scene', exact: true }).click();
-  // The saved scene is the room now; it has no close view, so its surfaces sit right under it.
+  // The saved scene is the room now, with its own office desk close view.
   await expect(outline(page, 'Drafted room')).toHaveAttribute('aria-current', 'true');
+  await expect(outline(page, 'Office desk')).toBeVisible();
   await page.getByRole('button', { name: 'Room', exact: true }).click();
   await page
     .getByRole('complementary', { name: 'Scene outline' })
@@ -309,9 +310,10 @@ test('drafts a custom room offline, saves it, and lights a rule’s lamp', async
   await page.getByLabel('Rule light').selectOption('light.demo_shelf');
   await page.getByLabel('Rule name').fill('Whole desk');
   const hit = (await page.locator('.iso-hit').boundingBox())!;
-  await page.mouse.move(hit.x + hit.width / 2, hit.y + 12);
+  // The desktop is a slanted parallelogram, so drag through its centre, not from its box's edge.
+  await page.mouse.move(hit.x + hit.width / 2, hit.y + hit.height * 0.3);
   await page.mouse.down();
-  await page.mouse.move(hit.x + hit.width / 2, hit.y + hit.height - 12, { steps: 8 });
+  await page.mouse.move(hit.x + hit.width / 2, hit.y + hit.height * 0.7, { steps: 8 });
   await page.mouse.up();
   await page.getByRole('button', { name: 'Save rule', exact: true }).click();
   await page.getByRole('button', { name: 'Check rules', exact: true }).click();
