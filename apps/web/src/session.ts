@@ -1,4 +1,4 @@
-import type { DeskMemory, Mode } from '@livinglayer/domain';
+import { upgradeMemory, type DeskMemory, type Mode } from '@livinglayer/domain';
 import type { WorkScene } from './workspace/progress';
 
 /**
@@ -17,7 +17,7 @@ export interface Prefs {
   trail: boolean;
   zones: boolean;
   concept: string;
-  fixturePosition: string;
+  demoPosition: string;
   /** '' for this device's camera, else the id of a network camera. */
   cameraSource: string;
   /** Whether the activity drawer is open. */
@@ -37,14 +37,14 @@ export interface SessionSave {
 const KEY = 'livinglayer.session';
 
 export const DEFAULT_PREFS: Prefs = {
-  mode: 'fixture',
+  mode: 'demo',
   workScene: null,
   stageView: 'photo',
   overlay: true,
   trail: true,
   zones: true,
   concept: 'mug',
-  fixturePosition: 'centre',
+  demoPosition: 'centre',
   cameraSource: '',
   drawer: false,
   logKind: 'all',
@@ -63,18 +63,18 @@ export function prefsOf(saved: Partial<Prefs> | undefined): Prefs {
     (v: unknown) =>
       values.includes(v);
   const text = (v: unknown) => typeof v === 'string' && v.length <= 200;
-  one('mode', among('fixture', 'live'));
+  one('mode', among('demo', 'live'));
   one('workScene', among(null, 'office', 'desk', 'fridge', 'custom'));
   one('stageView', among('photo', 'iso', 'split'));
   one('overlay', (v) => typeof v === 'boolean');
   one('trail', (v) => typeof v === 'boolean');
   one('zones', (v) => typeof v === 'boolean');
   one('concept', (v) => text(v) && (v as string).trim().length > 0);
-  one('fixturePosition', text);
+  one('demoPosition', text);
   one('cameraSource', text);
   one('drawer', (v) => typeof v === 'boolean');
   one('logKind', text);
-  one('logMode', among('all', 'fixture', 'live'));
+  one('logMode', among('all', 'demo', 'live'));
   one('failuresOnly', (v) => typeof v === 'boolean');
   return out;
 }
@@ -123,15 +123,33 @@ export function parseSave(text: string): SessionSave {
   if (!save || save.app !== 'livinglayer' || save.version !== 1)
     throw new Error('This is not a Living Layer save.');
   const desks: SessionSave['desks'] = {};
-  for (const mode of ['fixture', 'live'] as const) {
+  for (const mode of ['demo', 'live'] as const) {
     const desk = save.desks?.[mode];
-    if (desk && desk.mode === mode) desks[mode] = desk;
+    if (desk && desk.mode === mode) desks[mode] = upgradeMemory(desk);
   }
+  // Saves from before the offline mode was renamed from `fixture` to `demo`.
+  const old = (save.desks as Record<string, DeskMemory | undefined> | undefined)?.fixture;
+  if (!desks.demo && old && (old.mode as string) === 'fixture')
+    desks.demo = upgradeMemory(
+      JSON.parse(
+        JSON.stringify(old)
+          .replaceAll('"mode":"fixture"', '"mode":"demo"')
+          .replaceAll('"source":"fixture"', '"source":"demo"')
+          .replaceAll('light.fixture_', 'light.demo_'),
+      ) as DeskMemory,
+    );
+  const prefs: Record<string, unknown> =
+    save.prefs && typeof save.prefs === 'object' ? { ...save.prefs } : {};
+  if (prefs.mode === 'fixture') prefs.mode = 'demo';
+  if (prefs.logMode === 'fixture') prefs.logMode = 'demo';
+  if ('fixturePosition' in prefs && !('demoPosition' in prefs))
+    prefs.demoPosition = prefs.fixturePosition;
+  delete prefs.fixturePosition;
   return {
     app: 'livinglayer',
     version: 1,
     savedAt: typeof save.savedAt === 'string' ? save.savedAt : new Date().toISOString(),
-    prefs: save.prefs && typeof save.prefs === 'object' ? save.prefs : {},
+    prefs: prefs as Partial<Prefs>,
     desks,
   };
 }

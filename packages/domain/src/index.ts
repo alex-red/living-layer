@@ -1,8 +1,9 @@
 import { z } from 'zod';
 import type { IsoScene, SurfacePin } from './iso.js';
 import type { SavedItem } from './iso-item.js';
+import { entityIdSchema, type Fixture } from './fixture.js';
 
-export const modeSchema = z.enum(['fixture', 'live']);
+export const modeSchema = z.enum(['demo', 'live']);
 export type Mode = z.infer<typeof modeSchema>;
 export const sceneSchema = z
   .object({
@@ -29,21 +30,21 @@ export const imageRequestSchema = z
   })
   .strict();
 /**
- * Where the fixture mug sits. The illustrated desk is redrawn with the mug
+ * Where the demo mug sits. The illustrated desk is redrawn with the mug
  * offset by this many frame pixels, and the synthetic mask moves with it, so
  * the tracking loop can be tested without a camera or any model call.
  */
-export const FIXTURE_POSITIONS = {
+export const DEMO_POSITIONS = {
   centre: { label: 'Centre', dx: 0, dy: 0 },
   right: { label: 'Right', dx: 100, dy: -20 },
   front: { label: 'Front left', dx: -50, dy: 110 },
 } as const;
-export type FixturePosition = keyof typeof FIXTURE_POSITIONS;
-export const fixturePositionSchema = z.enum(['centre', 'right', 'front']);
+export type DemoPosition = keyof typeof DEMO_POSITIONS;
+export const demoPositionSchema = z.enum(['centre', 'right', 'front']);
 export const segmentRequestSchema = imageRequestSchema
   .extend({
     concept: z.string().trim().min(1).max(80),
-    fixturePosition: fixturePositionSchema.optional(),
+    demoPosition: demoPositionSchema.optional(),
   })
   .strict();
 
@@ -61,6 +62,8 @@ export interface Segmentation {
 }
 export interface LampResult {
   entityId: string;
+  /** What was asked for; results from before switches could be turned off lack it. */
+  action?: 'on' | 'off';
   accepted: boolean;
   stateConfirmed: boolean;
   physicalEffectVerified: false;
@@ -81,6 +84,7 @@ export type RunKind =
   | 'layout'
   | 'photo'
   | 'item'
+  | 'fixture'
   | 'lamp'
   | 'observation'
   | 'zone'
@@ -150,8 +154,11 @@ export interface LabStatus {
     /** Estimated spend on today's live calls (UTC), from each call's recorded usage. */
     spentToday: number;
   };
-  /** `lights`: every light entity rules may switch, the main one first. */
-  lamp: Readiness & { lights: string[] };
+  /**
+   * `lights`: every light entity rules may switch, the main one first.
+   * `switches`: every switch entity fixtures and rules may turn on and off.
+   */
+  lamp: Readiness & { lights: string[]; switches: string[] };
   liveEvidence: { text: boolean; discover: boolean; segment: boolean; lamp: boolean };
 }
 export interface ApiFailure {
@@ -160,10 +167,10 @@ export interface ApiFailure {
 
 export const MAX_IMAGE_PIXELS = 4_000_000;
 export const MAX_MASK_PIXELS = 4_000_000;
-export const FIXTURE_ID = 'illustrated-desk-v1';
-/** Each fixture position is its own source image, as a new photo would be. */
-export function fixtureSourceKey(position: FixturePosition = 'centre'): string {
-  return position === 'centre' ? FIXTURE_ID : `${FIXTURE_ID}@${position}`;
+export const DEMO_ID = 'illustrated-desk-v1';
+/** Each demo position is its own source image, as a new photo would be. */
+export function demoSourceKey(position: DemoPosition = 'centre'): string {
+  return position === 'centre' ? DEMO_ID : `${DEMO_ID}@${position}`;
 }
 
 /**
@@ -295,12 +302,14 @@ export interface DeskMemory {
   surface?: SurfacePin | null;
   /** Further remembered objects, each followed like the mug. */
   others?: TrackedObject[];
-  /** Further zones, each tied to one object and one light. */
+  /** Further zones, each tied to one object and one light or switch. */
   rules?: PlacementRule[];
   /** The person's own isometric scene, built from templates or drafted by Spark. */
   scene?: IsoScene | null;
   /** A detailed model of the remembered object, drafted from its mask and editable. */
   item?: SavedItem | null;
+  /** Things placed in a room by hand: lamps, switches, a mouse. Reset keeps them. */
+  fixtures?: Fixture[];
 }
 export interface PlacementDecision {
   observationId: string | null;
@@ -409,26 +418,32 @@ export interface TrackedObject {
   history?: DeskObservation[];
   item?: SavedItem | null;
 }
-/** A zone beyond the main one: when `objectId` enters it, switch `lightId` on. */
+/** A zone beyond the main one: when `objectId` enters it, switch `entityId` on. */
 export interface PlacementRule {
   id: string;
   label: string;
   objectId: string;
-  lightId: string;
+  /** A light or a switch. */
+  entityId: string;
+  /** The fixture the entity was picked as, when it was picked as one. */
+  fixtureId?: string;
   zone: { sourceKey: string; rect: ZoneRect; frame: Segmentation['frame'] };
   placement?: 'inside' | 'outside' | null;
   lastDecision?: EvidenceRun<PlacementDecision> | null;
 }
 export const MAX_OTHER_OBJECTS = 4;
 export const MAX_RULES = 8;
-/** Virtual lights in fixture mode. The first stands for the main desk lamp. */
-export const FIXTURE_LIGHTS = ['light.fixture_desk', 'light.fixture_shelf', 'light.fixture_fridge'];
+/** Virtual lights in demo mode. The first stands for the main desk lamp. */
+export const DEMO_LIGHTS = ['light.demo_desk', 'light.demo_shelf', 'light.demo_fridge'];
+/** Virtual switches in demo mode, for fixtures like a fan or a monitor. */
+export const DEMO_SWITCHES = ['switch.demo_fan', 'switch.demo_monitor'];
 export const ruleInputSchema = z
   .object({
     id: z.string().uuid().optional(),
     label: z.string().trim().min(1).max(40),
     objectId: z.string().uuid(),
-    lightId: z.string().regex(/^light\.[a-z0-9_]+$/),
+    entityId: entityIdSchema,
+    fixtureId: z.string().uuid().optional(),
     rect: zoneRectSchema,
   })
   .strict();
@@ -552,6 +567,22 @@ export function placementGate(
         assumedFixedCamera: zone.carried,
       };
 }
+/**
+ * Desk memory as saved by an earlier version: rules named only a light
+ * (`lightId`) before they could target switches and fixtures.
+ */
+export function upgradeMemory(memory: DeskMemory): DeskMemory {
+  if (!memory.rules?.some((r) => !r.entityId)) return memory;
+  return {
+    ...memory,
+    rules: memory.rules.map((rule) => {
+      if (rule.entityId) return rule;
+      const { lightId, ...rest } = rule as PlacementRule & { lightId?: string };
+      return { ...rest, entityId: lightId ?? '' };
+    }),
+  };
+}
+export * from './fixture.js';
 export * from './tracker.js';
 export * from './iso.js';
 export * from './iso-item.js';

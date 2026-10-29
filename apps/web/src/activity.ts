@@ -11,7 +11,7 @@ export interface ProviderCall {
   path: string;
   mode: Mode;
   title: string;
-  /** The provider steps in order; a fixture call runs them offline. */
+  /** The provider steps in order; a demo call runs them offline. */
   steps: string[];
   startedAt: number;
   endedAt?: number;
@@ -75,7 +75,7 @@ export function startCall(path: string, body: Record<string, unknown>): number |
   const call: ProviderCall = {
     id: nextId++,
     path,
-    mode: body.mode === 'live' ? 'live' : 'fixture',
+    mode: body.mode === 'live' ? 'live' : 'demo',
     startedAt: Date.now(),
     ...plan,
   };

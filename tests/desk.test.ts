@@ -18,7 +18,7 @@ import {
   type PlacementDecision,
   type Segmentation,
 } from '@livinglayer/domain';
-import { fixtureLamp } from '../apps/server/src/fixtures.js';
+import { demoLamp } from '../apps/server/src/demo.js';
 
 const dirs: string[] = [];
 function config() {
@@ -44,7 +44,7 @@ async function setup() {
   const fetcher = mock<Fetcher>();
   const app = await buildApp(c, { fetcher, serveWeb: false });
   const post = async (path: string, body: object = {}) =>
-    app.inject({ method: 'POST', url: `/api/${path}`, payload: { mode: 'fixture', ...body } });
+    app.inject({ method: 'POST', url: `/api/${path}`, payload: { mode: 'demo', ...body } });
   const segment = (await post('segment', { concept: 'mug' })).json<EvidenceRun<Segmentation>>();
   const memory = (
     await post('desk/select', { segmentRunId: segment.id, detectionId: '7' })
@@ -64,19 +64,19 @@ describe('desk placement', () => {
       decision: 'inside',
       action: 'confirmed',
       segmentRunId: s.segment.id,
-      lamp: { physicalEffectVerified: false, entityId: 'light.fixture_desk' },
+      lamp: { physicalEffectVerified: false, entityId: 'light.demo_desk' },
     });
     expect(s.fetcher).not.toHaveBeenCalled();
     await s.app.close();
     const app = await buildApp(s.c, { serveWeb: false });
-    const restored = (await app.inject('/api/desk/fixture')).json<DeskMemory>();
+    const restored = (await app.inject('/api/desk/demo')).json<DeskMemory>();
     expect(restored.object!.id).toBe(s.memory.object!.id);
     expect(restored.zone).toEqual(zoned.zone);
     expect(restored.lastDecision!.id).toBe(event.id);
     const again = await app.inject({
       method: 'POST',
       url: '/api/desk/verify',
-      payload: { mode: 'fixture', ...ids },
+      payload: { mode: 'demo', ...ids },
     });
     // Still inside: the lamp fires only on entering, so a repeat check does nothing.
     expect(again.json().output).toMatchObject({
@@ -88,7 +88,7 @@ describe('desk placement', () => {
     expect(exportData.runs.map((r: EvidenceRun) => r.kind)).toEqual(
       expect.arrayContaining(['observation', 'zone', 'placement']),
     );
-    expect(exportData.desk.fixture.object.id).toBe(s.memory.object!.id);
+    expect(exportData.desk.demo.object.id).toBe(s.memory.object!.id);
     expect((await app.inject('/api/status')).json().liveEvidence.lamp).toBe(false);
     await app.close();
   });
@@ -192,7 +192,7 @@ describe('desk placement', () => {
     let fail!: (error: Error) => void;
     const action = mock(
       () =>
-        new Promise<typeof fixtureLamp>((_resolve, reject) => {
+        new Promise<typeof demoLamp>((_resolve, reject) => {
           fail = reject;
         }),
     );
@@ -201,11 +201,11 @@ describe('desk placement', () => {
     const request = {
       method: 'POST' as const,
       url: '/api/desk/verify',
-      payload: { mode: 'fixture', observationId: z.observation!.id, zoneId: z.zone!.id },
+      payload: { mode: 'demo', observationId: z.observation!.id, zoneId: z.zone!.id },
     };
     const pending = app.inject(request);
     await waitFor(() => action.mock.calls.length === 1);
-    expect(store.memory('fixture').lastDecision!.output.action).toBe('pending');
+    expect(store.memory('demo').lastDecision!.output.action).toBe('pending');
     expect((await app.inject(request)).statusCode).toBe(409);
     fail(new Error('private-token-details'));
     const result = (await pending).json();
@@ -226,7 +226,7 @@ describe('desk restore', () => {
     const restored = await s.post('desk/restore', { memory: saved });
     expect(restored.statusCode).toBe(200);
     expect(restored.json<DeskMemory>()).toEqual(saved);
-    expect((await s.app.inject({ url: '/api/desk/fixture' })).json<DeskMemory>()).toEqual(saved);
+    expect((await s.app.inject({ url: '/api/desk/demo' })).json<DeskMemory>()).toEqual(saved);
     const other = await s.post('desk/restore', { memory: { ...saved, mode: 'live' } });
     expect(other.statusCode).toBe(400);
     const pin = {
@@ -248,8 +248,8 @@ describe('desk restore', () => {
 
 describe('desk tracking', () => {
   type Tracked = { memory: DeskMemory; event: EvidenceRun<PlacementDecision> };
-  async function track(s: Awaited<ReturnType<typeof setup>>, fixturePosition: string) {
-    const seg = (await s.post('segment', { concept: 'mug', fixturePosition })).json<EvidenceRun>();
+  async function track(s: Awaited<ReturnType<typeof setup>>, demoPosition: string) {
+    const seg = (await s.post('segment', { concept: 'mug', demoPosition })).json<EvidenceRun>();
     return s.post('desk/track', { segmentRunId: seg.id });
   }
   it('carries the zone on a fixed camera and fires the lamp only on entering', async () => {
@@ -291,11 +291,11 @@ describe('desk tracking', () => {
       segmentRunId: (await s.post('segment', { concept: 'mug' })).json().id,
       detectionId: '7',
     });
-    const before = (await s.app.inject('/api/desk/fixture')).json<DeskMemory>();
+    const before = (await s.app.inject('/api/desk/demo')).json<DeskMemory>();
     const empty = (await s.post('segment', { concept: 'unicorn' })).json<EvidenceRun>();
     const lost = await s.post('desk/track', { segmentRunId: empty.id });
     expect(lost.statusCode).toBe(400);
-    const after = (await s.app.inject('/api/desk/fixture')).json<DeskMemory>();
+    const after = (await s.app.inject('/api/desk/demo')).json<DeskMemory>();
     expect(after.observation!.id).toBe(before.observation!.id);
     await s.app.close();
   });

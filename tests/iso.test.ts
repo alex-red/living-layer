@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { buildApp } from '../apps/server/src/app.js';
 import { parseConfig, type Fetcher } from '../apps/server/src/config.js';
 import {
-  FIXTURE_SURFACE,
+  DEMO_SURFACE,
   ISO_PRESETS,
   applyHomography,
   depthOrder,
@@ -82,7 +82,7 @@ describe('isometric projection', () => {
 
 describe('surface homography', () => {
   it('maps the four corners onto the unit square and back', () => {
-    const map = surfaceMap({ ...FIXTURE_SURFACE, corners: tilted, frame }, frame)!;
+    const map = surfaceMap({ ...DEMO_SURFACE, corners: tilted, frame }, frame)!;
     const unit = tilted.map((c) => applyHomography(map.toSurface, c));
     expect(
       unit.map((p) => [Math.round(p.x * 1e6) / 1e6 + 0, Math.round(p.y * 1e6) / 1e6 + 0]),
@@ -109,8 +109,8 @@ describe('surface homography', () => {
     expect(invertHomography(h)).not.toBeNull();
   });
   it('applies only to frames of the pinned size', () => {
-    expect(surfaceMap(FIXTURE_SURFACE, { width: 960, height: 640 })).not.toBeNull();
-    expect(surfaceMap(FIXTURE_SURFACE, { width: 1280, height: 720 })).toBeNull();
+    expect(surfaceMap(DEMO_SURFACE, { width: 960, height: 640 })).not.toBeNull();
+    expect(surfaceMap(DEMO_SURFACE, { width: 1280, height: 720 })).toBeNull();
   });
   it('rejects folded, collinear and tiny corner sets', () => {
     expect(quadIsConvex(tilted)).toBe(true);
@@ -140,9 +140,9 @@ describe('surface homography', () => {
   });
 });
 
-describe('placing the fixture mug', () => {
+describe('placing the demo mug', () => {
   const surface = isoSurface('desk', 'desk:top')!;
-  const map = surfaceMap(FIXTURE_SURFACE, FIXTURE_SURFACE.frame)!;
+  const map = surfaceMap(DEMO_SURFACE, DEMO_SURFACE.frame)!;
   it('stands the mug where its box touches the desk', () => {
     const mug = { x: 400, y: 260, width: 160, height: 200 };
     const placed = projectBox(mug, surface, map.toSurface);
@@ -155,21 +155,21 @@ describe('placing the fixture mug', () => {
     expect(placed.box.size.w).toBeCloseTo(1);
   });
   it('flags a box whose foot falls off the surface', () => {
-    const map2 = surfaceMap({ ...FIXTURE_SURFACE, corners: tilted, frame }, frame)!;
+    const map2 = surfaceMap({ ...DEMO_SURFACE, corners: tilted, frame }, frame)!;
     expect(
       projectBox({ x: 10, y: 10, width: 40, height: 40 }, surface, map2.toSurface).onSurface,
     ).toBe(false);
   });
   it('round-trips a zone drawn on the surface', () => {
     const zone = { x: 0.25, y: 0.25, width: 0.5, height: 0.5 };
-    const quad = zoneOnSurface(zone, FIXTURE_SURFACE.frame, map.toSurface);
-    const back = zoneFromSurface(quad[0], quad[2], FIXTURE_SURFACE.frame, map.toFrame)!;
+    const quad = zoneOnSurface(zone, DEMO_SURFACE.frame, map.toSurface);
+    const back = zoneFromSurface(quad[0], quad[2], DEMO_SURFACE.frame, map.toFrame)!;
     expect(back.x).toBeCloseTo(zone.x);
     expect(back.y).toBeCloseTo(zone.y);
     expect(back.width).toBeCloseTo(zone.width);
     expect(back.height).toBeCloseTo(zone.height);
     expect(
-      zoneFromSurface({ x: 0.5, y: 0.5 }, { x: 0.5, y: 0.5 }, FIXTURE_SURFACE.frame, map.toFrame),
+      zoneFromSurface({ x: 0.5, y: 0.5 }, { x: 0.5, y: 0.5 }, DEMO_SURFACE.frame, map.toFrame),
     ).toBeNull();
   });
 });
@@ -177,11 +177,11 @@ describe('placing the fixture mug', () => {
 describe('the office desk', () => {
   it('is a close view of the office, and shares its desk pin with it', () => {
     expect(ISO_PRESETS.desk.label).toBe('Office desk');
-    expect(pinFits(FIXTURE_SURFACE, 'desk')).toBe(true);
-    expect(pinFits(FIXTURE_SURFACE, 'office')).toBe(true);
+    expect(pinFits(DEMO_SURFACE, 'desk')).toBe(true);
+    expect(pinFits(DEMO_SURFACE, 'office')).toBe(true);
     expect(pinFits({ scene: 'office', surfaceId: 'shelf:top' }, 'desk')).toBe(false);
-    expect(pinFits(FIXTURE_SURFACE, 'fridge')).toBe(false);
-    expect(pinFits(FIXTURE_SURFACE, 'custom')).toBe(false);
+    expect(pinFits(DEMO_SURFACE, 'fridge')).toBe(false);
+    expect(pinFits(DEMO_SURFACE, 'custom')).toBe(false);
     const office = ISO_PRESETS.office.props.map((p) => p.group);
     expect(office).toEqual(expect.arrayContaining(['book', 'bottle', 'lamp']));
   });
@@ -214,12 +214,12 @@ async function app() {
   const fetcher = mock<Fetcher>();
   const server = await buildApp(parseConfig({ DATA_DIR: dataDir }), { fetcher, serveWeb: false });
   const post = (path: string, body: object) =>
-    server.inject({ method: 'POST', url: `/api/${path}`, payload: { mode: 'fixture', ...body } });
+    server.inject({ method: 'POST', url: `/api/${path}`, payload: { mode: 'demo', ...body } });
   return { server, post, fetcher };
 }
 
 describe('iso routes', () => {
-  it('classifies the fixture as a desk without provider traffic', async () => {
+  it('classifies the demo as a desk without provider traffic', async () => {
     const s = await app();
     const run = (await s.post('scene/classify', {})).json<EvidenceRun<SceneGuess>>();
     expect(run.kind).toBe('scene');
@@ -239,11 +239,11 @@ describe('iso routes', () => {
     const cleared = (await s.post('desk/surface', { pin: null })).json<DeskMemory>();
     expect(cleared.surface).toBeNull();
   });
-  it('keeps the fixture mug segmentation on the desk preset', async () => {
+  it('keeps the demo mug segmentation on the desk preset', async () => {
     const s = await app();
     const run = (await s.post('segment', { concept: 'mug' })).json<EvidenceRun<Segmentation>>();
     const mug = run.output.detections[0]!;
-    const map = surfaceMap(FIXTURE_SURFACE, run.output.frame)!;
+    const map = surfaceMap(DEMO_SURFACE, run.output.frame)!;
     expect(projectBox(mug.box, isoSurface('desk', 'desk:top')!, map.toSurface).onSurface).toBe(
       true,
     );

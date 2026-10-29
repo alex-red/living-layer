@@ -46,7 +46,7 @@ test('demo desk completes discovery, mask, absent target, lamp and export withou
   await page.getByRole('button', { name: 'Segment object', exact: true }).click();
   await expect(page.getByLabel('1 segmentation masks')).toBeVisible();
   await expect(page.locator('.mask-overlay path')).toHaveCount(1);
-  await page.screenshot({ path: '.data/screenshots/desk-fixture-desktop.png', fullPage: true });
+  await page.screenshot({ path: '.data/screenshots/desk-demo-desktop.png', fullPage: true });
   await page.getByText('Check for false matches').click();
   await page.getByRole('button', { name: 'Test absent target' }).click();
   await expect(page.getByLabel('0 segmentation masks')).toBeVisible();
@@ -106,7 +106,7 @@ test('mobile workbench fits its viewport', async ({ page }) => {
     page.locator('.object-grid').getByRole('button', { name: /cream mug/ }),
   ).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-  await page.screenshot({ path: '.data/screenshots/desk-fixture-mobile.png', fullPage: true });
+  await page.screenshot({ path: '.data/screenshots/desk-demo-mobile.png', fullPage: true });
 });
 
 test('remembers a mug, draws a zone, verifies one virtual action, and retains evidence on reload', async ({
@@ -124,7 +124,7 @@ test('remembers a mug, draws a zone, verifies one virtual action, and retains ev
   await page.getByRole('button', { name: 'Find its outline', exact: true }).click();
   await page.getByRole('button', { name: 'Confirm mug mask #7', exact: true }).click();
   await expect(page.locator('.feedback')).toContainText('Mug identity manually confirmed');
-  const before = await page.request.get('/api/desk/fixture');
+  const before = await page.request.get('/api/desk/demo');
   const objectId = (await before.json()).object.id;
   await outline(page, 'Mug zone').click();
   await page.getByRole('button', { name: 'Draw / edit zone' }).click();
@@ -169,7 +169,7 @@ test('remembers a mug, draws a zone, verifies one virtual action, and retains ev
   await expect(
     page.getByRole('button', { name: 'Verify placement · virtual lamp', exact: true }),
   ).toBeDisabled();
-  expect((await (await page.request.get('/api/desk/fixture')).json()).object.id).toBe(objectId);
+  expect((await (await page.request.get('/api/desk/demo')).json()).object.id).toBe(objectId);
   await page.setViewportSize({ width: 390, height: 844 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: '.data/screenshots/placement-mobile.png', fullPage: true });
@@ -186,7 +186,7 @@ async function freshDesk(page: Page) {
     ['desk/surface', { pin: null }],
   ] as const)
     expect(
-      (await page.request.post(`/api/${path}`, { data: { mode: 'fixture', ...data } })).ok(),
+      (await page.request.post(`/api/${path}`, { data: { mode: 'demo', ...data } })).ok(),
     ).toBe(true);
 }
 
@@ -214,7 +214,7 @@ test('draws the remembered mug in the isometric desk and follows it to a new fra
   await page.getByRole('button', { name: 'Open the mug' }).click();
   await page.getByRole('button', { name: 'Track the mug', exact: true }).click();
   await expect(page.locator('.feedback')).toContainText('Tracked');
-  // The fixture moves the mug 100 px right, which is towards +x on the desk.
+  // The demo moves the mug 100 px right, which is towards +x on the desk.
   await expect.poll(async () => Number(await mug.getAttribute('cx'))).toBeGreaterThan(before);
   await expect(page.locator('.iso-trail')).toBeVisible();
   await page.getByRole('button', { name: /^Edit model/ }).click();
@@ -254,7 +254,7 @@ test('drafts a custom room offline, saves it, and lights a rule’s lamp', async
   await page.getByRole('button', { name: 'Draft with Spark', exact: true }).click();
   await expect(page.locator('.scene-editor .iso-note')).toContainText('Spark:');
   await page.locator('.scene-canvas [data-prop="lamp"]').dispatchEvent('pointerdown');
-  await page.getByLabel('Lamp light').selectOption('light.fixture_shelf');
+  await page.getByLabel('Lamp light').selectOption('light.demo_shelf');
   await page.getByRole('button', { name: 'Save scene', exact: true }).click();
   // The saved scene is the room now; it has no close view, so its surfaces sit right under it.
   await expect(outline(page, 'Drafted room')).toHaveAttribute('aria-current', 'true');
@@ -277,7 +277,7 @@ test('drafts a custom room offline, saves it, and lights a rule’s lamp', async
     await page.mouse.click(box.x + u! * box.width, box.y + v! * box.height);
   await expect(page.locator('.feedback')).toContainText('Surface pinned');
   await outline(page, 'Add rule').click();
-  await page.getByLabel('Rule light').selectOption('light.fixture_shelf');
+  await page.getByLabel('Rule light').selectOption('light.demo_shelf');
   await page.getByLabel('Rule name').fill('Whole desk');
   const hit = (await page.locator('.iso-hit').boundingBox())!;
   await page.mouse.move(hit.x + hit.width / 2, hit.y + 12);

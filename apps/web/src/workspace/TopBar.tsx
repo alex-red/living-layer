@@ -77,7 +77,7 @@ function Readiness() {
       <section className="readiness-tests" aria-label="Connection tests">
         <span className="tiny">TEST THE CONNECTIONS</span>
         <p className="micro">
-          {mode === 'fixture'
+          {mode === 'demo'
             ? 'Demo: the lamp is virtual and no model is called.'
             : 'Turns on your configured lamp. Check the physical effect separately.'}
         </p>
@@ -89,7 +89,7 @@ function Readiness() {
           >
             {busy === 'lamp'
               ? 'Checking state…'
-              : mode === 'fixture'
+              : mode === 'demo'
                 ? 'Simulate lamp action'
                 : 'Turn on desk lamp'}
           </button>
@@ -206,8 +206,8 @@ function MoreMenu({ close }: { close: () => void }) {
       <span className="tiny">HISTORY</span>
       <p className="micro">
         {undo.current[mode].length} step{undo.current[mode].length === 1 ? '' : 's'} to undo ·{' '}
-        {redo.current[mode].length} to redo in {mode === 'fixture' ? 'demo' : 'live'} mode. Undo
-        puts the whole desk back as it was before your last edit.
+        {redo.current[mode].length} to redo in {mode === 'demo' ? 'demo' : 'live'} mode. Undo puts
+        the whole desk back as it was before your last edit.
       </p>
       <span className="tiny">MORE</span>
       <div className="menu-links">
@@ -345,19 +345,19 @@ export function TopBar() {
       </div>
       <nav className="topbar-links">
         <div className="mode-switch" aria-label="Data source">
-          {(['fixture', 'live'] as const).map((value) => (
+          {(['demo', 'live'] as const).map((value) => (
             <button
               key={value}
               disabled={Boolean(busy) || camera || cameraPending}
               aria-pressed={mode === value}
               title={
-                value === 'fixture'
+                value === 'demo'
                   ? 'The illustrated demo: no model calls, a virtual lamp'
                   : 'Your photos and camera, real model calls and your lamp'
               }
               onClick={() => lab.changeMode(value)}
             >
-              {value === 'fixture' ? 'Demo' : 'Live'}
+              {value === 'demo' ? 'Demo' : 'Live'}
             </button>
           ))}
         </div>

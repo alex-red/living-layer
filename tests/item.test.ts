@@ -114,7 +114,7 @@ async function setup() {
   const fetcher = mock<Fetcher>();
   const app = await buildApp(parseConfig({ DATA_DIR: dataDir }), { fetcher, serveWeb: false });
   const post = (path: string, body: object = {}) =>
-    app.inject({ method: 'POST', url: `/api/${path}`, payload: { mode: 'fixture', ...body } });
+    app.inject({ method: 'POST', url: `/api/${path}`, payload: { mode: 'demo', ...body } });
   return { app, post, fetcher };
 }
 
@@ -124,7 +124,7 @@ describe('item routes', () => {
     expect((await s.post('item/draft', { source: 'sampled' })).statusCode).toBe(409);
     expect((await s.post('item/save', { item: mugItem() })).statusCode).toBe(409);
   });
-  it('drafts the fixture mug offline, saves edits, keeps it across sightings and clears it on reset', async () => {
+  it('drafts the demo mug offline, saves edits, keeps it across sightings and clears it on reset', async () => {
     const s = await setup();
     const segment = (await s.post('segment', { concept: 'mug' })).json<EvidenceRun<Segmentation>>();
     await s.post('desk/select', { segmentRunId: segment.id, detectionId: '7' });
@@ -133,9 +133,9 @@ describe('item routes', () => {
       memory: DeskMemory;
     }>();
     expect(drafted.run.kind).toBe('item');
-    expect(drafted.run.output.source).toBe('fixture');
+    expect(drafted.run.output.source).toBe('demo');
     expect(drafted.memory.item?.segmentRunId).toBe(segment.id);
-    // The fixture runs the real fitter on the illustrated desk's own pixels.
+    // The demo runs the real fitter on the illustrated desk's own pixels.
     expect(drafted.memory.item?.parts.map((p) => p.id)).toEqual(['body', 'handle']);
     const fit = drafted.memory.item!.fit!;
     expect(fit.archetype).toBe('mug');
@@ -147,7 +147,7 @@ describe('item routes', () => {
     // Cream body with coffee in it, as drawn.
     expect(deltaE(hexLab(body.color), hexLab('#ece5d0'))).toBeLessThan(3);
     expect(deltaE(hexLab(body.inside!.liquid!), hexLab('#73604c'))).toBeLessThan(5);
-    const crop = await s.app.inject({ method: 'GET', url: '/api/item/crop?mode=fixture' });
+    const crop = await s.app.inject({ method: 'GET', url: '/api/item/crop?mode=demo' });
     expect(crop.statusCode).toBe(200);
     expect(crop.headers['content-type']).toBe('image/png');
     expect(s.fetcher).not.toHaveBeenCalled();
@@ -166,13 +166,13 @@ describe('item routes', () => {
     const edited = mugItem('#3c554a');
     const saved = (await s.post('item/save', { item: edited })).json<DeskMemory>();
     expect(saved.item?.parts[0]!.color).toBe('#3c554a');
-    expect(saved.item?.source).toBe('fixture');
+    expect(saved.item?.source).toBe('demo');
     // An edit is scored again against the same crop: a green body matches its colour worse.
     expect(saved.item?.fit?.deltaE).toBeGreaterThan(fit.deltaE);
     const extra = await s.post('item/save', { item: { ...edited, source: 'spark' } });
     expect(extra.statusCode).toBe(400);
 
-    const again = (await s.post('segment', { concept: 'mug', fixturePosition: 'right' })).json<
+    const again = (await s.post('segment', { concept: 'mug', demoPosition: 'right' })).json<
       EvidenceRun<Segmentation>
     >();
     const tracked = (await s.post('desk/track', { segmentRunId: again.id })).json<{
@@ -191,7 +191,7 @@ describe('item routes', () => {
 });
 
 describe('live item drafts with Meta’s help', () => {
-  const fixture = JSON.parse(readFileSync('fixtures/sam-mug.json', 'utf8')) as { wire: string };
+  const demo = JSON.parse(readFileSync('testdata/sam-mug.json', 'utf8')) as { wire: string };
   /** SAM's event stream for a wire, as the hosted API sends it. */
   async function samResponse(wire: string) {
     const events = [];
@@ -235,7 +235,7 @@ describe('live item drafts with Meta’s help', () => {
         const concept = body.input[0].content[0].text as string;
         asked.push(`sam:${concept}`);
         // The whole desk photo shows the mug; inside the crop, no parts are found.
-        return samResponse(concept === 'mug' ? fixture.wire : '');
+        return samResponse(concept === 'mug' ? demo.wire : '');
       }
       const name = body.text.format.name as string;
       asked.push(`spark:${name}`);

@@ -179,7 +179,7 @@ export interface ItemFitRecord {
 }
 /** A saved model, with where its first draft came from. */
 export interface SavedItem extends IsoItem {
-  source: 'fixture' | 'sampled' | 'spark';
+  source: 'demo' | 'sampled' | 'spark';
   /** The segmentation the draft was made from. */
   segmentRunId: string | null;
   swatches: Swatch[];

@@ -9,7 +9,7 @@ bun install
 bun run dev
 ```
 
-You don't need any API keys. Fixture mode covers the whole workflow offline.
+You don't need any API keys. Demo mode covers the whole workflow offline.
 
 ## Before you open a PR
 
@@ -44,7 +44,7 @@ We use [Conventional Commits](https://www.conventionalcommits.org/):
 | `fix`      | A bug fix                                       |
 | `docs`     | Documentation only                              |
 | `refactor` | Code changes that don't change behaviour        |
-| `test`     | Adding or fixing tests and fixtures             |
+| `test`     | Adding or fixing tests and test data            |
 | `perf`     | Making something faster or lighter              |
 | `ci`       | GitHub Actions and other CI config              |
 | `chore`    | Tooling, dependencies, config, and housekeeping |

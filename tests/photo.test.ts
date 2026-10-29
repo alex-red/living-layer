@@ -275,7 +275,7 @@ describe('photo routes, offline', () => {
     const fetcher = mock<Fetcher>();
     const app = await buildApp(parseConfig({ DATA_DIR: dataDir }), { fetcher, serveWeb: false });
     const post = (path: string, body: object = {}) =>
-      app.inject({ method: 'POST', url: `/api/${path}`, payload: { mode: 'fixture', ...body } });
+      app.inject({ method: 'POST', url: `/api/${path}`, payload: { mode: 'demo', ...body } });
     return { app, post, fetcher };
   }
   it('drafts the illustrated desk, then saves the scene, the pin and the ticked objects with their models', async () => {
@@ -301,7 +301,7 @@ describe('photo routes, offline', () => {
     expect(Object.keys(items).sort()).toEqual(['book', 'bottle', 'mug']);
     expect(items.mug!.fit!.archetype).toBe('mug');
     expect(items.mug!.fit!.iou).toBeGreaterThan(0.8);
-    expect(run.output.check?.note).toMatch(/^Fixture/);
+    expect(run.output.check?.note).toMatch(/^Demo/);
     expect(isoSceneSchema.safeParse(layout.scene).success).toBe(true);
     // The box-prompted masks are saved as a segmentation of their own.
     const segment = await s.app.inject(`/api/runs`);
@@ -328,7 +328,7 @@ describe('photo routes, offline', () => {
       ['Sage bottle', 'sage bottle', true],
     ]);
     // The mug is followed from that sighting like any confirmed mug.
-    const moved = (await s.post('segment', { concept: 'mug', fixturePosition: 'right' })).json<
+    const moved = (await s.post('segment', { concept: 'mug', demoPosition: 'right' })).json<
       EvidenceRun<Segmentation>
     >();
     const tracked = await s.post('desk/track', { segmentRunId: moved.id });
@@ -354,7 +354,7 @@ describe('photo routes, offline', () => {
 });
 
 describe('photo routes, live with a mocked Meta API', () => {
-  const fixture = JSON.parse(readFileSync('fixtures/sam-mug.json', 'utf8')) as { wire: string };
+  const demo = JSON.parse(readFileSync('testdata/sam-mug.json', 'utf8')) as { wire: string };
   async function samResponse(wire: string) {
     const events = [];
     for await (const event of syntheticStream(wire))
@@ -409,7 +409,7 @@ describe('photo routes, live with a mocked Meta API', () => {
     ],
   };
   // SAM's box-prompted answer outlines only the mug, under the id its box was sent with.
-  const mugBody = fixture.wire.replace(/^<0f>7/, '');
+  const mugBody = demo.wire.replace(/^<0f>7/, '');
 
   async function setup(env: Record<string, string> = {}) {
     const dataDir = mkdtempSync(join(tmpdir(), 'livinglayer-photo-live-'));

@@ -4,8 +4,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { buildApp } from '../apps/server/src/app.js';
 import { parseConfig, type Fetcher } from '../apps/server/src/config.js';
-import { LampAdapter } from '../apps/server/src/lamp.js';
-import { fixtureSceneDraft } from '../apps/server/src/fixtures.js';
+import { ControlAdapter } from '../apps/server/src/control.js';
+import { demoSceneDraft } from '../apps/server/src/demo.js';
 import {
   ISO_PRESETS,
   addTemplate,
@@ -114,14 +114,14 @@ describe('scene templates', () => {
     ).toBe(false);
   });
   it('builds a Spark layout with tabletop things on their surfaces', () => {
-    expect(sceneDraftSchema.safeParse(fixtureSceneDraft).success).toBe(true);
+    expect(sceneDraftSchema.safeParse(demoSceneDraft).success).toBe(true);
     expect(
       sceneDraftSchema.safeParse({
-        ...fixtureSceneDraft,
+        ...demoSceneDraft,
         items: [{ template: 'spaceship', x: 0, y: 0, turns: 0 }],
       }).success,
     ).toBe(false);
-    const scene = buildScene(fixtureSceneDraft);
+    const scene = buildScene(demoSceneDraft);
     expect(isoSceneSchema.safeParse(scene).success).toBe(true);
     expect(groupBounds(scene, 'book')!.at.z).toBeCloseTo(2.4);
     expect(groupBounds(scene, 'lamp')!.at.z).toBeCloseTo(2.4);
@@ -143,17 +143,17 @@ async function setup(env: Record<string, string> = {}) {
     serveWeb: false,
   });
   const post = (path: string, body: object = {}) =>
-    app.inject({ method: 'POST', url: `/api/${path}`, payload: { mode: 'fixture', ...body } });
-  const segment = async (fixturePosition?: string) =>
-    (
-      await post('segment', { concept: 'mug', ...(fixturePosition ? { fixturePosition } : {}) })
-    ).json<EvidenceRun<Segmentation>>();
+    app.inject({ method: 'POST', url: `/api/${path}`, payload: { mode: 'demo', ...body } });
+  const segment = async (demoPosition?: string) =>
+    (await post('segment', { concept: 'mug', ...(demoPosition ? { demoPosition } : {}) })).json<
+      EvidenceRun<Segmentation>
+    >();
   return { app, post, segment, fetcher };
 }
 type Checked = { memory: DeskMemory; events: EvidenceRun<PlacementDecision>[] };
 
 describe('custom scenes and layout drafts', () => {
-  it('drafts the fixture layout offline, saves it, and pins its surfaces', async () => {
+  it('drafts the demo layout offline, saves it, and pins its surfaces', async () => {
     const s = await setup();
     const run = (await s.post('scene/draft')).json<
       EvidenceRun<{ draft: unknown; scene: IsoScene }>
@@ -217,7 +217,7 @@ describe('extra rules and lights', () => {
     const s = await withMug();
     const saved = (
       await s.post('desk/rules/save', {
-        rule: { label: 'Desk', objectId: s.objectId, lightId: 'light.fixture_shelf', rect: whole },
+        rule: { label: 'Desk', objectId: s.objectId, entityId: 'light.demo_shelf', rect: whole },
       })
     ).json<DeskMemory>();
     const rule = saved.rules![0]!;
@@ -228,7 +228,7 @@ describe('extra rules and lights', () => {
       action: 'confirmed',
       ruleId: rule.id,
     });
-    expect(first.events[0]!.output.lamp?.entityId).toBe('light.fixture_shelf');
+    expect(first.events[0]!.output.lamp?.entityId).toBe('light.demo_shelf');
     const again = (await s.post('desk/rules/verify')).json<Checked>();
     expect(again.events[0]!.output).toMatchObject({ transition: 'stayed_inside', action: 'none' });
     // Shrink the zone so the mug leaves, then grow it back: a new story, a new entry.
@@ -237,7 +237,7 @@ describe('extra rules and lights', () => {
         id: rule.id,
         label: 'Desk',
         objectId: s.objectId,
-        lightId: 'light.fixture_shelf',
+        entityId: 'light.demo_shelf',
         rect: corner,
       },
     });
@@ -248,7 +248,7 @@ describe('extra rules and lights', () => {
         id: rule.id,
         label: 'Desk',
         objectId: s.objectId,
-        lightId: 'light.fixture_shelf',
+        entityId: 'light.demo_shelf',
         rect: whole,
       },
     });
@@ -262,7 +262,7 @@ describe('extra rules and lights', () => {
     const s = await withMug();
     await s.post('desk/camera', { fixed: true });
     await s.post('desk/rules/save', {
-      rule: { label: 'Fridge', objectId: s.objectId, lightId: 'light.fixture_fridge', rect: whole },
+      rule: { label: 'Fridge', objectId: s.objectId, entityId: 'light.demo_fridge', rect: whole },
     });
     const next = await s.segment('right');
     const tracked = (await s.post('desk/track', { segmentRunId: next.id })).json<{
@@ -279,14 +279,14 @@ describe('extra rules and lights', () => {
       rule: {
         label: 'X',
         objectId: crypto.randomUUID(),
-        lightId: 'light.fixture_desk',
+        entityId: 'light.demo_desk',
         rect: whole,
       },
     });
     expect(bad.statusCode).toBe(409);
     const m = await withMug();
     const wrong = await m.post('desk/rules/save', {
-      rule: { label: 'X', objectId: m.objectId, lightId: 'light.kitchen', rect: whole },
+      rule: { label: 'X', objectId: m.objectId, entityId: 'light.kitchen', rect: whole },
     });
     expect(wrong.statusCode).toBe(400);
   });
@@ -306,7 +306,7 @@ describe('extra rules and lights', () => {
     expect(tracked.memory.others![0]!.history).toHaveLength(1);
     expect(tracked.memory.others![0]!.observation!.identity).toBe('tracked');
     await s.post('desk/rules/save', {
-      rule: { label: 'Cup zone', objectId: cup.id, lightId: 'light.fixture_desk', rect: whole },
+      rule: { label: 'Cup zone', objectId: cup.id, entityId: 'light.demo_desk', rect: whole },
     });
     const forgot = (await s.post('desk/objects/forget', { objectId: cup.id })).json<DeskMemory>();
     expect(forgot.others).toHaveLength(0);
@@ -356,7 +356,7 @@ describe('several lights', () => {
         ),
       );
     };
-    const lamp = new LampAdapter(config, fetcher, async () => {});
+    const lamp = new ControlAdapter(config, fetcher, async () => {});
     const result = await lamp.turnOn('light.shelf');
     expect(result.entityId).toBe('light.shelf');
     expect(calls.some((c) => c.endsWith('/api/states/light.shelf'))).toBe(true);

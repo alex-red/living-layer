@@ -139,7 +139,7 @@ Under `prefers-reduced-motion`, every sweep, ignition and shimmer becomes a 150 
 
 **Status capsule.** A floating glass pill, top centre, inspired by the Dynamic Island. It shows the current operation ("Discovering objects", "Lamp on · confirmed") with a signal dot, and replaces today's feedback bar. It expands to show an error message and collapses after 4 s. It's also the `aria-live` region.
 
-**Mode switch.** An iOS-style segmented control (`Demo | Live`; the code calls demo mode `fixture`) with a sliding thumb. In Live mode, a small `LIVE` HUD tag appears in the top bar.
+**Mode switch.** An iOS-style segmented control (`Demo | Live`; the code calls demo mode `demo`) with a sliding thumb. In Live mode, a small `LIVE` HUD tag appears in the top bar.
 
 **Privacy dots.** While the camera is streaming, a green dot shows next to the camera button, and in the status capsule, following Apple's camera indicator. Users already know this pattern; don't restyle it.
 
@@ -210,7 +210,7 @@ Still to do:
 - On mobile, the inspector as a sheet that slides up from the bottom. It currently sits inline under the canvas, with its main action sticky at the bottom.
 - A browser test that checks reduced motion turns the animations off.
 
-The fixture image `desk.svg` stays byte-for-byte as it is, because its geometry matches the synthetic mask exactly. It sits inside the frame at true colour, so there's no need to change it.
+The demo image `desk.svg` stays byte-for-byte as it is, because its geometry matches the synthetic mask exactly. It sits inside the frame at true colour, so there's no need to change it.
 
 ## Open decisions
 

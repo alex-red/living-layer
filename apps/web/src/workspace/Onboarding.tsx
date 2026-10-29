@@ -41,7 +41,7 @@ export function Onboarding() {
         </button>
         <button
           className="scene-card onboarding-card"
-          aria-label={mode === 'fixture' ? 'Draft from the demo photo' : 'Photograph your office'}
+          aria-label={mode === 'demo' ? 'Draft from the demo photo' : 'Photograph your office'}
           disabled={Boolean(busy)}
           onClick={() => lab.pickScene('office', 'photo')}
         >
@@ -52,12 +52,12 @@ export function Onboarding() {
             </svg>
           </span>
           <span className="scene-card-text">
-            <span className="tiny">{mode === 'fixture' ? 'DEMO PHOTO' : 'YOUR ROOM'}</span>
+            <span className="tiny">{mode === 'demo' ? 'DEMO PHOTO' : 'YOUR ROOM'}</span>
             <strong>
-              {mode === 'fixture' ? 'Draft from the demo photo' : 'Photograph your office'}
+              {mode === 'demo' ? 'Draft from the demo photo' : 'Photograph your office'}
             </strong>
             <span>
-              {mode === 'fixture'
+              {mode === 'demo'
                 ? 'Run the photo-to-scene pipeline on the illustrated desk, with no model calls.'
                 : 'Spark lists what is in the photo, SAM outlines it, and you review the layout. About 2 billed calls.'}
             </span>
@@ -137,7 +137,7 @@ export function DeskStep() {
         <button
           className="text-button"
           disabled={Boolean(busy) || camera}
-          onClick={() => lab.changeMode('fixture')}
+          onClick={() => lab.changeMode('demo')}
         >
           Try the demo desk instead
         </button>

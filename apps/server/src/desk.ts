@@ -6,6 +6,8 @@ import {
   zoneRectSchema,
   surfacePinSchema,
   isoSurface,
+  fixtureEntity,
+  settleFixtures,
   isoItemSchema,
   objectById,
   modelTarget,
@@ -14,6 +16,7 @@ import {
   ruleInputSchema,
   MAX_OTHER_OBJECTS,
   MAX_RULES,
+  MAX_FIXTURES,
   type PlacementRule,
   isoSceneSchema,
   uniqueParts,
@@ -38,12 +41,14 @@ import { EvidenceStore } from './store.js';
 import { LabError, parseInput, safeError } from './errors.js';
 import { keepLocked, rescore } from './item.js';
 import type { PhotoDraft } from './photo.js';
+import { noteControl } from './fixture.js';
 
 export function deskRoutes(
   app: FastifyInstance,
   store: EvidenceStore,
   turnOn: (mode: Mode, entityId?: string) => Promise<LampResult>,
-  lights: (mode: Mode) => string[] = () => [],
+  /** The lights and switches rules may name. */
+  entities: (mode: Mode) => string[] = () => [],
 ) {
   const active = new Set<Mode>();
   function available(mode: Mode) {
@@ -184,6 +189,7 @@ export function deskRoutes(
         decision.lamp = await turnOn(mode);
         decision.action = decision.lamp.stateConfirmed ? 'confirmed' : 'unconfirmed';
         event.status = decision.lamp.stateConfirmed ? 'completed' : 'unconfirmed';
+        noteControl(memory, decision.lamp);
       } catch (error) {
         const safe = safeError(error);
         decision.action = 'failed';
@@ -252,9 +258,10 @@ export function deskRoutes(
       if (decision.action === 'pending') {
         active.add(mode);
         try {
-          decision.lamp = await turnOn(mode, rule.lightId);
+          decision.lamp = await turnOn(mode, rule.entityId);
           decision.action = decision.lamp.stateConfirmed ? 'confirmed' : 'unconfirmed';
           event.status = decision.lamp.stateConfirmed ? 'completed' : 'unconfirmed';
+          noteControl(memory, decision.lamp);
         } catch (error) {
           const safe = safeError(error);
           decision.action = 'failed';
@@ -519,8 +526,13 @@ export function deskRoutes(
     const memory = store.memory(mode);
     const o = objectById(memory, input.objectId)?.observation;
     if (!o) throw new LabError('rule_object', 'Confirm that object in a segmentation first.', 409);
-    if (!lights(mode).includes(input.lightId))
-      throw new LabError('rule_light', 'Choose one of the configured lights.', 400);
+    if (!entities(mode).includes(input.entityId))
+      throw new LabError('rule_light', 'Choose one of the configured lights or switches.', 400);
+    if (input.fixtureId) {
+      const fixture = memory.fixtures?.find((f) => f.id === input.fixtureId);
+      if (!fixture || fixtureEntity(fixture) !== input.entityId)
+        throw new LabError('rule_fixture', 'That fixture does not switch this entity.', 400);
+    }
     const rules = memory.rules ?? [];
     if (!input.id && rules.length >= MAX_RULES)
       throw new LabError('rule_limit', `Up to ${MAX_RULES} extra zones are allowed.`, 409);
@@ -528,7 +540,8 @@ export function deskRoutes(
       id: input.id ?? randomUUID(),
       label: input.label,
       objectId: input.objectId,
-      lightId: input.lightId,
+      entityId: input.entityId,
+      ...(input.fixtureId ? { fixtureId: input.fixtureId } : {}),
       zone: { sourceKey: o.sourceKey, rect: input.rect, frame: o.frame },
       // A new or moved zone starts a new inside/outside story.
       placement: null,
@@ -573,6 +586,7 @@ export function deskRoutes(
     available(mode);
     const memory = store.memory(mode);
     memory.scene = scene as IsoScene | null;
+    if (memory.fixtures) memory.fixtures = settleFixtures(memory.fixtures, memory.scene);
     if (
       memory.surface?.scene === 'custom' &&
       !isoSurface('custom', memory.surface.surfaceId, memory.scene)
@@ -636,6 +650,7 @@ export function deskRoutes(
         409,
       );
     memory.scene = scene as IsoScene;
+    if (memory.fixtures) memory.fixtures = settleFixtures(memory.fixtures, memory.scene);
     memory.surface = pin as SurfacePin | null;
     store.saveMemory(memory);
     const label = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
@@ -750,6 +765,7 @@ export function deskRoutes(
       // Extra objects and their rules go with the mug; the scene stays.
       others: [],
       rules: [],
+      fixtures: store.memory(mode).fixtures ?? [],
     };
     store.saveMemory(memory);
     // Evidence and one-shot claims intentionally survive reset.
@@ -780,6 +796,10 @@ export function deskRoutes(
               rules: z
                 .array(z.object({ id: z.string().min(1) }).loose())
                 .max(MAX_RULES)
+                .optional(),
+              fixtures: z
+                .array(z.object({ id: z.string().min(1) }).loose())
+                .max(MAX_FIXTURES)
                 .optional(),
             })
             .loose(),

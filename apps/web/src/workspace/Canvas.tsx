@@ -1,8 +1,8 @@
 import type { CSSProperties } from 'react';
 import {
-  FIXTURE_POSITIONS,
+  DEMO_POSITIONS,
   type EvidenceRun,
-  type FixturePosition,
+  type DemoPosition,
   type SavedItem,
 } from '@livinglayer/domain';
 import { api } from '../api';
@@ -15,7 +15,7 @@ import type { StageView } from '../session';
 import { useLab } from './LabContext';
 import { DeskStep, Onboarding } from './Onboarding';
 import { Popover } from './Popover';
-import { fixtureDesk } from './useLabState';
+import { demoDesk } from './useLabState';
 
 const VIEWS: { id: StageView; label: string }[] = [
   { id: 'photo', label: 'Photo' },
@@ -110,7 +110,7 @@ export function Canvas() {
       <div className="scene-toolbar">
         <span>
           <span className={`dot ${mode === 'live' ? 'live' : ''}`} />
-          {mode === 'fixture' ? 'DEMO DESK' : image ? 'LOCAL DESK PHOTO' : 'AWAITING DESK PHOTO'}
+          {mode === 'demo' ? 'DEMO DESK' : image ? 'LOCAL DESK PHOTO' : 'AWAITING DESK PHOTO'}
         </span>
         <Popover
           label="Layers"
@@ -176,18 +176,18 @@ export function Canvas() {
         >
           {camera ? (
             <video ref={lab.video} muted playsInline aria-label="Desk camera preview" />
-          ) : mode === 'fixture' || image ? (
+          ) : mode === 'demo' || image ? (
             <img
               src={
-                mode === 'fixture'
+                mode === 'demo'
                   ? lab.deskSvg
-                    ? fixtureDesk(lab.deskSvg, lab.fixturePosition)
+                    ? demoDesk(lab.deskSvg, lab.demoPosition)
                     : '/desk.svg'
                   : image
               }
               alt={
-                mode === 'fixture'
-                  ? 'Illustrated desk with a mug, book, and bottle; synthetic fixture'
+                mode === 'demo'
+                  ? 'Illustrated desk with a mug, book, and bottle; synthetic demo'
                   : 'Your prepared desk photo'
               }
             />
@@ -411,22 +411,22 @@ export function Canvas() {
       {!onboarding && (
         <div className="scene-bottom">
           <span>
-            {mode === 'fixture'
+            {mode === 'demo'
               ? 'Demo desk. Move the mug to test tracking; no model call or real lamp.'
               : camera
                 ? 'Camera on. Capture a frame to work on it.'
                 : 'Your photo stays here until you run a live step.'}
           </span>
-          {mode === 'fixture' && (
-            <div className="capture-actions" role="group" aria-label="Move the fixture mug">
-              {(Object.keys(FIXTURE_POSITIONS) as FixturePosition[]).map((p) => (
+          {mode === 'demo' && (
+            <div className="capture-actions" role="group" aria-label="Move the demo mug">
+              {(Object.keys(DEMO_POSITIONS) as DemoPosition[]).map((p) => (
                 <button
                   key={p}
-                  aria-pressed={lab.fixturePosition === p}
+                  aria-pressed={lab.demoPosition === p}
                   disabled={Boolean(busy)}
-                  onClick={() => lab.moveFixtureMug(p)}
+                  onClick={() => lab.moveDemoMug(p)}
                 >
-                  {FIXTURE_POSITIONS[p].label}
+                  {DEMO_POSITIONS[p].label}
                 </button>
               ))}
             </div>

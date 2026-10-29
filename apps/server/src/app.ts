@@ -8,8 +8,9 @@ import {
   modeSchema,
   imageRequestSchema,
   segmentRequestSchema,
-  fixtureSourceKey,
-  FIXTURE_LIGHTS,
+  demoSourceKey,
+  DEMO_LIGHTS,
+  DEMO_SWITCHES,
   buildScene,
   isoSceneSchema,
   type SceneDraft,
@@ -24,7 +25,8 @@ import {
 import { type Config, type Fetcher, PROJECT_ROOT } from './config.js';
 import { EvidenceStore } from './store.js';
 import { MetaAdapter, type ProviderResult } from './meta.js';
-import { LampAdapter } from './lamp.js';
+import { ControlAdapter } from './control.js';
+import { fixtureRoutes } from './fixture.js';
 import { LabError, parseInput, safeError } from './errors.js';
 import { validateImage } from './images.js';
 import { deskRoutes } from './desk.js';
@@ -32,13 +34,13 @@ import { itemRoutes } from './item.js';
 import { photoRoutes } from './photo.js';
 import { streamRoutes, type NetworkStream } from './streams.js';
 import {
-  fixtureScene,
-  fixtureSceneGuess,
-  fixtureSegmentation,
-  fixtureLamp,
-  fixtureLampFor,
-  fixtureSceneDraft,
-} from './fixtures.js';
+  demoScene,
+  demoSceneGuess,
+  demoSegmentation,
+  demoLamp,
+  demoLampFor,
+  demoSceneDraft,
+} from './demo.js';
 
 export async function buildApp(
   config: Config,
@@ -51,7 +53,7 @@ export async function buildApp(
   const app = Fastify({ logger: false, bodyLimit: 7_100_000, requestTimeout: 130000 });
   const store = new EvidenceStore(config.dataDir);
   const meta = new MetaAdapter(config, store, options.fetcher);
-  const lamp = new LampAdapter(config, options.fetcher);
+  const lamp = new ControlAdapter(config, options.fetcher);
   app.addHook('onClose', async () => store.close());
   app.addHook('onRequest', async (request) => {
     const host = request.headers.host ?? '';
@@ -116,6 +118,7 @@ export async function buildApp(
       lamp: {
         configured: Boolean(config.haUrl && config.haToken && config.haEntity),
         lights: config.haLights,
+        switches: config.haSwitches,
         enabled: config.haEnabled,
         note:
           config.haEnabled && config.haUrl && config.haToken && config.haEntity
@@ -125,17 +128,29 @@ export async function buildApp(
       liveEvidence: store.liveEvidence(),
     };
   });
+  const entities = (mode: Mode) =>
+    mode === 'demo'
+      ? [...DEMO_LIGHTS, ...DEMO_SWITCHES]
+      : [...config.haLights, ...config.haSwitches];
   deskRoutes(
     app,
     store,
     async (mode, entityId) =>
-      mode === 'fixture'
-        ? entityId
-          ? fixtureLampFor(entityId)
-          : fixtureLamp
-        : lamp.turnOn(entityId),
-    (mode) => (mode === 'fixture' ? FIXTURE_LIGHTS : config.haLights),
+      mode === 'demo' ? (entityId ? demoLampFor(entityId) : demoLamp) : lamp.turnOn(entityId),
+    entities,
   );
+  fixtureRoutes(app, {
+    store,
+    meta,
+    run,
+    control: async (mode, entityId, action) =>
+      mode === 'demo'
+        ? demoLampFor(entityId, action)
+        : action === 'on'
+          ? lamp.turnOn(entityId)
+          : lamp.turnOff(entityId),
+    entities,
+  });
   streamRoutes(app, config, options.browseCameras);
   app.get('/api/runs', async () => store.list());
   app.get('/api/evidence', async (_request, reply) =>
@@ -143,8 +158,8 @@ export async function buildApp(
       project: 'LivingLayer',
       exportedAt: new Date().toISOString(),
       notice:
-        'Fixture runs are synthetic. Physical lamp verification is manual. Latest 200 runs; local source images are excluded.',
-      desk: { fixture: store.memory('fixture'), live: store.memory('live') },
+        'Demo runs are synthetic. Physical lamp verification is manual. Latest 200 runs; local source images are excluded.',
+      desk: { demo: store.memory('demo'), live: store.memory('live') },
       runs: store.list(),
     }),
   );
@@ -224,21 +239,18 @@ export async function buildApp(
   app.post('/api/text', async (request) => {
     const { mode } = parseInput(z.object({ mode: modeSchema }).strict(), request.body);
     return run('text', mode, async () =>
-      mode === 'fixture'
-        ? { output: { text: 'Fixture connection ready. No model request was sent.' } }
+      mode === 'demo'
+        ? { output: { text: 'Demo connection ready. No model request was sent.' } }
         : meta.text(),
     );
   });
   app.post('/api/discover', async (request) => {
     const input = parseInput(imageRequestSchema, request.body);
     return run('discover', input.mode, async (id) => {
-      if (input.mode === 'fixture') {
+      if (input.mode === 'demo') {
         if (input.imageDataUrl)
-          throw new LabError(
-            'fixture_image',
-            'Fixture mode uses only the bundled illustrated desk.',
-          );
-        return { output: fixtureScene };
+          throw new LabError('demo_image', 'Demo mode uses only the bundled illustrated desk.');
+        return { output: demoScene };
       }
       const image = await validateImage(input.imageDataUrl);
       const result = await meta.discover(image.dataUrl);
@@ -253,13 +265,10 @@ export async function buildApp(
   app.post('/api/scene/draft', async (request) => {
     const input = parseInput(imageRequestSchema, request.body);
     return run('layout', input.mode, async (id) => {
-      if (input.mode === 'fixture') {
+      if (input.mode === 'demo') {
         if (input.imageDataUrl)
-          throw new LabError(
-            'fixture_image',
-            'Fixture mode uses only the bundled illustrated desk.',
-          );
-        return { output: drafted(fixtureSceneDraft) };
+          throw new LabError('demo_image', 'Demo mode uses only the bundled illustrated desk.');
+        return { output: drafted(demoSceneDraft) };
       }
       const image = await validateImage(input.imageDataUrl);
       const result = await meta.layout(image.dataUrl);
@@ -279,13 +288,10 @@ export async function buildApp(
   app.post('/api/scene/classify', async (request) => {
     const input = parseInput(imageRequestSchema, request.body);
     return run('scene', input.mode, async (id) => {
-      if (input.mode === 'fixture') {
+      if (input.mode === 'demo') {
         if (input.imageDataUrl)
-          throw new LabError(
-            'fixture_image',
-            'Fixture mode uses only the bundled illustrated desk.',
-          );
-        return { output: fixtureSceneGuess };
+          throw new LabError('demo_image', 'Demo mode uses only the bundled illustrated desk.');
+        return { output: demoSceneGuess };
       }
       const image = await validateImage(input.imageDataUrl);
       const result = await meta.classify(image.dataUrl);
@@ -297,20 +303,17 @@ export async function buildApp(
   app.post('/api/segment', async (request) => {
     const input = parseInput(segmentRequestSchema, request.body);
     return run('segment', input.mode, async (id) => {
-      if (input.mode === 'fixture') {
+      if (input.mode === 'demo') {
         if (input.imageDataUrl)
-          throw new LabError(
-            'fixture_image',
-            'Fixture mode uses only the bundled illustrated desk.',
-          );
-        const result = await fixtureSegmentation(input.concept, input.fixturePosition);
+          throw new LabError('demo_image', 'Demo mode uses only the bundled illustrated desk.');
+        const result = await demoSegmentation(input.concept, input.demoPosition);
         return {
-          output: { ...result.output, sourceKey: fixtureSourceKey(input.fixturePosition) },
+          output: { ...result.output, sourceKey: demoSourceKey(input.demoPosition) },
           assets: [store.asset(id, 'synthetic-sam.txt', result.raw)],
         };
       }
-      if (input.fixturePosition)
-        throw new LabError('fixture_position', 'Fixture positions apply only in fixture mode.');
+      if (input.demoPosition)
+        throw new LabError('demo_position', 'Demo positions apply only in demo mode.');
       const image = await validateImage(input.imageDataUrl);
       const result = await meta.segment(image.dataUrl, input.concept, image.width, image.height);
       return {
@@ -329,7 +332,7 @@ export async function buildApp(
   app.post('/api/lamp', async (request) => {
     const { mode } = parseInput(z.object({ mode: modeSchema }).strict(), request.body);
     return run('lamp', mode, async () => ({
-      output: mode === 'fixture' ? fixtureLamp : await lamp.turnOn(),
+      output: mode === 'demo' ? demoLamp : await lamp.turnOn(),
     }));
   });
   const dist = resolve(PROJECT_ROOT, 'apps/web/dist');

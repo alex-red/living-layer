@@ -95,7 +95,7 @@ export async function* syntheticStream(wire: string): AsyncGenerator<SamEvent> {
     yield {
       type: 'response.output_text.delta',
       delta: wire.slice(i, i + 17),
-      item_id: 'fixture-item',
+      item_id: 'demo-item',
       output_index: 0,
       content_index: 0,
     };
@@ -103,9 +103,9 @@ export async function* syntheticStream(wire: string): AsyncGenerator<SamEvent> {
   yield {
     type: 'response.output_text.done',
     text: wire,
-    item_id: 'fixture-item',
+    item_id: 'demo-item',
     output_index: 0,
     content_index: 0,
   };
-  yield { type: 'response.completed', response: { id: 'fixture-response', status: 'completed' } };
+  yield { type: 'response.completed', response: { id: 'demo-response', status: 'completed' } };
 }

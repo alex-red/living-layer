@@ -16,7 +16,7 @@ import { renderView, voxelize } from './iso-voxel.js';
  * Fit a model to one masked crop: measure the silhouette and colours, build
  * the archetype's parts, then render them from the photo's camera and nudge
  * the numbers until the render and the mask agree (analysis by synthesis).
- * Pure and deterministic, so fixture mode and tests run the real thing.
+ * Pure and deterministic, so demo mode and tests run the real thing.
  */
 export interface FitInput {
   /** The crop as RGBA, with the mask in alpha. */

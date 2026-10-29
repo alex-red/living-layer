@@ -16,7 +16,7 @@ import { itemSprite, viewOverlay } from './sprites';
 const MATERIALS = ['#ece5d0', '#b3a796', '#73604c', '#3c554a', '#5f7c88', '#4a5164', '#1f232f'];
 const PREVIEW_SCALE = 3;
 const SOURCE: Record<SavedItem['source'], string> = {
-  fixture: 'Fixture photo',
+  demo: 'Demo photo',
   sampled: 'Fitted to the mask',
   spark: 'Fitted with Spark and SAM',
 };

@@ -2,15 +2,15 @@
  * How closely fitted models match their photos. Runs the fitter on a fixed
  * set of crops and prints silhouette overlap (IoU) and colour error (OKLab
  * ΔE) per case, so a change to the fitter or kernel shows whether accuracy
- * moved. Exits non-zero when a synthetic or fixture turned body misses
+ * moved. Exits non-zero when a synthetic or demo turned body misses
  * IoU ≥ 0.9 or ΔE ≤ 8. Real crops are reported against the same targets but
  * don't fail the run: the only ones so far are a mug that isn't rotationally
  * symmetric, a known gap for a model made of turned bodies.
  *
  * Cases:
  * - synthetic: known models drawn from known camera angles, lit from one side;
- * - the fixture: the illustrated desk's mug, cut out by its SAM mask;
- * - real crops: any `fixtures/items/<name>.png` (a masked RGBA crop) with a
+ * - the demo: the illustrated desk's mug, cut out by its SAM mask;
+ * - real crops: any `testdata/items/<name>.png` (a masked RGBA crop) with a
  *   `<name>.json` of `{ "label", "archetype", "elevation"? }` beside it.
  *
  *   bun scripts/fit-bench.ts
@@ -29,13 +29,13 @@ import {
   type LatheFit,
 } from '@livinglayer/domain';
 import { maskedCrop } from '../apps/server/src/images.js';
-import { fixtureSegmentation } from '../apps/server/src/fixtures.js';
+import { demoSegmentation } from '../apps/server/src/demo.js';
 
 const root = resolve(import.meta.dir, '..');
 interface Case {
   name: string;
   input: FitInput;
-  source: 'synthetic' | 'fixture' | 'real';
+  source: 'synthetic' | 'demo' | 'real';
 }
 const cases: Case[] = [];
 const synthetic = (
@@ -70,7 +70,7 @@ synthetic('plant pot 30°', 'plant', ['#c06a45', '#4d6a54'], 30);
 synthetic('book 40°', 'book', ['#3c554a'], 40);
 synthetic('box 30°', 'box', ['#8a90a8', '#b3a796'], 30);
 
-const segmentation = await fixtureSegmentation('mug');
+const segmentation = await demoSegmentation('mug');
 const desk = await sharp(readFileSync(join(root, 'apps/web/public/desk.svg')))
   .png()
   .toBuffer();
@@ -78,7 +78,7 @@ const mug = segmentation.output.detections[0]!;
 const crop = await maskedCrop(desk, mug);
 cases.push({
   name: 'illustrated desk mug',
-  source: 'fixture',
+  source: 'demo',
   input: {
     rgba: crop.rgba,
     width: crop.width,
@@ -88,7 +88,7 @@ cases.push({
   },
 });
 
-const dir = join(root, 'fixtures/items');
+const dir = join(root, 'testdata/items');
 if (existsSync(dir))
   for (const file of readdirSync(dir).filter((f) => f.endsWith('.png'))) {
     const meta = join(dir, file.replace(/\.png$/, '.json'));
@@ -141,6 +141,6 @@ for (const c of cases) {
 }
 if (!cases.some((c) => c.source === 'real'))
   console.log(
-    '\nNo real crops in fixtures/items yet: add <name>.png and <name>.json to measure them.',
+    '\nNo real crops in testdata/items yet: add <name>.png and <name>.json to measure them.',
   );
 process.exit(misses ? 1 : 0);

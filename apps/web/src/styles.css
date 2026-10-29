@@ -1392,7 +1392,7 @@ input[type='checkbox'] {
   }
 }
 
-/* Fixture mug positions */
+/* Demo mug positions */
 .capture-actions button[aria-pressed='true'] {
   border-color: var(--seen);
   color: var(--seen);

@@ -1,5 +1,5 @@
 import {
-  FIXTURE_SURFACE,
+  DEMO_SURFACE,
   ISO_PRESETS,
   ISO_SCENE_PARENT,
   pinFits,
@@ -74,7 +74,7 @@ export function sceneProgress({
 }): Progress {
   const room = workScene ? roomOf(workScene) : null;
   const view = room ? viewOf(room) : null;
-  const pin = memory?.surface ?? (mode === 'fixture' ? FIXTURE_SURFACE : null);
+  const pin = memory?.surface ?? (mode === 'demo' ? DEMO_SURFACE : null);
   const pinned = Boolean(
     room &&
     pin &&
@@ -101,7 +101,7 @@ export function sceneProgress({
       'Photograph your office, or use the demo office.',
     ],
     desk: [
-      mode === 'fixture' && !memory?.surface
+      mode === 'demo' && !memory?.surface
         ? 'The demo desk is already pinned.'
         : 'The desktop is pinned to the camera frame.',
       view

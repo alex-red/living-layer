@@ -12,13 +12,9 @@ A person can add the things in a room that _do_ something, or that just belong t
 
 **Objects move, fixtures stay.** Objects (the mug, the book) are followed by the camera and decide rules. Fixtures are placed once by hand, never tracked, and are what rules act on. That one sentence is the distinction the UI should teach.
 
-## Naming: "fixture" is already taken
+## Naming
 
-`mode: 'fixture'` means the offline demo everywhere: `FIXTURE_LIGHTS`, `FIXTURE_POSITIONS`, `apps/server/src/fixtures.ts`, `fixtures/items/`. The UI already says **Demo | Live**.
-
-**Recommended:** first, a mechanical commit renaming the demo mode to `demo` in code (`modeSchema = ['demo', 'live']`, `DEMO_LIGHTS`, `demo.ts`, test data under `testdata/`), with a load-time migration of stored desk memory (`mode: 'fixture'` → `'demo'`). After that, "fixture" means one thing.
-
-Alternative: keep the demo name and call the new thing `Device` in code, "Fixture" in the UI. Cheaper, but two words for one thing forever.
+The offline mode used to be called `fixture` in code. It is now `demo` everywhere, matching the UI's **Demo | Live**: `modeSchema = ['demo', 'live']`, `DEMO_LIGHTS` (`light.demo_desk`, …), `apps/server/src/demo.ts`, and test data under `testdata/`. The SQLite store and browser saves migrate old `fixture` data on load. "Fixture" now means only the feature below.
 
 ## Data model (`packages/domain/src/fixture.ts`)
 
@@ -27,8 +23,12 @@ export const CONTROL_KINDS = ['none', 'light', 'switch'] as const;
 export const entityIdSchema = z.string().regex(/^(light|switch)\.[a-z0-9_]+$/);
 export const fixtureControlSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('none') }).strict(),
-  z.object({ kind: z.literal('light'), entityId: z.string().regex(/^light\.[a-z0-9_]+$/) }).strict(),
-  z.object({ kind: z.literal('switch'), entityId: z.string().regex(/^switch\.[a-z0-9_]+$/) }).strict(),
+  z
+    .object({ kind: z.literal('light'), entityId: z.string().regex(/^light\.[a-z0-9_]+$/) })
+    .strict(),
+  z
+    .object({ kind: z.literal('switch'), entityId: z.string().regex(/^switch\.[a-z0-9_]+$/) })
+    .strict(),
 ]);
 
 export interface Fixture {
@@ -74,11 +74,11 @@ Worst case is three Spark calls and one SAM call; a draft today's spending limit
 
 ## Saving, moving, controlling
 
-| Route                          | Does                                                                                                                                       |
-| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| `POST /api/fixtures/save`      | Create or update one fixture (model, room, place, size, control). Checks `fixtureSchema` against its scene and the entity against config. |
-| `POST /api/fixtures/delete`    | Removes it; rules that targeted it keep their `entityId` and lose the `fixtureId`.                                                       |
-| `POST /api/fixtures/control`   | `{ id, action: 'on' \| 'off' }`. Light and switch only. Recorded as a `lamp` run (rename to `control`), same evidence shape.            |
+| Route                        | Does                                                                                                                                      |
+| ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /api/fixtures/save`    | Create or update one fixture (model, room, place, size, control). Checks `fixtureSchema` against its scene and the entity against config. |
+| `POST /api/fixtures/delete`  | Removes it; rules that targeted it keep their `entityId` and lose the `fixtureId`.                                                        |
+| `POST /api/fixtures/control` | `{ id, action: 'on' \| 'off' }`. Light and switch only. Recorded as a `lamp` run (rename to `control`), same evidence shape.              |
 
 - **Home Assistant.** `HA_SWITCH_ENTITY_IDS` beside `HA_EXTRA_ENTITY_IDS`. `LampAdapter` becomes `ControlAdapter`: the service domain comes from the entity prefix (`light/turn_on`, `switch/turn_on`, and `turn_off` for both), brightness/colour only for lights, the same state poll, and it still refuses any entity not in config. `LampResult` keeps `physicalEffectVerified: false`. `/api/status` lists configured lights and switches so the UI only offers real ones.
 - **Rules** call the adapter with the rule's `entityId`. Nothing else in `ruleGate` changes.
@@ -151,10 +151,10 @@ The target picker lists fixtures with controls first (by name), then any other c
 
 ## Build order
 
-1. Rename the demo mode (if chosen). Tests green, no behaviour change.
-2. Domain: `Fixture`, control kinds, `entityId` on rules with migration. Unit tests.
-3. Control adapter with switches; `/api/fixtures/control`; status lists entities. Tests with a fake HA.
-4. `draftModel` extraction (no behaviour change, `tests/item.test.ts` green), then `/api/fixtures/draft` in demo mode with the illustrated mouse.
+1. ~~Rename the demo mode.~~ Done: tests green, no behaviour change.
+2. ~~Domain: `Fixture`, control kinds, `entityId` on rules with migration.~~ Done: `packages/domain/src/fixture.ts`, `upgradeMemory` on every load, reset keeps fixtures, scene saves settle them, `tests/fixture.test.ts`. Rules accept a switch entity, but the server still only allows configured lights until step 3.
+3. ~~Control adapter with switches; `/api/fixtures/control`; status lists entities. Tests with a fake HA.~~ Done, with `/api/fixtures/save` and `/delete` too. The run kind stays `lamp` and the result type `LampResult`, now with an `action`, so stored evidence and the activity filters are unchanged.
+4. ~~`draftModel` extraction (no behaviour change, `tests/item.test.ts` green), then `/api/fixtures/draft` in demo mode with the illustrated mouse.~~ Done. The mouse is modelled as a `box` until step 7 adds `device`. Live drafts answer 501 until step 6. The demo lamp picture waits for the `lamp` archetype in step 7.
 5. Outline, add-fixture flow, review, place, inspector, canvas drawing. Browser test: add the demo mouse to the desk, add the demo lamp as a light, write `Mug → Desk lamp`, watch it warm.
 6. Live: Spark `fixtureClass`, SAM box prompt, the cost refusal.
 7. `device` and `lamp` archetypes and fit-bench cases.
@@ -162,7 +162,6 @@ The target picker lists fixtures with controls first (by name), then any other c
 
 ## Open decisions
 
-- Rename the demo mode to `demo`, or call the new thing `Device` in code?
 - Control kinds: just light and switch for now? Fans, covers and media players would each need their own actions.
 - Should a fixture be trackable later (a mouse does move), or stay strictly placed by hand?
 - Fridge scene: a room fixtures can go in too, or office and office desk only?

@@ -48,7 +48,7 @@ function RunInspector() {
       <dl className="inspector-facts">
         <div>
           <dt>MODE</dt>
-          <dd>{selected.mode === 'fixture' ? 'demo' : 'live'}</dd>
+          <dd>{selected.mode === 'demo' ? 'demo' : 'live'}</dd>
         </div>
         <div>
           <dt>MODEL</dt>
@@ -202,7 +202,7 @@ export function ActivityDrawer() {
                 }}
               >
                 <option value="all">Both modes</option>
-                <option value="fixture">Demo</option>
+                <option value="demo">Demo</option>
                 <option value="live">Live</option>
               </select>
             </label>
@@ -236,9 +236,7 @@ export function ActivityDrawer() {
                     <strong>{run.kind}</strong>
                     <small>
                       {clock(run.createdAt)}{' '}
-                      <b className={`badge ${run.mode}`}>
-                        {run.mode === 'fixture' ? 'demo' : 'live'}
-                      </b>
+                      <b className={`badge ${run.mode}`}>{run.mode === 'demo' ? 'demo' : 'live'}</b>
                     </small>
                     {runDetail(run) && <em className="run-detail">{runDetail(run)}</em>}
                   </span>

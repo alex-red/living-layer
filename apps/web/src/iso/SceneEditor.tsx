@@ -196,7 +196,7 @@ export function SceneEditor({
       </div>
       <div className="scene-editor-tools photo-start" role="group" aria-label="Scene from a photo">
         <span className="tiny">FROM A PHOTO</span>
-        {mode === 'fixture' ? (
+        {mode === 'demo' ? (
           <button className="primary" disabled={busy || drafting} onClick={() => void fromPhoto()}>
             {drafting ? 'Drafting…' : 'Draft from the illustrated desk'}
           </button>
@@ -240,7 +240,7 @@ export function SceneEditor({
           <span>Spark checks the drawing</span>
         </label>
         <span className="tiny">
-          {mode === 'fixture'
+          {mode === 'demo'
             ? 'Demo: no model calls.'
             : `${sparkCheck ? 3 : 2} billed calls: Spark lists, SAM outlines${sparkCheck ? ', Spark checks' : ''}.`}
         </span>
