@@ -58,7 +58,7 @@ export async function buildApp(
   app.addHook('onClose', async () => store.close());
   app.addHook('onRequest', async (request) => {
     const host = request.headers.host ?? '';
-    if (!new RegExp(`^(localhost|127\\.0\\.0\\.1)(:${config.port}|:5173|:80)?$`).test(host))
+    if (!new RegExp(`^(localhost|127\\.0\\.0\\.1)(:${config.port}|:43430|:80)?$`).test(host))
       throw new LabError('host', 'This workbench accepts loopback hosts only.', 403);
     const origin = request.headers.origin;
     if (
@@ -66,8 +66,8 @@ export async function buildApp(
       ![
         `http://localhost:${config.port}`,
         `http://127.0.0.1:${config.port}`,
-        'http://localhost:5173',
-        'http://127.0.0.1:5173',
+        'http://localhost:43430',
+        'http://127.0.0.1:43430',
       ].includes(origin)
     ) {
       throw new LabError('origin', 'Requests from this origin are not allowed.', 403);

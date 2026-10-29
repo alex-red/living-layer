@@ -9,7 +9,7 @@ const flag = z
   .default('false')
   .transform((v) => v === 'true');
 const schema = z.object({
-  PORT: z.coerce.number().int().min(1024).max(65535).default(4310),
+  PORT: z.coerce.number().int().min(1024).max(65535).default(43431),
   DATA_DIR: z.string().default('.data'),
   MODEL_API_KEY: z.string().default(''),
   META_SPARK_MODEL: z

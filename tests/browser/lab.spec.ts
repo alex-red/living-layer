@@ -25,7 +25,7 @@ test('demo desk completes discovery, mask, absent target, lamp and export withou
   const external: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
   await page.route('**/*', (route) => {
-    if (!route.request().url().startsWith('http://127.0.0.1:4311')) {
+    if (!route.request().url().startsWith('http://127.0.0.1:43432')) {
       external.push(route.request().url());
       return route.abort();
     }

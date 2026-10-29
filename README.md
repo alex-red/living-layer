@@ -31,7 +31,7 @@ bun install
 bun run dev
 ```
 
-Open http://127.0.0.1:5173. The API runs on port 4310.
+Open http://127.0.0.1:43430. The API runs on port 43431.
 
 ![The first screen: start from the demo office or a photo of your own](docs/media/start.png)
 

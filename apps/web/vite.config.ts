@@ -7,7 +7,7 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [react()],
     server: {
-      proxy: { '/api': `http://127.0.0.1:${env.PORT || '4310'}` },
+      proxy: { '/api': `http://127.0.0.1:${env.PORT || '43431'}` },
       fs: { allow: [resolve('../..')] },
     },
     build: { outDir: 'dist', emptyOutDir: true },
