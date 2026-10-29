@@ -16,9 +16,13 @@ import {
   type Segmentation,
   type DemoReference,
   type FixtureClass,
+  type Archetype,
+  ARCHETYPES,
+  archetypeOf,
 } from '@livinglayer/domain';
 import sharp from 'sharp';
 import { PROJECT_ROOT } from './config.js';
+import { demoPhoto } from './item.js';
 import { LabError } from './errors.js';
 import { decodeSegmentation, syntheticStream } from './sam.js';
 
@@ -269,4 +273,54 @@ export async function demoReference(
   };
   references.set(name, reference);
   return reference;
+}
+
+/** Usual sizes of the illustrated desk's things, as Spark would give them. */
+const DEMO_DESK_SIZES: Record<string, FixtureClass['sizeCm']> = {
+  mug: { w: 9, d: 9, h: 10 },
+  book: { w: 15, d: 22, h: 3 },
+  bottle: { w: 7, d: 7, h: 24 },
+};
+/**
+ * The illustrated desk's thing under a box drawn on it, as a fixture class,
+ * with its outline: the one the box overlaps most, if it overlaps one at all.
+ * The desk itself is a surface, not a fixture. No model is called.
+ */
+export async function demoDeskThing(box: {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+}): Promise<{ png: Buffer; detection: Detection; cls: FixtureClass } | null> {
+  const segmentation = await demoPhotoSegmentation();
+  const overlap = (d: Detection) => {
+    const w = Math.min(box.right, d.box.x + d.box.width) - Math.max(box.left, d.box.x);
+    const h = Math.min(box.bottom, d.box.y + d.box.height) - Math.max(box.top, d.box.y);
+    const inter = Math.max(0, w) * Math.max(0, h);
+    const union =
+      (box.right - box.left) * (box.bottom - box.top) + d.box.width * d.box.height - inter;
+    return union > 0 ? inter / union : 0;
+  };
+  const best = segmentation.detections
+    .map((d) => ({ d, thing: demoPhotoInventory.things[Number(d.objectId) - 1], iou: overlap(d) }))
+    .filter((x) => x.thing && x.thing.role !== 'surface')
+    .sort((a, b) => b.iou - a.iou)[0];
+  if (!best || best.iou < 0.2) return null;
+  const thing = best.thing!;
+  const archetype = (ARCHETYPES as readonly string[]).includes(thing.as)
+    ? (thing.as as Archetype)
+    : archetypeOf(thing.label);
+  return {
+    png: await demoPhoto(),
+    detection: best.d,
+    cls: {
+      label: thing.label.charAt(0).toUpperCase() + thing.label.slice(1),
+      archetype,
+      material: archetype === 'mug' ? 'gloss' : 'matte',
+      control: 'none',
+      description: `The ${thing.label} on the illustrated desk.`,
+      box: thing.box,
+      sizeCm: DEMO_DESK_SIZES[thing.id] ?? { w: 10, d: 10, h: 10 },
+    },
+  };
 }

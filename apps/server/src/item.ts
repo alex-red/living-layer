@@ -267,6 +267,12 @@ export function itemRoutes(
     );
     const object = modelTarget(store.memory(mode), objectId);
     const sighting = object?.observation;
+    if (object?.fixture)
+      throw new LabError(
+        'item_fixture',
+        'A fixture’s model comes from its photo. Refit it, or add the fixture again from a new photo.',
+        409,
+      );
     if (!object || !sighting)
       throw new LabError(
         'item_identity',
@@ -386,7 +392,9 @@ export function itemRoutes(
       throw new LabError('item_source', 'Draft the model from a photo first, then refit it.', 409);
     const material = (item ?? target.item).parts.find((p) => p.id === 'body')?.material ?? null;
     const input = { ...(await cropInput(png, target.label)), archetype: fit.archetype, material };
-    const fitted = fitItem({ ...input, elevation: fit.elevation });
+    // A flat thing's height can't be measured from above: keep the one it has.
+    const knownHeight = fit.params.family === 'flat' ? fit.params.h : null;
+    const fitted = fitItem({ ...input, elevation: fit.elevation, knownHeight });
     const refitted = keepLocked(fitted.item, item ?? target.item);
     const score = scoreAgainst(refitted, input, fitted.elevation);
     const memory = store.memory(mode);

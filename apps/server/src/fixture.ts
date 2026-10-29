@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import {
   DEMO_REFERENCES,
+  entityIdSchema,
   META_PRICES,
   MAX_FIXTURES,
   isoSceneKindSchema,
@@ -24,9 +25,10 @@ import {
   type Usage,
 } from '@livinglayer/domain';
 import { LabError, parseInput } from './errors.js';
-import { demoFixtureClass, demoReference } from './demo.js';
+import sharp from 'sharp';
+import { demoDeskThing, demoFixtureClass, demoReference } from './demo.js';
 import { maskedCrop, validateImage } from './images.js';
-import { draftModel, rescore, type Runner } from './item.js';
+import { draftModel, pinElevation, rescore, type Runner } from './item.js';
 import { SPARK_BUDGET, type MetaAdapter } from './meta.js';
 import type { EvidenceStore } from './store.js';
 
@@ -38,6 +40,27 @@ const fixtureDraftCeiling = () =>
   sparkCeiling(SPARK_BUDGET.fixtureClass, 1) +
   3 * META_PRICES.samPerImage +
   sparkCeiling(SPARK_BUDGET.itemCheck, 2);
+
+/** The part of a photo around a box, with a margin, for Spark and for review. */
+async function around(
+  png: Buffer,
+  box: { left: number; top: number; right: number; bottom: number },
+): Promise<Buffer> {
+  const { width = 0, height = 0 } = await sharp(png).metadata();
+  const mx = Math.round((box.right - box.left) * 0.15);
+  const my = Math.round((box.bottom - box.top) * 0.15);
+  const left = Math.max(0, box.left - mx);
+  const top = Math.max(0, box.top - my);
+  return sharp(png)
+    .extract({
+      left,
+      top,
+      width: Math.min(width, box.right + mx) - left,
+      height: Math.min(height, box.bottom + my) - top,
+    })
+    .png()
+    .toBuffer();
+}
 
 /** Switch one light or switch, through Home Assistant or the demo's virtual adapter. */
 export type Control = (mode: Mode, entityId: string, action: 'on' | 'off') => Promise<LampResult>;
@@ -85,8 +108,22 @@ export function fixtureRoutes(
           scene: z.union([isoSceneKindSchema, z.literal('custom')]),
           /** Demo: one of the bundled pictures. */
           reference: z.enum(DEMO_REFERENCES).optional(),
-          /** Live: the person's photo of the thing. */
+          /** Live: the person's photo of the thing, or the desk photo a box is drawn on. */
           imageDataUrl: z.string().max(7_000_000).optional(),
+          /**
+           * A box drawn around the thing on a desk photo, in thousandths: the
+           * live photo sent with it, or the illustrated desk in the demo.
+           */
+          box: z
+            .object({
+              x1: z.number().int().min(0).max(1000),
+              y1: z.number().int().min(0).max(1000),
+              x2: z.number().int().min(0).max(1000),
+              y2: z.number().int().min(0).max(1000),
+            })
+            .strict()
+            .refine((b) => b.x2 > b.x1 && b.y2 > b.y1, { message: 'The box must have an area.' })
+            .optional(),
           /** What the person says it is; Spark is told, and it names the draft. */
           label: z.string().trim().min(1).max(40).optional(),
         })
@@ -95,12 +132,12 @@ export function fixtureRoutes(
     );
     const { mode, scene } = input;
     const live = mode === 'live';
-    if (live ? input.reference : input.imageDataUrl || !input.reference)
+    if (live ? input.reference : input.imageDataUrl || !input.reference === !input.box)
       throw new LabError(
         'demo_image',
         live
           ? 'Live mode drafts from your own photo, not the bundled pictures.'
-          : 'Demo mode drafts only from the bundled pictures.',
+          : 'Demo mode drafts from a bundled picture or a box on the illustrated desk.',
       );
     const custom = store.memory(mode).scene;
     if (scene === 'custom' && !custom)
@@ -125,7 +162,54 @@ export function fixtureRoutes(
       let png: Buffer;
       let cls: FixtureClass;
       let detection: Detection;
-      if (live) {
+      // What the review shows: the photo of the thing, or the part of the desk photo boxed.
+      let shown: Buffer | null = null;
+      if (input.box && !live) {
+        const box = promptBox({ box: input.box }, { width: 960, height: 640 })!;
+        const thing = await demoDeskThing(box);
+        if (!thing)
+          throw new LabError(
+            'fixture_none',
+            'Nothing is outlined there. Box the mug, the book or the bottle.',
+            422,
+          );
+        ({ png, detection, cls } = thing);
+        shown = await around(png, box);
+      } else if (input.box) {
+        // A box on the desk photo: Spark sees only what is around the box, and
+        // SAM outlines the thing from the person's own box on the whole photo.
+        const image = await validateImage(input.imageDataUrl);
+        png = image.bytes;
+        const frame = { width: image.width, height: image.height };
+        const box = promptBox({ box: input.box }, frame);
+        if (!box) throw new LabError('fixture_none', 'The box is too small to outline.', 422);
+        shown = await around(png, box);
+        const named = await meta.fixtureClass(
+          `data:image/png;base64,${shown.toString('base64')}`,
+          input.label,
+        );
+        cls = named.output;
+        usage = named.usage;
+        model = named.model;
+        requestId = named.requestId;
+        const outlined = await meta.segmentBoxes(
+          image.dataUrl,
+          [{ id: 1, box }],
+          frame.width,
+          frame.height,
+        );
+        assets.push(store.asset(id, 'sam-output.txt', outlined.raw));
+        const found = [...outlined.output.detections].sort(
+          (a, b) => b.mask.foregroundPixels - a.mask.foregroundPixels,
+        )[0];
+        if (!found)
+          throw new LabError(
+            'fixture_none',
+            `Couldn’t outline the ${cls.label.toLowerCase()} in that box. Draw it a little larger.`,
+            422,
+          );
+        detection = found;
+      } else if (live) {
         const image = await validateImage(input.imageDataUrl);
         png = image.bytes;
         const named = await meta.fixtureClass(image.dataUrl, input.label);
@@ -161,7 +245,7 @@ export function fixtureRoutes(
       }
       const label = input.label ?? cls.label;
       const crop = await maskedCrop(png, detection);
-      const referenceAsset = store.asset(id, 'reference.png', png);
+      const referenceAsset = store.asset(id, 'reference.png', shown ?? png);
       const cropAsset = store.asset(id, 'item-crop.png', crop.png);
       // 3. The same modelling as objects: part masks and Spark's check when live.
       const drafted = await draftModel(meta, store, id, {
@@ -170,7 +254,8 @@ export function fixtureRoutes(
         label,
         archetype: cls.archetype,
         material: cls.material,
-        elevation: null,
+        // A desk photo is taken from the pinned camera; a photo of one thing, from above.
+        elevation: input.box ? pinElevation(store.memory(mode), mode) : null,
         live,
         knownHeight: cls.sizeCm.h / Math.max(cls.sizeCm.w, cls.sizeCm.d),
       });
@@ -302,21 +387,37 @@ export function fixtureRoutes(
     store.saveMemory(memory);
     return memory;
   });
+  /**
+   * Switch a fixture's light or switch, or a configured entity directly: a
+   * lamp that is part of the room's layout has no fixture of its own.
+   */
   app.post('/api/fixtures/control', async (request) => {
-    const { mode, fixtureId, action } = parseInput(
+    const { mode, fixtureId, entityId, action } = parseInput(
       z
-        .object({ mode: modeSchema, fixtureId: z.string().uuid(), action: z.enum(['on', 'off']) })
-        .strict(),
+        .object({
+          mode: modeSchema,
+          fixtureId: z.string().uuid().optional(),
+          entityId: entityIdSchema.optional(),
+          action: z.enum(['on', 'off']),
+        })
+        .strict()
+        .refine((x) => Boolean(x.fixtureId) !== Boolean(x.entityId), {
+          message: 'Name a fixture or an entity, not both.',
+        }),
       request.body,
     );
-    const fixture = store.memory(mode).fixtures?.find((f) => f.id === fixtureId);
-    if (!fixture)
-      throw new LabError('fixture_unknown', 'That fixture is not in this desk memory.', 404);
-    const entity = fixtureEntity(fixture);
-    if (!entity)
-      throw new LabError('fixture_control', `The ${fixture.label} has nothing to switch.`, 400);
+    let entity = entityId ?? null;
+    if (fixtureId) {
+      const fixture = store.memory(mode).fixtures?.find((f) => f.id === fixtureId);
+      if (!fixture)
+        throw new LabError('fixture_unknown', 'That fixture is not in this desk memory.', 404);
+      entity = fixtureEntity(fixture);
+      if (!entity)
+        throw new LabError('fixture_control', `The ${fixture.label} has nothing to switch.`, 400);
+    } else if (!entities(mode).includes(entity!))
+      throw new LabError('lamp_unknown', 'That entity is not one of the configured ones.', 409);
     const event = await run('lamp', mode, async () => ({
-      output: await control(mode, entity, action),
+      output: await control(mode, entity!, action),
     }));
     // Read again: the action took a while, and the memory may have changed meanwhile.
     const memory = store.memory(mode);

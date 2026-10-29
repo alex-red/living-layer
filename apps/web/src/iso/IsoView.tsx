@@ -91,6 +91,7 @@ export function IsoView({
   placing,
   onPlace,
   onFixture,
+  lightsOn,
   focus,
   layers = { trail: true, zones: true },
   memory,
@@ -127,6 +128,8 @@ export function IsoView({
   onPlace?: (where: { at: { x: number; y: number }; surfaceId: string | null }) => void;
   /** A click on a fixture in the room. */
   onFixture?: (id: string) => void;
+  /** Lights whose last confirmed action turned them on, from any source. */
+  lightsOn?: Set<string>;
   /** What the outline has selected, ringed in the room: `tracked` is the mug, `main` its zone. */
   focus?: { object?: string; zone?: string; fixture?: string };
   /** Which canvas layers show: the mug's trail, and saved zones (a draft always shows). */
@@ -230,7 +233,7 @@ export function IsoView({
     );
   for (const o of objects) o.focused = o.id === focus?.object;
   for (const z of zones) z.focused = z.id === focus?.zone;
-  const lit = new Set<string>();
+  const lit = new Set<string>(lightsOn);
   if (lampOn && defaultLight) lit.add(defaultLight);
   for (const rule of memory?.rules ?? [])
     if (rule.placement === 'inside' && rule.lastDecision?.output.action === 'confirmed')
@@ -289,15 +292,18 @@ export function IsoView({
                 onMemory,
               )
             }
-            onDraft={(source) =>
-              void send<{ run: EvidenceRun<SavedItem>; memory: DeskMemory }>(
-                'item/draft',
-                { source, ...(modelOf ? { objectId: modelOf } : {}) },
-                (r) => {
-                  onMemory(r.memory);
-                  onRun(r.run);
-                },
-              )
+            onDraft={
+              target?.fixture
+                ? undefined
+                : (source) =>
+                    void send<{ run: EvidenceRun<SavedItem>; memory: DeskMemory }>(
+                      'item/draft',
+                      { source, ...(modelOf ? { objectId: modelOf } : {}) },
+                      (r) => {
+                        onMemory(r.memory);
+                        onRun(r.run);
+                      },
+                    )
             }
             onSave={(item) =>
               void send<DeskMemory>(

@@ -3,7 +3,10 @@ import {
   ISO_PRESETS,
   pinFits,
   type DeskMemory,
+  type EvidenceRun,
   type Fixture,
+  type IsoProp,
+  type LampResult,
   type IsoSurface,
   type Mode,
 } from '@livinglayer/domain';
@@ -89,6 +92,8 @@ export function selectionLabel(lab: Lab, s: Selection): string {
       return memory?.fixtures?.find((f) => f.id === s.id)?.label ?? 'Fixture';
     case 'new-fixture':
       return 'Add a fixture';
+    case 'lamp':
+      return builtInLamps(lab).find((l) => l.id === s.id)?.prop.label ?? 'Lamp';
   }
 }
 /** What a fixture is and, for a light or switch, its last confirmed state. */
@@ -103,4 +108,59 @@ export function ago(iso: string, now: number): string {
   if (s < 60) return `${s} s ago`;
   const m = Math.round(s / 60);
   return m < 60 ? `${m} min ago` : `${Math.round(m / 60)} h ago`;
+}
+
+/**
+ * Each light's last confirmed state, from the newest of: a switch from the
+ * inspector or the lamp test (a `lamp` run), a rule turning it on, or the
+ * mug's zone turning the main light on. Unconfirmed actions say nothing.
+ */
+export function lightStates(
+  memory: DeskMemory | null | undefined,
+  runs: EvidenceRun[],
+): Map<string, 'on' | 'off'> {
+  const latest = new Map<string, { state: 'on' | 'off'; at: string }>();
+  const note = (entity: string | undefined, state: 'on' | 'off', at: string) => {
+    if (!entity) return;
+    const seen = latest.get(entity);
+    if (!seen || seen.at < at) latest.set(entity, { state, at });
+  };
+  for (const run of runs) {
+    if (run.kind !== 'lamp' || run.mode !== memory?.mode) continue;
+    const out = run.output as Partial<LampResult> | null;
+    if (out?.stateConfirmed) note(out.entityId, out.action ?? 'on', run.createdAt);
+  }
+  for (const d of [memory?.lastDecision, ...(memory?.rules ?? []).map((r) => r.lastDecision)])
+    if (d?.output.action === 'confirmed' && d.output.lamp?.stateConfirmed)
+      note(d.output.lamp.entityId, 'on', d.createdAt);
+  return new Map([...latest].map(([entity, { state }]) => [entity, state]));
+}
+/** A lamp drawn as part of a room's layout, and the light it stands for. */
+export interface BuiltInLamp {
+  /** `scene~propId`, the outline's id for it. */
+  id: string;
+  scene: WorkScene;
+  prop: IsoProp;
+  /** Its own light, else the main one; empty when none is configured. */
+  entity: string;
+}
+/**
+ * The lamps in the room and its close view. The office desk's lamp is in
+ * both scenes, so a lamp of the same name and light is listed once.
+ */
+export function builtInLamps(lab: Lab): BuiltInLamp[] {
+  const { progress, memory } = lab;
+  const kinds = [progress.view, progress.room].filter((k): k is WorkScene => Boolean(k));
+  const seen = new Set<string>();
+  const lamps: BuiltInLamp[] = [];
+  for (const scene of kinds)
+    for (const prop of sceneOf(scene, memory)?.props ?? []) {
+      if (prop.role !== 'lamp') continue;
+      const entity = prop.lightId ?? lab.lights[0] ?? '';
+      const key = `${prop.label}|${entity}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      lamps.push({ id: `${scene}~${prop.id}`, scene, prop, entity });
+    }
+  return lamps;
 }

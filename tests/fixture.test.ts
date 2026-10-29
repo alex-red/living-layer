@@ -556,7 +556,7 @@ describe('drafting a fixture live, with a mocked Meta API', () => {
         url: '/api/fixtures/draft',
         payload: { mode: 'live', scene: 'desk', imageDataUrl, ...body },
       });
-    return { ...s, asked, draft };
+    return { ...s, asked, draft, fetcher };
   }
   it('names it with Spark, outlines it with SAM from Spark’s box, and models it', async () => {
     const s = await live();
@@ -583,6 +583,20 @@ describe('drafting a fixture live, with a mocked Meta API', () => {
     expect(res.statusCode).toBe(422);
     expect(res.json<{ error: { message: string } }>().error.message).toMatch(/Couldn’t find/);
   });
+  it('shows Spark only the boxed part of a desk photo, and SAM the person’s box', async () => {
+    const s = await live();
+    const sent: number[] = [];
+    s.fetcher.mockImplementationOnce(async (_url, init) => {
+      const body = JSON.parse(String(init?.body));
+      const image = body.input[0].content[1].image_url as string;
+      sent.push((await sharp(Buffer.from(image.split(',')[1]!, 'base64')).metadata()).width!);
+      return sparkResponse(lampClass);
+    });
+    const res = await s.draft({ box: { x1: 360, y1: 270, x2: 640, y2: 730 } });
+    expect(res.statusCode, res.body).toBe(200);
+    expect(s.asked).toEqual(['sam', 'spark:item_check']);
+    expect(sent[0]).toBeLessThan(960);
+  });
   it('refuses before any call when today’s limit can’t cover the worst case', async () => {
     const s = await live('found', { META_DAILY_SPEND_LIMIT_USD: '0.0001' });
     expect((await s.draft()).statusCode).toBe(429);
@@ -594,5 +608,97 @@ describe('drafting a fixture live, with a mocked Meta API', () => {
     expect(
       (await s.post('fixtures/draft', { scene: 'desk', imageDataUrl: 'data:' })).statusCode,
     ).toBe(400);
+  });
+});
+
+describe('editing a fixture’s model', () => {
+  it('saves edits, refits to its photo keeping its height, and serves its crop', async () => {
+    const s = await setup();
+    const { draft } = (await s.post('fixtures/draft', { scene: 'desk', reference: 'mouse' })).json<{
+      draft: FixtureDraft;
+    }>();
+    const mouse = (
+      await s.post('fixtures/save', {
+        fixture: {
+          label: draft.label,
+          scene: 'desk',
+          surfaceId: 'desk:top',
+          at: { x: 3, y: 2 },
+          turns: 0,
+          size: draft.size,
+          model: { label: draft.model.label, parts: draft.model.parts },
+          reference: draft.reference,
+          control: { kind: 'none' },
+        },
+      })
+    ).json<DeskMemory>().fixtures![0]!;
+    const body = mouse.model.parts[0]!;
+    const edited = (
+      await s.post('item/save', {
+        objectId: mouse.id,
+        item: { label: 'Mouse', parts: [{ ...body, color: '#aa3322' }] },
+      })
+    ).json<DeskMemory>();
+    const after = edited.fixtures![0]!;
+    expect(after.model.parts[0]!.color).toBe('#aa3322');
+    expect(after.model.fit?.crop).toBe(mouse.model.fit?.crop);
+    const refit = (await s.post('item/refit', { objectId: mouse.id })).json<DeskMemory>();
+    expect(itemHeight(refit.fixtures![0]!.model)).toBeCloseTo(itemHeight(mouse.model), 2);
+    const crop = await s.app.inject(`/api/item/crop?mode=demo&objectId=${mouse.id}`);
+    expect(crop.headers['content-type']).toBe('image/png');
+    const redraft = await s.post('item/draft', { objectId: mouse.id, source: 'sampled' });
+    expect(redraft.statusCode).toBe(409);
+    expect(redraft.json<{ error: { code: string } }>().error.code).toBe('item_fixture');
+  });
+});
+
+describe('switching a light directly', () => {
+  it('switches a configured entity with no fixture, and only a configured one', async () => {
+    const s = await setup();
+    const on = await s.post('fixtures/control', { entityId: 'light.demo_desk', action: 'on' });
+    expect(on.statusCode, on.body).toBe(200);
+    expect(on.json<{ event: EvidenceRun<LampResult> }>().event.output).toMatchObject({
+      entityId: 'light.demo_desk',
+      action: 'on',
+      stateConfirmed: true,
+    });
+    const unknown = await s.post('fixtures/control', { entityId: 'light.kitchen', action: 'on' });
+    expect(unknown.statusCode).toBe(409);
+    const both = await s.post('fixtures/control', {
+      entityId: 'light.demo_desk',
+      fixtureId: crypto.randomUUID(),
+      action: 'on',
+    });
+    expect(both.statusCode).toBe(400);
+  });
+});
+
+describe('drafting a fixture from a box on the desk photo', () => {
+  it('picks the illustrated desk’s thing under the box in the demo', async () => {
+    const s = await setup();
+    // The book stands at the left of the illustrated desk.
+    const book = await s.post('fixtures/draft', {
+      scene: 'desk',
+      box: { x1: 80, y1: 300, x2: 300, y2: 760 },
+    });
+    expect(book.statusCode, book.body).toBe(200);
+    const { run, draft } = book.json<{ run: EvidenceRun; draft: FixtureDraft }>();
+    expect(draft).toMatchObject({ label: 'Green book', archetype: 'book', suggested: 'none' });
+    // The review shows the part of the desk that was boxed, not the whole desk.
+    const shown = await sharp(
+      (await s.app.inject(`/api/fixtures/reference?runId=${run.id}`)).rawPayload,
+    ).metadata();
+    expect(shown.width).toBeLessThan(960);
+    const empty = await s.post('fixtures/draft', {
+      scene: 'desk',
+      box: { x1: 0, y1: 0, x2: 60, y2: 60 },
+    });
+    expect(empty.statusCode).toBe(422);
+    const both = await s.post('fixtures/draft', {
+      scene: 'desk',
+      reference: 'mouse',
+      box: { x1: 80, y1: 300, x2: 300, y2: 760 },
+    });
+    expect(both.statusCode).toBe(400);
   });
 });

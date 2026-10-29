@@ -13,7 +13,7 @@ import { estimateLabel } from '../cost';
 import { Glyph } from '../Glyph';
 import { useLab } from './LabContext';
 import { Cost, Details, Panel, useCall } from './panel';
-import { FixturePanel, NewFixturePanel } from './FixturePanel';
+import { FixturePanel, LampPanel, NewFixturePanel } from './FixturePanel';
 import { ago, mainSurface, roomLabel, surfaceRows } from './labels';
 import type { Selection } from './progress';
 import { TRANSITION, centre } from './useLabState';
@@ -1125,6 +1125,8 @@ function body(lab: ReturnType<typeof useLab>, s: Selection | null) {
       return <FixturePanel key={s.id} id={s.id} />;
     case 'new-fixture':
       return <NewFixturePanel />;
+    case 'lamp':
+      return <LampPanel key={s.id} id={s.id} />;
   }
 }
 
