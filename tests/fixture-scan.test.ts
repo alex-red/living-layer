@@ -709,6 +709,48 @@ describe('scanning live, with a mocked Meta API', () => {
         calls.push('sam');
         return samResponse(`<0f>1${sam.wire.replace(/^<0f>7/, '')}`);
       }
+      if (body.text?.format?.name === 'sculpt') {
+        calls.push(`sculpt: ${body.input[0].content[0].text}`);
+        return sparkResponse({
+          note: 'A shade on a thin stand.',
+          parts: [
+            {
+              id: 'shade',
+              shape: 'lathe',
+              at: { x: 0.1, y: 0.1, z: 0.6 },
+              size: { w: 0.8, d: 0.8, h: 0.4 },
+              color: '#f0e0c0',
+              material: 'fabric',
+              profile: [
+                { r: 1, z: 0 },
+                { r: 0.6, z: 1 },
+              ],
+              path: null,
+              outline: null,
+              radius: null,
+              rough: null,
+              bands: null,
+            },
+            {
+              id: 'stand',
+              shape: 'tube',
+              at: { x: 0.45, y: 0.45, z: 0 },
+              size: { w: 0.1, d: 0.1, h: 0.6 },
+              color: '#202020',
+              material: 'metal',
+              profile: null,
+              path: [
+                { x: 0.5, y: 0.5, z: 0 },
+                { x: 0.5, y: 0.5, z: 1 },
+              ],
+              outline: null,
+              radius: 0.03,
+              rough: null,
+              bands: null,
+            },
+          ],
+        });
+      }
       if (body.text?.format?.name === 'picture_find') {
         calls.push(`find: ${body.input[0].content[0].text}`);
         // Found anywhere in the picture: SAM's outline decides the rest.
@@ -803,6 +845,28 @@ describe('scanning live, with a mocked Meta API', () => {
       .toBuffer({ resolveWithObject: true });
     expect([base.info.width, base.info.height]).toEqual([960, 640]);
     expect([...base.data.subarray(0, 4)]).toEqual([255, 0, 255, 255]);
+
+    // Modelled with AI from its cut-out: Spark twice, from its model, then from its own draft.
+    const lamp = res
+      .json<{ memory: DeskMemory }>()
+      .memory.fixtures!.find((f) => f.label === 'Desk lamp')!;
+    calls.length = 0;
+    const sculpted = await s.post('fixtures/sculpt', { mode: 'live', fixtureId: lamp.id });
+    expect(sculpted.statusCode, sculpted.body).toBe(200);
+    expect(calls).toEqual([
+      expect.stringMatching(/^sculpt: Model the desk lamp in the first image/),
+      expect.stringMatching(/^sculpt: The first image is the desk lamp/),
+    ]);
+    const after = sculpted.json<{ memory: DeskMemory; run: EvidenceRun }>();
+    const sculpture = after.memory.fixtures!.find((f) => f.id === lamp.id)!.model;
+    expect(sculpture.source).toBe('spark');
+    expect(sculpture.parts.map((p) => [p.id, p.shape])).toEqual([
+      ['shade', 'lathe'],
+      ['stand', 'tube'],
+    ]);
+    expect(after.run.assets).toContain(`${after.run.id}/render-final.png`);
+    // The demo has no Spark to ask.
+    expect((await s.post('fixtures/sculpt', { fixtureId: lamp.id })).statusCode).toBe(400);
     await s.app.close();
   });
   it('asks Spark once, leaving out what the camera follows, and maps what it finds', async () => {

@@ -627,6 +627,7 @@ export * from './color.js';
 export * from './iso-voxel.js';
 export * from './iso-archetypes.js';
 export * from './item-fit.js';
+export * from './item-sculpt.js';
 export * from './photo-scene.js';
 export * from './photo-texture.js';
 export * from './illustration.js';

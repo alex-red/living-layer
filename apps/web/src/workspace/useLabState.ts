@@ -242,6 +242,10 @@ export function runDetail(run: EvidenceRun): string {
     }
     case 'fixture': {
       // A scan maps several things, a picture find locates them, and a draft models one.
+      if (run.output && typeof run.output === 'object' && 'sculpted' in run.output) {
+        const o = run.output as unknown as { label: string; parts: number; iou: number };
+        return `${o.label} modelled with AI · ${o.parts} parts · overlap ${Math.round(o.iou * 100)}%`;
+      }
       if (run.output && typeof run.output === 'object' && 'found' in run.output) {
         const { found } = run.output as PictureFind;
         return `found on the picture · ${found.filter((f) => f.seen).length} of ${found.length}`;
@@ -1373,6 +1377,32 @@ export function useLabState() {
       setBusy('');
     }
   }
+  /** Rebuild a fixture's model with Spark from the picture of it, then open it to edit. */
+  async function sculptFixture(id: string) {
+    if (busy) return;
+    const f = memory?.fixtures?.find((x) => x.id === id);
+    if (!f) return;
+    setBusy('sculpt');
+    setError('');
+    try {
+      const result = await api<{ run: EvidenceRun; memory: DeskMemory }>('fixtures/sculpt', {
+        mode,
+        fixtureId: id,
+      });
+      setMemory(result.memory);
+      setSelected(result.run);
+      const out = result.run.output as { parts: number; note: string };
+      setMessage(
+        `Modelled the ${f.label.toLowerCase()} in ${out.parts} parts${costNote(result.run)}. ${out.note} Edit it here; undo puts the old model back.`,
+      );
+      openModel(id);
+      void refresh().catch(() => {});
+    } catch (e) {
+      setError(e instanceof Error ? e : 'The fixture could not be modelled.');
+    } finally {
+      setBusy('');
+    }
+  }
   /** Show the room a fixture goes in, and wait for a click there to put it down. */
   function startPlacing(next: FixturePlacing) {
     setPlacing(next);
@@ -1629,6 +1659,7 @@ export function useLabState() {
     tool,
     setTool,
     separate,
+    sculptFixture,
     selection,
     select,
     outlineOpen,

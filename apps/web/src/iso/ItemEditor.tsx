@@ -500,7 +500,15 @@ export function ItemEditor({
       <div className="item-parts">
         <div className="item-head">
           <span className="tiny">PARTS · {draft.parts.length}/12</span>
-          {item && <span className="tiny">{SOURCE[item.source].toUpperCase()}</span>}
+          {item && (
+            <span className="tiny">
+              {/* A Spark model with no fit record was built by Spark from the picture, not fitted. */}
+              {(item.source === 'spark' && !item.fit
+                ? 'Modelled with AI'
+                : SOURCE[item.source]
+              ).toUpperCase()}
+            </span>
+          )}
         </div>
         <ul role="listbox" aria-label="Item parts">
           {draft.parts.map((p) => (

@@ -29,6 +29,12 @@ import {
   fixtureProblem,
   modeSchema,
   uniqueParts,
+  fromSculpt,
+  scoreAgainst,
+  sculptCheckPrompt,
+  sculptPrompt,
+  toSculpt,
+  type SavedItem,
   type DeskMemory,
   type Detection,
   type Fixture,
@@ -48,9 +54,33 @@ import {
   demoReference,
 } from './demo.js';
 import { maskedCrop, validateImage } from './images.js';
-import { demoPhoto, draftModel, pinElevation, rescore, type Runner } from './item.js';
+import {
+  cropInput,
+  demoPhoto,
+  draftModel,
+  keepLocked,
+  pinElevation,
+  rescore,
+  viewPng,
+  type Runner,
+} from './item.js';
 import { SPARK_BUDGET, type MetaAdapter } from './meta.js';
 import type { EvidenceStore } from './store.js';
+
+/** The room picture is drawn in 2:1 isometric, so a level square shows half as deep as it is wide. */
+const ISO_ELEVATION = 30;
+/** What a picture with a transparent background is laid on for Spark: a neutral grey. */
+const SCULPT_BACKDROP = '#8a8f9f';
+const sumUsage = (a: Usage | null, b: Usage | null | undefined): Usage | null =>
+  !b
+    ? a
+    : !a
+      ? b
+      : {
+          inputTokens: a.inputTokens + b.inputTokens,
+          outputTokens: a.outputTokens + b.outputTokens,
+          totalTokens: a.totalTokens + b.totalTokens,
+        };
 
 /**
  * The most a live draft can cost: Spark names the thing, SAM outlines it,
@@ -593,6 +623,133 @@ export function fixtureRoutes(
     memory.fixtures = [...library, ...added].slice(0, MAX_FIXTURES);
     store.saveMemory(memory);
     return { run: event, mapped, memory };
+  });
+  /**
+   * Model a fixture in our own parts with Spark, starting from its current
+   * model and the picture of it: its cut-out from the room's picture when it
+   * was lifted, else the crop its model was fitted to. Spark revises the parts
+   * against a render of the model (one call), then once more against a render
+   * of its own draft (a second), and the draft whose silhouette matches the
+   * picture better is kept, with any parts the person locked. Live only.
+   */
+  app.post('/api/fixtures/sculpt', async (request) => {
+    const { mode, fixtureId } = parseInput(
+      z.object({ mode: modeSchema, fixtureId: z.string().uuid() }).strict(),
+      request.body,
+    );
+    if (mode !== 'live')
+      throw new LabError(
+        'sculpt_demo',
+        'Modelling with AI asks Spark, so it runs in Live mode. The demo’s fixtures keep their fitted models.',
+      );
+    const memory = store.memory(mode);
+    const fixture = memory.fixtures?.find((f) => f.id === fixtureId);
+    if (!fixture) throw new LabError('fixture_missing', 'That fixture is gone.', 404);
+    // The picture of it: its cut-out, or its own or a linked copy's, else its fitted crop.
+    const group = new Set([
+      fixture.id,
+      ...linkedFixtures(memory.fixtures ?? [], fixture).map((f) => f.id),
+    ]);
+    const sprite = memory.illustration?.layers?.sprites.find((x) => group.has(x.fixtureId));
+    const crop = fixture.model.fit?.crop;
+    const pictured = sprite
+      ? { png: store.readAsset(sprite.asset), elevation: ISO_ELEVATION }
+      : crop
+        ? { png: store.readAsset(crop), elevation: fixture.model.fit!.elevation }
+        : null;
+    if (!pictured?.png)
+      throw new LabError(
+        'sculpt_picture',
+        `There is no picture of the ${fixture.label.toLowerCase()} to model it from. Lift the fixtures off the room’s picture, or draft it from a photo.`,
+        409,
+      );
+    const ceiling = 2 * sparkCeiling(SPARK_BUDGET.sculpt, 2);
+    if (!meta.canAfford(ceiling))
+      throw new LabError(
+        'spend_limit',
+        `Modelling it could cost up to $${ceiling.toFixed(3)}, which would pass today's Meta spending limit. Raise the limit in Setup, or wait for the next UTC day.`,
+        429,
+      );
+    const png = pictured.png;
+    const { elevation } = pictured;
+    const input = await cropInput(png, fixture.label);
+    const shown = async (b: Buffer) =>
+      `data:image/png;base64,${(await sharp(b).flatten({ background: SCULPT_BACKDROP }).png().toBuffer()).toString('base64')}`;
+    const longest = Math.max(fixture.size.w, fixture.size.d);
+    const size = {
+      w: fixture.size.w / longest,
+      d: fixture.size.d / longest,
+      h: fixture.size.h / longest,
+    };
+    const event = await run('fixture', mode, async (id) => {
+      const assets = [store.asset(id, 'picture.png', png)];
+      let usage: Usage | null = null;
+      let model: string | undefined;
+      let requestId: string | null = null;
+      const drafts: { item: IsoItem; iou: number; note: string }[] = [];
+      let from: IsoItem = { label: fixture.model.label, parts: fixture.model.parts };
+      for (const round of [1, 2]) {
+        const render = await viewPng(from, elevation, input.width);
+        assets.push(store.asset(id, `render-${round}.png`, render));
+        const answer = await meta.sculpt(
+          await shown(png),
+          await shown(render),
+          round === 1 ? sculptPrompt(fixture.label, size) : sculptCheckPrompt(fixture.label),
+          JSON.stringify(toSculpt(from)),
+        );
+        usage = sumUsage(usage, answer.usage);
+        model = answer.model;
+        requestId = answer.requestId;
+        const item = fromSculpt(fixture.model.label, answer.output);
+        if (!item) break;
+        drafts.push({
+          item,
+          iou: scoreAgainst(item, input, elevation).iou,
+          note: answer.output.note,
+        });
+        from = item;
+      }
+      const best = [...drafts].sort((a, b) => b.iou - a.iou)[0];
+      if (!best)
+        throw new LabError(
+          'sculpt_empty',
+          `Spark’s model of the ${fixture.label.toLowerCase()} had no usable parts. Try again.`,
+          502,
+        );
+      const item = keepLocked(best.item, fixture.model);
+      assets.push(store.asset(id, 'render-final.png', await viewPng(item, elevation, input.width)));
+      return {
+        output: {
+          sculpted: fixture.id,
+          label: fixture.label,
+          parts: item.parts.length,
+          iou: best.iou,
+          note: best.note,
+          item,
+        },
+        model,
+        requestId,
+        usage,
+        assets,
+      };
+    });
+    const out = event.output as { item: IsoItem };
+    const now = new Date().toISOString();
+    const saved: SavedItem = {
+      ...out.item,
+      source: 'spark',
+      segmentRunId: null,
+      swatches: fixture.model.swatches,
+      updatedAt: now,
+      fit: null,
+    };
+    // The same thing in its other scenes takes the same model.
+    const fresh = store.memory(mode);
+    fresh.fixtures = (fresh.fixtures ?? []).map((f) =>
+      group.has(f.id) ? { ...f, model: saved, updatedAt: now } : f,
+    );
+    store.saveMemory(fresh);
+    return { memory: fresh, run: event };
   });
   app.post('/api/fixtures/save', async (request) => {
     const { mode, fixture: input } = parseInput(

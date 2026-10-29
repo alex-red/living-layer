@@ -1098,3 +1098,10 @@
   align-items: center;
   gap: 10px;
 }
+
+.sculpt-fixture {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+  justify-items: start;
+}

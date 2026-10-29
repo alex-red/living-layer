@@ -10,6 +10,7 @@ import {
   fixtureClassSchema,
   fixtureScanSchema,
   pictureFindSchema,
+  sculptSchema,
   MAX_SCAN_THINGS,
   itemCheckSchema,
   sceneDraftSchema,
@@ -54,6 +55,7 @@ export const SPARK_BUDGET = {
   fixtureClass: 8192,
   fixtureScan: 12288,
   pictureFind: 6144,
+  sculpt: 16384,
   itemCheck: 4096,
   photoInventory: 16384,
   photoCheck: 12288,
@@ -358,6 +360,37 @@ export class MetaAdapter {
       },
     });
     return this.parsed(response, fixtureScanSchema, 'fixture scan', SPARK_BUDGET.fixtureScan);
+  }
+  /**
+   * Spark models a thing in our own parts from its picture: the picture, a
+   * render of the model it starts from, and that model's parts as JSON in;
+   * the parts revised to match out.
+   */
+  async sculpt(pictureDataUrl: string, renderDataUrl: string, prompt: string, parts: string) {
+    const response = await this.spark(2, {
+      model: this.config.sparkModel,
+      store: false,
+      max_output_tokens: SPARK_BUDGET.sculpt,
+      input: [
+        {
+          role: 'user',
+          content: [
+            { type: 'input_text', text: `${prompt}\n\nParts:\n${parts}` },
+            { type: 'input_image', image_url: pictureDataUrl, detail: 'auto' },
+            { type: 'input_image', image_url: renderDataUrl, detail: 'auto' },
+          ],
+        },
+      ],
+      text: {
+        format: {
+          type: 'json_schema',
+          name: 'sculpt',
+          strict: true,
+          schema: z.toJSONSchema(sculptSchema),
+        },
+      },
+    });
+    return this.parsed(response, sculptSchema, 'model', SPARK_BUDGET.sculpt);
   }
   /**
    * Spark finds the room's fixtures, by name, in the room's picture: a tight

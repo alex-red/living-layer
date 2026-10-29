@@ -737,6 +737,7 @@ export function FixturePanel({ id }: { id: string }) {
           Edit model
         </button>
       </div>
+      <SculptFixture fixture={f} disabled={off || moving} />
       <p className="micro fixture-placed">
         {byScan ? (
           <>
@@ -954,5 +955,43 @@ export function LampPanel({ id }: { id: string }) {
         </p>
       )}
     </Panel>
+  );
+}
+
+/**
+ * Model a fixture with AI: Spark rebuilds its model in our own parts from the
+ * picture of it, starting from the model it has, and the editor opens on it.
+ */
+function SculptFixture({ fixture, disabled }: { fixture: Fixture; disabled: boolean }) {
+  const lab = useLab();
+  const { mode, busy, memory } = lab;
+  const group = new Set([
+    fixture.id,
+    ...linkedFixtures(memory?.fixtures ?? [], fixture).map((x) => x.id),
+  ]);
+  const lifted = memory?.illustration?.layers?.sprites.some((x) => group.has(x.fixtureId));
+  const pictured = lifted || Boolean(fixture.model.fit?.crop);
+  const why =
+    mode !== 'live'
+      ? 'Modelling with AI asks Spark, so it runs in Live mode.'
+      : !lab.metaReady
+        ? 'Live calls aren’t available: set MODEL_API_KEY and META_LIVE_ENABLED, or raise today’s spend limit.'
+        : !pictured
+          ? 'Lift the fixtures off the room’s picture first: the model is built from its cut-out.'
+          : null;
+  return (
+    <div className="sculpt-fixture">
+      <button
+        className="secondary"
+        disabled={disabled || Boolean(busy) || Boolean(why)}
+        onClick={() => void lab.sculptFixture(fixture.id)}
+      >
+        {busy === 'sculpt' ? 'Modelling…' : 'Model with AI'}
+      </button>
+      <p className="micro">
+        {why ??
+          `Spark rebuilds the ${fixture.label.toLowerCase()}’s model in parts you can edit, from its ${lifted ? 'cut-out on the room’s picture' : 'photo'}, starting from the model it has: two Spark calls, about $0.02. Parts you locked stay.`}
+      </p>
+    </div>
   );
 }
