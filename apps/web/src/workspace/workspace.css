@@ -1203,3 +1203,19 @@
   border-radius: 2px;
   background: #8a8f9f;
 }
+
+/* The tool strip, and beside it how fixtures show on the room's picture. */
+.stage-tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.stage-tools .tool-strip {
+  align-self: auto;
+}
+.fixture-look button {
+  min-width: 72px;
+  min-height: 22px;
+  font-size: 12px;
+}

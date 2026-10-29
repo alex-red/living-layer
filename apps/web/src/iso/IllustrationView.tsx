@@ -2,11 +2,15 @@ import { useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
 import {
   fixtureBox,
   framePointInPicture,
+  isoToPicture,
+  rotateItem,
   pictureToScene,
   pictureToSceneAt,
   scenePointInPicture,
   spriteBox,
   type Fixture,
+  type IsoItem,
+  type IsoVec,
   type IsoScene,
   type DeskMemory,
   type DeskObservation,
@@ -17,6 +21,7 @@ import {
   type ZoneRect,
 } from '@livinglayer/domain';
 import { BaseHandles, type BaseRect } from './BaseHandles';
+import { ItemSprite } from './IsoItem';
 
 export const illustrationUrl = (asset: string) =>
   `/api/scene/illustration?asset=${encodeURIComponent(asset)}`;
@@ -41,6 +46,8 @@ interface Placed {
   z: number;
   /** Its own pixels, lifted off the picture, where they go now. */
   sprite?: { href: string; x: number; y: number; width: number; height: number };
+  /** Its model, drawn in iso screen space and laid onto the picture by `matrix`. */
+  model?: { item: IsoItem; origin: IsoVec; scale: number; matrix: string };
 }
 interface Area {
   id: string;
@@ -73,6 +80,7 @@ export function IllustrationView({
   onFixture,
   onMoveFixture,
   onResizeFixture,
+  look = 'picture',
 }: {
   illustration: SceneIllustration;
   pin: SurfacePin;
@@ -87,6 +95,8 @@ export function IllustrationView({
   onMoveFixture?: (id: string, to: { x: number; y: number; surfaceId: string | null }) => void;
   /** Give a fixture a new footprint, already turned. */
   onResizeFixture?: (id: string, rect: BaseRect) => Promise<void> | void;
+  /** Fixtures as the picture shows them (their cut-outs, when lifted), or as their models. */
+  look?: 'picture' | 'model';
 }) {
   const svg = useRef<SVGSVGElement>(null);
   const [drag, setDrag] = useState<{ id: string; start: Point; delta: Point } | null>(null);
@@ -155,7 +165,15 @@ export function IllustrationView({
     const top = to(at.x + size.w / 2, at.y + size.d / 2, at.z + size.h);
     const centre = to(at.x + size.w / 2, at.y + size.d / 2, at.z);
     if (!top || !centre || !base.every(Boolean)) return [];
-    const lifted = illustration.layers?.sprites.find((x) => x.fixtureId === f.id);
+    const fit = look === 'model' ? isoToPicture(pin, illustration, custom, { at, size }) : null;
+    const model = fit && {
+      item: rotateItem(f.model, f.turns),
+      origin: at,
+      scale: Math.max(size.w, size.d),
+      matrix: `matrix(${fit.map((v) => v.toFixed(4)).join(' ')})`,
+    };
+    const lifted =
+      look === 'picture' ? illustration.layers?.sprites.find((x) => x.fixtureId === f.id) : null;
     const sprite = lifted && {
       href: illustrationUrl(lifted.asset),
       ...spriteBox(lifted, { anchor: centre, w: size.w, d: size.d }),
@@ -172,6 +190,7 @@ export function IllustrationView({
         rect: { x: at.x, y: at.y, w: size.w, d: size.d },
         z: at.z,
         ...(sprite ? { sprite } : {}),
+        ...(model ? { model } : {}),
       },
     ];
   });
@@ -238,7 +257,7 @@ export function IllustrationView({
       {placed.map((f) => (
         <g
           key={f.id}
-          className={`illustration-fixture ${f.lit ? 'lit' : ''} ${f.focused ? 'focused' : ''} ${drag?.id === f.id ? 'dragging' : ''} ${f.sprite ? 'lifted' : ''}`}
+          className={`illustration-fixture ${f.lit ? 'lit' : ''} ${f.focused ? 'focused' : ''} ${drag?.id === f.id ? 'dragging' : ''} ${f.sprite || f.model ? 'lifted' : ''}`}
           data-fixture={f.id}
           role={onFixture ? 'button' : undefined}
           tabIndex={onFixture ? 0 : undefined}
@@ -286,6 +305,11 @@ export function IllustrationView({
             } else if (e.key === 'Enter') onFixture?.(f.id);
           }}
         >
+          {f.model && (
+            <g className="illustration-model" transform={f.model.matrix}>
+              <ItemSprite item={f.model.item} origin={f.model.origin} scale={f.model.scale} />
+            </g>
+          )}
           {f.sprite && (
             <image
               className="illustration-sprite"

@@ -194,26 +194,51 @@ export function Canvas() {
         </div>
       </div>
       {!onboarding && (
-        <ToolStrip
-          tool={lab.tool}
-          onTool={lab.setTool}
-          disabled={{
-            scale: !showIso
-              ? 'Switch to the Iso view to scale a fixture'
-              : lab.isoPanel !== 'room'
-                ? 'Close the editor to scale a fixture'
-                : !roomFixtures
-                  ? 'Add a fixture to this scene first'
-                  : undefined,
-          }}
-          note={
-            lab.tool === 'scale' && showIso && roomFixtures && sel?.kind !== 'fixture'
-              ? 'Select a fixture, then drag the handles on its base.'
-              : lab.tool === 'hand'
-                ? 'Drag to pan. Scroll to zoom.'
-                : undefined
-          }
-        />
+        <div className="stage-tools">
+          <ToolStrip
+            tool={lab.tool}
+            onTool={lab.setTool}
+            disabled={{
+              scale: !showIso
+                ? 'Switch to the Iso view to scale a fixture'
+                : lab.isoPanel !== 'room'
+                  ? 'Close the editor to scale a fixture'
+                  : !roomFixtures
+                    ? 'Add a fixture to this scene first'
+                    : undefined,
+            }}
+            note={
+              lab.tool === 'scale' && showIso && roomFixtures && sel?.kind !== 'fixture'
+                ? 'Select a fixture, then drag the handles on its base.'
+                : lab.tool === 'hand'
+                  ? 'Drag to pan. Scroll to zoom.'
+                  : undefined
+            }
+          />
+          {showIso && picture && lab.showPicture && roomFixtures && (
+            <div className="mode-switch fixture-look" aria-label="Fixtures on the picture">
+              {(
+                [
+                  [
+                    'picture',
+                    'Picture',
+                    'Fixtures as the picture shows them: their cut-outs, once lifted',
+                  ],
+                  ['model', 'Models', 'Fixtures as their own models, drawn on the picture'],
+                ] as const
+              ).map(([id, label, hint]) => (
+                <button
+                  key={id}
+                  aria-pressed={lab.fixtureLook === id}
+                  title={hint}
+                  onClick={() => lab.setFixtureLook(id)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
       )}
       {!onboarding && <EditBanner />}
       {!onboarding && <DeskStep />}
@@ -489,6 +514,7 @@ export function Canvas() {
             }}
             tool={lab.tool}
             hand={hand}
+            fixtureLook={lab.fixtureLook}
             onResizeFixture={(id, rect) => {
               const f = memory?.fixtures?.find((x) => x.id === id);
               if (!f) return;

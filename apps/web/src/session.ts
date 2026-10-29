@@ -17,6 +17,8 @@ export interface Prefs {
   trail: boolean;
   zones: boolean;
   picture: boolean;
+  /** On the room's picture, fixtures as the picture shows them or as their models. */
+  fixtureLook: 'picture' | 'model';
   concept: string;
   demoPosition: string;
   /** '' for this device's camera, else the id of a network camera. */
@@ -45,6 +47,7 @@ export const DEFAULT_PREFS: Prefs = {
   trail: true,
   zones: true,
   picture: true,
+  fixtureLook: 'picture',
   concept: 'mug',
   demoPosition: 'centre',
   cameraSource: '',
@@ -72,6 +75,7 @@ export function prefsOf(saved: Partial<Prefs> | undefined): Prefs {
   one('trail', (v) => typeof v === 'boolean');
   one('zones', (v) => typeof v === 'boolean');
   one('picture', (v) => typeof v === 'boolean');
+  one('fixtureLook', among('picture', 'model'));
   one('concept', (v) => text(v) && (v as string).trim().length > 0);
   one('demoPosition', text);
   one('cameraSource', text);

@@ -16,6 +16,8 @@ import {
   placeTemplate,
   pictureToScene,
   pictureToSceneAt,
+  isoToPicture,
+  toIso,
   spriteBox,
   isDismissed,
   scenePointInPicture,
@@ -263,6 +265,35 @@ describe('moving a fixture on the room picture', () => {
       expect(back.x).toBeCloseTo(p.x);
       expect(back.y).toBeCloseTo(p.y);
     }
+  });
+  it('lays a model drawn in iso screen space onto the picture where its box stands', () => {
+    const top = ISO_PRESETS.office.surfaces.find((x) => x.id === 'desk:top')!;
+    const box = {
+      at: { x: top.rect.x + 0.5, y: top.rect.y + 0.4, z: top.z },
+      size: { w: 0.8, d: 0.5, h: 1.2 },
+    };
+    const [a, b, c, d, e, f] = isoToPicture(pin, picture, null, box)!;
+    // Each corner of the box, drawn by the iso view, lands near where the picture puts it:
+    // an affine map can't follow the picture's perspective exactly, so near is a share of
+    // the box's size on the picture.
+    const corners = [0, 1].flatMap((i) =>
+      [0, 1].flatMap((j) =>
+        [0, 1].map((k) => ({
+          x: box.at.x + i * box.size.w,
+          y: box.at.y + j * box.size.d,
+          z: box.at.z + k * box.size.h,
+        })),
+      ),
+    );
+    const want = corners.map((v) => scenePointInPicture(pin, picture, null, v)!);
+    const xs = want.map((p) => p.x);
+    const ys = want.map((p) => p.y);
+    const extent = Math.hypot(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys));
+    const errors = corners.map((v, n) => {
+      const s = toIso(v);
+      return Math.hypot(a * s.sx + c * s.sy + e - want[n]!.x, b * s.sx + d * s.sy + f - want[n]!.y);
+    });
+    expect(errors.reduce((t, x) => t + x, 0) / errors.length).toBeLessThan(extent * 0.2);
   });
   it('doesn’t map back on a picture redrawn from a frame', () => {
     expect(

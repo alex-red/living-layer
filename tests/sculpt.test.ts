@@ -94,3 +94,12 @@ describe('a job the page follows', () => {
     expect(jobs.get('')).toBeNull();
   });
 });
+
+describe('how fixtures show on the room picture', () => {
+  it('is kept with the session, and anything else falls back to the picture', async () => {
+    const { prefsOf } = await import('../apps/web/src/session.js');
+    expect(prefsOf({ fixtureLook: 'model' }).fixtureLook).toBe('model');
+    expect(prefsOf({ fixtureLook: 'sketch' as never }).fixtureLook).toBe('picture');
+    expect(prefsOf(undefined).fixtureLook).toBe('picture');
+  });
+});

@@ -1019,7 +1019,8 @@
 }
 
 /* A fixture lifted off the room picture is its own cut-out: the outline only shows when it's picked. */
-.illustration .illustration-sprite {
+.illustration .illustration-sprite,
+.illustration .illustration-model image {
   pointer-events: auto;
 }
 .illustration-fixture.lifted polygon {
@@ -1034,7 +1035,9 @@
   filter: none;
 }
 .illustration-fixture.lifted.focused .illustration-sprite,
-.illustration-fixture.lifted:hover .illustration-sprite {
+.illustration-fixture.lifted:hover .illustration-sprite,
+.illustration-fixture.lifted.focused .illustration-model,
+.illustration-fixture.lifted:hover .illustration-model {
   filter: drop-shadow(0 0 6px var(--seen-glow));
 }
 

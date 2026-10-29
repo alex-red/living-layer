@@ -312,6 +312,7 @@ export function useLabState() {
   const [overlay, setOverlay] = useState(boot.prefs.overlay);
   const [showTrail, setShowTrail] = useState(boot.prefs.trail);
   const [showPicture, setShowPicture] = useState(boot.prefs.picture);
+  const [fixtureLook, setFixtureLook] = useState(boot.prefs.fixtureLook);
   const [showZones, setShowZones] = useState(boot.prefs.zones);
   const [stageView, setStageView] = useState<StageView>(boot.prefs.stageView);
   // What a drag on the canvas does.
@@ -463,6 +464,7 @@ export function useLabState() {
     trail: showTrail,
     zones: showZones,
     picture: showPicture,
+    fixtureLook,
     concept,
     demoPosition,
     cameraSource,
@@ -560,6 +562,7 @@ export function useLabState() {
       setShowTrail(next.trail);
       setShowZones(next.zones);
       setShowPicture(next.picture);
+      setFixtureLook(next.fixtureLook);
       setConcept(next.concept);
       if (next.demoPosition in DEMO_POSITIONS) setDemoPosition(next.demoPosition as DemoPosition);
       setCameraSource(next.cameraSource);
@@ -1682,6 +1685,8 @@ export function useLabState() {
     setChoosingScene,
     tool,
     setTool,
+    fixtureLook,
+    setFixtureLook,
     separate,
     sculptFixture,
     sculpting,

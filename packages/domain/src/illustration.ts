@@ -4,6 +4,8 @@ import {
   applyHomography,
   homography,
   pointSchema,
+  toIso,
+  type IsoScreen,
   type Point,
   type Quad,
   type SurfacePin,
@@ -379,3 +381,66 @@ export const pictureFindSchema = z
   })
   .strict();
 export type PictureFind = z.infer<typeof pictureFindSchema>;
+
+/**
+ * The affine map that lays a fixture's model, drawn in the iso view's own
+ * screen space, onto the room picture where its box stands: fitted by least
+ * squares to the eight corners of its box, as SVG's matrix(a b c d e f). The
+ * picture's projection is close to the iso view's, so the fit is close too.
+ * Null where the box doesn't place on the picture.
+ */
+export function isoToPicture(
+  pin: SurfacePin,
+  picture: SceneIllustration,
+  custom: IsoScene | null,
+  box: IsoBox,
+): [number, number, number, number, number, number] | null {
+  const { at, size } = box;
+  const pairs: { s: IsoScreen; p: Point }[] = [];
+  for (const i of [0, 1])
+    for (const j of [0, 1])
+      for (const k of [0, 1]) {
+        const v = { x: at.x + i * size.w, y: at.y + j * size.d, z: at.z + k * size.h };
+        const p = scenePointInPicture(pin, picture, custom, v);
+        if (!p) return null;
+        pairs.push({ s: toIso(v), p });
+      }
+  // Normal equations for [sx, sy, 1] -> px and -> py.
+  const m = [
+    [0, 0, 0],
+    [0, 0, 0],
+    [0, 0, 0],
+  ];
+  const bx = [0, 0, 0];
+  const by = [0, 0, 0];
+  for (const { s, p } of pairs) {
+    const r = [s.sx, s.sy, 1];
+    for (let a = 0; a < 3; a++) {
+      for (let b = 0; b < 3; b++) m[a]![b]! += r[a]! * r[b]!;
+      bx[a]! += r[a]! * p.x;
+      by[a]! += r[a]! * p.y;
+    }
+  }
+  const x = solve3(m, bx);
+  const y = solve3(m, by);
+  return x && y ? [x[0], y[0], x[1], y[1], x[2], y[2]] : null;
+}
+function solve3(m: number[][], b: number[]): [number, number, number] | null {
+  const [[a, b1, c], [d, e, f], [g, h, i]] = m as [
+    [number, number, number],
+    [number, number, number],
+    [number, number, number],
+  ];
+  const det = a * (e * i - f * h) - b1 * (d * i - f * g) + c * (d * h - e * g);
+  if (Math.abs(det) < 1e-9) return null;
+  const col = (j: number) => {
+    const n = m.map((row, r) => row.map((v, k) => (k === j ? b[r]! : v)));
+    const [[p, q, r], [s, t, u], [v, w, z]] = n as [
+      [number, number, number],
+      [number, number, number],
+      [number, number, number],
+    ];
+    return (p * (t * z - u * w) - q * (s * z - u * v) + r * (s * w - t * v)) / det;
+  };
+  return [col(0), col(1), col(2)];
+}

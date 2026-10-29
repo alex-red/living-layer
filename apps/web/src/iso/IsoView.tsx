@@ -99,6 +99,7 @@ export function IsoView({
   onResizeFixture,
   tool = 'select',
   hand = false,
+  fixtureLook = 'picture',
   lightsOn,
   focus,
   layers = { trail: true, zones: true },
@@ -144,6 +145,8 @@ export function IsoView({
   tool?: Tool;
   /** Every drag pans the room, for the hand tool. */
   hand?: boolean;
+  /** On the room's picture, fixtures as the picture shows them or as their models. */
+  fixtureLook?: 'picture' | 'model';
   /** Lights whose last confirmed action turned them on, from any source. */
   lightsOn?: Set<string>;
   /** What the outline has selected, ringed in the room: `tracked` is the mug, `main` its zone. */
@@ -415,6 +418,7 @@ export function IsoView({
                 {...(onFixture ? { onFixture } : {})}
                 {...(onMoveFixture && tool === 'select' ? { onMoveFixture } : {})}
                 {...(onResizeFixture && tool === 'scale' ? { onResizeFixture } : {})}
+                look={fixtureLook}
               />
             ) : (
               <IsoScene
