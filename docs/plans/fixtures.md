@@ -156,7 +156,7 @@ The target picker lists fixtures with controls first (by name), then any other c
 3. ~~Control adapter with switches; `/api/fixtures/control`; status lists entities. Tests with a fake HA.~~ Done, with `/api/fixtures/save` and `/delete` too. The run kind stays `lamp` and the result type `LampResult`, now with an `action`, so stored evidence and the activity filters are unchanged.
 4. ~~`draftModel` extraction (no behaviour change, `tests/item.test.ts` green), then `/api/fixtures/draft` in demo mode with the illustrated mouse.~~ Done. The mouse is modelled as a `box` until step 7 adds `device`. Live drafts answer 501 until step 6. The demo lamp picture waits for the `lamp` archetype in step 7.
 5. ~~Outline, add-fixture flow, review, place, inspector, canvas drawing.~~ Done, and tried by hand in the running lab: draft the demo mouse, place it on the office desk, make it a switch, turn it on, turn it, delete it. The browser test covers drafting and placing the mouse; the lamp and the rule wait for the demo lamp picture (step 7). `Edit model` for fixtures isn't built: the item editor still only edits objects. Seen from above, the box fitter makes the mouse far too tall; step 7's `device` shape should take its height from the real size.
-6. Live: Spark `fixtureClass`, SAM box prompt, the cost refusal.
+6. ~~Live: Spark `fixtureClass`, SAM box prompt, the cost refusal.~~ Done, tested against a mocked Meta API; not yet tried against the real one. "Box it on the desk photo" isn't built: drafts come from a photo of the thing only.
 7. `device` and `lamp` archetypes and fit-bench cases.
 8. `docs/architecture.md`: a Fixtures section; "As built" here.
 

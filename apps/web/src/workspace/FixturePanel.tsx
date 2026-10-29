@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState, type ReactNode } from 'react';
 import {
   DEMO_REFERENCES,
   ISO_PRESETS,
@@ -43,6 +43,60 @@ function ModelPreview({ model }: { model: FixtureDraft['model'] }) {
       height={sprite.height}
       alt={`The drafted model of the ${model.label.toLowerCase()}`}
     />
+  );
+}
+
+/** A photo the person chose, scaled down here so the upload stays small. */
+async function photoDataUrl(file: File): Promise<string> {
+  if (!['image/png', 'image/jpeg'].includes(file.type) || file.size > 10_000_000)
+    throw new Error('Choose a PNG or JPEG under 10 MB.');
+  const bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' });
+  try {
+    const scale = Math.min(1, 1280 / Math.max(bitmap.width, bitmap.height));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(bitmap.width * scale);
+    canvas.height = Math.round(bitmap.height * scale);
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error('This browser cannot prepare the image.');
+    context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL('image/jpeg', 0.9);
+  } finally {
+    bitmap.close();
+  }
+}
+/** A button that picks a photo; with `capture`, phones open the camera instead. */
+function PhotoButton({
+  className,
+  capture,
+  disabled,
+  onFile,
+  children,
+}: {
+  className: string;
+  capture?: boolean;
+  disabled: boolean;
+  onFile: (file: File) => void;
+  children: ReactNode;
+}) {
+  const input = useRef<HTMLInputElement>(null);
+  return (
+    <>
+      <button className={className} disabled={disabled} onClick={() => input.current?.click()}>
+        {children}
+      </button>
+      <input
+        ref={input}
+        type="file"
+        accept="image/png,image/jpeg"
+        hidden
+        {...(capture ? { capture: 'environment' as const } : {})}
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          e.target.value = '';
+          if (file) onFile(file);
+        }}
+      />
+    </>
   );
 }
 
@@ -131,17 +185,21 @@ export function NewFixturePanel() {
   const [entity, setEntity] = useState('');
   const [scene, setScene] = useState<WorkScene | null>(lab.workScene);
   const [pending, setPending] = useState(false);
+  /** What the person says it is, before drafting; Spark is told. */
+  const [hint, setHint] = useState('');
   const target = scene && scenes.some((s) => s.id === scene) ? scene : (scenes[0]?.id ?? null);
 
-  async function draftFrom(reference: DemoReference) {
+  async function draftFrom(source: { reference: DemoReference } | { file: File }) {
     if (!target) return;
     setPending(true);
     lab.setError('');
     try {
+      const from = 'file' in source ? { imageDataUrl: await photoDataUrl(source.file) } : source;
       const r = await api<{ run: EvidenceRun; draft: FixtureDraft }>('fixtures/draft', {
         mode,
         scene: target,
-        reference,
+        ...from,
+        ...(hint.trim() ? { label: hint.trim() } : {}),
       });
       setDraft({ draft: r.draft, scene: target });
       setLabel(r.draft.label);
@@ -189,6 +247,7 @@ export function NewFixturePanel() {
 
   if (!draft) {
     const live = mode === 'live';
+    const off = pending || Boolean(busy) || !target;
     return (
       <Panel
         tiny="ADD A FIXTURE"
@@ -196,19 +255,42 @@ export function NewFixturePanel() {
         status="One thing, filling most of the frame, on a plain background. A mouse, a lamp, a wall switch."
         tone="seen"
       >
-        <div className="fixture-drop" aria-disabled="true">
+        <div className="fixture-drop" aria-disabled={!live}>
           <div className="save-actions">
-            <button className="primary" disabled>
-              Take a photo
-            </button>
-            <button className="secondary" disabled>
+            <PhotoButton
+              className="primary"
+              capture
+              disabled={!live || off}
+              onFile={(file) => void draftFrom({ file })}
+            >
+              {pending && live ? 'Drafting…' : 'Take a photo'}
+            </PhotoButton>
+            <PhotoButton
+              className="secondary"
+              disabled={!live || off}
+              onFile={(file) => void draftFrom({ file })}
+            >
               Upload
-            </button>
+            </PhotoButton>
           </div>
+          {live && (
+            <>
+              <label className="input-label" htmlFor="fixture-hint">
+                What is it? (optional)
+              </label>
+              <input
+                id="fixture-hint"
+                value={hint}
+                maxLength={40}
+                placeholder="desk lamp"
+                onChange={(e) => setHint(e.target.value)}
+              />
+            </>
+          )}
           <p className="micro">
             {live
-              ? 'Drafting from your own photo isn’t built yet. Switch to Demo to try the illustrated mouse.'
-              : 'Demo mode drafts from the bundled pictures below, with no model call.'}
+              ? 'Spark names it and SAM outlines it: up to five billed calls, refused up front if today’s limit can’t cover them. Only this photo is sent.'
+              : 'Demo mode drafts from the bundled pictures below, with no model call. Switch to Live to use your own photo.'}
           </p>
         </div>
         {!live && (
@@ -217,8 +299,8 @@ export function NewFixturePanel() {
               <button
                 key={r}
                 className="object-card fixture-reference"
-                disabled={pending || Boolean(busy) || !target}
-                onClick={() => void draftFrom(r)}
+                disabled={off}
+                onClick={() => void draftFrom({ reference: r })}
               >
                 <img src={`/${r}.svg`} alt="" />
                 <strong>{REFERENCE_LABEL[r]}</strong>

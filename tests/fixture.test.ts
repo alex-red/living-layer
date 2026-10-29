@@ -1,11 +1,13 @@
 import { afterEach, describe, expect, it, mock } from 'bun:test';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import sharp from 'sharp';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { buildApp } from '../apps/server/src/app.js';
 import { parseConfig, type Fetcher } from '../apps/server/src/config.js';
 import { EvidenceStore } from '../apps/server/src/store.js';
 import { ControlAdapter } from '../apps/server/src/control.js';
+import { syntheticStream } from '../apps/server/src/sam.js';
 import {
   fixtureBox,
   fixtureControlSchema,
@@ -22,6 +24,7 @@ import {
   type DeskMemory,
   type EvidenceRun,
   type Fixture,
+  type FixtureClass,
   type FixtureDraft,
   type IsoScene,
   type LampResult,
@@ -425,7 +428,7 @@ describe('drafting a fixture from a reference picture', () => {
     expect(mouse.model.fit).toMatchObject({ crop: draft.model.fit!.crop, archetype: 'box' });
     expect(mouse.model.fit!.iou).toBeCloseTo(draft.model.fit!.iou, 5);
   });
-  it('takes a name, and refuses photos in demo mode for now', async () => {
+  it('takes a name, and only bundled pictures in demo mode', async () => {
     const s = await setup();
     const named = (
       await s.post('fixtures/draft', { scene: 'office', reference: 'mouse', label: 'My mouse' })
@@ -437,9 +440,120 @@ describe('drafting a fixture from a reference picture', () => {
       url: '/api/fixtures/draft',
       payload: { mode: 'live', scene: 'desk', reference: 'mouse' },
     });
-    expect(live.statusCode).toBe(501);
+    expect(live.statusCode).toBe(400);
     expect(
       (await s.post('fixtures/draft', { scene: 'custom', reference: 'mouse' })).statusCode,
     ).toBe(409);
+  });
+});
+
+describe('drafting a fixture live, with a mocked Meta API', () => {
+  const demo = JSON.parse(readFileSync('testdata/sam-mug.json', 'utf8')) as { wire: string };
+  async function samResponse(wire: string) {
+    const events = [];
+    for await (const event of syntheticStream(wire))
+      events.push(
+        event.type === 'response.completed'
+          ? { ...event, response: { id: 'resp_sam', model: 'sam-3.1', status: 'completed' } }
+          : event,
+      );
+    const body =
+      events.map((e) => `event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`).join('') +
+      'data: [DONE]\n\n';
+    return new Response(body, { headers: { 'content-type': 'text/event-stream' } });
+  }
+  const sparkResponse = (output: object) =>
+    new Response(
+      JSON.stringify({
+        id: 'resp_spark',
+        object: 'response',
+        model: 'muse-spark-1.3',
+        status: 'completed',
+        output: [
+          {
+            type: 'message',
+            role: 'assistant',
+            content: [{ type: 'output_text', text: JSON.stringify(output), annotations: [] }],
+          },
+        ],
+        usage: { input_tokens: 100, output_tokens: 20, total_tokens: 120 },
+      }),
+      { headers: { 'content-type': 'application/json', 'x-request-id': 'req-spark' } },
+    );
+  const lampClass: FixtureClass = {
+    label: 'Desk lamp',
+    archetype: 'box',
+    material: 'matte',
+    control: 'light',
+    description: 'A cream lamp base.',
+    box: { x1: 360, y1: 270, x2: 640, y2: 730 },
+    sizeCm: { w: 15, d: 15, h: 40 },
+  };
+  async function live(sam: 'found' | 'empty' = 'found', env: Record<string, string> = {}) {
+    const asked: string[] = [];
+    const fetcher = mock<Fetcher>().mockImplementation(async (_url, init) => {
+      const body = JSON.parse(String(init?.body));
+      if (body.model === 'sam-3.1') {
+        asked.push('sam');
+        return samResponse(sam === 'found' ? `<0f>1${demo.wire.replace(/^<0f>7/, '')}` : '');
+      }
+      const name = body.text.format.name as string;
+      asked.push(`spark:${name}`);
+      return sparkResponse(
+        name === 'fixture_class'
+          ? lampClass
+          : { height: 1, radius: 1, handleReach: 1, body: null, note: 'Close.' },
+      );
+    });
+    const s = await setup(
+      { MODEL_API_KEY: 'test-key', META_LIVE_ENABLED: 'true', ...env },
+      fetcher,
+    );
+    const photo = await sharp(readFileSync('apps/web/public/desk.svg')).png().toBuffer();
+    const imageDataUrl = `data:image/png;base64,${photo.toString('base64')}`;
+    const draft = (body: object = {}) =>
+      s.app.inject({
+        method: 'POST',
+        url: '/api/fixtures/draft',
+        payload: { mode: 'live', scene: 'desk', imageDataUrl, ...body },
+      });
+    return { ...s, asked, draft };
+  }
+  it('names it with Spark, outlines it with SAM from Spark’s box, and models it', async () => {
+    const s = await live();
+    const res = await s.draft({ label: 'my lamp' });
+    expect(res.statusCode, res.body).toBe(200);
+    const { run, draft } = res.json<{ run: EvidenceRun; draft: FixtureDraft }>();
+    expect(s.asked).toEqual(['spark:fixture_class', 'sam', 'spark:item_check']);
+    expect(run).toMatchObject({ kind: 'fixture', mode: 'live', status: 'completed' });
+    expect(run.usage?.totalTokens).toBe(240);
+    expect(draft).toMatchObject({
+      label: 'my lamp',
+      suggested: 'light',
+      model: { source: 'spark' },
+      size: { w: 0.75, d: 0.75, h: 2 },
+    });
+    expect(draft.model.fit!.assists[0]).toMatch(/^Spark: box, matte/);
+    expect(run.assets).toContain(`${run.id}/sam-output.txt`);
+    const reference = await s.app.inject(`/api/fixtures/reference?runId=${run.id}`);
+    expect(reference.headers['content-type']).toBe('image/png');
+  });
+  it('says so when SAM finds nothing in Spark’s box', async () => {
+    const s = await live('empty');
+    const res = await s.draft();
+    expect(res.statusCode).toBe(422);
+    expect(res.json<{ error: { message: string } }>().error.message).toMatch(/Couldn’t find/);
+  });
+  it('refuses before any call when today’s limit can’t cover the worst case', async () => {
+    const s = await live('found', { META_DAILY_SPEND_LIMIT_USD: '0.0001' });
+    expect((await s.draft()).statusCode).toBe(429);
+    expect(s.asked).toEqual([]);
+  });
+  it('takes only photos live, and only bundled pictures in the demo', async () => {
+    const s = await live();
+    expect((await s.draft({ reference: 'mouse' })).statusCode).toBe(400);
+    expect(
+      (await s.post('fixtures/draft', { scene: 'desk', imageDataUrl: 'data:' })).statusCode,
+    ).toBe(400);
   });
 });
