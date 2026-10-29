@@ -447,7 +447,18 @@ export function ItemEditor({
     setSelected((s) => (item?.parts.some((p) => p.id === s) ? s : (item?.parts[0]?.id ?? '')));
   }, [item?.updatedAt]);
   const dirty = Boolean(draft) && JSON.stringify(draft) !== JSON.stringify(editable(item));
-  const valid = draft ? isoItemSchema.safeParse(draft).success : false;
+  const checked = draft ? isoItemSchema.safeParse(draft) : null;
+  const valid = Boolean(checked?.success);
+  // What's wrong with the working copy, named by the part it's in, when it can't be saved.
+  const problem =
+    checked && !checked.success
+      ? (() => {
+          const issue = checked.error.issues[0]!;
+          const index = issue.path[0] === 'parts' ? Number(issue.path[1]) : NaN;
+          const where = Number.isInteger(index) ? draft!.parts[index]?.id : null;
+          return `${where ? `${where}: ` : ''}${issue.message}`;
+        })()
+      : null;
   const part = draft?.parts.find((p) => p.id === selected);
   const update = (change: Partial<ItemPart>) =>
     setDraft(
@@ -829,10 +840,29 @@ export function ItemEditor({
             ⟳
           </button>
         </div>
+        <p
+          className={`item-save-state ${dirty ? (valid ? 'unsaved' : 'invalid') : ''}`}
+          role="status"
+        >
+          {busy
+            ? 'Saving…'
+            : !dirty
+              ? 'Saved. Change a part, its colour or its paint, and Save model saves it.'
+              : valid
+                ? 'Unsaved changes. Save model keeps them; Revert goes back to the saved model.'
+                : `Can’t save yet: ${problem}. Fix it, or Revert.`}
+        </p>
         <div className="item-actions">
           <button
             className="primary"
             disabled={busy || !dirty || !valid}
+            title={
+              !dirty
+                ? 'Nothing to save: the model is as saved'
+                : !valid
+                  ? `Can’t save yet: ${problem}`
+                  : undefined
+            }
             onClick={() => onSave(draft)}
           >
             Save model
@@ -865,7 +895,7 @@ export function ItemEditor({
             </button>
           )}
         </div>
-        <small>{sparkNote}</small>
+        {onDraft && <small>{sparkNote}</small>}
       </div>
     </div>
   );

@@ -1037,3 +1037,21 @@
 .illustration-fixture.lifted:hover .illustration-sprite {
   filter: drop-shadow(0 0 6px var(--seen-glow));
 }
+
+/* Whether the model in the editor is saved, and what Save needs. */
+.item-save-state {
+  margin: 0;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--text-3);
+}
+.item-save-state.unsaved {
+  color: var(--text);
+}
+.item-save-state.unsaved::before {
+  content: '● ';
+  color: var(--seen);
+}
+.item-save-state.invalid {
+  color: #ff8a8a;
+}
