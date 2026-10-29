@@ -21,6 +21,8 @@ export const ARCHETYPES = [
   'book',
   'box',
   'plant',
+  'lamp',
+  'device',
   'generic',
 ] as const;
 export const archetypeSchema = z.enum(ARCHETYPES);
@@ -64,7 +66,26 @@ export interface BoxFit {
   decal: Decal | null;
   material: ItemMaterial;
 }
-export type ArchetypeFit = LatheFit | BoxFit;
+/**
+ * A flat thing seen from above: its outline pushed up and rounded over, like
+ * a mouse, a remote or a switch plate. A photo from above can't show how tall
+ * it is, so the height comes from its known size when there is one.
+ */
+export interface FlatFit {
+  family: 'flat';
+  /** The footprint as shares of its box, clockwise from the back left. */
+  outline: { x: number; y: number }[];
+  /** The box's width and depth as shares of the longer one, which is 1. */
+  w: number;
+  d: number;
+  h: number;
+  /** How rounded the top edge is, as a share of the smallest side. */
+  radius: number;
+  colors: { top: string; side: string };
+  decal: Decal | null;
+  material: ItemMaterial;
+}
+export type ArchetypeFit = LatheFit | BoxFit | FlatFit;
 
 export const ARCHETYPE_FAMILY: Record<Archetype, ArchetypeFit['family']> = {
   mug: 'lathe',
@@ -72,17 +93,25 @@ export const ARCHETYPE_FAMILY: Record<Archetype, ArchetypeFit['family']> = {
   bottle: 'lathe',
   can: 'lathe',
   plant: 'lathe',
+  lamp: 'lathe',
+  device: 'flat',
   generic: 'lathe',
   book: 'box',
   box: 'box',
 };
 const WORDS: [Archetype, RegExp][] = [
+  // Before lamps, so a light switch is a device.
+  [
+    'device',
+    /\b(mouse|remote|router|switch|plug|speaker|keyboard|controller|thermostat|charger|trackpad)\b/,
+  ],
+  ['lamp', /\b(lamp|light|bulb|sconce|lantern)\b/],
   ['mug', /\b(mug|tankard|stein)\b/],
   ['cup', /\b(cup|glass|tumbler|bowl|beaker)\b/],
   ['bottle', /\b(bottle|flask|thermos|jar|vase)\b/],
   ['can', /\b(can|tin|soda|candle)\b/],
   ['book', /\b(book|notebook|notepad|journal|diary|novel)\b/],
-  ['box', /\b(box|phone|remote|tablet|laptop|case|carton|block)\b/],
+  ['box', /\b(box|phone|tablet|laptop|case|carton|block)\b/],
   ['plant', /\b(plant|succulent|cactus|flower|pot)\b/],
 ];
 /** A guess from the object's name alone, for drafts made without Spark. */
@@ -211,6 +240,42 @@ export function defaultFit(archetype: Archetype, colors: string[] = []): Archety
         decal: null,
         material: 'matte',
       };
+    case 'lamp':
+      // A round base, a thin stem and a shade wider at the bottom.
+      return lathe({
+        radius: 0.45,
+        height: 1.8,
+        profile: [
+          { r: 0.6, z: 0 },
+          { r: 0.6, z: 0.04 },
+          { r: 0.1, z: 0.07 },
+          { r: 0.1, z: 0.58 },
+          { r: 1, z: 0.62 },
+          { r: 0.6, z: 1 },
+        ],
+        colors: all,
+      });
+    case 'device':
+      return {
+        family: 'flat',
+        outline: [
+          { x: 0.1, y: 0 },
+          { x: 0.9, y: 0 },
+          { x: 1, y: 0.1 },
+          { x: 1, y: 0.9 },
+          { x: 0.9, y: 1 },
+          { x: 0.1, y: 1 },
+          { x: 0, y: 0.9 },
+          { x: 0, y: 0.1 },
+        ],
+        w: 0.6,
+        d: 1,
+        h: 0.35,
+        radius: 0.45,
+        colors: { top: main, side: second },
+        decal: null,
+        material: 'matte',
+      };
     case 'generic':
       return lathe({ radius: 0.42, height: 1, colors: all });
   }
@@ -230,6 +295,32 @@ const bandPaint = (bands: Band[]): Paint[] =>
 
 /** The parts for a fit, in item space: the body centred on the footprint. */
 export function buildItem(label: string, fit: ArchetypeFit): IsoItem {
+  if (fit.family === 'flat') {
+    const w = clamp(fit.w, 0.05, 1);
+    const d = clamp(fit.d, 0.05, 1);
+    const paint: Paint[] = [{ kind: 'top', color: fit.colors.top }];
+    if (fit.decal) paint.push(fit.decal);
+    return {
+      label,
+      parts: [
+        {
+          id: 'body',
+          shape: 'extrude',
+          at: { x: round(0.5 - w / 2), y: round(0.5 - d / 2), z: 0 },
+          size: { w: round(w), d: round(d), h: round(clamp(fit.h, 0.03, 6)) },
+          color: fit.colors.side,
+          taper: 1,
+          outline: fit.outline.map((p) => ({
+            x: round(clamp(p.x, 0, 1)),
+            y: round(clamp(p.y, 0, 1)),
+          })),
+          radius: round(clamp(fit.radius, 0, 0.5)),
+          material: fit.material,
+          paint,
+        },
+      ],
+    };
+  }
   if (fit.family === 'box') {
     const w = clamp(fit.w, 0.05, 1);
     const d = clamp(fit.d, 0.05, 1);
@@ -373,6 +464,12 @@ export type ItemCheck = z.infer<typeof itemCheckSchema>;
  */
 export function applyCheck(fit: ArchetypeFit, check: ItemCheck): ArchetypeFit {
   const k = (v: number, lo = 0.8, hi = 1.2) => (Number.isFinite(v) ? clamp(v, lo, hi) : 1);
+  if (fit.family === 'flat')
+    return {
+      ...fit,
+      h: fit.h * k(check.height),
+      colors: check.body ? { ...fit.colors, side: check.body } : fit.colors,
+    };
   if (fit.family === 'box')
     return {
       ...fit,
@@ -394,6 +491,8 @@ export function applyCheck(fit: ArchetypeFit, check: ItemCheck): ArchetypeFit {
 /** One line about a fit, for Spark's check and for evidence. */
 export function describeFit(fit: ArchetypeFit): string {
   const n = (v: number) => v.toFixed(2);
+  if (fit.family === 'flat')
+    return `a flat shape ${n(fit.w)} wide, ${n(fit.d)} deep and ${n(fit.h)} tall with a ${fit.outline.length}-point outline, ${fit.colors.side} sides and a ${fit.colors.top} top`;
   if (fit.family === 'box')
     return `a box ${n(fit.w)} wide, ${n(fit.d)} deep and ${n(fit.h)} tall, ${fit.colors.side} sides and a ${fit.colors.top} top`;
   return [

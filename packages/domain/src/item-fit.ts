@@ -1,4 +1,13 @@
-import { clusterColours, deltaE, labHex, labRgb, rgbLab, sameMaterial, type Lab } from './color.js';
+import {
+  clusterColours,
+  deltaE,
+  hexRgb,
+  labHex,
+  labRgb,
+  rgbLab,
+  sameMaterial,
+  type Lab,
+} from './color.js';
 import {
   ARCHETYPE_FAMILY,
   buildItem,
@@ -7,6 +16,7 @@ import {
   type ArchetypeFit,
   type Band,
   type BoxFit,
+  type FlatFit,
   type LatheFit,
 } from './iso-archetypes.js';
 import type { Decal, IsoItem, ItemMaterial, Swatch } from './iso-item.js';
@@ -32,6 +42,11 @@ export interface FitInput {
   parts?: { handle?: Uint8Array | null; inside?: Uint8Array | null };
   /** Renders the refine step may spend. */
   budget?: number;
+  /**
+   * How tall it is, as a share of its longer side, when that is known from
+   * elsewhere (a fixture's usual size). Flat things seen from above need it.
+   */
+  knownHeight?: number | null;
 }
 export interface FitScore {
   /** Silhouette overlap with the mask, 0 to 1. */
@@ -319,28 +334,45 @@ function measureLathe(
   // its minor radius, and minor over major radius is the sine of the elevation.
   // Walk down from the top while the outline keeps widening: where it levels
   // off is the rim's radius (a bottle's cap, a mug's lip), not a wider shoulder.
+  // Walk rows in from one end while the outline keeps widening; return the
+  // rim's radius and its minor radius estimated from the steep rows.
+  const rim = (walk: number[]) => {
+    let radius = 1;
+    let flat = 0;
+    let widest = 0;
+    for (const [i, y] of walk.entries()) {
+      if (half(y) > radius + 0.5) {
+        radius = half(y);
+        widest = i;
+        flat = 0;
+      } else if (++flat >= 3) break;
+    }
+    // On an ellipse of radii R and ry, the half-width d rows below the top is
+    // R·√(1 − (1 − d/ry)²). Solve each steep row for ry; the flat rows near the
+    // widest point are too sensitive to a pixel of noise to use. Rows past the
+    // widest are another edge (a base's top, a neck), not this rim.
+    const estimates: number[] = [];
+    for (let i = 0; i <= widest; i++) {
+      const q = half(walk[i]!) / radius;
+      if (q < 0.3 || q > 0.9) continue;
+      estimates.push((i + 0.5) / (1 - Math.sqrt(1 - q * q)));
+    }
+    return { radius, estimates };
+  };
   const topRows = ys.slice(0, Math.max(3, Math.floor(span * 0.5)));
-  let rTop = 1;
-  let flat = 0;
-  for (const y of topRows) {
-    if (half(y) > rTop + 0.5) {
-      rTop = half(y);
-      flat = 0;
-    } else if (++flat >= 3) break;
-  }
-  // On an ellipse of radii R and ry, the half-width d rows below the top is
-  // R·√(1 − (1 − d/ry)²). Solve each steep row for ry; the flat rows near the
-  // widest point are too sensitive to a pixel of noise to use.
-  const estimates: number[] = [];
-  for (let i = 0; i < topRows.length; i++) {
-    const q = half(topRows[i]!) / rTop;
-    if (q < 0.3 || q > 0.9) continue;
-    estimates.push((i + 0.5) / (1 - Math.sqrt(1 - q * q)));
-  }
-  const ry = median(estimates);
+  const { radius: rTop, estimates } = rim(topRows);
+  // A lamp's shade keeps widening below its rim, which reads as a steep angle;
+  // its base is a plain disc, so read the angle from the base's bottom edge.
+  const read =
+    archetype === 'lamp' ? rim(ys.slice(-Math.max(3, Math.floor(span * 0.25))).reverse()) : null;
+  const ry = median((read ?? { estimates }).estimates);
+  const rRead = read ? read.radius : rTop;
   // A top that is already full width in its first rows is seen nearly side-on.
   const flatTop = half(top) / rTop > 0.8 && half(top + 1) / rTop > 0.8;
-  const fromRim = estimates.length >= 2 ? Math.asin(clamp(ry / rTop, 0.1, 0.97)) / DEG : 30;
+  const fromRim =
+    (read ?? { estimates }).estimates.length >= 2
+      ? Math.asin(clamp(ry / rRead, 0.1, 0.97)) / DEG
+      : 30;
   // A camera on a desk rarely looks down more steeply than 60°: a steeper
   // reading means a tilted or cut-off rim, so fall back to a typical angle.
   const rimElevation = flatTop ? 8 : fromRim > 60 ? 30 : fromRim;
@@ -681,6 +713,41 @@ function unwrapLathe(
  * silhouette once the top face is accounted for. The top face's colours
  * become a decal (a book's cover).
  */
+/** Whatever on the top face differs from its main colour, as a top decal: print, buttons. */
+function topDecal(photo: Photo, topPx: number, topGroup: number): Decal | null {
+  const dw = 32;
+  const dh = 24;
+  const used = new Map<number, string>();
+  let data = '';
+  let marked = 0;
+  for (let row = 0; row < dh; row++)
+    for (let col = 0; col < dw; col++) {
+      const x = Math.floor(((col + 0.5) / dw) * photo.w);
+      const y = Math.floor(((row + 0.5) / dh) * topPx);
+      const g = photo.group[x + y * photo.w]!;
+      let ch = '.';
+      if (g >= 0 && g !== topGroup) {
+        if (!used.has(g) && used.size < 16) used.set(g, '0123456789abcdef'[used.size]!);
+        ch = used.get(g) ?? '.';
+        if (ch !== '.') marked++;
+      }
+      data += ch;
+    }
+  if (topPx < 4 || marked < dw * dh * 0.03) return null;
+  return {
+    kind: 'decal',
+    face: 'top',
+    u0: 0,
+    u1: 1,
+    v0: 0,
+    v1: 1,
+    turns: 0,
+    w: dw,
+    h: dh,
+    colors: [...used.keys()].map((g) => photo.groups[g]!.hex),
+    data,
+  };
+}
 function measureBox(
   photo: Photo,
   archetype: Archetype,
@@ -720,39 +787,80 @@ function measureBox(
     decal: null,
   };
   // The top face is a squashed rectangle: undo the squash into a decal.
-  const dw = 32;
-  const dh = 24;
-  const used = new Map<number, string>();
-  let data = '';
-  let marked = 0;
-  for (let row = 0; row < dh; row++)
-    for (let col = 0; col < dw; col++) {
-      const x = Math.floor(((col + 0.5) / dw) * photo.w);
-      const y = Math.floor(((row + 0.5) / dh) * topPx);
-      const g = photo.group[x + y * photo.w]!;
-      let ch = '.';
-      if (g >= 0 && g !== topGroup) {
-        if (!used.has(g) && used.size < 16) used.set(g, '0123456789abcdef'[used.size]!);
-        ch = used.get(g) ?? '.';
-        if (ch !== '.') marked++;
-      }
-      data += ch;
-    }
-  if (topPx >= 4 && marked >= dw * dh * 0.03)
-    fit.decal = {
-      kind: 'decal',
-      face: 'top',
-      u0: 0,
-      u1: 1,
-      v0: 0,
-      v1: 1,
-      turns: 0,
-      w: dw,
-      h: dh,
-      colors: [...used.keys()].map((g) => photo.groups[g]!.hex),
-      data,
-    };
+  fit.decal = topDecal(photo, topPx, topGroup);
   return { fit, elevation };
+}
+
+/**
+ * Measure a flat thing seen from above: its outline from the mask, cast
+ * from the middle in twelve directions, the colour of its top and any print
+ * on it. Its height can't be seen, so it is the known one or a typical one.
+ */
+function measureFlat(
+  photo: Photo,
+  hint: number | null,
+  material: ItemMaterial | null,
+  height: number | null,
+): { fit: FlatFit; elevation: number } {
+  // A reference photo of one thing is usually taken from above.
+  const elevation = clamp(hint ?? 80, 8, 80);
+  const base = defaultFit('device') as FlatFit;
+  const h = clamp(height ?? base.h, 0.03, 6);
+  const long = Math.max(photo.w, photo.h);
+  const w = photo.w / long;
+  // What shows below the top is the side, as tall as h looks from this angle.
+  const d = clamp(
+    (photo.h / long - h * Math.cos(elevation * DEG)) / Math.sin(elevation * DEG),
+    0.05,
+    1,
+  );
+  let cx = 0;
+  let cy = 0;
+  let n = 0;
+  for (let y = 0; y < photo.h; y++)
+    for (let x = 0; x < photo.w; x++)
+      if (photo.mask[x + y * photo.w]) {
+        cx += x;
+        cy += y;
+        n++;
+      }
+  cx /= Math.max(1, n);
+  cy /= Math.max(1, n);
+  const outline: FlatFit['outline'] = [];
+  for (let i = 0; i < 12; i++) {
+    // Clockwise in the image from straight up: the back of the thing.
+    const a = (i / 12) * 2 * Math.PI;
+    const dx = Math.sin(a);
+    const dy = -Math.cos(a);
+    let far = 0;
+    for (let t = 0; t < long * 1.5; t += 0.5) {
+      const x = Math.round(cx + dx * t);
+      const y = Math.round(cy + dy * t);
+      if (x < 0 || y < 0 || x >= photo.w || y >= photo.h) break;
+      if (photo.mask[x + y * photo.w]) far = t;
+    }
+    outline.push({
+      x: clamp((cx + dx * far) / Math.max(1, photo.w - 1), 0, 1),
+      y: clamp((cy + dy * far) / Math.max(1, photo.h - 1), 0, 1),
+    });
+  }
+  const all: number[] = [];
+  for (let p = 0; p < photo.w * photo.h; p++) if (photo.mask[p]) all.push(p);
+  const topGroup = Math.max(0, dominant(photo, all));
+  const color = (g: number) => photo.groups[g]?.hex ?? '#b3a796';
+  return {
+    fit: {
+      ...base,
+      outline,
+      w,
+      d,
+      h,
+      colors: { top: color(topGroup), side: color(topGroup) },
+      decal: topDecal(photo, photo.h, topGroup),
+      material: material ?? base.material,
+    },
+    elevation,
+  };
 }
 
 /** The photo at most `side` pixels on its longer edge, for quick comparisons. */
@@ -806,6 +914,8 @@ export function scoreItem(
   ppu: number,
   elevation: number,
 ): FitScore {
+  const flat = scoreFromAbove(item, target);
+  if (flat) return flat;
   const view = renderView(voxelize(item.parts, { resolution: scoringResolution(item) }), {
     elevation,
     ppu,
@@ -833,6 +943,55 @@ export function scoreItem(
           [view.lab[b]!, view.lab[b + 1]!, view.lab[b + 2]!],
         );
       }
+    }
+  return { iou: union ? inter / union : 0, deltaE: inter ? err / inter : 100 };
+}
+
+/**
+ * A flat model (one extruded part) is fitted to a photo from above, which the
+ * renderer's iso-corner camera can't take: from there it would be turned 45°.
+ * So its outline is drawn flat over the crop instead, coloured by its top and
+ * any decal on it, and compared pixel by pixel. Null for any other model.
+ */
+function scoreFromAbove(
+  item: IsoItem,
+  target: { w: number; h: number; mask: Uint8Array; lab: Float32Array },
+): FitScore | null {
+  const part = item.parts.length === 1 ? item.parts[0] : undefined;
+  if (part?.shape !== 'extrude' || !part.outline) return null;
+  const outline = part.outline;
+  const top = part.paint?.find((p) => p.kind === 'top')?.color ?? part.color;
+  const topLab = rgbLab(hexRgb(top));
+  const decal = part.paint?.find((p): p is Decal => p.kind === 'decal' && p.face === 'top');
+  const decalLab = decal?.colors.map((c) => rgbLab(hexRgb(c)));
+  const inside = (u: number, v: number) => {
+    let hit = false;
+    for (let i = 0, j = outline.length - 1; i < outline.length; j = i++) {
+      const a = outline[i]!;
+      const b = outline[j]!;
+      if (a.y > v !== b.y > v && u < ((b.x - a.x) * (v - a.y)) / (b.y - a.y) + a.x) hit = !hit;
+    }
+    return hit;
+  };
+  let inter = 0;
+  let union = 0;
+  let err = 0;
+  for (let y = 0; y < target.h; y++)
+    for (let x = 0; x < target.w; x++) {
+      const u = (x + 0.5) / target.w;
+      const v = (y + 0.5) / target.h;
+      const t = target.mask[x + y * target.w]!;
+      const m = inside(u, v);
+      if (t || m) union++;
+      if (!t || !m) continue;
+      inter++;
+      let lab = topLab;
+      if (decal && decalLab) {
+        const ch = decal.data[Math.floor(v * decal.h) * decal.w + Math.floor(u * decal.w)];
+        if (ch && ch !== '.') lab = decalLab[parseInt(ch, 16)] ?? topLab;
+      }
+      const i = (x + y * target.w) * 3;
+      err += deltaE([target.lab[i]!, target.lab[i + 1]!, target.lab[i + 2]!], lab);
     }
   return { iou: union ? inter / union : 0, deltaE: inter ? err / inter : 100 };
 }
@@ -910,7 +1069,8 @@ export function refineFit(
   let bestE = elevation;
   let bestScore = scoreItem(buildItem(label, best), target, ppu, bestE);
   let renders = 1;
-  const knobs = start.family === 'lathe' ? latheKnobs : boxKnobs;
+  // A flat thing's outline is read straight off the mask; only the camera angle is refined.
+  const knobs = start.family === 'lathe' ? latheKnobs : start.family === 'box' ? boxKnobs : [];
   let step = 0.12;
   while (renders < budget && step > 0.01) {
     let improved = false;
@@ -956,7 +1116,14 @@ export function fitItem(input: FitInput): FitOutput {
       ? measurePlant(photo, input.elevation ?? null, input.material ?? null)
       : family === 'lathe'
         ? measureLathe(photo, archetype, input.elevation ?? null, input.material ?? null)
-        : measureBox(photo, archetype, input.elevation ?? null, input.material ?? null);
+        : family === 'flat'
+          ? measureFlat(
+              photo,
+              input.elevation ?? null,
+              input.material ?? null,
+              input.knownHeight ?? null,
+            )
+          : measureBox(photo, archetype, input.elevation ?? null, input.material ?? null);
   // A generic object that is far from symmetric is drawn as a box instead.
   if (archetype === 'generic' && measured.fit.family === 'lathe') {
     const rows = rowsOf(photo);

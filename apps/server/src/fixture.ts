@@ -172,6 +172,7 @@ export function fixtureRoutes(
         material: cls.material,
         elevation: null,
         live,
+        knownHeight: cls.sizeCm.h / Math.max(cls.sizeCm.w, cls.sizeCm.d),
       });
       if (drafted.usage)
         usage = usage

@@ -23,7 +23,7 @@ export const fixtureControlSchema = z.discriminatedUnion('kind', [
 export type FixtureControl = z.infer<typeof fixtureControlSchema>;
 export const MAX_FIXTURES = 12;
 /** The illustrated reference pictures demo mode can draft fixtures from. */
-export const DEMO_REFERENCES = ['mouse'] as const;
+export const DEMO_REFERENCES = ['mouse', 'lamp'] as const;
 export type DemoReference = (typeof DEMO_REFERENCES)[number];
 
 /** What a person sends to save a fixture; the server adds the rest. */

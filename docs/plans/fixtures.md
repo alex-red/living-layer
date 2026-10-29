@@ -1,6 +1,6 @@
 # Plan: fixtures
 
-Status: proposed. Builds on [workspace.md](workspace.md), [iso-models.md](iso-models.md) and [photo-scene.md](photo-scene.md).
+Status: built, see [As built](#as-built). Builds on [workspace.md](workspace.md), [iso-models.md](iso-models.md) and [photo-scene.md](photo-scene.md).
 
 ## Goal
 
@@ -157,8 +157,26 @@ The target picker lists fixtures with controls first (by name), then any other c
 4. ~~`draftModel` extraction (no behaviour change, `tests/item.test.ts` green), then `/api/fixtures/draft` in demo mode with the illustrated mouse.~~ Done. The mouse is modelled as a `box` until step 7 adds `device`. Live drafts answer 501 until step 6. The demo lamp picture waits for the `lamp` archetype in step 7.
 5. ~~Outline, add-fixture flow, review, place, inspector, canvas drawing.~~ Done, and tried by hand in the running lab: draft the demo mouse, place it on the office desk, make it a switch, turn it on, turn it, delete it. The browser test covers drafting and placing the mouse; the lamp and the rule wait for the demo lamp picture (step 7). `Edit model` for fixtures isn't built: the item editor still only edits objects. Seen from above, the box fitter makes the mouse far too tall; step 7's `device` shape should take its height from the real size.
 6. ~~Live: Spark `fixtureClass`, SAM box prompt, the cost refusal.~~ Done, tested against a mocked Meta API; not yet tried against the real one. "Box it on the desk photo" isn't built: drafts come from a photo of the thing only.
-7. `device` and `lamp` archetypes and fit-bench cases.
-8. `docs/architecture.md`: a Fixtures section; "As built" here.
+7. ~~`device` and `lamp` archetypes and fit-bench cases.~~ Done. The mouse fits at IoU 0.94; lamps reach about 0.85 and are a known gap in the bench.
+8. ~~`docs/architecture.md`: a Fixtures section; "As built" here.~~ Done.
+
+## As built
+
+Built as planned, in eight steps, with these differences:
+
+- **Naming.** The demo mode is `demo` in code; old `fixture` data in SQLite and browser saves is migrated on load.
+- **Run kind.** Switching a fixture is recorded as a `lamp` run with an `action`, not a new `control` kind, so stored evidence and the activity filters didn't change. Drafting one is a `fixture` run.
+- **Routes.** Save and delete came with the control step (3), so control could be tested against saved fixtures. `GET /api/fixtures/reference` serves a draft's photo for review.
+- **Shapes.** A `device` is a new `flat` family scored from above, not a `box`: the fitter's camera looks from the iso corner and would see a top-down photo turned 45°. A lamp reads its camera angle from its base, and rim angles now use only rows up to the widest point (the fit bench moved only for the tapered cup, 0.961 → 0.952).
+- **The demo lamp** is drawn from a little above, so its rims show as ellipses as in a real photo; a flat side view lost the base.
+
+Not built:
+
+- Box it on the desk photo: drafts come only from a photo of the thing.
+- Edit model for fixtures: the item editor still only edits tracked objects.
+- Template lamps are not listed under Fixtures; only drafted fixtures are.
+- Lamps fit at about 0.85 IoU, under the 0.9 target.
+- Live drafting is tested against a mocked Meta API only, and the browser test for drafting and placing the mouse hasn't been run.
 
 ## Open decisions
 

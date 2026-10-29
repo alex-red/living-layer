@@ -14,6 +14,6 @@ Real captures and raw SAM responses belong under ignored `.data/evidence/`, with
 
 The parser is governed by the [SAM license](../licenses/meta-sam-LICENSE.txt). No third-party photographs or frontend assets are bundled.
 
-`apps/web/public/mouse.svg` is an original code-drawn illustration too, the demo's reference picture for drafting a fixture. Its mask is read from the SVG's own `mouse-body` polygon at runtime (`demoReference` in `apps/server/src/demo.ts`), and `demoFixtureClass` is hand-written.
+`apps/web/public/mouse.svg` (from above) and `lamp.svg` (from a little above, so its rims show as ellipses) are original code-drawn illustrations too, the demo's reference pictures for drafting fixtures. Each mask is read from the SVG's own `<name>-body` polygon at runtime (`demoReference` in `apps/server/src/demo.ts`), and `demoFixtureClass` is hand-written.
 
 The photo draft's demo data (`demoPhotoInventory` and `demoPhotoSegmentation` in `apps/server/src/demo.ts`) is hand-authored as well. Its desktop, book and bottle masks are polygons copied from `desk.svg`'s own shapes and handed over as already-decoded detections, not SAM wire text. The mug reuses the synthetic mask above under the id its box prompt would have. No codec was used to make them.

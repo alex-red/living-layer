@@ -208,8 +208,7 @@ export function demoLampFor(entityId: string, action: 'on' | 'off' = 'on'): Lamp
 export const demoFixtureClass: Record<DemoReference, FixtureClass> = {
   mouse: {
     label: 'Computer mouse',
-    // Until there is a flat device shape, a mouse is modelled as a rounded box.
-    archetype: 'box',
+    archetype: 'device',
     material: 'matte',
     control: 'none',
     description:
@@ -217,11 +216,20 @@ export const demoFixtureClass: Record<DemoReference, FixtureClass> = {
     box: { x1: 344, y1: 233, x2: 656, y2: 856 },
     sizeCm: { w: 6.5, d: 11.5, h: 4 },
   },
+  lamp: {
+    label: 'Desk lamp',
+    archetype: 'lamp',
+    material: 'fabric',
+    control: 'light',
+    description: 'A brass desk lamp with a cream fabric shade, seen from the side.',
+    box: { x1: 302, y1: 167, x2: 698, y2: 833 },
+    sizeCm: { w: 25, d: 25, h: 45 },
+  },
 };
 const references = new Map<DemoReference, { png: Buffer; detection: Detection }>();
 /**
  * A demo reference picture, rasterized as a camera would see it, and the
- * thing's mask: the outline of the SVG's own `mouse-body` polygon, so the
+ * thing's mask: the outline of the SVG's own `<name>-body` polygon, so the
  * mask matches the drawing exactly. No codec or model is involved.
  */
 export async function demoReference(
