@@ -14,6 +14,7 @@ export default defineConfig({
     reuseExistingServer: false,
     env: {
       PORT: '43432',
+      REMOTE_CAMERA_PORT: '43439',
       DATA_DIR: '.data/browser-tests',
       META_LIVE_ENABLED: 'false',
       HA_LIVE_ENABLED: 'false',
