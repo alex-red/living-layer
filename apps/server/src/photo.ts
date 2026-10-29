@@ -7,7 +7,7 @@ import {
   archetypeOf,
   cleanInventory,
   fitItem,
-  fixtureSourceKey,
+  demoSourceKey,
   flatView,
   layoutPhoto,
   modeSchema,
@@ -26,9 +26,9 @@ import {
 } from '@livinglayer/domain';
 import type { Config } from './config.js';
 import { LabError, parseInput } from './errors.js';
-import { fixturePhotoCheck, fixturePhotoInventory, fixturePhotoSegmentation } from './fixtures.js';
+import { demoPhotoCheck, demoPhotoInventory, demoPhotoSegmentation } from './demo.js';
 import { maskedCrop, validateImage } from './images.js';
-import { fixturePhoto, type Runner } from './item.js';
+import { demoPhoto, type Runner } from './item.js';
 import { SPARK_BUDGET, type MetaAdapter } from './meta.js';
 import type { EvidenceStore } from './store.js';
 
@@ -87,7 +87,7 @@ export function photoRoutes(
       usage: null,
       output: {
         ...segmentation,
-        sourceKey: live ? createHash('sha256').update(photo).digest('hex') : fixtureSourceKey(),
+        sourceKey: live ? createHash('sha256').update(photo).digest('hex') : demoSourceKey(),
       },
       assets: live
         ? [store.asset(sid, 'source.png', photo), store.asset(sid, 'sam-output.txt', raw ?? '')]
@@ -110,7 +110,7 @@ export function photoRoutes(
     const { mode } = input;
     const live = mode === 'live';
     if (!live && input.imageDataUrl)
-      throw new LabError('fixture_image', 'Fixture mode uses only the bundled illustrated desk.');
+      throw new LabError('demo_image', 'Demo mode uses only the bundled illustrated desk.');
     // Refuse up front rather than stop halfway, with the inventory already paid for.
     if (live && !meta.canAfford(photoDraftCeiling(Boolean(input.check))))
       throw new LabError(
@@ -124,7 +124,7 @@ export function photoRoutes(
       let model: string | undefined;
       let requestId: string | null = null;
       const image = live ? await validateImage(input.imageDataUrl) : null;
-      const photo = image ? image.bytes : await fixturePhoto();
+      const photo = image ? image.bytes : await demoPhoto();
       const frame = image
         ? { width: image.width, height: image.height }
         : { width: 960, height: 640 };
@@ -138,7 +138,7 @@ export function photoRoutes(
         usage = addUsage(usage, result.usage);
         model = result.model;
         requestId = result.requestId;
-      } else inventory = cleanInventory(fixturePhotoInventory);
+      } else inventory = cleanInventory(demoPhotoInventory);
       assists.push(`Spark: ${inventory.things.length} things. ${inventory.summary}`);
 
       // 2. One SAM call outlines every box.
@@ -153,7 +153,7 @@ export function photoRoutes(
         segmentation = result.output;
         raw = result.raw;
       } else {
-        segmentation = await fixturePhotoSegmentation();
+        segmentation = await demoPhotoSegmentation();
         raw = 'Synthetic box-prompted segmentation of the illustrated desk.';
       }
       const detections: Record<string, string> = {};
@@ -194,7 +194,7 @@ export function photoRoutes(
                 `data:image/png;base64,${png.toString('base64')}`,
                 listing,
               )
-            : { output: fixturePhotoCheck, usage: null };
+            : { output: demoPhotoCheck, usage: null };
           usage = addUsage(usage, result.usage);
           const added: string[] = [];
           let kept = false;
@@ -274,7 +274,7 @@ export function photoRoutes(
           items[t.id] = {
             ...uniqueParts(fitted.item),
             label: t.label,
-            source: live ? 'sampled' : 'fixture',
+            source: live ? 'sampled' : 'demo',
             segmentRunId,
             swatches: fitted.swatches,
             updatedAt: new Date().toISOString(),

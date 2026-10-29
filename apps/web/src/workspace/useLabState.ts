@@ -6,13 +6,14 @@ import type {
   Scene,
   Segmentation,
   Detection,
+  FixtureDraft,
   LampResult,
   DeskMemory,
   ZoneRect,
   PlacementDecision,
   RunKind,
   DeskObservation,
-  FixturePosition,
+  DemoPosition,
   LocalTrack,
   LocalVerdict,
   LumaFrame,
@@ -23,8 +24,9 @@ import type {
   SavedItem,
 } from '@livinglayer/domain';
 import {
-  FIXTURE_POSITIONS,
-  FIXTURE_LIGHTS,
+  DEMO_POSITIONS,
+  DEMO_LIGHTS,
+  DEMO_SWITCHES,
   OBSERVATION_MAX_AGE_MS,
   ISO_PRESETS,
   runCost,
@@ -86,9 +88,9 @@ export const TRANSITION: Record<NonNullable<PlacementDecision['transition']>, st
   left: 'Left the zone',
   stayed_outside: 'Still outside',
 };
-/** Redraw the fixture desk with the mug, its coffee and its shadow moved together. */
-export function fixtureDesk(svg: string, position: FixturePosition): string {
-  const { dx, dy } = FIXTURE_POSITIONS[position];
+/** Redraw the demo desk with the mug, its coffee and its shadow moved together. */
+export function demoDesk(svg: string, position: DemoPosition): string {
+  const { dx, dy } = DEMO_POSITIONS[position];
   if (!dx && !dy) return '/desk.svg';
   const moved = svg
     .replace('translate(350 180)', `translate(${350 + dx} ${180 + dy})`)
@@ -177,6 +179,7 @@ export const RUN_KINDS: RunKind[] = [
   'layout',
   'photo',
   'item',
+  'fixture',
   'lamp',
   'observation',
   'zone',
@@ -193,7 +196,8 @@ const deskIsBlank = (d: DeskMemory) =>
   !d.zone &&
   !d.item &&
   !d.others?.length &&
-  !d.rules?.length;
+  !d.rules?.length &&
+  !d.fixtures?.length;
 type ProbeKind = 'text' | 'discover' | 'segment' | 'lamp';
 export const isProbe = (kind: RunKind): kind is ProbeKind =>
   ['text', 'discover', 'segment', 'lamp'].includes(kind);
@@ -223,6 +227,10 @@ export function runDetail(run: EvidenceRun): string {
     case 'item': {
       const item = run.output as SavedItem;
       return `${item.label} · ${item.parts.length} parts · ${item.source}`;
+    }
+    case 'fixture': {
+      const f = run.output as FixtureDraft;
+      return `${f.label} · ${f.model.parts.length} parts · looks like ${f.suggested === 'none' ? 'just a thing' : `a ${f.suggested}`}`;
     }
     case 'lamp':
       return `state ${(run.output as LampResult).state}`;
@@ -267,9 +275,9 @@ export function useLabState() {
   const [drawing, setDrawing] = useState(false);
   const zoneStart = useRef<{ x: number; y: number } | null>(null);
   const [concept, setConcept] = useState(boot.prefs.concept);
-  const [fixturePosition, setFixturePosition] = useState<FixturePosition>(
-    boot.prefs.fixturePosition in FIXTURE_POSITIONS
-      ? (boot.prefs.fixturePosition as FixturePosition)
+  const [demoPosition, setDemoPosition] = useState<DemoPosition>(
+    boot.prefs.demoPosition in DEMO_POSITIONS
+      ? (boot.prefs.demoPosition as DemoPosition)
       : 'centre',
   );
   const [deskSvg, setDeskSvg] = useState('');
@@ -343,7 +351,7 @@ export function useLabState() {
   const [drawer, setDrawer] = useState(boot.prefs.drawer);
   // Drives the ambient warm-up. Only a confirmed lamp state turns it on.
   const [lamp, setLamp] = useState<'off' | 'virtual' | 'live'>('off');
-  const light = () => setLamp(mode === 'fixture' ? 'virtual' : 'live');
+  const light = () => setLamp(mode === 'demo' ? 'virtual' : 'live');
   const [camera, setCamera] = useState(false);
   const [cameraPending, setCameraPending] = useState(false);
   const cameraGeneration = useRef(0);
@@ -374,8 +382,8 @@ export function useLabState() {
    */
   const memoryWrites = useRef(0);
   // Each mode's desks from before (undo) and after (redo) the person's edits.
-  const undo = useRef<Record<Mode, DeskMemory[]>>({ fixture: [], live: [] });
-  const redo = useRef<Record<Mode, DeskMemory[]>>({ fixture: [], live: [] });
+  const undo = useRef<Record<Mode, DeskMemory[]>>({ demo: [], live: [] });
+  const redo = useRef<Record<Mode, DeskMemory[]>>({ demo: [], live: [] });
   const [, setHistoryTick] = useState(0);
   /** A new desk memory; an edit can be undone, a sighting (`undoable` false) can't. */
   const setMemory = (next: DeskMemory, undoable = true) => {
@@ -390,16 +398,16 @@ export function useLabState() {
   };
   const refresh = async () => {
     const started = ++memoryWrites.current;
-    const [nextStatus, nextRuns, fixtureDesk, liveDesk] = await Promise.all([
+    const [nextStatus, nextRuns, demoDesk, liveDesk] = await Promise.all([
       api<LabStatus>('status'),
       api<EvidenceRun[]>('runs'),
-      api<DeskMemory>('desk/fixture'),
+      api<DeskMemory>('desk/demo'),
       api<DeskMemory>('desk/live'),
     ]);
     setStatus(nextStatus);
     setRuns(nextRuns);
-    if (started === memoryWrites.current) setMemories({ fixture: fixtureDesk, live: liveDesk });
-    return { fixture: fixtureDesk, live: liveDesk };
+    if (started === memoryWrites.current) setMemories({ demo: demoDesk, live: liveDesk });
+    return { demo: demoDesk, live: liveDesk };
   };
   // Autosave: choices and desks go to this browser as the person works, once
   // the server's desks have loaded so an empty first render never overwrites them.
@@ -414,7 +422,7 @@ export function useLabState() {
     trail: showTrail,
     zones: showZones,
     concept,
-    fixturePosition,
+    demoPosition,
     cameraSource,
     drawer,
     logKind,
@@ -493,7 +501,7 @@ export function useLabState() {
     setBusy('restore');
     setError('');
     try {
-      for (const m of ['fixture', 'live'] as const) {
+      for (const m of ['demo', 'live'] as const) {
         await restoreDesk(save.desks[m] ?? emptyDesk(m));
         undo.current[m] = [];
         redo.current[m] = [];
@@ -510,8 +518,7 @@ export function useLabState() {
       setShowTrail(next.trail);
       setShowZones(next.zones);
       setConcept(next.concept);
-      if (next.fixturePosition in FIXTURE_POSITIONS)
-        setFixturePosition(next.fixturePosition as FixturePosition);
+      if (next.demoPosition in DEMO_POSITIONS) setDemoPosition(next.demoPosition as DemoPosition);
       setCameraSource(next.cameraSource);
       setDrawer(next.drawer);
       setLogKind(RUN_KINDS.includes(next.logKind as RunKind) ? (next.logKind as RunKind) : 'all');
@@ -589,7 +596,7 @@ export function useLabState() {
     void refresh()
       .then(async (desks) => {
         // A fresh server (new data folder) takes this browser's copy of its desks.
-        for (const m of ['fixture', 'live'] as const) {
+        for (const m of ['demo', 'live'] as const) {
           const local = boot.save?.desks[m];
           if (local && !deskIsBlank(local) && deskIsBlank(desks[m]))
             await restoreDesk(local).catch(() => {});
@@ -635,7 +642,7 @@ export function useLabState() {
     stopCamera();
     imageGeneration.current++;
     setMode(next);
-    setFixturePosition('centre');
+    setDemoPosition('centre');
     setLamp('off');
     setImage(undefined);
     setDimensions({ width: 960, height: 640 });
@@ -645,7 +652,7 @@ export function useLabState() {
     setDrawing(false);
     setError('');
     setMessage(
-      next === 'fixture'
+      next === 'demo'
         ? 'Demo selected: the illustrated desk, with no model calls and a virtual lamp.'
         : 'Add a desk photo. It stays local until you explicitly run a live probe.',
     );
@@ -670,19 +677,19 @@ export function useLabState() {
     );
     return url;
   }
-  const sceneUrl = (position: FixturePosition) =>
-    deskSvg ? fixtureDesk(deskSvg, position) : '/desk.svg';
-  function moveFixtureMug(next: FixturePosition) {
-    setFixturePosition(next);
+  const sceneUrl = (position: DemoPosition) =>
+    deskSvg ? demoDesk(deskSvg, position) : '/desk.svg';
+  function moveDemoMug(next: DemoPosition) {
+    setDemoPosition(next);
     setScene(undefined);
     setSegmentation(undefined);
     setSegmentRunId(undefined);
     setDrawing(false);
     setLamp('off');
     setMessage(
-      `Mug moved to ${FIXTURE_POSITIONS[next].label.toLowerCase()}. This counts as a new frame: track it or segment it.`,
+      `Mug moved to ${DEMO_POSITIONS[next].label.toLowerCase()}. This counts as a new frame: track it or segment it.`,
     );
-    if (follow && localTrack.current) void followFixture(next);
+    if (follow && localTrack.current) void followDemo(next);
   }
   /** Prepare a chosen photo as the current frame; returns it, or nothing on failure. */
   async function upload(chosen?: File): Promise<string | undefined> {
@@ -765,7 +772,7 @@ export function useLabState() {
         mode,
         ...(['discover', 'segment'].includes(kind) && image ? { imageDataUrl: image } : {}),
         ...(kind === 'segment' ? { concept: overrideConcept ?? concept } : {}),
-        ...(kind === 'segment' && mode === 'fixture' ? { fixturePosition } : {}),
+        ...(kind === 'segment' && mode === 'demo' ? { demoPosition } : {}),
       });
       if (kind === 'discover') setScene(run.output as Scene);
       if (kind === 'discover' || kind === 'segment') setLamp('off');
@@ -779,7 +786,7 @@ export function useLabState() {
       setMessage(
         kind === 'segment' && run.status === 'no_match'
           ? 'No match. The previous mask has been cleared.'
-          : `${mode === 'fixture' ? 'Demo' : 'Live'} ${kind} probe saved · ${run.durationMs} ms${costNote(run)}.`,
+          : `${mode === 'demo' ? 'Demo' : 'Live'} ${kind} probe saved · ${run.durationMs} ms${costNote(run)}.`,
       );
       await refresh();
     } catch (e) {
@@ -793,7 +800,7 @@ export function useLabState() {
   function placementMessage(event: EvidenceRun<PlacementDecision>) {
     const o = event.output;
     const moved = o.transition ? `${TRANSITION[o.transition]}. ` : '';
-    return `${mode === 'fixture' ? 'Virtual' : 'Live'} placement: ${moved}${o.reason} Lamp: ${o.action}.${o.error ? ` ${o.error.message}` : ''}`;
+    return `${mode === 'demo' ? 'Virtual' : 'Live'} placement: ${moved}${o.reason} Lamp: ${o.action}.${o.error ? ` ${o.error.message}` : ''}`;
   }
   /**
    * One tracking step: take the current frame (capturing from the camera if it
@@ -801,11 +808,11 @@ export function useLabState() {
    * mug, and verify the zone. One SAM call in live mode. Returns the frame it
    * used, so local following can restart from SAM's box on the same pixels.
    */
-  async function track({ keepCamera = false, position = fixturePosition } = {}) {
+  async function track({ keepCamera = false, position = demoPosition } = {}) {
     setBusy('track');
     setError('');
     try {
-      let frame = mode === 'fixture' ? sceneUrl(position) : image;
+      let frame = mode === 'demo' ? sceneUrl(position) : image;
       if (mode === 'live' && camera && video.current?.videoWidth) {
         frame = captureCanvas(video.current, video.current.videoWidth, video.current.videoHeight);
         if (!keepCamera) stopCamera();
@@ -813,7 +820,7 @@ export function useLabState() {
       const run = await api<EvidenceRun<Segmentation>>('segment', {
         mode,
         concept: 'mug',
-        ...(mode === 'fixture' ? { fixturePosition: position } : { imageDataUrl: frame }),
+        ...(mode === 'demo' ? { demoPosition: position } : { imageDataUrl: frame }),
       });
       setSegmentation(run.output);
       setSegmentRunId(run.id);
@@ -848,12 +855,12 @@ export function useLabState() {
   }
   /**
    * Start following the mug locally from the current SAM-confirmed observation.
-   * Live mode reopens the camera and samples it; fixture mode steps whenever
+   * Live mode reopens the camera and samples it; demo mode steps whenever
    * the mug is moved.
    */
   async function startFollow() {
     const o = currentObservation;
-    const src = mode === 'fixture' ? sceneUrl(fixturePosition) : image;
+    const src = mode === 'demo' ? sceneUrl(demoPosition) : image;
     if (!o || !src) return;
     setError('');
     try {
@@ -877,7 +884,7 @@ export function useLabState() {
     }
   }
   /** Ask SAM to settle what the local tracker saw, then restart following from its answer. */
-  async function followCheck(verdict: LocalVerdict, position?: FixturePosition) {
+  async function followCheck(verdict: LocalVerdict, position?: DemoPosition) {
     lastCheck.current = Date.now();
     if (verdict === 'reanchor')
       reanchorGap.current = Math.min(REANCHOR_GAP_MS.max, reanchorGap.current * 2);
@@ -925,12 +932,12 @@ export function useLabState() {
     setFollowView(step);
     setFollowStats((s) => ({ ...s, frames: s.frames + 1 }));
   }
-  async function followFixture(position: FixturePosition) {
+  async function followDemo(position: DemoPosition) {
     try {
       const frame = lumaOf(await loadImage(sceneUrl(position)));
       const current = localTrack.current;
       if (!current) return;
-      // Each fixture move is one deliberate frame of a mug already set down, so it needn't settle.
+      // Each demo move is one deliberate frame of a mug already set down, so it needn't settle.
       const step = stepLocalTrack(current, frame, localZone, {
         settleSteps: 1,
         lostSteps: 1,
@@ -939,7 +946,7 @@ export function useLabState() {
       applyStep(step);
       if (step.verdict !== 'follow') return void followCheck(step.verdict, position);
       setMessage(
-        `Followed locally to ${FIXTURE_POSITIONS[position].label.toLowerCase()} · match ${step.track.score.toFixed(2)} · no model call.`,
+        `Followed locally to ${DEMO_POSITIONS[position].label.toLowerCase()} · match ${step.track.score.toFixed(2)} · no model call.`,
       );
     } catch (e) {
       stopFollow();
@@ -1082,17 +1089,22 @@ export function useLabState() {
     }
   }
   const canVision =
-    Boolean(workScene) && !busy && (mode === 'fixture' || (metaReady && Boolean(image)));
+    Boolean(workScene) && !busy && (mode === 'demo' || (metaReady && Boolean(image)));
   const canTrack =
     Boolean(workScene) &&
     !busy &&
     !follow &&
     Boolean(memory?.object && memory.observation) &&
-    (mode === 'fixture' || (metaReady && (Boolean(image) || camera)));
+    (mode === 'demo' || (metaReady && (Boolean(image) || camera)));
   const proofCount = status ? Object.values(status.liveEvidence).filter(Boolean).length : 0;
   const confirmedId = currentObservation?.detectionId;
   const progress = sceneProgress({ mode, workScene, memory });
-  const lights = mode === 'fixture' ? FIXTURE_LIGHTS : (status?.lamp.lights ?? []);
+  const lights = mode === 'demo' ? DEMO_LIGHTS : (status?.lamp.lights ?? []);
+  /** What a rule or a fixture may switch: the lights, then the switches. */
+  const entities = [
+    ...lights,
+    ...(mode === 'demo' ? DEMO_SWITCHES : (status?.lamp.switches ?? [])),
+  ];
   /** Choose the room to work in: the demo preset, or start drafting one from a photo. */
   function pickScene(next: WorkScene, from: 'preset' | 'photo' = 'preset') {
     setWorkScene(next);
@@ -1105,7 +1117,7 @@ export function useLabState() {
       setIsoPanel('scene');
       setSelection({ kind: 'room' });
       setMessage(
-        mode === 'fixture'
+        mode === 'demo'
           ? 'Draft the room from the demo photo, review it, then save.'
           : 'Upload a photo of the room. Spark lists what is in it and SAM outlines it.',
       );
@@ -1153,7 +1165,7 @@ export function useLabState() {
     if (stageView === 'photo') setStageView('iso');
   }
   function startRule(objectId: string) {
-    setRuleDraft({ objectId, lightId: lights[0] ?? '', label: '', rect: null });
+    setRuleDraft({ objectId, entityId: entities[0] ?? '', label: '', rect: null });
     setIsoPanel('room');
     if (stageView === 'photo') setStageView('iso');
     setSelection({ kind: 'new-rule' });
@@ -1269,15 +1281,15 @@ export function useLabState() {
   }
   /**
    * A saved mask can go back on the scene when it was made from the image on
-   * screen now: always for the fixture, and for a live photo when its source
+   * screen now: always for the demo, and for a live photo when its source
    * hash matches the mask already showing.
    */
   function canRestore(run: EvidenceRun): boolean {
     if (busy || camera || run.mode !== mode || run.status === 'failed') return false;
-    if (run.kind === 'discover') return mode === 'fixture';
+    if (run.kind === 'discover') return mode === 'demo';
     if (run.kind !== 'segment') return false;
     const key = (run.output as Segmentation).sourceKey;
-    return mode === 'fixture' || (Boolean(key) && key === segmentation?.sourceKey);
+    return mode === 'demo' || (Boolean(key) && key === segmentation?.sourceKey);
   }
   function restore(run: EvidenceRun) {
     if (run.kind === 'discover') {
@@ -1320,7 +1332,7 @@ export function useLabState() {
     zoneStart,
     concept,
     setConcept,
-    fixturePosition,
+    demoPosition,
     deskSvg,
     overlay,
     setOverlay,
@@ -1400,7 +1412,7 @@ export function useLabState() {
     stopCamera,
     changeMode,
     captureCanvas,
-    moveFixtureMug,
+    moveDemoMug,
     upload,
     startCamera,
     costNote,
@@ -1430,6 +1442,7 @@ export function useLabState() {
     confirmedId,
     progress,
     lights,
+    entities,
     pickScene,
     goToStep,
     openModel,

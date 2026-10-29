@@ -5,7 +5,7 @@ import { buildApp } from '../apps/server/src/app.js';
 
 const config = loadConfig();
 const live = process.argv.includes('--live');
-const mode = live ? 'live' : 'fixture';
+const mode = live ? 'live' : 'demo';
 const imageIndex = process.argv.indexOf('--image');
 let imageDataUrl: string | undefined;
 if (live) {
@@ -49,7 +49,7 @@ try {
   const path = resolve(config.dataDir, 'exports', `${mode}-smoke.json`);
   writeFileSync(path, evidence.body, { mode: 0o600 });
   console.log(
-    `Evidence saved: ${path}\n${live ? 'Observe the physical lamp separately if requested.' : 'Synthetic fixture only; live proof remains pending.'}`,
+    `Evidence saved: ${path}\n${live ? 'Observe the physical lamp separately if requested.' : 'Synthetic demo only; live proof remains pending.'}`,
   );
 } finally {
   await app.close();

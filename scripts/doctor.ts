@@ -13,7 +13,7 @@ try {
     `Home Assistant: ${config.haUrl && config.haToken && config.haEntity ? 'configured' : 'incomplete'}; live enabled: ${config.haEnabled}`,
   );
   console.log(
-    'Fixture workflow is available without credentials. Live connectivity and physical effect are not tested by doctor.',
+    'Demo workflow is available without credentials. Live connectivity and physical effect are not tested by doctor.',
   );
 } catch {
   console.error(

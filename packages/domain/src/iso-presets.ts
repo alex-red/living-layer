@@ -21,7 +21,7 @@ function compose(
 }
 
 // The office desk is a close view of the office's desk. The illustrated
-// fixture is that desktop filling the frame, so its book (left) and bottle
+// demo is that desktop filling the frame, so its book (left) and bottle
 // (right) sit where the photo shows them.
 const deskScene = compose('desk', 'Office desk', { w: 8, d: 6 }, [
   ['desk', 'desk', 1, 1, 0, { size: { w: 6, d: 4 } }],
@@ -82,8 +82,8 @@ export function isoSurface(
   const scene = kind === 'custom' ? custom : ISO_PRESETS[kind];
   return scene?.surfaces.find((s) => s.id === surfaceId);
 }
-/** The illustrated fixture fills the frame with the desktop, so it needs no corners. */
-export const FIXTURE_SURFACE: SurfacePin = {
+/** The illustrated demo fills the frame with the desktop, so it needs no corners. */
+export const DEMO_SURFACE: SurfacePin = {
   scene: 'desk',
   surfaceId: 'desk:top',
   corners: [

@@ -8,7 +8,7 @@
  * the worst position error of any thing in tiles, and the scene's match with
  * the masks. Exits non-zero when a case misses the targets: corners within
  * 2.5% of the diagonal, depth within 10%, positions within half a tile.
- * The illustrated fixture is listed too.
+ * The illustrated demo is listed too.
  *
  *   bun scripts/scene-bench.ts
  */
@@ -18,7 +18,7 @@ import {
   syntheticPhoto,
   type SyntheticPhotoOptions,
 } from '@livinglayer/domain';
-import { fixturePhotoInventory, fixturePhotoSegmentation } from '../apps/server/src/fixtures.js';
+import { demoPhotoInventory, demoPhotoSegmentation } from '../apps/server/src/demo.js';
 
 const deskThings: Pick<SyntheticPhotoOptions, 'furniture' | 'objects'> = {
   furniture: [{ id: 'chair', as: 'chair', x: 1.3, y: 3.2 }],
@@ -103,17 +103,17 @@ for (const c of cases) {
   );
 }
 {
-  const segmentation = await fixturePhotoSegmentation();
+  const segmentation = await demoPhotoSegmentation();
   const detections = { desk: '1', mug: '2', book: '3', bottle: '4' };
   const start = performance.now();
   const layout = layoutPhoto({
-    inventory: fixturePhotoInventory,
+    inventory: demoPhotoInventory,
     segmentation,
     detections,
     refine: true,
   });
   console.log(
-    `\nfixture: ${layout.pin ? 'pinned' : 'not pinned'}, ${layout.things.filter((t) => t.status === 'object').length} objects, match ${Math.round((layout.score ?? 0) * 100)}%, ${Math.round(performance.now() - start)} ms`,
+    `\ndemo: ${layout.pin ? 'pinned' : 'not pinned'}, ${layout.things.filter((t) => t.status === 'object').length} objects, match ${Math.round((layout.score ?? 0) * 100)}%, ${Math.round(performance.now() - start)} ms`,
   );
 }
 console.log(

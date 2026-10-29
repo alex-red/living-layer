@@ -26,6 +26,8 @@ const schema = z.object({
   HA_ENTITY_ID: z.string().default(''),
   /** More lights that placement rules may switch, comma-separated. */
   HA_EXTRA_ENTITY_IDS: z.string().default(''),
+  /** Switches that fixtures and rules may turn on and off, comma-separated. */
+  HA_SWITCH_ENTITY_IDS: z.string().default(''),
   HA_LIVE_ENABLED: flag,
   /** Network camera WHEP URLs, comma-separated, for networks where mDNS discovery is blocked. */
   CAMERA_STREAMS: z.string().default(''),
@@ -48,6 +50,8 @@ export interface Config {
   haEntity: string;
   /** Every light a rule may switch: the main one first, then the extras. */
   haLights: string[];
+  /** Every switch a fixture or rule may turn on and off. */
+  haSwitches: string[];
   haEnabled: boolean;
   cameraStreams: string[];
 }
@@ -82,6 +86,11 @@ export function parseConfig(env: NodeJS.ProcessEnv, cwd = process.cwd()): Config
     throw new Error('HA_EXTRA_ENTITY_IDS must list light entities, separated by commas.');
   if (extras.length && !value.HA_ENTITY_ID)
     throw new Error('Set HA_ENTITY_ID, the main light, before listing extra lights.');
+  const switches = value.HA_SWITCH_ENTITY_IDS.split(',')
+    .map((e) => e.trim())
+    .filter(Boolean);
+  if (switches.some((e) => !/^switch\.[a-z0-9_]+$/.test(e)))
+    throw new Error('HA_SWITCH_ENTITY_IDS must list switch entities, separated by commas.');
   const cameraStreams = value.CAMERA_STREAMS.split(',')
     .map((e) => e.trim())
     .filter(Boolean);
@@ -103,6 +112,7 @@ export function parseConfig(env: NodeJS.ProcessEnv, cwd = process.cwd()): Config
     haToken: value.HA_TOKEN,
     haEntity: value.HA_ENTITY_ID,
     haLights: [...new Set([value.HA_ENTITY_ID, ...extras].filter(Boolean))],
+    haSwitches: [...new Set(switches)],
     haEnabled: value.HA_LIVE_ENABLED,
     cameraStreams,
   };

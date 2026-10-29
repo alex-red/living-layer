@@ -18,7 +18,7 @@ function CallRow({ call }: { call: ProviderCall }) {
       <div className="ai-call-head">
         <span className="ai-dot" aria-hidden="true" />
         <strong>{call.title}</strong>
-        <span className={`ai-mode ${call.mode}`}>{call.mode === 'live' ? 'LIVE' : 'FIXTURE'}</span>
+        <span className={`ai-mode ${call.mode}`}>{call.mode === 'live' ? 'LIVE' : 'DEMO'}</span>
         <span className="ai-time">{seconds(elapsed)}</span>
         {!running && (
           <button className="ai-close" aria-label="Dismiss" onClick={() => dismissCall(call.id)}>
@@ -35,7 +35,7 @@ function CallRow({ call }: { call: ProviderCall }) {
         {running
           ? call.mode === 'live'
             ? 'Waiting on Meta. Results are only kept once every step finishes.'
-            : 'Fixture: answered offline, nothing is billed.'
+            : 'Demo: answered offline, nothing is billed.'
           : call.outcome === 'failed'
             ? (call.message ?? 'Failed.')
             : [
@@ -115,7 +115,7 @@ function hintFor(code?: string, detail?: ProviderFailure): string | null {
     case 'spend_limit':
       return 'Raise the daily spending limit in Setup, or wait until midnight UTC.';
     case 'meta_not_ready':
-      return 'Set MODEL_API_KEY and META_LIVE_ENABLED, or switch to Fixture.';
+      return 'Set MODEL_API_KEY and META_LIVE_ENABLED, or switch to Demo.';
     case 'provider_error':
       return 'The provider had a problem on its side. Try again shortly.';
   }

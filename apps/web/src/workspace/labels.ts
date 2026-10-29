@@ -1,5 +1,5 @@
 import {
-  FIXTURE_SURFACE,
+  DEMO_SURFACE,
   ISO_PRESETS,
   pinFits,
   type DeskMemory,
@@ -20,7 +20,7 @@ export function roomLabel(room: WorkScene | null, memory?: DeskMemory | null): s
 
 /** The surface pin this mode uses: the saved one, or the demo desk's. */
 export const pinOf = (mode: Mode, memory?: DeskMemory | null) =>
-  memory?.surface ?? (mode === 'fixture' ? FIXTURE_SURFACE : null);
+  memory?.surface ?? (mode === 'demo' ? DEMO_SURFACE : null);
 
 export interface SurfaceRow {
   surface: IsoSurface;

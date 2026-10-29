@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import {
-  FIXTURE_SURFACE,
+  DEMO_SURFACE,
   ISO_PRESETS,
   guessedScene,
   isoSurface,
@@ -36,7 +36,7 @@ export type IsoPanel = 'room' | 'scene' | 'item';
 /** A rule being set up; its zone is dragged out on the iso surface. */
 export interface RuleDraft {
   objectId: string;
-  lightId: string;
+  entityId: string;
   label: string;
   rect: ZoneRect | null;
 }
@@ -137,7 +137,7 @@ export function IsoView({
   onMessage: (message: string) => void;
   onError: (error: string | Error) => void;
 }) {
-  const pin = memory?.surface ?? (mode === 'fixture' ? FIXTURE_SURFACE : null);
+  const pin = memory?.surface ?? (mode === 'demo' ? DEMO_SURFACE : null);
   const [asking, setAsking] = useState(false);
   // A new scene or pin starts on the pinned surface when it is in this scene.
   useEffect(() => {
@@ -220,7 +220,7 @@ export function IsoView({
   if (lampOn && defaultLight) lit.add(defaultLight);
   for (const rule of memory?.rules ?? [])
     if (rule.placement === 'inside' && rule.lastDecision?.output.action === 'confirmed')
-      lit.add(rule.lightId);
+      lit.add(rule.entityId);
   const drawingRule = Boolean(ruleDraft && ruleMap);
 
   const target = memory ? modelTarget(memory, modelOf) : null;
@@ -246,7 +246,7 @@ export function IsoView({
             item={target?.item}
             busy={off}
             sparkNote={
-              mode === 'fixture'
+              mode === 'demo'
                 ? 'Demo: no model call. Drafts fit the illustrated mug’s own pixels.'
                 : 'A Spark draft makes up to four billed calls (Spark twice, SAM up to twice) and sends only the masked crop.'
             }
@@ -348,7 +348,7 @@ export function IsoView({
             ? `ITEM · ${(target?.item?.label ?? target?.label ?? 'object').toUpperCase()}`
             : panel === 'scene'
               ? 'SCENE EDITOR'
-              : `ISO · ${scene.label.toUpperCase()} · ${surface?.label.toUpperCase() ?? 'NO SURFACE'}${pinned ? (memory?.surface ? ' · PINNED' : ' · FIXTURE') : ''}`}
+              : `ISO · ${scene.label.toUpperCase()} · ${surface?.label.toUpperCase() ?? 'NO SURFACE'}${pinned ? (memory?.surface ? ' · PINNED' : ' · DEMO') : ''}`}
         </span>
       </div>
       {panel === 'room' && (

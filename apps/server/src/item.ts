@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 import sharp from 'sharp';
 import { z } from 'zod';
 import {
-  FIXTURE_POSITIONS,
+  DEMO_POSITIONS,
   applyCheck,
   archetypeOf,
   buildItem,
@@ -51,7 +51,7 @@ export type Runner = (
 ) => Promise<EvidenceRun>;
 
 /** What a Spark class looks like offline: the illustrated mug is a glossy mug. */
-export const fixtureItemClass: ItemClass = {
+export const demoItemClass: ItemClass = {
   archetype: 'mug',
   material: 'gloss',
   description: 'A cream mug with coffee in it and a handle on the right.',
@@ -64,16 +64,16 @@ const PART_CONCEPTS: Partial<Record<Archetype, { handle?: string; inside?: strin
   plant: { inside: 'soil' },
 };
 
-/** The fixture desk is an SVG the web draws; rasterize it once, as the camera would see it. */
-let fixtureDesk: Buffer | null = null;
-export async function fixturePhoto(): Promise<Buffer> {
-  fixtureDesk ??= await sharp(readFileSync(resolve(PROJECT_ROOT, 'apps/web/public/desk.svg')))
+/** The demo desk is an SVG the web draws; rasterize it once, as the camera would see it. */
+let demoDesk: Buffer | null = null;
+export async function demoPhoto(): Promise<Buffer> {
+  demoDesk ??= await sharp(readFileSync(resolve(PROJECT_ROOT, 'apps/web/public/desk.svg')))
     .png()
     .toBuffer();
-  return fixtureDesk;
+  return demoDesk;
 }
 /**
- * The detection's masked crop. In fixture mode the desk is always drawn with
+ * The detection's masked crop. In demo mode the desk is always drawn with
  * the mug in the centre, so a moved detection is cut from where the mug was drawn.
  */
 export async function itemCrop(
@@ -82,12 +82,11 @@ export async function itemCrop(
   segment: EvidenceRun,
   detection: Detection,
 ) {
-  if (mode === 'fixture') {
+  if (mode === 'demo') {
     const output = segment.output as Segmentation & { sourceKey?: string };
-    const position = (output.sourceKey?.split('@')[1] ??
-      'centre') as keyof typeof FIXTURE_POSITIONS;
-    const { dx, dy } = FIXTURE_POSITIONS[position] ?? FIXTURE_POSITIONS.centre;
-    return maskedCrop(await fixturePhoto(), {
+    const position = (output.sourceKey?.split('@')[1] ?? 'centre') as keyof typeof DEMO_POSITIONS;
+    const { dx, dy } = DEMO_POSITIONS[position] ?? DEMO_POSITIONS.centre;
+    return maskedCrop(await demoPhoto(), {
       ...detection,
       box: { ...detection.box, x: detection.box.x - dx, y: detection.box.y - dy },
     });
@@ -101,11 +100,11 @@ export async function itemCrop(
 /**
  * The camera's angle above the pinned surface: a rectangle seen at elevation
  * e looks sin(e) times as deep as it is. Null without a pin of this frame, or
- * for the fixture, whose illustration has no real camera.
+ * for the demo, whose illustration has no real camera.
  */
 export function pinElevation(memory: DeskMemory, mode: Mode): number | null {
   const pin = memory.surface;
-  if (mode === 'fixture' || !pin) return null;
+  if (mode === 'demo' || !pin) return null;
   const surface = isoSurface(pin.scene, pin.surfaceId, memory.scene);
   if (!surface) return null;
   const [a, b, c, d] = pin.corners;
@@ -164,6 +163,80 @@ export async function rescore(
   if (!fit || !png) return fit ?? null;
   const score = scoreAgainst(item, await cropInput(png, item.label), fit.elevation);
   return { ...fit, ...score };
+}
+
+/** A masked crop and what is known about it, ready to model. */
+export interface ModelRequest {
+  crop: Awaited<ReturnType<typeof maskedCrop>>;
+  cropUrl: string;
+  label: string;
+  archetype: Archetype;
+  material: ItemClass['material'] | null;
+  elevation: number | null;
+  /** Ask Meta's models for part masks and a check; off for the demo and `sampled`. */
+  live: boolean;
+}
+/**
+ * Model one masked crop. Live, SAM segments parts the fitter can use (a
+ * handle, the liquid) inside the crop first. The local fitter measures the
+ * model; live, Spark then compares a render with the photo and suggests
+ * bounded corrections, kept only when the silhouette still matches.
+ */
+export async function draftModel(
+  meta: MetaAdapter,
+  store: EvidenceStore,
+  runId: string,
+  { crop, cropUrl, label, archetype, material, elevation, live }: ModelRequest,
+) {
+  const assets: string[] = [];
+  const assists: string[] = [];
+  let usage: Usage | null = null;
+  // 1. Part masks from SAM, inside the crop.
+  const parts: FitInput['parts'] = {};
+  if (live)
+    for (const [key, concept] of Object.entries(PART_CONCEPTS[archetype] ?? {})) {
+      const result = await meta.segment(cropUrl, concept, crop.width, crop.height);
+      const bits = await detectionBits(result.output.detections, crop.width, crop.height);
+      parts[key as 'handle' | 'inside'] = bits;
+      assists.push(`SAM: ${concept} ${bits ? 'found' : 'not found'}`);
+    }
+  // 2. Measure and refine against the mask.
+  const input: FitInput = {
+    rgba: crop.rgba,
+    width: crop.width,
+    height: crop.height,
+    label,
+    archetype,
+    material,
+    elevation,
+    parts,
+  };
+  const fitted = fitItem(input);
+  let params = fitted.params;
+  let item = fitted.item;
+  let score = fitted.score;
+  // 3. Spark checks the render against the photo; keep its nudge only if it holds up.
+  if (live) {
+    const render = await viewPng(item, fitted.elevation, crop.width);
+    assets.push(store.asset(runId, 'item-render.png', render));
+    const check = await meta.itemCheck(
+      cropUrl,
+      `data:image/png;base64,${render.toString('base64')}`,
+      describeFit(params),
+    );
+    usage = addUsage(usage, check.usage);
+    const nudged = applyCheck(params, check.output);
+    const nudgedItem = buildItem(label, nudged);
+    const nudgedScore = scoreAgainst(nudgedItem, input, fitted.elevation);
+    const kept = nudgedScore.iou >= score.iou - 0.01;
+    if (kept) {
+      params = nudged;
+      item = nudgedItem;
+      score = nudgedScore;
+    }
+    assists.push(`Spark check (${kept ? 'kept' : 'not kept'}): ${check.output.note}`);
+  }
+  return { input, fitted, params, item, score, assets, assists, usage };
 }
 
 export function itemRoutes(
@@ -225,59 +298,29 @@ export function itemRoutes(
       if (source === 'spark') {
         const result = live
           ? await meta.itemClass(cropUrl, object.label)
-          : { output: fixtureItemClass, usage: null, model: undefined, requestId: null };
+          : { output: demoItemClass, usage: null, model: undefined, requestId: null };
         ({ archetype, material } = result.output);
         usage = addUsage(usage, result.usage);
         model = result.model ?? model;
         requestId = result.requestId ?? requestId;
         assists.push(`Spark: ${archetype}, ${material}. ${result.output.description}`);
       }
-      // 2. Part masks from SAM, inside the crop.
-      const parts: FitInput['parts'] = {};
-      if (live)
-        for (const [key, concept] of Object.entries(PART_CONCEPTS[archetype] ?? {})) {
-          const result = await meta.segment(cropUrl, concept, crop.width, crop.height);
-          const bits = await detectionBits(result.output.detections, crop.width, crop.height);
-          parts[key as 'handle' | 'inside'] = bits;
-          assists.push(`SAM: ${concept} ${bits ? 'found' : 'not found'}`);
-        }
-      // 3. Measure and refine against the mask.
-      const input: FitInput = {
-        rgba: crop.rgba,
-        width: crop.width,
-        height: crop.height,
+      // 2. Model the crop: part masks, the fitter and the check.
+      const drafted = await draftModel(meta, store, id, {
+        crop,
+        cropUrl,
         label: object.label,
         archetype,
         material,
         elevation,
-        parts,
-      };
-      const fitted = fitItem(input);
-      let params = fitted.params;
-      let item = fitted.item;
-      let score = fitted.score;
-      // 4. Spark checks the render against the photo; keep its nudge only if it holds up.
-      if (live) {
-        const render = await viewPng(item, fitted.elevation, crop.width);
-        assets.push(store.asset(id, 'item-render.png', render));
-        const check = await meta.itemCheck(
-          cropUrl,
-          `data:image/png;base64,${render.toString('base64')}`,
-          describeFit(params),
-        );
-        usage = addUsage(usage, check.usage);
-        const nudged = applyCheck(params, check.output);
-        const nudgedItem = buildItem(object.label, nudged);
-        const nudgedScore = scoreAgainst(nudgedItem, input, fitted.elevation);
-        const kept = nudgedScore.iou >= score.iou - 0.01;
-        if (kept) {
-          params = nudged;
-          item = nudgedItem;
-          score = nudgedScore;
-        }
-        assists.push(`Spark check (${kept ? 'kept' : 'not kept'}): ${check.output.note}`);
-      }
-      // 5. Another sighting of the same object: average the shape with what came before.
+        live,
+      });
+      const { input, fitted } = drafted;
+      let { params, item, score } = drafted;
+      assets.push(...drafted.assets);
+      assists.push(...drafted.assists);
+      usage = addUsage(usage, drafted.usage);
+      // 3. Another sighting of the same object: average the shape with what came before.
       const previous = object.item?.fit;
       let views = 1;
       if (
@@ -294,7 +337,7 @@ export function itemRoutes(
       item = keepLocked(item, object.item);
       const saved: SavedItem = {
         ...uniqueParts(item),
-        source: mode === 'fixture' ? 'fixture' : source,
+        source: mode === 'demo' ? 'demo' : source,
         segmentRunId: segment.id,
         swatches: fitted.swatches,
         updatedAt: new Date().toISOString(),

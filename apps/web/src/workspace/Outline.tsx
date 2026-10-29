@@ -80,7 +80,7 @@ export function Outline() {
     .filter(({ o }) => !tracked.has(o.label.toLowerCase()));
   const canRule =
     Boolean((memory?.object && memory.observation) || memory?.others?.some((o) => o.observation)) &&
-    lab.lights.length > 0 &&
+    lab.entities.length > 0 &&
     (memory?.rules?.length ?? 0) < MAX_RULES;
   const surface = (r: SurfaceRow, depth: number) => (
     <Row
@@ -208,7 +208,7 @@ export function Outline() {
                 <Row
                   key={r.id}
                   label={r.label}
-                  detail={`→ ${r.lightId}`}
+                  detail={`→ ${r.entityId}`}
                   state={r.lastDecision ? 'done' : 'todo'}
                   target={{ kind: 'rule', id: r.id }}
                 />

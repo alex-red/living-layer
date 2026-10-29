@@ -354,7 +354,7 @@ describe('fitting a model to a photo', () => {
     const { rect } = isoSurface('desk', 'desk:top')!;
     const expected = (Math.asin(125 / 400 / (rect.d / rect.w)) * 180) / Math.PI;
     expect(pinElevation(memory, 'live')).toBeCloseTo(expected, 1);
-    expect(pinElevation(memory, 'fixture')).toBeNull();
+    expect(pinElevation(memory, 'demo')).toBeNull();
   });
 });
 

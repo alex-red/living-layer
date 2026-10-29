@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import {
   isMugConcept,
   runCost,
+  upgradeMemory,
   type EvidenceRun,
   type LabStatus,
   type DeskMemory,
@@ -24,6 +25,24 @@ export class EvidenceStore {
       CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS desk_memory (mode TEXT PRIMARY KEY, payload TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS placement_claims (segment_id TEXT PRIMARY KEY, created_at TEXT NOT NULL);`);
+    this.renameDemoMode();
+  }
+  /**
+   * The offline mode used to be called `fixture`. Payloads are compact JSON, so
+   * the mode and the virtual light ids can be renamed as text.
+   */
+  private renameDemoMode(): void {
+    const renamed = (column: string) =>
+      `replace(replace(replace(${column}, '"mode":"fixture"', '"mode":"demo"'), '"source":"fixture"', '"source":"demo"'), 'light.fixture_', 'light.demo_')`;
+    this.db.transaction(() => {
+      this.db.run(
+        `UPDATE evidence SET payload = ${renamed('payload')} WHERE payload LIKE '%fixture%'`,
+      );
+      this.db.run(
+        `UPDATE OR IGNORE desk_memory SET mode = 'demo', payload = ${renamed('payload')} WHERE mode = 'fixture'`,
+      );
+      this.db.run("DELETE FROM desk_memory WHERE mode = 'fixture'");
+    })();
   }
   save(run: EvidenceRun): void {
     this.db.run('INSERT INTO evidence VALUES (?, ?, ?)', [
@@ -54,7 +73,7 @@ export class EvidenceStore {
       .query<Payload, [Mode]>('SELECT payload FROM desk_memory WHERE mode = ?')
       .get(mode);
     return row
-      ? (JSON.parse(row.payload) as DeskMemory)
+      ? upgradeMemory(JSON.parse(row.payload) as DeskMemory)
       : { mode, object: null, observation: null, zone: null, lastDecision: null };
   }
   saveMemory(memory: DeskMemory): void {
@@ -163,9 +182,12 @@ export class EvidenceStore {
         (r) =>
           r.kind === 'segment' && isMugConcept(String((r.output as { concept?: string }).concept)),
       ),
+      // Proof of the lamp: a light turned on, not a switch or a light turned off.
       lamp: runs.some(
         (r) =>
-          r.kind === 'lamp' ||
+          (r.kind === 'lamp' &&
+            !String((r.output as { entityId?: string }).entityId).startsWith('switch.') &&
+            (r.output as { action?: string }).action !== 'off') ||
           (r.kind === 'placement' &&
             (r.output as { lamp?: { stateConfirmed?: boolean } }).lamp?.stateConfirmed === true),
       ),

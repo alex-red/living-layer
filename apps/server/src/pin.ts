@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import {
   META_PRICES,
-  fixtureSourceKey,
+  demoSourceKey,
   modeSchema,
   pinFromMask,
   promptBox,
@@ -13,7 +13,7 @@ import {
   type Segmentation,
 } from '@livinglayer/domain';
 import { LabError, parseInput } from './errors.js';
-import { fixturePhotoInventory, fixturePhotoSegmentation } from './fixtures.js';
+import { demoPhotoInventory, demoPhotoSegmentation } from './demo.js';
 import { validateImage } from './images.js';
 import type { Runner } from './item.js';
 import type { MetaAdapter } from './meta.js';
@@ -26,10 +26,10 @@ export interface AutoPin {
   pin: { corners: Quad; iou: number; frame: Segmentation['frame'] } | null;
 }
 
-/** The illustrated desk's own outline, from the offline photo draft's box-prompted masks. */
-async function fixtureDesk(): Promise<Segmentation> {
-  const segmentation = await fixturePhotoSegmentation();
-  const index = fixturePhotoInventory.things.findIndex(
+/** The illustrated desk's own outline, from the offline demo photo draft's box-prompted masks. */
+async function demoDesk(): Promise<Segmentation> {
+  const segmentation = await demoPhotoSegmentation();
+  const index = demoPhotoInventory.things.findIndex(
     (t) => t.id === 'desk' && promptBox(t, segmentation.frame),
   );
   const desk = segmentation.detections.filter((d) => d.objectId === String(index + 1));
@@ -55,7 +55,7 @@ export function pinRoutes(
     );
     const live = input.mode === 'live';
     if (!live && input.imageDataUrl)
-      throw new LabError('fixture_image', 'Fixture mode uses only the bundled illustrated desk.');
+      throw new LabError('demo_image', 'Demo mode uses only the bundled illustrated desk.');
     if (live && !meta.canAfford(META_PRICES.samPerImage))
       throw new LabError(
         'spend_limit',
@@ -64,9 +64,9 @@ export function pinRoutes(
       );
     const segment = (await run('segment', input.mode, async (id) => {
       if (!live) {
-        const output = await fixtureDesk();
+        const output = await demoDesk();
         return {
-          output: { ...output, sourceKey: fixtureSourceKey() },
+          output: { ...output, sourceKey: demoSourceKey() },
           assets: [store.asset(id, 'synthetic-sam.txt', 'The illustrated desk’s outline.')],
         };
       }

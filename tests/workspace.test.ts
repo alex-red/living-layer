@@ -47,9 +47,9 @@ describe('scene progress', () => {
 
   it('counts the demo desk as pinned, and a desk pin for the office too', () => {
     const demo = sceneProgress({
-      mode: 'fixture',
+      mode: 'demo',
       workScene: 'office',
-      memory: emptyDesk('fixture'),
+      memory: emptyDesk('demo'),
     });
     expect(demo.pinned).toBe(true);
     expect(demo.next).toBe('objects');
@@ -64,14 +64,14 @@ describe('scene progress', () => {
 
   it('walks through objects, the zone and a run', () => {
     const memory = {
-      ...emptyDesk('fixture'),
+      ...emptyDesk('demo'),
       object: { id: 'm', label: 'My desk mug' },
     } as unknown as DeskMemory;
-    expect(sceneProgress({ mode: 'fixture', workScene: 'desk', memory }).next).toBe('rule');
+    expect(sceneProgress({ mode: 'demo', workScene: 'desk', memory }).next).toBe('rule');
     const zoned = { ...memory, zone: { id: 'z' } } as unknown as DeskMemory;
-    expect(sceneProgress({ mode: 'fixture', workScene: 'desk', memory: zoned }).next).toBe('run');
+    expect(sceneProgress({ mode: 'demo', workScene: 'desk', memory: zoned }).next).toBe('run');
     const ran = { ...zoned, lastDecision: { id: 'd' } } as unknown as DeskMemory;
-    const p = sceneProgress({ mode: 'fixture', workScene: 'desk', memory: ran });
+    const p = sceneProgress({ mode: 'demo', workScene: 'desk', memory: ran });
     expect(p.next).toBeNull();
     expect(p.steps.every((s) => s.state === 'done')).toBe(true);
   });
@@ -110,7 +110,7 @@ describe('selection', () => {
   });
 
   it('points each step at where it is worked on', () => {
-    expect(selectionForStep('objects', emptyDesk('fixture'))).toEqual({ kind: 'add' });
+    expect(selectionForStep('objects', emptyDesk('demo'))).toEqual({ kind: 'add' });
     expect(selectionForStep('run')).toEqual({ kind: 'rule', id: 'main' });
   });
 });

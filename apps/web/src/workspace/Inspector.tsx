@@ -244,7 +244,7 @@ function MaskResults() {
           {MAX_OTHER_OBJECTS} extra objects is the most this desk remembers. Forget one first.
         </p>
       )}
-      {mode === 'fixture' && !mug && (
+      {mode === 'demo' && !mug && (
         <p className="micro">
           The demo’s outline finder only knows the mug, the book and the bottle.
         </p>
@@ -396,7 +396,7 @@ function SurfacePanel({ id, closeView }: { id: string; closeView?: boolean }) {
       </Panel>
     );
   const label = row.surface.label.toLowerCase();
-  const demoPin = mode === 'fixture' && !memory?.surface && row.pinned;
+  const demoPin = mode === 'demo' && !memory?.surface && row.pinned;
   const needPhoto = mode === 'live' && !image;
   const title = closeView && progress.view ? ISO_PRESETS[progress.view].label : row.surface.label;
   // The fitter measures desk-shaped tops: a desk or a table, seen from above its front edge.
@@ -671,7 +671,7 @@ function MugPanel() {
         <Glyph type="arrow" />
       </button>
       <p className="micro">
-        {mode === 'fixture'
+        {mode === 'demo'
           ? 'Move the mug with the buttons under the canvas, then track it.'
           : 'Move the mug, start the camera, then capture & track.'}
       </p>
@@ -807,7 +807,7 @@ function OtherPanel({ id }: { id: string }) {
           : 'Outline it in this frame, then track it.'}
       </p>
       <div className="insp-links">
-        {lab.lights.length > 0 && o.observation && (
+        {lab.entities.length > 0 && o.observation && (
           <button className="text-button" onClick={() => lab.startRule(o.id)}>
             Add a rule for it →
           </button>
@@ -853,7 +853,7 @@ function ZonePanel() {
       </Panel>
     );
   const d = memory.lastDecision?.output;
-  const lampName = mode === 'fixture' ? 'virtual lamp' : 'lamp';
+  const lampName = mode === 'demo' ? 'virtual lamp' : 'lamp';
   const status = !memory.zone
     ? currentObservation
       ? 'Draw the zone the mug should be in.'
@@ -946,7 +946,7 @@ function ZonePanel() {
       >
         {busy === 'verify'
           ? 'Checking placement…'
-          : mode === 'fixture'
+          : mode === 'demo'
             ? 'Verify placement · virtual lamp'
             : 'Verify placement · turn on lamp'}
       </button>
@@ -1020,7 +1020,7 @@ function RulePanel({ id }: { id: string }) {
           ? 'Not checked yet. Track the object or check the rules.'
           : d.decision === 'inside'
             ? d.action === 'confirmed'
-              ? `The ${object ?? 'object'} is in the zone. ${r.lightId} turned on.`
+              ? `The ${object ?? 'object'} is in the zone. ${r.entityId} turned on.`
               : `The ${object ?? 'object'} is in the zone.`
             : d.decision === 'outside'
               ? `The ${object ?? 'object'} is outside the zone.`
@@ -1032,7 +1032,7 @@ function RulePanel({ id }: { id: string }) {
     >
       <p className="rule-sentence">
         When <strong>{object ?? 'a forgotten object'}</strong> is {r.placement}{' '}
-        <strong>{r.label}</strong>, turn on <strong>{r.lightId}</strong>.
+        <strong>{r.label}</strong>, turn on <strong>{r.entityId}</strong>.
       </p>
       <button
         className="primary"
@@ -1068,7 +1068,7 @@ function RulePanel({ id }: { id: string }) {
 /** A rule as a sentence: when [object] is inside [a zone you drag] turn on [light]. */
 function NewRulePanel() {
   const lab = useLab();
-  const { memory, ruleDraft: draft, lights } = lab;
+  const { memory, ruleDraft: draft, entities } = lab;
   const { call, off } = useCall();
   if (!draft) return <SetupPanel />;
   const objects = [
@@ -1117,10 +1117,10 @@ function NewRulePanel() {
         <span>turn on</span>
         <select
           aria-label="Rule light"
-          value={draft.lightId}
-          onChange={(e) => set({ lightId: e.target.value })}
+          value={draft.entityId}
+          onChange={(e) => set({ entityId: e.target.value })}
         >
-          {lights.map((l) => (
+          {entities.map((l) => (
             <option key={l} value={l}>
               {l}
             </option>
@@ -1130,7 +1130,7 @@ function NewRulePanel() {
       <div className="save-actions">
         <button
           className="primary"
-          disabled={off || !draft.rect || !draft.label.trim() || !draft.lightId}
+          disabled={off || !draft.rect || !draft.label.trim() || !draft.entityId}
           onClick={() =>
             void call<DeskMemory>(
               'desk/rules/save',
@@ -1138,7 +1138,7 @@ function NewRulePanel() {
                 rule: {
                   label: draft.label.trim(),
                   objectId: draft.objectId,
-                  lightId: draft.lightId,
+                  entityId: draft.entityId,
                   rect: draft.rect,
                 },
               },
@@ -1159,9 +1159,10 @@ function NewRulePanel() {
           Cancel
         </button>
       </div>
-      {!lights.length && (
+      {!entities.length && (
         <p className="micro">
-          Set HA_ENTITY_ID (and HA_EXTRA_ENTITY_IDS for more) to choose lights.
+          Set HA_ENTITY_ID (and HA_EXTRA_ENTITY_IDS for more lights, HA_SWITCH_ENTITY_IDS for
+          switches) to choose what a rule turns on.
         </p>
       )}
     </Panel>

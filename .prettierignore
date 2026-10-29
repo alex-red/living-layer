@@ -5,7 +5,7 @@ test-results/
 playwright-report/
 bun.lock
 licenses/meta-sam-LICENSE.txt
-fixtures/sam-mug.json
+testdata/sam-mug.json
 
-# Keep original vector fixtures byte-stable.
+# Keep original vector test data byte-stable.
 **/*.svg

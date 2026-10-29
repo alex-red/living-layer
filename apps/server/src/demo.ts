@@ -1,10 +1,11 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import {
-  FIXTURE_POSITIONS,
-  FIXTURE_LIGHTS,
+  DEMO_POSITIONS,
+  DEMO_LIGHTS,
+  DEMO_SWITCHES,
   isMugConcept,
-  type FixturePosition,
+  type DemoPosition,
   type Scene,
   type SceneGuess,
   type SceneDraft,
@@ -13,12 +14,15 @@ import {
   type PhotoCheck,
   type PhotoInventory,
   type Segmentation,
+  type DemoReference,
+  type FixtureClass,
 } from '@livinglayer/domain';
+import sharp from 'sharp';
 import { PROJECT_ROOT } from './config.js';
 import { LabError } from './errors.js';
 import { decodeSegmentation, syntheticStream } from './sam.js';
 
-export const fixtureScene: Scene = {
+export const demoScene: Scene = {
   summary: 'An illustrated desk with a cream mug, a green book, and a sage bottle.',
   objects: [
     { label: 'cream mug', category: 'mug', appearance: 'Cream body with a handle on the right.' },
@@ -30,13 +34,13 @@ export const fixtureScene: Scene = {
     { label: 'sage bottle', category: 'bottle', appearance: 'Tall sage bottle on the right.' },
   ],
 };
-export const fixtureSceneGuess: SceneGuess = {
+export const demoSceneGuess: SceneGuess = {
   kind: 'desk',
   visibleProps: ['book', 'bottle'],
   summary: 'An illustrated desk seen from above, with a book and a bottle.',
 };
 /** What a Spark layout of the illustrated desk could look like, with no model call. */
-export const fixtureSceneDraft: SceneDraft = {
+export const demoSceneDraft: SceneDraft = {
   grid: { w: 10, d: 8 },
   items: [
     { template: 'wall', x: 0, y: 0, turns: 0 },
@@ -52,7 +56,7 @@ export const fixtureSceneDraft: SceneDraft = {
   summary: 'An illustrated desk against a wall, with a lamp, a book, a bottle and a chair.',
 };
 /** What a Spark inventory of the illustrated desk could look like, boxes in thousandths. */
-export const fixturePhotoInventory: PhotoInventory = {
+export const demoPhotoInventory: PhotoInventory = {
   kind: 'desk',
   things: [
     {
@@ -90,10 +94,10 @@ export const fixturePhotoInventory: PhotoInventory = {
   ],
   summary: 'An illustrated desk seen from above, with a cream mug, a green book and a sage bottle.',
 };
-export const fixturePhotoCheck: PhotoCheck = {
+export const demoPhotoCheck: PhotoCheck = {
   missing: [],
   extra: [],
-  note: 'Fixture: the drawn desk matches the illustration.',
+  note: 'Demo: the drawn desk matches the illustration.',
 };
 /** A polygon in frame pixels as a detection: box around it, the path in the box's own pixels. */
 function polygonDetection(objectId: string, points: [number, number][]): Detection {
@@ -128,8 +132,8 @@ function polygonDetection(objectId: string, points: [number, number][]): Detecti
  * bottle drawn from the SVG's own shapes, and the mug's synthetic mask. Ids
  * follow the inventory's order, as box prompts would be numbered.
  */
-export async function fixturePhotoSegmentation(): Promise<Segmentation> {
-  const mug = (await fixtureSegmentation('mug')).output.detections[0]!;
+export async function demoPhotoSegmentation(): Promise<Segmentation> {
+  const mug = (await demoSegmentation('mug')).output.detections[0]!;
   const turn = (x: number, y: number): [number, number] => {
     const a = (-9 * Math.PI) / 180;
     const [dx, dy] = [x - 180, y - 340];
@@ -161,22 +165,25 @@ export async function fixturePhotoSegmentation(): Promise<Segmentation> {
   };
 }
 /** The synthetic mug mask, moved to `position` the same way the web redraws the desk. */
-export async function fixtureSegmentation(concept: string, position: FixturePosition = 'centre') {
-  const fixture = JSON.parse(
-    readFileSync(resolve(PROJECT_ROOT, 'fixtures/sam-mug.json'), 'utf8'),
-  ) as { width: number; height: number; wire: string };
+export async function demoSegmentation(concept: string, position: DemoPosition = 'centre') {
+  const demo = JSON.parse(readFileSync(resolve(PROJECT_ROOT, 'testdata/sam-mug.json'), 'utf8')) as {
+    width: number;
+    height: number;
+    wire: string;
+  };
   const result = await decodeSegmentation(
-    syntheticStream(isMugConcept(concept) ? fixture.wire : ''),
+    syntheticStream(isMugConcept(concept) ? demo.wire : ''),
     concept,
-    fixture.width,
-    fixture.height,
+    demo.width,
+    demo.height,
   );
-  const { dx, dy } = FIXTURE_POSITIONS[position];
+  const { dx, dy } = DEMO_POSITIONS[position];
   for (const d of result.output.detections) d.box = { ...d.box, x: d.box.x + dx, y: d.box.y + dy };
   return result;
 }
-export const fixtureLamp: LampResult = {
-  entityId: FIXTURE_LIGHTS[0]!,
+export const demoLamp: LampResult = {
+  entityId: DEMO_LIGHTS[0]!,
+  action: 'on',
   accepted: true,
   stateConfirmed: true,
   physicalEffectVerified: false,
@@ -185,9 +192,73 @@ export const fixtureLamp: LampResult = {
   explanation:
     'Virtual adapter only. No Home Assistant request was sent and no physical effect was verified.',
 };
-/** The virtual adapter for any fixture light. */
-export function fixtureLampFor(entityId: string): LampResult {
-  if (!FIXTURE_LIGHTS.includes(entityId))
-    throw new LabError('lamp_unknown', 'That light is not one of the fixture lights.', 409);
-  return { ...fixtureLamp, entityId };
+/** The virtual adapter for any demo light or switch. */
+export function demoLampFor(entityId: string, action: 'on' | 'off' = 'on'): LampResult {
+  if (![...DEMO_LIGHTS, ...DEMO_SWITCHES].includes(entityId))
+    throw new LabError(
+      'lamp_unknown',
+      'That entity is not one of the demo lights or switches.',
+      409,
+    );
+  const dims = entityId.startsWith('light.') && action === 'on';
+  return { ...demoLamp, entityId, action, state: action, desired: dims ? demoLamp.desired : {} };
+}
+
+/** What a Spark class of each demo reference picture could look like, with no model call. */
+export const demoFixtureClass: Record<DemoReference, FixtureClass> = {
+  mouse: {
+    label: 'Computer mouse',
+    // Until there is a flat device shape, a mouse is modelled as a rounded box.
+    archetype: 'box',
+    material: 'matte',
+    control: 'none',
+    description:
+      'A graphite computer mouse with a scroll wheel, seen from above, cable at the back.',
+    box: { x1: 344, y1: 233, x2: 656, y2: 856 },
+    sizeCm: { w: 6.5, d: 11.5, h: 4 },
+  },
+};
+const references = new Map<DemoReference, { png: Buffer; detection: Detection }>();
+/**
+ * A demo reference picture, rasterized as a camera would see it, and the
+ * thing's mask: the outline of the SVG's own `mouse-body` polygon, so the
+ * mask matches the drawing exactly. No codec or model is involved.
+ */
+export async function demoReference(
+  name: DemoReference,
+): Promise<{ png: Buffer; detection: Detection }> {
+  const cached = references.get(name);
+  if (cached) return cached;
+  const svg = readFileSync(resolve(PROJECT_ROOT, `apps/web/public/${name}.svg`), 'utf8');
+  const points = svg
+    .match(new RegExp(`id="${name}-body" points="([^"]+)"`))?.[1]
+    ?.trim()
+    .split(/\s+/)
+    .map((p) => p.split(',').map(Number) as [number, number]);
+  if (!points?.length) throw new LabError('demo_reference', `The ${name} picture has no outline.`);
+  const xs = points.map(([x]) => x);
+  const ys = points.map(([, y]) => y);
+  const x = Math.floor(Math.min(...xs));
+  const y = Math.floor(Math.min(...ys));
+  const width = Math.ceil(Math.max(...xs)) - x;
+  const height = Math.ceil(Math.max(...ys)) - y;
+  const path = points.map(([px, py], i) => `${i ? 'L' : 'M'}${px - x} ${py - y}`).join('') + 'Z';
+  const area =
+    Math.abs(
+      points.reduce((sum, [ax, ay], i) => {
+        const [bx, by] = points[(i + 1) % points.length]!;
+        return sum + ax * by - bx * ay;
+      }, 0),
+    ) / 2;
+  const reference = {
+    png: await sharp(Buffer.from(svg)).png().toBuffer(),
+    detection: {
+      objectId: name,
+      confidence: null,
+      box: { x, y, width, height },
+      mask: { width, height, foregroundPixels: Math.round(area), svgPath: path },
+    },
+  };
+  references.set(name, reference);
+  return reference;
 }
