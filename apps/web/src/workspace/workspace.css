@@ -98,6 +98,16 @@
   color: var(--text);
   font-weight: 600;
 }
+/* The capsule keeps to the middle; a long message wraps to two lines, then ends in an ellipsis. */
+.topbar .feedback {
+  max-width: min(520px, 36vw);
+}
+.topbar .feedback-text {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
 .topbar-links .mode-switch button {
   min-width: 64px;
 }
@@ -783,6 +793,9 @@
 /* Phone: one column, scene first, then the inspector, then the outline. The
    inspector's main action sticks to the bottom, within thumb reach. */
 @media (max-width: 767px) {
+  .topbar .feedback {
+    max-width: none;
+  }
   .topbar-links .history,
   .brand-name,
   .budget-pill .budget-text {

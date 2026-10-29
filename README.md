@@ -4,25 +4,19 @@ Living Layer gives everyday objects a memory so your smart home can react to the
 
 It's an early local lab, not a product. One desk, one mug, one lamp.
 
+![The desk lab: the scene outline, the photo beside its isometric twin, and the mug's inspector](docs/media/workspace.png)
+
 ## How it works
 
-1. **Discover**: a vision model ([Meta Spark](https://dev.meta.ai/docs)) names up to three movable objects in a photo.
-2. **Segment**: [SAM 3.1](https://dev.meta.ai/docs/sam/reading-segmentation) returns a mask for the object you pick.
-3. **Remember**: you confirm a mask belongs to your mug. Identity is manual for now.
-4. **Place**: draw a zone on the same image. If the mug's whole box fits inside it, Living Layer turns on one Home Assistant light.
+The lab is scene first: it keeps a small map of your room, and every object, zone and light lives in it.
 
-Or start from one photo: when the lab asks for your room, choose **Photograph your office** (or, on a room you already have, select it in the outline and choose **Edit layout**). It takes two billed calls, or three with the check:
+1. **Your office.** Photograph the room, or use the demo office. From a photo, [Meta Spark](https://dev.meta.ai/docs) lists what's there with loose boxes, [SAM 3.1](https://dev.meta.ai/docs/sam/reading-segmentation) outlines every box in one call, and code measures the rest from the masks: the desktop's corners, the camera, where each thing stands, and a pixel-art model fitted to each object. You review the draft (drag a corner, change or remove things, tick what to track) and save it in one go. That's two billed calls, or three with Spark's check.
+2. **The office desk.** A close view inside the office, the one the camera watches. SAM outlines the desk on a close photo and its corners are measured for you to check, or you click them yourself. The pin maps the camera's pixels onto the desk, so a mug on the photo stands in the right spot in the iso room.
+3. **Objects.** SAM outlines what you name, or what Spark suggests. You confirm which outline is your mug; identity is always your call.
+4. **A rule.** _When the mug is inside this zone, turn on the desk lamp._ Draw the zone on the photo or the iso desk.
+5. **Run it.** Move the mug and track it. If its whole box is inside the zone, Living Layer turns on one Home Assistant light, and the decision is saved with its reason.
 
-1. Spark lists what's in the photo, each thing with a loose box.
-2. SAM 3.1 outlines every box in a single call.
-3. Code measures the rest from the masks:
-   - pins the desktop from its outline;
-   - works out the camera from those four corners;
-   - stands each thing where its outline meets the desk or the floor;
-   - fits a pixel-art model to each object;
-   - scores the drawing against the masks.
-
-You then review the draft: drag a corner, change or remove things, tick what to track. Save keeps it all in one go.
+The scene outline on the left doubles as the setup checklist. The inspector on the right shows whatever you select, with one main action. Every model call and decision is in the activity drawer below, with what it cost.
 
 Everything runs on your machine. The server binds to `127.0.0.1` and rejects other hosts and origins. A bundled synthetic demo lets you run the whole loop with no API key, camera, or lamp.
 
@@ -39,7 +33,16 @@ bun run dev
 
 Open http://127.0.0.1:5173. The API runs on port 4310.
 
-In **Demo** mode, click _Discover objects_, then _Segment object_, _Confirm mug mask #7_, draw a zone around the mug, and _Verify placement_. The lamp is virtual in this mode and nothing leaves your machine.
+![The first screen: start from the demo office or a photo of your own](docs/media/start.png)
+
+Choose **Use the demo office**. The illustrated desk comes already pinned. Then:
+
+1. In the outline, choose **Add object**, then **Segment object** and **Confirm mug mask #7**.
+2. Select **Mug zone**, choose **Draw / edit zone**, drag a box around the mug and **Save zone**.
+3. Choose **Verify placement · virtual lamp**. The room warms up when the lamp turns on.
+4. Move the mug with **Right** under the canvas, select **My desk mug** and choose **Track the mug** to watch the rule decide again.
+
+The lamp is virtual in this mode and nothing leaves your machine.
 
 ## Going live
 
@@ -56,7 +59,7 @@ Copy `.env.example` to `.env` and fill in what you need. Restart the server afte
 | `HA_LIVE_ENABLED`                    | Set to `true` to allow the lamp to be switched.                                             |
 | `CAMERA_STREAMS`                     | Optional. WHEP URLs of network cameras, for networks where mDNS discovery is blocked.       |
 
-Then switch to **Live** mode, upload or capture a photo, and go through the same steps. Photos are only sent to Meta when you press a probe button.
+Then switch to **Live** mode and go through the same steps with your own photos or camera: photograph the office, then a close photo of the desk for **Find the desktop**. Photos are only sent to Meta when you press a button that says it calls a model. The spend pill in the top bar shows today's spend against the limit.
 
 You can also run the probes from the command line:
 

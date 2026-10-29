@@ -70,14 +70,20 @@ export function Outline() {
   const step = Object.fromEntries(progress.steps.map((s) => [s.id, s]));
   const rows = surfaceRows(lab);
   const objectDepth = progress.view ? 2 : 1;
+  // A suggestion goes once something remembered covers it: by name, or by what it is (the mug).
   const tracked = new Set(
-    [memory?.object?.label, ...(memory?.others ?? []).map((o) => o.label)]
+    [memory?.object?.label, ...(memory?.others ?? []).flatMap((o) => [o.label, o.concept])]
       .filter(Boolean)
-      .map((l) => l!.toLowerCase()),
+      .map((l) => l!.trim().toLowerCase()),
   );
   const suggested = (lab.scene?.objects ?? [])
     .map((o, index) => ({ o, index }))
-    .filter(({ o }) => !tracked.has(o.label.toLowerCase()));
+    .filter(
+      ({ o }) =>
+        !tracked.has(o.label.toLowerCase()) &&
+        !tracked.has(o.category.toLowerCase()) &&
+        !(memory?.object && isMugConcept(o.category)),
+    );
   const canRule =
     Boolean((memory?.object && memory.observation) || memory?.others?.some((o) => o.observation)) &&
     lab.entities.length > 0 &&
