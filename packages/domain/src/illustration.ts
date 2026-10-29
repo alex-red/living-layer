@@ -9,7 +9,7 @@ import {
   type SurfacePin,
 } from './iso.js';
 import { ISO_PRESETS, isoSurface } from './iso-presets.js';
-import { worldSurface, type IsoScene, type IsoSurface, type IsoVec } from './iso.js';
+import { worldSurface, type IsoBox, type IsoScene, type IsoSurface, type IsoVec } from './iso.js';
 import {
   cameraFromPin,
   fitSurfaceQuad,
@@ -20,6 +20,36 @@ import {
 
 /** A room's picture: `runId/illustration.png` in the evidence store. */
 export const illustrationRef = z.string().regex(/^[a-z0-9-]{1,64}\/illustration\.png$/);
+/** A picture or one of its layers: the base it is drawn on, or one fixture cut out of it. */
+export const pictureLayerRef = z
+  .string()
+  .regex(/^[a-z0-9-]{1,64}\/(illustration|base|sprite-\d{1,2})\.png$/);
+/** The most fixtures one picture is separated into: what one SAM call outlines. */
+export const MAX_SPRITES = 16;
+const boxSchema = z
+  .object({
+    x: z.number(),
+    y: z.number(),
+    width: z.number().positive(),
+    height: z.number().positive(),
+  })
+  .strict();
+/**
+ * One fixture cut out of the picture: its pixels, where they were, and where
+ * its base's centre was and how big its footprint was when it was cut. The
+ * sprite follows the fixture from there: moved with the base's centre, and
+ * scaled with its footprint.
+ */
+export const pictureSpriteSchema = z
+  .object({
+    fixtureId: z.string().min(1).max(80),
+    asset: pictureLayerRef,
+    box: boxSchema,
+    anchor: pointSchema,
+    size: z.object({ w: z.number().positive(), d: z.number().positive() }).strict(),
+  })
+  .strict();
+export type PictureSprite = z.infer<typeof pictureSpriteSchema>;
 /**
  * A clean isometric picture of a person's room, drawn by an image model from
  * its photo, and where the pinned surface's top is in it. The corners follow
@@ -42,6 +72,18 @@ export const sceneIllustrationSchema = z
      * of a frame this size maps onto the picture by scale alone.
      */
     drawnFrom: frameSchema.optional(),
+    /**
+     * The picture with its fixtures lifted off: a base with them removed, and
+     * each one as a sprite drawn over it where the fixture stands now.
+     */
+    layers: z
+      .object({
+        base: pictureLayerRef,
+        sprites: z.array(pictureSpriteSchema).max(MAX_SPRITES),
+        createdAt: z.string(),
+      })
+      .strict()
+      .optional(),
     createdAt: z.string(),
   })
   .strict();
@@ -249,3 +291,91 @@ export function pictureToScene(
   }
   return { ...at(0), surfaceId: null };
 }
+
+/**
+ * Where a fixture's box shows on the room picture: the box around its eight
+ * corners, padded a little for what overhangs it, and its base's centre.
+ * What a fixture is cut out of the picture by, and where its sprite goes.
+ */
+export function fixtureInPicture(
+  pin: SurfacePin,
+  picture: SceneIllustration,
+  custom: IsoScene | null,
+  box: IsoBox,
+): {
+  box: { x: number; y: number; width: number; height: number };
+  anchor: Point;
+  /** The box's eight corners in the picture, for its silhouette. */
+  corners: Point[];
+} | null {
+  const { at, size } = box;
+  const to = (x: number, y: number, z: number) =>
+    scenePointInPicture(pin, picture, custom, { x, y, z });
+  const corners = [0, 1].flatMap((i) =>
+    [0, 1].flatMap((j) =>
+      [0, 1].map((k) => to(at.x + i * size.w, at.y + j * size.d, at.z + k * size.h)),
+    ),
+  );
+  const anchor = to(at.x + size.w / 2, at.y + size.d / 2, at.z);
+  if (!anchor || !corners.every(Boolean)) return null;
+  const xs = corners.map((p) => p!.x);
+  const ys = corners.map((p) => p!.y);
+  const pad = 0.12 * Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys));
+  const x = Math.max(0, Math.min(...xs) - pad);
+  const y = Math.max(0, Math.min(...ys) - pad);
+  const right = Math.min(picture.frame.width, Math.max(...xs) + pad);
+  const bottom = Math.min(picture.frame.height, Math.max(...ys) + pad);
+  if (right - x < 2 || bottom - y < 2) return null;
+  return {
+    box: { x, y, width: right - x, height: bottom - y },
+    anchor,
+    corners: corners as Point[],
+  };
+}
+/**
+ * Where a sprite is drawn for its fixture as it stands now: moved with its
+ * base's centre, and scaled about it as the footprint's area changed since
+ * the cut. The picture is a parallel projection, so a move alone keeps it
+ * the same size.
+ */
+export function spriteBox(
+  sprite: PictureSprite,
+  now: { anchor: Point; w: number; d: number },
+): { x: number; y: number; width: number; height: number } {
+  const k = Math.sqrt((now.w * now.d) / (sprite.size.w * sprite.size.d));
+  return {
+    x: now.anchor.x + (sprite.box.x - sprite.anchor.x) * k,
+    y: now.anchor.y + (sprite.box.y - sprite.anchor.y) * k,
+    width: sprite.box.width * k,
+    height: sprite.box.height * k,
+  };
+}
+
+/**
+ * What Spark says about where the room's fixtures are drawn in its picture:
+ * each by its number in the list it was given, with a tight box in
+ * thousandths of the picture, or not seen.
+ */
+export const pictureFindSchema = z
+  .object({
+    found: z
+      .array(
+        z
+          .object({
+            index: z.number().int().min(1).max(MAX_SPRITES),
+            seen: z.boolean(),
+            box: z
+              .object({
+                x1: z.number().int().min(0).max(1000),
+                y1: z.number().int().min(0).max(1000),
+                x2: z.number().int().min(0).max(1000),
+                y2: z.number().int().min(0).max(1000),
+              })
+              .strict(),
+          })
+          .strict(),
+      )
+      .max(MAX_SPRITES),
+  })
+  .strict();
+export type PictureFind = z.infer<typeof pictureFindSchema>;

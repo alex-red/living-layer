@@ -16,6 +16,7 @@ import {
   placeTemplate,
   pictureToScene,
   pictureToSceneAt,
+  spriteBox,
   isDismissed,
   scenePointInPicture,
   placeholderModel,
@@ -24,6 +25,7 @@ import {
   type Fixture,
   type FixtureScan,
   type MappedThing,
+  type PhotoDraft,
   type Point,
   type SurfacePin,
   type ScannedThing,
@@ -519,6 +521,100 @@ describe('scanning the demo desk', () => {
     const released = (await s.post('fixtures/release', { scene: 'desk' })).json<DeskMemory>();
     expect(released.fixtures!.every((f) => f.scanned)).toBe(true);
   });
+  it('lifts the room’s fixtures off its picture, as sprites over a base, and puts them back', async () => {
+    const s = await setup();
+    expect((await s.post('scene/separate')).statusCode).toBe(409);
+    const draft = (await s.post('scene/from-photo')).json<EvidenceRun<PhotoDraft>>();
+    const { layout } = draft.output;
+    await s.post('scene/from-photo/save', {
+      runId: draft.id,
+      scene: layout.scene,
+      pin: layout.pin,
+      track: [],
+    });
+    await s.post('scene/illustrate');
+    // Nothing of the room yet: the demo's scans map the preset desk.
+    expect((await s.post('scene/separate')).statusCode).toBe(409);
+    const top = layout.scene.surfaces.find((x) => x.id === layout.pin!.surfaceId)!;
+    const {
+      id: _id,
+      createdAt: _c,
+      updatedAt: _u,
+      state: _s,
+      model,
+      ...rest
+    } = fixture({
+      label: 'Green book',
+      scene: 'custom',
+      surfaceId: top.id,
+      at: { x: top.rect.x + 0.4, y: top.rect.y + 0.3 },
+      size: { w: 0.6, d: 0.6, h: 0.8 },
+      control: { kind: 'none' },
+    });
+    const saved = await s.post('fixtures/save', {
+      fixture: { ...rest, model: { label: model.label, parts: model.parts } },
+    });
+    expect(saved.statusCode, saved.body).toBe(200);
+    const res = await s.post('scene/separate');
+    expect(res.statusCode, res.body).toBe(200);
+    const out = res.json<{ memory: DeskMemory; lifted: number; run: EvidenceRun }>();
+    const picture = out.memory.illustration!;
+    const fixtures = out.memory.fixtures!.filter((f) => f.scene === 'custom');
+    expect(out.lifted).toBeGreaterThan(0);
+    expect(picture.layers!.sprites).toHaveLength(out.lifted);
+    expect(picture.layers!.base).toBe(`${out.run.id}/base.png`);
+    // Each sprite belongs to a fixture of the room, and is served like the picture.
+    for (const sprite of picture.layers!.sprites) {
+      expect(fixtures.map((f) => f.id)).toContain(sprite.fixtureId);
+      const served = await s.app.inject(
+        `/api/scene/illustration?asset=${encodeURIComponent(sprite.asset)}`,
+      );
+      expect(served.statusCode).toBe(200);
+      const size = await sharp(served.rawPayload).metadata();
+      expect([size.width, size.height, size.channels]).toEqual([
+        sprite.box.width,
+        sprite.box.height,
+        4,
+      ]);
+    }
+    // The base keeps the picture's size and changes only where a fixture was lifted.
+    const base = await sharp(
+      readFileSync(join(s.dataDir, 'evidence', picture.layers!.base)),
+    ).metadata();
+    expect([base.width, base.height]).toEqual([picture.frame.width, picture.frame.height]);
+    const raw = (asset: string) =>
+      sharp(readFileSync(join(s.dataDir, 'evidence', asset)))
+        .removeAlpha()
+        .raw()
+        .toBuffer();
+    expect((await raw(picture.layers!.base)).equals(await raw(picture.asset))).toBe(false);
+    // Putting them back shows the picture whole again.
+    const back = (await s.post('scene/separate/undo')).json<{ memory: DeskMemory }>();
+    expect(back.memory.illustration!.layers).toBeUndefined();
+    expect(back.memory.illustration!.asset).toBe(picture.asset);
+    await s.app.close();
+  });
+  it('moves a sprite with its fixture, and scales it with the footprint', () => {
+    const sprite = {
+      fixtureId: 'f',
+      asset: 'r/sprite-1.png',
+      box: { x: 90, y: 40, width: 20, height: 60 },
+      anchor: { x: 100, y: 100 },
+      size: { w: 1, d: 1 },
+    };
+    expect(spriteBox(sprite, { anchor: { x: 130, y: 90 }, w: 1, d: 1 })).toEqual({
+      x: 120,
+      y: 30,
+      width: 20,
+      height: 60,
+    });
+    expect(spriteBox(sprite, { anchor: { x: 100, y: 100 }, w: 2, d: 2 })).toEqual({
+      x: 80,
+      y: -20,
+      width: 40,
+      height: 120,
+    });
+  });
   it('takes no photo in the demo', async () => {
     const s = await setup();
     expect((await s.post('fixtures/scan', { imageDataUrl: 'data:' })).statusCode).toBe(400);
@@ -600,6 +696,115 @@ describe('scanning live, with a mocked Meta API', () => {
     });
     expect(r.statusCode, r.body).toBe(200);
   };
+  it('lifts the room’s fixtures with one Spark, one SAM and one image call, over a furniture-only base', async () => {
+    const calls: string[] = [];
+    const fill = await sharp({
+      create: { width: 64, height: 64, channels: 3, background: '#ff00ff' },
+    })
+      .png()
+      .toBuffer();
+    const fetcher = mock<Fetcher>().mockImplementation(async (url, init) => {
+      const body = JSON.parse(String(init?.body));
+      if (body.model === 'sam-3.1') {
+        calls.push('sam');
+        return samResponse(`<0f>1${sam.wire.replace(/^<0f>7/, '')}`);
+      }
+      if (body.text?.format?.name === 'picture_find') {
+        calls.push(`find: ${body.input[0].content[0].text}`);
+        // Found anywhere in the picture: SAM's outline decides the rest.
+        return sparkResponse({
+          found: [{ index: 1, seen: true, box: { x1: 0, y1: 0, x2: 1000, y2: 1000 } }],
+        });
+      }
+      if (String(url).endsWith('/images/edits')) {
+        calls.push(`image: ${body.prompt}`);
+        return new Response(
+          JSON.stringify({ created: 1, data: [{ b64_json: fill.toString('base64') }] }),
+          { headers: { 'content-type': 'application/json' } },
+        );
+      }
+      throw new Error(`unexpected call ${String(url)}`);
+    });
+    const s = await setup({ MODEL_API_KEY: 'test-key', META_LIVE_ENABLED: 'true' }, fetcher);
+    // A room drawn offline, moved to the live desk with its picture and one fixture on its desk.
+    const draft = (await s.post('scene/from-photo')).json<EvidenceRun<PhotoDraft>>();
+    const { layout } = draft.output;
+    await s.post('scene/from-photo/save', {
+      runId: draft.id,
+      scene: layout.scene,
+      pin: layout.pin,
+      track: [],
+    });
+    const drawn = (await s.post('scene/illustrate')).json<{ memory: DeskMemory }>().memory;
+    const top = layout.scene.surfaces.find((x) => x.id === layout.pin!.surfaceId)!;
+    // The mocked SAM reply is for a 960×640 frame, so the live picture is drawn that size.
+    const old = drawn.illustration!;
+    const k = { x: 960 / old.frame.width, y: 640 / old.frame.height };
+    mkdirSync(join(s.dataDir, 'evidence', 'live-picture'), { recursive: true });
+    writeFileSync(
+      join(s.dataDir, 'evidence', 'live-picture', 'illustration.png'),
+      await sharp(readFileSync(join(s.dataDir, 'evidence', old.asset)))
+        .resize(960, 640, { fit: 'fill' })
+        .png()
+        .toBuffer(),
+    );
+    const restored = await s.post('desk/restore', {
+      mode: 'live',
+      memory: {
+        mode: 'live',
+        object: null,
+        scene: drawn.scene,
+        surface: drawn.surface,
+        illustration: {
+          ...old,
+          asset: 'live-picture/illustration.png',
+          frame: { width: 960, height: 640 },
+          desk: old.desk!.map((p) => ({ x: p.x * k.x, y: p.y * k.y })),
+        },
+      },
+    });
+    expect(restored.statusCode, restored.body).toBe(200);
+    const {
+      id: _id,
+      createdAt: _c,
+      updatedAt: _u,
+      state: _s,
+      model,
+      ...rest
+    } = fixture({
+      label: 'Desk lamp',
+      scene: 'custom',
+      surfaceId: top.id,
+      at: { x: top.rect.x + 0.4, y: top.rect.y + 0.3 },
+      size: { w: 0.6, d: 0.6, h: 0.8 },
+      control: { kind: 'none' },
+    });
+    const saved = await s.post('fixtures/save', {
+      mode: 'live',
+      fixture: { ...rest, model: { label: model.label, parts: model.parts } },
+    });
+    expect(saved.statusCode, saved.body).toBe(200);
+    const res = await s.post('scene/separate', { mode: 'live' });
+    expect(res.statusCode, res.body).toBe(200);
+    // Spark finds it by name near where the layout expects it, SAM outlines it there, Muse redraws the furniture.
+    expect(calls).toEqual([
+      expect.stringMatching(/^find: [\s\S]*1\. Desk lamp \(expected near \d+, \d+, \d+, \d+\)/),
+      'sam',
+      expect.stringContaining('including the desk lamp'),
+    ]);
+    const status = (await s.app.inject('/api/status')).json<{ meta: { spentToday: number } }>();
+    expect(status.meta.spentToday).toBeGreaterThan(0.0125);
+    expect(status.meta.spentToday).toBeLessThan(0.02);
+    const picture = res.json<{ memory: DeskMemory }>().memory.illustration!;
+    expect(picture.layers!.sprites).toHaveLength(1);
+    // The base is Muse's furniture-only redraw as a whole, the picture's size.
+    const base = await sharp(readFileSync(join(s.dataDir, 'evidence', picture.layers!.base)))
+      .raw()
+      .toBuffer({ resolveWithObject: true });
+    expect([base.info.width, base.info.height]).toEqual([960, 640]);
+    expect([...base.data.subarray(0, 4)]).toEqual([255, 0, 255, 255]);
+    await s.app.close();
+  });
   it('asks Spark once, leaving out what the camera follows, and maps what it finds', async () => {
     const s = await live();
     await pin(s);

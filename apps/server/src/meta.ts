@@ -9,6 +9,7 @@ import {
   itemClassSchema,
   fixtureClassSchema,
   fixtureScanSchema,
+  pictureFindSchema,
   MAX_SCAN_THINGS,
   itemCheckSchema,
   sceneDraftSchema,
@@ -52,6 +53,7 @@ export const SPARK_BUDGET = {
   itemClass: 4096,
   fixtureClass: 8192,
   fixtureScan: 12288,
+  pictureFind: 6144,
   itemCheck: 4096,
   photoInventory: 16384,
   photoCheck: 12288,
@@ -356,6 +358,49 @@ export class MetaAdapter {
       },
     });
     return this.parsed(response, fixtureScanSchema, 'fixture scan', SPARK_BUDGET.fixtureScan);
+  }
+  /**
+   * Spark finds the room's fixtures, by name, in the room's picture: a tight
+   * box for each, or not seen. Each comes with where the room's layout
+   * expects it, to tell like things apart; what is drawn wins.
+   */
+  async pictureFind(
+    pictureDataUrl: string,
+    things: { label: string; near: { x1: number; y1: number; x2: number; y2: number } }[],
+  ) {
+    const response = await this.spark(1, {
+      model: this.config.sparkModel,
+      store: false,
+      max_output_tokens: SPARK_BUDGET.pictureFind,
+      input: [
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'input_text',
+              text: [
+                'This is an isometric illustration of a room. Find each of these things drawn in it. Each is numbered, with a box from 0 to 1000 across and down the picture where the room’s layout expects it; it may be drawn somewhat away from there, and what is drawn is what counts.',
+                ...things.map(
+                  (t, i) =>
+                    `${i + 1}. ${t.label} (expected near ${t.near.x1}, ${t.near.y1}, ${t.near.x2}, ${t.near.y2})`,
+                ),
+                'For each number give: seen, whether it is clearly drawn; and box, a tight box around just that thing as x1, y1, x2, y2 from 0 to 1000. When two look alike, take the one nearer its expected box. When it is not drawn, set seen false and give its expected box.',
+              ].join('\n'),
+            },
+            { type: 'input_image', image_url: pictureDataUrl, detail: 'auto' },
+          ],
+        },
+      ],
+      text: {
+        format: {
+          type: 'json_schema',
+          name: 'picture_find',
+          strict: true,
+          schema: z.toJSONSchema(pictureFindSchema),
+        },
+      },
+    });
+    return this.parsed(response, pictureFindSchema, 'picture find', SPARK_BUDGET.pictureFind);
   }
   /**
    * Spark compares the photo with the model rendered from the same camera and

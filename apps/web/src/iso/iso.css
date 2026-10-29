@@ -1017,3 +1017,23 @@
   stroke-width: 2.5;
   filter: drop-shadow(0 0 4px var(--chosen));
 }
+
+/* A fixture lifted off the room picture is its own cut-out: the outline only shows when it's picked. */
+.illustration .illustration-sprite {
+  pointer-events: auto;
+}
+.illustration-fixture.lifted polygon {
+  fill: none;
+  stroke-opacity: 0;
+}
+.illustration-fixture.lifted:hover polygon,
+.illustration-fixture.lifted.focused polygon,
+.illustration-fixture.lifted.dragging polygon {
+  fill: none;
+  stroke-opacity: 0.9;
+  filter: none;
+}
+.illustration-fixture.lifted.focused .illustration-sprite,
+.illustration-fixture.lifted:hover .illustration-sprite {
+  filter: drop-shadow(0 0 6px var(--seen-glow));
+}

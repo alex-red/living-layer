@@ -5,6 +5,7 @@ import {
   pictureToScene,
   pictureToSceneAt,
   scenePointInPicture,
+  spriteBox,
   type Fixture,
   type IsoScene,
   type DeskMemory,
@@ -38,6 +39,8 @@ interface Placed {
   /** Its footprint in the scene, and the height it stands at. */
   rect: BaseRect;
   z: number;
+  /** Its own pixels, lifted off the picture, where they go now. */
+  sprite?: { href: string; x: number; y: number; width: number; height: number };
 }
 interface Area {
   id: string;
@@ -55,7 +58,9 @@ interface Area {
  * outlined where they stand in the scene, and pick like they do on the model.
  * On the room's picture they can be dragged to where the picture shows them,
  * or nudged with the arrow keys; the drop goes back through the same mapping.
- * The selected one has handles that stretch its base.
+ * The selected one has handles that stretch its base. Once the fixtures are
+ * lifted off the picture, the base is drawn without them and each is drawn
+ * from its own cut-out where it stands now, so a move carries the thing too.
  */
 export function IllustrationView({
   illustration,
@@ -150,6 +155,11 @@ export function IllustrationView({
     const top = to(at.x + size.w / 2, at.y + size.d / 2, at.z + size.h);
     const centre = to(at.x + size.w / 2, at.y + size.d / 2, at.z);
     if (!top || !centre || !base.every(Boolean)) return [];
+    const lifted = illustration.layers?.sprites.find((x) => x.fixtureId === f.id);
+    const sprite = lifted && {
+      href: illustrationUrl(lifted.asset),
+      ...spriteBox(lifted, { anchor: centre, w: size.w, d: size.d }),
+    };
     return [
       {
         id: f.id,
@@ -161,9 +171,12 @@ export function IllustrationView({
         focused: focus?.fixture === f.id,
         rect: { x: at.x, y: at.y, w: size.w, d: size.d },
         z: at.z,
+        ...(sprite ? { sprite } : {}),
       },
     ];
   });
+  // Lifted fixtures overlap like the things they are: the ones further back first.
+  placed.sort((a, b) => a.centre.y - b.centre.y);
   const areas: Area[] = [];
   if (showZones) {
     const frame = memory.zone?.frame ?? memory.observation?.frame;
@@ -201,7 +214,11 @@ export function IllustrationView({
       role="img"
       aria-label={`Picture of the room${objects ? `, with ${objects} on the desk` : ''}`}
     >
-      <image href={illustrationUrl(illustration.asset)} width={width} height={height} />
+      <image
+        href={illustrationUrl(illustration.layers?.base ?? illustration.asset)}
+        width={width}
+        height={height}
+      />
       {illustration.desk && (
         <polygon className="illustration-desk" points={pts(illustration.desk)} />
       )}
@@ -221,7 +238,7 @@ export function IllustrationView({
       {placed.map((f) => (
         <g
           key={f.id}
-          className={`illustration-fixture ${f.lit ? 'lit' : ''} ${f.focused ? 'focused' : ''} ${drag?.id === f.id ? 'dragging' : ''}`}
+          className={`illustration-fixture ${f.lit ? 'lit' : ''} ${f.focused ? 'focused' : ''} ${drag?.id === f.id ? 'dragging' : ''} ${f.sprite ? 'lifted' : ''}`}
           data-fixture={f.id}
           role={onFixture ? 'button' : undefined}
           tabIndex={onFixture ? 0 : undefined}
@@ -269,6 +286,17 @@ export function IllustrationView({
             } else if (e.key === 'Enter') onFixture?.(f.id);
           }}
         >
+          {f.sprite && (
+            <image
+              className="illustration-sprite"
+              href={f.sprite.href}
+              x={f.sprite.x}
+              y={f.sprite.y}
+              width={f.sprite.width}
+              height={f.sprite.height}
+              preserveAspectRatio="none"
+            />
+          )}
           <polygon points={pts(f.base)} />
           <line
             x1={f.top.x}

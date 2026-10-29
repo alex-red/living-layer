@@ -8,6 +8,7 @@ import type {
   Detection,
   FixtureDraft,
   MappedThing,
+  PictureFind,
   LampResult,
   DeskMemory,
   ZoneRect,
@@ -240,13 +241,18 @@ export function runDetail(run: EvidenceRun): string {
       return `${item.label} · ${item.parts.length} parts · ${item.source}`;
     }
     case 'fixture': {
-      // A scan maps several things; a draft models one.
+      // A scan maps several things, a picture find locates them, and a draft models one.
+      if (run.output && typeof run.output === 'object' && 'found' in run.output) {
+        const { found } = run.output as PictureFind;
+        return `found on the picture · ${found.filter((f) => f.seen).length} of ${found.length}`;
+      }
       if (run.output && typeof run.output === 'object' && 'mapped' in run.output) {
         const { mapped } = run.output as { mapped: MappedThing[] };
         const added = mapped.filter((m) => m.fixture).length;
         return `scan · ${mapped.length} found · ${added} added${mapped.length ? `: ${mapped.map((m) => m.label).join(', ')}` : ''}`;
       }
       const f = run.output as FixtureDraft;
+      if (!f?.model) return '';
       return `${f.label} · ${f.model.parts.length} parts · looks like ${f.suggested === 'none' ? 'just a thing' : `a ${f.suggested}`}`;
     }
     case 'lamp':
@@ -1306,7 +1312,10 @@ export function useLabState() {
       }>('scene/illustrate', {
         mode,
         view,
-        ...(mode === 'live' ? { imageDataUrl: image } : {}),
+        // The room is redrawn from its own photo (the last picture's, else this one); the desk from this frame.
+        ...(mode === 'live' && (view === 'desk' || !(memory?.scenePhoto || memory?.illustration))
+          ? { imageDataUrl: image }
+          : {}),
       });
       setMemory(result.memory);
       setSelected(result.run);
@@ -1322,6 +1331,44 @@ export function useLabState() {
       void refresh().catch(() => {});
     } catch (e) {
       setError(e instanceof Error ? e : 'The room could not be drawn.');
+    } finally {
+      setBusy('');
+    }
+  }
+  /**
+   * Lift the room's fixtures off its picture, so dragging one moves the thing
+   * itself (one SAM call and one image call, live), or put them back.
+   */
+  async function separate(back = false) {
+    if (busy) return;
+    setBusy('separate');
+    setError('');
+    try {
+      if (back) {
+        const result = await api<{ memory: DeskMemory }>('scene/separate/undo', { mode });
+        setMemory(result.memory);
+        setMessage('The fixtures are back in the picture.');
+        return;
+      }
+      const result = await api<{
+        run: EvidenceRun;
+        memory: DeskMemory;
+        lifted: number;
+        skipped: string[];
+      }>('scene/separate', { mode });
+      setMemory(result.memory);
+      setSelected(result.run);
+      setShowPicture(true);
+      if (stageView === 'photo') setStageView('iso');
+      setMessage(
+        `Lifted ${result.lifted} fixture${result.lifted === 1 ? '' : 's'} off the picture${costNote(result.run)}. Drag one to move it.` +
+          (result.skipped.length
+            ? ` Not lifted, as they couldn’t be outlined cleanly: ${result.skipped.join(', ').toLowerCase()}.`
+            : ''),
+      );
+      void refresh().catch(() => {});
+    } catch (e) {
+      setError(e instanceof Error ? e : 'The fixtures could not be lifted off the picture.');
     } finally {
       setBusy('');
     }
@@ -1579,11 +1626,12 @@ export function useLabState() {
     setWorkScene,
     choosingScene,
     setChoosingScene,
+    tool,
+    setTool,
+    separate,
     selection,
     select,
     outlineOpen,
-    tool,
-    setTool,
     setOutlineOpen,
     isoPanel,
     setIsoPanel,

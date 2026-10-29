@@ -1087,3 +1087,14 @@
   font-size: 12px;
   color: var(--text-3);
 }
+
+.lift-fixtures {
+  display: grid;
+  gap: 6px;
+  margin-top: 10px;
+}
+.lift-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}

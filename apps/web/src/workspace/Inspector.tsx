@@ -219,7 +219,9 @@ function PictureControls({ view = 'room' }: { view?: 'room' | 'desk' }) {
   const { memory, mode, image, busy, dimensions } = lab;
   const pinned = memory?.surface?.scene === 'custom';
   const picture = view === 'desk' ? memory?.deskIllustration : memory?.illustration;
-  const needPhoto = mode === 'live' && !image;
+  // The room is drawn from its own photo once it has one; the desk always from this frame.
+  const needPhoto =
+    mode === 'live' && !image && (view === 'desk' || !(memory?.scenePhoto || memory?.illustration));
   const what = view === 'desk' ? 'desk' : 'room';
   const drawnFrom = picture?.drawnFrom;
   const otherSize =
@@ -254,7 +256,51 @@ function PictureControls({ view = 'room' }: { view?: 'room' | 'desk' }) {
                   : `Muse Image redraws this close frame of the desk${memory?.illustration ? ' in the room picture’s style' : ''}, keeping its framing, so what the camera tracks lands on it: one image call, about $0.01.`
                 : picture && !picture.desk
                   ? 'SAM found no desk in the last picture, so the mug and zones can’t be placed on it. Redraw to try again.'
-                  : 'Muse Image redraws the current photo as isometric line art, and SAM finds its desk: one image and one SAM call, about $0.0125.'}
+                  : `Muse Image redraws ${memory?.scenePhoto || memory?.illustration ? 'the room’s photo' : 'the current photo'} as isometric line art on a transparent background, and SAM finds its desk: one image and one SAM call, about $0.0125.`}
+      </p>
+      {view === 'room' && picture?.desk && <LiftFixtures />}
+    </div>
+  );
+}
+/**
+ * Lift the room's fixtures off its picture: each becomes its own cut-out
+ * over a base drawn without them, so moving a fixture moves the thing.
+ */
+function LiftFixtures() {
+  const lab = useLab();
+  const { memory, mode, busy } = lab;
+  const pinScene = memory?.surface?.scene;
+  const count = (memory?.fixtures ?? []).filter((f) => f.scene === pinScene).length;
+  const layers = memory?.illustration?.layers;
+  const blocked = Boolean(busy) || !count || (mode === 'live' && !lab.metaReady);
+  return (
+    <div className="lift-fixtures">
+      <div className="lift-actions">
+        <button className="secondary" disabled={blocked} onClick={() => void lab.separate()}>
+          {busy === 'separate'
+            ? 'Lifting…'
+            : layers
+              ? 'Lift them again'
+              : 'Lift the fixtures off the picture'}
+        </button>
+        {layers && (
+          <button
+            className="text-button"
+            disabled={Boolean(busy)}
+            onClick={() => void lab.separate(true)}
+          >
+            Put them back
+          </button>
+        )}
+      </div>
+      <p className="micro">
+        {!count
+          ? 'Scan or add this room’s fixtures first.'
+          : layers
+            ? `${layers.sprites.length} of ${count} fixtures are lifted: dragging one moves the thing itself. Lift again after adding fixtures.`
+            : mode === 'demo'
+              ? 'Cuts each fixture out of the picture and fills the gap it leaves, with no model calls.'
+              : 'Spark finds each fixture on the picture by name and SAM cuts it out, and Muse Image redraws the room with only its furniture as the base they stand on, so you can drag the things themselves. A fixture that can’t be outlined cleanly isn’t lifted. One Spark, one SAM and one image call, about $0.02.'}
       </p>
     </div>
   );
