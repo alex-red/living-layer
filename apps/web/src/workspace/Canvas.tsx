@@ -1,4 +1,4 @@
-import type { CSSProperties } from 'react';
+import { useRef, type CSSProperties } from 'react';
 import {
   DEMO_POSITIONS,
   type EvidenceRun,
@@ -64,6 +64,7 @@ function EditBanner() {
  */
 export function Canvas() {
   const lab = useLab();
+  const boxStart = useRef<{ x: number; y: number } | null>(null);
   const {
     mode,
     image,
@@ -281,6 +282,46 @@ export function Canvas() {
                 ` · ${Math.round(visibleZone.width * 100)}×${Math.round(visibleZone.height * 100)}%`}
             </span>
           )}
+          {lab.boxing && !camera && (mode === 'demo' || image) && (
+            <svg
+              className="zone-overlay drawing fixture-box"
+              viewBox="0 0 1000 1000"
+              preserveAspectRatio="none"
+              aria-label="Draw a box around the thing"
+              onPointerDown={(e) => {
+                boxStart.current = lab.zonePoint(e);
+                e.currentTarget.setPointerCapture(e.pointerId);
+              }}
+              onPointerMove={(e) => {
+                const a = boxStart.current;
+                if (!a) return;
+                const p = lab.zonePoint(e);
+                lab.setBoxing({
+                  rect: {
+                    x: Math.min(a.x, p.x),
+                    y: Math.min(a.y, p.y),
+                    width: Math.abs(a.x - p.x),
+                    height: Math.abs(a.y - p.y),
+                  },
+                });
+              }}
+              onPointerUp={() => {
+                boxStart.current = null;
+              }}
+              onPointerCancel={() => {
+                boxStart.current = null;
+              }}
+            >
+              {lab.boxing.rect && (
+                <rect
+                  x={lab.boxing.rect.x * 1000}
+                  y={lab.boxing.rect.y * 1000}
+                  width={lab.boxing.rect.width * 1000}
+                  height={lab.boxing.rect.height * 1000}
+                />
+              )}
+            </svg>
+          )}
           {focusBox && (
             <svg
               className="focus-overlay"
@@ -380,6 +421,7 @@ export function Canvas() {
             placing={lab.placing}
             onPlace={(where) => void lab.placeFixture(where)}
             onFixture={(id) => lab.select({ kind: 'fixture', id })}
+            lightsOn={lab.lightsOn}
             focus={focus}
             layers={{ trail: lab.showTrail, zones: lab.showZones }}
             memory={memory}

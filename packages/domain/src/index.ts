@@ -462,7 +462,7 @@ export function objectById(
     ? { label: other.label, concept: other.concept, observation: other.observation }
     : null;
 }
-/** The mug (no id, or its id) or another remembered object, with its model. */
+/** The mug (no id, or its id), another remembered object or a fixture, with its model. */
 export function modelTarget(
   memory: DeskMemory,
   objectId?: string,
@@ -471,6 +471,8 @@ export function modelTarget(
   label: string;
   observation: DeskObservation | null;
   item: SavedItem | null;
+  /** A fixture is never seen by the camera: its model comes from its reference photo. */
+  fixture?: boolean;
 } | null {
   if (!objectId || objectId === memory.object?.id)
     return memory.object
@@ -482,16 +484,35 @@ export function modelTarget(
         }
       : null;
   const other = memory.others?.find((o) => o.id === objectId);
-  return other
-    ? { id: other.id, label: other.label, observation: other.observation, item: other.item ?? null }
+  if (other)
+    return {
+      id: other.id,
+      label: other.label,
+      observation: other.observation,
+      item: other.item ?? null,
+    };
+  const fixture = memory.fixtures?.find((f) => f.id === objectId);
+  return fixture
+    ? {
+        id: fixture.id,
+        label: fixture.label,
+        observation: null,
+        item: fixture.model,
+        fixture: true,
+      }
     : null;
 }
-/** Store a model on the mug or on another remembered object. */
+/** Store a model on the mug, another remembered object, or a fixture (which always keeps one). */
 export function setModel(memory: DeskMemory, objectId: string, item: SavedItem | null): void {
   if (objectId === memory.object?.id) memory.item = item;
   else {
     const other = memory.others?.find((o) => o.id === objectId);
     if (other) other.item = item;
+    const fixture = memory.fixtures?.find((f) => f.id === objectId);
+    if (fixture && item) {
+      fixture.model = item;
+      fixture.updatedAt = new Date().toISOString();
+    }
   }
 }
 /** The placement rule for one extra zone; the same checks as the main one. */

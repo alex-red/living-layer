@@ -25,7 +25,9 @@ export type Selection =
   | { kind: 'rule'; id: string }
   | { kind: 'new-rule' }
   | { kind: 'fixture'; id: string }
-  | { kind: 'new-fixture' };
+  | { kind: 'new-fixture' }
+  /** A lamp that is part of a room's layout: `scene~propId`. */
+  | { kind: 'lamp'; id: string };
 
 export type StepId = 'office' | 'desk' | 'objects' | 'rule' | 'run';
 export type StepState = 'done' | 'current' | 'todo' | 'locked';
@@ -168,6 +170,7 @@ export function selectionHash(s: Selection | null): string {
     case 'object':
     case 'rule':
     case 'fixture':
+    case 'lamp':
       return `#${s.kind}/${encodeURIComponent(s.id)}`;
     case 'suggested':
       return `#suggested/${s.index}`;
@@ -189,6 +192,7 @@ export function parseSelection(hash: string): Selection | null {
     case 'object':
     case 'rule':
     case 'fixture':
+    case 'lamp':
       return id ? { kind, id } : null;
     case 'suggested': {
       const index = Number(id);

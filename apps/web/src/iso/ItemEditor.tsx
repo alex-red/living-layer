@@ -430,7 +430,8 @@ export function ItemEditor({
   sparkNote: string;
   /** The masked crop the model was fitted to, when there is one. */
   cropUrl: string | null;
-  onDraft: (source: 'sampled' | 'spark') => void;
+  /** Draft again from the camera's sighting; absent for a fixture, whose model comes from its photo. */
+  onDraft?: (source: 'sampled' | 'spark') => void;
   onSave: (item: IsoItem | null) => void;
   /** Fit again to the same crop, keeping locked parts. */
   onRefit: (item: IsoItem) => void;
@@ -465,10 +466,18 @@ export function ItemEditor({
           and checks the result, and SAM finds parts such as the handle.
         </p>
         <div className="item-actions">
-          <button className="primary" disabled={busy} onClick={() => onDraft('sampled')}>
+          <button
+            className="primary"
+            disabled={busy || !onDraft}
+            onClick={() => onDraft?.('sampled')}
+          >
             Sample a draft
           </button>
-          <button className="secondary" disabled={busy} onClick={() => onDraft('spark')}>
+          <button
+            className="secondary"
+            disabled={busy || !onDraft}
+            onClick={() => onDraft?.('spark')}
+          >
             Draft with Spark
           </button>
         </div>
@@ -831,13 +840,17 @@ export function ItemEditor({
               Refit to photo
             </button>
           )}
-          <button className="secondary" disabled={busy} onClick={() => onDraft('sampled')}>
-            Resample
-          </button>
-          <button className="secondary" disabled={busy} onClick={() => onDraft('spark')}>
-            Redraft with Spark
-          </button>
-          {item && (
+          {onDraft && (
+            <>
+              <button className="secondary" disabled={busy} onClick={() => onDraft('sampled')}>
+                Resample
+              </button>
+              <button className="secondary" disabled={busy} onClick={() => onDraft('spark')}>
+                Redraft with Spark
+              </button>
+            </>
+          )}
+          {item && onDraft && (
             <button className="link" disabled={busy} onClick={() => onSave(null)}>
               Remove model
             </button>
