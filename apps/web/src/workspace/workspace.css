@@ -414,6 +414,16 @@
   stroke-linecap: round;
   stroke-linejoin: round;
 }
+.onboarding-own {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  max-width: 760px;
+}
+.onboarding-own .micro {
+  color: var(--text-2);
+}
 .onboarding-more {
   display: flex;
   flex-wrap: wrap;

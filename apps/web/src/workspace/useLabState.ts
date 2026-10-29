@@ -1157,6 +1157,14 @@ export function useLabState() {
         : `Working in ${label}. Next, find the mug on the desk.`,
     );
   }
+  /** Leave the demo to draft the office from a photo of your own: Live, then the photo draft. */
+  function draftOwnPhoto() {
+    if (mode !== 'live') changeMode('live');
+    pickScene('office', 'photo');
+    setMessage(
+      'Live: upload a photo of your office. Spark lists what is in it and SAM outlines it.',
+    );
+  }
   /** Show one node of the outline, and move the canvas to the scene it is in. */
   function select(next: Selection | null) {
     setOutlineOpen(false);
@@ -1520,6 +1528,7 @@ export function useLabState() {
     lightsOn,
     entities,
     pickScene,
+    draftOwnPhoto,
     goToStep,
     openModel,
     editLayout,

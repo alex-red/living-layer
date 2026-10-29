@@ -10,7 +10,7 @@ import { pinScene } from './progress';
  */
 export function Onboarding() {
   const lab = useLab();
-  const { mode, memory, workScene, busy } = lab;
+  const { mode, memory, workScene, busy, camera, cameraPending, metaReady } = lab;
   const office = ISO_PRESETS.office;
   return (
     <div className="onboarding" role="group" aria-label="Choose a scene">
@@ -65,6 +65,22 @@ export function Onboarding() {
           </span>
         </button>
       </div>
+      {mode === 'demo' && (
+        <div className="onboarding-own">
+          <button
+            className="secondary"
+            disabled={Boolean(busy) || camera || cameraPending || !metaReady}
+            onClick={() => lab.draftOwnPhoto()}
+          >
+            Use your own photo
+          </button>
+          <span className="micro">
+            {metaReady
+              ? 'Switches to Live and drafts the office from a photo you upload. About 2 billed calls.'
+              : 'Live calls aren’t available: set MODEL_API_KEY and META_LIVE_ENABLED, or raise today’s spend limit.'}
+          </span>
+        </div>
+      )}
       <div className="onboarding-more">
         <span className="tiny">OTHER SCENES</span>
         <button className="text-button" onClick={() => lab.pickScene('fridge')}>

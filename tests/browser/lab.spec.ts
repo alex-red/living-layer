@@ -67,6 +67,10 @@ test('live probes stay disabled without setup; uploads prepare locally and camer
   page,
 }) => {
   await page.goto('/');
+  // Drafting from your own photo needs Live, which isn't set up here.
+  const chooser = page.getByRole('group', { name: 'Choose a scene' });
+  await expect(chooser.getByRole('button', { name: 'Use your own photo' })).toBeDisabled();
+  await expect(chooser).toContainText('Live calls aren’t available');
   await chooseScene(page);
   await page.getByRole('button', { name: 'Live', exact: true }).click();
   // Live, the office desk still needs a close photo before anything is pinned.
