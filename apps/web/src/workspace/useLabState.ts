@@ -9,6 +9,7 @@ import type {
   FixtureDraft,
   MappedThing,
   PictureFind,
+  Job,
   LampResult,
   DeskMemory,
   ZoneRect,
@@ -1377,17 +1378,35 @@ export function useLabState() {
       setBusy('');
     }
   }
+  /**
+   * Modelling a fixture with AI, step by step: the job's steps as the server
+   * reports them while the call runs, kept after it ends until another starts.
+   */
+  const [sculpting, setSculpting] = useState<{ fixtureId: string; job: Job | null } | null>(null);
   /** Rebuild a fixture's model with Spark from the picture of it, then open it to edit. */
   async function sculptFixture(id: string) {
     if (busy) return;
     const f = memory?.fixtures?.find((x) => x.id === id);
     if (!f) return;
+    const jobId = crypto.randomUUID();
     setBusy('sculpt');
     setError('');
+    setSculpting({ fixtureId: id, job: null });
+    // Poll the job while the request is open; each answer replaces the last.
+    let open = true;
+    const follow = async () => {
+      while (open) {
+        await new Promise((r) => setTimeout(r, 700));
+        const job = await api<Job>(`jobs/${jobId}`).catch(() => null);
+        if (job && open) setSculpting({ fixtureId: id, job });
+      }
+    };
+    void follow();
     try {
       const result = await api<{ run: EvidenceRun; memory: DeskMemory }>('fixtures/sculpt', {
         mode,
         fixtureId: id,
+        jobId,
       });
       setMemory(result.memory);
       setSelected(result.run);
@@ -1400,6 +1419,11 @@ export function useLabState() {
     } catch (e) {
       setError(e instanceof Error ? e : 'The fixture could not be modelled.');
     } finally {
+      open = false;
+      // The last word on every step, success or not.
+      // Refused before it began (no picture, the spend limit), there are no steps to show.
+      const job = await api<Job>(`jobs/${jobId}`).catch(() => null);
+      setSculpting(job ? { fixtureId: id, job } : null);
       setBusy('');
     }
   }
@@ -1660,6 +1684,8 @@ export function useLabState() {
     setTool,
     separate,
     sculptFixture,
+    sculpting,
+    setSculpting,
     selection,
     select,
     outlineOpen,

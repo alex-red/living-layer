@@ -60,3 +60,37 @@ describe('a model Spark writes in our parts', () => {
     expect(back.parts.map((p) => p.id)).toEqual(mug.parts.map((p) => p.id));
   });
 });
+
+describe('a provider timeout', () => {
+  it('is reported as a timeout, though the SDK’s error is named Error', async () => {
+    const { APIConnectionTimeoutError } = await import('openai');
+    const { safeError } = await import('../apps/server/src/errors.js');
+    expect(safeError(new APIConnectionTimeoutError(), 'fixture').code).toBe('timeout');
+  });
+});
+
+describe('a job the page follows', () => {
+  it('shows the step that failed, with why, and keeps the rest waiting', async () => {
+    const { Jobs } = await import('../apps/server/src/jobs.js');
+    const jobs = new Jobs();
+    const id = crypto.randomUUID();
+    const t = jobs.start(id, [
+      { id: 'a', label: 'A' },
+      { id: 'b', label: 'B' },
+      { id: 'c', label: 'C' },
+    ]);
+    await t.done('a', 'fine');
+    t.run('b');
+    t.fail('The request timed out.');
+    const job = jobs.get(id)!;
+    expect(job.done).toBe(true);
+    expect(job.steps.map((s) => [s.state, s.detail ?? null])).toEqual([
+      ['done', 'fine'],
+      ['failed', 'The request timed out.'],
+      ['waiting', null],
+    ]);
+    // Without an id, nothing is kept to read.
+    jobs.start(undefined, [{ id: 'a', label: 'A' }]).run('a');
+    expect(jobs.get('')).toBeNull();
+  });
+});

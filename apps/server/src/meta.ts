@@ -47,6 +47,8 @@ const usageOf = (u?: ProviderUsage | null): Usage | null =>
  * reasoning counts against the ceiling, so a busy photo needs room: at 4096 a
  * full office desk ran out mid-inventory. Only tokens used are billed.
  */
+/** How long Spark may take to write out a model. */
+const SCULPT_TIMEOUT_MS = 150_000;
 export const SPARK_BUDGET = {
   discover: 8192,
   classify: 8192,
@@ -117,14 +119,18 @@ export class MetaAdapter {
       this.store.spendLimit(this.config.spendLimitUsd)
     );
   }
-  /** One Spark call under the spend limit, recording what it cost. */
+  /**
+   * One Spark call under the spend limit, recording what it cost. A long
+   * answer (a whole model) may be given longer than the usual timeout.
+   */
   private async spark(
     images: number,
     body: OpenAI.Responses.ResponseCreateParamsNonStreaming & { max_output_tokens: number },
+    timeout = this.config.timeoutMs,
   ) {
     const settle = this.reserve(sparkCeiling(body.max_output_tokens, images));
     try {
-      const response = await this.client.responses.create(body);
+      const response = await this.client.responses.create(body, { timeout });
       settle(sparkCost(usageOf(response.usage)));
       return response;
     } catch (e) {
@@ -367,29 +373,34 @@ export class MetaAdapter {
    * the parts revised to match out.
    */
   async sculpt(pictureDataUrl: string, renderDataUrl: string, prompt: string, parts: string) {
-    const response = await this.spark(2, {
-      model: this.config.sparkModel,
-      store: false,
-      max_output_tokens: SPARK_BUDGET.sculpt,
-      input: [
-        {
-          role: 'user',
-          content: [
-            { type: 'input_text', text: `${prompt}\n\nParts:\n${parts}` },
-            { type: 'input_image', image_url: pictureDataUrl, detail: 'auto' },
-            { type: 'input_image', image_url: renderDataUrl, detail: 'auto' },
-          ],
-        },
-      ],
-      text: {
-        format: {
-          type: 'json_schema',
-          name: 'sculpt',
-          strict: true,
-          schema: z.toJSONSchema(sculptSchema),
+    const response = await this.spark(
+      2,
+      {
+        model: this.config.sparkModel,
+        store: false,
+        max_output_tokens: SPARK_BUDGET.sculpt,
+        input: [
+          {
+            role: 'user',
+            content: [
+              { type: 'input_text', text: `${prompt}\n\nParts:\n${parts}` },
+              { type: 'input_image', image_url: pictureDataUrl, detail: 'auto' },
+              { type: 'input_image', image_url: renderDataUrl, detail: 'auto' },
+            ],
+          },
+        ],
+        text: {
+          format: {
+            type: 'json_schema',
+            name: 'sculpt',
+            strict: true,
+            schema: z.toJSONSchema(sculptSchema),
+          },
         },
       },
-    });
+      // Writing out a whole model takes Spark well past the usual timeout.
+      Math.max(this.config.timeoutMs, SCULPT_TIMEOUT_MS),
+    );
     return this.parsed(response, sculptSchema, 'model', SPARK_BUDGET.sculpt);
   }
   /**

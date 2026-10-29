@@ -150,16 +150,50 @@ export function toSculpt(item: IsoItem): SculptPart[] {
     }
   });
 }
+/** Our part format, as Spark is told it, the same on every look. */
+const FORMAT = [
+  'Coordinates: x left to right and y back to front across the footprint, from 0 to 1; z up, in the same units. Each part has a box: at is its back-left-bottom corner, size its width, depth and height.',
+  'Shapes:',
+  '- lathe: a side profile turned about the box’s vertical axis, for round bodies, pots, cups and bases. profile: points r, z from bottom to top, z a share of the box’s height and r a share of its half-width, so r = 1 reaches the box’s sides: a plain cylinder filling its box is [{r: 1, z: 0}, {r: 1, z: 1}]. The box sets the size; keep r near 1 unless the shape narrows.',
+  '- rbox: a box with rounded edges, for screens, books and panels. radius: a share of its smallest side.',
+  '- tube: a round tube along a Bézier curve, for stands, cables, arms, handles and rings. path: 2 to 4 points as shares of the box; the tube starts at the first point and ends at the last, and the middle points only pull the curve toward them (it does not pass through them). radius in item units. A curve pulled toward a point gets about three quarters of the way there, so a tube’s box should be a little larger than the tube looks. A closed ring or loop is two tubes that start at the same point and end at the same point, bulging to opposite sides: a tall upright loop is [{x: 0.5, y: 0.5, z: 0}, {x: 0, y: 0.5, z: 0.15}, {x: 0, y: 0.5, z: 0.85}, {x: 0.5, y: 0.5, z: 1}] and the same with x 1 for the other half, which reaches out to about an eighth of the box from each side.',
+  '- extrude: a footprint outline as shares of the box, pushed up, for flat odd shapes.',
+  '- blob: a lumpy ellipsoid, for foliage and soft things. rough: 0 to 1.',
+  'Set fields a shape doesn’t use to null.',
+  'Give each part its main colour as lowercase #rrggbb and a material (matte, gloss, metal, glass, fabric, wood); bands paint horizontal stripes on it, from and to as shares of its height. Use few parts and get the big shapes right first.',
+];
 /** What Spark is asked: our part format, and how to build the thing from its picture. */
 export function sculptPrompt(label: string, size: { w: number; d: number; h: number }): string {
   return [
     `Model the ${label.toLowerCase()} in the first image as a small parametric 3D model, made of at most 12 parts. The second image is how the current model renders from the same angle; its parts are given below as JSON. Start from them: keep what is right, fix what is wrong, and add or remove parts so the render matches the first image.`,
-    `It stands ${size.w.toFixed(2)} wide, ${size.d.toFixed(2)} deep and ${size.h.toFixed(2)} tall, as its footprint's longer side is 1. Coordinates: x left to right and y back to front across the footprint, from 0 to 1; z up, in the same units. Each part has a box: at is its back-left-bottom corner, size its width, depth and height.`,
-    'Shapes: lathe, a side profile turned about the box’s vertical axis (profile: points r, z as shares of the box, bottom to top; for round bodies, pots, cups, bases); rbox, a box with rounded edges (radius: a share of its smallest side; for screens, books, panels); tube, a round tube along 2 to 4 points as shares of the box (radius in item units; for stands, cables, arms, handles); extrude, a footprint outline as shares of the box pushed up (for flat odd shapes); blob, a lumpy ellipsoid (rough 0 to 1; for foliage and soft things). Set fields a shape doesn’t use to null.',
-    'Give each part its main colour as lowercase #rrggbb and a material (matte, gloss, metal, glass, fabric, wood); bands paint horizontal stripes on it, from and to as shares of its height. Use few parts and get the big shapes right first. Say in note what you changed.',
+    `It stands ${size.w.toFixed(2)} wide, ${size.d.toFixed(2)} deep and ${size.h.toFixed(2)} tall, as its footprint's longer side is 1.`,
+    ...FORMAT,
+    'Say in note what you changed.',
   ].join('\n');
 }
 /** What Spark is asked on its second look: its own model rendered beside the picture. */
 export function sculptCheckPrompt(label: string): string {
-  return `The first image is the ${label.toLowerCase()}; the second is your model of it rendered from the same angle, with its parts below as JSON. Correct the parts so the render matches the first image better: proportions, positions, colours and any missing piece. Keep the same format and say in note what you changed.`;
+  return [
+    `The first image is the ${label.toLowerCase()}; the second is your model of it rendered from the same angle, with its parts below as JSON. Correct the parts so the render matches the first image better: proportions, widths, positions, colours and any missing or unclosed piece.`,
+    ...FORMAT,
+    'Say in note what you changed.',
+  ].join('\n');
+}
+
+/** One step of a long job, as the page shows it while the job runs. */
+export interface JobStep {
+  id: string;
+  label: string;
+  state: 'waiting' | 'running' | 'done' | 'failed';
+  detail?: string;
+  /** A small picture of what the step made, as a data URL. */
+  image?: string;
+  startedAt?: string;
+  endedAt?: string;
+}
+export interface Job {
+  id: string;
+  steps: JobStep[];
+  createdAt: string;
+  done: boolean;
 }

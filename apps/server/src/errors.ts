@@ -68,7 +68,8 @@ export function safeError(error: unknown, step?: string): LabError {
   };
   const mapped = known[status];
   if (mapped) return new LabError(mapped[0], exact(mapped[1]), 502, detail);
-  if (error instanceof Error && /timeout|abort/i.test(error.name)) {
+  // The SDK's timeout error keeps the name `Error`; its class says what it is.
+  if (error instanceof Error && /timeout|abort/i.test(`${error.name} ${error.constructor.name}`)) {
     return new LabError(
       'timeout',
       'The request timed out. Its result was not accepted; no automatic retry was made.',

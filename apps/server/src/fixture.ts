@@ -45,6 +45,7 @@ import {
   type Usage,
 } from '@livinglayer/domain';
 import { LabError, parseInput } from './errors.js';
+import { Jobs } from './jobs.js';
 import sharp from 'sharp';
 import {
   demoDeskThing,
@@ -71,6 +72,17 @@ import type { EvidenceStore } from './store.js';
 const ISO_ELEVATION = 30;
 /** What a picture with a transparent background is laid on for Spark: a neutral grey. */
 const SCULPT_BACKDROP = '#8a8f9f';
+/** What modelling a fixture with AI shows while it runs, in order. */
+const SCULPT_STEPS = [
+  { id: 'picture', label: 'The picture of it' },
+  { id: 'current', label: 'Its model as it is' },
+  { id: 'draft', label: 'Spark drafts it in parts' },
+  { id: 'check', label: 'Spark checks its draft' },
+  { id: 'keep', label: 'Keep the better draft' },
+  { id: 'save', label: 'Save it' },
+];
+/** Long jobs the page is following. */
+const jobs = new Jobs();
 const sumUsage = (a: Usage | null, b: Usage | null | undefined): Usage | null =>
   !b
     ? a
@@ -633,8 +645,15 @@ export function fixtureRoutes(
    * picture better is kept, with any parts the person locked. Live only.
    */
   app.post('/api/fixtures/sculpt', async (request) => {
-    const { mode, fixtureId } = parseInput(
-      z.object({ mode: modeSchema, fixtureId: z.string().uuid() }).strict(),
+    const { mode, fixtureId, jobId } = parseInput(
+      z
+        .object({
+          mode: modeSchema,
+          fixtureId: z.string().uuid(),
+          /** The page's id for following the steps as they go. */
+          jobId: z.string().uuid().optional(),
+        })
+        .strict(),
       request.body,
     );
     if (mode !== 'live')
@@ -681,16 +700,32 @@ export function fixtureRoutes(
       d: fixture.size.d / longest,
       h: fixture.size.h / longest,
     };
-    const event = await run('fixture', mode, async (id) => {
+    const job = jobs.start(jobId, SCULPT_STEPS);
+    const overlap = (iou: number) => `${Math.round(iou * 100)}% overlap with the picture`;
+    const parts = (n: number) => `${n} part${n === 1 ? '' : 's'}`;
+    const sculptSteps = async (id: string) => {
       const assets = [store.asset(id, 'picture.png', png)];
+      await job.done(
+        'picture',
+        sprite ? 'Its cut-out from the room’s picture' : 'The photo crop its model was fitted to',
+        png,
+      );
       let usage: Usage | null = null;
       let model: string | undefined;
       let requestId: string | null = null;
-      const drafts: { item: IsoItem; iou: number; note: string }[] = [];
+      const drafts: { item: IsoItem; iou: number; note: string; round: number }[] = [];
       let from: IsoItem = { label: fixture.model.label, parts: fixture.model.parts };
+      job.run('current');
+      let render = await viewPng(from, elevation, input.width);
+      assets.push(store.asset(id, 'render-1.png', render));
+      await job.done(
+        'current',
+        `${parts(from.parts.length)}, ${overlap(scoreAgainst(from, input, elevation).iou)}`,
+        render,
+      );
       for (const round of [1, 2]) {
-        const render = await viewPng(from, elevation, input.width);
-        assets.push(store.asset(id, `render-${round}.png`, render));
+        const step = round === 1 ? 'draft' : 'check';
+        job.run(step);
         const answer = await meta.sculpt(
           await shown(png),
           await shown(render),
@@ -701,14 +736,22 @@ export function fixtureRoutes(
         model = answer.model;
         requestId = answer.requestId;
         const item = fromSculpt(fixture.model.label, answer.output);
-        if (!item) break;
-        drafts.push({
-          item,
-          iou: scoreAgainst(item, input, elevation).iou,
-          note: answer.output.note,
-        });
+        if (!item) {
+          await job.done(step, 'No usable parts came back');
+          break;
+        }
+        const iou = scoreAgainst(item, input, elevation).iou;
+        drafts.push({ item, iou, note: answer.output.note, round });
         from = item;
+        render = await viewPng(item, elevation, input.width);
+        assets.push(store.asset(id, `render-${round + 1}.png`, render));
+        await job.done(
+          step,
+          `${parts(item.parts.length)}, ${overlap(iou)}. ${answer.output.note}`,
+          render,
+        );
       }
+      job.run('keep');
       const best = [...drafts].sort((a, b) => b.iou - a.iou)[0];
       if (!best)
         throw new LabError(
@@ -717,7 +760,15 @@ export function fixtureRoutes(
           502,
         );
       const item = keepLocked(best.item, fixture.model);
-      assets.push(store.asset(id, 'render-final.png', await viewPng(item, elevation, input.width)));
+      const final = await viewPng(item, elevation, input.width);
+      assets.push(store.asset(id, 'render-final.png', final));
+      const kept = item.parts.length - best.item.parts.length;
+      await job.done(
+        'keep',
+        `${best.round === 1 ? 'The first draft' : 'The checked draft'}, ${overlap(best.iou)}` +
+          (kept > 0 ? `, with ${parts(kept)} you locked` : ''),
+        final,
+      );
       return {
         output: {
           sculpted: fixture.id,
@@ -732,6 +783,15 @@ export function fixtureRoutes(
         usage,
         assets,
       };
+    };
+    const event = await run('fixture', mode, async (id) => {
+      try {
+        return await sculptSteps(id);
+      } catch (error) {
+        // The step that was running shows what went wrong; the run records it too.
+        job.fail(error instanceof Error ? error.message : 'Modelling failed.');
+        throw error;
+      }
     });
     const out = event.output as { item: IsoItem };
     const now = new Date().toISOString();
@@ -749,7 +809,19 @@ export function fixtureRoutes(
       group.has(f.id) ? { ...f, model: saved, updatedAt: now } : f,
     );
     store.saveMemory(fresh);
+    await job.done(
+      'save',
+      `Saved${group.size > 1 ? ` here and in ${group.size - 1} linked view${group.size > 2 ? 's' : ''}` : ''}`,
+    );
+    job.finish();
     return { memory: fresh, run: event };
+  });
+  /** Where a long job the page follows has got to. */
+  app.get('/api/jobs/:id', async (request) => {
+    const { id } = parseInput(z.object({ id: z.string().uuid() }).strict(), request.params);
+    const job = jobs.get(id);
+    if (!job) throw new LabError('job_missing', 'That job isn’t running here.', 404);
+    return job;
   });
   app.post('/api/fixtures/save', async (request) => {
     const { mode, fixture: input } = parseInput(

@@ -24,6 +24,7 @@ import {
   type EvidenceRun,
   type Fixture,
   type FixtureScan,
+  type Job,
   type MappedThing,
   type PhotoDraft,
   type Point,
@@ -851,8 +852,25 @@ describe('scanning live, with a mocked Meta API', () => {
       .json<{ memory: DeskMemory }>()
       .memory.fixtures!.find((f) => f.label === 'Desk lamp')!;
     calls.length = 0;
-    const sculpted = await s.post('fixtures/sculpt', { mode: 'live', fixtureId: lamp.id });
+    const jobId = crypto.randomUUID();
+    const sculpted = await s.post('fixtures/sculpt', { mode: 'live', fixtureId: lamp.id, jobId });
     expect(sculpted.statusCode, sculpted.body).toBe(200);
+    // Its steps can be followed by the page's id: all done, with pictures of what each made.
+    const job = (await s.app.inject(`/api/jobs/${jobId}`)).json<Job>();
+    expect(job.done).toBe(true);
+    expect(job.steps.map((x) => [x.id, x.state])).toEqual([
+      ['picture', 'done'],
+      ['current', 'done'],
+      ['draft', 'done'],
+      ['check', 'done'],
+      ['keep', 'done'],
+      ['save', 'done'],
+    ]);
+    expect(job.steps.filter((x) => x.image?.startsWith('data:image/png')).map((x) => x.id)).toEqual(
+      ['picture', 'current', 'draft', 'check', 'keep'],
+    );
+    expect(job.steps[2]!.detail).toMatch(/^2 parts, \d+% overlap with the picture\. A shade/);
+    expect((await s.app.inject(`/api/jobs/${crypto.randomUUID()}`)).statusCode).toBe(404);
     expect(calls).toEqual([
       expect.stringMatching(/^sculpt: Model the desk lamp in the first image/),
       expect.stringMatching(/^sculpt: The first image is the desk lamp/),
