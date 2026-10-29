@@ -65,6 +65,8 @@ function EditBanner() {
 export function Canvas() {
   const lab = useLab();
   const boxStart = useRef<{ x: number; y: number } | null>(null);
+  // The Picture layer is offered once the room has a picture.
+  const picture = Boolean(lab.memory?.illustration);
   const {
     mode,
     image,
@@ -122,7 +124,17 @@ export function Canvas() {
           button={(open, toggle) => (
             <button className="secondary layers-button" aria-expanded={open} onClick={toggle}>
               Layers
-              <small>{[overlay, lab.showTrail, lab.showZones].filter(Boolean).length}/3</small>
+              <small>
+                {
+                  [
+                    overlay,
+                    lab.showTrail,
+                    lab.showZones,
+                    ...(picture ? [lab.showPicture] : []),
+                  ].filter(Boolean).length
+                }
+                /{picture ? 4 : 3}
+              </small>
             </button>
           )}
         >
@@ -139,6 +151,16 @@ export function Canvas() {
                     lab.showZones,
                     lab.setShowZones,
                   ],
+                  ...(picture
+                    ? ([
+                        [
+                          'Picture',
+                          'The room as its drawing, not its model',
+                          lab.showPicture,
+                          lab.setShowPicture,
+                        ],
+                      ] as const)
+                    : []),
                 ] as const
               ).map(([name, hint, on, set]) => (
                 <label key={name} className="overlay-toggle">
@@ -423,7 +445,7 @@ export function Canvas() {
             onFixture={(id) => lab.select({ kind: 'fixture', id })}
             lightsOn={lab.lightsOn}
             focus={focus}
-            layers={{ trail: lab.showTrail, zones: lab.showZones }}
+            layers={{ trail: lab.showTrail, zones: lab.showZones, picture: lab.showPicture }}
             memory={memory}
             image={image}
             lights={lab.lights}

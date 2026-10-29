@@ -209,6 +209,40 @@ function SetupPanel() {
   );
 }
 
+/**
+ * Draw a photographed room as a clean isometric picture: Muse Image redraws
+ * the current photo, SAM finds the desk in it, and the room shows as that
+ * picture with the mug and zones on its desk.
+ */
+function PictureControls() {
+  const lab = useLab();
+  const { memory, mode, image, busy } = lab;
+  const pinned = memory?.surface?.scene === 'custom';
+  const has = Boolean(memory?.illustration);
+  const needPhoto = mode === 'live' && !image;
+  return (
+    <div className="picture-controls">
+      <button
+        className="secondary"
+        disabled={Boolean(busy) || !pinned || needPhoto || (mode === 'live' && !lab.metaReady)}
+        onClick={() => void lab.illustrate()}
+      >
+        {busy === 'illustrate' ? 'Drawing…' : has ? 'Redraw the picture' : 'Draw it as a picture'}
+      </button>
+      <p className="micro">
+        {!pinned
+          ? 'Pin the desk first: the picture is tied to it.'
+          : needPhoto
+            ? 'Add the room’s photo first; the picture is drawn from it.'
+            : mode === 'demo'
+              ? 'Demo: shows a ready-made picture of the illustrated desk, with no model calls.'
+              : has && memory?.illustration && !memory.illustration.desk
+                ? 'SAM found no desk in the last picture, so the mug and zones can’t be placed on it. Redraw to try again.'
+                : 'Muse Image redraws the current photo as isometric line art, and SAM finds its desk: one image and one SAM call, about $0.0125.'}
+      </p>
+    </div>
+  );
+}
 function RoomPanel() {
   const lab = useLab();
   const { progress, memory, mode, image, busy, guess, workScene } = lab;
@@ -242,6 +276,7 @@ function RoomPanel() {
         Draft the room from a photo, start from a preset, or move, turn and add furniture. The
         layout opens in the canvas.
       </p>
+      {room === 'custom' && <PictureControls />}
       {progress.view && (
         <button className="text-button" onClick={() => lab.select({ kind: 'view' })}>
           {progress.pinned ? 'Open the' : 'Next: set up the'}{' '}

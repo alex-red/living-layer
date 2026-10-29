@@ -17,6 +17,7 @@ const schema = z.object({
     .regex(/^muse-spark-[\w.-]+$/)
     .default('muse-spark-1.3'),
   META_SAM_MODEL: z.literal('sam-3.1').default('sam-3.1'),
+  META_IMAGE_MODEL: z.literal('muse-image-1.0').default('muse-image-1.0'),
   META_LIVE_ENABLED: flag,
   /** The most today's live Meta calls may cost (UTC day); changeable in the lab. */
   META_DAILY_SPEND_LIMIT_USD: z.coerce.number().positive().max(1000).default(10),
@@ -42,6 +43,7 @@ export interface Config {
   modelApiKey: string;
   sparkModel: string;
   samModel: string;
+  imageModel: string;
   metaEnabled: boolean;
   spendLimitUsd: number;
   timeoutMs: number;
@@ -105,6 +107,7 @@ export function parseConfig(env: NodeJS.ProcessEnv, cwd = process.cwd()): Config
     modelApiKey: value.MODEL_API_KEY,
     sparkModel: value.META_SPARK_MODEL,
     samModel: value.META_SAM_MODEL,
+    imageModel: value.META_IMAGE_MODEL,
     metaEnabled: value.META_LIVE_ENABLED,
     spendLimitUsd: value.META_DAILY_SPEND_LIMIT_USD,
     timeoutMs: value.META_TIMEOUT_MS,

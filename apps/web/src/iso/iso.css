@@ -895,3 +895,59 @@
   cursor: crosshair;
   touch-action: none;
 }
+
+/* The room as its picture, with what the camera tracks on its desk. */
+.illustration {
+  width: 100%;
+  height: 100%;
+  max-height: 100%;
+}
+.illustration image {
+  pointer-events: none;
+}
+.illustration-desk {
+  fill: none;
+  stroke: var(--seen);
+  stroke-opacity: 0.35;
+  stroke-dasharray: 6 6;
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+.illustration-zone polygon {
+  fill: var(--chosen-wash);
+  stroke: var(--chosen);
+  filter: drop-shadow(0 0 8px var(--chosen-glow));
+}
+.illustration-zone.inside polygon {
+  fill: var(--ok-glow);
+  stroke: var(--ok);
+}
+.illustration-zone.focused polygon {
+  filter: drop-shadow(0 0 14px var(--chosen-glow));
+}
+.illustration-zone text,
+.illustration-marker text {
+  fill: var(--chosen);
+  font-family: var(--mono);
+  font-weight: 500;
+  paint-order: stroke;
+  stroke: #05060a;
+  stroke-width: 0.25em;
+}
+.illustration-marker ellipse {
+  fill: var(--chosen-wash);
+  stroke: var(--chosen);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+  filter: drop-shadow(0 0 6px var(--chosen-glow));
+}
+.illustration-marker line {
+  stroke: var(--chosen);
+}
+.illustration-marker.focused ellipse {
+  fill: var(--chosen);
+}
+.picture-controls {
+  display: grid;
+  gap: 6px;
+}

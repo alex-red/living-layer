@@ -39,6 +39,7 @@ import {
   type SurfacePin,
   PROP_FACES,
   photoTextures,
+  sceneIllustrationSchema,
   textureRef,
   type PropFace,
 } from '@livinglayer/domain';
@@ -707,6 +708,8 @@ export function deskRoutes(
       : (scene as IsoScene);
     if (memory.fixtures) memory.fixtures = settleFixtures(memory.fixtures, memory.scene);
     memory.surface = pin as SurfacePin | null;
+    // A new photo is a new room: the old picture of it no longer fits.
+    memory.illustration = null;
     store.saveMemory(memory);
     const label = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
     const model = (thingId: string, previous: ReturnType<typeof modelTarget>) => {
@@ -844,6 +847,7 @@ export function deskRoutes(
                 .nullable(),
               surface: surfacePinSchema.nullable().optional(),
               scene: isoSceneSchema.nullable().optional(),
+              illustration: sceneIllustrationSchema.nullable().optional(),
               others: z
                 .array(z.object({ id: z.string().min(1) }).loose())
                 .max(MAX_OTHER_OBJECTS)

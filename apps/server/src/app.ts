@@ -33,6 +33,7 @@ import { deskRoutes } from './desk.js';
 import { itemRoutes } from './item.js';
 import { photoRoutes } from './photo.js';
 import { pinRoutes } from './pin.js';
+import { illustrationRoutes } from './illustration.js';
 import { streamRoutes, type NetworkStream } from './streams.js';
 import {
   demoScene,
@@ -302,6 +303,7 @@ export async function buildApp(
   itemRoutes(app, { store, meta, run });
   photoRoutes(app, { store, meta, run, config });
   pinRoutes(app, { store, meta, run });
+  illustrationRoutes(app, { store, meta, run });
   app.post('/api/segment', async (request) => {
     const input = parseInput(segmentRequestSchema, request.body);
     return run('segment', input.mode, async (id) => {

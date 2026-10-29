@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { IsoScene, SurfacePin } from './iso.js';
+import type { SceneIllustration } from './illustration.js';
 import type { SavedItem } from './iso-item.js';
 import { entityIdSchema, type Fixture } from './fixture.js';
 
@@ -83,6 +84,7 @@ export type RunKind =
   | 'scene'
   | 'layout'
   | 'photo'
+  | 'illustration'
   | 'item'
   | 'fixture'
   | 'lamp'
@@ -181,6 +183,8 @@ export const META_PRICES = {
   checked: '2026-10-27',
   sparkPerMillion: { input: 1.25, output: 4.25 },
   samPerImage: 0.0025,
+  /** Muse Image bills per image returned, whatever the reasoning or tools. */
+  imagePerImage: 0.01,
 } as const;
 /**
  * Spark usage to assume before any live run exists. Meta doesn't publish how
@@ -215,6 +219,7 @@ export function sparkCeiling(maxOutputTokens: number, images: number): number {
 export function runCost(run: Pick<EvidenceRun, 'kind' | 'mode' | 'usage'>): number | null {
   if (run.mode !== 'live') return null;
   if (run.kind === 'segment') return META_PRICES.samPerImage;
+  if (run.kind === 'illustration') return META_PRICES.imagePerImage;
   if (
     !['text', 'discover', 'scene', 'layout', 'item', 'photo', 'fixture'].includes(run.kind) ||
     !run.usage
@@ -309,6 +314,8 @@ export interface DeskMemory {
   rules?: PlacementRule[];
   /** The person's own isometric scene, built from templates or drafted by Spark. */
   scene?: IsoScene | null;
+  /** A clean isometric picture of that scene's room, drawn from its photo. */
+  illustration?: SceneIllustration | null;
   /** A detailed model of the remembered object, drafted from its mask and editable. */
   item?: SavedItem | null;
   /** Things placed in a room by hand: lamps, switches, a mouse. Reset keeps them. */
@@ -616,3 +623,4 @@ export * from './iso-archetypes.js';
 export * from './item-fit.js';
 export * from './photo-scene.js';
 export * from './photo-texture.js';
+export * from './illustration.js';

@@ -80,6 +80,7 @@ export const BUSY: Record<string, string> = {
   reset: 'Resetting desk memory',
   track: 'Tracking the mug',
   autopin: 'Finding the desk',
+  illustrate: 'Drawing the room',
   camera: 'Updating the camera setting',
   undo: 'Undoing',
   redo: 'Redoing',
@@ -181,6 +182,7 @@ export const RUN_KINDS: RunKind[] = [
   'scene',
   'layout',
   'photo',
+  'illustration',
   'item',
   'fixture',
   'lamp',
@@ -286,6 +288,7 @@ export function useLabState() {
   const [deskSvg, setDeskSvg] = useState('');
   const [overlay, setOverlay] = useState(boot.prefs.overlay);
   const [showTrail, setShowTrail] = useState(boot.prefs.trail);
+  const [showPicture, setShowPicture] = useState(boot.prefs.picture);
   const [showZones, setShowZones] = useState(boot.prefs.zones);
   const [stageView, setStageView] = useState<StageView>(boot.prefs.stageView);
   // Scene first: nothing runs until the person says which scene they are in.
@@ -434,6 +437,7 @@ export function useLabState() {
     overlay,
     trail: showTrail,
     zones: showZones,
+    picture: showPicture,
     concept,
     demoPosition,
     cameraSource,
@@ -530,6 +534,7 @@ export function useLabState() {
       setOverlay(next.overlay);
       setShowTrail(next.trail);
       setShowZones(next.zones);
+      setShowPicture(next.picture);
       setConcept(next.concept);
       if (next.demoPosition in DEMO_POSITIONS) setDemoPosition(next.demoPosition as DemoPosition);
       setCameraSource(next.cameraSource);
@@ -1265,6 +1270,36 @@ export function useLabState() {
     if (stageView === 'iso') setStageView('photo');
     setMessage('Drag a box around the thing on the desk photo. Esc cancels.');
   }
+  /**
+   * Draw the photographed room as a picture from the current photo (one
+   * image call and one SAM call, live), and show it.
+   */
+  async function illustrate() {
+    if (busy) return;
+    setBusy('illustrate');
+    setError('');
+    try {
+      const result = await api<{
+        run: EvidenceRun;
+        segment: EvidenceRun<Segmentation> | null;
+        memory: DeskMemory;
+      }>('scene/illustrate', { mode, ...(mode === 'live' ? { imageDataUrl: image } : {}) });
+      setMemory(result.memory);
+      setSelected(result.run);
+      setShowPicture(true);
+      if (stageView === 'photo') setStageView('iso');
+      setMessage(
+        result.memory.illustration?.desk
+          ? `Drew the room as a picture${costNote(result.run)}. The mug and zones sit on its desk.`
+          : `Drew the room as a picture${costNote(result.run)}, but SAM found no desk in it, so nothing can be placed on it.`,
+      );
+      void refresh().catch(() => {});
+    } catch (e) {
+      setError(e instanceof Error ? e : 'The room could not be drawn.');
+    } finally {
+      setBusy('');
+    }
+  }
   /** Show the room a fixture goes in, and wait for a click there to put it down. */
   function startPlacing(next: FixturePlacing) {
     setPlacing(next);
@@ -1416,6 +1451,8 @@ export function useLabState() {
     setShowTrail,
     showZones,
     setShowZones,
+    showPicture,
+    setShowPicture,
     stageView,
     setStageView,
     workScene,
@@ -1529,6 +1566,7 @@ export function useLabState() {
     entities,
     pickScene,
     draftOwnPhoto,
+    illustrate,
     goToStep,
     openModel,
     editLayout,

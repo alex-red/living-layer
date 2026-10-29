@@ -13,6 +13,7 @@ import { EvidenceStore } from '../apps/server/src/store.js';
 import {
   cameraFromPin,
   cleanInventory,
+  framePointInPicture,
   fillRings,
   fitSurfaceQuad,
   groupBounds,
@@ -492,6 +493,53 @@ describe('photo routes, offline', () => {
     expect((await save({})).statusCode).toBe(409);
     await s.app.close();
   });
+  it('shows a photographed room as its ready-made demo picture, and only once its desk is pinned', async () => {
+    const s = await setup();
+    // No room yet: nothing to tie a picture to.
+    const early = await s.post('scene/illustrate');
+    expect(early.statusCode).toBe(409);
+    const run = (await s.post('scene/from-photo')).json<EvidenceRun<PhotoDraft>>();
+    const { layout } = run.output;
+    await s.post('scene/from-photo/save', {
+      runId: run.id,
+      scene: layout.scene,
+      pin: layout.pin,
+      track: [],
+    });
+    const res = await s.post('scene/illustrate');
+    expect(res.statusCode, res.body).toBe(200);
+    const { memory } = res.json<{ memory: DeskMemory }>();
+    const picture = memory.illustration!;
+    expect(picture.asset).toMatch(/\/illustration\.png$/);
+    expect(picture.desk).toHaveLength(4);
+    // The mug's spot in the frame lands inside the picture's desk top.
+    const middle = framePointInPicture(layout.pin!, picture, layout.pin!.frame, {
+      x: 480,
+      y: 320,
+    })!;
+    const xs = picture.desk!.map((p) => p.x);
+    const ys = picture.desk!.map((p) => p.y);
+    expect(middle.x).toBeGreaterThan(Math.min(...xs));
+    expect(middle.x).toBeLessThan(Math.max(...xs));
+    expect(middle.y).toBeGreaterThan(Math.min(...ys));
+    expect(middle.y).toBeLessThan(Math.max(...ys));
+    const served = await s.app.inject(
+      `/api/scene/illustration?asset=${encodeURIComponent(picture.asset)}`,
+    );
+    expect(served.statusCode).toBe(200);
+    expect(served.headers['content-type']).toBe('image/png');
+    // A new photo makes a new room, so its old picture goes.
+    const again = (await s.post('scene/from-photo')).json<EvidenceRun<PhotoDraft>>();
+    const resaved = await s.post('scene/from-photo/save', {
+      runId: again.id,
+      scene: again.output.layout.scene,
+      pin: again.output.layout.pin,
+      track: [],
+    });
+    expect(resaved.json<DeskMemory>().illustration ?? null).toBeNull();
+    expect(s.fetcher).not.toHaveBeenCalled();
+    await s.app.close();
+  });
 });
 
 describe('photo routes, live with a mocked Meta API', () => {
@@ -693,6 +741,87 @@ describe('photo routes, live with a mocked Meta API', () => {
     expect(res.statusCode).toBe(429);
     expect(res.json().error.code).toBe('spend_limit');
     expect(s.fetcher).not.toHaveBeenCalled();
+    await s.app.close();
+  });
+  it('draws a photographed room as a picture: one image call, one SAM call, its desk tied to the pin', async () => {
+    const s = await setup();
+    // At the frame size the recorded SAM answer was made for.
+    const picture = await sharp(readFileSync('apps/server/assets/demo-illustration.webp'))
+      .resize(960, 640)
+      .png()
+      .toBuffer();
+    let edit: Record<string, unknown> | null = null;
+    s.fetcher.mockImplementation(async (url, init) => {
+      const body = JSON.parse(String(init?.body));
+      if (String(url).endsWith('/images/edits')) {
+        edit = body;
+        return new Response(
+          JSON.stringify({
+            created: 1,
+            data: [{ b64_json: picture.toString('base64') }],
+            output_format: 'png',
+            usage: { input_tokens: 10, output_tokens: 20, total_tokens: 30 },
+          }),
+          { headers: { 'content-type': 'application/json' } },
+        );
+      }
+      if (body.model === 'sam-3.1') return samResponse(demo.wire);
+      throw new Error(`unexpected call ${String(url)}`);
+    });
+    // A room drafted offline, restored as the live desk with its pin.
+    const offline = await buildApp(parseConfig({ DATA_DIR: mkdtempSync(join(tmpdir(), 'll-')) }), {
+      serveWeb: false,
+    });
+    const draft = (
+      await offline.inject({
+        method: 'POST',
+        url: '/api/scene/from-photo',
+        payload: { mode: 'demo' },
+      })
+    ).json<EvidenceRun<PhotoDraft>>().output.layout;
+    await offline.close();
+    const restored = await s.app.inject({
+      method: 'POST',
+      url: '/api/desk/restore',
+      payload: {
+        mode: 'live',
+        memory: { mode: 'live', object: null, scene: draft.scene, surface: draft.pin },
+      },
+    });
+    expect(restored.statusCode, restored.body).toBe(200);
+    const photo = await sharp(readFileSync('apps/web/public/desk.svg')).png().toBuffer();
+    const res = await s.app.inject({
+      method: 'POST',
+      url: '/api/scene/illustrate',
+      payload: { mode: 'live', imageDataUrl: `data:image/png;base64,${photo.toString('base64')}` },
+    });
+    expect(res.statusCode, res.body).toBe(200);
+    const out = res.json<{
+      run: EvidenceRun;
+      segment: EvidenceRun<Segmentation>;
+      memory: DeskMemory;
+    }>();
+    // The edit asks Muse Image for a PNG, with its search and tools off.
+    expect(edit!.model).toBe('muse-image-1.0');
+    expect(edit!.output_format).toBe('png');
+    expect(edit!.tool_enablement).toEqual({
+      enable_image_search: false,
+      enable_web_search: false,
+      enable_shell: false,
+    });
+    expect((edit!.images as { image_url: string }[])[0]!.image_url).toMatch(
+      /^data:image\/png;base64,/,
+    );
+    expect(out.run.kind).toBe('illustration');
+    expect(out.segment.kind).toBe('segment');
+    expect(out.segment.output.concept).toBe('desk');
+    const illustration = out.memory.illustration!;
+    expect(illustration.surfaceId).toBe(draft.pin!.surfaceId);
+    expect(illustration.frame).toEqual({ width: 960, height: 640 });
+    expect(illustration.desk).not.toBeNull();
+    // A cent for the picture and SAM's price for the outline, both counted against the limit.
+    const status = (await s.app.inject('/api/status')).json<{ meta: { spentToday: number } }>();
+    expect(status.meta.spentToday).toBeCloseTo(0.0125, 6);
     await s.app.close();
   });
 });

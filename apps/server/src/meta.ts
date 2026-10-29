@@ -522,6 +522,51 @@ export class MetaAdapter {
       maxMasks: 16,
     });
   }
+  /**
+   * Redraw a photo with Muse Image's edit endpoint: one image in, one PNG
+   * out. Built-in search and tools are off, so the picture comes from the
+   * photo and the prompt alone.
+   */
+  async illustrate(imageDataUrl: string, prompt: string): Promise<ProviderResult<Buffer>> {
+    const settle = this.reserve(META_PRICES.imagePerImage);
+    try {
+      const response = await this.client
+        .post<{
+          data?: { b64_json?: string }[];
+          usage?: ProviderUsage;
+        }>('/images/edits', {
+          body: {
+            model: this.config.imageModel,
+            prompt,
+            images: [{ image_url: imageDataUrl }],
+            size: 'auto',
+            output_format: 'png',
+            tool_enablement: {
+              enable_image_search: false,
+              enable_web_search: false,
+              enable_shell: false,
+            },
+          },
+          timeout: Math.max(this.config.timeoutMs, 120_000),
+        })
+        .withResponse();
+      const b64 = response.data.data?.[0]?.b64_json;
+      if (!b64) {
+        settle(0);
+        throw new LabError('image_output', 'Muse Image returned no picture.', 502);
+      }
+      settle(META_PRICES.imagePerImage);
+      return {
+        output: Buffer.from(b64, 'base64'),
+        model: this.config.imageModel,
+        requestId: response.request_id ?? null,
+        usage: usageOf(response.data.usage),
+      };
+    } catch (e) {
+      settle(0);
+      throw e;
+    }
+  }
   async segment(
     imageDataUrl: string,
     prompt: string,

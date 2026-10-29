@@ -13,9 +13,10 @@ export interface Prefs {
   workScene: WorkScene | null;
   stageView: StageView;
   overlay: boolean;
-  /** Canvas layers besides the masks: the mug's trail and saved zones. */
+  /** Canvas layers besides the masks: the mug's trail, saved zones, and a room's picture. */
   trail: boolean;
   zones: boolean;
+  picture: boolean;
   concept: string;
   demoPosition: string;
   /** '' for this device's camera, else the id of a network camera. */
@@ -43,6 +44,7 @@ export const DEFAULT_PREFS: Prefs = {
   overlay: true,
   trail: true,
   zones: true,
+  picture: true,
   concept: 'mug',
   demoPosition: 'centre',
   cameraSource: '',
@@ -69,6 +71,7 @@ export function prefsOf(saved: Partial<Prefs> | undefined): Prefs {
   one('overlay', (v) => typeof v === 'boolean');
   one('trail', (v) => typeof v === 'boolean');
   one('zones', (v) => typeof v === 'boolean');
+  one('picture', (v) => typeof v === 'boolean');
   one('concept', (v) => text(v) && (v as string).trim().length > 0);
   one('demoPosition', text);
   one('cameraSource', text);

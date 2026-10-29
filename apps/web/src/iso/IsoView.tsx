@@ -29,6 +29,7 @@ import {
 import { api } from '../api';
 import { IsoScene, type IsoFixture, type IsoObject, type IsoZone } from './IsoScene';
 import { ItemEditor } from './ItemEditor';
+import { IllustrationView } from './IllustrationView';
 import { SceneEditor, type LayoutRun } from './SceneEditor';
 import type { PhotoRun } from './PhotoReview';
 import { pinScene, type WorkScene as Kind } from '../workspace/progress';
@@ -132,8 +133,11 @@ export function IsoView({
   lightsOn?: Set<string>;
   /** What the outline has selected, ringed in the room: `tracked` is the mug, `main` its zone. */
   focus?: { object?: string; zone?: string; fixture?: string };
-  /** Which canvas layers show: the mug's trail, and saved zones (a draft always shows). */
-  layers?: { trail: boolean; zones: boolean };
+  /**
+   * Which canvas layers show: the mug's trail, saved zones (a draft always
+   * shows), and the room's picture in place of its model when it has one.
+   */
+  layers?: { trail: boolean; zones: boolean; picture?: boolean };
   memory?: DeskMemory;
   /** The current live photo, for asking Spark about the scene. */
   image?: string;
@@ -257,6 +261,18 @@ export function IsoView({
       focused: f.id === focus?.fixture,
     }));
   const turned = placing ? placing.turns % 2 === 1 : false;
+  // The photographed room shows as its picture, unless something is being drawn or placed on the model.
+  const picture =
+    kind === 'custom' &&
+    layers.picture !== false &&
+    memory?.illustration &&
+    pin?.scene === 'custom' &&
+    memory.illustration.surfaceId === pin.surfaceId &&
+    !drawing &&
+    !ruleDraft &&
+    !placing
+      ? memory.illustration
+      : null;
 
   const target = memory ? modelTarget(memory, modelOf) : null;
 
@@ -358,6 +374,14 @@ export function IsoView({
                 );
               })
             }
+          />
+        ) : picture && memory && pin ? (
+          <IllustrationView
+            illustration={picture}
+            pin={pin}
+            memory={memory}
+            focus={focus}
+            showZones={layers.zones}
           />
         ) : (
           <IsoScene
