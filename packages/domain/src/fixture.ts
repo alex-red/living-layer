@@ -62,8 +62,20 @@ export interface Fixture extends Omit<FixtureInput, 'id' | 'model'> {
   model: SavedItem;
   /** The last confirmed state of its entity, for drawing; never a verdict. */
   state?: 'on' | 'off' | null;
+  /**
+   * One thing seen in several scenes (a room and its close view) shares a
+   * link: what it is and what it switches stay the same in each.
+   */
+  link?: string;
   createdAt: string;
   updatedAt: string;
+}
+
+/** The group a fixture belongs to: its link, or itself alone. */
+export const fixtureGroup = (f: Pick<Fixture, 'id' | 'link'>) => f.link ?? f.id;
+/** The same thing in the other scenes it is linked into. */
+export function linkedFixtures(fixtures: Fixture[], f: Pick<Fixture, 'id' | 'link'>): Fixture[] {
+  return f.link ? fixtures.filter((x) => x.id !== f.id && x.link === f.link) : [];
 }
 
 /** The entity a fixture switches, or null when it only stands there. */

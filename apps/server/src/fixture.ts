@@ -3,6 +3,13 @@ import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import {
   DEMO_REFERENCES,
+  DEMO_SURFACE,
+  mapScan,
+  fixtureGroup,
+  linkedFixtures,
+  pinFits,
+  type FixtureScan,
+  type MappedThing,
   entityIdSchema,
   META_PRICES,
   MAX_FIXTURES,
@@ -26,7 +33,7 @@ import {
 } from '@livinglayer/domain';
 import { LabError, parseInput } from './errors.js';
 import sharp from 'sharp';
-import { demoDeskThing, demoFixtureClass, demoReference } from './demo.js';
+import { demoDeskThing, demoFixtureClass, demoFixtureScan, demoReference } from './demo.js';
 import { maskedCrop, validateImage } from './images.js';
 import { draftModel, pinElevation, rescore, type Runner } from './item.js';
 import { SPARK_BUDGET, type MetaAdapter } from './meta.js';
@@ -305,6 +312,130 @@ export function fixtureRoutes(
     });
     return { run: event, draft: event.output as FixtureDraft };
   });
+  /**
+   * Scan and map a view: Spark lists what stays put in the photo the pinned
+   * camera took (one call), and each thing is mapped onto a scene the pin
+   * fits: its own, or the room it is a close view of. A thing found in the
+   * other scene is linked with it, so both are one fixture. A
+   * thing the scene already has is left alone; one a fixture elsewhere matches
+   * is placed with that fixture's model; anything else is added with a
+   * placeholder model to draft properly later. Demo mode scans the
+   * illustrated desk, which fills the frame, with no model call.
+   */
+  app.post('/api/fixtures/scan', async (request) => {
+    const { mode, imageDataUrl, scene } = parseInput(
+      z
+        .object({
+          mode: modeSchema,
+          imageDataUrl: z.string().max(7_000_000).optional(),
+          /** The scene to map into; the pin's own when left out. */
+          scene: z.union([isoSceneKindSchema, z.literal('custom')]).optional(),
+        })
+        .strict(),
+      request.body,
+    );
+    const live = mode === 'live';
+    if (!live && imageDataUrl)
+      throw new LabError('demo_image', 'Demo mode scans only the illustrated desk.');
+    const before = store.memory(mode);
+    const pin = live ? before.surface : DEMO_SURFACE;
+    if (!pin || (pin.scene === 'custom' && !before.scene))
+      throw new LabError(
+        'scan_pin',
+        'Pin a surface first: the scan maps what it finds through the pin.',
+        409,
+      );
+    const target = scene ?? pin.scene;
+    if (!pinFits(pin, target))
+      throw new LabError(
+        'scan_scene',
+        'The pin is on another scene: scan its own scene, or the room it is a close view of.',
+        409,
+      );
+    const ceiling = sparkCeiling(SPARK_BUDGET.fixtureScan, 1);
+    if (live && !meta.canAfford(ceiling))
+      throw new LabError(
+        'spend_limit',
+        `A scan could cost up to $${ceiling.toFixed(3)}, which would pass today's Meta spending limit. Raise the limit in Setup, or wait for the next UTC day.`,
+        429,
+      );
+    const image = live ? await validateImage(imageDataUrl) : null;
+    const tracked = [before.object?.label, ...(before.others ?? []).map((o) => o.label)].filter(
+      (l): l is string => Boolean(l),
+    );
+    const event = await run('fixture', mode, async (id) => {
+      const result = image
+        ? await meta.fixtureScan(image.dataUrl, tracked)
+        : { output: demoFixtureScan, model: 'demo', requestId: null, usage: null };
+      const scan: FixtureScan = result.output;
+      const memory = store.memory(mode);
+      const library = memory.fixtures ?? [];
+      const mapped = mapScan({
+        scan,
+        pin,
+        scene: target,
+        custom: memory.scene ?? null,
+        library,
+        room: MAX_FIXTURES - library.length,
+        entities: entities(mode),
+      });
+      return {
+        ...result,
+        output: { scan, mapped },
+        assets: image ? [store.asset(id, 'source.png', image.bytes)] : [],
+      };
+    });
+    const { mapped } = event.output as { scan: FixtureScan; mapped: MappedThing[] };
+    // Read again: the scan took a while, and the memory may have changed meanwhile.
+    const memory = store.memory(mode);
+    const library = memory.fixtures ?? [];
+    const now = new Date().toISOString();
+    // A link joins the other scene's group, named after its first fixture.
+    const linkWith = (m: MappedThing) => {
+      const other = m.linkTo ? library.find((f) => f.id === m.linkTo) : undefined;
+      if (!other) return undefined;
+      other.link = fixtureGroup(other);
+      return other.link;
+    };
+    for (const m of mapped) {
+      const here = m.match === 'existing' ? library.find((f) => f.id === m.fixtureId) : undefined;
+      const link = here && linkWith(m);
+      if (here && link) {
+        for (const f of linkedFixtures(library, here)) f.link = link;
+        here.link = link;
+      }
+    }
+    const added: Fixture[] = mapped.flatMap((m) => {
+      if (!m.fixture) return [];
+      const link = linkWith(m);
+      const known = m.match === 'library' ? library.find((f) => f.id === m.fixtureId) : undefined;
+      const { model, ...rest } = m.fixture;
+      return [
+        {
+          ...rest,
+          id: randomUUID(),
+          model: known
+            ? { ...known.model, ...uniqueParts(model), updatedAt: now }
+            : {
+                ...uniqueParts(model),
+                source: 'placeholder',
+                segmentRunId: null,
+                swatches: [],
+                updatedAt: now,
+                fit: null,
+              },
+          state: null,
+          ...(link ? { link } : {}),
+          createdAt: now,
+          updatedAt: now,
+        },
+      ];
+    });
+    // A fixture saved meanwhile may have taken a place the scan counted on.
+    memory.fixtures = [...library, ...added].slice(0, MAX_FIXTURES);
+    store.saveMemory(memory);
+    return { run: event, mapped, memory };
+  });
   app.post('/api/fixtures/save', async (request) => {
     const { mode, fixture: input } = parseInput(
       z.object({ mode: modeSchema, fixture: fixtureInputSchema }).strict(),
@@ -354,11 +485,27 @@ export function fixtureRoutes(
       },
       // A new entity starts with no known state.
       state: previous && fixtureEntity(previous) === entity ? (previous.state ?? null) : null,
+      ...(previous?.link ? { link: previous.link } : {}),
       createdAt: previous?.createdAt ?? now,
       updatedAt: now,
     };
+    // The same thing in its other scenes is renamed, remodelled and rewired with it.
+    const linked = new Set(linkedFixtures(fixtures, fixture).map((f) => f.id));
     memory.fixtures = previous
-      ? fixtures.map((f) => (f.id === previous.id ? fixture : f))
+      ? fixtures.map((f) =>
+          f.id === previous.id
+            ? fixture
+            : linked.has(f.id)
+              ? {
+                  ...f,
+                  label: fixture.label,
+                  model: fixture.model,
+                  control: fixture.control,
+                  state: fixture.state ?? null,
+                  updatedAt: now,
+                }
+              : f,
+        )
       : [...fixtures, fixture];
     store.saveMemory(memory);
     return memory;

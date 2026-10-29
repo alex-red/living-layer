@@ -16,6 +16,7 @@ import {
   type Segmentation,
   type DemoReference,
   type FixtureClass,
+  type FixtureScan,
   type Archetype,
   ARCHETYPES,
   archetypeOf,
@@ -324,3 +325,30 @@ export async function demoDeskThing(box: {
     },
   };
 }
+
+/**
+ * What a Spark scan of the illustrated desk could look like: the book and
+ * the bottle stay put; the mug is the object the camera follows.
+ */
+export const demoFixtureScan: FixtureScan = {
+  things: [
+    {
+      label: 'green book',
+      archetype: 'book',
+      material: 'matte',
+      control: 'none',
+      color: '#5f8a5a',
+      box: demoPhotoInventory.things.find((t) => t.id === 'book')!.box,
+      sizeCm: DEMO_DESK_SIZES.book!,
+    },
+    {
+      label: 'sage bottle',
+      archetype: 'bottle',
+      material: 'matte',
+      control: 'none',
+      color: '#9cb59a',
+      box: demoPhotoInventory.things.find((t) => t.id === 'bottle')!.box,
+      sizeCm: DEMO_DESK_SIZES.bottle!,
+    },
+  ],
+};

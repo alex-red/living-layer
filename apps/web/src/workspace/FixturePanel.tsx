@@ -1,7 +1,10 @@
 import { useRef, useState, type ReactNode } from 'react';
 import {
   DEMO_REFERENCES,
+  DEMO_SURFACE,
   ISO_PRESETS,
+  linkedFixtures,
+  pinFits,
   fixtureEntity,
   tileCm,
   type ControlKind,
@@ -13,6 +16,7 @@ import {
   type FixtureDraft,
   type FixtureInput,
   type LampResult,
+  type MappedThing,
   type ZoneRect,
 } from '@livinglayer/domain';
 import { api } from '../api';
@@ -22,7 +26,7 @@ import type { FixturePlacing } from '../iso/IsoView';
 import { useLab } from './LabContext';
 import { builtInLamps, controlLabel, roomLabel } from './labels';
 import { pinScene } from './progress';
-import { Details, Panel, useCall } from './panel';
+import { Cost, Details, Panel, useCall } from './panel';
 import type { IsoSceneKind } from '@livinglayer/domain';
 
 /** Fixtures stand in a room or a preset close view; a photographed room's desk view is the room's own. */
@@ -188,6 +192,85 @@ function useScenes(): { id: WorkScene; label: string }[] {
       ? [{ id: progress.view, label: ISO_PRESETS[progress.view].label }]
       : []),
   ];
+}
+
+const MATCH_LABEL: Record<MappedThing['match'], string> = {
+  existing: 'In the room',
+  library: 'From the library',
+  placeholder: 'Placeholder',
+};
+
+/**
+ * Scan and map the pinned view into the room or its close view: what stays
+ * put in the desk photo is found, matched against the fixtures already
+ * saved, and the rest added with placeholder models. Scanning both scenes
+ * links each thing across them.
+ */
+function ScanView({ initial }: { initial: WorkScene | null }) {
+  const lab = useLab();
+  const { call, off } = useCall();
+  const [mapped, setMapped] = useState<MappedThing[] | null>(null);
+  const live = lab.mode === 'live';
+  // The demo scans the illustrated desk, whose pin is always the same.
+  const pin = live ? lab.memory?.surface : DEMO_SURFACE;
+  const scenes = useScenes().filter((s) => pin && pinFits(pin, s.id));
+  const [chosen, setChosen] = useState<WorkScene | null>(initial);
+  const scene = scenes.find((s) => s.id === chosen)?.id ?? scenes[0]?.id ?? null;
+  const blocked = (live && !lab.image) || !scene;
+  return (
+    <Details summary="Scan and map this view">
+      <p className="micro">
+        {live
+          ? 'Spark lists what stays put in the desk photo, and each thing is placed through the pin. A fixture you already have is reused; anything new gets a placeholder model to draft later.'
+          : 'Scans the illustrated desk with no model call. A fixture you already have is reused; anything new gets a placeholder model.'}
+      </p>
+      {scenes.length > 1 && (
+        <div className="mode-switch" role="group" aria-label="Scene to map into">
+          {scenes.map((s) => (
+            <button key={s.id} aria-pressed={scene === s.id} onClick={() => setChosen(s.id)}>
+              {s.label}
+            </button>
+          ))}
+        </div>
+      )}
+      <button
+        className="secondary"
+        disabled={off || blocked}
+        title={blocked ? (scene ? 'Add a desk photo first.' : 'Pin a surface first.') : undefined}
+        onClick={() =>
+          void call<{ run: EvidenceRun; mapped: MappedThing[]; memory: DeskMemory }>(
+            'fixtures/scan',
+            { scene, ...(live ? { imageDataUrl: lab.image } : {}) },
+            (r) => {
+              lab.setMemory(r.memory);
+              lab.setSelected(r.run);
+              setMapped(r.mapped);
+              const added = r.mapped.filter((m) => m.fixture).length;
+              lab.setMessage(
+                r.mapped.length
+                  ? `Scanned ${r.mapped.length} thing${r.mapped.length === 1 ? '' : 's'}; added ${added}.`
+                  : 'The scan found nothing that stays put.',
+              );
+            },
+          )
+        }
+      >
+        {off ? 'Scanning…' : 'Scan and map'}
+      </button>
+      <Cost>One Spark call, refused up front if today’s limit can’t cover it.</Cost>
+      {mapped && mapped.length > 0 && (
+        <ul className="scan-list">
+          {mapped.map((m, i) => (
+            <li key={`${m.label}-${i}`}>
+              <strong>{m.label}</strong>
+              <span className={`tiny scan-${m.match}`}>{MATCH_LABEL[m.match].toUpperCase()}</span>
+              <small>{m.note}</small>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Details>
+  );
 }
 
 /**
@@ -361,6 +444,7 @@ export function NewFixturePanel() {
         >
           Or box it on the desk photo →
         </button>
+        <ScanView initial={target} />
         {!live && (
           <div className="object-grid">
             {DEMO_REFERENCES.map((r) => (
@@ -515,6 +599,7 @@ export function FixturePanel({ id }: { id: string }) {
       },
     );
   const moving = placing?.id === f.id;
+  const linked = linkedFixtures(memory?.fixtures ?? [], f);
   return (
     <Panel
       tiny="FIXTURE"
@@ -552,6 +637,23 @@ export function FixturePanel({ id }: { id: string }) {
             </p>
           )}
         </>
+      )}
+      {linked.length > 0 && (
+        <p className="micro">
+          Also in{' '}
+          {linked.map((l, i) => (
+            <span key={l.id}>
+              {i > 0 && ', '}
+              <button
+                className="text-button"
+                onClick={() => lab.select({ kind: 'fixture', id: l.id })}
+              >
+                {l.scene === 'custom' ? roomLabel('custom', memory) : ISO_PRESETS[l.scene].label}
+              </button>
+            </span>
+          ))}
+          : its name, model and switch stay the same in each.
+        </p>
       )}
       <div className="save-actions">
         <button

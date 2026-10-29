@@ -956,6 +956,35 @@
   border-radius: var(--r-card);
   background: var(--seen-wash);
 }
+/* A scan's things, each with how it was mapped. */
+.scan-list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.scan-list li {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2px 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-chip);
+}
+.scan-list small {
+  grid-column: 1 / -1;
+  color: var(--text-3);
+}
+.scan-list .scan-existing {
+  color: var(--ok);
+}
+.scan-list .scan-library {
+  color: var(--seen);
+}
+.scan-list .scan-placeholder {
+  color: var(--warm);
+}
 .fixture-reference img {
   width: 100%;
   aspect-ratio: 4 / 3;

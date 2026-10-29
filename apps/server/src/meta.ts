@@ -8,6 +8,8 @@ import {
   ITEM_MATERIALS,
   itemClassSchema,
   fixtureClassSchema,
+  fixtureScanSchema,
+  MAX_SCAN_THINGS,
   itemCheckSchema,
   sceneDraftSchema,
   templateCatalog,
@@ -49,6 +51,7 @@ export const SPARK_BUDGET = {
   layout: 16384,
   itemClass: 4096,
   fixtureClass: 8192,
+  fixtureScan: 12288,
   itemCheck: 4096,
   photoInventory: 16384,
   photoCheck: 12288,
@@ -315,6 +318,44 @@ export class MetaAdapter {
       },
     });
     return this.parsed(response, fixtureClassSchema, 'fixture class', SPARK_BUDGET.fixtureClass);
+  }
+  /**
+   * The things in a view's photo that stay put, for scan and map: each with
+   * its shape, colour, a loose box and its usual size. The objects the camera
+   * follows are named so they are left out.
+   */
+  async fixtureScan(imageDataUrl: string, tracked: string[]) {
+    const response = await this.spark(1, {
+      model: this.config.sparkModel,
+      store: false,
+      max_output_tokens: SPARK_BUDGET.fixtureScan,
+      input: [
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'input_text',
+              text: [
+                'This photo shows part of a room someone is modelling. List the fixtures in it: things that stay put and could be placed in a model of the room, like a lamp, a monitor, a keyboard, a mouse, a speaker, a plant, a wall switch or a fan.',
+                `Leave out furniture (desks, tables, chairs, shelves), walls and floors${tracked.length ? `, and these objects, which are followed separately: ${tracked.join(', ')}` : ''}.`,
+                `For each give: a short grounded label (no names, owners or brands); the archetype that best describes its shape (${ARCHETYPES.join(', ')}; generic only when none fits); its main material (${ITEM_MATERIALS.join(', ')}); control: light for a lamp, bulb or light strip, switch for anything else that turns on and off, none for everything else; its main colour as lowercase #rrggbb; box, a loose box around it as x1, y1, x2, y2 from 0 to 1000 across and down the photo; and sizeCm, its usual real width, depth and height in centimetres.`,
+                `Use at most ${MAX_SCAN_THINGS} things, only what is clearly visible, biggest first. Return an empty list if there are none.`,
+              ].join('\n'),
+            },
+            { type: 'input_image', image_url: imageDataUrl, detail: 'auto' },
+          ],
+        },
+      ],
+      text: {
+        format: {
+          type: 'json_schema',
+          name: 'fixture_scan',
+          strict: true,
+          schema: z.toJSONSchema(fixtureScanSchema),
+        },
+      },
+    });
+    return this.parsed(response, fixtureScanSchema, 'fixture scan', SPARK_BUDGET.fixtureScan);
   }
   /**
    * Spark compares the photo with the model rendered from the same camera and

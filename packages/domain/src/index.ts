@@ -626,3 +626,4 @@ export * from './item-fit.js';
 export * from './photo-scene.js';
 export * from './photo-texture.js';
 export * from './illustration.js';
+export * from './fixture-scan.js';

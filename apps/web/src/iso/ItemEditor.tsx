@@ -19,6 +19,7 @@ const SOURCE: Record<SavedItem['source'], string> = {
   demo: 'Demo photo',
   sampled: 'Fitted to the mask',
   spark: 'Fitted with Spark and SAM',
+  placeholder: 'Placeholder from a scan',
 };
 const round = (n: number) => Math.round(n * 100) / 100;
 /** Only the editable fields, so the working copy matches the save contract exactly. */

@@ -1,0 +1,362 @@
+import { afterEach, describe, expect, it, mock } from 'bun:test';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import sharp from 'sharp';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { buildApp } from '../apps/server/src/app.js';
+import { parseConfig, type Fetcher } from '../apps/server/src/config.js';
+import {
+  DEMO_SURFACE,
+  ISO_PRESETS,
+  fixtureProblem,
+  libraryScore,
+  mapScan,
+  mugItem,
+  placeholderModel,
+  type DeskMemory,
+  type EvidenceRun,
+  type Fixture,
+  type FixtureScan,
+  type MappedThing,
+  type ScannedThing,
+} from '@livinglayer/domain';
+
+const dirs: string[] = [];
+afterEach(() => {
+  for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+});
+
+function fixture(over: Partial<Fixture> = {}): Fixture {
+  return {
+    id: crypto.randomUUID(),
+    label: 'Desk lamp',
+    scene: 'office',
+    surfaceId: null,
+    at: { x: 1, y: 1 },
+    turns: 0,
+    size: { w: 0.5, d: 0.5, h: 1.2 },
+    model: { ...mugItem(), source: 'demo', segmentRunId: null, swatches: [], updatedAt: '' },
+    reference: null,
+    control: { kind: 'light', entityId: 'light.demo_shelf' },
+    createdAt: '2026-10-28T00:00:00.000Z',
+    updatedAt: '2026-10-28T00:00:00.000Z',
+    ...over,
+  };
+}
+const thing = (over: Partial<ScannedThing> = {}): ScannedThing => ({
+  label: 'green book',
+  archetype: 'book',
+  material: 'matte',
+  control: 'none',
+  color: '#5f8a5a',
+  box: { x1: 80, y1: 300, x2: 300, y2: 760 },
+  sizeCm: { w: 15, d: 22, h: 3 },
+  ...over,
+});
+
+describe('matching a scanned thing to the library', () => {
+  it('takes the same name, or the same last word and shape, and nothing looser', () => {
+    const lamp = fixture({ label: 'Desk lamp' });
+    expect(libraryScore({ label: 'desk lamps', archetype: 'lamp' }, lamp)).toBe(1);
+    expect(libraryScore({ label: 'brass lamp', archetype: 'lamp' }, lamp)).toBe(0.8);
+    expect(libraryScore({ label: 'desk fan', archetype: 'device' }, lamp)).toBe(0);
+    const fitted = fixture({
+      label: 'Desk lamp',
+      model: {
+        ...lamp.model,
+        fit: { ...({} as NonNullable<Fixture['model']['fit']>), archetype: 'lamp' },
+      },
+    });
+    // A drafted model knows its shape: a "lamp" drawn as a bottle is not this one.
+    expect(libraryScore({ label: 'brass lamp', archetype: 'bottle' }, fitted)).toBe(0);
+  });
+  it('builds a placeholder in the thing’s colour from its shape', () => {
+    const book = placeholderModel('Green book', 'book', '#5f8a5a', 'matte');
+    expect(book.label).toBe('Green book');
+    expect(JSON.stringify(book.parts)).toContain('#5f8a5a');
+  });
+});
+
+describe('mapping a scan through the pin', () => {
+  const scan: FixtureScan = { things: [thing()] };
+  const map = (library: Fixture[] = [], room = 12) =>
+    mapScan({
+      scan,
+      pin: DEMO_SURFACE,
+      custom: null,
+      library,
+      room,
+      entities: ['light.demo_shelf'],
+    });
+  it('stands what it finds on the pinned surface, with a placeholder model', () => {
+    const [book] = map();
+    expect(book).toMatchObject({ label: 'Green book', match: 'placeholder' });
+    expect(book!.fixture).toMatchObject({ scene: 'desk', surfaceId: 'desk:top', reference: null });
+    expect(fixtureProblem(book!.fixture!)).toBeNull();
+    // The book's box is on the left of the photo, so it stands on the left of the desk.
+    const top = ISO_PRESETS.desk.surfaces.find((s) => s.id === 'desk:top')!.rect;
+    expect(book!.fixture!.at.x).toBeLessThan(top.x + top.w / 2);
+  });
+  it('leaves a fixture the scene has alone, and reuses one from another scene', () => {
+    const here = fixture({ label: 'Green book', scene: 'desk', surfaceId: 'desk:top' });
+    expect(map([here])[0]).toMatchObject({ match: 'existing', fixtureId: here.id, fixture: null });
+    const elsewhere = fixture({ label: 'Green book', scene: 'office' });
+    const [reused] = map([elsewhere]);
+    expect(reused).toMatchObject({ match: 'library', fixtureId: elsewhere.id });
+    expect(reused!.fixture!.model.parts).toEqual(elsewhere.model.parts);
+    expect(reused!.fixture!.control).toEqual(elsewhere.control);
+    // Another scene has another scale.
+    expect(reused!.fixture!.size.w).not.toBe(elsewhere.size.w);
+  });
+  it('drops a reused fixture’s light when it is no longer configured, and stops when full', () => {
+    const elsewhere = fixture({
+      label: 'Green book',
+      control: { kind: 'light', entityId: 'light.gone' },
+    });
+    expect(map([elsewhere])[0]!.fixture!.control).toEqual({ kind: 'none' });
+    expect(map([], 0)[0]).toMatchObject({ fixture: null, note: 'No room for more fixtures.' });
+  });
+});
+
+describe('mapping a scan into the room the view is part of', () => {
+  const scan: FixtureScan = { things: [thing()] };
+  const map = (library: Fixture[] = []) =>
+    mapScan({
+      scan,
+      pin: DEMO_SURFACE,
+      scene: 'office',
+      custom: null,
+      library,
+      room: 12,
+      entities: [],
+    });
+  it('stands the thing on the same desk top in the office', () => {
+    const [book] = map();
+    expect(book!.fixture).toMatchObject({ scene: 'office', surfaceId: 'desk:top' });
+    expect(fixtureProblem(book!.fixture!)).toBeNull();
+    const top = ISO_PRESETS.office.surfaces.find((s) => s.id === 'desk:top')!.rect;
+    expect(book!.fixture!.at.x).toBeLessThan(top.x + top.w / 2);
+  });
+  it('links with the same thing in the close view, once', () => {
+    const desk = fixture({ label: 'Green book', scene: 'desk', surfaceId: 'desk:top' });
+    const [linked] = map([desk]);
+    expect(linked).toMatchObject({ match: 'library', fixtureId: desk.id, linkTo: desk.id });
+    const office = fixture({ label: 'Green book', scene: 'office', link: desk.id });
+    // Already linked: it is just there.
+    expect(map([{ ...desk, link: desk.id }, office])[0]).toMatchObject({
+      match: 'existing',
+      fixtureId: office.id,
+    });
+    expect(map([{ ...desk, link: desk.id }, office])[0]!.linkTo).toBeUndefined();
+    // Both there but apart: they are joined.
+    const apart = fixture({ label: 'Green book', scene: 'office' });
+    expect(map([desk, apart])[0]).toMatchObject({
+      match: 'existing',
+      fixtureId: apart.id,
+      linkTo: desk.id,
+    });
+  });
+  it('refuses a scene the pin doesn’t fit', () => {
+    expect(
+      mapScan({
+        scan,
+        pin: DEMO_SURFACE,
+        scene: 'fridge',
+        custom: null,
+        library: [],
+        room: 12,
+        entities: [],
+      }),
+    ).toEqual([]);
+  });
+});
+
+async function setup(env: Record<string, string> = {}, fetcher: Fetcher = mock<Fetcher>()) {
+  const dataDir = mkdtempSync(join(tmpdir(), 'livinglayer-scan-'));
+  dirs.push(dataDir);
+  const app = await buildApp(parseConfig({ DATA_DIR: dataDir, ...env }), {
+    fetcher,
+    serveWeb: false,
+  });
+  const post = (path: string, body: object = {}) =>
+    app.inject({ method: 'POST', url: `/api/${path}`, payload: { mode: 'demo', ...body } });
+  return { app, post };
+}
+type Scanned = { run: EvidenceRun; mapped: MappedThing[]; memory: DeskMemory };
+
+describe('scanning the demo desk', () => {
+  it('adds what stays put with placeholders, then finds it already there', async () => {
+    const s = await setup();
+    const first = await s.post('fixtures/scan');
+    expect(first.statusCode, first.body).toBe(200);
+    const one = first.json<Scanned>();
+    expect(one.run).toMatchObject({ kind: 'fixture', mode: 'demo', status: 'completed' });
+    expect(one.mapped.map((m) => [m.label, m.match])).toEqual([
+      ['Green book', 'placeholder'],
+      ['Sage bottle', 'placeholder'],
+    ]);
+    expect(one.memory.fixtures).toHaveLength(2);
+    expect(one.memory.fixtures![0]).toMatchObject({
+      scene: 'desk',
+      surfaceId: 'desk:top',
+      model: { source: 'placeholder' },
+      control: { kind: 'none' },
+    });
+    const two = (await s.post('fixtures/scan')).json<Scanned>();
+    expect(two.mapped.map((m) => m.match)).toEqual(['existing', 'existing']);
+    expect(two.memory.fixtures).toHaveLength(2);
+  });
+  it('places a thing with the model of a fixture saved in another scene', async () => {
+    const s = await setup();
+    const {
+      id: _id,
+      createdAt: _c,
+      updatedAt: _u,
+      state: _s,
+      model,
+      ...rest
+    } = fixture({
+      label: 'Green book',
+      control: { kind: 'none' },
+    });
+    const saved = await s.post('fixtures/save', {
+      fixture: { ...rest, model: { label: model.label, parts: model.parts } },
+    });
+    expect(saved.statusCode, saved.body).toBe(200);
+    const r = (await s.post('fixtures/scan')).json<Scanned>();
+    expect(r.mapped[0]).toMatchObject({ label: 'Green book', match: 'library' });
+    const book = r.memory.fixtures!.find((f) => f.scene === 'desk' && f.label === 'Green book')!;
+    expect(book.model.parts.length).toBe(model.parts.length);
+    expect(book.model.source).toBe('demo');
+  });
+  it('maps the office too, linking each thing with its close view, and edits both', async () => {
+    const s = await setup();
+    const desk = (await s.post('fixtures/scan')).json<Scanned>();
+    const office = await s.post('fixtures/scan', { scene: 'office' });
+    expect(office.statusCode, office.body).toBe(200);
+    const r = office.json<Scanned>();
+    expect(r.mapped.map((m) => m.match)).toEqual(['library', 'library']);
+    expect(r.memory.fixtures).toHaveLength(4);
+    const books = r.memory.fixtures!.filter((f) => f.label === 'Green book');
+    expect(books.map((f) => f.scene).sort()).toEqual(['desk', 'office']);
+    expect(books[0]!.link).toBeTruthy();
+    expect(books[0]!.link).toBe(books[1]!.link!);
+    expect(books[0]!.link).toBe(desk.memory.fixtures!.find((f) => f.label === 'Green book')!.id);
+    // Scanning again finds both there, still linked.
+    const again = (await s.post('fixtures/scan', { scene: 'office' })).json<Scanned>();
+    expect(again.mapped.map((m) => m.match)).toEqual(['existing', 'existing']);
+    expect(again.memory.fixtures).toHaveLength(4);
+    // A rename in one scene is a rename in the other.
+    const officeBook = books.find((f) => f.scene === 'office')!;
+    const {
+      id,
+      label: _l,
+      createdAt: _c,
+      updatedAt: _u,
+      state: _s,
+      link: _k,
+      model,
+      ...rest
+    } = officeBook;
+    const saved = await s.post('fixtures/save', {
+      fixture: {
+        ...rest,
+        id,
+        label: 'Field guide',
+        model: { label: model.label, parts: model.parts },
+      },
+    });
+    expect(saved.statusCode, saved.body).toBe(200);
+    const renamed = saved.json<DeskMemory>().fixtures!.filter((f) => f.link === officeBook.link);
+    expect(renamed.map((f) => f.label)).toEqual(['Field guide', 'Field guide']);
+    expect((await s.post('fixtures/scan', { scene: 'fridge' })).statusCode).toBe(409);
+  });
+  it('takes no photo in the demo', async () => {
+    const s = await setup();
+    expect((await s.post('fixtures/scan', { imageDataUrl: 'data:' })).statusCode).toBe(400);
+  });
+});
+
+describe('scanning live, with a mocked Meta API', () => {
+  const sparkResponse = (output: object) =>
+    new Response(
+      JSON.stringify({
+        id: 'resp_spark',
+        object: 'response',
+        model: 'muse-spark-1.3',
+        status: 'completed',
+        output: [
+          {
+            type: 'message',
+            role: 'assistant',
+            content: [{ type: 'output_text', text: JSON.stringify(output), annotations: [] }],
+          },
+        ],
+        usage: { input_tokens: 100, output_tokens: 20, total_tokens: 120 },
+      }),
+      { headers: { 'content-type': 'application/json', 'x-request-id': 'req-spark' } },
+    );
+  async function live(env: Record<string, string> = {}) {
+    const prompts: string[] = [];
+    const fetcher = mock<Fetcher>().mockImplementation(async (_url, init) => {
+      const body = JSON.parse(String(init?.body));
+      prompts.push(`${body.text.format.name}: ${body.input[0].content[0].text}`);
+      return sparkResponse({
+        things: [
+          thing({
+            label: 'desk lamp',
+            archetype: 'lamp',
+            control: 'light',
+            box: { x1: 700, y1: 100, x2: 860, y2: 600 },
+          }),
+        ],
+      });
+    });
+    const s = await setup(
+      { MODEL_API_KEY: 'test-key', META_LIVE_ENABLED: 'true', ...env },
+      fetcher,
+    );
+    const photo = await sharp(readFileSync('apps/web/public/desk.svg')).png().toBuffer();
+    const imageDataUrl = `data:image/png;base64,${photo.toString('base64')}`;
+    const scan = () => s.post('fixtures/scan', { mode: 'live', imageDataUrl });
+    return { ...s, prompts, scan };
+  }
+  const pin = async (s: Awaited<ReturnType<typeof live>>) => {
+    const memory = (await s.app.inject('/api/desk/live')).json<DeskMemory>();
+    const r = await s.post('desk/restore', {
+      mode: 'live',
+      memory: {
+        ...memory,
+        surface: DEMO_SURFACE,
+        object: { id: 'mug', label: 'Mug', createdAt: '2026-10-28T00:00:00.000Z' },
+      },
+    });
+    expect(r.statusCode, r.body).toBe(200);
+  };
+  it('asks Spark once, leaving out what the camera follows, and maps what it finds', async () => {
+    const s = await live();
+    await pin(s);
+    const res = await s.scan();
+    expect(res.statusCode, res.body).toBe(200);
+    const r = res.json<Scanned>();
+    expect(s.prompts).toHaveLength(1);
+    expect(s.prompts[0]).toMatch(/^fixture_scan: /);
+    expect(s.prompts[0]).toContain('followed separately: Mug');
+    expect(r.run).toMatchObject({ kind: 'fixture', mode: 'live', status: 'completed' });
+    expect(r.run.assets).toContain(`${r.run.id}/source.png`);
+    expect(r.memory.fixtures).toHaveLength(1);
+    expect(r.memory.fixtures![0]).toMatchObject({
+      label: 'Desk lamp',
+      surfaceId: 'desk:top',
+      model: { source: 'placeholder' },
+    });
+  });
+  it('needs a pin, and refuses before any call past today’s limit', async () => {
+    const s = await live();
+    expect((await s.scan()).statusCode).toBe(409);
+    const poor = await live({ META_DAILY_SPEND_LIMIT_USD: '0.0001' });
+    await pin(poor);
+    expect((await poor.scan()).statusCode).toBe(429);
+    expect(poor.prompts).toEqual([]);
+  });
+});
