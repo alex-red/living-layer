@@ -373,6 +373,8 @@ describe('reference sprites', () => {
     book: ['#3c554a'],
     box: ['#8a90a8', '#b3a796'],
     plant: ['#c06a45', '#4d6a54'],
+    lamp: ['#e8dcc0'],
+    device: ['#3a3f47', '#4f5560'],
     generic: ['#8a90a8'],
   };
   for (const archetype of ARCHETYPES)

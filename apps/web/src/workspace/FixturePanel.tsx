@@ -30,7 +30,10 @@ const KIND_LABEL: Record<ControlKind, string> = {
 };
 /** The ones you can switch first, then the plain thing. */
 const KIND_ORDER: ControlKind[] = ['light', 'switch', 'none'];
-const REFERENCE_LABEL: Record<DemoReference, string> = { mouse: 'Computer mouse' };
+const REFERENCE_LABEL: Record<DemoReference, string> = {
+  mouse: 'Computer mouse',
+  lamp: 'Desk lamp',
+};
 
 /** The model as a small pixel-art picture, for review. */
 function ModelPreview({ model }: { model: FixtureDraft['model'] }) {

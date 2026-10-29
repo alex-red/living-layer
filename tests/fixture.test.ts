@@ -9,11 +9,16 @@ import { EvidenceStore } from '../apps/server/src/store.js';
 import { ControlAdapter } from '../apps/server/src/control.js';
 import { syntheticStream } from '../apps/server/src/sam.js';
 import {
+  archetypeOf,
+  buildItem,
+  defaultFit,
   fixtureBox,
   fixtureControlSchema,
   fixtureEntity,
   fixtureInputSchema,
   fixtureProblem,
+  isoItemSchema,
+  itemHeight,
   mugItem,
   placeTemplate,
   ruleInputSchema,
@@ -405,8 +410,11 @@ describe('drafting a fixture from a reference picture', () => {
       reference: { runId: run.id, asset: `${run.id}/reference.png` },
       model: { source: 'demo' },
     });
-    expect(draft.model.parts.length).toBeGreaterThan(0);
-    expect(draft.model.fit!.iou).toBeGreaterThan(0.8);
+    // Seen from above, it is a flat outline, as tall as a mouse is for its length.
+    expect(draft.model.parts).toHaveLength(1);
+    expect(draft.model.parts[0]).toMatchObject({ shape: 'extrude' });
+    expect(itemHeight(draft.model)).toBeCloseTo(4 / 11.5, 2);
+    expect(draft.model.fit!.iou).toBeGreaterThan(0.9);
     expect(run.assets).toContain(`${run.id}/item-crop.png`);
     const saved = (
       await s.post('fixtures/save', {
@@ -425,7 +433,7 @@ describe('drafting a fixture from a reference picture', () => {
     ).json<DeskMemory>();
     const mouse = saved.fixtures![0]!;
     expect(mouse.model.swatches).toEqual(draft.model.swatches);
-    expect(mouse.model.fit).toMatchObject({ crop: draft.model.fit!.crop, archetype: 'box' });
+    expect(mouse.model.fit).toMatchObject({ crop: draft.model.fit!.crop, archetype: 'device' });
     expect(mouse.model.fit!.iou).toBeCloseTo(draft.model.fit!.iou, 5);
   });
   it('takes a name, and only bundled pictures in demo mode', async () => {
@@ -444,6 +452,37 @@ describe('drafting a fixture from a reference picture', () => {
     expect(
       (await s.post('fixtures/draft', { scene: 'custom', reference: 'mouse' })).statusCode,
     ).toBe(409);
+  });
+});
+
+describe('fixture shapes', () => {
+  it('names devices and lamps from their labels', () => {
+    expect(archetypeOf('wireless mouse')).toBe('device');
+    expect(archetypeOf('light switch')).toBe('device');
+    expect(archetypeOf('tv remote')).toBe('device');
+    expect(archetypeOf('desk lamp')).toBe('lamp');
+    expect(archetypeOf('phone')).toBe('box');
+  });
+  it('builds a flat thing as one rounded extrusion, and a lamp as a turned body', () => {
+    const flat = buildItem('Mouse', defaultFit('device'));
+    expect(isoItemSchema.safeParse(flat).success).toBe(true);
+    expect(flat.parts.map((p) => p.shape)).toEqual(['extrude']);
+    const lamp = buildItem('Lamp', defaultFit('lamp'));
+    expect(isoItemSchema.safeParse(lamp).success).toBe(true);
+    expect(lamp.parts.map((p) => p.shape)).toEqual(['lathe']);
+  });
+  it('drafts the demo lamp as a light with a stem under its shade', async () => {
+    const s = await setup();
+    const { draft } = (await s.post('fixtures/draft', { scene: 'desk', reference: 'lamp' })).json<{
+      draft: FixtureDraft;
+    }>();
+    expect(draft).toMatchObject({ label: 'Desk lamp', suggested: 'light', archetype: 'lamp' });
+    const profile = draft.model.parts[0]!.profile!;
+    const r = (z: number) =>
+      profile.reduce((a, p) => (Math.abs(p.z - z) < Math.abs(a.z - z) ? p : a)).r;
+    expect(r(0.35)).toBeLessThan(0.2);
+    expect(Math.max(...profile.filter((p) => p.z > 0.6).map((p) => p.r))).toBeGreaterThan(0.9);
+    expect(draft.model.fit!.iou).toBeGreaterThan(0.8);
   });
 });
 

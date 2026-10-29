@@ -175,6 +175,8 @@ export interface ModelRequest {
   elevation: number | null;
   /** Ask Meta's models for part masks and a check; off for the demo and `sampled`. */
   live: boolean;
+  /** How tall it is as a share of its longer side, when its real size is known. */
+  knownHeight?: number | null;
 }
 /**
  * Model one masked crop. Live, SAM segments parts the fitter can use (a
@@ -186,7 +188,7 @@ export async function draftModel(
   meta: MetaAdapter,
   store: EvidenceStore,
   runId: string,
-  { crop, cropUrl, label, archetype, material, elevation, live }: ModelRequest,
+  { crop, cropUrl, label, archetype, material, elevation, live, knownHeight }: ModelRequest,
 ) {
   const assets: string[] = [];
   const assists: string[] = [];
@@ -210,6 +212,7 @@ export async function draftModel(
     material,
     elevation,
     parts,
+    knownHeight,
   };
   const fitted = fitItem(input);
   let params = fitted.params;
