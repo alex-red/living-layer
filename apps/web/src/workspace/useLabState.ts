@@ -1206,7 +1206,8 @@ export function useLabState() {
     setSelection(next);
   }
   function goToStep(id: StepId) {
-    if (id === 'office') return setChoosingScene(true);
+    // A room already set up opens; only before one is there does the step choose.
+    if (id === 'office' && !workScene) return setChoosingScene(true);
     select(selectionForStep(id, memory));
   }
   /** Open an object's model in the canvas. `undefined` is the mug. */
