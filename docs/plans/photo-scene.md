@@ -178,7 +178,7 @@ Each step ends with a test, and the cut line sits after step 5: a feature that e
   | Scene match            | 83–92%                       | none        |
   | Time per photo         | under 70 ms                  | none        |
 
-  These are synthetic photos with exact masks. A real photo hasn't been run through the live path yet: that needs a live key and two billed calls.
+  These are synthetic photos with exact masks. The first real photo (Oct 28: a cluttered desk from a network camera at 1280 × 720, behind and above the desk) went through the live path in 12.6 s for about $0.016, without the check. Spark listed 11 things and SAM outlined all of them. The desk was pinned at a 64% match with its front edge out of frame, and the whole scene scored 32%. Clutter the templates can't draw (plushes, a cat tower) is what pulls the score down. Finding the desk again on its own (`desk/auto-pin`, one SAM call) put the corners on the visible top, clear of the plushes.
 
 - **Not built.**
   - Pinning the floor for a room with no desk. It still falls back to spreading things over the grid by where they are in the photo.

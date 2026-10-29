@@ -38,7 +38,7 @@ Open http://127.0.0.1:5173. The API runs on port 4310.
 Choose **Use the demo office**. The illustrated desk comes already pinned. Then:
 
 1. In the outline, choose **Add object**, then **Segment object** and **Confirm mug mask #7**.
-2. Select **Mug zone**, choose **Draw / edit zone**, drag a box around the mug and **Save zone**.
+2. Select **Main zone**, choose **Draw / edit zone**, drag a box around the mug and **Save zone**.
 3. Choose **Verify placement · virtual lamp**. The room warms up when the lamp turns on.
 4. Move the mug with **Right** under the canvas, select **My desk mug** and choose **Track the mug** to watch the rule decide again.
 

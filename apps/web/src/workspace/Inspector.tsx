@@ -303,9 +303,11 @@ function RoomPanel() {
       status={
         room === 'custom'
           ? 'Your own room, drafted from a photo or built by hand.'
-          : room === 'office'
-            ? 'The demo office: an illustrated preset you can edit.'
-            : 'A preset scene. Pin one of its surfaces to place objects.'
+          : lab.isoPanel === 'scene' && lab.stageView !== 'photo'
+            ? 'Draft your office from a photo in the canvas: upload one, or capture a camera frame and use it. Review the draft, then save.'
+            : room === 'office'
+              ? 'The demo office: an illustrated preset you can edit.'
+              : 'A preset scene. Pin one of its surfaces to place objects.'
       }
       tone="ok"
     >
@@ -427,7 +429,7 @@ function SurfacePanel({ id, closeView }: { id: string; closeView?: boolean }) {
             lab.select(memory?.object ? { kind: 'object', id: 'main' } : { kind: 'add' })
           }
         >
-          {memory?.object ? 'Open the mug' : 'Find objects'} <Glyph type="arrow" />
+          {memory?.object ? `Open ${memory.object.label}` : 'Find objects'} <Glyph type="arrow" />
         </button>
       ) : needPhoto ? (
         <div className="save-actions">
@@ -843,7 +845,7 @@ function ZonePanel() {
     return (
       <Panel
         tiny="RULE · MAIN"
-        title="Mug zone"
+        title="Main zone"
         status="Remember the mug first; its zone is drawn on a frame it was seen in."
         tone="unsure"
       >
@@ -870,7 +872,7 @@ function ZonePanel() {
   return (
     <Panel
       tiny="RULE · MAIN"
-      title={`Mug zone → ${lab.lights[0] ?? 'main lamp'}`}
+      title={`Main zone → ${lab.lights[0] ?? 'main lamp'}`}
       status={status}
       tone={
         !d ? 'seen' : d.decision === 'blocked' ? 'unsure' : d.action === 'confirmed' ? 'warm' : 'ok'
@@ -950,6 +952,12 @@ function ZonePanel() {
             ? 'Verify placement · virtual lamp'
             : 'Verify placement · turn on lamp'}
       </button>
+      {mode === 'live' && !lampReady && (
+        <p className="micro">
+          The lamp isn’t set up, so placement can’t be verified live. Set the HA_ variables and
+          HA_LIVE_ENABLED, or try the rule in Demo.
+        </p>
+      )}
       {!currentObservation && memory.zone && (
         <p className="micro">
           Track the mug in this frame first. A still photo doesn’t prove where it is now.

@@ -86,7 +86,7 @@ export function sceneProgress({
   const rules = (memory?.zone ? 1 : 0) + (memory?.rules?.length ?? 0);
   const ran = Boolean(memory?.lastDecision || memory?.rules?.some((r) => r.lastDecision));
   const roomLabel = room === 'custom' ? (memory?.scene?.label ?? 'your room') : room;
-  const deskLabel = view ? ISO_PRESETS[view].label : 'Main surface';
+  const deskLabel = view ? ISO_PRESETS[view].label : room ? 'Main surface' : 'Office desk';
 
   const done: Record<StepId, boolean> = {
     office: Boolean(room),

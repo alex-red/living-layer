@@ -204,7 +204,7 @@ export function Outline() {
             <ul className="ol-tree">
               {memory?.object && (
                 <Row
-                  label="Mug zone"
+                  label="Main zone"
                   detail={memory.zone ? `→ ${lab.lights[0] ?? 'main lamp'}` : 'draw a zone'}
                   state={memory.zone ? (memory.lastDecision ? 'done' : 'current') : 'current'}
                   target={{ kind: 'rule', id: 'main' }}

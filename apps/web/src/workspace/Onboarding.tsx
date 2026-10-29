@@ -91,7 +91,9 @@ export function Onboarding() {
 export function DeskStep() {
   const lab = useLab();
   const { image, camera, busy, cameraPending, progress } = lab;
-  if (!progress.view || progress.pinned || lab.mode !== 'live') return null;
+  // Not while the room itself is being drafted: the desk comes after.
+  if (!progress.view || progress.pinned || lab.mode !== 'live' || lab.isoPanel === 'scene')
+    return null;
   return (
     <div className="desk-step" role="note" aria-label="Set up the office desk">
       <span className="tiny">STEP 2 OF 2 · THE DESK</span>

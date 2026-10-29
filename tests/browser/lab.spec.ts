@@ -126,7 +126,7 @@ test('remembers a mug, draws a zone, verifies one virtual action, and retains ev
   await expect(page.locator('.feedback')).toContainText('Mug identity manually confirmed');
   const before = await page.request.get('/api/desk/demo');
   const objectId = (await before.json()).object.id;
-  await outline(page, 'Mug zone').click();
+  await outline(page, 'Main zone').click();
   await page.getByRole('button', { name: 'Draw / edit zone' }).click();
   const overlay = page.getByLabel('Draw placement zone');
   await overlay.scrollIntoViewIfNeeded();
@@ -211,7 +211,7 @@ test('draws the remembered mug in the isometric desk and follows it to a new fra
   await expect(mug).toBeVisible();
   const before = Number(await mug.getAttribute('cx'));
   await page.getByRole('button', { name: 'Right', exact: true }).click();
-  await page.getByRole('button', { name: 'Open the mug' }).click();
+  await page.getByRole('button', { name: /^Open My desk mug/ }).click();
   await page.getByRole('button', { name: 'Track the mug', exact: true }).click();
   await expect(page.locator('.feedback')).toContainText('Tracked');
   // The demo moves the mug 100 px right, which is towards +x on the desk.

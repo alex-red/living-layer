@@ -741,6 +741,8 @@ export function useLabState() {
       stream.current = opened.media;
       closeNetwork.current = opened.close ?? null;
       setCamera(true);
+      // The feed draws in the photo half, which the iso view hides; show both.
+      setStageView((v) => (v === 'iso' ? 'split' : v));
     } catch {
       if (mounted.current && generation === cameraGeneration.current)
         setError(

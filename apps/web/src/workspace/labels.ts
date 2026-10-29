@@ -80,7 +80,7 @@ export function selectionLabel(lab: Lab, s: Selection): string {
       return 'Add an object';
     case 'rule':
       return s.id === 'main'
-        ? 'Mug zone'
+        ? 'Main zone'
         : (memory?.rules?.find((r) => r.id === s.id)?.label ?? 'Rule');
     case 'new-rule':
       return 'New rule';
