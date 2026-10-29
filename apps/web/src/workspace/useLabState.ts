@@ -54,6 +54,7 @@ import {
   type StageView,
 } from '../session';
 import { SHORTCUTS, useShortcuts, type ShortcutAction } from '../shortcuts';
+import { lightStates } from './labels';
 import {
   parseSelection,
   roomOf,
@@ -308,6 +309,8 @@ export function useLabState() {
   const [ruleDraft, setRuleDraft] = useState<RuleDraft | null>(null);
   /** A fixture waiting for a click in the iso room that says where it stands. */
   const [placing, setPlacing] = useState<FixturePlacing | null>(null);
+  /** A box being drawn around a thing on the desk photo, to draft a fixture from. */
+  const [boxing, setBoxing] = useState<{ rect: ZoneRect | null } | null>(null);
   const [guess, setGuess] = useState<SceneGuess | null>(null);
   const sceneLabel =
     workScene === 'custom'
@@ -564,6 +567,7 @@ export function useLabState() {
       if (drawing) return setDrawing(false);
       if (ruleDraft) return setRuleDraft(null);
       if (placing) return setPlacing(null);
+      if (boxing) return setBoxing(null);
       if (isoPanel !== 'room') return setIsoPanel('room');
       if (choosingScene && workScene) return setChoosingScene(false);
       return false;
@@ -1113,6 +1117,10 @@ export function useLabState() {
   const confirmedId = currentObservation?.detectionId;
   const progress = sceneProgress({ mode, workScene, memory });
   const lights = mode === 'demo' ? DEMO_LIGHTS : (status?.lamp.lights ?? []);
+  /** Each light's last confirmed state in this mode, for lamps that glow. */
+  const lightsOn = new Set(
+    [...lightStates(memory, runs)].filter(([, s]) => s === 'on').map(([entity]) => entity),
+  );
   /** What a rule or a fixture may switch: the lights, then the switches. */
   const entities = [
     ...lights,
@@ -1154,6 +1162,8 @@ export function useLabState() {
     setOutlineOpen(false);
     if (next?.kind !== 'new-rule') setRuleDraft(null);
     if (next?.kind !== 'new-fixture' && next?.kind !== 'fixture') setPlacing(null);
+    if (next?.kind !== 'new-fixture') setBoxing(null);
+    if (next?.kind === 'lamp') setWorkScene(next.id.split('~')[0] as WorkScene);
     if (next?.kind === 'fixture') {
       const f = memory?.fixtures?.find((x) => x.id === next.id);
       if (f) setWorkScene(f.scene);
@@ -1167,7 +1177,8 @@ export function useLabState() {
       if (progress.room) setWorkScene(inView ? progress.view! : progress.room);
     }
     if (isoPanel === 'scene' && next?.kind !== 'room') setIsoPanel('room');
-    if (isoPanel === 'item' && next?.kind !== 'object') setIsoPanel('room');
+    if (isoPanel === 'item' && next?.kind !== 'object' && next?.kind !== 'fixture')
+      setIsoPanel('room');
     setSelection(next);
   }
   function goToStep(id: StepId) {
@@ -1239,6 +1250,12 @@ export function useLabState() {
     } finally {
       setBusy('');
     }
+  }
+  /** Show the desk photo and let the person box the thing a fixture is drafted from. */
+  function startBoxing() {
+    setBoxing({ rect: null });
+    if (stageView === 'iso') setStageView('photo');
+    setMessage('Drag a box around the thing on the desk photo. Esc cancels.');
   }
   /** Show the room a fixture goes in, and wait for a click there to put it down. */
   function startPlacing(next: FixturePlacing) {
@@ -1410,6 +1427,9 @@ export function useLabState() {
     setRuleDraft,
     placing,
     setPlacing,
+    boxing,
+    setBoxing,
+    startBoxing,
     startPlacing,
     placeFixture,
     guess,
@@ -1497,6 +1517,7 @@ export function useLabState() {
     confirmedId,
     progress,
     lights,
+    lightsOn,
     entities,
     pickScene,
     goToStep,

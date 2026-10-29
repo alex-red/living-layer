@@ -13,13 +13,14 @@ import {
   type FixtureDraft,
   type FixtureInput,
   type LampResult,
+  type ZoneRect,
 } from '@livinglayer/domain';
 import { api } from '../api';
 import { Glyph } from '../Glyph';
 import { itemSprite } from '../iso/sprites';
 import type { FixturePlacing } from '../iso/IsoView';
 import { useLab } from './LabContext';
-import { controlLabel, roomLabel } from './labels';
+import { builtInLamps, controlLabel, roomLabel } from './labels';
 import { pinScene } from './progress';
 import { Details, Panel, useCall } from './panel';
 import type { IsoSceneKind } from '@livinglayer/domain';
@@ -53,6 +54,13 @@ function ModelPreview({ model }: { model: FixtureDraft['model'] }) {
   );
 }
 
+/** A box in shares of the frame, as thousandths for the server. */
+const thousandths = (r: ZoneRect) => ({
+  x1: Math.round(r.x * 1000),
+  y1: Math.round(r.y * 1000),
+  x2: Math.max(Math.round(r.x * 1000) + 1, Math.round((r.x + r.width) * 1000)),
+  y2: Math.max(Math.round(r.y * 1000) + 1, Math.round((r.y + r.height) * 1000)),
+});
 /** A photo the person chose, scaled down here so the upload stays small. */
 async function photoDataUrl(file: File): Promise<string> {
   if (!['image/png', 'image/jpeg'].includes(file.type) || file.size > 10_000_000)
@@ -200,12 +208,22 @@ export function NewFixturePanel() {
   const [hint, setHint] = useState('');
   const target = scene && scenes.some((s) => s.id === scene) ? scene : (scenes[0]?.id ?? null);
 
-  async function draftFrom(source: { reference: DemoReference } | { file: File }) {
+  async function draftFrom(
+    source: { reference: DemoReference } | { file: File } | { box: ZoneRect },
+  ) {
     if (!target) return;
     setPending(true);
     lab.setError('');
     try {
-      const from = 'file' in source ? { imageDataUrl: await photoDataUrl(source.file) } : source;
+      const from =
+        'file' in source
+          ? { imageDataUrl: await photoDataUrl(source.file) }
+          : 'box' in source
+            ? {
+                box: thousandths(source.box),
+                ...(mode === 'live' ? { imageDataUrl: lab.image } : {}),
+              }
+            : source;
       const r = await api<{ run: EvidenceRun; draft: FixtureDraft }>('fixtures/draft', {
         mode,
         scene: target,
@@ -213,6 +231,7 @@ export function NewFixturePanel() {
         ...(hint.trim() ? { label: hint.trim() } : {}),
       });
       setDraft({ draft: r.draft, scene: target });
+      lab.setBoxing(null);
       setLabel(r.draft.label);
       const suggested = lab.entities.find((e) => e.startsWith(`${r.draft.suggested}.`));
       setKind(r.draft.suggested !== 'none' && suggested ? r.draft.suggested : 'none');
@@ -255,6 +274,36 @@ export function NewFixturePanel() {
         </div>
       </Panel>
     );
+
+  if (!draft && lab.boxing) {
+    const rect = lab.boxing.rect;
+    const big = Boolean(rect && rect.width > 0.02 && rect.height > 0.02);
+    return (
+      <Panel
+        tiny="ADD A FIXTURE"
+        title="Box it on the desk photo"
+        status={
+          mode === 'live'
+            ? 'Drag a box around the thing. Spark sees only what is around the box; SAM outlines it.'
+            : 'Drag a box around the mug, the book or the bottle on the illustrated desk.'
+        }
+        tone="seen"
+      >
+        <div className="save-actions">
+          <button
+            className="primary"
+            disabled={!big || pending || Boolean(busy) || !target}
+            onClick={() => rect && void draftFrom({ box: rect })}
+          >
+            {pending ? 'Drafting…' : 'Draft from the box'}
+          </button>
+          <button className="secondary" onClick={() => lab.setBoxing(null)}>
+            Cancel
+          </button>
+        </div>
+      </Panel>
+    );
+  }
 
   if (!draft) {
     const live = mode === 'live';
@@ -304,6 +353,14 @@ export function NewFixturePanel() {
               : 'Demo mode drafts from the bundled pictures below, with no model call. Switch to Live to use your own photo.'}
           </p>
         </div>
+        <button
+          className="text-button"
+          disabled={off || (live && !lab.image)}
+          title={live && !lab.image ? 'Add a desk photo first.' : undefined}
+          onClick={() => lab.startBoxing()}
+        >
+          Or box it on the desk photo →
+        </button>
         {!live && (
           <div className="object-grid">
             {DEMO_REFERENCES.map((r) => (
@@ -516,6 +573,9 @@ export function FixturePanel({ id }: { id: string }) {
         >
           Turn ↻
         </button>
+        <button className="secondary" disabled={off || moving} onClick={() => lab.openModel(f.id)}>
+          Edit model
+        </button>
       </div>
       <Details summary="What it is">
         <ControlPicker kind={kind} entity={entity} onKind={setKind} onEntity={setEntity} />
@@ -547,6 +607,78 @@ export function FixturePanel({ id }: { id: string }) {
           Delete “{f.label}”
         </button>
       </Details>
+    </Panel>
+  );
+}
+
+/**
+ * A lamp that is part of the room's layout: it stands for one light, which
+ * can be switched from here. Which light is chosen in the layout editor.
+ */
+export function LampPanel({ id }: { id: string }) {
+  const lab = useLab();
+  const { call, off } = useCall();
+  const [result, setResult] = useState<LampResult | null>(null);
+  const lamp = builtInLamps(lab).find((l) => l.id === id);
+  if (!lamp)
+    return <Panel tiny="BUILT-IN LAMP" title="Gone" status="This lamp is no longer in the room." />;
+  const on = lab.lightsOn.has(lamp.entity);
+  const liveBlocked = lab.mode === 'live' && !lab.lampReady;
+  const sceneLabel = roomLabel(lamp.scene, lab.memory);
+  const control = (action: 'on' | 'off') =>
+    void call<{ memory: DeskMemory; event: EvidenceRun<LampResult> }>(
+      'fixtures/control',
+      { entityId: lamp.entity, action },
+      (r) => {
+        lab.setMemory(r.memory, false);
+        lab.setSelected(r.event);
+        setResult(r.event.output);
+        lab.setMessage(r.event.output.explanation);
+      },
+    );
+  return (
+    <Panel
+      tiny="BUILT-IN LAMP"
+      title={lamp.prop.label}
+      status={
+        lamp.entity
+          ? `Part of the ${sceneLabel.toLowerCase()} layout · ${lamp.entity} · ${on ? 'on' : 'off'}`
+          : 'Part of the layout, with no light configured to stand for.'
+      }
+      tone={on ? 'warm' : 'idle'}
+    >
+      {lamp.entity && (
+        <div className="save-actions">
+          <button className="primary" disabled={off || liveBlocked} onClick={() => control('on')}>
+            Turn on
+          </button>
+          <button
+            className="secondary"
+            disabled={off || liveBlocked}
+            onClick={() => control('off')}
+          >
+            Turn off
+          </button>
+        </div>
+      )}
+      {liveBlocked && (
+        <p className="micro">Set the HA_* variables and HA_LIVE_ENABLED to switch it.</p>
+      )}
+      {result && (
+        <p className="micro">
+          {result.accepted ? 'Accepted' : 'Not accepted'} ·{' '}
+          {result.stateConfirmed ? `reported ${result.state}` : 'state not confirmed'}
+        </p>
+      )}
+      {lamp.scene === 'custom' ? (
+        <button className="text-button" disabled={off} onClick={() => lab.editLayout()}>
+          Choose its light in the layout →
+        </button>
+      ) : (
+        <p className="micro">
+          A preset room’s lamps can’t be changed. Edit a layout of your own to choose another light.
+        </p>
+      )}
     </Panel>
   );
 }

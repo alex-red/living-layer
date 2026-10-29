@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'bun:test';
-import { placeTemplate, type DeskMemory, type SurfacePin } from '@livinglayer/domain';
+import {
+  placeTemplate,
+  type DeskMemory,
+  type EvidenceRun,
+  type SurfacePin,
+} from '@livinglayer/domain';
 import { emptyDesk } from '../apps/web/src/session.js';
-import { controlLabel, sceneOf } from '../apps/web/src/workspace/labels.js';
+import { controlLabel, lightStates, sceneOf } from '../apps/web/src/workspace/labels.js';
 import {
   parseSelection,
   roomOf,
@@ -145,6 +150,33 @@ describe('selection', () => {
     expect(parseSelection('#object')).toBeNull();
     expect(parseSelection('#suggested/-1')).toBeNull();
     expect(parseSelection('#fixture')).toBeNull();
+  });
+  it('takes each light’s newest confirmed state from switches and rules', () => {
+    const run = (at: string, out: object, mode = 'demo') =>
+      ({ kind: 'lamp', mode, createdAt: at, output: out }) as unknown as EvidenceRun;
+    const memory = {
+      ...emptyDesk('demo'),
+      rules: [
+        {
+          entityId: 'light.shelf',
+          lastDecision: {
+            createdAt: '2026-10-28T10:05:00Z',
+            output: {
+              action: 'confirmed',
+              lamp: { entityId: 'light.shelf', stateConfirmed: true },
+            },
+          },
+        },
+      ],
+    } as unknown as DeskMemory;
+    const states = lightStates(memory, [
+      run('2026-10-28T10:00:00Z', { entityId: 'light.desk', stateConfirmed: true }),
+      run('2026-10-28T10:01:00Z', { entityId: 'light.desk', action: 'off', stateConfirmed: true }),
+      run('2026-10-28T10:02:00Z', { entityId: 'switch.fan', action: 'on', stateConfirmed: false }),
+      run('2026-10-28T10:03:00Z', { entityId: 'light.shelf', action: 'off', stateConfirmed: true }),
+      run('2026-10-28T10:09:00Z', { entityId: 'light.desk', stateConfirmed: true }, 'live'),
+    ]);
+    expect(Object.fromEntries(states)).toEqual({ 'light.desk': 'off', 'light.shelf': 'on' });
   });
   it('says what a fixture is and how it was last left', () => {
     expect(controlLabel({ control: { kind: 'none' } })).toBe('just a thing');

@@ -170,12 +170,16 @@ Built as planned, in eight steps, with these differences:
 - **Shapes.** A `device` is a new `flat` family scored from above, not a `box`: the fitter's camera looks from the iso corner and would see a top-down photo turned 45°. A lamp reads its camera angle from its base, and rim angles now use only rows up to the widest point (the fit bench moved only for the tapered cup, 0.961 → 0.952).
 - **The demo lamp** is drawn from a little above, so its rims show as ellipses as in a real photo; a flat side view lost the base.
 
+Added after the first build:
+
+- **Box it on the desk photo.** `POST /api/fixtures/draft` takes a `box` in thousandths. Live, the desk photo goes with it: Spark sees only the boxed part (with a 15% margin) and SAM outlines the thing from the person's box on the whole photo; the review shows the boxed part. The model is fitted at the pinned camera's angle. In demo mode the box picks the illustrated desk's mug, book or bottle it overlaps most, with no model call.
+- **Edit model.** `modelTarget` and `setModel` find fixtures too, so the item editor's save, refit (keeping a flat model's height) and photo overlay work on a fixture. Drafting from a sighting is refused for one: its model comes from its photo.
+- **Built-in lamps.** Lamps that are part of a room's layout are listed under Fixtures (once, though the office desk's lamp is in both the office and its close view), and can be switched: `POST /api/fixtures/control` takes an `entityId` instead of a fixture. Lamps glow by each light's newest confirmed state, from a switch, a rule or the mug's zone (`lightStates`).
+
 Not built:
 
-- Box it on the desk photo: drafts come only from a photo of the thing.
-- Edit model for fixtures: the item editor still only edits tracked objects.
-- Template lamps are not listed under Fixtures; only drafted fixtures are.
 - Lamps fit at about 0.85 IoU, under the 0.9 target.
+- In demo mode, a box on the desk is matched against the mug where the illustration first draws it, not where it was moved to.
 - Live drafting is tested against a mocked Meta API only, and the browser test for drafting and placing the mouse hasn't been run.
 
 ## Open decisions

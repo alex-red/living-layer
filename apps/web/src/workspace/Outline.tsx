@@ -1,6 +1,7 @@
 import { MAX_FIXTURES, MAX_RULES, isMugConcept } from '@livinglayer/domain';
 import { useLab } from './LabContext';
 import {
+  builtInLamps,
   controlLabel,
   mainSurface,
   roomLabel,
@@ -214,6 +215,15 @@ export function Outline() {
               <span className="tiny">FIXTURES</span>
             </div>
             <ul className="ol-tree">
+              {builtInLamps(lab).map((l) => (
+                <Row
+                  key={l.id}
+                  label={l.prop.label}
+                  detail={`built in · ${l.entity ? `light · ${lab.lightsOn.has(l.entity) ? 'on' : 'off'}` : 'no light'}`}
+                  tone="fixture"
+                  target={{ kind: 'lamp', id: l.id }}
+                />
+              ))}
               {(memory?.fixtures ?? []).map((f) => (
                 <Row
                   key={f.id}
