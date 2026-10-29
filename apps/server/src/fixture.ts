@@ -83,24 +83,26 @@ async function around(
 }
 
 /**
- * The photo a room was drafted from, as a data URL, for scanning the room
- * when no newer photo is sent: its pin was set on that photo. Rooms saved
- * before the photo was kept fall back to the one their picture was drawn from.
+ * The photo a drafted room's pin was set on: the one it was drafted from, or
+ * for rooms saved before that photo was kept, the one its picture was drawn
+ * from. Null for preset rooms, whose photos aren't kept.
  */
-async function roomPhoto(
-  memory: DeskMemory,
-  scene: string,
-  store: EvidenceStore,
-): Promise<string | undefined> {
-  if (scene !== 'custom') return undefined;
+export function roomPhotoBytes(memory: DeskMemory, store: EvidenceStore): Buffer | null {
+  if (memory.surface?.scene !== 'custom') return null;
   const drawn = memory.illustration?.asset.split('/')[0];
   for (const asset of [memory.scenePhoto, drawn && `${drawn}/source.png`]) {
     const bytes = asset ? store.readAsset(asset) : null;
-    // A saved PNG can be large; Spark needs no more than a good JPEG.
-    if (bytes)
-      return `data:image/jpeg;base64,${(await sharp(bytes).jpeg({ quality: 90 }).toBuffer()).toString('base64')}`;
+    if (bytes) return bytes;
   }
-  return undefined;
+  return null;
+}
+/** The room's photo as a data URL, for scanning the room when no newer photo is sent. */
+async function roomPhoto(memory: DeskMemory, store: EvidenceStore): Promise<string | undefined> {
+  const bytes = roomPhotoBytes(memory, store);
+  // A saved PNG can be large; Spark needs no more than a good JPEG.
+  return bytes
+    ? `data:image/jpeg;base64,${(await sharp(bytes).jpeg({ quality: 90 }).toBuffer()).toString('base64')}`
+    : undefined;
 }
 
 /**
@@ -437,7 +439,7 @@ export function fixtureRoutes(
         429,
       );
     const image = live
-      ? await validateImage(imageDataUrl ?? (await roomPhoto(before, pin.scene, store)))
+      ? await validateImage(imageDataUrl ?? (await roomPhoto(before, store)))
       : null;
     const tracked = [before.object?.label, ...(before.others ?? []).map((o) => o.label)].filter(
       (l): l is string => Boolean(l),
@@ -536,7 +538,12 @@ export function fixtureRoutes(
     for (const m of mapped) {
       const here = m.match === 'existing' ? library.find((f) => f.id === m.fixtureId) : undefined;
       // The scan placed it again, so it stays the scan's to place.
-      if (here && m.moveTo) Object.assign(here, m.moveTo, { scanned: true, updatedAt: now });
+      if (here && m.moveTo)
+        Object.assign(here, m.moveTo, {
+          scanned: true,
+          ...(m.seen ? { seen: m.seen } : {}),
+          updatedAt: now,
+        });
       const fit = fits[mapped.indexOf(m)];
       if (here && m.remodel && fit)
         here.model = {
@@ -576,6 +583,7 @@ export function fixtureRoutes(
           state: null,
           ...(link ? { link } : {}),
           scanned: true,
+          ...(m.seen ? { seen: m.seen } : {}),
           createdAt: now,
           updatedAt: now,
         },
@@ -660,6 +668,20 @@ export function fixtureRoutes(
     store.saveMemory(memory);
     return memory;
   });
+  /**
+   * The photo a drafted room's pin was set on, at the pin's frame size, for
+   * checking the pin's corners on it after the page has lost its photo.
+   */
+  app.get('/api/scene/photo', async (request, reply) => {
+    const { mode } = parseInput(z.object({ mode: modeSchema }).strict(), request.query);
+    const memory = store.memory(mode);
+    const bytes = mode === 'live' ? roomPhotoBytes(memory, store) : null;
+    if (!bytes || !memory.surface)
+      throw new LabError('photo_missing', 'This room has no photo of its own kept.', 404);
+    const { width, height } = memory.surface.frame;
+    const png = await sharp(bytes).resize(width, height, { fit: 'fill' }).png().toBuffer();
+    return reply.type('image/png').header('cache-control', 'no-cache').send(png);
+  });
   /** The reference photo a fixture was drafted from, for review and the inspector. */
   app.get('/api/fixtures/reference', async (request, reply) => {
     const { runId } = parseInput(z.object({ runId: z.string().uuid() }).strict(), request.query);
@@ -690,6 +712,19 @@ export function fixtureRoutes(
       const { fixtureId: _gone, ...rest } = r;
       return rest;
     });
+    store.saveMemory(memory);
+    return memory;
+  });
+  /** Hand every fixture of a scene back to scans, to place and refit on the next one. */
+  app.post('/api/fixtures/release', async (request) => {
+    const { mode, scene } = parseInput(
+      z
+        .object({ mode: modeSchema, scene: z.union([isoSceneKindSchema, z.literal('custom')]) })
+        .strict(),
+      request.body,
+    );
+    const memory = store.memory(mode);
+    for (const f of memory.fixtures ?? []) if (f.scene === scene) f.scanned = true;
     store.saveMemory(memory);
     return memory;
   });

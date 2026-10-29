@@ -1372,6 +1372,55 @@ export function useLabState() {
       setError(e instanceof Error ? e : 'The fixture could not be saved.');
     }
   }
+  /**
+   * Check and drag the pinned surface's corners on the photo they were set on.
+   * A drafted room's own photo is loaded when the page has lost it; another
+   * room needs a frame from the same camera, the same size, on the stage.
+   */
+  async function adjustPin() {
+    const pin = memory?.surface;
+    if (!pin || busy) return;
+    const label = (
+      (pin.scene === 'custom' ? memory?.scene : ISO_PRESETS[pin.scene])?.surfaces.find(
+        (s) => s.id === pin.surfaceId,
+      )?.label ?? 'surface'
+    ).toLowerCase();
+    setError('');
+    // The corners are dragged on a still photo, not the live camera.
+    if (camera) stopCamera();
+    const fits =
+      image && dimensions.width === pin.frame.width && dimensions.height === pin.frame.height;
+    if (!fits) {
+      if (pin.scene !== 'custom') {
+        setError(
+          `Load a ${pin.frame.width} × ${pin.frame.height} frame from the pinned camera first; the corners are checked on it.`,
+        );
+        return;
+      }
+      try {
+        const res = await fetch(`/api/scene/photo?mode=${mode}`);
+        if (!res.ok) throw new Error('This room has no photo of its own kept.');
+        const bitmap = await createImageBitmap(await res.blob());
+        try {
+          captureCanvas(bitmap, bitmap.width, bitmap.height);
+        } finally {
+          bitmap.close();
+        }
+      } catch (e) {
+        setError(e instanceof Error ? e : 'Could not load the room’s photo.');
+        return;
+      }
+    }
+    setStageView('photo');
+    setPinning({
+      scene: pin.scene,
+      surfaceId: pin.surfaceId,
+      label,
+      corners: pin.corners,
+      note: `Drag the corners onto the ${label}’s real corners. Things a scan placed move with the pin.`,
+    });
+    setMessage(`Check the ${label}’s corners on the photo, then save the pin.`);
+  }
   /** Save the fixture being placed where the person clicked, and select it. */
   async function placeFixture(where: { at: { x: number; y: number }; surfaceId: string | null }) {
     if (!placing) return;
@@ -1540,6 +1589,7 @@ export function useLabState() {
     startPlacing,
     placeFixture,
     updateFixture,
+    adjustPin,
     guess,
     asking,
     askGuess,

@@ -19,6 +19,7 @@ import {
   MAX_RULES,
   MAX_FIXTURES,
   MAX_DISMISSED,
+  placeSeen,
   type PlacementRule,
   isoSceneSchema,
   uniqueParts,
@@ -404,7 +405,8 @@ export function deskRoutes(
   });
   /**
    * Tie frames of one size to a surface of an isometric scene, or clear it.
-   * It only changes how the desk is drawn; placement still runs on the frame.
+   * It changes how the desk is drawn, not placement, which runs on the frame;
+   * fixtures a scan placed stand again where the scan saw them, under the new pin.
    */
   app.post('/api/desk/surface', async (request) => {
     const { mode, pin } = parseInput(
@@ -416,6 +418,11 @@ export function deskRoutes(
     if (pin && !isoSurface(pin.scene, pin.surfaceId, memory.scene))
       throw new LabError('surface_unknown', 'That surface is not part of the chosen scene.');
     memory.surface = pin;
+    if (pin)
+      for (const f of memory.fixtures ?? []) {
+        const spot = f.scanned ? placeSeen(f, pin, memory.scene ?? null) : null;
+        if (spot) Object.assign(f, spot);
+      }
     store.saveMemory(memory);
     return memory;
   });

@@ -293,6 +293,15 @@ function RoomPanel() {
         layout opens in the canvas.
       </p>
       {room === 'custom' && <PictureControls />}
+      {memory?.surface && pinScene(room) === memory.surface.scene && (
+        <button
+          className="text-button"
+          disabled={Boolean(lab.busy) || Boolean(lab.pinning)}
+          onClick={() => void lab.adjustPin()}
+        >
+          Adjust the pin’s corners on the photo →
+        </button>
+      )}
       <ScanFixtures initial={pinScene(room)} open />
       {progress.view && (
         <button className="text-button" onClick={() => lab.select({ kind: 'view' })}>

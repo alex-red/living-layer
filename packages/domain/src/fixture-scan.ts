@@ -86,6 +86,8 @@ export interface MappedThing {
   match: ScanMatch;
   /** The fixture it is (existing) or was modelled on (library). */
   fixtureId?: string;
+  /** Where the scan saw it touch down, as shares of the photo. */
+  seen?: Outline;
   /** Where a fixture the last scan placed moves to: it follows the latest scan. */
   moveTo?: Pick<FixtureInput, 'at' | 'surfaceId'>;
   /** A model fitted to its outline, for a fixture the last scan placed. */
@@ -365,6 +367,29 @@ export function fixtureAt(
 }
 
 /**
+ * Where a fixture a scan placed stands under a new pin: from where the scan
+ * saw it touch down, as the scan would have placed it. Null when it wasn't
+ * seen by a scan, or the pin doesn't fit its scene.
+ */
+export function placeSeen(
+  fixture: Pick<Fixture, 'scene' | 'turns' | 'size' | 'seen'>,
+  pin: SurfacePin,
+  custom: IsoScene | null,
+): Pick<FixtureInput, 'at' | 'surfaceId'> | null {
+  const seen = fixture.seen;
+  const grid = fixture.scene === 'custom' ? custom?.grid : ISO_PRESETS[fixture.scene].grid;
+  if (!seen || !grid || !pinFits(pin, fixture.scene)) return null;
+  const where = standing(
+    pin,
+    fixture.scene,
+    custom,
+    { x: seen.foot.x * pin.frame.width, y: seen.foot.y * pin.frame.height },
+    Math.max(seen.size.h * pin.frame.height, seen.size.w * pin.frame.width),
+  );
+  return where && place(fixture, where, custom, grid);
+}
+
+/**
  * Map a scan onto a scene the pin fits: its own, or the room it is a close
  * view of (the office desk's top is the office's too). Each saved fixture of
  * that scene can be claimed by one scanned thing; further things of its kind
@@ -460,6 +485,7 @@ export function mapScan({
         label: here.f.label,
         match: 'existing',
         fixtureId: here.f.id,
+        seen: share,
         ...(link ? { linkTo: link.id } : {}),
         ...(moveTo ? { moveTo } : {}),
         ...(remodel ? { remodel } : {}),
@@ -510,6 +536,7 @@ export function mapScan({
           label: base.label,
           match: 'library',
           fixtureId: known.id,
+          seen: share,
           ...(same ? { linkTo: same.id } : {}),
           fixture,
           note: same
@@ -520,6 +547,7 @@ export function mapScan({
           label,
           match: fitted ? 'fitted' : 'placeholder',
           fixture,
+          seen: share,
           note: fitted
             ? `Placed with a ${thing.archetype} model fitted to its outline.`
             : `Placed with a placeholder ${thing.archetype} model.`,

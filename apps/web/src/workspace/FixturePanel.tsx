@@ -271,6 +271,23 @@ export function ScanFixtures({
       <Cost>
         One Spark call and one SAM call, refused up front if today’s limit can’t cover them.
       </Cost>
+      {scene && (lab.memory?.fixtures ?? []).some((f) => f.scene === scene && !f.scanned) && (
+        <p className="micro">
+          Fixtures you placed stay put.{' '}
+          <button
+            className="text-button"
+            disabled={off}
+            onClick={() =>
+              void call<DeskMemory>('fixtures/release', { scene }, (m) => {
+                lab.setMemory(m);
+                lab.setMessage('The next scan places and refits every fixture in this scene.');
+              })
+            }
+          >
+            Let scans place them all
+          </button>
+        </p>
+      )}
       {(lab.memory?.dismissed?.length ?? 0) > 0 && (
         <p className="micro">
           Skipped as not fixtures:{' '}

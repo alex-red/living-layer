@@ -384,6 +384,7 @@ describe('scanning the demo desk', () => {
       updatedAt: _u,
       state: _s,
       scanned: _n,
+      seen: _e,
       link: _k,
       model,
       ...rest
@@ -405,7 +406,16 @@ describe('scanning the demo desk', () => {
     const s = await setup();
     const one = (await s.post('fixtures/scan')).json<Scanned>();
     const book = one.memory.fixtures!.find((f) => f.label === 'Green book')!;
-    const { id, createdAt: _c, updatedAt: _u, state: _s, scanned: _n, model, ...rest } = book;
+    const {
+      id,
+      createdAt: _c,
+      updatedAt: _u,
+      state: _s,
+      scanned: _n,
+      seen: _e,
+      model,
+      ...rest
+    } = book;
     await s.post('fixtures/save', {
       fixture: {
         ...rest,
@@ -444,7 +454,7 @@ describe('scanning the demo desk', () => {
     const s = await setup();
     const one = (await s.post('fixtures/scan')).json<Scanned>();
     const book = one.memory.fixtures![0]!;
-    const { createdAt: _c, updatedAt: _u, state: _s, scanned: _n, model, ...rest } = book;
+    const { createdAt: _c, updatedAt: _u, state: _s, scanned: _n, seen: _e, model, ...rest } = book;
     const input = { ...rest, model: { label: model.label, parts: model.parts } };
     const mine = (await s.post('fixtures/save', { fixture: input })).json<DeskMemory>();
     expect(mine.fixtures![0]!.scanned).toBeUndefined();
@@ -452,6 +462,45 @@ describe('scanning the demo desk', () => {
       await s.post('fixtures/save', { fixture: { ...input, scanned: true } })
     ).json<DeskMemory>();
     expect(back.fixtures![0]!.scanned).toBe(true);
+  });
+  it('stands what a scan placed again under a corrected pin, and leaves what you placed', async () => {
+    const s = await setup();
+    const one = (await s.post('fixtures/scan')).json<Scanned>();
+    const [book, bottle] = one.memory.fixtures!;
+    expect(book!.seen).toBeTruthy();
+    // Take the bottle over by hand.
+    const {
+      createdAt: _c,
+      updatedAt: _u,
+      state: _s,
+      scanned: _n,
+      seen: _e,
+      model,
+      ...rest
+    } = bottle!;
+    await s.post('fixtures/save', {
+      fixture: { ...rest, model: { label: model.label, parts: model.parts } },
+    });
+    // The desk really fills only the right half of the frame.
+    const pinned = await s.post('desk/surface', {
+      pin: {
+        ...DEMO_SURFACE,
+        corners: [
+          { x: 480, y: 0 },
+          { x: 960, y: 0 },
+          { x: 960, y: 640 },
+          { x: 480, y: 640 },
+        ],
+      },
+    });
+    expect(pinned.statusCode, pinned.body).toBe(200);
+    const after = pinned.json<DeskMemory>().fixtures!;
+    const movedBook = after.find((f) => f.id === book!.id)!;
+    expect(movedBook.at).not.toEqual(book!.at);
+    expect(after.find((f) => f.id === bottle!.id)!.at).toEqual(bottle!.at);
+    // Handing them all back lets scans place the bottle too.
+    const released = (await s.post('fixtures/release', { scene: 'desk' })).json<DeskMemory>();
+    expect(released.fixtures!.every((f) => f.scanned)).toBe(true);
   });
   it('takes no photo in the demo', async () => {
     const s = await setup();
@@ -586,6 +635,33 @@ describe('scanning live, with a mocked Meta API', () => {
     expect(res.statusCode, res.body).toBe(200);
     expect(res.json<Scanned>().memory.fixtures![0]).toMatchObject({ scene: 'custom' });
     expect(s.prompts).toEqual([expect.stringMatching(/^fixture_scan/), 'sam']);
+  });
+  it('serves a drafted room’s photo at its pin’s size, and nothing for a preset', async () => {
+    const s = await live();
+    await pin(s);
+    expect((await s.app.inject('/api/scene/photo?mode=live')).statusCode).toBe(404);
+    const memory = (await s.app.inject('/api/desk/live')).json<DeskMemory>();
+    const runId = crypto.randomUUID();
+    const dir = join(s.dataDir, 'evidence', runId);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, 'source.png'),
+      await sharp(readFileSync('apps/web/public/desk.svg')).resize(640, 480).png().toBuffer(),
+    );
+    const desk = placeTemplate('desk', 'desk', 1, 1);
+    await s.post('desk/restore', {
+      mode: 'live',
+      memory: {
+        ...memory,
+        scene: { kind: 'custom', label: 'Mine', grid: { w: 8, d: 8 }, ...desk },
+        scenePhoto: `${runId}/source.png`,
+        surface: { ...DEMO_SURFACE, scene: 'custom' },
+      },
+    });
+    const res = await s.app.inject('/api/scene/photo?mode=live');
+    expect(res.statusCode).toBe(200);
+    const size = await sharp(res.rawPayload).metadata();
+    expect([size.width, size.height]).toEqual([960, 640]);
   });
   it('needs a pin, and refuses before any call past today’s limit', async () => {
     const s = await live();

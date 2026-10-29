@@ -71,6 +71,11 @@ export interface Fixture extends Omit<FixtureInput, 'id' | 'model'> {
   link?: string;
   /** Placed by a scan and not saved by hand since: it follows the latest scan. */
   scanned?: boolean;
+  /**
+   * Where the last scan saw it touch down and how big it looked, as shares of
+   * the photo the pin was set on, so a corrected pin can place it again.
+   */
+  seen?: { foot: { x: number; y: number }; size: { w: number; h: number } };
   createdAt: string;
   updatedAt: string;
 }
