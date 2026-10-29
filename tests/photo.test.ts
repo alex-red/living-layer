@@ -22,6 +22,7 @@ import {
   newBits,
   orderCorners,
   pathRings,
+  photoTextures,
   pinFromMask,
   projectPoint,
   promptBox,
@@ -301,6 +302,39 @@ describe('photo layout', () => {
     expect(again.camera!.surface.w).toBe(draft.camera!.surface.w);
     expect(again.camera!.surface.d).toBeCloseTo(draft.camera!.surface.d, 6);
   });
+  it('paints the desk top from the photo where the camera saw it', () => {
+    const s = deskPhoto(35, 0.4);
+    const layout = layoutPhoto({ ...s, refine: true });
+    // A photo that is red on its upper half and blue below, at the frame's size.
+    const { width, height } = s.segmentation.frame;
+    const data = new Uint8Array(width * height * 4);
+    for (let y = 0; y < height; y++)
+      for (let x = 0; x < width; x++)
+        data.set(y < height / 2 ? [200, 0, 0, 255] : [0, 0, 200, 255], (y * width + x) * 4);
+    const textures = photoTextures(layout.scene, layout.pin!, { width, height, data });
+    const surface = layout.scene.surfaces.find((x) => x.id === layout.pin!.surfaceId)!;
+    const top = textures.get(surface.propId)?.top;
+    expect(top).toBeDefined();
+    // Each texel holds the photo's colour where its point on the top projects.
+    const cam = layout.camera!;
+    const origin = layout.origin!;
+    const prop = layout.scene.props.find((p) => p.id === surface.propId)!;
+    for (const [a, b] of [
+      [0.5, 0.05],
+      [0.5, 0.95],
+      [0.1, 0.5],
+    ] as const) {
+      const X = prop.at.x + prop.size.w * a - origin.x;
+      const Y = prop.at.y + prop.size.d * b - origin.y;
+      const px = projectPoint(cam, X, Y, prop.at.z + prop.size.h - origin.z)!;
+      const i = Math.floor(a * top!.width);
+      const j = Math.floor(b * top!.height);
+      const texel = top!.data[(j * top!.width + i) * 4]!;
+      expect(texel > 100).toBe(px.y < height / 2);
+    }
+    // Every texel is opaque: unseen ones take the face's mean colour.
+    for (let n = 3; n < top!.data.length; n += 4) expect(top!.data[n]).toBe(255);
+  });
   it('spreads things over the room without a surface, and leaves the pin to a person', () => {
     const layout = layoutPhoto({ ...deskPhoto(35, 0.4), edits: { surface: { as: 'rug' } } });
     expect(layout.pin).toBeNull();
@@ -421,6 +455,19 @@ describe('photo routes, offline', () => {
     expect(memory.others?.map((o) => [o.label, o.concept, Boolean(o.item)])).toEqual([
       ['Sage bottle', 'sage bottle', true],
     ]);
+    // The desk's top is painted from the photo, and its texture is served as a PNG.
+    expect(isoSceneSchema.safeParse(memory.scene).success).toBe(true);
+    const top = memory.scene!.props.find((p) => p.texture?.top)?.texture?.top;
+    expect(top).toMatch(new RegExp(`^${run.id}/tex-\\d+\\.png$`));
+    const texture = await s.app.inject(`/api/scene/texture?asset=${encodeURIComponent(top!)}`);
+    expect(texture.statusCode).toBe(200);
+    expect(texture.headers['content-type']).toBe('image/png');
+    expect((await sharp(texture.rawPayload).metadata()).width).toBeGreaterThan(8);
+    // Only textures are served, nothing else of the evidence.
+    const other = await s.app.inject(
+      `/api/scene/texture?asset=${encodeURIComponent(`${run.id}/source.png`)}`,
+    );
+    expect(other.statusCode).toBe(400);
     // The mug is followed from that sighting like any confirmed mug.
     const moved = (await s.post('segment', { concept: 'mug', demoPosition: 'right' })).json<
       EvidenceRun<Segmentation>

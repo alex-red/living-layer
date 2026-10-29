@@ -53,6 +53,8 @@ export interface IsoProp {
   lightId?: string;
   /** Spark may say whether it can see this prop; required props are always drawn. */
   optional?: boolean;
+  /** Faces painted from the photo the scene was drafted from: evidence assets, or data URLs. */
+  texture?: { top?: string; front?: string; side?: string };
 }
 /** A flat, horizontal place objects can rest on, in tile space. */
 export interface IsoSurface {
@@ -219,6 +221,8 @@ const lightIdSchema = z.string().regex(/^light\.[a-z0-9_]+$/);
 const vec = z
   .object({ x: z.number().finite(), y: z.number().finite(), z: z.number().finite() })
   .strict();
+/** A face texture: `runId/tex-N.png` in the evidence store. */
+export const textureRef = z.string().regex(/^[a-z0-9-]{1,64}\/tex-\d{1,4}\.png$/);
 const isoPropSchema = z
   .object({
     id: z.string().min(1).max(48),
@@ -250,6 +254,12 @@ const isoPropSchema = z
     role: z.literal('lamp').optional(),
     lightId: lightIdSchema.optional(),
     optional: z.boolean().optional(),
+    /** Faces painted from the photo the scene was drafted from, as evidence assets. */
+    texture: z
+      .object({ top: textureRef, front: textureRef, side: textureRef })
+      .partial()
+      .strict()
+      .optional(),
   })
   .strict();
 /**

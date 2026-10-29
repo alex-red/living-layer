@@ -615,3 +615,4 @@ export * from './iso-voxel.js';
 export * from './iso-archetypes.js';
 export * from './item-fit.js';
 export * from './photo-scene.js';
+export * from './photo-texture.js';

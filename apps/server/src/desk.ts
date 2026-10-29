@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { randomUUID } from 'node:crypto';
+import sharp from 'sharp';
 import { z } from 'zod';
 import {
   modeSchema,
@@ -36,10 +37,14 @@ import {
   type LampResult,
   type IsoScene,
   type SurfacePin,
+  PROP_FACES,
+  photoTextures,
+  textureRef,
+  type PropFace,
 } from '@livinglayer/domain';
 import { EvidenceStore } from './store.js';
 import { LabError, parseInput, safeError } from './errors.js';
-import { keepLocked, rescore } from './item.js';
+import { demoPhoto, keepLocked, rescore } from './item.js';
 import type { PhotoDraft } from './photo.js';
 import { noteControl } from './fixture.js';
 
@@ -601,6 +606,54 @@ export function deskRoutes(
    * model fitted to it. The first ticked object becomes the main one (the
    * mug), so identity stays a person's choice, as it does for a mask.
    */
+  /**
+   * The scene with each prop's faces painted from the photo it was drafted
+   * from, where the pin's camera saw them. The textures are kept as evidence
+   * of the draft; a scene that can't be painted is saved as it is.
+   */
+  async function paintFromPhoto(
+    scene: IsoScene,
+    pin: SurfacePin,
+    runId: string,
+    mode: Mode,
+  ): Promise<IsoScene> {
+    const bytes = mode === 'live' ? store.readAsset(`${runId}/source.png`) : await demoPhoto();
+    if (!bytes) return scene;
+    const { data, info } = await sharp(bytes)
+      .resize(pin.frame.width, pin.frame.height, { fit: 'fill' })
+      .ensureAlpha()
+      .raw()
+      .toBuffer({ resolveWithObject: true });
+    const textures = photoTextures(scene, pin, { width: info.width, height: info.height, data });
+    let n = 0;
+    const props = await Promise.all(
+      scene.props.map(async (prop) => {
+        const { texture: _old, ...plain } = prop;
+        const faces = textures.get(prop.id);
+        if (!faces) return plain;
+        const texture: Partial<Record<PropFace, string>> = {};
+        for (const face of PROP_FACES) {
+          const img = faces[face];
+          if (!img) continue;
+          const png = await sharp(Buffer.from(img.data), {
+            raw: { width: img.width, height: img.height, channels: 4 },
+          })
+            .png()
+            .toBuffer();
+          texture[face] = store.asset(runId, `tex-${n++}.png`, png);
+        }
+        return { ...plain, texture };
+      }),
+    );
+    return { ...scene, props };
+  }
+  /** A face texture of a scene drafted from a photo. */
+  app.get('/api/scene/texture', async (request, reply) => {
+    const { asset } = parseInput(z.object({ asset: textureRef }).strict(), request.query);
+    const png = store.readAsset(asset);
+    if (!png) throw new LabError('texture_missing', 'This texture is gone.', 404);
+    return reply.type('image/png').header('cache-control', 'no-cache').send(png);
+  });
   app.post('/api/scene/from-photo/save', async (request) => {
     const { mode, runId, scene, pin, track } = parseInput(
       z
@@ -649,7 +702,9 @@ export function deskRoutes(
         `Up to ${MAX_OTHER_OBJECTS} more objects can be remembered. Forget one, or tick fewer.`,
         409,
       );
-    memory.scene = scene as IsoScene;
+    memory.scene = pin
+      ? await paintFromPhoto(scene as IsoScene, pin as SurfacePin, runId, mode)
+      : (scene as IsoScene);
     if (memory.fixtures) memory.fixtures = settleFixtures(memory.fixtures, memory.scene);
     memory.surface = pin as SurfacePin | null;
     store.saveMemory(memory);

@@ -1,7 +1,9 @@
 import { useRef, useState, type PointerEvent } from 'react';
 import {
   ISO_TILE,
+  PROP_FACES,
   depthOrder,
+  faceFrame,
   fromIso,
   surfaceWorld,
   toIso,
@@ -13,6 +15,7 @@ import {
   type IsoSurface,
   type IsoVec,
   type Point,
+  type PropFace,
   type Quad,
 } from '@livinglayer/domain';
 import { ItemSprite } from './IsoItem';
@@ -224,17 +227,59 @@ function FixtureMarker({
     </g>
   );
 }
+/** Where a face texture is served from; a data URL is drawn as it is. */
+export const textureUrl = (ref: string) =>
+  ref.startsWith('data:') ? ref : `/api/scene/texture?asset=${encodeURIComponent(ref)}`;
+/**
+ * A face's texture laid on it: the image's unit square goes to the face's
+ * parallelogram on screen, which an iso projection keeps affine.
+ */
+function FaceImage({ prop, face, href }: { prop: IsoProp; face: PropFace; href: string }) {
+  const { origin, u, v } = faceFrame(prop, face);
+  const at = (k: number, l: number) =>
+    toIso({
+      x: origin[0] + u[0] * k + v[0] * l,
+      y: origin[1] + u[1] * k + v[1] * l,
+      z: origin[2] + u[2] * k + v[2] * l,
+    });
+  const o = at(0, 0);
+  const a = at(1, 0);
+  const b = at(0, 1);
+  return (
+    <image
+      className={`iso-texture ${face}`}
+      href={textureUrl(href)}
+      width={1}
+      height={1}
+      preserveAspectRatio="none"
+      transform={`matrix(${a.sx - o.sx} ${a.sy - o.sy} ${b.sx - o.sx} ${b.sy - o.sy} ${o.sx} ${o.sy})`}
+    />
+  );
+}
 /**
  * A prop drawn by the voxel kernel, with its flat faces kept underneath,
  * invisible, so picking and dragging follow the prop's shape, not its image.
+ * A prop with faces painted from its photo is drawn as those faces instead.
  */
 function PropSprite({ prop, lit }: { prop: IsoProp; lit: boolean }) {
+  const className = `iso-prop tone-${prop.tone} ${prop.role === 'lamp' ? 'iso-lamp' : ''} ${lit ? 'lit' : ''}`;
+  const texture = prop.texture;
+  if (texture && Object.keys(texture).length)
+    return (
+      <g className={`${className} textured`}>
+        <Solid box={prop} color={TONES[prop.tone]} shape={prop.shape} />
+        {PROP_FACES.map((face) =>
+          texture[face] ? (
+            <FaceImage key={face} prop={prop} face={face} href={texture[face]!} />
+          ) : null,
+        )}
+        <Solid box={prop} color={TONES[prop.tone]} shape={prop.shape} className="iso-hit-shape" />
+      </g>
+    );
   const sprite = propSprite(prop, lit);
   const at = toIso(prop.at);
   return (
-    <g
-      className={`iso-prop tone-${prop.tone} ${prop.role === 'lamp' ? 'iso-lamp' : ''} ${lit ? 'lit' : ''}`}
-    >
+    <g className={className}>
       <image
         href={sprite.url}
         x={at.sx + sprite.x}
