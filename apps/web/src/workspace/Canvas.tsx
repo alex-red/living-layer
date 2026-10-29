@@ -89,6 +89,7 @@ export function Canvas() {
   const focus = {
     object: sel?.kind === 'object' ? (sel.id === 'main' ? 'tracked' : sel.id) : undefined,
     zone: sel?.kind === 'rule' ? sel.id : undefined,
+    fixture: sel?.kind === 'fixture' ? sel.id : undefined,
   };
   // The selected object's latest sighting, ringed on the photo when it was seen on a frame this size.
   const focusSeen =
@@ -371,6 +372,9 @@ export function Canvas() {
             guess={lab.guess}
             ruleDraft={lab.ruleDraft}
             onRuleDraft={lab.setRuleDraft}
+            placing={lab.placing}
+            onPlace={(where) => void lab.placeFixture(where)}
+            onFixture={(id) => lab.select({ kind: 'fixture', id })}
             focus={focus}
             layers={{ trail: lab.showTrail, zones: lab.showZones }}
             memory={memory}

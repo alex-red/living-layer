@@ -39,7 +39,7 @@ import { openStream, useNetworkStreams } from '../streams';
 import { usd } from '../cost';
 import { takeHandoff } from '../handoff';
 import type { Issue } from '../ProviderUi';
-import type { IsoPanel, RuleDraft } from '../iso/IsoView';
+import type { FixturePlacing, IsoPanel, RuleDraft } from '../iso/IsoView';
 import {
   clearSession,
   downloadSave,
@@ -302,6 +302,8 @@ export function useLabState() {
   const [modelOf, setModelOf] = useState<string>();
   const [isoSurfaceId, setIsoSurfaceId] = useState<string>();
   const [ruleDraft, setRuleDraft] = useState<RuleDraft | null>(null);
+  /** A fixture waiting for a click in the iso room that says where it stands. */
+  const [placing, setPlacing] = useState<FixturePlacing | null>(null);
   const [guess, setGuess] = useState<SceneGuess | null>(null);
   const sceneLabel =
     workScene === 'custom'
@@ -538,6 +540,7 @@ export function useLabState() {
       if (pinning) return setPinning(null);
       if (drawing) return setDrawing(false);
       if (ruleDraft) return setRuleDraft(null);
+      if (placing) return setPlacing(null);
       if (isoPanel !== 'room') return setIsoPanel('room');
       if (choosingScene && workScene) return setChoosingScene(false);
       return false;
@@ -1123,6 +1126,11 @@ export function useLabState() {
   function select(next: Selection | null) {
     setOutlineOpen(false);
     if (next?.kind !== 'new-rule') setRuleDraft(null);
+    if (next?.kind !== 'new-fixture' && next?.kind !== 'fixture') setPlacing(null);
+    if (next?.kind === 'fixture') {
+      const f = memory?.fixtures?.find((x) => x.id === next.id);
+      if (f) setWorkScene(f.scene);
+    }
     if (next?.kind === 'room' && progress.room) setWorkScene(progress.room);
     if (next?.kind === 'view' && progress.view) setWorkScene(progress.view);
     if (next?.kind === 'surface') {
@@ -1154,6 +1162,35 @@ export function useLabState() {
     setIsoPanel('room');
     if (stageView === 'photo') setStageView('iso');
     setSelection({ kind: 'new-rule' });
+  }
+  /** Show the room a fixture goes in, and wait for a click there to put it down. */
+  function startPlacing(next: FixturePlacing) {
+    setPlacing(next);
+    setWorkScene(next.scene);
+    setIsoPanel('room');
+    if (stageView === 'photo') setStageView('iso');
+    setMessage(
+      `Click where the ${next.label.toLowerCase()} stands: on a surface or the floor. Esc cancels.`,
+    );
+  }
+  /** Save the fixture being placed where the person clicked, and select it. */
+  async function placeFixture(where: { at: { x: number; y: number }; surfaceId: string | null }) {
+    if (!placing) return;
+    setError('');
+    try {
+      const m = await api<DeskMemory>('fixtures/save', {
+        mode,
+        fixture: { ...placing, ...where },
+      });
+      setMemory(m);
+      setPlacing(null);
+      const saved = placing.id ? m.fixtures?.find((f) => f.id === placing.id) : m.fixtures?.at(-1);
+      setMessage(`${placing.id ? 'Moved' : 'Placed'} the ${placing.label.toLowerCase()}.`);
+      if (saved) setSelection({ kind: 'fixture', id: saved.id });
+      void refresh().catch(() => {});
+    } catch (e) {
+      setError(e instanceof Error ? e : 'The fixture could not be placed.');
+    }
   }
   const [asking, setAsking] = useState(false);
   /** Ask Spark which preset the photo shows; it may only move between a room and its close view. */
@@ -1294,6 +1331,10 @@ export function useLabState() {
     setIsoSurfaceId,
     ruleDraft,
     setRuleDraft,
+    placing,
+    setPlacing,
+    startPlacing,
+    placeFixture,
     guess,
     asking,
     askGuess,

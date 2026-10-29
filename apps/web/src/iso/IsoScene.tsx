@@ -122,6 +122,27 @@ export interface IsoZone {
   /** Selected in the outline. */
   focused?: boolean;
 }
+/** A fixture standing in the room: a lamp, a switch, a mouse. */
+export interface IsoFixture {
+  id: string;
+  label: string;
+  box: IsoBox;
+  /** Its model, already turned to face the way the fixture does. */
+  item: IsoItem;
+  /** A light whose last action was confirmed on: it glows like a lamp. */
+  glow: boolean;
+  /** A light or switch's last confirmed state; null when unknown, absent for plain things. */
+  state?: 'on' | 'off' | null;
+  focused?: boolean;
+}
+/** A fixture waiting to be put down: it follows the pointer until a click. */
+export interface IsoPlacing {
+  label: string;
+  item: IsoItem;
+  /** Footprint and height in tiles, already turned. */
+  size: IsoBox['size'];
+  onPlace: (where: { at: { x: number; y: number }; surfaceId: string | null }) => void;
+}
 /** Picking and dragging whole groups, for the scene editor. */
 export interface IsoEditing {
   selected?: string;
@@ -164,6 +185,45 @@ function ObjectMarker({ box, object }: { box: IsoBox; object: IsoObject }) {
     </g>
   );
 }
+function FixtureMarker({
+  fixture,
+  onSelect,
+}: {
+  fixture: IsoFixture;
+  onSelect?: (id: string) => void;
+}) {
+  const { box } = fixture;
+  const head = toIso({
+    x: box.at.x + box.size.w / 2,
+    y: box.at.y + box.size.d / 2,
+    z: box.at.z + box.size.h,
+  });
+  const pip = fixture.state === undefined ? '◇ ' : fixture.state === 'on' ? '● ' : '○ ';
+  return (
+    <g
+      className={`iso-fixture ${fixture.focused ? 'focused' : ''} ${fixture.state === 'on' ? 'on' : ''}`}
+      data-fixture={fixture.id}
+      onClick={onSelect ? () => onSelect(fixture.id) : undefined}
+    >
+      {fixture.focused && (
+        <polygon
+          className="iso-focus"
+          points={pts([
+            { x: box.at.x - 0.1, y: box.at.y - 0.1, z: box.at.z },
+            { x: box.at.x + box.size.w + 0.1, y: box.at.y - 0.1, z: box.at.z },
+            { x: box.at.x + box.size.w + 0.1, y: box.at.y + box.size.d + 0.1, z: box.at.z },
+            { x: box.at.x - 0.1, y: box.at.y + box.size.d + 0.1, z: box.at.z },
+          ])}
+        />
+      )}
+      <ItemSprite item={fixture.item} origin={box.at} scale={Math.max(box.size.w, box.size.d)} />
+      <text x={head.sx} y={head.sy - 8}>
+        {pip}
+        {fixture.label.toUpperCase()}
+      </text>
+    </g>
+  );
+}
 /**
  * A prop drawn by the voxel kernel, with its flat faces kept underneath,
  * invisible, so picking and dragging follow the prop's shape, not its image.
@@ -188,7 +248,9 @@ function PropSprite({ prop, lit }: { prop: IsoProp; lit: boolean }) {
   );
 }
 type Drawable =
-  (IsoBox & { kind: 'prop'; prop: IsoProp }) | (IsoBox & { kind: 'object'; object: IsoObject });
+  | (IsoBox & { kind: 'prop'; prop: IsoProp })
+  | (IsoBox & { kind: 'object'; object: IsoObject })
+  | (IsoBox & { kind: 'fixture'; fixture: IsoFixture });
 const SNAP = 0.25;
 
 /**
@@ -201,6 +263,9 @@ export function IsoScene({
   scene,
   surface,
   objects = [],
+  fixtures = [],
+  onFixture,
+  placing,
   trail = [],
   zones = [],
   litLights,
@@ -212,6 +277,10 @@ export function IsoScene({
   scene: Scene;
   surface?: IsoSurface;
   objects?: IsoObject[];
+  fixtures?: IsoFixture[];
+  /** A click on a fixture selects it. */
+  onFixture?: (id: string) => void;
+  placing?: IsoPlacing;
   trail?: Point[];
   zones?: IsoZone[];
   /** Lights whose last action was confirmed; their lamps glow. */
@@ -226,6 +295,7 @@ export function IsoScene({
   const start = useRef<Point | null>(null);
   const drag = useRef<{ group: string; z: number; last: { x: number; y: number } } | null>(null);
   const [hover, setHover] = useState(false);
+  const [ghost, setGhost] = useState<{ at: IsoVec; surfaceId: string | null } | null>(null);
   const floor: IsoVec[] = [
     { x: 0, y: 0, z: 0 },
     { x: scene.grid.w, y: 0, z: 0 },
@@ -254,11 +324,12 @@ export function IsoScene({
   const items: Drawable[] = [
     ...scene.props.map((prop) => ({ ...prop, kind: 'prop' as const, prop })),
     ...objects.map((object) => ({ ...object.box, kind: 'object' as const, object })),
+    ...fixtures.map((fixture) => ({ ...fixture.box, kind: 'fixture' as const, fixture })),
   ];
   const lit = (p: IsoProp) =>
     p.role === 'lamp' && Boolean(litLights?.has(p.lightId ?? defaultLight));
   const onSurface = (uv: Point) => (surface ? surfaceWorld(surface, uv) : null);
-  function world(e: PointerEvent<SVGElement>, z: number): IsoVec | null {
+  function world(e: { clientX: number; clientY: number }, z: number): IsoVec | null {
     const ctm = svg.current?.getScreenCTM();
     if (!ctm) return null;
     const p = new DOMPoint(e.clientX, e.clientY).matrixTransform(ctm.inverse());
@@ -267,6 +338,33 @@ export function IsoScene({
   function surfacePoint(e: PointerEvent<SVGElement>): Point | null {
     const w = surface && world(e, surface.z);
     return w ? worldSurface(surface!, w) : null;
+  }
+  /**
+   * Where a fixture being placed would stand under the pointer: on the
+   * highest surface the pointer is over, else on the floor, centred on the
+   * pointer and kept inside the room.
+   */
+  function placeAt(e: {
+    clientX: number;
+    clientY: number;
+  }): { at: IsoVec; surfaceId: string | null } | null {
+    if (!placing) return null;
+    const { w, d } = placing.size;
+    const corner = (p: IsoVec) => ({
+      x: Math.min(Math.max(p.x - w / 2, 0), Math.max(scene.grid.w - w, 0)),
+      y: Math.min(Math.max(p.y - d / 2, 0), Math.max(scene.grid.d - d, 0)),
+      z: p.z,
+    });
+    for (const s of [...scene.surfaces].sort((a, b) => b.z - a.z)) {
+      const p = world(e, s.z);
+      const r = s.rect;
+      if (p && p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= r.y + r.d)
+        return { at: corner(p), surfaceId: s.id };
+    }
+    const p = world(e, 0);
+    return p && p.x >= 0 && p.y >= 0 && p.x <= scene.grid.w && p.y <= scene.grid.d
+      ? { at: corner(p), surfaceId: null }
+      : null;
   }
   const surfaceQuad: IsoVec[] = surface
     ? [
@@ -375,8 +473,14 @@ export function IsoScene({
               </>
             )}
           </g>
-        ) : (
+        ) : item.kind === 'object' ? (
           <ObjectMarker key={`object-${item.object.id}`} box={item} object={item.object} />
+        ) : (
+          <FixtureMarker
+            key={`fixture-${item.fixture.id}`}
+            fixture={item.fixture}
+            onSelect={editing || drawing || placing ? undefined : onFixture}
+          />
         ),
       )}
       {!editing &&
@@ -402,6 +506,26 @@ export function IsoScene({
           <stop offset="1" stopColor="var(--warm)" stopOpacity="0" />
         </radialGradient>
       </defs>
+      {fixtures
+        .filter((f) => f.glow)
+        .map((f) => {
+          const c = toIso({
+            x: f.box.at.x + f.box.size.w / 2,
+            y: f.box.at.y + f.box.size.d / 2,
+            z: f.box.at.z,
+          });
+          return (
+            <ellipse
+              key={`glow-${f.id}`}
+              className="iso-glow"
+              fill="url(#iso-warm)"
+              cx={c.sx}
+              cy={c.sy}
+              rx={180}
+              ry={90}
+            />
+          );
+        })}
       {scene.props.filter(lit).map((p) => {
         const c = toIso({ x: p.at.x + p.size.w / 2, y: p.at.y + p.size.d / 2, z: p.at.z });
         return (
@@ -416,6 +540,32 @@ export function IsoScene({
           />
         );
       })}
+      {placing && ghost && (
+        <g className="iso-ghost" aria-hidden="true">
+          <ItemSprite
+            item={placing.item}
+            origin={ghost.at}
+            scale={Math.max(placing.size.w, placing.size.d)}
+          />
+        </g>
+      )}
+      {placing && !editing && (
+        <rect
+          className="iso-place-hit"
+          x={minX}
+          y={minY}
+          width={maxX - minX}
+          height={maxY - minY}
+          aria-label={`Place the ${placing.label.toLowerCase()}`}
+          onPointerMove={(e) => setGhost(placeAt(e))}
+          onPointerLeave={() => setGhost(null)}
+          onClick={(e) => {
+            const where = placeAt(e);
+            if (where)
+              placing.onPlace({ at: { x: where.at.x, y: where.at.y }, surfaceId: where.surfaceId });
+          }}
+        />
+      )}
       {drawing && surface && !editing && (
         <polygon
           className="iso-hit"

@@ -366,3 +366,28 @@ test('saves the session as you go, undoes a desk edit, and resets to the demo', 
   await expect(page.locator('.feedback')).toContainText('Reset to the demo');
   await expect(page.getByRole('group', { name: 'Choose a scene' })).toBeVisible();
 });
+
+test('a fixture is drafted from the demo mouse, placed on the office desk and selected', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await chooseScene(page);
+  await outline(page, 'Add fixture').click();
+  await expect(
+    page.getByRole('heading', { name: 'Start from a photo of the thing' }),
+  ).toBeVisible();
+  await page.getByRole('button', { name: /Computer mouse/ }).click();
+  await expect(page.getByRole('heading', { name: 'Computer mouse' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Just a thing' })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await page.getByLabel('Room').selectOption({ label: 'Office desk' });
+  await page.getByRole('button', { name: 'Place it' }).click();
+  const hit = page.getByLabel('Place the computer mouse');
+  await expect(hit).toBeVisible();
+  await hit.click();
+  await expect(outline(page, 'Computer mouse')).toBeVisible();
+  await expect(page.locator('[data-fixture]')).toHaveCount(1);
+  await expect(page.getByRole('button', { name: 'Move' })).toBeVisible();
+});

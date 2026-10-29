@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 import type { DeskMemory, SurfacePin } from '@livinglayer/domain';
 import { emptyDesk } from '../apps/web/src/session.js';
+import { controlLabel } from '../apps/web/src/workspace/labels.js';
 import {
   parseSelection,
   sceneProgress,
@@ -102,11 +103,23 @@ describe('selection', () => {
       { kind: 'add' },
       { kind: 'rule', id: 'r 1' },
       { kind: 'new-rule' },
+      { kind: 'fixture', id: 'f/1' },
+      { kind: 'new-fixture' },
     ];
     for (const s of all) expect(parseSelection(selectionHash(s))).toEqual(s);
     expect(parseSelection('')).toBeNull();
     expect(parseSelection('#object')).toBeNull();
     expect(parseSelection('#suggested/-1')).toBeNull();
+    expect(parseSelection('#fixture')).toBeNull();
+  });
+  it('says what a fixture is and how it was last left', () => {
+    expect(controlLabel({ control: { kind: 'none' } })).toBe('just a thing');
+    expect(controlLabel({ control: { kind: 'switch', entityId: 'switch.fan' }, state: 'on' })).toBe(
+      'switch · on',
+    );
+    expect(controlLabel({ control: { kind: 'light', entityId: 'light.desk' } })).toBe(
+      'light · unknown',
+    );
   });
 
   it('points each step at where it is worked on', () => {

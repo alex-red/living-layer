@@ -1,6 +1,13 @@
-import { MAX_RULES, isMugConcept } from '@livinglayer/domain';
+import { MAX_FIXTURES, MAX_RULES, isMugConcept } from '@livinglayer/domain';
 import { useLab } from './LabContext';
-import { mainSurface, roomLabel, selectionLabel, surfaceRows, type SurfaceRow } from './labels';
+import {
+  controlLabel,
+  mainSurface,
+  roomLabel,
+  selectionLabel,
+  surfaceRows,
+  type SurfaceRow,
+} from './labels';
 import { sameSelection, type Selection, type StepState } from './progress';
 
 const GLYPH: Record<StepState, string> = { done: '✓', current: '●', todo: '◌', locked: '–' };
@@ -23,8 +30,11 @@ function Row({
   target: Selection;
   disabled?: boolean;
   title?: string;
-  /** `chosen` for things you confirmed, `seen` for model suggestions, `add` for new things. */
-  tone?: 'chosen' | 'seen' | 'add';
+  /**
+   * `chosen` for things you confirmed, `seen` for model suggestions, `fixture`
+   * for things placed by hand, `add` for new things.
+   */
+  tone?: 'chosen' | 'seen' | 'fixture' | 'add';
   /** What a click does, when it is more than showing the node. */
   onSelect?: () => void;
 }) {
@@ -44,11 +54,13 @@ function Row({
         <span className="ol-glyph" aria-hidden="true">
           {tone === 'add'
             ? '＋'
-            : tone === 'chosen' || tone === 'seen'
-              ? '◆'
-              : state
-                ? GLYPH[state]
-                : '▫'}
+            : tone === 'fixture'
+              ? '◇'
+              : tone === 'chosen' || tone === 'seen'
+                ? '◆'
+                : state
+                  ? GLYPH[state]
+                  : '▫'}
         </span>
         <span className="ol-text">
           <span className="ol-label">{label}</span>
@@ -189,6 +201,31 @@ export function Outline() {
             />
             {rows.room.map((r) => surface(r, 1))}
           </ul>
+        )}
+        {progress.room && (
+          <>
+            <div className="pane-head ol-section">
+              <span className="tiny">FIXTURES</span>
+            </div>
+            <ul className="ol-tree">
+              {(memory?.fixtures ?? []).map((f) => (
+                <Row
+                  key={f.id}
+                  label={f.label}
+                  detail={controlLabel(f)}
+                  tone="fixture"
+                  target={{ kind: 'fixture', id: f.id }}
+                />
+              ))}
+              <Row
+                label="Add fixture"
+                detail={memory?.fixtures?.length ? undefined : 'from a photo of it'}
+                tone="add"
+                target={{ kind: 'new-fixture' }}
+                disabled={(memory?.fixtures?.length ?? 0) >= MAX_FIXTURES || Boolean(busy)}
+              />
+            </ul>
+          </>
         )}
         {progress.room && (
           <>

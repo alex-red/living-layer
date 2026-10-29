@@ -913,3 +913,40 @@
     transition: transform var(--t-base) var(--ease-out);
   }
 }
+
+/* Fixtures: photo first, then a side-by-side check of the photo and the model. */
+.fixture-drop {
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--r-card);
+  background: var(--seen-wash);
+}
+.fixture-reference img {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  border-radius: var(--r-chip);
+}
+.fixture-compare {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  align-items: center;
+}
+.fixture-compare img {
+  width: 100%;
+  max-height: 160px;
+  object-fit: contain;
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  background: var(--surface-2);
+  image-rendering: pixelated;
+}
+.fixture-compare img:first-child {
+  image-rendering: auto;
+}
+.fixture-kind {
+  margin-bottom: 8px;
+}

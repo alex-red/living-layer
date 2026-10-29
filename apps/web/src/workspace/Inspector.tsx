@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useState } from 'react';
 import {
   ISO_PRESETS,
   MAX_OTHER_OBJECTS,
@@ -9,75 +9,17 @@ import {
   type EvidenceRun,
   type PlacementDecision,
 } from '@livinglayer/domain';
-import { api } from '../api';
 import { estimateLabel } from '../cost';
 import { Glyph } from '../Glyph';
 import { useLab } from './LabContext';
+import { Cost, Details, Panel, useCall } from './panel';
+import { FixturePanel, NewFixturePanel } from './FixturePanel';
 import { ago, mainSurface, roomLabel, surfaceRows } from './labels';
 import type { Selection } from './progress';
 import { TRANSITION, centre } from './useLabState';
 
-type Tone = 'ok' | 'seen' | 'chosen' | 'unsure' | 'blocked' | 'warm' | 'idle';
-const TONE_GLYPH: Record<Tone, string> = {
-  ok: '✓',
-  seen: '●',
-  chosen: '◆',
-  unsure: '◌',
-  blocked: '×',
-  warm: '●',
-  idle: '○',
-};
 type Events = { memory: DeskMemory; events: EvidenceRun<PlacementDecision>[] };
 
-/** Every inspector panel has the same three parts: status, the next action, details. */
-function Panel({
-  tiny,
-  title,
-  status,
-  tone = 'idle',
-  aside,
-  children,
-}: {
-  tiny: string;
-  title: string;
-  status: ReactNode;
-  tone?: Tone;
-  aside?: ReactNode;
-  children?: ReactNode;
-}) {
-  return (
-    <section className="insp-panel" aria-label={title}>
-      <header className="insp-head">
-        <span className="tiny">{tiny}</span>
-        <h2>{title}</h2>
-        <p className={`insp-status ${tone}`}>
-          <span aria-hidden="true">{TONE_GLYPH[tone]}</span>
-          <span>{status}</span>
-          {aside}
-        </p>
-      </header>
-      {children}
-    </section>
-  );
-}
-/** Folded details. `open` only sets how it starts; after that the person decides. */
-function Details({
-  summary,
-  children,
-  open = false,
-}: {
-  summary: string;
-  children: ReactNode;
-  open?: boolean;
-}) {
-  const [isOpen, setOpen] = useState(open);
-  return (
-    <details className="insp-details" open={isOpen} onToggle={(e) => setOpen(e.currentTarget.open)}>
-      <summary>{summary}</summary>
-      <div>{children}</div>
-    </details>
-  );
-}
 /** A ring that empties as a sighting ages towards the 5-minute expiry. */
 function Freshness({ observedAt }: { observedAt: string }) {
   const { now } = useLab();
@@ -99,29 +41,6 @@ function Freshness({ observedAt }: { observedAt: string }) {
       />
     </svg>
   );
-}
-/** One request from the inspector, with its own busy flag. */
-function useCall() {
-  const lab = useLab();
-  const [pending, setPending] = useState(false);
-  async function call<T>(path: string, body: object, done: (r: T) => void) {
-    setPending(true);
-    lab.setError('');
-    try {
-      done(await api<T>(path, { mode: lab.mode, ...body }));
-      void lab.refresh().catch(() => {});
-    } catch (e) {
-      lab.setError(e instanceof Error ? e : 'The request failed.');
-    } finally {
-      setPending(false);
-    }
-  }
-  return { pending, call, off: pending || Boolean(lab.busy) };
-}
-/** Prices only matter when they are spent: live mode only. */
-function Cost({ children }: { children: string }) {
-  const { mode } = useLab();
-  return mode === 'live' ? <p className="micro cost">{children}</p> : null;
 }
 const verdictSummary = (
   memory: DeskMemory | undefined,
@@ -1180,6 +1099,10 @@ function body(lab: ReturnType<typeof useLab>, s: Selection | null) {
       return s.id === 'main' ? <ZonePanel /> : <RulePanel key={s.id} id={s.id} />;
     case 'new-rule':
       return <NewRulePanel />;
+    case 'fixture':
+      return <FixturePanel key={s.id} id={s.id} />;
+    case 'new-fixture':
+      return <NewFixturePanel />;
   }
 }
 

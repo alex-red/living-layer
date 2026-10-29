@@ -23,7 +23,9 @@ export type Selection =
   | { kind: 'suggested'; index: number }
   | { kind: 'add' }
   | { kind: 'rule'; id: string }
-  | { kind: 'new-rule' };
+  | { kind: 'new-rule' }
+  | { kind: 'fixture'; id: string }
+  | { kind: 'new-fixture' };
 
 export type StepId = 'office' | 'desk' | 'objects' | 'rule' | 'run';
 export type StepState = 'done' | 'current' | 'todo' | 'locked';
@@ -165,6 +167,7 @@ export function selectionHash(s: Selection | null): string {
     case 'surface':
     case 'object':
     case 'rule':
+    case 'fixture':
       return `#${s.kind}/${encodeURIComponent(s.id)}`;
     case 'suggested':
       return `#suggested/${s.index}`;
@@ -180,10 +183,12 @@ export function parseSelection(hash: string): Selection | null {
     case 'view':
     case 'add':
     case 'new-rule':
+    case 'new-fixture':
       return { kind };
     case 'surface':
     case 'object':
     case 'rule':
+    case 'fixture':
       return id ? { kind, id } : null;
     case 'suggested': {
       const index = Number(id);

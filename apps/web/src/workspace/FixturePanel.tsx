@@ -1,0 +1,459 @@
+import { useState } from 'react';
+import {
+  DEMO_REFERENCES,
+  ISO_PRESETS,
+  fixtureEntity,
+  tileCm,
+  type ControlKind,
+  type DemoReference,
+  type DeskMemory,
+  type EvidenceRun,
+  type Fixture,
+  type FixtureControl,
+  type FixtureDraft,
+  type FixtureInput,
+  type LampResult,
+} from '@livinglayer/domain';
+import { api } from '../api';
+import { Glyph } from '../Glyph';
+import { itemSprite } from '../iso/sprites';
+import type { FixturePlacing } from '../iso/IsoView';
+import { useLab } from './LabContext';
+import { controlLabel, roomLabel } from './labels';
+import { Details, Panel, useCall } from './panel';
+import type { WorkScene } from './progress';
+
+const KIND_LABEL: Record<ControlKind, string> = {
+  light: 'Light',
+  switch: 'Switch',
+  none: 'Just a thing',
+};
+/** The ones you can switch first, then the plain thing. */
+const KIND_ORDER: ControlKind[] = ['light', 'switch', 'none'];
+const REFERENCE_LABEL: Record<DemoReference, string> = { mouse: 'Computer mouse' };
+
+/** The model as a small pixel-art picture, for review. */
+function ModelPreview({ model }: { model: FixtureDraft['model'] }) {
+  const sprite = itemSprite(model, { scale: 3, resolution: 48 });
+  return (
+    <img
+      className="fixture-model"
+      src={sprite.url}
+      width={sprite.width}
+      height={sprite.height}
+      alt={`The drafted model of the ${model.label.toLowerCase()}`}
+    />
+  );
+}
+
+/** Light, switch or just a thing, and which entity it switches. */
+function ControlPicker({
+  kind,
+  entity,
+  onKind,
+  onEntity,
+}: {
+  kind: ControlKind;
+  entity: string;
+  onKind: (kind: ControlKind) => void;
+  onEntity: (entity: string) => void;
+}) {
+  const { entities } = useLab();
+  const of = (k: ControlKind) => entities.filter((e) => e.startsWith(`${k}.`));
+  const choices = kind === 'none' ? [] : of(kind);
+  return (
+    <>
+      <div className="mode-switch three fixture-kind" role="group" aria-label="What is it?">
+        {KIND_ORDER.map((k) => {
+          const none = k !== 'none' && !of(k).length;
+          return (
+            <button
+              key={k}
+              aria-pressed={kind === k}
+              disabled={none}
+              title={none ? `No ${k} entities are configured.` : undefined}
+              onClick={() => {
+                onKind(k);
+                onEntity(k === 'none' ? '' : (of(k)[0] ?? ''));
+              }}
+            >
+              {KIND_LABEL[k]}
+            </button>
+          );
+        })}
+      </div>
+      {kind !== 'none' && (
+        <select
+          aria-label={`Which ${kind}`}
+          value={entity}
+          onChange={(e) => onEntity(e.target.value)}
+        >
+          {choices.map((e) => (
+            <option key={e} value={e}>
+              {e}
+            </option>
+          ))}
+        </select>
+      )}
+      {!of('switch').length && (
+        <p className="micro">Set HA_SWITCH_ENTITY_IDS to tie a fixture to a switch.</p>
+      )}
+    </>
+  );
+}
+const controlOf = (kind: ControlKind, entity: string): FixtureControl =>
+  kind === 'light'
+    ? { kind, entityId: entity }
+    : kind === 'switch'
+      ? { kind, entityId: entity }
+      : { kind: 'none' };
+
+/** The scenes a fixture can go in: the room, and its close view when it has one. */
+function useScenes(): { id: WorkScene; label: string }[] {
+  const { progress, memory } = useLab();
+  return [
+    ...(progress.room ? [{ id: progress.room, label: roomLabel(progress.room, memory) }] : []),
+    ...(progress.view ? [{ id: progress.view, label: ISO_PRESETS[progress.view].label }] : []),
+  ];
+}
+
+/**
+ * Add a fixture, photo first: one picture of the thing is drafted into a
+ * model, then the person names it, says what it is and puts it down.
+ */
+export function NewFixturePanel() {
+  const lab = useLab();
+  const { mode, busy, placing } = lab;
+  const scenes = useScenes();
+  const [draft, setDraft] = useState<{ draft: FixtureDraft; scene: WorkScene } | null>(null);
+  const [label, setLabel] = useState('');
+  const [kind, setKind] = useState<ControlKind>('none');
+  const [entity, setEntity] = useState('');
+  const [scene, setScene] = useState<WorkScene | null>(lab.workScene);
+  const [pending, setPending] = useState(false);
+  const target = scene && scenes.some((s) => s.id === scene) ? scene : (scenes[0]?.id ?? null);
+
+  async function draftFrom(reference: DemoReference) {
+    if (!target) return;
+    setPending(true);
+    lab.setError('');
+    try {
+      const r = await api<{ run: EvidenceRun; draft: FixtureDraft }>('fixtures/draft', {
+        mode,
+        scene: target,
+        reference,
+      });
+      setDraft({ draft: r.draft, scene: target });
+      setLabel(r.draft.label);
+      const suggested = lab.entities.find((e) => e.startsWith(`${r.draft.suggested}.`));
+      setKind(r.draft.suggested !== 'none' && suggested ? r.draft.suggested : 'none');
+      setEntity(r.draft.suggested !== 'none' ? (suggested ?? '') : '');
+      lab.setSelected(r.run);
+      lab.setMessage(
+        `Drafted the ${r.draft.label.toLowerCase()}. Name it, say what it is, then place it.`,
+      );
+      void lab.refresh().catch(() => {});
+    } catch (e) {
+      lab.setError(e instanceof Error ? e : 'The draft failed.');
+    } finally {
+      setPending(false);
+    }
+  }
+
+  if (placing && !placing.id)
+    return (
+      <Panel
+        tiny="ADD A FIXTURE"
+        title={placing.label}
+        status="Click where it stands in the room: on a surface or the floor."
+        tone="seen"
+      >
+        <div className="save-actions">
+          <button
+            className="secondary"
+            onClick={() =>
+              lab.setPlacing({
+                ...placing,
+                turns: ((placing.turns + 1) % 4) as FixturePlacing['turns'],
+              })
+            }
+          >
+            Turn ↻
+          </button>
+          <button className="secondary" onClick={() => lab.setPlacing(null)}>
+            Cancel
+          </button>
+        </div>
+      </Panel>
+    );
+
+  if (!draft) {
+    const live = mode === 'live';
+    return (
+      <Panel
+        tiny="ADD A FIXTURE"
+        title="Start from a photo of the thing"
+        status="One thing, filling most of the frame, on a plain background. A mouse, a lamp, a wall switch."
+        tone="seen"
+      >
+        <div className="fixture-drop" aria-disabled="true">
+          <div className="save-actions">
+            <button className="primary" disabled>
+              Take a photo
+            </button>
+            <button className="secondary" disabled>
+              Upload
+            </button>
+          </div>
+          <p className="micro">
+            {live
+              ? 'Drafting from your own photo isn’t built yet. Switch to Demo to try the illustrated mouse.'
+              : 'Demo mode drafts from the bundled pictures below, with no model call.'}
+          </p>
+        </div>
+        {!live && (
+          <div className="object-grid">
+            {DEMO_REFERENCES.map((r) => (
+              <button
+                key={r}
+                className="object-card fixture-reference"
+                disabled={pending || Boolean(busy) || !target}
+                onClick={() => void draftFrom(r)}
+              >
+                <img src={`/${r}.svg`} alt="" />
+                <strong>{REFERENCE_LABEL[r]}</strong>
+                <small>{pending ? 'Drafting…' : 'Draft from this picture'}</small>
+              </button>
+            ))}
+          </div>
+        )}
+      </Panel>
+    );
+  }
+
+  const { draft: d } = draft;
+  const fit = d.model.fit;
+  // A draft is sized for the scene it was made for; another scene has another scale.
+  const k = target ? tileCm(draft.scene, lab.memory?.scene) / tileCm(target, lab.memory?.scene) : 1;
+  const size = { w: d.size.w * k, d: d.size.d * k, h: d.size.h * k };
+  const ready = Boolean(label.trim() && target && (kind === 'none' || entity));
+  return (
+    <Panel
+      tiny="REVIEW THE FIXTURE"
+      title={label.trim() || d.label}
+      status={d.description}
+      tone="seen"
+    >
+      <div className="fixture-compare">
+        <img
+          src={`/api/fixtures/reference?runId=${d.reference.runId}`}
+          alt={`The reference photo of the ${d.label.toLowerCase()}`}
+        />
+        <ModelPreview model={d.model} />
+      </div>
+      {fit && (
+        <p className="micro">
+          Outline match {Math.round(fit.iou * 100)}% · {d.model.parts.length} part
+          {d.model.parts.length === 1 ? '' : 's'} · drawn as a {d.archetype}
+        </p>
+      )}
+      <label className="input-label" htmlFor="fixture-name">
+        Name
+      </label>
+      <input
+        id="fixture-name"
+        value={label}
+        maxLength={40}
+        onChange={(e) => setLabel(e.target.value)}
+      />
+      <span className="input-label">What is it?</span>
+      <ControlPicker kind={kind} entity={entity} onKind={setKind} onEntity={setEntity} />
+      <p className="micro">
+        {d.suggested === 'none'
+          ? 'Looks like just a thing: nothing to switch.'
+          : `Looks like a ${d.suggested}.`}
+      </p>
+      {scenes.length > 1 && (
+        <>
+          <label className="input-label" htmlFor="fixture-scene">
+            Room
+          </label>
+          <select
+            id="fixture-scene"
+            value={target ?? ''}
+            onChange={(e) => setScene(e.target.value as WorkScene)}
+          >
+            {scenes.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.label}
+              </option>
+            ))}
+          </select>
+        </>
+      )}
+      <div className="save-actions">
+        <button
+          className="primary"
+          disabled={!ready}
+          onClick={() =>
+            lab.startPlacing({
+              label: label.trim(),
+              scene: target!,
+              turns: 0,
+              size,
+              model: { label: label.trim(), parts: d.model.parts },
+              reference: d.reference,
+              control: controlOf(kind, entity),
+            })
+          }
+        >
+          Place it
+          <Glyph type="arrow" />
+        </button>
+        <button className="secondary" onClick={() => setDraft(null)}>
+          Start over
+        </button>
+      </div>
+    </Panel>
+  );
+}
+
+/** What a saved fixture sends back to be saved again. */
+function inputOf(f: Fixture): FixtureInput & FixturePlacing {
+  return {
+    id: f.id,
+    label: f.label,
+    scene: f.scene,
+    surfaceId: f.surfaceId,
+    at: f.at,
+    turns: f.turns,
+    size: f.size,
+    model: { label: f.model.label, parts: f.model.parts },
+    reference: f.reference,
+    control: f.control,
+  };
+}
+
+/** A placed fixture: switch it, move or turn it, change what it is, or remove it. */
+export function FixturePanel({ id }: { id: string }) {
+  const lab = useLab();
+  const { memory, mode, placing } = lab;
+  const { call, off } = useCall();
+  const f = memory?.fixtures?.find((x) => x.id === id);
+  const [kind, setKind] = useState<ControlKind>(f?.control.kind ?? 'none');
+  const [entity, setEntity] = useState(f ? (fixtureEntity(f) ?? '') : '');
+  const [result, setResult] = useState<LampResult | null>(null);
+  if (!f)
+    return <Panel tiny="FIXTURE" title="Gone" status="This fixture is no longer in the room." />;
+  const entityId = fixtureEntity(f);
+  const where = `${f.scene === 'custom' ? roomLabel('custom', memory) : ISO_PRESETS[f.scene].label}${f.surfaceId ? '' : ', on the floor'}`;
+  const liveBlocked = mode === 'live' && !lab.lampReady;
+  const save = (next: FixtureInput, done: string) =>
+    void call<DeskMemory>('fixtures/save', { fixture: next }, (m) => {
+      lab.setMemory(m);
+      lab.setMessage(done);
+    });
+  const control = (action: 'on' | 'off') =>
+    void call<{ memory: DeskMemory; event: EvidenceRun<LampResult> }>(
+      'fixtures/control',
+      { fixtureId: f.id, action },
+      (r) => {
+        lab.setMemory(r.memory, false);
+        lab.setSelected(r.event);
+        setResult(r.event.output);
+        lab.setMessage(r.event.output.explanation);
+      },
+    );
+  const moving = placing?.id === f.id;
+  return (
+    <Panel
+      tiny="FIXTURE"
+      title={f.label}
+      status={
+        moving
+          ? 'Click where it stands now. Esc cancels.'
+          : entityId
+            ? `${controlLabel(f)} · ${entityId} · in the ${where.toLowerCase()}`
+            : `Just a thing, in the ${where.toLowerCase()}.`
+      }
+      tone={f.control.kind === 'light' && f.state === 'on' ? 'warm' : entityId ? 'ok' : 'idle'}
+    >
+      {entityId && (
+        <>
+          <div className="save-actions">
+            <button className="primary" disabled={off || liveBlocked} onClick={() => control('on')}>
+              Turn on
+            </button>
+            <button
+              className="secondary"
+              disabled={off || liveBlocked}
+              onClick={() => control('off')}
+            >
+              Turn off
+            </button>
+          </div>
+          {liveBlocked && (
+            <p className="micro">Set the HA_* variables and HA_LIVE_ENABLED to switch it.</p>
+          )}
+          {result && (
+            <p className="micro">
+              {result.accepted ? 'Accepted' : 'Not accepted'} ·{' '}
+              {result.stateConfirmed ? `reported ${result.state}` : 'state not confirmed'}
+            </p>
+          )}
+        </>
+      )}
+      <div className="save-actions">
+        <button
+          className="secondary"
+          disabled={off}
+          onClick={() => (moving ? lab.setPlacing(null) : lab.startPlacing(inputOf(f)))}
+        >
+          {moving ? 'Cancel move' : 'Move'}
+        </button>
+        <button
+          className="secondary"
+          disabled={off || moving}
+          onClick={() =>
+            save(
+              { ...inputOf(f), turns: ((f.turns + 1) % 4) as FixtureInput['turns'] },
+              `Turned the ${f.label.toLowerCase()}.`,
+            )
+          }
+        >
+          Turn ↻
+        </button>
+      </div>
+      <Details summary="What it is">
+        <ControlPicker kind={kind} entity={entity} onKind={setKind} onEntity={setEntity} />
+        <button
+          className="secondary"
+          disabled={off || (kind !== 'none' && !entity)}
+          onClick={() =>
+            save(
+              { ...inputOf(f), control: controlOf(kind, entity) },
+              `The ${f.label.toLowerCase()} is now ${kind === 'none' ? 'just a thing' : `a ${kind}`}.`,
+            )
+          }
+        >
+          Save
+        </button>
+      </Details>
+      <Details summary="Delete">
+        <button
+          className="text-button destructive"
+          disabled={off}
+          onClick={() =>
+            void call<DeskMemory>('fixtures/delete', { fixtureId: f.id }, (m) => {
+              lab.setMemory(m);
+              lab.setMessage(`Removed the ${f.label.toLowerCase()}.`);
+              lab.select(null);
+            })
+          }
+        >
+          Delete “{f.label}”
+        </button>
+      </Details>
+    </Panel>
+  );
+}

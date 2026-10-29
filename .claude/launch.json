@@ -1,0 +1,15 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "main-live-check",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": [
+        "-c",
+        "cd /private/tmp/claude-501/-Users-red-code-2026-meta-hackathon/0605571d-18bd-4af2-9373-4f1700ed3c19/scratchpad/live && PORT=4320 DATA_DIR=/private/tmp/claude-501/-Users-red-code-2026-meta-hackathon/0605571d-18bd-4af2-9373-4f1700ed3c19/scratchpad/live/.data exec bun --env-file=/Users/red/code/2026-meta-hackathon/.env apps/server/src/index.ts"
+      ],
+      "port": 4320,
+      "url": "http://127.0.0.1:4320"
+    }
+  ]
+}

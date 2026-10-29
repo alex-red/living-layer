@@ -194,6 +194,14 @@ export function fixtureRoutes(
     store.saveMemory(memory);
     return memory;
   });
+  /** The reference photo a fixture was drafted from, for review and the inspector. */
+  app.get('/api/fixtures/reference', async (request, reply) => {
+    const { runId } = parseInput(z.object({ runId: z.string().uuid() }).strict(), request.query);
+    const drafted = store.getRun(runId);
+    const png = drafted?.kind === 'fixture' ? store.readAsset(`${runId}/reference.png`) : null;
+    if (!png) throw new LabError('fixture_reference', 'That draft has no reference photo.', 404);
+    return reply.type('image/png').header('cache-control', 'private, max-age=3600').send(png);
+  });
   /** Rules that switched the fixture keep its entity and lose the link to it. */
   app.post('/api/fixtures/delete', async (request) => {
     const { mode, fixtureId } = parseInput(
