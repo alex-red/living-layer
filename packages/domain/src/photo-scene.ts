@@ -298,19 +298,17 @@ export function orderCorners(q: Point[]): Quad {
   const start = ring.indexOf(back[0]!.x <= back[1]!.x ? back[0]! : back[1]!);
   return [0, 1, 2, 3].map((k) => ring[(start + k) % 4]!) as Quad;
 }
-/** Erode (min) or dilate (max) by a square of radius `r`, one axis at a time. */
-function morph(bits: Bits, r: number, dilate: boolean): Bits {
+/** Erode, then dilate, along rows only: wipes out what is narrower than 2r + 1 across. */
+function openRows(bits: Bits, r: number): Bits {
   const { width, height } = bits;
-  const pass = (src: Uint8Array, horizontal: boolean) => {
+  const pass = (src: Uint8Array, dilate: boolean) => {
     const out = new Uint8Array(src.length);
     for (let y = 0; y < height; y++)
       for (let x = 0; x < width; x++) {
         let v = dilate ? 0 : 1;
         for (let k = -r; k <= r; k++) {
-          const xx = horizontal ? x + k : x;
-          const yy = horizontal ? y : y + k;
-          const inside = xx >= 0 && yy >= 0 && xx < width && yy < height;
-          const s = inside ? src[yy * width + xx]! : dilate ? 0 : 1;
+          const xx = x + k;
+          const s = xx >= 0 && xx < width ? src[y * width + xx]! : dilate ? 0 : 1;
           if (dilate ? s : !s) {
             v = dilate ? 1 : 0;
             break;
@@ -320,15 +318,148 @@ function morph(bits: Bits, r: number, dilate: boolean): Bits {
       }
     return out;
   };
-  return { width, height, data: pass(pass(bits.data, true), false) };
+  return { width, height, data: pass(pass(bits.data, false), true) };
+}
+/** The mask with every hole filled: what no path of empty pixels joins to the frame's edge. */
+function fillHoles(bits: Bits): Bits {
+  const { width, height, data } = bits;
+  const outside = new Uint8Array(data.length);
+  const stack: number[] = [];
+  const push = (i: number) => {
+    if (!data[i] && !outside[i]) {
+      outside[i] = 1;
+      stack.push(i);
+    }
+  };
+  for (let x = 0; x < width; x++) {
+    push(x);
+    push((height - 1) * width + x);
+  }
+  for (let y = 0; y < height; y++) {
+    push(y * width);
+    push(y * width + width - 1);
+  }
+  while (stack.length) {
+    const i = stack.pop()!;
+    const x = i % width;
+    if (x > 0) push(i - 1);
+    if (x < width - 1) push(i + 1);
+    if (i >= width) push(i - width);
+    if (i < data.length - width) push(i + width);
+  }
+  return { width, height, data: outside.map((o) => (o ? 0 : 1)) };
+}
+/**
+ * The top without what hangs below its front edge: drawers, a cabinet, legs.
+ * Holes are filled first: SAM leaves them where clutter it wasn't asked about
+ * sits. In each column the top is the first run of mask from above; the front edge
+ * is the line most of those runs end on. A run of columns reaching well below
+ * it is cut back to it when the part below is about as wide at the bottom as
+ * at the line, as a drawer unit is, rather than narrowing to a point. A desk
+ * seen at an angle shows a second edge, its near side, which only rises above
+ * the line, so nothing of it is cut.
+ */
+function cutHanging(mask: Bits): { top: Bits; hanging: Bits } {
+  const solid = fillHoles(mask);
+  const { width, height, data } = solid;
+  const at = (x: number, y: number) => data[y * width + x]!;
+  const cols: { x: number; bottom: number }[] = [];
+  const gap = Math.max(2, Math.round(height * 0.04));
+  for (let x = 0; x < width; x++) {
+    let y = 0;
+    while (y < height && !at(x, y)) y++;
+    if (y === height) continue;
+    // Short gaps are bridged: a thing on the desk's back edge leaves a sliver above the top.
+    let bottom = y;
+    for (; y < height; y++)
+      if (at(x, y)) bottom = y;
+      else if (y - bottom > gap) break;
+    cols.push({ x, bottom });
+  }
+  if (cols.length < 8) return { top: solid, hanging: newBits(width, height) };
+  // The front edge: of lines through two columns' bottoms, the one most
+  // columns end on, refitted to those. A column running into the frame's
+  // bottom says nothing about the edge: the photo cuts it off there.
+  const tol = Math.max(1.5, height * 0.02);
+  const open = cols.filter((k) => k.bottom < height - 1);
+  const step = Math.max(1, Math.floor(open.length / 40));
+  const sample = open.filter((_, i) => i % step === 0);
+  let best: typeof cols = [];
+  for (let i = 0; i < sample.length; i++)
+    for (let j = i + 1; j < sample.length; j++) {
+      const p = sample[i]!;
+      const q = sample[j]!;
+      const slope = (q.bottom - p.bottom) / (q.x - p.x);
+      const on = open.filter((k) => Math.abs(k.bottom - (p.bottom + slope * (k.x - p.x))) <= tol);
+      if (on.length > best.length) best = on;
+    }
+  if (best.length < cols.length * 0.3) return { top: solid, hanging: newBits(width, height) };
+  const n = best.length;
+  const sx = best.reduce((s, p) => s + p.x, 0);
+  const sy = best.reduce((s, p) => s + p.bottom, 0);
+  const sxx = best.reduce((s, p) => s + p.x * p.x, 0);
+  const sxy = best.reduce((s, p) => s + p.x * p.bottom, 0);
+  const det = n * sxx - sx * sx;
+  const m = det ? (n * sxy - sx * sy) / det : 0;
+  const c = (sy - m * sx) / n;
+  const line = (x: number) => m * x + c;
+  const deep = Math.max(2, height * 0.05);
+  const out = { width, height, data: data.slice() };
+  const hanging = newBits(width, height);
+  // Contiguous runs of columns that reach well below the line.
+  const low = cols.filter((p) => p.bottom > line(p.x) + deep).map((p) => p.x);
+  const blocks: [number, number][] = [];
+  for (const x of low) {
+    const last = blocks.at(-1);
+    if (last && x - last[1] <= 2) last[1] = x;
+    else blocks.push([x, x]);
+  }
+  const below = (x: number) => Math.max(0, Math.ceil(line(x) + tol));
+  for (const [a, b] of blocks) {
+    // How wide the part below the line is near its bottom, by the extent of
+    // each row: SAM's masks of drawer fronts are full of holes.
+    let top = height;
+    let bottom = 0;
+    for (let x = a; x <= b; x++)
+      for (let y = below(x); y < height; y++)
+        if (at(x, y)) {
+          top = Math.min(top, y);
+          bottom = Math.max(bottom, y);
+        }
+    if (bottom - top < deep * 2) continue;
+    let wide = 0;
+    for (let y = Math.round(top + 0.6 * (bottom - top)); y <= top + 0.9 * (bottom - top); y++) {
+      let l = -1;
+      let r = -1;
+      for (let x = a; x <= b; x++)
+        if (y >= below(x) && at(x, y)) {
+          if (l < 0) l = x;
+          r = x;
+        }
+      if (l >= 0) wide = Math.max(wide, r - l + 1);
+    }
+    if (wide < 0.6 * (b - a + 1)) continue;
+    for (let x = a; x <= b; x++)
+      for (let y = Math.max(0, Math.ceil(line(x) + tol)); y < height; y++) {
+        hanging.data[y * width + x] = out.data[y * width + x]!;
+        out.data[y * width + x] = 0;
+      }
+  }
+  return { top: out, hanging };
 }
 /**
  * Just the top of a surface's mask. SAM outlines the whole desk, legs and
  * all, and leaves holes where things stand on it. The holes are filled with
- * the masks of what stands there (a mug), then an opening, a square about 7%
- * of the surface's width, wipes out anything thinner than that: the legs.
+ * the masks of what stands there (a mug), whatever hangs below the front edge
+ * as a block is cut off (a drawer unit), then an opening along the rows, about
+ * 7% of the surface's width, wipes out anything narrower than that: the legs.
+ * Only along the rows, so a top seen nearly edge-on, a thin strip, stays.
  */
 export function surfaceTop(bits: Bits, others: Bits[]): Bits {
+  return surfaceParts(bits, others).top;
+}
+/** The top of a surface's mask, and what was cut off below it as a block (a drawer unit). */
+export function surfaceParts(bits: Bits, others: Bits[]): { top: Bits; hanging: Bits } {
   const { width, height, data } = bits;
   const solid = newBits(width, height);
   let widest = 0;
@@ -347,10 +478,26 @@ export function surfaceTop(bits: Bits, others: Bits[]): Bits {
       if (data[i] || others.some((o) => o.data[i])) solid.data[i] = 1;
     }
   }
+  const { top, hanging } = cutHanging(solid);
   const r = Math.max(1, Math.ceil(widest * 0.035));
-  const opened = morph(morph(solid, r, false), r, true);
+  const opened = openRows(top, r);
   // An opening that wipes everything out means the mask was all thin parts; keep it as it was.
-  return opened.data.some(Boolean) ? opened : solid;
+  return { top: opened.data.some(Boolean) ? opened : top, hanging };
+}
+/**
+ * A surface's mask for matching its template against, and what may differ
+ * from the drawing without counting either way: what other things cover, and
+ * what hangs below the top as a block, which the template doesn't draw.
+ */
+function matchTarget(mask: Bits, hanging: Bits, union: Uint8Array) {
+  const target = { width: mask.width, height: mask.height, data: mask.data.slice() };
+  const ignore = union.slice();
+  for (let i = 0; i < target.data.length; i++)
+    if (hanging.data[i]) {
+      target.data[i] = 0;
+      ignore[i] = 1;
+    }
+  return { target, ignore };
 }
 /**
  * Four corners for a surface's mask, in frame pixels: the biggest quad inside
@@ -452,11 +599,18 @@ export function pinFromMask(
 ): { corners: Quad; iou: number } | null {
   const scale = Math.min(1, WORK_WIDTH / frame.width);
   const mask = maskBits(d, frame, scale);
-  const fitted = fitSurfaceQuad(surfaceTop(mask, []), frame);
+  const parts = surfaceParts(mask, []);
+  const fitted = fitSurfaceQuad(parts.top, frame);
   if (!fitted) return null;
-  const depthRange: [number, number] = [1, PROP_TEMPLATES[template].size.d * 2];
-  const union = new Uint8Array(mask.data.length);
-  const corners = refinePin(fitted.corners, template, frame, mask, union, scale, depthRange);
+  const { target, ignore } = matchTarget(mask, parts.hanging, new Uint8Array(mask.data.length));
+  const corners = refinePin(
+    turnToFit(fitted.corners, frame, template),
+    template,
+    frame,
+    target,
+    ignore,
+    scale,
+  );
   return { corners: quadIsConvex(corners, 1) ? corners : fitted.corners, iou: fitted.iou };
 }
 
@@ -500,8 +654,8 @@ const UNIT: Quad = [
 ];
 /**
  * The camera behind a pin. The focal length comes from the right angle at
- * the surface's corners when the perspective is strong enough to show it,
- * else a typical phone or webcam lens. The surface's depth follows from its
+ * the surface's corners when the perspective is strong enough to show it and
+ * no corner is cut off by the frame, else a typical phone or webcam lens. The surface's depth follows from its
  * width and the corners, so a desk keeps its true proportions.
  */
 export function cameraFromPin(
@@ -521,7 +675,10 @@ export function cameraFromPin(
   const maxDim = Math.max(frame.width, frame.height);
   const f2 = -(a1[0] * a2[0] + a1[1] * a2[1]) / (a1[2] * a2[2]);
   const measured = Number.isFinite(f2) && f2 > 0 ? Math.sqrt(f2) : NaN;
-  const focalGuessed = !(measured >= 0.45 * maxDim && measured <= 3 * maxDim);
+  // A corner on the frame's edge is where the photo cuts the surface off, not
+  // a right angle, so it says nothing about the lens.
+  const focalGuessed =
+    clippedQuad(corners, frame) || !(measured >= 0.45 * maxDim && measured <= 3 * maxDim);
   const f = focalGuessed ? 0.8 * maxDim : measured;
   let b1: Vec3 = [a1[0] / f, a1[1] / f, a1[2]];
   let b2: Vec3 = [a2[0] / f, a2[1] / f, a2[2]];
@@ -693,35 +850,41 @@ export function layoutPhoto(input: LayoutInput): PhotoLayout {
       .sort((a, b) => maskArea(b) - maskArea(a))[0] ?? null;
   let corners = input.corners ?? null;
   let quadIou: number | null = null;
+  let hanging: Bits | null = null;
   if (surfaceThing && !corners) {
     // Only what stands on the surface may hide part of its top; a chair in front hides legs.
     const others = live
       .filter((t) => t !== surfaceThing && (t.on === surfaceThing.id || t.role === 'object'))
       .map((t) => masks.get(t.id)!);
-    const fitted = fitSurfaceQuad(surfaceTop(masks.get(surfaceThing.id)!, others), frame);
+    const parts = surfaceParts(masks.get(surfaceThing.id)!, others);
+    hanging = parts.hanging;
+    const fitted = fitSurfaceQuad(parts.top, frame);
     quadIou = fitted?.iou ?? null;
     if (fitted && fitted.iou >= 0.85) corners = fitted.corners;
   }
   const template = surfaceThing && isTemplate(surfaceThing.as) ? surfaceThing.as : null;
-  const depthRange: [number, number] = template ? [1, PROP_TEMPLATES[template].size.d * 2] : [1, 8];
-  if (corners && template && !input.corners) {
+  // Fitted corners are read the way round that suits the template, then refined; a
+  // person's keep their order, so a draft re-laid out after a review edit reads the same.
+  let reading: Reading | null =
+    corners && template
+      ? turnToFit(corners, frame, template, input.corners ? [0] : undefined)
+      : null;
+  if (reading && template && !input.corners) {
     const union = new Uint8Array(masks.get(surfaceThing!.id)!.data.length);
     for (const [id, m] of masks)
       if (id !== surfaceThing!.id) for (let i = 0; i < union.length; i++) union[i]! |= m.data[i]!;
-    corners = refinePin(
-      corners,
-      template,
-      frame,
-      masks.get(surfaceThing!.id)!,
+    const mask = masks.get(surfaceThing!.id)!;
+    const { target, ignore } = matchTarget(
+      mask,
+      hanging ?? newBits(mask.width, mask.height),
       union,
-      scale,
-      depthRange,
     );
+    corners = refinePin(reading, template, frame, target, ignore, scale);
+    reading = { ...reading, corners };
   }
-  const camera =
-    corners && template
-      ? cameraFromPin(corners, frame, PROP_TEMPLATES[template].size.w, depthRange)
-      : null;
+  const camera = reading
+    ? cameraFromPin(reading.corners, frame, reading.width, reading.depthRange)
+    : null;
 
   let scene: IsoScene = {
     kind: 'custom',
@@ -761,13 +924,17 @@ export function layoutPhoto(input: LayoutInput): PhotoLayout {
     origin = { x: OFF, y: OFF, z: top };
     placeAt(surfaceThing, OFF, OFF, 0, size);
     const toUnit = homography(corners!, UNIT);
-    const planeOf = (t: PlacedThing, footPx: Point): number => {
+    /** The top of what Spark says a thing stands on, once that is placed. */
+    const standsOn = (t: PlacedThing) => {
       const parent = things.find((p) => p.id === t.on && p.group);
-      const surface = parent
+      return parent
         ? scene.surfaces
             .filter((s) => s.id.startsWith(`${parent.group}:`))
             .sort((a, b) => b.z - a.z)[0]
-        : null;
+        : undefined;
+    };
+    const planeOf = (t: PlacedThing, footPx: Point): number => {
+      const surface = standsOn(t);
       if (surface) return surface.z - top;
       // Furniture stands on the floor. Anything smaller stands on the pinned
       // surface when its foot lands on it, whatever Spark said.
@@ -785,19 +952,36 @@ export function layoutPhoto(input: LayoutInput): PhotoLayout {
       const foot = unprojectPoint(camera, footPx, Z);
       const left = unprojectPoint(camera, { x: d.box.x, y: footPx.y }, Z);
       const right = unprojectPoint(camera, { x: d.box.x + d.box.width, y: footPx.y }, Z);
-      if (!foot || Math.abs(foot.X - size.w / 2) > REACH || Math.abs(foot.Y - size.d / 2) > REACH) {
+      // A thing on a placed surface is kept on it below, however far off its foot measures.
+      const held = asObject(t) && Boolean(standsOn(t));
+      const far =
+        !foot || Math.abs(foot.X - size.w / 2) > REACH || Math.abs(foot.Y - size.d / 2) > REACH;
+      if (far && !held) {
         t.status = 'unplaced';
         continue;
       }
-      const at = { x: OFF + foot.X, y: OFF + foot.Y };
+      // No foot at all (above the horizon) leaves a held thing in the middle of its surface.
+      let at = foot ? { x: OFF + foot.X, y: OFF + foot.Y } : null;
       if (asObject(t)) {
         const width = left && right ? Math.hypot(right.X - left.X, right.Y - left.Y) : 0.5;
         t.status = 'object';
-        t.foot = objectBox(at, width, d, Z + top);
+        // A thing on a desk or a shelf stays on it. Its foot is often hidden
+        // (a monitor's stand behind the clutter), which measures it too far back.
+        const on = standsOn(t);
+        if (on) {
+          const w = objectBox({ x: 0, y: 0 }, width, d, 0).size.w;
+          const inside = (v: number | undefined, from: number, span: number) =>
+            v === undefined || span <= w
+              ? from + span / 2
+              : clamp(v, from + w / 2, from + span - w / 2);
+          at = { x: inside(at?.x, on.rect.x, on.rect.w), y: inside(at?.y, on.rect.y, on.rect.d) };
+        }
+        t.foot = objectBox(at!, width, d, Z + top);
         continue;
       }
       const tpl = PROP_TEMPLATES[t.as as TemplateId];
-      if (t.as === 'wall') continue;
+      // Only held objects get here without a foot.
+      if (t.as === 'wall' || !at) continue;
       // A floor thing's foot is its front edge; a tabletop thing's is its middle.
       const y = tpl.onTop ? at.y - tpl.size.d / 2 : at.y - tpl.size.d;
       const g = placeAt(t, at.x - tpl.size.w / 2, y, tpl.onTop ? Z + top : 0);
@@ -961,6 +1145,66 @@ function visibleIou(sil: Uint8Array, mask: Uint8Array, union: Uint8Array): numbe
   }
   return or ? and / or : 0;
 }
+/** Whether a corner sits on the frame's edge: where the photo cuts a surface off. */
+function clippedQuad(corners: Quad, frame: Segmentation['frame']): boolean {
+  const edge = 0.01 * Math.max(frame.width, frame.height);
+  return corners.some(
+    (p) => p.x <= edge || p.y <= edge || p.x >= frame.width - edge || p.y >= frame.height - edge,
+  );
+}
+/** Fitted corners read one way round, and how long their back edge is in tiles. */
+interface Reading {
+  corners: Quad;
+  width: number;
+  depthRange: [number, number];
+}
+/**
+ * Fitted corners, read the way round that suits the template. They come
+ * ordered with the two highest in the frame as the back edge, which is wrong
+ * for a desk running away from the camera: its short far end is highest, and
+ * that end is the template's depth, not its width. Of the readings whose back
+ * edge is farther from the camera than the front, the one whose surface comes
+ * out nearest the template's proportions wins. When the frame cuts the
+ * surface off, what shows of it may be shorter than the template, not longer.
+ * Corners a person set keep their order (`turns` is just 0); only which of the
+ * template's sides their back edge is gets chosen.
+ */
+function turnToFit(
+  corners: Quad,
+  frame: Segmentation['frame'],
+  template: TemplateId,
+  turns: readonly number[] = [0, 1, 3],
+): Reading {
+  const { w, d } = PROP_TEMPLATES[template].size;
+  const clipped = clippedQuad(corners, frame);
+  const usual: Reading = { corners, width: w, depthRange: [1, d * 2] };
+  let best = usual;
+  let least = Infinity;
+  for (const k of turns)
+    for (const [width, other] of [
+      [w, d],
+      [d, w],
+    ] as const) {
+      const turned = [0, 1, 2, 3].map((i) => corners[(i + k) % 4]!) as Quad;
+      const c = cameraFromPin(turned, frame, width, [0.05, 100]);
+      if (!c) continue;
+      const at = (X: number, Y: number) =>
+        norm([
+          X * c.r1[0] + Y * c.r2[0] + c.t[0],
+          X * c.r1[1] + Y * c.r2[1] + c.t[1],
+          X * c.r1[2] + Y * c.r2[2] + c.t[2],
+        ]);
+      if (at(width / 2, 0) <= at(width / 2, c.surface.d)) continue;
+      const ratio = Math.log(c.surface.d / other);
+      // Any other reading is a bigger claim than the usual one, so it has to fit clearly better.
+      const off = (clipped ? Math.max(0, ratio) : Math.abs(ratio)) + (k || width !== w ? 0.2 : 0);
+      if (off < least) {
+        least = off;
+        best = { corners: turned, width, depthRange: [1, other * 2] };
+      }
+    }
+  return best;
+}
 /**
  * Corners nudged until the whole surface template, top, front and legs,
  * drawn from the camera those corners imply, matches the surface's mask. A
@@ -968,16 +1212,14 @@ function visibleIou(sil: Uint8Array, mask: Uint8Array, union: Uint8Array): numbe
  * the top's.
  */
 function refinePin(
-  corners: Quad,
+  { corners, width, depthRange }: Reading,
   template: TemplateId,
   frame: Segmentation['frame'],
   mask: Bits,
   union: Uint8Array,
   scale: number,
-  depthRange: [number, number],
 ): Quad {
   const sil = newBits(mask.width, mask.height);
-  const width = PROP_TEMPLATES[template].size.w;
   const match = (q: Quad) => {
     if (!quadIsConvex(q, 1)) return 0;
     const cam = cameraFromPin(q, frame, width, depthRange);

@@ -26,6 +26,7 @@ import {
   projectPoint,
   promptBox,
   sceneForSave,
+  surfaceTop,
   syntheticPhoto,
   unprojectPoint,
   type DeskMemory,
@@ -161,6 +162,45 @@ describe('the pinned surface', () => {
       { x: 5, y: 85 },
     ]);
   });
+  it('finds a thin top seen nearly edge-on, without the drawer unit under one end', () => {
+    // A long desk running away from the camera: its top a thin strip, a drawer unit below its near end.
+    const top: Quad = [
+      { x: 0, y: 60 },
+      { x: 190, y: 40 },
+      { x: 190, y: 52 },
+      { x: 0, y: 96 },
+    ];
+    const drawers: Quad = [
+      { x: 10, y: 90 },
+      { x: 70, y: 80 },
+      { x: 70, y: 130 },
+      { x: 10, y: 130 },
+    ];
+    const bits = newBits(200, 130);
+    fillRings(bits, [top]);
+    fillRings(bits, [drawers]);
+    const found = surfaceTop(bits, []);
+    const at = (x: number, y: number) => found.data[y * 200 + x];
+    // The far, thin end of the top stays; the drawer fronts go.
+    expect(at(170, 47)).toBe(1);
+    expect(at(40, 120)).toBe(0);
+    expect(at(40, 110)).toBe(0);
+    const fit = fitSurfaceQuad(found, { width: 200, height: 130 })!;
+    expect(Math.max(...fit.corners.map((c) => c.y))).toBeLessThan(100);
+  });
+  it('keeps all of a desk seen at an angle, its near side rising above the front edge', () => {
+    const top: Quad = [
+      { x: 40, y: 30 },
+      { x: 170, y: 40 },
+      { x: 150, y: 80 },
+      { x: 20, y: 110 },
+    ];
+    const bits = newBits(200, 130);
+    fillRings(bits, [top]);
+    const found = surfaceTop(bits, []);
+    expect(found.data[105 * 200 + 25]).toBe(1);
+    expect(found.data[60 * 200 + 150]).toBe(1);
+  });
   it('fits four corners to a perspective quad’s mask', () => {
     const truth: Quad = [
       { x: 52, y: 40 },
@@ -254,6 +294,13 @@ describe('photo layout', () => {
       expect(layout.score!).toBeGreaterThan(0.7);
       expect(chair.iou!).toBeGreaterThan(0.6);
     });
+  it('reads the same desk when a review edit lays the draft out again from its own corners', () => {
+    const s = deskPhoto(35, 0.4);
+    const draft = layoutPhoto({ ...s, refine: true });
+    const again = layoutPhoto({ ...s, corners: draft.pin!.corners, refine: true });
+    expect(again.camera!.surface.w).toBe(draft.camera!.surface.w);
+    expect(again.camera!.surface.d).toBeCloseTo(draft.camera!.surface.d, 6);
+  });
   it('spreads things over the room without a surface, and leaves the pin to a person', () => {
     const layout = layoutPhoto({ ...deskPhoto(35, 0.4), edits: { surface: { as: 'rug' } } });
     expect(layout.pin).toBeNull();
