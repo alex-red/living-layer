@@ -32,6 +32,13 @@ const schema = z.object({
   HA_LIVE_ENABLED: flag,
   /** Network camera WHEP URLs, comma-separated, for networks where mDNS discovery is blocked. */
   CAMERA_STREAMS: z.string().default(''),
+  /** HTTPS port the phone opens to act as a remote camera; only listens once a phone is paired. */
+  REMOTE_CAMERA_PORT: z.coerce.number().int().min(1024).max(65535).default(43432),
+  /** Address the pairing QR code points at, when the detected LAN address is wrong. */
+  REMOTE_CAMERA_HOST: z.string().default(''),
+  /** PEM files for the phone page, e.g. from mkcert. Unset, a self-signed pair is made in DATA_DIR. */
+  REMOTE_CAMERA_CERT: z.string().default(''),
+  REMOTE_CAMERA_KEY: z.string().default(''),
 });
 
 /** The part of `fetch` the adapters use, so tests can pass a plain mock. */
@@ -56,6 +63,7 @@ export interface Config {
   haSwitches: string[];
   haEnabled: boolean;
   cameraStreams: string[];
+  remoteCamera: { port: number; host: string; cert: string; key: string };
 }
 
 export function parseConfig(env: NodeJS.ProcessEnv, cwd = process.cwd()): Config {
@@ -101,6 +109,12 @@ export function parseConfig(env: NodeJS.ProcessEnv, cwd = process.cwd()): Config
     if (!url || !['http:', 'https:'].includes(url.protocol) || url.username || url.password)
       throw new Error('CAMERA_STREAMS must list HTTP(S) WHEP URLs without credentials.');
   }
+  if (value.REMOTE_CAMERA_HOST && !/^[\w.-]+$/.test(value.REMOTE_CAMERA_HOST))
+    throw new Error('REMOTE_CAMERA_HOST must be a bare host name or IP address.');
+  if (Boolean(value.REMOTE_CAMERA_CERT) !== Boolean(value.REMOTE_CAMERA_KEY))
+    throw new Error('Set both REMOTE_CAMERA_CERT and REMOTE_CAMERA_KEY, or neither.');
+  if (value.REMOTE_CAMERA_PORT === value.PORT)
+    throw new Error('REMOTE_CAMERA_PORT must differ from PORT.');
   return {
     port: value.PORT,
     dataDir: resolve(cwd, value.DATA_DIR),
@@ -118,6 +132,12 @@ export function parseConfig(env: NodeJS.ProcessEnv, cwd = process.cwd()): Config
     haSwitches: [...new Set(switches)],
     haEnabled: value.HA_LIVE_ENABLED,
     cameraStreams,
+    remoteCamera: {
+      port: value.REMOTE_CAMERA_PORT,
+      host: value.REMOTE_CAMERA_HOST,
+      cert: value.REMOTE_CAMERA_CERT && resolve(cwd, value.REMOTE_CAMERA_CERT),
+      key: value.REMOTE_CAMERA_KEY && resolve(cwd, value.REMOTE_CAMERA_KEY),
+    },
   };
 }
 

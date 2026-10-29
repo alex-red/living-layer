@@ -35,6 +35,7 @@ import { photoRoutes } from './photo.js';
 import { pinRoutes } from './pin.js';
 import { illustrationRoutes } from './illustration.js';
 import { streamRoutes, type NetworkStream } from './streams.js';
+import { RemoteCamera, remoteRoutes } from './remote.js';
 import {
   demoScene,
   demoSceneGuess,
@@ -50,6 +51,7 @@ export async function buildApp(
     fetcher?: Fetcher;
     serveWeb?: boolean;
     browseCameras?: () => Promise<NetworkStream[]>;
+    remote?: RemoteCamera;
   } = {},
 ) {
   const app = Fastify({ logger: false, bodyLimit: 7_100_000, requestTimeout: 130000 });
@@ -153,7 +155,9 @@ export async function buildApp(
           : lamp.turnOff(entityId),
     entities,
   });
-  streamRoutes(app, config, options.browseCameras);
+  const remote = options.remote ?? new RemoteCamera();
+  remoteRoutes(app, config, remote);
+  streamRoutes(app, config, options.browseCameras, () => remote.streams());
   app.get('/api/runs', async () => store.list());
   app.get('/api/evidence', async (_request, reply) =>
     reply.header('Content-Disposition', 'attachment; filename="livinglayer-evidence.json"').send({

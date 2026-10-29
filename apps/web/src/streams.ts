@@ -1,14 +1,17 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from './api';
 
-/** A camera shared on the LAN with `scripts/share-camera.sh`, as `/api/streams` lists it. */
+/**
+ * A camera shared on the LAN with `scripts/share-camera.sh`, or a paired phone,
+ * as `/api/streams` lists it. A phone's `whep` is a path on the lab server.
+ */
 export interface NetworkStream {
   id: string;
   name: string;
   host: string;
   whep: string;
   rtsp?: string;
-  source: 'mdns' | 'config';
+  source: 'mdns' | 'config' | 'phone';
 }
 
 export interface OpenedStream {
@@ -41,10 +44,11 @@ export function useNetworkStreams() {
  * `onLost` fires once if the connection drops after it was up.
  */
 export async function openStream(
-  whep: string,
+  endpoint: string,
   onLost: () => void,
   timeoutMs = 8000,
 ): Promise<OpenedStream> {
+  const whep = new URL(endpoint, window.location.href).href;
   const pc = new RTCPeerConnection();
   let session = '';
   const close = () => {

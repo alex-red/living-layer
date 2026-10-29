@@ -8,6 +8,7 @@ import {
 import { api } from '../api';
 import { Glyph } from '../Glyph';
 import { MaskOverlay } from '../MaskOverlay';
+import { PhonePairing } from '../PhonePairing';
 import { ZoomPan } from '../ZoomPan';
 import { ErrorCard } from '../ProviderUi';
 import { IsoView } from '../iso/IsoView';
@@ -596,6 +597,26 @@ export function Canvas() {
                   >
                     <Glyph type="camera" /> {lab.cameraPending ? 'Opening…' : 'Camera'}
                   </button>
+                  <Popover
+                    label="Use a phone as the camera"
+                    className="phone-pop"
+                    button={(open, toggle) => (
+                      <button aria-expanded={open} disabled={Boolean(busy)} onClick={toggle}>
+                        Phone
+                      </button>
+                    )}
+                  >
+                    {(close) => (
+                      <PhonePairing
+                        onUse={(phone) => {
+                          close();
+                          lab.setCameraSource(phone.id);
+                          void lab.network.scan();
+                          void lab.startCamera(phone);
+                        }}
+                      />
+                    )}
+                  </Popover>
                   {lab.network.streams.length > 0 && (
                     <select
                       aria-label="Camera source"

@@ -6,6 +6,7 @@ import { usd } from '../cost';
 import { Glyph } from '../Glyph';
 import { sendToLab } from '../handoff';
 import { MaskOverlay } from '../MaskOverlay';
+import { PhonePairing } from '../PhonePairing';
 import { PixelFeed, type PixelPalette } from './PixelFeed';
 import { networkSource, useCamera } from './useCamera';
 import { useNetworkStreams } from '../streams';
@@ -65,6 +66,7 @@ export function Playground() {
   const source = (value: string) =>
     network.streams.find((s) => networkSource(s) === value) ??
     (value.startsWith('net:') ? '' : value);
+  const [pairPhone, setPairPhone] = useState(false);
   const [mirror, setMirror] = useState(true);
   const [guides, setGuides] = useState(true);
   const [pixelArt, setPixelArt] = useState(false);
@@ -523,6 +525,22 @@ export function Playground() {
             >
               {network.scanning ? 'Looking for network cameras…' : 'Find network cameras'}
             </button>
+            <button
+              className="pg-button tertiary"
+              aria-expanded={pairPhone}
+              onClick={() => setPairPhone((v) => !v)}
+            >
+              {pairPhone ? 'Hide phone pairing' : 'Use a phone as the camera'}
+            </button>
+            {pairPhone && (
+              <PhonePairing
+                onUse={(phone) => {
+                  setPairPhone(false);
+                  void network.scan();
+                  void camera.start(phone);
+                }}
+              />
+            )}
             {camera.info?.label && <p className="pg-mono">{camera.info.label}</p>}
             <label className="pg-switch">
               <input

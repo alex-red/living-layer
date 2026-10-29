@@ -1,0 +1,91 @@
+.phone-pairing {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  color: var(--text);
+  font-size: 13px;
+  text-align: left;
+}
+.phone-pairing-title {
+  margin: 0;
+  font-weight: 600;
+}
+.phone-pairing-qr {
+  justify-self: center;
+  width: 200px;
+  height: 200px;
+  padding: 8px;
+  border-radius: var(--r-card);
+  background: #fff;
+}
+.phone-pairing-steps {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding-left: 18px;
+  color: var(--text-2);
+}
+.phone-pairing-url {
+  margin: 0;
+  color: var(--text-3);
+  font-family: var(--mono);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+.phone-pairing-note {
+  margin: 0;
+  color: var(--text-2);
+}
+.phone-pairing-error {
+  margin: 0;
+  color: var(--blocked);
+}
+.phone-pairing-ready {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+}
+.phone-pairing-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ok);
+  box-shadow: 0 0 10px var(--ok-glow);
+}
+.phone-pairing-actions {
+  display: flex;
+  gap: 8px;
+}
+.phone-pairing-actions button {
+  flex: 1;
+}
+.phone-pairing button {
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-button);
+  background: rgb(33 38 55 / 72%);
+  color: var(--text);
+  font: inherit;
+  font-weight: 600;
+}
+.phone-pairing button:hover:not(:disabled) {
+  background: var(--surface-3);
+}
+.phone-pairing button.primary {
+  border-color: transparent;
+  background: var(--seen);
+  color: var(--void);
+}
+.phone-pairing button.primary:hover:not(:disabled) {
+  background: var(--seen);
+  box-shadow: 0 0 24px var(--seen-glow);
+}
+.popover.phone-pop {
+  top: auto;
+  bottom: calc(100% + 6px);
+  left: 0;
+  right: auto;
+}

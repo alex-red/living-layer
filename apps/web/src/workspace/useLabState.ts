@@ -41,7 +41,7 @@ import {
   zoneApplies,
 } from '@livinglayer/domain';
 import { api, ApiError } from '../api';
-import { openStream, useNetworkStreams } from '../streams';
+import { openStream, useNetworkStreams, type NetworkStream } from '../streams';
 import { usd } from '../cost';
 import { takeHandoff } from '../handoff';
 import type { Issue } from '../ProviderUi';
@@ -749,12 +749,13 @@ export function useLabState() {
     if (file.current) file.current.value = '';
     return url;
   }
-  async function startCamera() {
+  /** Opens the chosen camera, or `source` when one was just picked (a phone that just paired). */
+  async function startCamera(source?: NetworkStream) {
     if (cameraPending || stream.current) return;
     setError('');
     setCameraPending(true);
     const generation = ++cameraGeneration.current;
-    const remote = network.streams.find((s) => s.id === cameraSource);
+    const remote = source ?? network.streams.find((s) => s.id === cameraSource);
     try {
       const opened = remote
         ? await openStream(remote.whep, () => {
@@ -783,7 +784,9 @@ export function useLabState() {
       if (mounted.current && generation === cameraGeneration.current)
         setError(
           remote
-            ? `Could not reach the network camera "${remote.name}". Is the share still running?`
+            ? remote.source === 'phone'
+              ? `Could not connect to the ${remote.name}. Keep the page open on the phone and try again.`
+              : `Could not reach the network camera "${remote.name}". Is the share still running?`
             : 'Camera access is unavailable. Upload a desk photo instead.',
         );
     } finally {

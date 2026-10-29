@@ -13,7 +13,7 @@ export interface NetworkStream {
   /** WebRTC-HTTP egress endpoint: POST an SDP offer, get the answer back. */
   whep: string;
   rtsp?: string;
-  source: 'mdns' | 'config';
+  source: 'mdns' | 'config' | 'phone';
 }
 
 const TYPE = { A: 1, PTR: 12, TXT: 16, SRV: 33 } as const;
@@ -226,6 +226,8 @@ export function streamRoutes(
   app: FastifyInstance,
   config: Config,
   browse: () => Promise<NetworkStream[]> = browseCameras,
+  /** Cameras the lab already knows of, like a paired phone. */
+  known: () => NetworkStream[] = () => [],
 ) {
   app.get('/api/streams', async () => {
     const found = await browse();
@@ -234,6 +236,6 @@ export function streamRoutes(
       return { id: whep, name: url.host, host: url.hostname, whep, source: 'config' };
     });
     const seen = new Set(found.map((s) => s.whep));
-    return { streams: [...found, ...configured.filter((s) => !seen.has(s.whep))] };
+    return { streams: [...known(), ...found, ...configured.filter((s) => !seen.has(s.whep))] };
   });
 }

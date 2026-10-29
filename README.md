@@ -58,6 +58,9 @@ Copy `.env.example` to `.env` and fill in what you need. Restart the server afte
 | `HA_SWITCH_ENTITY_IDS`               | Optional. `switch.*` entities that fixtures and rules may turn on and off, comma-separated. |
 | `HA_LIVE_ENABLED`                    | Set to `true` to allow the lamp to be switched.                                             |
 | `CAMERA_STREAMS`                     | Optional. WHEP URLs of network cameras, for networks where mDNS discovery is blocked.       |
+| `REMOTE_CAMERA_PORT`                 | HTTPS port for the phone camera page (default 43432). Only listens once a phone is paired.  |
+| `REMOTE_CAMERA_HOST`                 | Optional. Address the pairing QR code points at, if the detected LAN address is wrong.      |
+| `REMOTE_CAMERA_CERT`, `_KEY`         | Optional. PEM certificate and key for the phone page (e.g. mkcert); else self-signed.       |
 
 Then switch to **Live** mode and go through the same steps with your own photos or camera: photograph the office, then a close photo of the desk for **Find the desktop**. Photos are only sent to Meta when you press a button that says it calls a model. The spend pill in the top bar shows today's spend against the limit.
 
@@ -78,6 +81,10 @@ scripts/share-camera.sh                            # --list, --device, --size, -
 ```
 
 It needs `ffmpeg` and [MediaMTX](https://github.com/bluenviron/mediamtx), and offers to install whichever is missing (`--yes` skips the question): ffmpeg through your package manager, MediaMTX through Homebrew or as the checksum-verified release binary in `~/.local/bin`. The camera is encoded once to H.264 (VideoToolbox on macOS, passed through untouched on Linux when the camera already outputs H.264) and served as WebRTC (WHEP, what the labs play, around 100 ms of latency) and RTSP. It is advertised over mDNS, so it shows up as a camera source in the desk lab and the playground; **Find network cameras** rescans.
+
+### A phone as the camera
+
+**Phone** next to **Camera** in the live desk lab (or **Use a phone as the camera** in the playground) shows a QR code. Scan it with a phone on the same Wi-Fi, accept the certificate warning once, and allow camera access; the panel then offers **Use the phone camera**. The phone streams its back camera to the lab over WebRTC, peer to peer; the lab server only relays the two SDPs (`apps/server/src/remote.ts`). Phone browsers only share the camera over HTTPS, so the phone page is served on its own port with a certificate made in `DATA_DIR` by `openssl` (or `REMOTE_CAMERA_CERT`); that port opens with the first pairing and serves nothing but the page and its signalling, behind a random token. A new code retires the old one, and a code nobody scans stops working after 15 minutes.
 
 ## Development
 

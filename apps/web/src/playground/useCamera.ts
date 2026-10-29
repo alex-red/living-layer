@@ -12,8 +12,8 @@ export interface CameraInfo {
 export const networkSource = (s: NetworkStream) => `net:${s.id}`;
 
 /**
- * Owns one camera stream: a local webcam, or a network camera shared with
- * `scripts/share-camera.sh`. Permission is only requested by `start`, and every
+ * Owns one camera stream: a local webcam, a network camera shared with
+ * `scripts/share-camera.sh`, or a paired phone. Permission is only requested by `start`, and every
  * track is stopped on `stop`, on unmount, and when a newer start supersedes an
  * older one that is still waiting on the permission prompt.
  */
@@ -70,7 +70,9 @@ export function useCamera() {
           release();
           setState('off');
           setError(
-            `Could not reach the network camera "${source.name}". Is the share still running?`,
+            source.source === 'phone'
+              ? `Could not connect to the ${source.name}. Keep the page open on the phone and try again.`
+              : `Could not reach the network camera "${source.name}". Is the share still running?`,
           );
         }
         return;
