@@ -819,6 +819,9 @@ export function deskRoutes(
       fixedCamera: store.memory(mode).fixedCamera ?? false,
       surface: store.memory(mode).surface ?? null,
       scene: store.memory(mode).scene ?? null,
+      // The scene's pictures are part of the scene, so they stay with it.
+      illustration: store.memory(mode).illustration ?? null,
+      deskIllustration: store.memory(mode).deskIllustration ?? null,
       history: [],
       placement: null,
       // Extra objects and their rules go with the mug; the scene stays.

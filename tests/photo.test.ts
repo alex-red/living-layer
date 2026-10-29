@@ -543,6 +543,10 @@ describe('photo routes, offline', () => {
     expect(
       framePointInPicture(pin, desk, { width: 1280, height: 720 }, { x: 480, y: 320 }),
     ).toBeNull();
+    // Starting over forgets the mug, not the room: both pictures stay.
+    const reset = (await s.post('desk/reset')).json<DeskMemory>();
+    expect(reset.illustration?.asset).toBe(picture.asset);
+    expect(reset.deskIllustration?.asset).toBe(desk.asset);
     // A new photo makes a new room, so its old picture goes.
     const again = (await s.post('scene/from-photo')).json<EvidenceRun<PhotoDraft>>();
     const resaved = await s.post('scene/from-photo/save', {
