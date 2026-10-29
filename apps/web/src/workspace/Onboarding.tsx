@@ -100,20 +100,31 @@ export function DeskStep() {
         {camera
           ? 'Capture a frame when the desktop fills the view.'
           : image
-            ? 'Pin its top: click the four corners of the desktop on the photo.'
+            ? 'Find its top on the photo: SAM outlines the desk and its corners are measured for you to check. One billed call.'
             : 'Point the camera at the desktop, or upload a close photo. This is the view the lamp rule watches.'}
       </p>
       <div className="save-actions">
         {image && !camera ? (
-          <button
-            className="primary"
-            disabled={Boolean(busy)}
-            onClick={() =>
-              lab.setPinning({ scene: progress.view!, surfaceId: 'desk:top', label: 'desktop' })
-            }
-          >
-            Pin the desktop
-          </button>
+          <>
+            <button
+              className="primary"
+              disabled={Boolean(busy)}
+              onClick={() =>
+                void lab.autoPin({ scene: progress.view!, surfaceId: 'desk:top', label: 'desktop' })
+              }
+            >
+              {busy === 'autopin' ? 'Finding the desktop…' : 'Find the desktop'}
+            </button>
+            <button
+              className="secondary"
+              disabled={Boolean(busy)}
+              onClick={() =>
+                lab.setPinning({ scene: progress.view!, surfaceId: 'desk:top', label: 'desktop' })
+              }
+            >
+              Pin by hand
+            </button>
+          </>
         ) : (
           !camera && (
             <>

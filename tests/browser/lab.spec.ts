@@ -241,6 +241,35 @@ test('draws the remembered mug in the isometric desk and follows it to a new fra
   await page.screenshot({ path: '.data/screenshots/iso-mobile.png', fullPage: true });
 });
 
+test('finds the office desk’s corners from the photo, lets one be dragged, and saves the pin', async ({
+  page,
+}) => {
+  await freshDesk(page);
+  await page.goto('/');
+  await chooseScene(page);
+  await outline(page, 'Office desk').click();
+  // The demo desk comes pinned; finding it again measures the corners from SAM's outline.
+  await page.getByRole('button', { name: 'Find it again', exact: true }).click();
+  await expect(page.locator('.feedback')).toContainText('Found the desktop');
+  const corners = page.getByRole('slider', { name: /corner$/ });
+  await expect(corners).toHaveCount(4);
+  const front = page.getByRole('slider', { name: 'front right corner' });
+  const before = await front.getAttribute('aria-valuetext');
+  // The corner sits on the photo's bottom-right edge; press just inside it.
+  const photo = (await page.locator('.pin-overlay').boundingBox())!;
+  const [cx, cy] = [photo.x + photo.width - 4, photo.y + photo.height - 4];
+  await page.mouse.move(cx, cy);
+  await page.mouse.down();
+  await page.mouse.move(cx - 30, cy - 30, { steps: 4 });
+  await page.mouse.up();
+  await expect(front).not.toHaveAttribute('aria-valuetext', before!);
+  await page.getByRole('button', { name: 'Save pin', exact: true }).click();
+  await expect(page.locator('.feedback')).toContainText('Surface pinned');
+  const desk = await (await page.request.get('/api/desk/fixture')).json();
+  expect(desk.surface.surfaceId).toBe('desk:top');
+  expect(desk.surface.scene).toBe('desk');
+});
+
 test('drafts a custom room offline, saves it, and lights a rule’s lamp', async ({ page }) => {
   await freshDesk(page);
   await page.goto('/');

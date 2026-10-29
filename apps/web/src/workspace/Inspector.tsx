@@ -379,7 +379,7 @@ function RoomPanel() {
 /** Pin a surface to the camera frame: the bridge between the photo and the iso room. */
 function SurfacePanel({ id, closeView }: { id: string; closeView?: boolean }) {
   const lab = useLab();
-  const { memory, mode, image, busy, progress, pinning } = lab;
+  const { memory, mode, image, busy, progress, pinning, status } = lab;
   const rows = surfaceRows(lab);
   const row = [...rows.view, ...rows.room].find((r) => r.surface.id === id);
   if (!row)
@@ -399,6 +399,8 @@ function SurfacePanel({ id, closeView }: { id: string; closeView?: boolean }) {
   const demoPin = mode === 'fixture' && !memory?.surface && row.pinned;
   const needPhoto = mode === 'live' && !image;
   const title = closeView && progress.view ? ISO_PRESETS[progress.view].label : row.surface.label;
+  // The fitter measures desk-shaped tops: a desk or a table, seen from above its front edge.
+  const findable = /^(desk|table)/.test(row.surface.id);
   return (
     <Panel
       tiny={
@@ -414,7 +416,7 @@ function SurfacePanel({ id, closeView }: { id: string; closeView?: boolean }) {
             ? `The ${label} is pinned on a ${memory!.surface!.frame.width}×${memory!.surface!.frame.height} frame. Objects on it show in the iso room.`
             : needPhoto
               ? `Add a close photo of the ${label}, then pin its four corners.`
-              : `Pin the ${label}: click its four corners on the photo.`
+              : `Pin the ${label} to the photo, so objects on it show in the iso room.`
       }
       tone={row.pinned ? 'ok' : 'seen'}
     >
@@ -445,6 +447,9 @@ function SurfacePanel({ id, closeView }: { id: string; closeView?: boolean }) {
           </button>
         </div>
       ) : null}
+      {findable && !row.pinned && status && (
+        <Cost>{estimateLabel(status.meta.estimates.segment, 'image')}</Cost>
+      )}
       {closeView && row.pinned && progress.view && (
         <p className="micro">
           The {label} is shared with the {roomLabel(progress.room, memory).toLowerCase()}, so what
@@ -452,8 +457,17 @@ function SurfacePanel({ id, closeView }: { id: string; closeView?: boolean }) {
         </p>
       )}
       <div className="save-actions">
+        {findable && (
+          <button
+            className={row.pinned || needPhoto ? 'secondary' : 'primary'}
+            disabled={Boolean(busy) || Boolean(pinning) || lab.camera || needPhoto}
+            onClick={() => void lab.autoPin({ scene: row.scene, surfaceId: row.surface.id, label })}
+          >
+            {busy === 'autopin' ? 'Finding…' : row.pinned ? 'Find it again' : `Find the ${label}`}
+          </button>
+        )}
         <button
-          className={row.pinned || needPhoto ? 'secondary' : 'primary'}
+          className={row.pinned || needPhoto || findable ? 'secondary' : 'primary'}
           disabled={Boolean(busy) || Boolean(pinning) || lab.camera || needPhoto}
           onClick={() => {
             lab.setDrawing(false);

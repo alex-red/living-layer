@@ -18,6 +18,7 @@ import type {
   LumaFrame,
   UnitBox,
   IsoSceneKind,
+  Quad,
   SceneGuess,
   SavedItem,
 } from '@livinglayer/domain';
@@ -73,6 +74,7 @@ export const BUSY: Record<string, string> = {
   verify: 'Checking placement',
   reset: 'Resetting desk memory',
   track: 'Tracking the mug',
+  autopin: 'Finding the desk',
   camera: 'Updating the camera setting',
   undo: 'Undoing',
   redo: 'Redoing',
@@ -308,6 +310,9 @@ export function useLabState() {
     scene: IsoSceneKind | 'custom';
     surfaceId: string;
     label: string;
+    /** Corners found from the photo, to check and adjust instead of clicking. */
+    corners?: Quad;
+    note?: string;
   } | null>(null);
   const [busy, setBusy] = useState('');
   const [issue, setIssue] = useState<Issue | null>(null);
@@ -1153,6 +1158,54 @@ export function useLabState() {
     if (stageView === 'photo') setStageView('iso');
     setSelection({ kind: 'new-rule' });
   }
+  /**
+   * Find a surface's corners on the current photo (one SAM call, live), then
+   * open the pin with them to check. No desk found means clicking by hand.
+   */
+  async function autoPin(target: {
+    scene: IsoSceneKind | 'custom';
+    surfaceId: string;
+    label: string;
+  }) {
+    if (busy) return;
+    setBusy('autopin');
+    setError('');
+    setDrawing(false);
+    try {
+      const result = await api<{
+        run: EvidenceRun<Segmentation>;
+        pin: { corners: Quad; iou: number; frame: { width: number; height: number } } | null;
+      }>('desk/auto-pin', { mode, ...(mode === 'live' ? { imageDataUrl: image } : {}) });
+      setSelected(result.run);
+      const fits =
+        result.pin &&
+        result.pin.frame.width === dimensions.width &&
+        result.pin.frame.height === dimensions.height;
+      if (!result.pin || !fits) {
+        setPinning(target);
+        setMessage(
+          `No ${target.label} found in this photo${costNote(result.run)}. Click its four corners instead.`,
+        );
+      } else {
+        const unsure = result.pin.iou < 0.85;
+        setPinning({
+          ...target,
+          corners: result.pin.corners,
+          note: unsure
+            ? `The ${target.label}’s outline isn’t a clean rectangle, so check each corner before saving.`
+            : undefined,
+        });
+        setMessage(
+          `Found the ${target.label}${costNote(result.run)}. Drag any corner that’s off, then save the pin.`,
+        );
+      }
+      void refresh().catch(() => {});
+    } catch (e) {
+      setError(e instanceof Error ? e : 'Could not find the desk.');
+    } finally {
+      setBusy('');
+    }
+  }
   const [asking, setAsking] = useState(false);
   /** Ask Spark which preset the photo shows; it may only move between a room and its close view. */
   async function askGuess() {
@@ -1298,6 +1351,7 @@ export function useLabState() {
     sceneLabel,
     pinning,
     setPinning,
+    autoPin,
     busy,
     issue,
     setIssue,

@@ -30,6 +30,7 @@ import { validateImage } from './images.js';
 import { deskRoutes } from './desk.js';
 import { itemRoutes } from './item.js';
 import { photoRoutes } from './photo.js';
+import { pinRoutes } from './pin.js';
 import { streamRoutes, type NetworkStream } from './streams.js';
 import {
   fixtureScene,
@@ -294,6 +295,7 @@ export async function buildApp(
   });
   itemRoutes(app, { store, meta, run });
   photoRoutes(app, { store, meta, run, config });
+  pinRoutes(app, { store, meta, run });
   app.post('/api/segment', async (request) => {
     const input = parseInput(segmentRequestSchema, request.body);
     return run('segment', input.mode, async (id) => {

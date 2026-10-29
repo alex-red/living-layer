@@ -7,6 +7,7 @@ import { buildApp } from '../apps/server/src/app.js';
 import { parseConfig, type Fetcher } from '../apps/server/src/config.js';
 import { syntheticStream } from '../apps/server/src/sam.js';
 import type { PhotoDraft } from '../apps/server/src/photo.js';
+import type { AutoPin } from '../apps/server/src/pin.js';
 import { MetaAdapter } from '../apps/server/src/meta.js';
 import { EvidenceStore } from '../apps/server/src/store.js';
 import {
@@ -21,6 +22,7 @@ import {
   newBits,
   orderCorners,
   pathRings,
+  pinFromMask,
   projectPoint,
   promptBox,
   sceneForSave,
@@ -198,6 +200,27 @@ describe('the pinned surface', () => {
   });
 });
 
+describe('pin from one mask', () => {
+  for (const [elevation, yaw] of [
+    [35, 0.4],
+    [50, -0.3],
+    [28, 0],
+  ] as const)
+    it(`pins a close photo's desk from its outline alone (${elevation}°, turned ${yaw})`, () => {
+      const s = deskPhoto(elevation, yaw);
+      const desk = s.segmentation.detections.find((d) => d.objectId === s.detections.surface)!;
+      const pin = pinFromMask(desk, s.segmentation.frame)!;
+      // The mug's hole and the legs are ignored, without the other masks.
+      expect(pin.iou).toBeGreaterThan(0.9);
+      const diag = Math.hypot(1280, 720);
+      pin.corners.forEach((c, i) =>
+        expect(
+          Math.hypot(c.x - s.truth.corners[i]!.x, c.y - s.truth.corners[i]!.y) / diag,
+        ).toBeLessThan(0.03),
+      );
+    });
+});
+
 describe('photo layout', () => {
   for (const [elevation, yaw] of [
     [35, 0.4],
@@ -278,6 +301,30 @@ describe('photo routes, offline', () => {
       app.inject({ method: 'POST', url: `/api/${path}`, payload: { mode: 'fixture', ...body } });
     return { app, post, fetcher };
   }
+  it('auto-pins the illustrated desk from its outline, saving only the segmentation', async () => {
+    const s = await setup();
+    const res = await s.post('desk/auto-pin');
+    expect(res.statusCode, res.body).toBe(200);
+    const { run, pin } = res.json<AutoPin>();
+    expect(run.kind).toBe('segment');
+    expect(run.output.concept).toBe('desk');
+    // The illustration is all desktop, so the corners are the frame's.
+    expect(pin!.frame).toEqual({ width: 960, height: 640 });
+    const frame = [
+      { x: 0, y: 0 },
+      { x: 960, y: 0 },
+      { x: 960, y: 640 },
+      { x: 0, y: 640 },
+    ];
+    pin!.corners.forEach((c, i) =>
+      expect(Math.hypot(c.x - frame[i]!.x, c.y - frame[i]!.y)).toBeLessThan(25),
+    );
+    // Nothing is pinned until the person saves the corners.
+    expect((await s.app.inject('/api/desk/fixture')).json<DeskMemory>().surface ?? null).toBeNull();
+    expect(
+      (await s.post('desk/auto-pin', { imageDataUrl: 'data:image/png;base64,AA' })).statusCode,
+    ).toBe(400);
+  });
   it('drafts the illustrated desk, then saves the scene, the pin and the ticked objects with their models', async () => {
     const s = await setup();
     const drafted = await s.post('scene/from-photo', { check: true });

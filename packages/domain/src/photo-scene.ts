@@ -439,6 +439,27 @@ export function fitSurfaceQuad(
   return quadIsConvex(corners, 1) ? { corners, iou: current } : null;
 }
 
+/**
+ * A surface pinned from its own mask alone, for a close photo of a desk that
+ * is already in a scene: the top's four corners in frame pixels, refined so
+ * the template drawn from them matches the outline. `iou` is how quad-shaped
+ * the top was; under about 0.85 the corners need a person's check.
+ */
+export function pinFromMask(
+  d: Detection,
+  frame: Segmentation['frame'],
+  template: TemplateId = 'desk',
+): { corners: Quad; iou: number } | null {
+  const scale = Math.min(1, WORK_WIDTH / frame.width);
+  const mask = maskBits(d, frame, scale);
+  const fitted = fitSurfaceQuad(surfaceTop(mask, []), frame);
+  if (!fitted) return null;
+  const depthRange: [number, number] = [1, PROP_TEMPLATES[template].size.d * 2];
+  const union = new Uint8Array(mask.data.length);
+  const corners = refinePin(fitted.corners, template, frame, mask, union, scale, depthRange);
+  return { corners: quadIsConvex(corners, 1) ? corners : fitted.corners, iou: fitted.iou };
+}
+
 // --- The camera ----------------------------------------------------------------
 
 type Vec3 = [number, number, number];

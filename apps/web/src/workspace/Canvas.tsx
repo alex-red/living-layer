@@ -31,7 +31,9 @@ function EditBanner() {
   let done: (() => void) | null = null;
   let label = 'Cancel';
   if (pinning) {
-    text = `Click the four corners of the ${pinning.label}, starting at the back left.`;
+    text = pinning.corners
+      ? `Check the ${pinning.label}’s corners on the photo.`
+      : `Click the four corners of the ${pinning.label}, starting at the back left.`;
     done = () => lab.setPinning(null);
     label = 'Cancel pin';
   } else if (drawing) {
@@ -336,8 +338,11 @@ export function Canvas() {
           )}
           {pinning && !camera && (
             <SurfacePin
+              key={pinning.corners ? 'found' : 'clicks'}
               frame={dimensions}
               label={pinning.label}
+              initial={pinning.corners}
+              note={pinning.note}
               onDone={(corners) =>
                 void lab.deskAction('surface', {
                   pin: {

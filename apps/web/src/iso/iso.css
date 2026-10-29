@@ -831,3 +831,39 @@
   justify-content: space-between;
   gap: 8px;
 }
+
+/* Corners found from the photo: drag to fix, then save from the tag. */
+.pin-overlay.adjusting {
+  cursor: default;
+}
+.pin-overlay polygon {
+  fill: var(--chosen-wash);
+  stroke: var(--chosen);
+  stroke-width: 1.5px;
+  vector-effect: non-scaling-stroke;
+}
+.pin-overlay.adjusting circle {
+  cursor: grab;
+  fill: var(--void);
+  stroke: var(--chosen);
+  stroke-width: 2px;
+  vector-effect: non-scaling-stroke;
+}
+.pin-overlay.adjusting circle.active {
+  cursor: grabbing;
+  fill: var(--chosen);
+}
+.pin-tag.pin-review {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  max-width: calc(100% - 24px);
+  pointer-events: auto;
+  font: 500 12px/16px var(--ui);
+  letter-spacing: normal;
+}
+.pin-tag.pin-review button {
+  min-height: 28px;
+  font-size: 12px;
+}
