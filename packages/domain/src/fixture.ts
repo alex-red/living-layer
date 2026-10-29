@@ -53,6 +53,8 @@ export const fixtureInputSchema = z
       .strict()
       .nullable(),
     control: fixtureControlSchema,
+    /** True hands its place back to scans; any other save keeps it where the person put it. */
+    scanned: z.boolean().optional(),
   })
   .strict();
 export type FixtureInput = z.infer<typeof fixtureInputSchema>;
@@ -78,6 +80,22 @@ export const fixtureGroup = (f: Pick<Fixture, 'id' | 'link'>) => f.link ?? f.id;
 /** The same thing in the other scenes it is linked into. */
 export function linkedFixtures(fixtures: Fixture[], f: Pick<Fixture, 'id' | 'link'>): Fixture[] {
   return f.link ? fixtures.filter((x) => x.id !== f.id && x.link === f.link) : [];
+}
+
+/** What a saved fixture sends back to be saved again, as it is. */
+export function fixtureInput(f: Fixture): FixtureInput {
+  return {
+    id: f.id,
+    label: f.label,
+    scene: f.scene,
+    surfaceId: f.surfaceId,
+    at: f.at,
+    turns: f.turns,
+    size: f.size,
+    model: { label: f.model.label, parts: f.model.parts },
+    reference: f.reference,
+    control: f.control,
+  };
 }
 
 /** The entity a fixture switches, or null when it only stands there. */

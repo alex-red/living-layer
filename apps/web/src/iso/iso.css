@@ -948,7 +948,17 @@
   fill: var(--chosen);
 }
 .illustration-fixture {
-  cursor: pointer;
+  cursor: grab;
+  outline: none;
+  touch-action: none;
+}
+.illustration-fixture.dragging {
+  cursor: grabbing;
+  opacity: 0.85;
+}
+.illustration-fixture:focus-visible polygon {
+  stroke-width: 3;
+  stroke-opacity: 1;
 }
 .illustration-fixture polygon {
   fill: var(--seen-wash);

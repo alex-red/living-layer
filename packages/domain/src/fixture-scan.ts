@@ -77,6 +77,8 @@ export type ScanMatch =
   | 'library'
   /** Placed with a model fitted to what SAM outlined of it. */
   | 'fitted'
+  /** Skipped: the person said it isn't a fixture. */
+  | 'dismissed'
   /** Placed with a placeholder model. */
   | 'placeholder';
 export interface MappedThing {
@@ -104,6 +106,17 @@ const words = (label: string) =>
     .split(/\s+/)
     .filter((w) => w && !STOP.has(w))
     .map((w) => (w.length > 3 && w.endsWith('s') ? w.slice(0, -1) : w));
+
+/** Names a person said aren't fixtures, so scans skip them; the most kept. */
+export const MAX_DISMISSED = 50;
+/** Whether a scanned thing is one the person dismissed: the same name, or the same last word. */
+export function isDismissed(label: string, dismissed: string[]): boolean {
+  const a = words(label);
+  return dismissed.some((d) => {
+    const b = words(d);
+    return a.length > 0 && b.length > 0 && (a.join(' ') === b.join(' ') || a.at(-1) === b.at(-1));
+  });
+}
 
 /**
  * How well a saved fixture fits a scanned thing, 0 to 1: the same name, the
@@ -305,7 +318,7 @@ function standing(
  * kept inside the grid, and on the floor if the surface can't hold it.
  */
 function place(
-  base: Omit<FixtureInput, 'at' | 'surfaceId'>,
+  base: Pick<FixtureInput, 'scene' | 'turns' | 'size'>,
   where: { centre: Point; surfaceId: string | null },
   custom: IsoScene | null,
   grid: { w: number; d: number },
@@ -334,6 +347,24 @@ function place(
 }
 
 /**
+ * A fixture's place with its footprint centred on a point of its scene, on a
+ * surface or the floor: kept inside the grid, and on the floor when the
+ * surface can't hold it. For moving one by hand.
+ */
+export function fixtureAt(
+  fixture: Pick<FixtureInput, 'scene' | 'turns' | 'size'>,
+  centre: Point,
+  surfaceId: string | null,
+  custom: IsoScene | null,
+): Pick<FixtureInput, 'at' | 'surfaceId'> | null {
+  const grid = fixture.scene === 'custom' ? custom?.grid : ISO_PRESETS[fixture.scene].grid;
+  if (!grid) return null;
+  const d = fixture.turns % 2 === 1 ? fixture.size.w : fixture.size.d;
+  // `place` takes the front of the footprint, where a thing touches down in a photo.
+  return place(fixture, { centre: { x: centre.x, y: centre.y + d / 2 }, surfaceId }, custom, grid);
+}
+
+/**
  * Map a scan onto a scene the pin fits: its own, or the room it is a close
  * view of (the office desk's top is the office's too). Each saved fixture of
  * that scene can be claimed by one scanned thing; further things of its kind
@@ -351,7 +382,10 @@ export function mapScan({
   entities,
   outlines = [],
   models = [],
+  dismissed = [],
 }: {
+  /** Names the person said aren't fixtures. */
+  dismissed?: string[];
   /** Of a photo the pin's camera took, at any size. */
   scan: FixtureScan;
   /** What SAM outlined of each thing, by its place in the scan. */
@@ -380,6 +414,13 @@ export function mapScan({
     )?.f;
   let left = room;
   return scan.things.map((thing, index): MappedThing => {
+    if (isDismissed(thing.label, dismissed))
+      return {
+        label: thing.label.charAt(0).toUpperCase() + thing.label.slice(1),
+        match: 'dismissed',
+        fixture: null,
+        note: 'You said this isn’t a fixture, so it was skipped.',
+      };
     const ranked = library
       .map((f) => ({ f, score: libraryScore(thing, f) }))
       .filter((x) => x.score >= 0.5)
@@ -413,17 +454,7 @@ export function mapScan({
       if (link) present.add(fixtureGroup(link));
       // What a scan placed and nobody has touched since follows the latest scan.
       const follows = here.f.scanned || here.f.model.source === 'placeholder';
-      const {
-        id: _id,
-        model,
-        createdAt: _c,
-        updatedAt: _u,
-        state: _s,
-        link: _l,
-        scanned: _n,
-        ...rest
-      } = here.f;
-      const moveTo = where && follows ? place({ ...rest, model }, where, custom, grid) : undefined;
+      const moveTo = where && follows ? place(here.f, where, custom, grid) : undefined;
       const remodel = fitted && follows ? { ...fitted, label: here.f.model.label } : undefined;
       return {
         label: here.f.label,

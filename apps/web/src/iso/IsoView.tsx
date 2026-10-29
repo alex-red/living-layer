@@ -92,6 +92,7 @@ export function IsoView({
   placing,
   onPlace,
   onFixture,
+  onMoveFixture,
   lightsOn,
   focus,
   layers = { trail: true, zones: true },
@@ -129,6 +130,8 @@ export function IsoView({
   onPlace?: (where: { at: { x: number; y: number }; surfaceId: string | null }) => void;
   /** A click on a fixture in the room. */
   onFixture?: (id: string) => void;
+  /** Move a fixture by dragging it on the room's picture. */
+  onMoveFixture?: (id: string, to: { x: number; y: number; surfaceId: string | null }) => void;
   /** Lights whose last confirmed action turned them on, from any source. */
   lightsOn?: Set<string>;
   /** What the outline has selected, ringed in the room: `tracked` is the mug, `main` its zone. */
@@ -392,6 +395,7 @@ export function IsoView({
             )}
             custom={custom}
             {...(onFixture ? { onFixture } : {})}
+            {...(onMoveFixture ? { onMoveFixture } : {})}
           />
         ) : (
           <IsoScene

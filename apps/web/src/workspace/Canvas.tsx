@@ -443,6 +443,15 @@ export function Canvas() {
             placing={lab.placing}
             onPlace={(where) => void lab.placeFixture(where)}
             onFixture={(id) => lab.select({ kind: 'fixture', id })}
+            onMoveFixture={(id, to) => {
+              const label = memory?.fixtures?.find((f) => f.id === id)?.label ?? 'fixture';
+              lab.select({ kind: 'fixture', id });
+              void lab.updateFixture(
+                id,
+                { centre: { x: to.x, y: to.y }, surfaceId: to.surfaceId },
+                `Moved the ${label.toLowerCase()}. Scans leave it where you put it.`,
+              );
+            }}
             lightsOn={lab.lightsOn}
             focus={focus}
             layers={{ trail: lab.showTrail, zones: lab.showZones, picture: lab.showPicture }}

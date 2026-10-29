@@ -14,6 +14,8 @@ import {
   mapScan,
   mugItem,
   placeTemplate,
+  pictureToScene,
+  isDismissed,
   scenePointInPicture,
   placeholderModel,
   type DeskMemory,
@@ -205,6 +207,75 @@ describe('fixtures on the room picture', () => {
   });
 });
 
+describe('moving a fixture on the room picture', () => {
+  const pin = { ...DEMO_SURFACE, scene: 'office' as const };
+  const picture = {
+    asset: 'x/illustration.png',
+    frame: { width: 1000, height: 800 },
+    surfaceId: 'desk:top',
+    desk: [
+      { x: 100, y: 400 },
+      { x: 600, y: 150 },
+      { x: 900, y: 300 },
+      { x: 400, y: 550 },
+    ] as [Point, Point, Point, Point],
+    createdAt: '',
+  };
+  it('maps a picture point back to the scene and the surface it is on', () => {
+    const top = ISO_PRESETS.office.surfaces.find((s) => s.id === 'desk:top')!;
+    const onDesk = { x: top.rect.x + 1, y: top.rect.y + 1, z: top.z };
+    const back = pictureToScene(
+      pin,
+      picture,
+      null,
+      scenePointInPicture(pin, picture, null, onDesk)!,
+    )!;
+    expect(back.surfaceId).toBe('desk:top');
+    expect(back.x).toBeCloseTo(onDesk.x);
+    expect(back.y).toBeCloseTo(onDesk.y);
+    const onFloor = { x: 8.5, y: 6.5, z: 0 };
+    const down = pictureToScene(
+      pin,
+      picture,
+      null,
+      scenePointInPicture(pin, picture, null, onFloor)!,
+    )!;
+    expect(down.surfaceId).toBeNull();
+    expect(down.x).toBeCloseTo(onFloor.x);
+    expect(down.y).toBeCloseTo(onFloor.y);
+  });
+  it('doesn’t map back on a picture redrawn from a frame', () => {
+    expect(
+      pictureToScene(
+        pin,
+        { ...picture, desk: null, drawnFrom: { width: 960, height: 640 } },
+        null,
+        {
+          x: 10,
+          y: 10,
+        },
+      ),
+    ).toBeNull();
+  });
+});
+
+describe('dismissed names', () => {
+  it('skips the same name or the same last word', () => {
+    expect(isDismissed('Tall water filter pitcher', ['water pitcher'])).toBe(true);
+    expect(isDismissed('Water filter', ['water pitcher'])).toBe(false);
+    const [skipped] = mapScan({
+      scan: { things: [thing()] },
+      pin: DEMO_SURFACE,
+      custom: null,
+      library: [],
+      room: 12,
+      entities: [],
+      dismissed: ['book'],
+    });
+    expect(skipped).toMatchObject({ match: 'dismissed', fixture: null });
+  });
+});
+
 describe('standing on what is nearby', () => {
   it('snaps a flat thing just past the pinned edge onto the surface', () => {
     // The mouse's box ends a little above the desk's back edge in the photo.
@@ -353,6 +424,34 @@ describe('scanning the demo desk', () => {
     expect(two.mapped[1]!.note).toMatch(
       /moved to where the scan found it, modelled from its outline/,
     );
+  });
+  it('skips what the person said isn’t a fixture, until they take it back', async () => {
+    const s = await setup();
+    const one = (await s.post('fixtures/scan')).json<Scanned>();
+    const bottle = one.memory.fixtures!.find((f) => f.label === 'Sage bottle')!;
+    const gone = (
+      await s.post('fixtures/delete', { fixtureId: bottle.id, dismiss: true })
+    ).json<DeskMemory>();
+    expect(gone.dismissed).toEqual(['Sage bottle']);
+    const two = (await s.post('fixtures/scan')).json<Scanned>();
+    expect(two.mapped.map((m) => m.match)).toEqual(['existing', 'dismissed']);
+    expect(two.memory.fixtures).toHaveLength(1);
+    await s.post('fixtures/undismiss', { label: 'Sage bottle' });
+    const three = (await s.post('fixtures/scan')).json<Scanned>();
+    expect(three.memory.fixtures).toHaveLength(2);
+  });
+  it('hands a fixture’s place back to scans when asked', async () => {
+    const s = await setup();
+    const one = (await s.post('fixtures/scan')).json<Scanned>();
+    const book = one.memory.fixtures![0]!;
+    const { createdAt: _c, updatedAt: _u, state: _s, scanned: _n, model, ...rest } = book;
+    const input = { ...rest, model: { label: model.label, parts: model.parts } };
+    const mine = (await s.post('fixtures/save', { fixture: input })).json<DeskMemory>();
+    expect(mine.fixtures![0]!.scanned).toBeUndefined();
+    const back = (
+      await s.post('fixtures/save', { fixture: { ...input, scanned: true } })
+    ).json<DeskMemory>();
+    expect(back.fixtures![0]!.scanned).toBe(true);
   });
   it('takes no photo in the demo', async () => {
     const s = await setup();

@@ -18,6 +18,7 @@ import {
   MAX_OTHER_OBJECTS,
   MAX_RULES,
   MAX_FIXTURES,
+  MAX_DISMISSED,
   type PlacementRule,
   isoSceneSchema,
   uniqueParts,
@@ -824,6 +825,8 @@ export function deskRoutes(
       // The scene's pictures are part of the scene, so they stay with it.
       illustration: store.memory(mode).illustration ?? null,
       scenePhoto: store.memory(mode).scenePhoto ?? null,
+      // What the person said isn't a fixture stays said.
+      dismissed: store.memory(mode).dismissed ?? [],
       deskIllustration: store.memory(mode).deskIllustration ?? null,
       history: [],
       placement: null,
@@ -873,6 +876,7 @@ export function deskRoutes(
                 .array(z.object({ id: z.string().min(1) }).loose())
                 .max(MAX_FIXTURES)
                 .optional(),
+              dismissed: z.array(z.string().min(1).max(40)).max(MAX_DISMISSED).optional(),
             })
             .loose(),
         })

@@ -5,6 +5,8 @@ import {
   DEMO_REFERENCES,
   DEMO_SURFACE,
   mapScan,
+  isDismissed,
+  MAX_DISMISSED,
   outlineOf,
   type IsoItem,
   type ItemFitRecord,
@@ -515,6 +517,7 @@ export function fixtureRoutes(
         entities: entities(mode),
         outlines,
         models,
+        dismissed: memory.dismissed ?? [],
       });
       return { ...result, output: { scan, mapped }, assets };
     });
@@ -532,7 +535,8 @@ export function fixtureRoutes(
     };
     for (const m of mapped) {
       const here = m.match === 'existing' ? library.find((f) => f.id === m.fixtureId) : undefined;
-      if (here && m.moveTo) Object.assign(here, m.moveTo, { updatedAt: now });
+      // The scan placed it again, so it stays the scan's to place.
+      if (here && m.moveTo) Object.assign(here, m.moveTo, { scanned: true, updatedAt: now });
       const fit = fits[mapped.indexOf(m)];
       if (here && m.remodel && fit)
         here.model = {
@@ -665,18 +669,38 @@ export function fixtureRoutes(
     return reply.type('image/png').header('cache-control', 'private, max-age=3600').send(png);
   });
   /** Rules that switched the fixture keep its entity and lose the link to it. */
+  /**
+   * Delete a fixture. `dismiss` also remembers its name as not a fixture, so
+   * scans skip it: something Spark keeps finding that shouldn't be one.
+   */
   app.post('/api/fixtures/delete', async (request) => {
-    const { mode, fixtureId } = parseInput(
-      z.object({ mode: modeSchema, fixtureId: z.string().uuid() }).strict(),
+    const { mode, fixtureId, dismiss } = parseInput(
+      z
+        .object({ mode: modeSchema, fixtureId: z.string().uuid(), dismiss: z.boolean().optional() })
+        .strict(),
       request.body,
     );
     const memory = store.memory(mode);
+    const gone = memory.fixtures?.find((f) => f.id === fixtureId);
+    if (dismiss && gone && !isDismissed(gone.label, memory.dismissed ?? []))
+      memory.dismissed = [...(memory.dismissed ?? []), gone.label].slice(-MAX_DISMISSED);
     memory.fixtures = (memory.fixtures ?? []).filter((f) => f.id !== fixtureId);
     memory.rules = (memory.rules ?? []).map((r) => {
       if (r.fixtureId !== fixtureId) return r;
       const { fixtureId: _gone, ...rest } = r;
       return rest;
     });
+    store.saveMemory(memory);
+    return memory;
+  });
+  /** Let scans find a dismissed name again. */
+  app.post('/api/fixtures/undismiss', async (request) => {
+    const { mode, label } = parseInput(
+      z.object({ mode: modeSchema, label: z.string().min(1).max(40) }).strict(),
+      request.body,
+    );
+    const memory = store.memory(mode);
+    memory.dismissed = (memory.dismissed ?? []).filter((d) => d !== label);
     store.saveMemory(memory);
     return memory;
   });

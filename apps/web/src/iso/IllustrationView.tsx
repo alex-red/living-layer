@@ -1,6 +1,8 @@
+import { useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
 import {
   fixtureBox,
   framePointInPicture,
+  pictureToScene,
   scenePointInPicture,
   type Fixture,
   type IsoScene,
@@ -25,8 +27,9 @@ interface Marker {
 interface Placed {
   id: string;
   label: string;
-  /** The footprint's corners, and where the label's leader starts: the top's centre. */
+  /** The footprint's corners and centre, and where the label's leader starts: the top's centre. */
   base: Point[];
+  centre: Point;
   top: Point;
   lit: boolean;
   focused: boolean;
@@ -45,6 +48,8 @@ interface Area {
  * zone's corners go from the frame to the pinned surface by the pin, then onto
  * the picture's desk top, so they land where the desk is drawn. Fixtures are
  * outlined where they stand in the scene, and pick like they do on the model.
+ * On the room's picture they can be dragged to where the picture shows them,
+ * or nudged with the arrow keys; the drop goes back through the same mapping.
  */
 export function IllustrationView({
   illustration,
@@ -55,6 +60,7 @@ export function IllustrationView({
   fixtures = [],
   custom = null,
   onFixture,
+  onMoveFixture,
 }: {
   illustration: SceneIllustration;
   pin: SurfacePin;
@@ -65,7 +71,26 @@ export function IllustrationView({
   fixtures?: Fixture[];
   custom?: IsoScene | null;
   onFixture?: (id: string) => void;
+  /** Move a fixture's footprint centre to a point of the scene. */
+  onMoveFixture?: (id: string, to: { x: number; y: number; surfaceId: string | null }) => void;
 }) {
+  const svg = useRef<SVGSVGElement>(null);
+  const [drag, setDrag] = useState<{ id: string; start: Point; delta: Point } | null>(null);
+  // Only the room's picture maps back to the scene; a desk redrawn from a frame doesn't.
+  const movable = Boolean(onMoveFixture && !illustration.drawnFrom && illustration.desk);
+  const pointerAt = (e: PointerEvent) => {
+    const m = svg.current?.getScreenCTM();
+    if (!m) return null;
+    const p = new DOMPoint(e.clientX, e.clientY).matrixTransform(m.inverse());
+    return { x: p.x, y: p.y };
+  };
+  const moveTo = (f: Placed, by: Point) => {
+    const to = pictureToScene(pin, illustration, custom, {
+      x: f.centre.x + by.x,
+      y: f.centre.y + by.y,
+    });
+    if (to) onMoveFixture?.(f.id, to);
+  };
   const toPicture = (frame: Segmentation['frame'], p: Point) =>
     framePointInPicture(pin, illustration, frame, p);
   const foot = (o: DeskObservation | null | undefined) =>
@@ -109,12 +134,14 @@ export function IllustrationView({
       to(at.x, at.y + size.d, at.z),
     ];
     const top = to(at.x + size.w / 2, at.y + size.d / 2, at.z + size.h);
-    if (!top || !base.every(Boolean)) return [];
+    const centre = to(at.x + size.w / 2, at.y + size.d / 2, at.z);
+    if (!top || !centre || !base.every(Boolean)) return [];
     return [
       {
         id: f.id,
         label: f.label,
         base: base as Point[],
+        centre,
         top,
         lit: f.control.kind === 'light' && f.state === 'on',
         focused: focus?.fixture === f.id,
@@ -150,6 +177,7 @@ export function IllustrationView({
   const objects = markers.map((m) => m.label).join(', ');
   return (
     <svg
+      ref={svg}
       className="illustration"
       viewBox={`0 0 ${width} ${height}`}
       preserveAspectRatio="xMidYMid meet"
@@ -176,11 +204,48 @@ export function IllustrationView({
       {placed.map((f) => (
         <g
           key={f.id}
-          className={`illustration-fixture ${f.lit ? 'lit' : ''} ${f.focused ? 'focused' : ''}`}
+          className={`illustration-fixture ${f.lit ? 'lit' : ''} ${f.focused ? 'focused' : ''} ${drag?.id === f.id ? 'dragging' : ''}`}
           data-fixture={f.id}
           role={onFixture ? 'button' : undefined}
-          aria-label={onFixture ? `Select the ${f.label.toLowerCase()}` : undefined}
-          onClick={onFixture ? () => onFixture(f.id) : undefined}
+          tabIndex={onFixture ? 0 : undefined}
+          aria-label={
+            onFixture
+              ? `${f.label}${movable ? ': drag, or use the arrow keys, to move it' : ''}`
+              : undefined
+          }
+          transform={drag?.id === f.id ? `translate(${drag.delta.x} ${drag.delta.y})` : undefined}
+          onPointerDown={(e: PointerEvent<SVGGElement>) => {
+            const start = pointerAt(e);
+            if (!start) return;
+            e.currentTarget.setPointerCapture(e.pointerId);
+            setDrag({ id: f.id, start, delta: { x: 0, y: 0 } });
+          }}
+          onPointerMove={(e: PointerEvent<SVGGElement>) => {
+            const at = drag?.id === f.id && movable ? pointerAt(e) : null;
+            if (drag && at)
+              setDrag({ ...drag, delta: { x: at.x - drag.start.x, y: at.y - drag.start.y } });
+          }}
+          onPointerUp={() => {
+            if (drag?.id !== f.id) return;
+            const moved = Math.hypot(drag.delta.x, drag.delta.y) > unit * 0.5;
+            setDrag(null);
+            if (moved) moveTo(f, drag.delta);
+            else onFixture?.(f.id);
+          }}
+          onPointerCancel={() => setDrag(null)}
+          onKeyDown={(e: KeyboardEvent<SVGGElement>) => {
+            const step = unit * (e.shiftKey ? 2.5 : 0.5);
+            const by = {
+              ArrowLeft: { x: -step, y: 0 },
+              ArrowRight: { x: step, y: 0 },
+              ArrowUp: { x: 0, y: -step },
+              ArrowDown: { x: 0, y: step },
+            }[e.key];
+            if (by && movable) {
+              e.preventDefault();
+              moveTo(f, by);
+            } else if (e.key === 'Enter') onFixture?.(f.id);
+          }}
         >
           <polygon points={pts(f.base)} />
           <line

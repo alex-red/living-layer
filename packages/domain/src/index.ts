@@ -324,6 +324,8 @@ export interface DeskMemory {
   item?: SavedItem | null;
   /** Things placed in a room by hand: lamps, switches, a mouse. Reset keeps them. */
   fixtures?: Fixture[];
+  /** Names the person said aren't fixtures, so scans skip them. */
+  dismissed?: string[];
 }
 export interface PlacementDecision {
   observationId: string | null;

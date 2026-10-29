@@ -23,6 +23,7 @@ import type {
   Quad,
   SceneGuess,
   SavedItem,
+  FixtureInput,
 } from '@livinglayer/domain';
 import {
   DEMO_POSITIONS,
@@ -30,6 +31,9 @@ import {
   DEMO_SWITCHES,
   OBSERVATION_MAX_AGE_MS,
   ISO_PRESETS,
+  fixtureAt,
+  fixtureBox,
+  fixtureInput,
   runCost,
   startLocalTrack,
   stepLocalTrack,
@@ -1323,6 +1327,51 @@ export function useLabState() {
       `Click where the ${next.label.toLowerCase()} stands: on a surface or the floor. Esc cancels.`,
     );
   }
+  /**
+   * Save a placed fixture with some of it changed by hand: where it stands,
+   * its size, or handing its place back to scans. Moving it keeps its
+   * footprint's centre on the point, on that surface or the floor.
+   */
+  async function updateFixture(
+    id: string,
+    change: {
+      centre?: { x: number; y: number };
+      surfaceId?: string | null;
+      size?: FixtureInput['size'];
+      scanned?: boolean;
+    },
+    done: string,
+  ) {
+    const f = memory?.fixtures?.find((x) => x.id === id);
+    if (!f) return;
+    const next: FixtureInput = {
+      ...fixtureInput(f),
+      ...(change.size ? { size: change.size } : {}),
+    };
+    if (change.centre || change.surfaceId !== undefined || change.size) {
+      const { at, size } = fixtureBox(f, memory?.scene);
+      const centre = change.centre ?? { x: at.x + size.w / 2, y: at.y + size.d / 2 };
+      const spot = fixtureAt(
+        next,
+        centre,
+        change.surfaceId !== undefined ? change.surfaceId : f.surfaceId,
+        memory?.scene ?? null,
+      );
+      if (spot) Object.assign(next, spot);
+    }
+    setError('');
+    try {
+      const m = await api<DeskMemory>('fixtures/save', {
+        mode,
+        fixture: { ...next, ...(change.scanned ? { scanned: true } : {}) },
+      });
+      setMemory(m);
+      setMessage(done);
+      void refresh().catch(() => {});
+    } catch (e) {
+      setError(e instanceof Error ? e : 'The fixture could not be saved.');
+    }
+  }
   /** Save the fixture being placed where the person clicked, and select it. */
   async function placeFixture(where: { at: { x: number; y: number }; surfaceId: string | null }) {
     if (!placing) return;
@@ -1490,6 +1539,7 @@ export function useLabState() {
     startBoxing,
     startPlacing,
     placeFixture,
+    updateFixture,
     guess,
     asking,
     askGuess,

@@ -8,8 +8,8 @@ import {
   type Quad,
   type SurfacePin,
 } from './iso.js';
-import { isoSurface } from './iso-presets.js';
-import { worldSurface, type IsoScene, type IsoVec } from './iso.js';
+import { ISO_PRESETS, isoSurface } from './iso-presets.js';
+import { worldSurface, type IsoScene, type IsoSurface, type IsoVec } from './iso.js';
 import {
   cameraFromPin,
   fitSurfaceQuad,
@@ -170,10 +170,24 @@ export function scenePointInPicture(
       camera && projectPoint(camera, p.x - surface.rect.x, p.y - surface.rect.y, p.z - surface.z);
     return at && framePointInPicture(pin, picture, pin.frame, at);
   }
+  const fit = pictureFit(picture, surface);
+  if (!fit) return null;
+  const uv = worldSurface(surface, p);
+  return {
+    x: fit.c.x + uv.x * fit.a.x + uv.y * fit.b.x,
+    y: fit.c.y + uv.x * fit.a.y + uv.y * fit.b.y - (p.z - surface.z) * fit.tile,
+  };
+}
+/**
+ * The pinned surface's plane on the room picture, as parallel projection
+ * maps it: an origin and the picture's step per share of the surface across
+ * (a) and back to front (b), and its length of a tile, which is how far up
+ * the page a tile of height goes. A homography through four drawn corners
+ * would run off to a horizon away from the desk.
+ */
+function pictureFit(picture: SceneIllustration, surface: IsoSurface) {
   const desk = picture.desk;
-  if (!desk) return null;
-  // Parallel projection maps the plane affinely; a homography through four
-  // drawn corners would run off to a horizon away from the desk.
+  if (!desk || picture.drawnFrom) return null;
   const [d0, d1, d2, d3] = desk;
   const a = { x: (d1.x - d0.x + d2.x - d3.x) / 2, y: (d1.y - d0.y + d2.y - d3.y) / 2 };
   const b = { x: (d3.x - d0.x + d2.x - d1.x) / 2, y: (d3.y - d0.y + d2.y - d1.y) / 2 };
@@ -181,12 +195,46 @@ export function scenePointInPicture(
     x: (d0.x + d1.x + d2.x + d3.x) / 4 - (a.x + b.x) / 2,
     y: (d0.y + d1.y + d2.y + d3.y) / 4 - (a.y + b.y) / 2,
   };
-  const uv = worldSurface(surface, p);
-  const on = { x: c.x + uv.x * a.x + uv.y * b.x, y: c.y + uv.x * a.y + uv.y * b.y };
-  const len = (a: Point, b: Point) => Math.hypot(b.x - a.x, b.y - a.y);
+  const len = (p: Point, q: Point) => Math.hypot(q.x - p.x, q.y - p.y);
   const tile =
-    ((len(desk[0], desk[1]) + len(desk[3], desk[2])) / surface.rect.w +
-      (len(desk[0], desk[3]) + len(desk[1], desk[2])) / surface.rect.d) /
+    ((len(d0, d1) + len(d3, d2)) / surface.rect.w + (len(d0, d3) + len(d1, d2)) / surface.rect.d) /
     4;
-  return { x: on.x, y: on.y - (p.z - surface.z) * tile };
+  return { a, b, c, tile };
+}
+/**
+ * Where a point of the room picture is in the scene: on the highest surface
+ * whose top it falls on, else on the floor. The inverse of drawing, for
+ * dragging a fixture to where the picture shows it. Null on a picture
+ * redrawn from a frame, or when the pinned surface is gone.
+ */
+export function pictureToScene(
+  pin: SurfacePin,
+  picture: SceneIllustration,
+  custom: IsoScene | null,
+  pt: Point,
+): { x: number; y: number; surfaceId: string | null } | null {
+  const pinned = isoSurface(pin.scene, pin.surfaceId, custom);
+  if (!pinned) return null;
+  const fit = pictureFit(picture, pinned);
+  if (!fit) return null;
+  const { a, b, c, tile } = fit;
+  const det = a.x * b.y - a.y * b.x;
+  if (Math.abs(det) < 1e-9) return null;
+  // The scene point at height z that the picture point shows.
+  const at = (z: number) => {
+    const qx = pt.x - c.x;
+    const qy = pt.y - c.y + (z - pinned.z) * tile;
+    const u = (qx * b.y - qy * b.x) / det;
+    const v = (a.x * qy - a.y * qx) / det;
+    return { x: pinned.rect.x + u * pinned.rect.w, y: pinned.rect.y + v * pinned.rect.d };
+  };
+  const scene = pin.scene === 'custom' ? custom : ISO_PRESETS[pin.scene];
+  const surfaces = [...(scene?.surfaces ?? [])].sort((p, q) => q.z - p.z);
+  for (const s of surfaces) {
+    const p = at(s.z);
+    const r = s.rect;
+    if (p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= r.y + r.d)
+      return { ...p, surfaceId: s.id };
+  }
+  return { ...at(0), surfaceId: null };
 }

@@ -198,6 +198,7 @@ const MATCH_LABEL: Record<MappedThing['match'], string> = {
   existing: 'In the room',
   library: 'From the library',
   fitted: 'Fitted',
+  dismissed: 'Skipped',
   placeholder: 'Placeholder',
 };
 
@@ -270,6 +271,30 @@ export function ScanFixtures({
       <Cost>
         One Spark call and one SAM call, refused up front if today’s limit can’t cover them.
       </Cost>
+      {(lab.memory?.dismissed?.length ?? 0) > 0 && (
+        <p className="micro">
+          Skipped as not fixtures:{' '}
+          {lab.memory!.dismissed!.map((d, i) => (
+            <span key={d}>
+              {i > 0 && ', '}
+              {d}{' '}
+              <button
+                className="text-button"
+                disabled={off}
+                aria-label={`Let scans find “${d}” again`}
+                onClick={() =>
+                  void call<DeskMemory>('fixtures/undismiss', { label: d }, (m) => {
+                    lab.setMemory(m);
+                    lab.setMessage(`Scans will find things named like “${d}” again.`);
+                  })
+                }
+              >
+                ✕
+              </button>
+            </span>
+          ))}
+        </p>
+      )}
       {mapped && mapped.length > 0 && (
         <ul className="scan-list">
           {mapped.map((m, i) => (
@@ -589,8 +614,12 @@ export function FixturePanel({ id }: { id: string }) {
   const [kind, setKind] = useState<ControlKind>(f?.control.kind ?? 'none');
   const [entity, setEntity] = useState(f ? (fixtureEntity(f) ?? '') : '');
   const [result, setResult] = useState<LampResult | null>(null);
+  const [size, setSize] = useState(f?.size ?? { w: 1, d: 1, h: 1 });
   if (!f)
     return <Panel tiny="FIXTURE" title="Gone" status="This fixture is no longer in the room." />;
+  const scene = f.scene === 'custom' ? memory?.scene : ISO_PRESETS[f.scene];
+  const byScan = Boolean(f.scanned || f.model.source === 'placeholder');
+  const resized = size.w !== f.size.w || size.d !== f.size.d || size.h !== f.size.h;
   const entityId = fixtureEntity(f);
   const where = `${f.scene === 'custom' ? roomLabel('custom', memory) : ISO_PRESETS[f.scene].label}${f.surfaceId ? '' : ', on the floor'}`;
   const liveBlocked = mode === 'live' && !lab.lampReady;
@@ -691,6 +720,59 @@ export function FixturePanel({ id }: { id: string }) {
           Edit model
         </button>
       </div>
+      <p className="micro fixture-placed">
+        {byScan ? (
+          <>
+            Placed by a scan: rescans move and refit it. Drag it on the picture, or move it, to keep
+            it where you put it.
+          </>
+        ) : (
+          <>
+            Placed by you: scans leave it here.{' '}
+            <button
+              className="text-button"
+              disabled={off || moving}
+              onClick={() =>
+                void lab.updateFixture(
+                  f.id,
+                  { scanned: true },
+                  `Scans place the ${f.label.toLowerCase()} again.`,
+                )
+              }
+            >
+              Let scans place it
+            </button>
+          </>
+        )}
+      </p>
+      {scene && (
+        <>
+          <label className="input-label" htmlFor="fixture-surface">
+            Stands on
+          </label>
+          <select
+            id="fixture-surface"
+            value={f.surfaceId ?? ''}
+            disabled={off || moving}
+            onChange={(e) => {
+              const surfaceId = e.target.value || null;
+              const name = scene.surfaces.find((s) => s.id === surfaceId)?.label ?? 'the floor';
+              void lab.updateFixture(
+                f.id,
+                { surfaceId },
+                `The ${f.label.toLowerCase()} stands on ${surfaceId ? name.toLowerCase() : name} now.`,
+              );
+            }}
+          >
+            <option value="">The floor</option>
+            {scene.surfaces.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.label}
+              </option>
+            ))}
+          </select>
+        </>
+      )}
       <Details summary="What it is">
         <ControlPicker kind={kind} entity={entity} onKind={setKind} onEntity={setEntity} />
         <button
@@ -698,7 +780,12 @@ export function FixturePanel({ id }: { id: string }) {
           disabled={off || (kind !== 'none' && !entity)}
           onClick={() =>
             save(
-              { ...inputOf(f), control: controlOf(kind, entity) },
+              {
+                ...inputOf(f),
+                control: controlOf(kind, entity),
+                // What it switches says nothing about where it stands.
+                ...(f.scanned ? { scanned: true } : {}),
+              },
               `The ${f.label.toLowerCase()} is now ${kind === 'none' ? 'just a thing' : `a ${kind}`}.`,
             )
           }
@@ -706,20 +793,76 @@ export function FixturePanel({ id }: { id: string }) {
           Save
         </button>
       </Details>
-      <Details summary="Delete">
+      <Details summary="Size">
+        <div className="fixture-size">
+          {(['w', 'd', 'h'] as const).map((k) => (
+            <label key={k}>
+              <span className="tiny">{{ w: 'Width', d: 'Depth', h: 'Height' }[k]}</span>
+              <input
+                type="number"
+                min={0.1}
+                max={8}
+                step={0.05}
+                value={size[k]}
+                onChange={(e) =>
+                  setSize({
+                    ...size,
+                    [k]: Math.min(8, Math.max(0.1, Number(e.target.value) || 0.1)),
+                  })
+                }
+              />
+            </label>
+          ))}
+        </div>
+        <p className="micro">
+          In tiles of this scene, about {Math.round(tileCm(f.scene, memory?.scene))} cm each. The
+          model is scaled to fit, centred where it stands.
+        </p>
         <button
-          className="text-button destructive"
-          disabled={off}
+          className="secondary"
+          disabled={off || moving || !resized}
           onClick={() =>
-            void call<DeskMemory>('fixtures/delete', { fixtureId: f.id }, (m) => {
-              lab.setMemory(m);
-              lab.setMessage(`Removed the ${f.label.toLowerCase()}.`);
-              lab.select(null);
-            })
+            void lab.updateFixture(f.id, { size }, `Resized the ${f.label.toLowerCase()}.`)
           }
         >
-          Delete “{f.label}”
+          Save size
         </button>
+      </Details>
+      <Details summary="Delete">
+        <div className="save-actions">
+          <button
+            className="text-button destructive"
+            disabled={off}
+            onClick={() =>
+              void call<DeskMemory>('fixtures/delete', { fixtureId: f.id }, (m) => {
+                lab.setMemory(m);
+                lab.setMessage(`Removed the ${f.label.toLowerCase()}.`);
+                lab.select(null);
+              })
+            }
+          >
+            Delete “{f.label}”
+          </button>
+          <button
+            className="text-button destructive"
+            disabled={off}
+            onClick={() =>
+              void call<DeskMemory>('fixtures/delete', { fixtureId: f.id, dismiss: true }, (m) => {
+                lab.setMemory(m);
+                lab.setMessage(
+                  `Removed the ${f.label.toLowerCase()}. Scans will skip things named like it.`,
+                );
+                lab.select(null);
+              })
+            }
+          >
+            Not a fixture
+          </button>
+        </div>
+        <p className="micro">
+          “Not a fixture” also tells scans to skip it, for something they keep finding that isn’t
+          one.
+        </p>
       </Details>
     </Panel>
   );
