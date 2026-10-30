@@ -1,4 +1,5 @@
-import { MAX_FIXTURES, MAX_RULES, isMugConcept } from '@livinglayer/domain';
+import { MAX_EXPOSED, MAX_FIXTURES, MAX_RULES, isMugConcept } from '@livinglayer/domain';
+import { stateLabel } from './ExposePanel';
 import { useLab } from './LabContext';
 import {
   builtInLamps,
@@ -99,7 +100,6 @@ export function Outline() {
     );
   const canRule =
     Boolean((memory?.object && memory.observation) || memory?.others?.some((o) => o.observation)) &&
-    lab.entities.length > 0 &&
     (memory?.rules?.length ?? 0) < MAX_RULES;
   const surface = (r: SurfaceRow, depth: number) => (
     <Row
@@ -261,7 +261,7 @@ export function Outline() {
                 <Row
                   key={r.id}
                   label={r.label}
-                  detail={`→ ${r.entityId}`}
+                  detail={r.entityId ? `→ ${r.entityId}` : '→ Home Assistant only'}
                   state={r.lastDecision ? 'done' : 'todo'}
                   target={{ kind: 'rule', id: r.id }}
                 />
@@ -279,6 +279,38 @@ export function Outline() {
                 }
                 disabled={!canRule || Boolean(busy)}
                 title={canRule ? undefined : 'Remember an object first.'}
+              />
+            </ul>
+          </>
+        )}
+        {progress.room && (
+          <>
+            <div className="pane-head ol-section">
+              <span className="tiny">HOME ASSISTANT</span>
+              {lab.expose && (
+                <small className={`ol-broker ${lab.expose.broker.state}`}>
+                  {lab.mode === 'demo'
+                    ? 'demo · not published'
+                    : `mqtt · ${lab.expose.broker.state}`}
+                </small>
+              )}
+            </div>
+            <ul className="ol-tree">
+              {(memory?.exposed ?? []).map((e) => (
+                <Row
+                  key={e.id}
+                  label={e.name}
+                  detail={`ll_${e.key} · ${stateLabel(lab.expose?.states.find((s) => s.id === e.id))}`}
+                  tone="chosen"
+                  target={{ kind: 'entity', id: e.id }}
+                />
+              ))}
+              <Row
+                label="Show in Home Assistant"
+                detail={memory?.exposed?.length ? undefined : 'presence, zones, missing things'}
+                tone="add"
+                target={{ kind: 'new-entity' }}
+                disabled={(memory?.exposed?.length ?? 0) >= MAX_EXPOSED || Boolean(busy)}
               />
             </ul>
           </>

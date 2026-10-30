@@ -39,6 +39,21 @@ const schema = z.object({
   /** PEM files for the phone page, e.g. from mkcert. Unset, a self-signed pair is made in DATA_DIR. */
   REMOTE_CAMERA_CERT: z.string().default(''),
   REMOTE_CAMERA_KEY: z.string().default(''),
+  /** The MQTT broker entities are published to for Home Assistant: mqtt:// or mqtts://. */
+  MQTT_URL: z.string().default(''),
+  MQTT_USERNAME: z.string().default(''),
+  MQTT_PASSWORD: z.string().default(''),
+  /** Home Assistant's discovery prefix, `homeassistant` unless changed there. */
+  MQTT_DISCOVERY_PREFIX: z
+    .string()
+    .regex(/^[\w-]+(\/[\w-]+)*$/)
+    .default('homeassistant'),
+  /** The topic every state is published under. */
+  MQTT_BASE_TOPIC: z
+    .string()
+    .regex(/^[\w-]+(\/[\w-]+)*$/)
+    .default('livinglayer'),
+  MQTT_LIVE_ENABLED: flag,
 });
 
 /** The part of `fetch` the adapters use, so tests can pass a plain mock. */
@@ -64,6 +79,14 @@ export interface Config {
   haEnabled: boolean;
   cameraStreams: string[];
   remoteCamera: { port: number; host: string; cert: string; key: string };
+  mqtt: {
+    url: string;
+    username: string;
+    password: string;
+    discoveryPrefix: string;
+    baseTopic: string;
+    enabled: boolean;
+  };
 }
 
 export function parseConfig(env: NodeJS.ProcessEnv, cwd = process.cwd()): Config {
@@ -118,6 +141,21 @@ export function parseConfig(env: NodeJS.ProcessEnv, cwd = process.cwd()): Config
     throw new Error('REMOTE_CAMERA_HOST must be a bare host name or IP address.');
   if (Boolean(value.REMOTE_CAMERA_CERT) !== Boolean(value.REMOTE_CAMERA_KEY))
     throw new Error('Set both REMOTE_CAMERA_CERT and REMOTE_CAMERA_KEY, or neither.');
+  if (value.MQTT_URL) {
+    const url = URL.parse(value.MQTT_URL);
+    if (
+      !url ||
+      !['mqtt:', 'mqtts:'].includes(url.protocol) ||
+      url.username ||
+      url.password ||
+      (url.pathname && url.pathname !== '/') ||
+      url.search ||
+      url.hash
+    )
+      throw new Error(
+        'MQTT_URL must be mqtt://host:port or mqtts://host:port, with credentials in MQTT_USERNAME and MQTT_PASSWORD.',
+      );
+  }
   if (value.REMOTE_CAMERA_PORT === value.PORT)
     throw new Error('REMOTE_CAMERA_PORT must differ from PORT.');
   return {
@@ -142,6 +180,14 @@ export function parseConfig(env: NodeJS.ProcessEnv, cwd = process.cwd()): Config
       host: value.REMOTE_CAMERA_HOST,
       cert: value.REMOTE_CAMERA_CERT && resolve(cwd, value.REMOTE_CAMERA_CERT),
       key: value.REMOTE_CAMERA_KEY && resolve(cwd, value.REMOTE_CAMERA_KEY),
+    },
+    mqtt: {
+      url: value.MQTT_URL,
+      username: value.MQTT_USERNAME,
+      password: value.MQTT_PASSWORD,
+      discoveryPrefix: value.MQTT_DISCOVERY_PREFIX,
+      baseTopic: value.MQTT_BASE_TOPIC,
+      enabled: value.MQTT_LIVE_ENABLED,
     },
   };
 }

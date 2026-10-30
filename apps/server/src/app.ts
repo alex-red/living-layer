@@ -1,6 +1,6 @@
 import Fastify from 'fastify';
 import staticFiles from '@fastify/static';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { z } from 'zod';
@@ -41,6 +41,8 @@ import { Watcher, watchRoutes, type WatcherDeps } from './watcher.js';
 import { Appearance } from './appearance.js';
 import { DemoSource } from './frames.js';
 import { RemoteCamera, remoteRoutes } from './remote.js';
+import { Exposer, exposeRoutes } from './expose.js';
+import { MqttLink, type MqttConnect } from './mqtt.js';
 import {
   demoScene,
   demoSceneGuess,
@@ -65,6 +67,8 @@ export async function buildApp(
     frames?: WatcherDeps['source'];
     /** The feature model; tests pass null to leave it out. */
     appearance?: () => Promise<Appearance | null>;
+    /** The MQTT client; tests pass their own. */
+    mqttConnect?: MqttConnect;
   } = {},
 ) {
   const app = Fastify({ logger: false, bodyLimit: 7_100_000, requestTimeout: 130000 });
@@ -72,6 +76,32 @@ export async function buildApp(
   const meta = new MetaAdapter(config, store, options.fetcher);
   const lamp = new ControlAdapter(config, options.fetcher);
   app.addHook('onClose', async () => store.close());
+  // MQTT: one install id names our device and entities in Home Assistant across restarts.
+  let installId = store.setting('install_id');
+  if (!installId) store.setSetting('install_id', (installId = randomUUID().replace(/-/g, '')));
+  const exposeDeps = {
+    store,
+    options: {
+      installId,
+      discoveryPrefix: config.mqtt.discoveryPrefix,
+      baseTopic: config.mqtt.baseTopic,
+      version: (
+        JSON.parse(readFileSync(resolve(PROJECT_ROOT, 'package.json'), 'utf8')) as {
+          version: string;
+        }
+      ).version,
+    },
+  };
+  const link =
+    config.mqtt.url && config.mqtt.enabled
+      ? new MqttLink(
+          config.mqtt,
+          `livinglayer-${installId.slice(0, 12)}`,
+          () => exposers.live.sync(true),
+          () => exposers.live.emit(),
+          options.mqttConnect,
+        )
+      : null;
   app.addHook('onRequest', async (request) => {
     const host = request.headers.host ?? '';
     if (!new RegExp(`^(localhost|127\\.0\\.0\\.1)(:${config.port}|:43430|:80)?$`).test(host))
@@ -141,6 +171,14 @@ export async function buildApp(
           config.haEnabled && config.haUrl && config.haToken && config.haEntity
             ? 'One configured light; explicit actions only.'
             : 'Set the HA_* variables and HA_LIVE_ENABLED to control a lamp.',
+      },
+      mqtt: {
+        configured: Boolean(config.mqtt.url),
+        enabled: config.mqtt.enabled,
+        state: link?.state ?? 'off',
+        note: link
+          ? link.note
+          : 'Set MQTT_URL and MQTT_LIVE_ENABLED to show entities in Home Assistant.',
       },
       liveEvidence: store.liveEvidence(),
     };
@@ -400,13 +438,40 @@ export async function buildApp(
     store,
     streams: () => listStreams(config, options.browseCameras, () => remote.streams()),
   });
+  // Entities shown in Home Assistant, worked out from desk memory and what the watchers see.
+  const exposers: Record<Mode, Exposer> = {
+    demo: new Exposer({
+      ...exposeDeps,
+      mode: 'demo',
+      link: null,
+      watch: () => watchers.demo.exposeWatch(),
+    }),
+    live: new Exposer({
+      ...exposeDeps,
+      mode: 'live',
+      link,
+      watch: () => watchers.live.exposeWatch(),
+    }),
+  };
+  exposeRoutes(app, exposers, store);
+  for (const mode of ['demo', 'live'] as const)
+    watchers[mode].subscribe(() => exposers[mode].sync());
+  // Motion holds run out with no frame to say so.
+  const tick = setInterval(() => {
+    exposers.demo.sync();
+    exposers.live.sync();
+  }, 5000);
+  tick.unref?.();
   app.addHook('onReady', async () => {
     for (const mode of ['demo', 'live'] as const)
       if (store.memory(mode).watch?.on) void watchers[mode].start();
+    link?.start();
   });
   app.addHook('onClose', async () => {
+    clearInterval(tick);
     watchers.demo.stop();
     watchers.live.stop();
+    await link?.stop();
   });
   const dist = resolve(PROJECT_ROOT, 'apps/web/dist');
   if (options.serveWeb !== false && existsSync(dist)) {

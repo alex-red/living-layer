@@ -43,6 +43,7 @@ export type IsoPanel = 'room' | 'scene' | 'item';
 /** A rule being set up; its zone is dragged out on the iso surface. */
 export interface RuleDraft {
   objectId: string;
+  /** Empty for a zone that only tells Home Assistant. */
   entityId: string;
   label: string;
   rect: ZoneRect | null;
@@ -263,7 +264,11 @@ export function IsoView({
   const lit = new Set<string>(lightsOn);
   if (lampOn && defaultLight) lit.add(defaultLight);
   for (const rule of memory?.rules ?? [])
-    if (rule.placement === 'inside' && rule.lastDecision?.output.action === 'confirmed')
+    if (
+      rule.entityId &&
+      rule.placement === 'inside' &&
+      rule.lastDecision?.output.action === 'confirmed'
+    )
       lit.add(rule.entityId);
   const drawingRule = Boolean(ruleDraft && ruleMap);
   // Fixtures in this scene; one being moved is drawn only where the pointer is.

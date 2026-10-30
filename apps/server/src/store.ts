@@ -151,6 +151,19 @@ export class EvidenceStore {
         ['spend_limit_usd', String(usd)],
       );
   }
+  /** A value kept in `settings`, or null. */
+  setting(key: string): string | null {
+    const row = this.db
+      .query<{ value: string }, [string]>('SELECT value FROM settings WHERE key = ?')
+      .get(key);
+    return row ? row.value : null;
+  }
+  setSetting(key: string, value: string): void {
+    this.db.run(
+      'INSERT INTO settings VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value',
+      [key, value],
+    );
+  }
   asset(runId: string, name: string, content: string | Buffer): string {
     if (!/^[a-z0-9-]+$/.test(runId) || !/^[a-z0-9.-]+$/.test(name))
       throw new Error('Invalid artifact name');

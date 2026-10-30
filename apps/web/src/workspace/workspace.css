@@ -1219,3 +1219,68 @@
   min-height: 22px;
   font-size: 12px;
 }
+
+/* Entities shown in Home Assistant */
+.ol-broker {
+  margin-left: auto;
+  color: var(--text-3);
+  font-size: 11px;
+}
+.ol-broker.connected {
+  color: var(--ok);
+}
+.ol-broker.error {
+  color: var(--unsure);
+}
+.expose-presets {
+  display: grid;
+  gap: 6px;
+}
+.expose-preset {
+  display: grid;
+  gap: 2px;
+  width: 100%;
+  text-align: left;
+}
+.expose-preset small {
+  color: var(--text-3);
+  font-weight: 400;
+  line-height: 16px;
+}
+.expose-zones {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  font-size: 13px;
+  color: var(--text-2);
+}
+.expose-attrs {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  font-size: 12px;
+}
+.expose-attrs div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
+  gap: 8px;
+}
+.expose-attrs dt {
+  color: var(--text-3);
+}
+.expose-attrs dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.expose-log {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 11px;
+  color: var(--text-2);
+  overflow-wrap: anywhere;
+}

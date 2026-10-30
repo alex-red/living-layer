@@ -34,7 +34,10 @@ export type Selection =
   | { kind: 'fixture'; id: string }
   | { kind: 'new-fixture' }
   /** A lamp that is part of a room's layout: `scene~propId`. */
-  | { kind: 'lamp'; id: string };
+  | { kind: 'lamp'; id: string }
+  /** An entity shown in Home Assistant over MQTT. */
+  | { kind: 'entity'; id: string }
+  | { kind: 'new-entity' };
 
 export type StepId = 'office' | 'desk' | 'objects' | 'rule' | 'run';
 export type StepState = 'done' | 'current' | 'todo' | 'locked';
@@ -194,6 +197,7 @@ export function selectionHash(s: Selection | null): string {
     case 'rule':
     case 'fixture':
     case 'lamp':
+    case 'entity':
       return `#${s.kind}/${encodeURIComponent(s.id)}`;
     case 'suggested':
       return `#suggested/${s.index}`;
@@ -210,12 +214,14 @@ export function parseSelection(hash: string): Selection | null {
     case 'add':
     case 'new-rule':
     case 'new-fixture':
+    case 'new-entity':
       return { kind };
     case 'surface':
     case 'object':
     case 'rule':
     case 'fixture':
     case 'lamp':
+    case 'entity':
       return id ? { kind, id } : null;
     case 'suggested': {
       const index = Number(id);

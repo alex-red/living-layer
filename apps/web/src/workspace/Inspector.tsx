@@ -2,7 +2,9 @@ import { useState } from 'react';
 import {
   MAX_OTHER_OBJECTS,
   OBSERVATION_MAX_AGE_MS,
+  exposedEntityId,
   isMugConcept,
+  keyFromName,
   objectById,
   type DeskMemory,
   type EvidenceRun,
@@ -13,6 +15,7 @@ import { Glyph } from '../Glyph';
 import { useLab } from './LabContext';
 import { Cost, Details, Panel, useCall } from './panel';
 import { FixturePanel, LampPanel, NewFixturePanel, ScanFixtures } from './FixturePanel';
+import { EntityPanel, NewEntityPanel } from './ExposePanel';
 import { ago, mainSurface, roomLabel, surfaceRows } from './labels';
 import { pinScene, viewLabel, type Selection } from './progress';
 import { TRANSITION, centre } from './useLabState';
@@ -1095,6 +1098,9 @@ function RulePanel({ id }: { id: string }) {
   if (!r) return <SetupPanel />;
   const d = r.lastDecision?.output;
   const object = memory && objectById(memory, r.objectId)?.label;
+  const shown = memory?.exposed?.find(
+    (e) => e.source.kind === 'in_zone' && e.source.zoneId === r.id,
+  );
   return (
     <Panel
       tiny="RULE"
@@ -1103,7 +1109,7 @@ function RulePanel({ id }: { id: string }) {
         !d
           ? 'Not checked yet. Track the object or check the rules.'
           : d.decision === 'inside'
-            ? d.action === 'confirmed'
+            ? d.action === 'confirmed' && r.entityId
               ? `The ${object ?? 'object'} is in the zone. ${r.entityId} turned on.`
               : `The ${object ?? 'object'} is in the zone.`
             : d.decision === 'outside'
@@ -1116,8 +1122,58 @@ function RulePanel({ id }: { id: string }) {
     >
       <p className="rule-sentence">
         When <strong>{object ?? 'a forgotten object'}</strong> is {r.placement}{' '}
-        <strong>{r.label}</strong>, turn on <strong>{r.entityId}</strong>.
+        <strong>{r.label}</strong>,{' '}
+        {r.entityId ? (
+          <>
+            turn on <strong>{r.entityId}</strong>.
+          </>
+        ) : (
+          'tell Home Assistant only.'
+        )}
       </p>
+      {shown ? (
+        <p className="micro">
+          Shown in Home Assistant as{' '}
+          <button
+            className="text-button"
+            onClick={() => lab.select({ kind: 'entity', id: shown.id })}
+          >
+            {exposedEntityId(shown)}
+          </button>
+          .
+        </p>
+      ) : (
+        <button
+          className="secondary"
+          disabled={off}
+          onClick={() => {
+            const key = keyFromName(r.label) || 'zone';
+            const taken = new Set(memory?.exposed?.map((e) => e.key));
+            let free = key;
+            for (let n = 2; taken.has(free); n++) free = `${key.slice(0, 44)}_${n}`;
+            void call<DeskMemory>(
+              'expose/save',
+              {
+                entity: {
+                  key: free,
+                  name: r.label,
+                  kind: 'binary_sensor',
+                  deviceClass: 'occupancy',
+                  source: { kind: 'in_zone', zoneId: r.id },
+                },
+              },
+              (m) => {
+                lab.setMemory(m, false);
+                lab.setMessage(
+                  `Showing "${r.label}" in Home Assistant as binary_sensor.ll_${free}.`,
+                );
+              },
+            );
+          }}
+        >
+          Also show in Home Assistant
+        </button>
+      )}
       <button
         className="primary"
         disabled={off}
@@ -1213,12 +1269,13 @@ function NewRulePanel() {
               {l}
             </option>
           ))}
+          <option value="">nothing: tell Home Assistant only</option>
         </select>
       </div>
       <div className="save-actions">
         <button
           className="primary"
-          disabled={off || !draft.rect || !draft.label.trim() || !draft.entityId}
+          disabled={off || !draft.rect || !draft.label.trim()}
           onClick={() =>
             void call<DeskMemory>(
               'desk/rules/save',
@@ -1226,7 +1283,7 @@ function NewRulePanel() {
                 rule: {
                   label: draft.label.trim(),
                   objectId: draft.objectId,
-                  entityId: draft.entityId,
+                  entityId: draft.entityId || null,
                   rect: draft.rect,
                 },
               },
@@ -1250,7 +1307,8 @@ function NewRulePanel() {
       {!entities.length && (
         <p className="micro">
           Set HA_ENTITY_ID (and HA_EXTRA_ENTITY_IDS for more lights, HA_SWITCH_ENTITY_IDS for
-          switches) to choose what a rule turns on.
+          switches) to choose what a rule turns on. Without one, a rule only tells Home Assistant
+          through an entity you show there.
         </p>
       )}
     </Panel>
@@ -1288,6 +1346,10 @@ function body(lab: ReturnType<typeof useLab>, s: Selection | null) {
       return <NewFixturePanel />;
     case 'lamp':
       return <LampPanel key={s.id} id={s.id} />;
+    case 'entity':
+      return <EntityPanel key={s.id} id={s.id} />;
+    case 'new-entity':
+      return <NewEntityPanel />;
   }
 }
 

@@ -110,6 +110,14 @@ function Readiness() {
         <p>{status?.meta.note ?? 'Checking local configuration…'}</p>
         <strong>{lampReady ? 'Lamp adapter enabled' : 'Lamp setup pending'}</strong>
         <p>{status?.lamp.note}</p>
+        <strong>
+          {status?.mqtt.state === 'connected'
+            ? 'Home Assistant entities published'
+            : status?.mqtt.enabled && status.mqtt.configured
+              ? `MQTT ${status.mqtt.state}`
+              : 'MQTT setup pending'}
+        </strong>
+        <p>{status?.mqtt.note}</p>
       </div>
       {status && (
         <form

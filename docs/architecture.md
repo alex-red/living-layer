@@ -2,7 +2,8 @@
 
 ```
 browser (apps/web)  ──/api──▶  Fastify (apps/server)  ──▶  Meta Responses API (Spark, SAM)
-                                   │                   └─▶  Home Assistant REST API
+                                   │                   ├─▶  Home Assistant REST API (switching)
+                                   │                   └─▶  MQTT broker ─▶ Home Assistant (our entities)
                                    └─▶  SQLite + files in .data/
 ```
 
@@ -27,6 +28,8 @@ Demo and live have separate desk memory. Demo runs never count toward the live c
 | `sam.ts`    | Runs the SAM stream through `@meta-sam/parser` and rejects anything incomplete, mismatched, or oversized                                            |
 | `lamp.ts`   | Turns one light on, then polls its state to see whether it matches                                                                                  |
 | `store.ts`  | SQLite tables for evidence, desk memory, placement claims, the spend ledger and settings                                                            |
+| `expose.ts` | Entities shown in Home Assistant: works out their states, keeps the broker's retained topics in step, the lab's routes                              |
+| `mqtt.ts`   | One MQTT connection: last will, Home Assistant's birth message, retained publishes                                                                  |
 | `errors.ts` | `LabError`, and mapping upstream failures to generic messages so provider errors never leak keys or inputs                                          |
 
 ## Placement rule
@@ -89,6 +92,15 @@ The lamp only ever fires on a SAM observation. The local box is a reason to look
 
 Amber stays reserved for lamps: an iso lamp warms only once an action on its light is confirmed.
 
+## Home Assistant entities
+
+([plan](plans/mqtt.md)) Rules act _on_ Home Assistant over REST. In the other direction, Living Layer publishes entities of its own over MQTT discovery, which appear in Home Assistant under one _Living Layer_ device, for automations and dashboards there. Nothing is published until someone adds one in the lab's outline (_Home Assistant_ section).
+
+- **What one is.** `exposed` in desk memory (`packages/domain/src/expose.ts`): a name, a key, a kind (`binary_sensor` or `sensor`) and a source. The key `office_presence` gives `binary_sensor.ll_office_presence`; Home Assistant ids have one dot, so the `ll_` prefix stands for the namespace. Sources: `in_zone` (a zone's SAM verdict), `any_inside` (any of several zones; as a sensor, how many), `zone_of` (which of an object's zones it's in, an `enum` sensor), `status` (seen, searching or missing, from the watcher, else desk memory), `motion` (pixels changing in a zone, held for `holdS`; the watcher's stillness rule per zone, no SAM, needs the watcher on and the camera fixed) and `watching`. Zones are named by rule id, the main zone as `main`. Reset keeps entities; one whose zone or object is gone shows as unavailable, so automations notice.
+- **Zones that only tell Home Assistant.** A rule's entity may be null (_nothing: tell Home Assistant only_). `ruleGate` decides it like any other, it keeps its inside/outside story, and it never claims or switches anything. A rule panel's _Also show in Home Assistant_ makes an `in_zone` entity for it.
+- **States.** `evaluateExposed` is the only place states are worked out, from desk memory and the watcher's `exposeWatch()`. Zone sources read SAM verdicts only, like the lamp. While the watcher runs a verdict stands until SAM changes it; without it the last verdict stays, with `stale: true` among the attributes. A zone with no verdict yet is unavailable.
+- **Publishing.** One `Exposer` per mode (`apps/server/src/expose.ts`) syncs after every successful POST to the desk, fixture, scene, item, watch and expose routes, on every watcher update, and every 5 s for motion holds. It diffs `exposeMessages` (configs first, all retained) against what it last sent, publishes the changes, and clears what went away; an entity that is only unavailable keeps its last state. Config topics are remembered in `settings`, so ones deleted while the server was down are cleared on the next sync. Each config carries `unique_id` (`livinglayer_<install id>_<entity id>`, the install id made once in `settings`), `default_entity_id` (not the removed `object_id`), and two availability topics, `<base>/status` (the broker's last will) and the entity's own. `MqttLink` resends everything on each connect and when Home Assistant publishes `online` on `<prefix>/status`. Live only: demo mode never touches the network and keeps a log of what it would have sent, which the entity panels show (_What it would publish_). The lab follows states through `GET /api/expose/:mode/events`. Broker credentials stay in `.env`; the lab sees the broker's state and a generic note.
+
 ## Lamp results
 
 Home Assistant accepting a request, the entity reporting the requested state, and the bulb actually lighting up are three separate things. `LampResult` records the first two (`accepted`, `stateConfirmed`). `physicalEffectVerified` is always `false`, because the software has no way to see the lamp.
@@ -98,5 +110,6 @@ Home Assistant accepting a request, the entity reporting the requested state, an
 - Recognising the same mug by appearance when SAM answers. SAM's answer is matched to the last sighting by position (`pickTracked`), so two mugs swapping places would still fool it; the feature model only finds a lost thing again.
 - Watching a phone camera on the server: a phone streams to the tab, peer to peer, and the server never sees its frames.
 - Camera calibration, so a zone can carry over between frames from a camera that did move
-- Combined conditions, such as two objects in their zones before one light turns on. Each rule is one object, one zone and one light.
+- Combined conditions, such as two objects in their zones before one light turns on. Each rule is one object, one zone and one light. Entities shown in Home Assistant let its automations combine them instead.
+- Commands from Home Assistant (turning watching on and off, checking rules): entities are publish-only.
 - Extra objects in demo mode: the synthetic SAM output only has the mug

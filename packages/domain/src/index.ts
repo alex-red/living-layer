@@ -3,6 +3,7 @@ import type { IsoScene, SurfacePin } from './iso.js';
 import type { SceneIllustration } from './illustration.js';
 import type { SavedItem } from './iso-item.js';
 import { entityIdSchema, type Fixture } from './fixture.js';
+import type { ExposedEntity } from './expose.js';
 
 export const modeSchema = z.enum(['demo', 'live']);
 export type Mode = z.infer<typeof modeSchema>;
@@ -169,6 +170,8 @@ export interface LabStatus {
    * `switches`: every switch entity fixtures and rules may turn on and off.
    */
   lamp: Readiness & { lights: string[]; switches: string[] };
+  /** The MQTT broker entities are published to. `state` never carries credentials. */
+  mqtt: Readiness & { state: 'off' | 'connecting' | 'connected' | 'error' };
   liveEvidence: { text: boolean; discover: boolean; segment: boolean; lamp: boolean };
 }
 export interface ApiFailure {
@@ -336,6 +339,8 @@ export interface DeskMemory {
   dismissed?: string[];
   /** Whether the server watches the camera, and which one; it resumes after a restart. */
   watch?: { on: boolean; camera: WatchCamera | null };
+  /** Entities shown in Home Assistant over MQTT, each with what its state comes from. Reset keeps them. */
+  exposed?: ExposedEntity[];
 }
 /** A camera the server reads frames from: an RTSP stream, never a tab's. */
 export interface WatchCamera {
@@ -450,13 +455,16 @@ export interface TrackedObject {
   history?: DeskObservation[];
   item?: SavedItem | null;
 }
-/** A zone beyond the main one: when `objectId` enters it, switch `entityId` on. */
+/**
+ * A zone beyond the main one: when `objectId` enters it, switch `entityId`
+ * on. With no entity it switches nothing, and only tells Home Assistant.
+ */
 export interface PlacementRule {
   id: string;
   label: string;
   objectId: string;
-  /** A light or a switch. */
-  entityId: string;
+  /** A light or a switch, or null for a zone that only tells Home Assistant. */
+  entityId: string | null;
   /** The fixture the entity was picked as, when it was picked as one. */
   fixtureId?: string;
   zone: { sourceKey: string; rect: ZoneRect; frame: Segmentation['frame'] };
@@ -474,11 +482,12 @@ export const ruleInputSchema = z
     id: z.string().uuid().optional(),
     label: z.string().trim().min(1).max(40),
     objectId: z.string().uuid(),
-    entityId: entityIdSchema,
+    entityId: entityIdSchema.nullable(),
     fixtureId: z.string().uuid().optional(),
     rect: zoneRectSchema,
   })
-  .strict();
+  .strict()
+  .refine((r) => r.entityId || !r.fixtureId, { message: 'A fixture needs its entity.' });
 /** The observation and name of the mug or another remembered object, by id. */
 export function objectById(
   memory: DeskMemory,
@@ -632,11 +641,11 @@ export function placementGate(
  * (`lightId`) before they could target switches and fixtures.
  */
 export function upgradeMemory(memory: DeskMemory): DeskMemory {
-  if (!memory.rules?.some((r) => !r.entityId)) return memory;
+  if (!memory.rules?.some((r) => r.entityId === undefined)) return memory;
   return {
     ...memory,
     rules: memory.rules.map((rule) => {
-      if (rule.entityId) return rule;
+      if (rule.entityId !== undefined) return rule;
       const { lightId, ...rest } = rule as PlacementRule & { lightId?: string };
       return { ...rest, entityId: lightId ?? '' };
     }),
@@ -657,3 +666,4 @@ export * from './photo-scene.js';
 export * from './photo-texture.js';
 export * from './illustration.js';
 export * from './fixture-scan.js';
+export * from './expose.js';

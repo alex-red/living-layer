@@ -5,6 +5,7 @@ import {
   asked,
   demoPositionSchema,
   findByAppearance,
+  frameMotion,
   maskBits,
   missed,
   modeSchema,
@@ -14,12 +15,15 @@ import {
   startLocalTrack,
   watchStep,
   watchThing,
+  zonesIn,
   APPEARANCE,
+  LOCAL_TRACK,
   DEMO_POSITIONS,
   type DemoPosition,
   type DeskMemory,
   type DeskObservation,
   type EvidenceRun,
+  type ExposeWatch,
   type LumaFrame,
   type Mode,
   type Segmentation,
@@ -29,6 +33,7 @@ import {
   type WatchThing,
   type WatchKind,
   type WatchView,
+  type ZoneRect,
 } from '@livinglayer/domain';
 import type { Appearance } from './appearance.js';
 import type { DeskTracking } from './desk.js';
@@ -117,6 +122,10 @@ export class Watcher {
   private checking = false;
   private pending: { id: string; ask: 'confirm' | 'reanchor' }[] = [];
   private lastFrame: LumaFrame | null = null;
+  /** Every zone in desk memory, the main one as `main`, watched for motion. */
+  private zones: { id: string; rect: ZoneRect }[] = [];
+  /** When pixels last changed in each zone. */
+  private motionAt = new Map<string, number>();
   private model: Appearance | null = null;
   private emitTimer: ReturnType<typeof setTimeout> | null = null;
   private generation = 0;
@@ -157,6 +166,17 @@ export class Watcher {
         score: Math.round(t.track.score * 100) / 100,
       })),
     };
+  }
+  /** What entities shown in Home Assistant need: the state, each thing's status, zone motion. */
+  exposeWatch(): ExposeWatch {
+    return {
+      state: this.state,
+      things: [...this.things.values()].map((t) => ({ id: t.subject.id, status: t.status })),
+      motionAt: Object.fromEntries(this.motionAt),
+    };
+  }
+  private watchZones(memory: DeskMemory) {
+    this.zones = zonesIn(memory).map((z) => ({ id: z.id, rect: z.rect }));
   }
   subscribe(listener: (view: WatchView) => void) {
     this.listeners.add(listener);
@@ -202,6 +222,8 @@ export class Watcher {
     this.stats = { frames: 0, checks: 0, refinds: 0 };
     this.say('starting', 'Starting…');
     const memory = this.memory();
+    this.watchZones(memory);
+    this.motionAt.clear();
     const camera = memory.watch?.camera ?? null;
     if (this.deps.mode === 'live' && !camera)
       return this.say('camera_lost', 'Choose a camera the server can read (RTSP) to watch.');
@@ -253,6 +275,7 @@ export class Watcher {
     return this.track(
       (async () => {
         const memory = this.memory();
+        this.watchZones(memory);
         const seen = watchedThings(memory);
         const ids = new Set(seen.map((x) => x.observation.objectId));
         for (const id of [...this.things.keys()]) if (!ids.has(id)) this.things.delete(id);
@@ -273,6 +296,7 @@ export class Watcher {
     this.source?.stop();
     this.source = null;
     this.things.clear();
+    this.motionAt.clear();
     this.pending = [];
     this.say('off', '');
   }
@@ -349,9 +373,15 @@ export class Watcher {
   }
 
   private frame(frame: LumaFrame) {
+    const previous = this.lastFrame;
     this.lastFrame = frame;
     this.stats.frames++;
     const now = this.now;
+    // Motion in each zone, by the same rule as the stillness gate; it decides nothing here.
+    if (previous)
+      for (const z of this.zones)
+        if (frameMotion(previous, frame, z.rect) > LOCAL_TRACK.motionShare)
+          this.motionAt.set(z.id, now);
     for (const [id, thing] of this.things) {
       // A thing being checked holds still until SAM answers.
       if (this.checking && this.pending[0]?.id === id) continue;
@@ -440,6 +470,7 @@ export class Watcher {
             ? (await tracking.trackObject(mode, id, run.id)).memory
             : (await tracking.trackFixture(mode, id, run.id)).memory;
       this.stats.checks++;
+      this.watchZones(memory);
       const seen = watchedThings(memory).find((s) => s.observation.objectId === id);
       const before = this.things.get(id) ?? thing;
       if (seen) await this.seed(seen, memory, picture, before);

@@ -49,19 +49,21 @@ The lamp is virtual in this mode and nothing leaves your machine.
 
 Copy `.env.example` to `.env` and fill in what you need. Restart the server after editing it.
 
-| Variable                             | Purpose                                                                                     |
-| ------------------------------------ | ------------------------------------------------------------------------------------------- |
-| `MODEL_API_KEY`                      | Meta API key. Stays on the server and is never sent to the browser.                         |
-| `META_LIVE_ENABLED`                  | Set to `true` to allow live Meta calls.                                                     |
-| `META_DAILY_SPEND_LIMIT_USD`         | Daily cap on Meta spend in USD (default 10). Changeable from the lab's spend pill.          |
-| `HA_URL`, `HA_TOKEN`, `HA_ENTITY_ID` | Home Assistant origin, a long-lived token, and one `light.*` entity.                        |
-| `HA_EXTRA_ENTITY_IDS`                | Optional. More `light.*` entities that extra placement rules may switch, comma-separated.   |
-| `HA_SWITCH_ENTITY_IDS`               | Optional. `switch.*` entities that fixtures and rules may turn on and off, comma-separated. |
-| `HA_LIVE_ENABLED`                    | Set to `true` to allow the lamp to be switched.                                             |
-| `CAMERA_STREAMS`                     | Optional. WHEP or `rtsp://` URLs of network cameras, where mDNS discovery is blocked.       |
-| `REMOTE_CAMERA_PORT`                 | HTTPS port for the phone camera page (default 43432). Only listens once a phone is paired.  |
-| `REMOTE_CAMERA_HOST`                 | Optional. Address the pairing QR code points at, if the detected LAN address is wrong.      |
-| `REMOTE_CAMERA_CERT`, `_KEY`         | Optional. PEM certificate and key for the phone page (e.g. mkcert); else self-signed.       |
+| Variable                                 | Purpose                                                                                                                |
+| ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `MODEL_API_KEY`                          | Meta API key. Stays on the server and is never sent to the browser.                                                    |
+| `META_LIVE_ENABLED`                      | Set to `true` to allow live Meta calls.                                                                                |
+| `META_DAILY_SPEND_LIMIT_USD`             | Daily cap on Meta spend in USD (default 10). Changeable from the lab's spend pill.                                     |
+| `HA_URL`, `HA_TOKEN`, `HA_ENTITY_ID`     | Home Assistant origin, a long-lived token, and one `light.*` entity.                                                   |
+| `HA_EXTRA_ENTITY_IDS`                    | Optional. More `light.*` entities that extra placement rules may switch, comma-separated.                              |
+| `HA_SWITCH_ENTITY_IDS`                   | Optional. `switch.*` entities that fixtures and rules may turn on and off, comma-separated.                            |
+| `HA_LIVE_ENABLED`                        | Set to `true` to allow the lamp to be switched.                                                                        |
+| `MQTT_URL`, `MQTT_USERNAME`, `_PASSWORD` | Optional. The MQTT broker Home Assistant reads, for entities you show there (e.g. `binary_sensor.ll_office_presence`). |
+| `MQTT_LIVE_ENABLED`                      | Set to `true` to publish them. `MQTT_DISCOVERY_PREFIX` and `MQTT_BASE_TOPIC` change the topics.                        |
+| `CAMERA_STREAMS`                         | Optional. WHEP or `rtsp://` URLs of network cameras, where mDNS discovery is blocked.                                  |
+| `REMOTE_CAMERA_PORT`                     | HTTPS port for the phone camera page (default 43432). Only listens once a phone is paired.                             |
+| `REMOTE_CAMERA_HOST`                     | Optional. Address the pairing QR code points at, if the detected LAN address is wrong.                                 |
+| `REMOTE_CAMERA_CERT`, `_KEY`             | Optional. PEM certificate and key for the phone page (e.g. mkcert); else self-signed.                                  |
 
 Then switch to **Live** mode and go through the same steps with your own photos or camera: photograph the office, then a close photo of the desk for **Find the desktop**. Photos are only sent to Meta when you press a button that says it calls a model. The spend pill in the top bar shows today's spend against the limit.
 

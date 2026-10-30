@@ -20,6 +20,8 @@ import {
   setModel,
   ruleGate,
   ruleInputSchema,
+  exposedInputSchema,
+  MAX_EXPOSED,
   MAX_OTHER_OBJECTS,
   MAX_RULES,
   MAX_FIXTURES,
@@ -254,17 +256,16 @@ export function deskRoutes(
               : 'stayed_outside';
         rule.placement = decision.decision;
       }
-      if (
-        decision.transition === 'entered' &&
-        !store.claimPlacement(`${o!.segmentRunId}:${rule.id}`)
-      ) {
+      // A zone with no entity only tells Home Assistant: nothing to switch, nothing to claim.
+      const acts = decision.transition === 'entered' && rule.entityId !== null;
+      if (acts && !store.claimPlacement(`${o!.segmentRunId}:${rule.id}`)) {
         decision.decision = 'blocked';
         decision.transition = undefined;
         decision.reason = `This segmentation already attempted "${rule.label}". Track the object in a new frame; no automatic retry.`;
       }
       const event = evidence('placement', mode, decision);
       const start = performance.now();
-      if (decision.transition === 'entered') {
+      if (acts && decision.transition === 'entered') {
         decision.action = 'pending';
         event.status = 'unconfirmed';
       }
@@ -274,7 +275,7 @@ export function deskRoutes(
       if (decision.action === 'pending') {
         active.add(mode);
         try {
-          decision.lamp = await turnOn(mode, rule.entityId);
+          decision.lamp = await turnOn(mode, rule.entityId!);
           decision.action = decision.lamp.stateConfirmed ? 'confirmed' : 'unconfirmed';
           event.status = decision.lamp.stateConfirmed ? 'completed' : 'unconfirmed';
           noteControl(memory, decision.lamp);
@@ -671,7 +672,7 @@ export function deskRoutes(
     return memory;
   });
   /**
-   * Save an extra zone for one object and one light. Like the main zone, it
+   * Save an extra zone for one object and one light or switch, or none. Like the main zone, it
    * belongs to the image of the object's current sighting.
    */
   app.post('/api/desk/rules/save', async (request) => {
@@ -683,7 +684,7 @@ export function deskRoutes(
     const memory = store.memory(mode);
     const o = objectById(memory, input.objectId)?.observation;
     if (!o) throw new LabError('rule_object', 'Confirm that object in a segmentation first.', 409);
-    if (!entities(mode).includes(input.entityId))
+    if (input.entityId !== null && !entities(mode).includes(input.entityId))
       throw new LabError('rule_light', 'Choose one of the configured lights or switches.', 400);
     if (input.fixtureId === input.objectId)
       throw new LabError('rule_fixture', 'A fixture can’t switch itself on by moving.', 400);
@@ -988,6 +989,8 @@ export function deskRoutes(
       others: [],
       rules: [],
       fixtures: store.memory(mode).fixtures ?? [],
+      // Entities in Home Assistant describe the home; ones whose zone went show as unavailable.
+      exposed: store.memory(mode).exposed ?? [],
     };
     store.saveMemory(memory);
     // Evidence and one-shot claims intentionally survive reset.
@@ -1031,6 +1034,10 @@ export function deskRoutes(
                 .max(MAX_FIXTURES)
                 .optional(),
               dismissed: z.array(z.string().min(1).max(40)).max(MAX_DISMISSED).optional(),
+              exposed: z
+                .array(exposedInputSchema.required({ id: true }))
+                .max(MAX_EXPOSED)
+                .optional(),
             })
             .loose(),
         })

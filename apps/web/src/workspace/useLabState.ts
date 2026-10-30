@@ -46,7 +46,7 @@ import {
 } from '@livinglayer/domain';
 import { api, ApiError } from '../api';
 import { openStream, useNetworkStreams, type NetworkStream } from '../streams';
-import { useWatch } from '../watch';
+import { useExpose, useWatch } from '../watch';
 import { usd } from '../cost';
 import { takeHandoff } from '../handoff';
 import type { Issue } from '../ProviderUi';
@@ -416,6 +416,8 @@ export function useLabState() {
   // The server's watcher: it follows things and fires rules with no tab open; this shows it.
   const watch = useWatch(mode);
   const watching = Boolean(watch?.on);
+  // Entities shown in Home Assistant over MQTT, with their states.
+  const expose = useExpose(mode);
   const lastCheck = useRef(0);
   const reanchorGap = useRef(REANCHOR_GAP_MS.first);
   const goodSteps = useRef(0);
@@ -1863,6 +1865,7 @@ export function useLabState() {
     followStats,
     watch,
     watching,
+    expose,
     canWatch,
     toggleWatch,
     findFixture,

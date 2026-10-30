@@ -32,6 +32,7 @@ import {
   type WatchSubject,
   type WatchThing,
   type WatchView,
+  type ExposeView,
 } from '@livinglayer/domain';
 
 const W = 160;
@@ -246,6 +247,19 @@ describe('the server watching the demo desk', () => {
       action: 'confirmed',
     });
     expect(s.watcher.view().checks).toBe(2);
+
+    // The mug moving counts as motion in its zone, for entities in Home Assistant.
+    expect(s.watcher.exposeWatch().motionAt.main).toBeGreaterThan(0);
+    await s.post('expose/save', {
+      entity: {
+        key: 'desk_presence',
+        name: 'Desk presence',
+        kind: 'binary_sensor',
+        source: { kind: 'motion', zoneId: 'main', holdS: 300 },
+      },
+    });
+    const exposed = (await s.app.inject('/api/expose/demo')).json<ExposeView>();
+    expect(exposed.states[0]).toMatchObject({ state: 'ON', available: true });
 
     // Watching survives a restart of the server: it is kept in desk memory.
     expect(memory.watch).toEqual({ on: true, camera: null });

@@ -99,6 +99,10 @@ export function selectionLabel(lab: Lab, s: Selection): string {
       return 'Add a fixture';
     case 'lamp':
       return builtInLamps(lab).find((l) => l.id === s.id)?.prop.label ?? 'Lamp';
+    case 'entity':
+      return memory?.exposed?.find((e) => e.id === s.id)?.name ?? 'Entity';
+    case 'new-entity':
+      return 'Show in Home Assistant';
   }
 }
 /** What a fixture is and, for a light or switch, its last confirmed state. */
