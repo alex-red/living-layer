@@ -158,6 +158,32 @@ export class FfmpegSource implements FrameSource {
     const { width = 0, height = 0 } = await sharp(png).metadata();
     return { png, width, height };
   }
+  /**
+   * The stream as MJPEG (`multipart/x-mixed-replace`, boundary `ffmpeg`), so a
+   * tab can show a camera it can't open itself. `stop` ends the process.
+   */
+  preview(fps = 10) {
+    const proc = Bun.spawn(
+      [
+        this.ffmpeg,
+        '-nostdin',
+        '-hide_banner',
+        '-loglevel',
+        'error',
+        ...this.input(),
+        '-an',
+        '-vf',
+        `fps=${fps},scale='min(${SNAPSHOT_SIDE},iw)':-2`,
+        '-q:v',
+        '5',
+        '-f',
+        'mpjpeg',
+        'pipe:1',
+      ],
+      { stdin: 'ignore', stdout: 'pipe', stderr: 'ignore' },
+    );
+    return { stream: proc.stdout, stop: () => proc.kill() };
+  }
 }
 
 let deskSvg: string | null = null;

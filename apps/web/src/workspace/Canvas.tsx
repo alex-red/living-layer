@@ -672,7 +672,7 @@ export function Canvas() {
                     <Glyph type="camera" />{' '}
                     {lab.cameraPending
                       ? 'Opening…'
-                      : chosenStream?.snapshot && !chosenStream.whep
+                      : chosenStream?.snapshot && !chosenStream.whep && !chosenStream.preview
                         ? 'Grab frame'
                         : 'Camera'}
                   </button>

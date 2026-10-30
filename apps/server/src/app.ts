@@ -74,6 +74,8 @@ export async function buildApp(
     mqttConnect?: MqttConnect;
     /** Stills from saved cameras; tests pass their own. */
     snapshots?: Parameters<typeof cameraRoutes>[2]['source'];
+    /** Live MJPEG from saved cameras; tests pass their own. */
+    previews?: Parameters<typeof cameraRoutes>[2]['preview'];
   } = {},
 ) {
   const app = Fastify({ logger: false, bodyLimit: 7_100_000, requestTimeout: 130000 });
@@ -475,6 +477,7 @@ export async function buildApp(
       }
     },
     ...(options.snapshots ? { source: options.snapshots } : {}),
+    ...(options.previews ? { preview: options.previews } : {}),
   });
   // Entities shown in Home Assistant, worked out from desk memory and what the watchers see.
   const exposers: Record<Mode, Exposer> = {

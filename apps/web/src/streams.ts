@@ -5,8 +5,8 @@ import { api } from './api';
 /**
  * A camera shared on the LAN with `scripts/share-camera.sh`, a paired phone or
  * a camera saved by its stream URL, as `/api/streams` lists it. A phone's
- * `whep` is a path on the lab server; a saved camera has none, only a
- * `snapshot` path the tab grabs frames from.
+ * `whep` is a path on the lab server; a saved camera has none, only an MJPEG
+ * `preview` the server relays and a `snapshot` path for single frames.
  */
 export interface NetworkStream {
   id: string;
@@ -18,6 +18,8 @@ export interface NetworkStream {
   /** The room a saved camera is assigned to. */
   scene?: CameraScene;
   snapshot?: string;
+  /** An MJPEG stream of a saved camera, relayed by the server. */
+  preview?: string;
   source: 'mdns' | 'config' | 'phone' | 'saved';
 }
 
@@ -102,6 +104,64 @@ export async function openStream(
     pc.addEventListener('connectionstatechange', () => {
       if (['failed', 'closed'].includes(pc.connectionState)) onLost();
     });
+    return { media, close };
+  } catch (e) {
+    close();
+    throw e;
+  }
+}
+
+/**
+ * Plays an MJPEG URL (a saved camera relayed by the server) as a MediaStream,
+ * by drawing it onto a canvas, so it stands in for any other camera. `onLost`
+ * fires once if the picture stops after it started.
+ */
+export async function openMjpeg(
+  url: string,
+  onLost: () => void,
+  timeoutMs = 15000,
+  fps = 15,
+): Promise<OpenedStream> {
+  const img = new Image();
+  const canvas = document.createElement('canvas');
+  let timer = 0;
+  let media: MediaStream | null = null;
+  const close = () => {
+    window.clearInterval(timer);
+    img.onerror = null;
+    // Dropping the source ends the request, and with it the server's ffmpeg.
+    img.removeAttribute('src');
+    media?.getTracks().forEach((t) => t.stop());
+  };
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const started = Date.now();
+      img.onerror = () => reject(new Error('The camera stream could not be opened.'));
+      img.src = new URL(url, window.location.href).href;
+      timer = window.setInterval(() => {
+        if (img.naturalWidth) resolve();
+        else if (Date.now() - started > timeoutMs)
+          reject(new Error('The camera stream did not start in time.'));
+      }, 100);
+    });
+    window.clearInterval(timer);
+    canvas.width = img.naturalWidth;
+    canvas.height = img.naturalHeight;
+    const context = canvas.getContext('2d')!;
+    const draw = () => {
+      if (img.naturalWidth !== canvas.width || img.naturalHeight !== canvas.height) {
+        canvas.width = img.naturalWidth;
+        canvas.height = img.naturalHeight;
+      }
+      context.drawImage(img, 0, 0);
+    };
+    draw();
+    media = canvas.captureStream(fps);
+    timer = window.setInterval(draw, 1000 / fps);
+    img.onerror = () => {
+      close();
+      onLost();
+    };
     return { media, close };
   } catch (e) {
     close();

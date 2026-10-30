@@ -78,6 +78,7 @@ export class CameraRegistry {
         rtsp: view.url,
         scene: c.scene,
         snapshot: `/api/cameras/${c.id}/snapshot`,
+        preview: `/api/cameras/${c.id}/stream`,
         source: 'saved',
       };
     });
@@ -107,10 +108,13 @@ export function cameraRoutes(
   {
     onRemoved,
     source = (url) => new FfmpegSource(url),
+    preview = (url) => new FfmpegSource(url).preview(),
   }: {
     onRemoved: (streamId: string) => void;
     /** Frames for a stream URL; tests pass their own. */
     source?: (url: string) => Pick<FrameSource, 'snapshot'>;
+    /** A stream URL as MJPEG; tests pass their own. */
+    preview?: (url: string) => { stream: ReadableStream<Uint8Array>; stop: () => void };
   },
 ) {
   const all = () => ({ cameras: cameras.list().map(cameraView) });
@@ -143,5 +147,35 @@ export function cameraRoutes(
       );
     }
     return reply.header('content-type', 'image/png').header('cache-control', 'no-store').send(png);
+  });
+  // The camera as a live picture for a tab, for as long as the tab reads it.
+  app.get('/api/cameras/:id/stream', async (request, reply) => {
+    const { id } = parseInput(
+      z.object({ id: z.string().regex(/^[a-z0-9-]{1,40}$/) }).strict(),
+      request.params,
+    );
+    const camera = cameras.get(id);
+    if (!camera) throw new LabError('camera_missing', 'That camera is gone.', 404);
+    const { stream, stop } = preview(camera.url);
+    reply.hijack();
+    reply.raw.writeHead(200, {
+      'content-type': 'multipart/x-mixed-replace;boundary=ffmpeg',
+      'cache-control': 'no-store',
+      connection: 'close',
+    });
+    request.raw.on('close', stop);
+    const reader = stream.getReader();
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done || reply.raw.destroyed) break;
+        reply.raw.write(value);
+      }
+    } catch {
+      // The camera or the tab went away; either way the picture is over.
+    } finally {
+      stop();
+      reply.raw.end();
+    }
   });
 }

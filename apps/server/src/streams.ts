@@ -19,6 +19,8 @@ export interface NetworkStream {
   scene?: CameraScene;
   /** Where a tab gets a still from a camera only the server can read. */
   snapshot?: string;
+  /** Where a tab gets a live MJPEG picture of a camera only the server can read. */
+  preview?: string;
   source: 'mdns' | 'config' | 'phone' | 'saved';
 }
 

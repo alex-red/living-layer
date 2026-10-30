@@ -46,7 +46,7 @@ import {
   zoneApplies,
 } from '@livinglayer/domain';
 import { api, ApiError } from '../api';
-import { openStream, useNetworkStreams, type NetworkStream } from '../streams';
+import { openMjpeg, openStream, useNetworkStreams, type NetworkStream } from '../streams';
 import { useExpose, useWatch } from '../watch';
 import { usd } from '../cost';
 import { takeHandoff } from '../handoff';
@@ -776,8 +776,8 @@ export function useLabState() {
     setCameraPending(true);
     const generation = ++cameraGeneration.current;
     const remote = source ?? network.streams.find((s) => s.id === cameraSource);
-    // A camera only the server reads plays nowhere here: grab one frame of it instead.
-    if (remote && !remote.whep && remote.snapshot) {
+    // A camera only the server reads, with no live relay: grab one frame of it instead.
+    if (remote && !remote.whep && !remote.preview && remote.snapshot) {
       try {
         const response = await fetch(remote.snapshot);
         if (!response.ok)
@@ -799,12 +799,15 @@ export function useLabState() {
       return;
     }
     try {
+      const lost = () => {
+        if (!mounted.current || generation !== cameraGeneration.current) return;
+        stopCamera();
+        setError(`The network camera "${remote?.name}" stopped sending.`);
+      };
       const opened = remote
-        ? await openStream(remote.whep, () => {
-            if (!mounted.current || generation !== cameraGeneration.current) return;
-            stopCamera();
-            setError(`The network camera "${remote.name}" stopped sending.`);
-          })
+        ? remote.whep
+          ? await openStream(remote.whep, lost)
+          : await openMjpeg(remote.preview!, lost)
         : {
             media: await navigator.mediaDevices.getUserMedia({
               video: { width: { ideal: 1280 }, height: { ideal: 720 } },
@@ -828,7 +831,9 @@ export function useLabState() {
           remote
             ? remote.source === 'phone'
               ? `Could not connect to the ${remote.name}. Keep the page open on the phone and try again.`
-              : `Could not reach the network camera "${remote.name}". Is the share still running?`
+              : remote.source === 'saved'
+                ? `Could not stream ${remote.name}. Check its URL, its credentials and that ffmpeg is installed on the server.`
+                : `Could not reach the network camera "${remote.name}". Is the share still running?`
             : 'Camera access is unavailable. Upload a desk photo instead.',
         );
     } finally {

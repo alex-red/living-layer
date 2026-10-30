@@ -23,7 +23,10 @@ afterEach(() => {
 
 const URL_WITH_PASSWORD = 'rtsp://admin:hunter2@192.168.1.20:554/stream1';
 
-async function setup(snapshot?: (url: string) => Promise<Buffer>) {
+async function setup(
+  snapshot?: (url: string) => Promise<Buffer>,
+  preview?: (url: string) => { stream: ReadableStream<Uint8Array>; stop: () => void },
+) {
   const dataDir = mkdtempSync(join(tmpdir(), 'livinglayer-cameras-'));
   dirs.push(dataDir);
   const opened: (WatchCamera | null)[] = [];
@@ -47,6 +50,7 @@ async function setup(snapshot?: (url: string) => Promise<Buffer>) {
           }),
         }
       : {}),
+    ...(preview ? { previews: preview } : {}),
   });
   const post = (path: string, payload: object) =>
     app.inject({ method: 'POST', url: `/api/${path}`, payload });
@@ -106,6 +110,7 @@ describe('saved cameras', () => {
       rtsp: 'rtsp://admin:***@192.168.1.20:554/stream1',
       scene: 'office',
       snapshot: `/api/cameras/${camera.id}/snapshot`,
+      preview: `/api/cameras/${camera.id}/stream`,
       source: 'saved',
     });
   });
@@ -160,6 +165,26 @@ describe('saved cameras', () => {
     const failed = await s.app.inject(`/api/cameras/${bad.id}/snapshot`);
     expect(failed.statusCode).toBe(502);
     expect(failed.json<{ error: { code: string } }>().error.code).toBe('camera_unreachable');
+  });
+
+  it('relays a live MJPEG picture from its real URL and stops ffmpeg after', async () => {
+    const asked: string[] = [];
+    let stopped = 0;
+    const s = await setup(undefined, (url) => {
+      asked.push(url);
+      return {
+        stream: new Response('--ffmpeg\r\nContent-Type: image/jpeg\r\n\r\nJPEG\r\n').body!,
+        stop: () => void stopped++,
+      };
+    });
+    const camera = await s.add({ name: 'Cam', url: URL_WITH_PASSWORD, scene: null });
+    const res = await s.app.inject(`/api/cameras/${camera.id}/stream`);
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['content-type']).toBe('multipart/x-mixed-replace;boundary=ffmpeg');
+    expect(res.body).toContain('JPEG');
+    expect(asked).toEqual([URL_WITH_PASSWORD]);
+    expect(stopped).toBeGreaterThan(0);
+    expect((await s.app.inject('/api/cameras/nope/stream')).statusCode).toBe(404);
   });
 
   it('is watched by its id, reads its real URL, and stops being watched when removed', async () => {
