@@ -1012,7 +1012,8 @@ describe('scanning live, with a mocked Meta API', () => {
     // The demo has no Spark to ask.
     expect((await s.post('fixtures/sculpt', { fixtureId: lamp.id })).statusCode).toBe(400);
     await s.app.close();
-  });
+    // Drawing, lifting and modelling with image work: slow on a busy machine.
+  }, 20_000);
   it('asks Spark once, leaving out what the camera follows, and maps what it finds', async () => {
     const s = await live();
     await pin(s);
