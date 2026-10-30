@@ -1049,23 +1049,33 @@ export function fixtureRoutes(
       };
     });
   });
+  /** Delete one fixture, or several at once (`fixtureIds`), in one save. */
   app.post('/api/fixtures/delete', async (request) => {
-    const { mode, fixtureId, dismiss } = parseInput(
+    const { mode, fixtureId, fixtureIds, dismiss } = parseInput(
       z
-        .object({ mode: modeSchema, fixtureId: z.string().uuid(), dismiss: z.boolean().optional() })
-        .strict(),
+        .object({
+          mode: modeSchema,
+          fixtureId: z.string().uuid().optional(),
+          fixtureIds: z.array(z.string().uuid()).min(1).max(MAX_FIXTURES).optional(),
+          dismiss: z.boolean().optional(),
+        })
+        .strict()
+        .refine((b) => Boolean(b.fixtureId) !== Boolean(b.fixtureIds), {
+          message: 'Give fixtureId or fixtureIds.',
+        }),
       request.body,
     );
+    const ids = new Set(fixtureIds ?? [fixtureId!]);
     const memory = store.memory(mode);
-    const gone = memory.fixtures?.find((f) => f.id === fixtureId);
-    if (dismiss && gone && !isDismissed(gone.label, memory.dismissed ?? []))
-      memory.dismissed = [...(memory.dismissed ?? []), gone.label].slice(-MAX_DISMISSED);
-    memory.fixtures = (memory.fixtures ?? []).filter((f) => f.id !== fixtureId);
-    // Rules it decided go with it; rules that switched it keep their entity.
+    for (const gone of (memory.fixtures ?? []).filter((f) => ids.has(f.id)))
+      if (dismiss && !isDismissed(gone.label, memory.dismissed ?? []))
+        memory.dismissed = [...(memory.dismissed ?? []), gone.label].slice(-MAX_DISMISSED);
+    memory.fixtures = (memory.fixtures ?? []).filter((f) => !ids.has(f.id));
+    // Rules they decided go with them; rules that switched one keep their entity.
     memory.rules = (memory.rules ?? [])
-      .filter((r) => r.objectId !== fixtureId)
+      .filter((r) => !r.objectId || !ids.has(r.objectId))
       .map((r) => {
-        if (r.fixtureId !== fixtureId) return r;
+        if (!r.fixtureId || !ids.has(r.fixtureId)) return r;
         const { fixtureId: _gone, ...rest } = r;
         return rest;
       });

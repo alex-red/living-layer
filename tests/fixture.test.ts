@@ -365,6 +365,22 @@ describe('fixture routes', () => {
     expect(gone.rules![0]!.entityId).toBe('switch.demo_fan');
     expect(gone.rules![0]!.fixtureId).toBeUndefined();
   });
+  it('deletes several fixtures at once, and skips them in scans when asked', async () => {
+    const s = await setup();
+    const save = async (label: string) =>
+      (await s.post('fixtures/save', { fixture: { ...input(), label, control: { kind: 'none' } } }))
+        .json<DeskMemory>()
+        .fixtures!.at(-1)!;
+    const [fan, mouse, plant] = [await save('Fan'), await save('Mouse'), await save('Plant')];
+    const gone = await s.post('fixtures/delete', { fixtureIds: [fan.id, plant.id], dismiss: true });
+    expect(gone.statusCode, gone.body).toBe(200);
+    const memory = gone.json<DeskMemory>();
+    expect(memory.fixtures!.map((f) => f.id)).toEqual([mouse.id]);
+    expect(memory.dismissed).toEqual(['Fan', 'Plant']);
+    // One way or the other, not both.
+    const both = await s.post('fixtures/delete', { fixtureId: mouse.id, fixtureIds: [mouse.id] });
+    expect(both.statusCode).toBe(400);
+  });
   it('switches a live fixture through Home Assistant and lists switches', async () => {
     const { fetcher, calls } = fakeHa(() => 'on');
     const s = await setup(ha, fetcher);

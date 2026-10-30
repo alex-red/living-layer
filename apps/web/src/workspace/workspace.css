@@ -301,6 +301,157 @@
   color: var(--seen);
 }
 
+/* Outline: picking fixtures to delete several at once. */
+.ol-head-actions {
+  display: inline-flex;
+  gap: 12px;
+}
+.ol-check {
+  display: grid;
+  place-items: center;
+  width: 14px;
+  height: 14px;
+  margin-top: 2px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-chip);
+  color: var(--void);
+  font-size: 10px;
+  line-height: 1;
+  transition:
+    background var(--t-fast),
+    border-color var(--t-fast),
+    transform var(--t-fast) var(--spring);
+}
+.ol-row.picked .ol-check {
+  border-color: var(--seen);
+  background: var(--seen);
+  box-shadow: 0 0 10px var(--seen-glow);
+  transform: scale(1.05);
+}
+.ol-row.picked {
+  background: var(--seen-wash);
+}
+.ol-tree.selecting .ol-row:disabled {
+  opacity: 0.35;
+}
+.ol-bulk {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  padding: 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-card);
+  background: var(--glass-thick);
+  box-shadow:
+    var(--glass-edge),
+    0 8px 24px rgb(0 0 0 / 40%);
+  backdrop-filter: blur(20px) saturate(140%);
+  -webkit-backdrop-filter: blur(20px) saturate(140%);
+  animation: rise-in var(--t-base) var(--ease-out);
+}
+.ol-bulk-note {
+  flex: 1 1 100%;
+  color: var(--text-2);
+  font-size: 12px;
+}
+.ol-bulk button {
+  min-height: 28px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+.ol-bulk button.destructive {
+  border: 1px solid transparent;
+  border-radius: var(--r-button);
+  background: var(--blocked);
+  color: var(--void);
+  font-weight: 600;
+}
+.ol-bulk button.destructive:hover:not(:disabled) {
+  box-shadow: 0 0 18px var(--blocked-wash);
+  filter: brightness(1.08);
+}
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+/* A right-click menu at the pointer. */
+.context-menu {
+  position: fixed;
+  z-index: 60;
+  display: grid;
+  min-width: 184px;
+  padding: 4px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-panel);
+  background: var(--glass-thick);
+  box-shadow:
+    var(--glass-edge),
+    0 16px 48px rgb(0 0 0 / 50%);
+  backdrop-filter: blur(28px) saturate(140%);
+  -webkit-backdrop-filter: blur(28px) saturate(140%);
+  transform-origin: top left;
+  animation: menu-in var(--t-fast) var(--ease-out);
+}
+.context-menu button {
+  min-height: 28px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--r-chip);
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+}
+.context-menu button:hover:not(:disabled),
+.context-menu button:focus-visible {
+  outline: none;
+  background: var(--surface-3);
+}
+.context-menu button.destructive {
+  color: var(--blocked);
+}
+.context-menu button.destructive:hover:not(:disabled),
+.context-menu button.destructive:focus-visible {
+  background: var(--blocked-wash);
+}
+.context-menu button.separated {
+  position: relative;
+  margin-top: 9px;
+}
+.context-menu button.separated::before {
+  content: '';
+  position: absolute;
+  top: -5px;
+  right: 6px;
+  left: 6px;
+  height: 1px;
+  background: var(--line);
+}
+.context-menu button:disabled {
+  opacity: 0.45;
+}
+@keyframes menu-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .context-menu,
+  .ol-bulk {
+    animation: none;
+  }
+}
+
 /* Canvas: the stage view gets a third segment, and split puts both side by side. */
 .mode-switch.three {
   grid-template-columns: repeat(3, 1fr);

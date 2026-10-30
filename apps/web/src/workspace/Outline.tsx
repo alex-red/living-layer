@@ -1,4 +1,13 @@
-import { MAX_EXPOSED, MAX_FIXTURES, MAX_RULES, isMugConcept } from '@livinglayer/domain';
+import { useCallback, useEffect, useState, type MouseEvent } from 'react';
+import {
+  MAX_EXPOSED,
+  MAX_FIXTURES,
+  MAX_RULES,
+  isMugConcept,
+  type DeskMemory,
+  type Fixture,
+} from '@livinglayer/domain';
+import { ContextMenu, type MenuItem } from './ContextMenu';
 import { stateLabel } from './ExposePanel';
 import { useLab } from './LabContext';
 import {
@@ -10,6 +19,7 @@ import {
   surfaceRows,
   type SurfaceRow,
 } from './labels';
+import { useCall } from './panel';
 import { sameSelection, type Selection, type StepState } from './progress';
 
 const GLYPH: Record<StepState, string> = { done: '✓', current: '●', todo: '◌', locked: '–' };
@@ -24,6 +34,8 @@ function Row({
   title,
   tone,
   onSelect,
+  onContextMenu,
+  checked,
 }: {
   label: string;
   detail?: string;
@@ -38,31 +50,40 @@ function Row({
    */
   tone?: 'chosen' | 'seen' | 'fixture' | 'add';
   /** What a click does, when it is more than showing the node. */
-  onSelect?: () => void;
+  onSelect?: (e: MouseEvent) => void;
+  onContextMenu?: (e: MouseEvent) => void;
+  /** In select mode: whether it is picked. The glyph becomes a check box. */
+  checked?: boolean;
 }) {
   const lab = useLab();
-  const current = sameSelection(lab.selection, target);
+  const current = checked === undefined && sameSelection(lab.selection, target);
   return (
     <li>
       <button
-        className={`ol-row ${state ?? ''} ${tone ?? ''}`}
+        className={`ol-row ${state ?? ''} ${tone ?? ''} ${checked ? 'picked' : ''}`}
         style={{ paddingLeft: 8 + depth * 14 }}
         aria-label={label}
         aria-current={current ? 'true' : undefined}
+        aria-pressed={checked}
         disabled={disabled}
         title={title}
         onClick={onSelect ?? (() => lab.select(target))}
+        onContextMenu={onContextMenu}
       >
-        <span className="ol-glyph" aria-hidden="true">
-          {tone === 'add'
-            ? '＋'
-            : tone === 'fixture'
-              ? '◇'
-              : tone === 'chosen' || tone === 'seen'
-                ? '◆'
-                : state
-                  ? GLYPH[state]
-                  : '▫'}
+        <span className={`ol-glyph ${checked === undefined ? '' : 'ol-check'}`} aria-hidden="true">
+          {checked !== undefined
+            ? checked
+              ? '✓'
+              : ''
+            : tone === 'add'
+              ? '＋'
+              : tone === 'fixture'
+                ? '◇'
+                : tone === 'chosen' || tone === 'seen'
+                  ? '◆'
+                  : state
+                    ? GLYPH[state]
+                    : '▫'}
         </span>
         <span className="ol-text">
           <span className="ol-label">{label}</span>
@@ -211,36 +232,7 @@ export function Outline() {
         )}
         {progress.room && (
           <>
-            <div className="pane-head ol-section">
-              <span className="tiny">FIXTURES</span>
-            </div>
-            <ul className="ol-tree">
-              {builtInLamps(lab).map((l) => (
-                <Row
-                  key={l.id}
-                  label={l.prop.label}
-                  detail={`built in · ${l.entity ? `light · ${lab.lightsOn.has(l.entity) ? 'on' : 'off'}` : 'no light'}`}
-                  tone="fixture"
-                  target={{ kind: 'lamp', id: l.id }}
-                />
-              ))}
-              {(memory?.fixtures ?? []).map((f) => (
-                <Row
-                  key={f.id}
-                  label={f.label}
-                  detail={controlLabel(f)}
-                  tone="fixture"
-                  target={{ kind: 'fixture', id: f.id }}
-                />
-              ))}
-              <Row
-                label="Add fixture"
-                detail={memory?.fixtures?.length ? undefined : 'from a photo of it'}
-                tone="add"
-                target={{ kind: 'new-fixture' }}
-                disabled={(memory?.fixtures?.length ?? 0) >= MAX_FIXTURES || Boolean(busy)}
-              />
-            </ul>
+            <FixtureRows />
           </>
         )}
         {progress.room && (
@@ -316,6 +308,255 @@ export function Outline() {
           </>
         )}
       </aside>
+    </>
+  );
+}
+
+/**
+ * The fixtures: the room's built-in lamps, then the ones you added. Right-click
+ * one for its menu; Select turns the list into check boxes, to delete several
+ * at once. Shift-click picks a run of them, Escape leaves.
+ */
+function FixtureRows() {
+  const lab = useLab();
+  const { memory, busy } = lab;
+  const { call, off } = useCall();
+  const fixtures = memory?.fixtures ?? [];
+  const [selecting, setSelecting] = useState(false);
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [anchor, setAnchor] = useState<string | null>(null);
+  const [confirming, setConfirming] = useState<'delete' | 'dismiss' | null>(null);
+  const [menu, setMenu] = useState<{ x: number; y: number; fixture: Fixture } | null>(null);
+  const closeMenu = useCallback(() => setMenu(null), []);
+  // Fixtures deleted elsewhere drop out of the selection.
+  const chosen = fixtures.filter((f) => picked.has(f.id));
+  const leave = useCallback(() => {
+    setSelecting(false);
+    setPicked(new Set());
+    setAnchor(null);
+    setConfirming(null);
+  }, []);
+  useEffect(() => {
+    if (!selecting) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (menu) return;
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        if (confirming) setConfirming(null);
+        else leave();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [selecting, confirming, menu, leave]);
+  useEffect(() => {
+    if (selecting && !fixtures.length) leave();
+  }, [selecting, fixtures.length, leave]);
+
+  function remove(ids: string[], dismiss = false) {
+    const gone = fixtures.filter((f) => ids.includes(f.id));
+    void call<DeskMemory>(
+      'fixtures/delete',
+      { fixtureIds: ids, ...(dismiss ? { dismiss: true } : {}) },
+      (m) => {
+        lab.setMemory(m);
+        if (lab.selection?.kind === 'fixture' && ids.includes(lab.selection.id)) lab.select(null);
+        leave();
+        lab.setMessage(
+          (gone.length === 1
+            ? `Removed the ${gone[0]!.label.toLowerCase()}.`
+            : `Removed ${gone.length} fixtures.`) +
+            (dismiss
+              ? ` Scans will skip things named like ${gone.length === 1 ? 'it' : 'them'}.`
+              : ''),
+        );
+      },
+    );
+  }
+  function toggle(f: Fixture, e: MouseEvent) {
+    const next = new Set(picked);
+    if (e.shiftKey && anchor) {
+      const a = fixtures.findIndex((x) => x.id === anchor);
+      const b = fixtures.findIndex((x) => x.id === f.id);
+      const on = !picked.has(f.id);
+      for (const x of fixtures.slice(Math.min(a, b), Math.max(a, b) + 1))
+        if (on) next.add(x.id);
+        else next.delete(x.id);
+    } else if (next.has(f.id)) next.delete(f.id);
+    else next.add(f.id);
+    setPicked(next);
+    setAnchor(f.id);
+    setConfirming(null);
+  }
+  function menuFor(f: Fixture): MenuItem[] {
+    const many = selecting && picked.has(f.id) && chosen.length > 1;
+    if (many)
+      return [
+        {
+          label: `Delete ${chosen.length} fixtures`,
+          destructive: true,
+          onSelect: () => remove(chosen.map((x) => x.id)),
+        },
+        {
+          label: `Not fixtures (${chosen.length})`,
+          destructive: true,
+          onSelect: () =>
+            remove(
+              chosen.map((x) => x.id),
+              true,
+            ),
+        },
+      ];
+    return [
+      { label: 'Open', onSelect: () => lab.select({ kind: 'fixture', id: f.id }) },
+      {
+        label: selecting ? (picked.has(f.id) ? 'Unselect' : 'Select') : 'Select…',
+        onSelect: () => {
+          setSelecting(true);
+          setPicked((p) => {
+            const next = new Set(p);
+            if (selecting && next.has(f.id)) next.delete(f.id);
+            else next.add(f.id);
+            return next;
+          });
+          setAnchor(f.id);
+        },
+      },
+      { label: 'Delete', destructive: true, separated: true, onSelect: () => remove([f.id]) },
+      { label: 'Not a fixture', destructive: true, onSelect: () => remove([f.id], true) },
+    ];
+  }
+  const all = chosen.length === fixtures.length;
+  return (
+    <>
+      <div className="pane-head ol-section">
+        <span className="tiny">FIXTURES{selecting ? ` · ${chosen.length} SELECTED` : ''}</span>
+        {selecting ? (
+          <span className="ol-head-actions">
+            <button
+              className="text-button"
+              onClick={() => {
+                setPicked(all ? new Set() : new Set(fixtures.map((f) => f.id)));
+                setConfirming(null);
+              }}
+            >
+              {all ? 'None' : 'All'}
+            </button>
+            <button className="text-button" onClick={leave}>
+              Done
+            </button>
+          </span>
+        ) : (
+          fixtures.length > 1 && (
+            <button className="text-button" disabled={off} onClick={() => setSelecting(true)}>
+              Select
+            </button>
+          )
+        )}
+      </div>
+      <ul className={`ol-tree ${selecting ? 'selecting' : ''}`}>
+        {builtInLamps(lab).map((l) => (
+          <Row
+            key={l.id}
+            label={l.prop.label}
+            detail={`built in · ${l.entity ? `light · ${lab.lightsOn.has(l.entity) ? 'on' : 'off'}` : 'no light'}`}
+            tone="fixture"
+            target={{ kind: 'lamp', id: l.id }}
+            disabled={selecting}
+            title={selecting ? 'Built into the room: it can’t be deleted.' : undefined}
+          />
+        ))}
+        {fixtures.map((f) => (
+          <Row
+            key={f.id}
+            label={f.label}
+            detail={controlLabel(f)}
+            tone="fixture"
+            target={{ kind: 'fixture', id: f.id }}
+            {...(selecting
+              ? { checked: picked.has(f.id), onSelect: (e: MouseEvent) => toggle(f, e) }
+              : {})}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              // The menu key opens it at the row, not the pointer.
+              const box = e.currentTarget.getBoundingClientRect();
+              const keyboard = e.clientX === 0 && e.clientY === 0;
+              setMenu({
+                x: keyboard ? box.left + 24 : e.clientX,
+                y: keyboard ? box.bottom : e.clientY,
+                fixture: f,
+              });
+            }}
+          />
+        ))}
+        {!selecting && (
+          <Row
+            label="Add fixture"
+            detail={fixtures.length ? undefined : 'from a photo of it'}
+            tone="add"
+            target={{ kind: 'new-fixture' }}
+            disabled={fixtures.length >= MAX_FIXTURES || Boolean(busy)}
+          />
+        )}
+      </ul>
+      {selecting && (
+        <div className="ol-bulk" role="toolbar" aria-label="Selected fixtures">
+          {confirming ? (
+            <>
+              <span className="ol-bulk-note">
+                {confirming === 'delete'
+                  ? `Delete ${chosen.length} fixture${chosen.length === 1 ? '' : 's'}?`
+                  : `Delete ${chosen.length} and skip ${chosen.length === 1 ? 'it' : 'them'} in scans?`}
+              </span>
+              <button
+                className="destructive"
+                disabled={off}
+                autoFocus
+                onClick={() =>
+                  remove(
+                    chosen.map((f) => f.id),
+                    confirming === 'dismiss',
+                  )
+                }
+              >
+                {off ? 'Deleting…' : 'Delete'}
+              </button>
+              <button className="secondary" disabled={off} onClick={() => setConfirming(null)}>
+                Cancel
+              </button>
+            </>
+          ) : (
+            <>
+              <span className="ol-bulk-note">
+                {chosen.length ? `${chosen.length} selected` : 'Pick fixtures · shift-click a run'}
+              </span>
+              <button
+                className="destructive"
+                disabled={off || !chosen.length}
+                onClick={() => setConfirming('delete')}
+              >
+                Delete
+              </button>
+              <button
+                className="secondary"
+                disabled={off || !chosen.length}
+                title="Delete them, and have scans skip things named like them."
+                onClick={() => setConfirming('dismiss')}
+              >
+                Not fixtures
+              </button>
+            </>
+          )}
+        </div>
+      )}
+      {menu && (
+        <ContextMenu
+          at={menu}
+          label={`${menu.fixture.label} actions`}
+          items={menuFor(menu.fixture)}
+          onClose={closeMenu}
+        />
+      )}
     </>
   );
 }
