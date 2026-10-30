@@ -12,13 +12,7 @@ import {
 } from './iso.js';
 import { ISO_PRESETS, isoSurface } from './iso-presets.js';
 import { worldSurface, type IsoBox, type IsoScene, type IsoSurface, type IsoVec } from './iso.js';
-import {
-  cameraFromPin,
-  fitSurfaceQuad,
-  maskBits,
-  projectPoint,
-  surfaceTop,
-} from './photo-scene.js';
+import { pinCamera, fitSurfaceQuad, maskBits, projectPoint, surfaceTop } from './photo-scene.js';
 
 /** A room's picture: `runId/illustration.png` in the evidence store. */
 export const illustrationRef = z.string().regex(/^[a-z0-9-]{1,64}\/illustration\.png$/);
@@ -209,7 +203,7 @@ export function scenePointInPicture(
   if (!surface) return null;
   if (picture.drawnFrom) {
     const { w, d } = surface.rect;
-    const camera = cameraFromPin(pin.corners, pin.frame, w, [d, d]);
+    const camera = pinCamera(pin.corners, pin.frame, w, d);
     const at =
       camera && projectPoint(camera, p.x - surface.rect.x, p.y - surface.rect.y, p.z - surface.z);
     return at && framePointInPicture(pin, picture, pin.frame, at);

@@ -220,6 +220,7 @@ export function ScanFixtures({
   const lab = useLab();
   const { call, off } = useCall();
   const [mapped, setMapped] = useState<MappedThing[] | null>(null);
+  const [replace, setReplace] = useState(false);
   const live = lab.mode === 'live';
   // The demo scans the illustrated desk, whose pin is always the same.
   const pin = live ? lab.memory?.surface : DEMO_SURFACE;
@@ -230,6 +231,8 @@ export function ScanFixtures({
   const roomPhoto =
     pin?.scene === 'custom' && Boolean(lab.memory?.scenePhoto || lab.memory?.illustration);
   const blocked = (live && !lab.image && !roomPhoto) || !scene;
+  const inScene = (lab.memory?.fixtures ?? []).filter((f) => f.scene === scene);
+  const placedByHand = inScene.some((f) => !f.scanned);
   return (
     <Details summary="Scan and map fixtures" open={open}>
       <p className="micro">
@@ -253,7 +256,7 @@ export function ScanFixtures({
         onClick={() =>
           void call<{ run: EvidenceRun; mapped: MappedThing[]; memory: DeskMemory }>(
             'fixtures/scan',
-            { scene, ...(live ? { imageDataUrl: lab.image } : {}) },
+            { scene, replace, ...(live ? { imageDataUrl: lab.image } : {}) },
             (r) => {
               lab.setMemory(r.memory);
               lab.setSelected(r.run);
@@ -268,28 +271,22 @@ export function ScanFixtures({
           )
         }
       >
-        {off ? 'Scanning…' : 'Scan and map'}
+        {off ? 'Scanning…' : inScene.some((f) => f.scanned) ? 'Scan again' : 'Scan and map'}
       </button>
+      {placedByHand && (
+        <label className="photo-check">
+          <input
+            type="checkbox"
+            checked={replace}
+            disabled={off}
+            onChange={(e) => setReplace(e.target.checked)}
+          />
+          Also move fixtures you placed by hand to where the scan finds them
+        </label>
+      )}
       <Cost>
         One Spark call and one SAM call, refused up front if today’s limit can’t cover them.
       </Cost>
-      {scene && (lab.memory?.fixtures ?? []).some((f) => f.scene === scene && !f.scanned) && (
-        <p className="micro">
-          Fixtures you placed stay put.{' '}
-          <button
-            className="text-button"
-            disabled={off}
-            onClick={() =>
-              void call<DeskMemory>('fixtures/release', { scene }, (m) => {
-                lab.setMemory(m);
-                lab.setMessage('The next scan places and refits every fixture in this scene.');
-              })
-            }
-          >
-            Let scans place them all
-          </button>
-        </p>
-      )}
       {(lab.memory?.dismissed?.length ?? 0) > 0 && (
         <p className="micro">
           Skipped as not fixtures:{' '}

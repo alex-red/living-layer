@@ -704,6 +704,22 @@ export function cameraFromPin(
     (Math.asin(Math.min(1, Math.abs(dot(up, centre)) / norm(centre))) * 180) / Math.PI;
   return { f, cx, cy, r1, r2, up, t, surface: { w: width, d: depth }, elevation, focalGuessed };
 }
+/**
+ * The pin's camera in the pinned surface's own tiles, `w` across and `d`
+ * deep: its far edge is where the pin's far corners are, however deep the
+ * photo makes it look. `r2` is stretched to do that, so it is no longer of
+ * unit length; heights stay in tiles across.
+ */
+export function pinCamera(
+  corners: Quad,
+  frame: Segmentation['frame'],
+  w: number,
+  d: number,
+): PhotoCamera | null {
+  const camera = cameraFromPin(corners, frame, w, [1e-3, 1e6]);
+  if (!camera || !(d > 0)) return null;
+  return { ...camera, r2: scaleV(camera.r2, camera.surface.d / d), surface: { w, d } };
+}
 /** Where a point X, Y on the surface, Z above it, appears in the frame. */
 export function projectPoint(c: PhotoCamera, X: number, Y: number, Z: number): Point | null {
   const p: Vec3 = [

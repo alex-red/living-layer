@@ -75,9 +75,14 @@ export interface Fixture extends Omit<FixtureInput, 'id' | 'model'> {
   scanned?: boolean;
   /**
    * Where the last scan saw it touch down and how big it looked, as shares of
-   * the photo the pin was set on, so a corrected pin can place it again.
+   * the photo the pin was set on, so a corrected pin can place it again;
+   * with a sample of its outline's points when a scan outlined it.
    */
-  seen?: { foot: { x: number; y: number }; size: { w: number; h: number } };
+  seen?: {
+    foot: { x: number; y: number };
+    size: { w: number; h: number };
+    points?: { x: number; y: number }[];
+  };
   /** Set once a person confirmed it in the camera's view; moving it by hand clears it. */
   track?: FixtureTrack;
   createdAt: string;

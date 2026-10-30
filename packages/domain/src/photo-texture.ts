@@ -1,5 +1,5 @@
 import type { IsoProp, IsoScene, SurfacePin } from './iso.js';
-import { cameraFromPin } from './photo-scene.js';
+import { pinCamera } from './photo-scene.js';
 
 /** An RGBA image, row by row. */
 export interface Rgba {
@@ -50,7 +50,7 @@ function sceneCamera(scene: IsoScene, pin: SurfacePin) {
   const surface = scene.surfaces.find((s) => s.id === pin.surfaceId);
   if (!surface) return null;
   const { w, d } = surface.rect;
-  const camera = cameraFromPin(pin.corners, pin.frame, w, [d, d]);
+  const camera = pinCamera(pin.corners, pin.frame, w, d);
   if (!camera) return null;
   const origin: Vec3 = [surface.rect.x, surface.rect.y, surface.z];
   // Camera space from scene space: p = R·(W − origin) + t, R's rows r1, r2, up as columns.
@@ -63,7 +63,12 @@ function sceneCamera(scene: IsoScene, pin: SurfacePin) {
     ) as Vec3;
   };
   // The camera's centre and a pixel's ray, back in scene space.
-  const back = (p: Vec3): Vec3 => [dot(camera.r1, p), dot(camera.r2, p), dot(camera.up, p)];
+  // r2 is stretched to the surface's depth, so it is divided out again.
+  const back = (p: Vec3): Vec3 => [
+    dot(camera.r1, p),
+    dot(camera.r2, p) / dot(camera.r2, camera.r2),
+    dot(camera.up, p),
+  ];
   const c = back(camera.t);
   const centre: Vec3 = [origin[0] - c[0], origin[1] - c[1], origin[2] - c[2]];
   const ray = (px: number, py: number) =>

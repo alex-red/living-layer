@@ -456,13 +456,15 @@ export function fixtureRoutes(
    * illustrated desk, which fills the frame, with no model call.
    */
   app.post('/api/fixtures/scan', async (request) => {
-    const { mode, imageDataUrl, scene } = parseInput(
+    const { mode, imageDataUrl, scene, replace } = parseInput(
       z
         .object({
           mode: modeSchema,
           imageDataUrl: z.string().max(7_000_000).optional(),
           /** The scene to map into; the pin's own when left out. */
           scene: z.union([isoSceneKindSchema, z.literal('custom')]).optional(),
+          /** Move fixtures placed by hand too, to where the scan finds them. */
+          replace: z.boolean().optional(),
         })
         .strict(),
       request.body,
@@ -495,6 +497,18 @@ export function fixtureRoutes(
     const image = live
       ? await validateImage(imageDataUrl ?? (await roomPhoto(before, store)))
       : null;
+    // Things are mapped through the pin by where they are in the frame, so the
+    // photo must be the shape of the one the pin was set on.
+    if (
+      image &&
+      Math.abs(image.width / image.height - pin.frame.width / pin.frame.height) >
+        0.02 * (pin.frame.width / pin.frame.height)
+    )
+      throw new LabError(
+        'scan_frame',
+        `The pin was set on a ${pin.frame.width}×${pin.frame.height} frame, and this photo is ${image.width}×${image.height}. Scan a frame from the pinned camera, or pin the surface again on this photo.`,
+        409,
+      );
     const tracked = [before.object?.label, ...(before.others ?? []).map((o) => o.label)].filter(
       (l): l is string => Boolean(l),
     );
@@ -574,6 +588,7 @@ export function fixtureRoutes(
         outlines,
         models,
         dismissed: memory.dismissed ?? [],
+        replace: Boolean(replace),
       });
       return { ...result, output: { scan, mapped }, assets };
     });

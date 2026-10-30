@@ -22,6 +22,16 @@ import {
   isDismissed,
   scenePointInPicture,
   placeholderModel,
+  cameraFromPin,
+  convexHull,
+  detectionFromBits,
+  fillRings,
+  isoSurface,
+  newBits,
+  outlineOf,
+  placeSeen,
+  projectPoint,
+  sizeInTiles,
   type DeskMemory,
   type EvidenceRun,
   type Fixture,
@@ -346,6 +356,91 @@ describe('standing on what is nearby', () => {
     };
     const [mouse] = mapScan({ scan, pin, custom: null, library: [], room: 12, entities: [] });
     expect(mouse!.fixture!.surfaceId).toBe('desk:top');
+  });
+});
+
+describe('placing what SAM outlined', () => {
+  const pin = DEMO_SURFACE;
+  const top = isoSurface('desk', 'desk:top', null)!.rect;
+  const camera = cameraFromPin(pin.corners, pin.frame, top.w, [top.d, top.d])!;
+  /** A box of `size` tiles centred at `centre` on the desk, outlined as SAM would see it. */
+  const outlined = (centre: Point, size: { w: number; d: number; h: number }) => {
+    const corners: Point[] = [];
+    for (const dx of [-size.w / 2, size.w / 2])
+      for (const dy of [-size.d / 2, size.d / 2])
+        for (const z of [0, size.h])
+          corners.push(projectPoint(camera, centre.x - top.x + dx, centre.y - top.y + dy, z)!);
+    const bits = newBits(pin.frame.width, pin.frame.height);
+    fillRings(bits, [convexHull(corners)]);
+    return outlineOf(detectionFromBits('1', bits)!, pin.frame)!;
+  };
+  const centreOf = (f: { at: Point; size: { w: number; d: number } }) => ({
+    x: f.at.x + f.size.w / 2,
+    y: f.at.y + f.size.d / 2,
+  });
+  const scanOf = (sizeCm: ScannedThing['sizeCm']): FixtureScan => ({
+    things: [thing({ label: 'thing', archetype: 'box', sizeCm })],
+  });
+
+  it('keeps the largest part of a mask, so a neighbour a loose box took in is dropped', () => {
+    const bits = newBits(200, 100);
+    for (let y = 40; y < 80; y++) for (let x = 20; x < 80; x++) bits.data[y * 200 + x] = 1;
+    for (let y = 10; y < 20; y++) for (let x = 150; x < 160; x++) bits.data[y * 200 + x] = 1;
+    const outline = outlineOf(detectionFromBits('1', bits)!, { width: 200, height: 100 })!;
+    expect(outline.size.w).toBeCloseTo(0.3, 2);
+    expect(outline.size.h).toBeCloseTo(0.4, 2);
+    // Its hull: the rectangle's corners, none of the stray bit.
+    expect(outline.points!.length).toBeGreaterThanOrEqual(4);
+    expect(outline.points!.every((p) => p.x <= 0.4 && p.y >= 0.4)).toBe(true);
+  });
+  it.each([
+    ['a flat pad', { w: 20, d: 30, h: 1 }],
+    ['a tall speaker', { w: 12, d: 12, h: 30 }],
+  ])('stands %s where it really is, from its whole outline', (_, sizeCm) => {
+    const size = sizeInTiles(sizeCm, 'desk');
+    const truth = { x: top.x + top.w * 0.6, y: top.y + top.d * 0.4 };
+    const outline = outlined(truth, size);
+    const [placed] = mapScan({
+      scan: scanOf(sizeCm),
+      pin,
+      custom: null,
+      library: [],
+      room: 12,
+      entities: [],
+      outlines: [outline],
+    });
+    expect(placed!.fixture!.surfaceId).toBe('desk:top');
+    const centre = centreOf(placed!.fixture!);
+    expect(Math.hypot(centre.x - truth.x, centre.y - truth.y)).toBeLessThan(0.08);
+    // A corrected pin places it again from the same outline, to the same spot.
+    const again = placeSeen({ ...placed!.fixture!, seen: placed!.seen! }, pin, null)!;
+    expect(again.at.x).toBeCloseTo(placed!.fixture!.at.x, 5);
+    expect(again.at.y).toBeCloseTo(placed!.fixture!.at.y, 5);
+  });
+  it('moves fixtures placed by hand only when asked to', () => {
+    const size = sizeInTiles({ w: 20, d: 30, h: 1 }, 'desk');
+    const byHand = fixture({
+      label: 'Thing',
+      scene: 'desk',
+      surfaceId: 'desk:top',
+      at: { x: top.x, y: top.y },
+      size,
+    });
+    const outline = outlined({ x: top.x + top.w * 0.6, y: top.y + top.d * 0.4 }, size);
+    const scan = (replace: boolean) =>
+      mapScan({
+        scan: scanOf({ w: 20, d: 30, h: 1 }),
+        pin,
+        custom: null,
+        library: [byHand],
+        room: 12,
+        entities: [],
+        outlines: [outline],
+        replace,
+      })[0]!;
+    expect(scan(false)).toMatchObject({ match: 'existing', fixtureId: byHand.id });
+    expect(scan(false).moveTo).toBeUndefined();
+    expect(scan(true).moveTo?.surfaceId).toBe('desk:top');
   });
 });
 

@@ -22,9 +22,12 @@ import {
 } from './iso.js';
 import type { Detection, Segmentation } from './index.js';
 import {
-  cameraFromPin,
+  convexHull,
   maskBits,
+  newBits,
+  type Bits,
   onPinnedSurface,
+  pinCamera,
   projectPoint,
   unprojectPoint,
 } from './photo-scene.js';
@@ -145,21 +148,72 @@ export function libraryScore(
 /**
  * Where an outlined thing touches what it stands on, and how big it is, as
  * shares of the photo: the middle of the mask's lowest few rows. A loose box
- * runs past the thing; the mask stops where it does.
+ * runs past the thing; the mask stops where it does. `points` is the
+ * convex hull of the mask, so the thing's footprint can be found through
+ * the pin's camera, looking down or across.
  */
 export interface Outline {
   foot: Point;
   size: { w: number; h: number };
+  points?: Point[];
+}
+/** How many corners of a mask's hull an outline keeps. */
+const OUTLINE_POINTS = 32;
+/** The largest 4-connected part of a mask: bits of a neighbour a loose box took in are dropped. */
+function largestPart(bits: Bits): Bits {
+  const { width, height, data } = bits;
+  const part = new Int32Array(width * height);
+  let best = 0;
+  let bestSize = 0;
+  let label = 0;
+  const stack: number[] = [];
+  for (let start = 0; start < data.length; start++) {
+    if (!data[start] || part[start]) continue;
+    label++;
+    let size = 0;
+    part[start] = label;
+    stack.push(start);
+    while (stack.length) {
+      const i = stack.pop()!;
+      size++;
+      const x = i % width;
+      for (const j of [
+        x > 0 ? i - 1 : -1,
+        x < width - 1 ? i + 1 : -1,
+        i - width,
+        i + width < data.length ? i + width : -1,
+      ])
+        if (j >= 0 && data[j] && !part[j]) {
+          part[j] = label;
+          stack.push(j);
+        }
+    }
+    if (size > bestSize) [best, bestSize] = [label, size];
+  }
+  const out = newBits(width, height);
+  for (let i = 0; i < data.length; i++) if (part[i] === best) out.data[i] = 1;
+  return out;
 }
 export function outlineOf(d: Detection, frame: Segmentation['frame']): Outline | null {
   const scale = Math.min(1, 480 / Math.max(frame.width, frame.height));
-  const bits = maskBits(d, frame, scale);
-  let bottom = -1;
-  for (let y = bits.height - 1; y >= 0 && bottom < 0; y--)
-    for (let x = 0; x < bits.width; x++) if (bits.data[y * bits.width + x]) bottom = y;
-  if (bottom < 0) return null;
+  const bits = largestPart(maskBits(d, frame, scale));
+  let count = 0;
+  let [left, top, right, bottom] = [bits.width, bits.height, -1, -1];
+  for (let i = 0; i < bits.data.length; i++)
+    if (bits.data[i]) {
+      count++;
+      const x = i % bits.width;
+      const y = Math.floor(i / bits.width);
+      [left, top, right, bottom] = [
+        Math.min(left, x),
+        Math.min(top, y),
+        Math.max(right, x),
+        Math.max(bottom, y),
+      ];
+    }
+  if (!count) return null;
   // The lowest rows, a few percent of its height: a base, legs, a mouse's belly.
-  const band = Math.max(1, Math.round(d.box.height * scale * 0.04));
+  const band = Math.max(1, Math.round((bottom - top + 1) * 0.04));
   let sum = 0;
   let n = 0;
   for (let y = Math.max(0, bottom - band); y <= bottom; y++)
@@ -168,9 +222,25 @@ export function outlineOf(d: Detection, frame: Segmentation['frame']): Outline |
         sum += x + 0.5;
         n++;
       }
+  // Its hull, from each row's ends: enough to tell what lies inside it.
+  const ends: Point[] = [];
+  for (let y = top; y <= bottom; y++) {
+    let [l, r] = [-1, -1];
+    for (let x = left; x <= right; x++)
+      if (bits.data[y * bits.width + x]) [l, r] = [l < 0 ? x : l, x + 1];
+    if (l >= 0) ends.push({ x: l, y }, { x: r, y }, { x: l, y: y + 1 }, { x: r, y: y + 1 });
+  }
+  const hull = convexHull(ends);
+  const step = hull.length / Math.min(OUTLINE_POINTS, hull.length);
+  const share = (v: number) => Math.round(v * 10000) / 10000;
+  const points = Array.from({ length: Math.min(OUTLINE_POINTS, hull.length) }, (_, k) => {
+    const p = hull[Math.floor(k * step)]!;
+    return { x: share(p.x / bits.width), y: share(p.y / bits.height) };
+  });
   return {
     foot: { x: sum / n / bits.width, y: (bottom + 1) / bits.height },
-    size: { w: d.box.width / frame.width, h: d.box.height / frame.height },
+    size: { w: (right - left + 1) / bits.width, h: (bottom - top + 1) / bits.height },
+    points,
   };
 }
 
@@ -224,21 +294,29 @@ const REACH = 0.6;
  * drawn edge, a laptop hangs over it), at the nearest point of it. Anything
  * else stands on the floor below the camera when that is in the room, else
  * on the nearest surface, else in front of the pinned one. A centre point in scene tiles.
+ *
+ * With its outline's hull and its height, the middle of its footprint is
+ * found too, through the pin's camera: where a box of that height would
+ * show inside the outline from its foot to its top. That holds for a
+ * camera looking down on a desk, where the lowest rows of a mask are only
+ * its near edge, as well as for one looking across a room.
  */
+type Standing = { centre: Point; surfaceId: string | null; middle?: boolean };
 function standing(
   pin: SurfacePin,
   scene: IsoSceneKind | 'custom',
   custom: IsoScene | null,
   foot: Point,
   boxSize: number,
-): { centre: Point; surfaceId: string | null } | null {
+  body?: { points: Point[]; height: number },
+): Standing | null {
   // The pin maps the frame onto the surface's unit square, so the same
   // surface in a room and its close view takes the thing to the same spot.
   const pinned = isoSurface(scene, pin.surfaceId, custom);
   const all = (scene === 'custom' ? custom : ISO_PRESETS[scene])?.surfaces ?? [];
   if (!pinned) return null;
   const { w, d } = pinned.rect;
-  const camera = cameraFromPin(pin.corners, pin.frame, w, [d, d]);
+  const camera = pinCamera(pin.corners, pin.frame, w, d);
   const outline = (s: IsoSurface): Point[] | null => {
     if (s.id === pinned.id) return [...pin.corners];
     if (!camera) return null;
@@ -264,6 +342,37 @@ function standing(
         }
       : null;
   };
+  // The middle of its footprint on a plane `z` above the pinned surface, in scene
+  // tiles: the spots whose foot and top both show inside its outline, as a box
+  // of its height standing there would. Lower when nothing passes, as an
+  // overestimated height leaves no such spot.
+  const middle = (z: number): Point | null => {
+    if (!camera || !body || body.points.length < 3) return null;
+    const hull = body.points;
+    const base = hull.map((p) => unprojectPoint(camera, p, z));
+    if (base.some((b) => !b)) return null;
+    const xs = base.map((b) => b!.X);
+    const ys = base.map((b) => b!.Y);
+    const [x0, x1, y0, y1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
+    const N = 24;
+    for (const h of [body.height, body.height / 2, body.height / 4, 0]) {
+      let [sx, sy, n] = [0, 0, 0];
+      for (let i = 0; i < N; i++)
+        for (let j = 0; j < N; j++) {
+          const X = x0 + ((i + 0.5) / N) * (x1 - x0);
+          const Y = y0 + ((j + 0.5) / N) * (y1 - y0);
+          const foot = projectPoint(camera, X, Y, z);
+          const head = projectPoint(camera, X, Y, z + h);
+          if (foot && head && inside(hull, foot) && inside(hull, head)) {
+            sx += X;
+            sy += Y;
+            n++;
+          }
+        }
+      if (n) return { x: pinned.rect.x + sx / n, y: pinned.rect.y + sy / n };
+    }
+    return null;
+  };
   const reach = REACH * boxSize;
   const near = all
     .map((s) => {
@@ -278,9 +387,22 @@ function standing(
     .sort((a, b) =>
       a.distance === 0 && b.distance === 0 ? b.s.z - a.s.z : a.distance - b.distance,
     );
-  const onto = (hit: (typeof near)[number] | undefined) => {
-    const uv = hit && onPlane(hit.s, hit.at);
-    if (!hit || !uv) return null;
+  const onto = (hit: (typeof near)[number] | undefined): Standing | null => {
+    if (!hit) return null;
+    // Its middle when that is on the surface or just off it (a laptop hanging over the edge).
+    const m = middle(hit.s.z - pinned.z);
+    const r = hit.s.rect;
+    if (m && m.x > r.x - 0.5 && m.x < r.x + r.w + 0.5 && m.y > r.y - 0.5 && m.y < r.y + r.d + 0.5)
+      return {
+        centre: {
+          x: Math.min(r.x + r.w * 0.98, Math.max(r.x + r.w * 0.02, m.x)),
+          y: Math.min(r.y + r.d * 0.98, Math.max(r.y + r.d * 0.02, m.y)),
+        },
+        surfaceId: hit.s.id,
+        middle: true,
+      };
+    const uv = onPlane(hit.s, hit.at);
+    if (!uv) return null;
     const at = surfaceWorld(hit.s, {
       x: Math.min(0.98, Math.max(0.02, uv.x)),
       y: Math.min(0.98, Math.max(0.02, uv.y)),
@@ -304,8 +426,12 @@ function standing(
     centre.y > -M &&
     centre.x < grid.w + M &&
     centre.y < grid.d + M
-  )
-    return { centre, surfaceId: null };
+  ) {
+    const m = middle(-pinned.z);
+    return m && m.x > -M && m.y > -M && m.x < grid.w + M && m.y < grid.d + M
+      ? { centre: m, surfaceId: null, middle: true }
+      : { centre, surfaceId: null };
+  }
   const nearest = onto(near[0]);
   if (nearest) return nearest;
   const across = onPinnedSurface(pin, foot)?.x ?? 0.5;
@@ -322,13 +448,17 @@ function standing(
  */
 function place(
   base: Pick<FixtureInput, 'scene' | 'turns' | 'size'>,
-  where: { centre: Point; surfaceId: string | null },
+  found: Standing,
   custom: IsoScene | null,
   grid: { w: number; d: number },
 ): Pick<FixtureInput, 'at' | 'surfaceId'> {
   const turned = base.turns % 2 === 1;
   const w = turned ? base.size.d : base.size.w;
   const d = turned ? base.size.w : base.size.d;
+  // Its front, where a middle is half a depth forward.
+  const where = found.middle
+    ? { ...found, centre: { x: found.centre.x, y: found.centre.y + d / 2 } }
+    : found;
   const clampAt = (c: Point) => ({
     x: Math.min(Math.max(c.x - w / 2, 0), Math.max(grid.w - w, 0)),
     y: Math.min(Math.max(c.y - d, 0), Math.max(grid.d - d, 0)),
@@ -367,6 +497,15 @@ export function fixtureAt(
   return place(fixture, { centre: { x: centre.x, y: centre.y + d / 2 }, surfaceId }, custom, grid);
 }
 
+/** An outline's points in the pin's frame, with the height of what it outlines. */
+const bodyOf = (o: Outline, pin: SurfacePin, height: number) =>
+  o.points?.length
+    ? {
+        points: o.points.map((p) => ({ x: p.x * pin.frame.width, y: p.y * pin.frame.height })),
+        height,
+      }
+    : undefined;
+
 /**
  * Where a fixture a scan placed stands under a new pin: from where the scan
  * saw it touch down, as the scan would have placed it. Null when it wasn't
@@ -386,6 +525,7 @@ export function placeSeen(
     custom,
     { x: seen.foot.x * pin.frame.width, y: seen.foot.y * pin.frame.height },
     Math.max(seen.size.h * pin.frame.height, seen.size.w * pin.frame.width),
+    bodyOf(seen, pin, fixture.size.h),
   );
   return where && place(fixture, where, custom, grid);
 }
@@ -409,7 +549,10 @@ export function mapScan({
   outlines = [],
   models = [],
   dismissed = [],
+  replace = false,
 }: {
+  /** Move every fixture the scan finds, placed by hand or not. */
+  replace?: boolean;
   /** Names the person said aren't fixtures. */
   dismissed?: string[];
   /** Of a photo the pin's camera took, at any size. */
@@ -464,13 +607,16 @@ export function mapScan({
         h: Math.abs(thing.box.y2 - thing.box.y1) / 1000,
       },
     };
-    const where = standing(
-      pin,
-      scene,
-      custom,
-      { x: share.foot.x * pin.frame.width, y: share.foot.y * pin.frame.height },
-      Math.max(share.size.h * pin.frame.height, share.size.w * pin.frame.width),
-    );
+    // Where it stands depends on how tall it is: its middle is half that up.
+    const whereFor = (height: number) =>
+      standing(
+        pin,
+        scene,
+        custom,
+        { x: share.foot.x * pin.frame.width, y: share.foot.y * pin.frame.height },
+        Math.max(share.size.h * pin.frame.height, share.size.w * pin.frame.width),
+        bodyOf(share, pin, height),
+      );
     const fitted = models[index] ?? null;
     const here = ranked.find((x) => x.f.scene === scene && !claimed.has(x.f.id));
     if (here) {
@@ -478,8 +624,10 @@ export function mapScan({
       const other = linkable(ranked, here.f);
       const link = other && fixtureGroup(other) !== fixtureGroup(here.f) ? other : undefined;
       if (link) present.add(fixtureGroup(link));
-      // What a scan placed and nobody has touched since follows the latest scan.
-      const follows = here.f.scanned || here.f.model.source === 'placeholder';
+      // What a scan placed and nobody has touched since follows the latest scan,
+      // and everything does when the person asked to re-place it all.
+      const follows = replace || here.f.scanned || here.f.model.source === 'placeholder';
+      const where = follows ? whereFor(here.f.size.h) : null;
       const moveTo = where && follows ? place(here.f, where, custom, grid) : undefined;
       const remodel = fitted && follows ? { ...fitted, label: here.f.model.label } : undefined;
       return {
@@ -497,8 +645,6 @@ export function mapScan({
     const label = thing.label.charAt(0).toUpperCase() + thing.label.slice(1);
     if (left <= 0)
       return { label, match: 'placeholder', fixture: null, note: 'No room for more fixtures.' };
-    if (!where)
-      return { label, match: 'placeholder', fixture: null, note: 'The pin’s surface is gone.' };
     // The same thing elsewhere first; else another of its kind, unlinked.
     const same = linkable(ranked);
     const known = same ?? ranked[0]?.f;
@@ -530,6 +676,9 @@ export function mapScan({
         reference: null,
         control: { kind: 'none' },
       };
+    const where = whereFor(base.size.h);
+    if (!where)
+      return { label, match: 'placeholder', fixture: null, note: 'The pin’s surface is gone.' };
     left--;
     const fixture: FixtureInput = { ...base, ...place(base, where, custom, grid) };
     return known
@@ -578,10 +727,7 @@ export function fixtureInFrame(
   } else {
     const pinned = isoSurface(fixture.scene, pin.surfaceId, custom);
     if (!pinned) return null;
-    const camera = cameraFromPin(pin.corners, pin.frame, pinned.rect.w, [
-      pinned.rect.d,
-      pinned.rect.d,
-    ]);
+    const camera = pinCamera(pin.corners, pin.frame, pinned.rect.w, pinned.rect.d);
     if (!camera) return null;
     const { at, size } = fixtureBox(fixture, custom);
     const corners: Point[] = [];
