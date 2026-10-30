@@ -1,8 +1,15 @@
 import { defineConfig, devices } from '@playwright/test';
+
+// CI runners are a few times slower than a dev machine, so CI waits longer. The strict run waits
+// less than the default, so a wait that only just passes locally fails before it reaches CI.
+const expectTimeout = process.env.CI ? 10_000 : process.env.BROWSER_STRICT ? 2_500 : 5_000;
+
 export default defineConfig({
   testDir: './tests/browser',
   fullyParallel: false,
   workers: 1,
+  forbidOnly: !!process.env.CI,
+  expect: { timeout: expectTimeout },
   use: {
     baseURL: 'http://127.0.0.1:43432',
     ...devices['Desktop Chrome'],

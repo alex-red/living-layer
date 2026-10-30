@@ -100,8 +100,11 @@ Its RTSP output is what lets the server watch it with no tab open: choose it as 
 ```sh
 bun run check          # format, typecheck, unit tests, web build
 bun run test:browser   # Playwright, after `bunx playwright install chromium`
+bun run test:browser:strict  # the same with tighter waits, to catch what CI's slower runner would fail
 bun run format
 ```
+
+`bun install` points git at `.githooks`, whose pre-push hook runs `check` and `test:browser:strict`; `git push --no-verify` skips it.
 
 | Path              | What's there                                                                     |
 | ----------------- | -------------------------------------------------------------------------------- |
