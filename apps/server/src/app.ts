@@ -37,12 +37,13 @@ import { photoRoutes } from './photo.js';
 import { pinRoutes } from './pin.js';
 import { illustrationRoutes } from './illustration.js';
 import { listStreams, streamRoutes, type NetworkStream } from './streams.js';
-import { Watcher, watchRoutes, type WatcherDeps } from './watcher.js';
+import { Watcher, setWatching, watchRoutes, type WatcherDeps } from './watcher.js';
 import { Appearance } from './appearance.js';
 import { DemoSource } from './frames.js';
 import { RemoteCamera, remoteRoutes } from './remote.js';
 import { Exposer, exposeRoutes } from './expose.js';
 import { MqttLink, type MqttConnect } from './mqtt.js';
+import { MqttControl } from './mqtt-control.js';
 import {
   demoScene,
   demoSceneGuess,
@@ -102,6 +103,16 @@ export async function buildApp(
           options.mqttConnect,
         )
       : null;
+  // Lights and switches over MQTT, beside Home Assistant's; with no main light there, the first is.
+  const mqttControl = new MqttControl(link, config.mqtt.devices);
+  const mqttLights = config.mqtt.devices
+    .filter((d) => d.entityId.startsWith('light.'))
+    .map((d) => d.entityId);
+  const liveLights = [...config.haLights, ...mqttLights];
+  const liveSwitches = [
+    ...config.haSwitches,
+    ...config.mqtt.devices.filter((d) => d.entityId.startsWith('switch.')).map((d) => d.entityId),
+  ];
   app.addHook('onRequest', async (request) => {
     const host = request.headers.host ?? '';
     if (!new RegExp(`^(localhost|127\\.0\\.0\\.1)(:${config.port}|:43430|:80)?$`).test(host))
@@ -163,14 +174,17 @@ export async function buildApp(
             : 'Set MODEL_API_KEY and META_LIVE_ENABLED to make live calls.',
       },
       lamp: {
-        configured: Boolean(config.haUrl && config.haToken && config.haEntity),
-        lights: config.haLights,
-        switches: config.haSwitches,
-        enabled: config.haEnabled,
+        configured:
+          Boolean(config.haUrl && config.haToken && config.haEntity) || mqttLights.length > 0,
+        lights: liveLights,
+        switches: liveSwitches,
+        enabled: config.haEnabled || Boolean(link && config.mqtt.devices.length),
         note:
           config.haEnabled && config.haUrl && config.haToken && config.haEntity
-            ? 'One configured light; explicit actions only.'
-            : 'Set the HA_* variables and HA_LIVE_ENABLED to control a lamp.',
+            ? `One configured light${mqttLights.length ? ', and devices over MQTT' : ''}; explicit actions only.`
+            : link && config.mqtt.devices.length
+              ? 'Lights and switches over MQTT; explicit actions only.'
+              : 'Set the HA_* variables and HA_LIVE_ENABLED (or MQTT_DEVICES) to control a lamp.',
       },
       mqtt: {
         configured: Boolean(config.mqtt.url),
@@ -184,14 +198,18 @@ export async function buildApp(
     };
   });
   const entities = (mode: Mode) =>
-    mode === 'demo'
-      ? [...DEMO_LIGHTS, ...DEMO_SWITCHES]
-      : [...config.haLights, ...config.haSwitches];
+    mode === 'demo' ? [...DEMO_LIGHTS, ...DEMO_SWITCHES] : [...liveLights, ...liveSwitches];
+  /** Switch a live light or switch: over MQTT when it is an MQTT device, else through Home Assistant. */
+  const switchLive = (entity: string | undefined, action: 'on' | 'off') => {
+    const target = entity ?? liveLights[0];
+    if (target && mqttControl.has(target)) return mqttControl.act(target, action);
+    return action === 'on' ? lamp.turnOn(entity) : lamp.turnOff(target ?? '');
+  };
   const tracking = deskRoutes(
     app,
     store,
     async (mode, entityId) =>
-      mode === 'demo' ? (entityId ? demoLampFor(entityId) : demoLamp) : lamp.turnOn(entityId),
+      mode === 'demo' ? (entityId ? demoLampFor(entityId) : demoLamp) : switchLive(entityId, 'on'),
     entities,
   );
   fixtureRoutes(app, {
@@ -199,11 +217,7 @@ export async function buildApp(
     meta,
     run,
     control: async (mode, entityId, action) =>
-      mode === 'demo'
-        ? demoLampFor(entityId, action)
-        : action === 'on'
-          ? lamp.turnOn(entityId)
-          : lamp.turnOff(entityId),
+      mode === 'demo' ? demoLampFor(entityId, action) : switchLive(entityId, action),
     entities,
   });
   const remote = options.remote ?? new RemoteCamera();
@@ -399,7 +413,7 @@ export async function buildApp(
   app.post('/api/lamp', async (request) => {
     const { mode } = parseInput(z.object({ mode: modeSchema }).strict(), request.body);
     return run('lamp', mode, async () => ({
-      output: mode === 'demo' ? demoLamp : await lamp.turnOn(),
+      output: mode === 'demo' ? demoLamp : await switchLive(undefined, 'on'),
     }));
   });
   // The server watches the camera, so rules fire with no tab open.
@@ -451,9 +465,14 @@ export async function buildApp(
       mode: 'live',
       link,
       watch: () => watchers.live.exposeWatch(),
+      // Home Assistant's switch and button do what the lab's own buttons do.
+      actions: {
+        setWatching: (on) => setWatching(store, watchers.live, on),
+        checkRules: () => tracking.verifyRules('live'),
+      },
     }),
   };
-  exposeRoutes(app, exposers, store);
+  exposeRoutes(app, exposers, store, (mode, zoneId) => watchers[mode].learnEmpty(zoneId));
   for (const mode of ['demo', 'live'] as const)
     watchers[mode].subscribe(() => exposers[mode].sync());
   // Motion holds run out with no frame to say so.

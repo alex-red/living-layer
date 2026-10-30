@@ -28,12 +28,24 @@ const PRESETS: {
   {
     id: 'presence',
     label: 'Presence',
-    hint: 'On while something moves in a zone, off after 5 minutes of stillness. Free and quick, but it can’t tell someone sitting very still from an empty room.',
+    hint: 'On while a zone looks different from how it looks empty, even with someone sitting still. Local and free: you show it the zone empty once.',
     needsZone: true,
     make: (_, zone) => ({
       name: 'Presence',
       kind: 'binary_sensor',
       deviceClass: 'occupancy',
+      source: { kind: 'occupied', zoneId: zone, holdS: 30, samConfirm: false },
+    }),
+  },
+  {
+    id: 'motion',
+    label: 'Motion',
+    hint: 'On while something moves in a zone, off after 5 minutes of stillness. Free and quick, but it can’t tell someone sitting very still from an empty room.',
+    needsZone: true,
+    make: (_, zone) => ({
+      name: 'Motion',
+      kind: 'binary_sensor',
+      deviceClass: 'motion',
       source: { kind: 'motion', zoneId: zone, holdS: 300 },
     }),
   },
@@ -83,7 +95,49 @@ const PRESETS: {
       source: { kind: 'watching' },
     }),
   },
+  {
+    id: 'events',
+    label: 'Zone events',
+    hint: 'An event each time SAM confirms an object entered or left a zone, for automations that react to the moment.',
+    needsZone: true,
+    make: (memory, zone) => ({
+      name: `${zoneLabel(memory, zone)} events`,
+      kind: 'event',
+      source: { kind: 'in_zone', zoneId: zone },
+    }),
+  },
+  {
+    id: 'tracker',
+    label: 'Object tracker',
+    hint: 'A device tracker: the zone an object is in, home when it is in none, away when it is missing.',
+    needsThing: true,
+    make: (memory, _, thing) => ({
+      name: thingLabel(memory, thing),
+      kind: 'device_tracker',
+      source: { kind: 'zone_of', objectId: thing },
+    }),
+  },
+  {
+    id: 'watch_switch',
+    label: 'Watching switch',
+    hint: 'A switch Home Assistant can flip to turn watching on and off, with the camera last chosen here.',
+    make: () => ({ name: 'Watching', kind: 'switch', source: { kind: 'watching' } }),
+  },
+  {
+    id: 'check_rules',
+    label: 'Check rules button',
+    hint: 'A button in Home Assistant that checks every rule, as Check rules does here.',
+    make: () => ({ name: 'Check rules', kind: 'button', source: { kind: 'check_rules' } }),
+  },
 ];
+const KIND_LABEL: Record<ExposeKind, string> = {
+  binary_sensor: 'on / off (binary sensor)',
+  sensor: 'a value (sensor)',
+  switch: 'a switch Home Assistant can flip',
+  button: 'a button Home Assistant can press',
+  device_tracker: 'a device tracker',
+  event: 'events (entered, left)',
+};
 const BINARY_CLASSES = ['occupancy', 'presence', 'motion', 'problem', 'running', 'opening'];
 const SOURCE_LABEL: Record<ExposeSource['kind'], string> = {
   in_zone: 'an object is in a zone',
@@ -91,7 +145,9 @@ const SOURCE_LABEL: Record<ExposeSource['kind'], string> = {
   zone_of: 'which zone an object is in',
   status: 'whether a thing is seen or missing',
   motion: 'something moves in a zone',
+  occupied: 'someone is in a zone (compared with it empty)',
   watching: 'the server is watching',
+  check_rules: 'checking every rule',
 };
 
 /** The mug, other objects and tracked fixtures, which entities can follow. */
@@ -127,14 +183,20 @@ export function sourceSentence(memory: DeskMemory, e: Pick<ExposedEntity, 'sourc
       return `whether the ${thingLabel(memory, s.thingId)} is seen or missing`;
     case 'motion':
       return `motion in “${zoneLabel(memory, s.zoneId)}”, held for ${s.holdS} s`;
+    case 'occupied':
+      return `whether “${zoneLabel(memory, s.zoneId)}” looks occupied, compared with it empty${s.samConfirm ? ', confirmed by SAM (billed)' : ''}`;
     case 'watching':
       return 'whether the server is watching the camera';
+    case 'check_rules':
+      return 'a press that checks every rule';
   }
 }
 /** A state as the outline and inspector show it. */
 export function stateLabel(s: ExposedState | undefined): string {
   if (!s) return 'waiting';
   if (!s.available) return 'unavailable';
+  if (s.kind === 'button') return 'button';
+  if (s.kind === 'event') return s.state ? `last: ${s.state}` : 'no events yet';
   return s.kind === 'binary_sensor' ? (s.state === 'ON' ? 'on' : 'off') : (s.state ?? '');
 }
 function stateTone(s: ExposedState | undefined): Tone {
@@ -163,7 +225,10 @@ function sourceOf(
       return { kind, thingId: t };
     case 'motion':
       return { kind, zoneId: z, holdS: 'holdS' in prev ? prev.holdS : 300 };
+    case 'occupied':
+      return { kind, zoneId: z, holdS: 30, samConfirm: false };
     case 'watching':
+    case 'check_rules':
       return { kind };
   }
 }
@@ -281,7 +346,7 @@ function EntityEditor({
               key={k}
               value={k}
               disabled={
-                (['in_zone', 'any_inside', 'motion'].includes(k) && !zones.length) ||
+                (['in_zone', 'any_inside', 'motion', 'occupied'].includes(k) && !zones.length) ||
                 (['zone_of', 'status'].includes(k) && !list.length)
               }
             >
@@ -289,7 +354,7 @@ function EntityEditor({
             </option>
           ))}
         </select>
-        {(s.kind === 'in_zone' || s.kind === 'motion') && (
+        {(s.kind === 'in_zone' || s.kind === 'motion' || s.kind === 'occupied') && (
           <>
             <span>Zone</span>
             {zonePicker(s.zoneId, (zoneId) => set({ source: { ...s, zoneId } }), 'Zone')}
@@ -302,6 +367,19 @@ function EntityEditor({
               aria-label="Seconds of stillness before off"
               type="number"
               min={5}
+              max={3600}
+              value={s.holdS}
+              onChange={(e) => set({ source: { ...s, holdS: Math.round(Number(e.target.value)) } })}
+            />
+          </>
+        )}
+        {s.kind === 'occupied' && (
+          <>
+            <span>Hold</span>
+            <input
+              aria-label="Seconds it stays on after the zone looks empty"
+              type="number"
+              min={0}
               max={3600}
               value={s.holdS}
               onChange={(e) => set({ source: { ...s, holdS: Math.round(Number(e.target.value)) } })}
@@ -328,7 +406,7 @@ function EntityEditor({
         >
           {kinds.map((k) => (
             <option key={k} value={k}>
-              {k === 'binary_sensor' ? 'on / off (binary sensor)' : 'a value (sensor)'}
+              {KIND_LABEL[k]}
             </option>
           ))}
         </select>
@@ -370,6 +448,18 @@ function EntityEditor({
           ))}
         </fieldset>
       )}
+      {s.kind === 'occupied' && (
+        <label className="expose-opt-in">
+          <input
+            type="checkbox"
+            checked={s.samConfirm}
+            onChange={(e) => set({ source: { ...s, samConfirm: e.target.checked } })}
+          />{' '}
+          Also ask SAM whether a person is there before it turns on. <strong>Billed:</strong> one
+          live call each time the zone starts to look occupied, at most once a minute. Off,
+          everything stays on this computer.
+        </label>
+      )}
       <p className="micro">
         In Home Assistant: <code>{key ? exposedEntityId({ kind: draft.kind, key }) : '…'}</code>
         {options ? ` · one of ${options.join(', ')}` : ''}
@@ -402,6 +492,32 @@ function EntityEditor({
   );
 }
 
+/** Teach a zone how it looks empty, so an occupied entity can tell when someone is there. */
+function EmptyLook({ zoneId, learned }: { zoneId: string; learned: boolean }) {
+  const lab = useLab();
+  const { call, off } = useCall();
+  return (
+    <div className="save-actions">
+      <button
+        className={learned ? 'secondary' : 'primary'}
+        disabled={off || !lab.watching}
+        title={lab.watching ? undefined : 'Turn on watching first.'}
+        onClick={() =>
+          void call<{ method: 'features' | 'pixels' }>('expose/learn-empty', { zoneId }, (r) =>
+            lab.setMessage(
+              r.method === 'features'
+                ? 'Learned how the zone looks empty, from the feature model.'
+                : 'Learned how the zone looks empty, from grey levels: light changes can fool this. bun run fetch-model adds the feature model.',
+            ),
+          )
+        }
+      >
+        {learned ? 'Learn it empty again' : 'It’s empty now: learn it'}
+      </button>
+    </div>
+  );
+}
+
 /** What the broker is doing, in one line; in the demo, what it would have sent. */
 function BrokerNote() {
   const lab = useLab();
@@ -410,6 +526,17 @@ function BrokerNote() {
   return (
     <>
       <p className="micro">{view.broker.note}</p>
+      {view.commands.length > 0 && (
+        <Details summary="Commands from Home Assistant">
+          <ul className="expose-log">
+            {view.commands.map((c, n) => (
+              <li key={`${c.at}${n}`}>
+                <code>ll_{c.key}</code> {c.action}: {c.result}
+              </li>
+            ))}
+          </ul>
+        </Details>
+      )}
       {lab.mode === 'demo' && view.log.length > 0 && (
         <Details summary="What it would publish">
           <ul className="expose-log">
@@ -483,6 +610,15 @@ export function EntityPanel({ id }: { id: string }) {
             Copy entity id
           </button>
         </div>
+      )}
+      {e.source.kind === 'occupied' && (
+        <EmptyLook zoneId={e.source.zoneId} learned={Boolean(s?.attributes.method)} />
+      )}
+      {(e.kind === 'switch' || e.kind === 'button') && (
+        <p className="micro">
+          Home Assistant can {e.kind === 'switch' ? 'flip' : 'press'} this; it does what the lab’s
+          own {e.kind === 'switch' ? 'watching switch' : 'Check rules'} does. Live only.
+        </p>
       )}
       <BrokerNote />
       {s && Object.keys(s.attributes).length > 0 && (

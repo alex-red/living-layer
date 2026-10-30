@@ -15,7 +15,7 @@ try {
     `Home Assistant: ${config.haUrl && config.haToken && config.haEntity ? 'configured' : 'incomplete'}; live enabled: ${config.haEnabled}`,
   );
   console.log(
-    `Home Assistant entities over MQTT: ${config.mqtt.url ? `broker set, ${config.mqtt.username ? 'with' : 'without'} a username` : 'MQTT_URL missing'}; live enabled: ${config.mqtt.enabled}; topics under ${config.mqtt.baseTopic}/, discovery under ${config.mqtt.discoveryPrefix}/`,
+    `Home Assistant entities over MQTT: ${config.mqtt.url ? `broker set, ${config.mqtt.username ? 'with' : 'without'} a username` : 'MQTT_URL missing'}; live enabled: ${config.mqtt.enabled}; topics under ${config.mqtt.baseTopic}/, discovery under ${config.mqtt.discoveryPrefix}/; ${config.mqtt.devices.length} light(s) or switch(es) over MQTT`,
   );
   console.log(
     `Watching a live camera: ffmpeg ${Bun.which('ffmpeg') ? 'found' : 'missing (brew install ffmpeg)'}; ${config.cameraStreams.filter((s) => s.startsWith('rtsp://')).length} RTSP camera(s) configured, more found over mDNS`,

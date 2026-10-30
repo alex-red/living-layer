@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import sharp from 'sharp';
 import { z } from 'zod';
 import {
   appearanceSure,
@@ -16,6 +17,11 @@ import {
   watchStep,
   watchThing,
   zonesIn,
+  featureDifference,
+  nextOccupied,
+  pixelDifference,
+  zoneSample,
+  OCCUPANCY,
   APPEARANCE,
   LOCAL_TRACK,
   DEMO_POSITIONS,
@@ -23,7 +29,9 @@ import {
   type DeskMemory,
   type DeskObservation,
   type EvidenceRun,
+  type EmptyLook,
   type ExposeWatch,
+  type ZoneOccupancy,
   type LumaFrame,
   type Mode,
   type Segmentation,
@@ -126,6 +134,13 @@ export class Watcher {
   private zones: { id: string; rect: ZoneRect }[] = [];
   /** When pixels last changed in each zone. */
   private motionAt = new Map<string, number>();
+  /** Zones some entity asks to be compared with their empty look, and whether SAM may confirm. */
+  private occupancyZones = new Map<string, { samConfirm: boolean }>();
+  private empty = new Map<string, EmptyLook>();
+  private occupancy = new Map<string, ZoneOccupancy>();
+  private lastOccupancyCheck = 0;
+  private lastSam = new Map<string, number>();
+  private comparing = false;
   private model: Appearance | null = null;
   private emitTimer: ReturnType<typeof setTimeout> | null = null;
   private generation = 0;
@@ -138,6 +153,9 @@ export class Watcher {
   readonly busy = new Set<Promise<unknown>>();
   constructor(private deps: WatcherDeps) {
     this.pace = deps.mode === 'demo' ? { quietSteps: 0, confirmGapMs: 0 } : {};
+  }
+  get mode() {
+    return this.deps.mode;
   }
   private get now() {
     return this.deps.now?.() ?? Date.now();
@@ -173,10 +191,195 @@ export class Watcher {
       state: this.state,
       things: [...this.things.values()].map((t) => ({ id: t.subject.id, status: t.status })),
       motionAt: Object.fromEntries(this.motionAt),
+      on: Boolean(this.memory().watch?.on),
+      occupancy: Object.fromEntries(this.occupancy),
     };
   }
   private watchZones(memory: DeskMemory) {
     this.zones = zonesIn(memory).map((z) => ({ id: z.id, rect: z.rect }));
+    this.occupancyZones.clear();
+    for (const e of memory.exposed ?? [])
+      if (e.source.kind === 'occupied') {
+        const was = this.occupancyZones.get(e.source.zoneId)?.samConfirm ?? false;
+        this.occupancyZones.set(e.source.zoneId, { samConfirm: was || e.source.samConfirm });
+      }
+    for (const id of this.occupancyZones.keys())
+      if (!this.empty.has(id)) {
+        const look = this.loadEmpty(id);
+        if (look) this.empty.set(id, look);
+      }
+    for (const id of [...this.occupancy.keys()])
+      if (!this.occupancyZones.has(id)) this.occupancy.delete(id);
+  }
+
+  private emptyKey(zoneId: string) {
+    return `empty:${this.deps.mode}:${zoneId}`;
+  }
+  private loadEmpty(zoneId: string): EmptyLook | null {
+    try {
+      const raw = this.deps.store.setting(this.emptyKey(zoneId));
+      if (!raw) return null;
+      const saved = JSON.parse(raw) as {
+        method: 'features' | 'pixels';
+        cols: number;
+        rows: number;
+        dim: number;
+        width: number;
+        height: number;
+        data: string;
+      };
+      const bytes = Buffer.from(saved.data, 'base64');
+      return saved.method === 'features'
+        ? {
+            method: 'features',
+            grid: {
+              cols: saved.cols,
+              rows: saved.rows,
+              dim: saved.dim,
+              data: new Float32Array(bytes.buffer, bytes.byteOffset, bytes.byteLength / 4).slice(),
+            },
+          }
+        : {
+            method: 'pixels',
+            width: saved.width,
+            height: saved.height,
+            data: new Uint8Array(bytes),
+          };
+    } catch {
+      return null;
+    }
+  }
+  /** The zone as the feature model sees it, from a grey frame: patches of just the zone. */
+  private async zoneFeatures(frame: LumaFrame, rect: ZoneRect) {
+    const png = await sharp(Buffer.from(frame.data), {
+      raw: { width: frame.width, height: frame.height, channels: 1 },
+    })
+      .png()
+      .toBuffer();
+    return this.model!.embed(png, rect);
+  }
+  /**
+   * Remember how a zone looks now, as how it looks empty: the person says
+   * nobody is there. Feature patches when the model is loaded, else grey levels.
+   */
+  async learnEmpty(zoneId: string): Promise<EmptyLook['method']> {
+    const frame = this.lastFrame;
+    const zone = this.zones.find((z) => z.id === zoneId);
+    if (this.state !== 'watching' && this.state !== 'paused')
+      throw new LabError(
+        'occupancy_watch',
+        'Turn on watching first, so there is a frame to learn from.',
+        409,
+      );
+    if (!frame || !zone) throw new LabError('occupancy_zone', 'That zone isn’t in view.', 409);
+    let look: EmptyLook;
+    let saved: Record<string, unknown>;
+    if (this.model) {
+      const grid = await this.zoneFeatures(frame, zone.rect);
+      look = { method: 'features', grid };
+      saved = {
+        method: 'features',
+        cols: grid.cols,
+        rows: grid.rows,
+        dim: grid.dim,
+        data: Buffer.from(grid.data.buffer, grid.data.byteOffset, grid.data.byteLength).toString(
+          'base64',
+        ),
+      };
+    } else {
+      const data = zoneSample(frame, zone.rect);
+      look = {
+        method: 'pixels',
+        width: OCCUPANCY.sample.width,
+        height: OCCUPANCY.sample.height,
+        data,
+      };
+      saved = { method: 'pixels', ...OCCUPANCY.sample, data: Buffer.from(data).toString('base64') };
+    }
+    this.deps.store.setSetting(this.emptyKey(zoneId), JSON.stringify(saved));
+    this.empty.set(zoneId, look);
+    this.occupancy.set(zoneId, {
+      occupied: false,
+      lastOccupiedAt: null,
+      score: 0,
+      method: look.method,
+      sam: null,
+    });
+    this.emit(true);
+    return look.method;
+  }
+  /** Compare each zone that has an empty look with how it looks now. */
+  private async compareZones(frame: LumaFrame) {
+    if (this.comparing) return;
+    this.comparing = true;
+    try {
+      const now = this.now;
+      for (const [id, { samConfirm }] of this.occupancyZones) {
+        const look = this.empty.get(id);
+        const zone = this.zones.find((z) => z.id === id);
+        if (!look || !zone) continue;
+        // A look learned with the model can't be compared without it.
+        if (look.method === 'features' && !this.model) continue;
+        const score =
+          look.method === 'features'
+            ? featureDifference(look.grid, await this.zoneFeatures(frame, zone.rect))
+            : pixelDifference(look.data, zoneSample(frame, zone.rect));
+        const was = this.occupancy.get(id);
+        const occupied = nextOccupied(was?.occupied ?? false, score);
+        const next: ZoneOccupancy = {
+          occupied,
+          lastOccupiedAt: occupied ? now : (was?.lastOccupiedAt ?? null),
+          score,
+          method: look.method,
+          // A clear zone forgets SAM's answer; the next time it looks occupied, SAM is asked again.
+          sam: occupied ? (was?.sam ?? null) : null,
+        };
+        this.occupancy.set(id, next);
+        const due = now - (this.lastSam.get(id) ?? 0) >= OCCUPANCY.samGapMs;
+        if (samConfirm && occupied && next.sam !== 'yes' && due) {
+          this.lastSam.set(id, now);
+          void this.track(this.askPerson(id, zone.rect));
+        }
+      }
+      this.emit();
+    } catch {
+      // The next comparison tries again.
+    } finally {
+      this.comparing = false;
+    }
+  }
+  /** Opted in per entity, billed: one SAM call asking whether a person is in the zone. */
+  private async askPerson(zoneId: string, rect: ZoneRect) {
+    let answer: ZoneOccupancy['sam'];
+    try {
+      const shot = await this.source!.snapshot();
+      const run = await this.deps.segment(
+        this.deps.mode,
+        'person',
+        this.source instanceof DemoSource
+          ? { demoPosition: this.source.position }
+          : { png: shot.png },
+      );
+      const { frame, detections } = run.output;
+      answer = detections.some((d) => {
+        const b = d.box;
+        const x = b.x / frame.width;
+        const y = b.y / frame.height;
+        return (
+          x < rect.x + rect.width &&
+          x + b.width / frame.width > rect.x &&
+          y < rect.y + rect.height &&
+          y + b.height / frame.height > rect.y
+        );
+      })
+        ? 'yes'
+        : 'no';
+    } catch {
+      answer = 'error';
+    }
+    const current = this.occupancy.get(zoneId);
+    if (current?.occupied) this.occupancy.set(zoneId, { ...current, sam: answer });
+    this.emit(true);
   }
   subscribe(listener: (view: WatchView) => void) {
     this.listeners.add(listener);
@@ -297,6 +500,7 @@ export class Watcher {
     this.source = null;
     this.things.clear();
     this.motionAt.clear();
+    this.occupancy.clear();
     this.pending = [];
     this.say('off', '');
   }
@@ -392,6 +596,12 @@ export class Watcher {
         this.pending.push({ id, ask: step.ask });
     }
     if (this.pending.length && !this.checking) void this.track(this.check());
+    // Demo frames come one deliberate move at a time, so each is compared.
+    const every = this.deps.mode === 'demo' ? 0 : OCCUPANCY.everyMs;
+    if (this.occupancyZones.size && now - this.lastOccupancyCheck >= every) {
+      this.lastOccupancyCheck = now;
+      void this.track(this.compareZones(frame));
+    }
     this.emit();
   }
   /** Look for a lost thing by appearance; SAM is asked only if this can't find it. */
@@ -506,6 +716,23 @@ export class Watcher {
   }
 }
 
+/** Turn watching on or off with a camera already chosen, kept in desk memory. */
+export async function setWatching(
+  store: EvidenceStore,
+  watcher: Watcher,
+  on: boolean,
+  camera = store.memory(watcher.mode).watch?.camera ?? null,
+) {
+  const memory = store.memory(watcher.mode);
+  if (on && watcher.mode === 'live' && !camera)
+    throw new LabError('watch_camera', 'Choose a network camera to watch.', 409);
+  memory.watch = { on, camera };
+  store.saveMemory(memory);
+  if (on) await watcher.start();
+  else watcher.stop();
+  return watcher.view();
+}
+
 /**
  * The watchers' routes: the view and its event stream, turning watching on
  * or off with a camera the server can read, and the demo's moves.
@@ -518,7 +745,7 @@ export function watchRoutes(
   // Whatever a person changes in a desk, the watcher follows from then on.
   app.addHook('onResponse', async (request, reply) => {
     if (request.method !== 'POST' || reply.statusCode >= 400) return;
-    if (!/^\/api\/(desk|fixtures|scene|item)\//.test(request.url)) return;
+    if (!/^\/api\/(desk|fixtures|scene|item|expose)\//.test(request.url)) return;
     void watchers.demo.sync();
     void watchers.live.sync();
   });
@@ -571,11 +798,7 @@ export function watchRoutes(
       if (stream) camera = { id: stream.id, name: stream.name, url: stream.rtsp! };
       if (!camera) throw new LabError('watch_camera', 'Choose a network camera to watch.', 409);
     }
-    memory.watch = { on, camera };
-    store.saveMemory(memory);
-    if (on) await watchers[mode].start();
-    else watchers[mode].stop();
-    return watchers[mode].view();
+    return setWatching(store, watchers[mode], on, camera);
   });
   app.post('/api/watch/demo', async (request) => {
     const { position } = parseInput(

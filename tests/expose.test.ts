@@ -6,8 +6,15 @@ import { join } from 'node:path';
 import type { MqttClient } from 'mqtt';
 import { buildApp } from '../apps/server/src/app.js';
 import { parseConfig, type Fetcher } from '../apps/server/src/config.js';
-import type { MqttConnect } from '../apps/server/src/mqtt.js';
+import { topicMatches, type MqttConnect } from '../apps/server/src/mqtt.js';
 import {
+  commandOf,
+  featureDifference,
+  nextOccupied,
+  pixelDifference,
+  zoneEvent,
+  zoneSample,
+  OCCUPANCY,
   discoveryConfig,
   evaluateExposed,
   exposedEntityId,
@@ -65,6 +72,14 @@ function entity(over: Partial<ExposedEntity> = {}): ExposedEntity {
     ...over,
   };
 }
+const occupancy = (over = {}) => ({
+  occupied: true,
+  lastOccupiedAt: 1_000_000,
+  score: 0.3,
+  method: 'features' as const,
+  sam: null,
+  ...over,
+});
 const watching = (over: Partial<ExposeWatch> = {}): ExposeWatch => ({
   state: 'watching',
   things: [],
@@ -164,6 +179,139 @@ describe('entities shown in Home Assistant', () => {
   });
 });
 
+describe('the later kinds: occupancy, events, trackers, switches, buttons', () => {
+  it('compares a zone with its empty look, with a gap so it doesn’t flicker', () => {
+    const grid = (v: number[]) => ({
+      cols: v.length,
+      rows: 1,
+      dim: 2,
+      data: new Float32Array(v.flatMap((x) => [x, 1 - x])),
+    });
+    expect(featureDifference(grid([1, 1, 1, 1]), grid([1, 1, 1, 1]))).toBe(0);
+    expect(featureDifference(grid([1, 1, 1, 1]), grid([0, 1, 1, 1]))).toBe(0.25);
+    expect(featureDifference(grid([1, 1]), grid([1, 1, 1]))).toBe(1);
+    expect(
+      pixelDifference(new Uint8Array([10, 10, 10, 10]), new Uint8Array([10, 100, 10, 30])),
+    ).toBe(0.25);
+    expect(nextOccupied(false, 0.1)).toBe(false);
+    expect(nextOccupied(false, OCCUPANCY.occupiedShare)).toBe(true);
+    expect(nextOccupied(true, 0.08)).toBe(true);
+    expect(nextOccupied(true, 0.05)).toBe(false);
+    const frame = { width: 4, height: 2, data: new Uint8Array([0, 0, 200, 200, 0, 0, 200, 200]) };
+    const right = zoneSample(frame, { x: 0.5, y: 0, width: 0.5, height: 1 });
+    expect(right.every((v) => v === 200)).toBe(true);
+  });
+  it('shows a zone as occupied locally, held, and with SAM only when opted in', () => {
+    const e = entity({ source: { kind: 'occupied', zoneId: RULE, holdS: 30, samConfirm: false } });
+    const m = memory({ exposed: [e] });
+    const now = 1_010_000;
+    expect(evaluateExposed(m, watching(), now)[0]!.reason).toMatch(/empty first/);
+    expect(
+      evaluateExposed(m, watching({ occupancy: { [RULE]: occupancy() } }), now)[0],
+    ).toMatchObject({
+      state: 'ON',
+      attributes: { source: 'local', method: 'features' },
+    });
+    // Empty again, but still within the hold.
+    const cleared = occupancy({ occupied: false, lastOccupiedAt: now - 20_000 });
+    expect(evaluateExposed(m, watching({ occupancy: { [RULE]: cleared } }), now)[0]!.state).toBe(
+      'ON',
+    );
+    const later = occupancy({ occupied: false, lastOccupiedAt: now - 40_000 });
+    expect(evaluateExposed(m, watching({ occupancy: { [RULE]: later } }), now)[0]!.state).toBe(
+      'OFF',
+    );
+    const sam = memory({
+      exposed: [{ ...e, source: { ...e.source, samConfirm: true } as typeof e.source }],
+    });
+    const ask = (answer: 'yes' | 'no' | 'error' | null) =>
+      evaluateExposed(
+        sam,
+        watching({ occupancy: { [RULE]: occupancy({ sam: answer }) } }),
+        now,
+      )[0]!;
+    expect(ask(null).state).toBe('OFF');
+    expect(ask('no').state).toBe('OFF');
+    expect(ask('yes').state).toBe('ON');
+    expect(ask('error').available).toBe(false);
+  });
+  it('sends each entered and left once as an event, never as a retained state', () => {
+    const e = entity({ key: 'coaster_events', kind: 'event' });
+    const m = memory({ exposed: [e] });
+    m.rules![0]!.lastDecision = {
+      id: 'run-1',
+      createdAt: '2026-10-29T10:00:00Z',
+      output: { transition: 'entered' },
+    } as EvidenceRun<PlacementDecision>;
+    expect(zoneEvent(m, e)).toMatchObject({
+      decisionId: 'run-1',
+      type: 'entered',
+      attributes: { zone: 'Coaster', object: 'Mug' },
+    });
+    const states = evaluateExposed(m, watching());
+    expect(states[0]!.state).toBe('entered');
+    const config = discoveryConfig(m, e, options);
+    expect(config).toMatchObject({
+      event_types: ['entered', 'left'],
+      state_topic: 'livinglayer/coaster_events/state',
+    });
+    expect(config).not.toHaveProperty('json_attributes_topic');
+    expect(exposeMessages(m, states, options).map((x) => x.topic)).not.toContain(
+      'livinglayer/coaster_events/state',
+    );
+    m.rules![0]!.lastDecision!.output.transition = 'stayed_inside';
+    expect(zoneEvent(m, e)).toBeNull();
+  });
+  it('tracks an object as a device: its zone, home, or away when missing', () => {
+    const e = entity({
+      key: 'mug',
+      kind: 'device_tracker',
+      source: { kind: 'zone_of', objectId: MUG },
+    });
+    const m = memory({ exposed: [e] });
+    expect(evaluateExposed(m, watching())[0]!.state).toBe('Coaster');
+    const out = memory({ rules: [{ ...m.rules![0]!, placement: 'outside' }], exposed: [e] });
+    expect(evaluateExposed(out, watching())[0]!.state).toBe('home');
+    expect(
+      evaluateExposed(out, watching({ things: [{ id: MUG, status: 'missing' }] }))[0]!.state,
+    ).toBe('not_home');
+    expect(discoveryConfig(m, e, options)).toMatchObject({
+      payload_home: 'home',
+      payload_not_home: 'not_home',
+    });
+  });
+  it('takes only exact commands for our own switches and buttons', () => {
+    const sw = entity({ key: 'watching', kind: 'switch', source: { kind: 'watching' } });
+    const button = entity({
+      id: '66666666-6666-4666-8666-666666666666',
+      key: 'check',
+      kind: 'button',
+      source: { kind: 'check_rules' },
+    });
+    const m = memory({ exposed: [sw, button] });
+    expect(evaluateExposed(m, watching({ on: true }))[0]!.state).toBe('ON');
+    expect(discoveryConfig(m, sw, options)).toMatchObject({
+      command_topic: 'livinglayer/watching/set',
+    });
+    expect(discoveryConfig(m, button, options)).toMatchObject({
+      command_topic: 'livinglayer/check/press',
+      payload_press: 'PRESS',
+    });
+    expect(discoveryConfig(m, button, options)).not.toHaveProperty('state_topic');
+    expect(commandOf(m, options, 'livinglayer/watching/set', 'ON')).toMatchObject({ action: 'on' });
+    expect(commandOf(m, options, 'livinglayer/watching/set', 'on')).toBeNull();
+    expect(commandOf(m, options, 'livinglayer/check/press', 'PRESS')).toMatchObject({
+      action: 'press',
+    });
+    expect(commandOf(m, options, 'livinglayer/check/set', 'ON')).toBeNull();
+    expect(commandOf(m, options, 'livinglayer/other/press', 'PRESS')).toBeNull();
+    expect(commandOf(m, options, 'elsewhere/watching/set', 'ON')).toBeNull();
+    expect(topicMatches('livinglayer/+/set', 'livinglayer/watching/set')).toBe(true);
+    expect(topicMatches('livinglayer/+/set', 'livinglayer/a/b/set')).toBe(false);
+    expect(topicMatches('zigbee2mqtt/#', 'zigbee2mqtt/Desk lamp')).toBe(true);
+  });
+});
+
 const dirs: string[] = [];
 afterEach(() => {
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
@@ -174,11 +322,15 @@ function fakeBroker() {
   const client = new EventEmitter() as EventEmitter & Record<string, unknown>;
   client.publish = (topic: string, payload: string, opts: { retain?: boolean }) => {
     published.push({ topic, payload, retain: opts?.retain });
+    // A Zigbee2MQTT-style device reports the state it was set to.
+    if (topic.startsWith('zigbee2mqtt/') && topic.endsWith('/set'))
+      setTimeout(() => client.emit('message', topic.slice(0, -4), Buffer.from(payload)), 5);
   };
   client.publishAsync = async (topic: string, payload: string, opts: { retain?: boolean }) => {
     published.push({ topic, payload, retain: opts?.retain });
   };
   client.subscribe = () => {};
+  client.unsubscribe = () => {};
   client.endAsync = async () => {};
   const seen: { url: string; will?: unknown; username?: string }[] = [];
   const connect: MqttConnect = (url, o) => {
@@ -361,6 +513,103 @@ describe('entities over the lab’s routes', () => {
       payload: 'offline',
       retain: true,
     });
+  });
+
+  it('sends zone events once, and takes Home Assistant’s commands', async () => {
+    const broker = fakeBroker();
+    const s = await setup(
+      { MQTT_URL: 'mqtt://broker:1883', MQTT_LIVE_ENABLED: 'true' },
+      broker.connect,
+    );
+    broker.client.emit('connect');
+    // Events, in the demo log: a zone with no entity, then an event entity for it.
+    const segment = (await s.post('segment', { concept: 'mug' })).json<EvidenceRun<Segmentation>>();
+    const picked = (
+      await s.post('desk/select', { segmentRunId: segment.id, detectionId: '7' })
+    ).json<DeskMemory>();
+    const saved = (
+      await s.post('desk/rules/save', {
+        rule: { label: 'Coaster', objectId: picked.object!.id, entityId: null, rect: whole },
+      })
+    ).json<DeskMemory>();
+    await s.post('expose/save', {
+      entity: {
+        key: 'coaster_events',
+        name: 'Coaster events',
+        kind: 'event',
+        source: { kind: 'in_zone', zoneId: saved.rules![0]!.id },
+      },
+    });
+    await s.post('desk/rules/verify');
+    await s.post('desk/rules/verify');
+    const events = (await s.view()).log.filter(
+      (l) => l.topic === 'livinglayer/coaster_events/state',
+    );
+    expect(events.map((l) => JSON.parse(l.payload).event_type)).toEqual(['entered']);
+
+    // Commands, live: a button checks the rules; a switch with no camera says why it can't.
+    for (const entity of [
+      { key: 'check', name: 'Check rules', kind: 'button', source: { kind: 'check_rules' } },
+      { key: 'watching', name: 'Watching', kind: 'switch', source: { kind: 'watching' } },
+    ])
+      expect((await s.post('expose/save', { entity }, 'live')).statusCode).toBe(200);
+    const live = broker.published.find((p) => p.topic === 'homeassistant/button/ll_check/config');
+    expect(JSON.parse(live!.payload).command_topic).toBe('livinglayer/check/press');
+    broker.client.emit('message', 'livinglayer/check/press', Buffer.from('PRESS'));
+    broker.client.emit('message', 'livinglayer/watching/set', Buffer.from('ON'));
+    broker.client.emit('message', 'livinglayer/watching/set', Buffer.from('maybe'));
+    await new Promise((r) => setTimeout(r, 20));
+    const commands = (await s.view('live')).commands;
+    expect(commands.map((c) => [c.key, c.action])).toEqual([
+      ['watching', 'on'],
+      ['check', 'press'],
+    ]);
+    expect(commands[1]!.result).toBe('done');
+    expect(commands[0]!.result).toMatch(/camera/);
+    await s.app.close();
+  });
+
+  it('switches lights over MQTT and waits for the device to say so', async () => {
+    const broker = fakeBroker();
+    const s = await setup(
+      {
+        MQTT_URL: 'mqtt://broker:1883',
+        MQTT_LIVE_ENABLED: 'true',
+        MQTT_DEVICES: 'light.desk_lamp=zigbee2mqtt/Desk lamp,switch.fan=zigbee2mqtt/Fan',
+      },
+      broker.connect,
+    );
+    const status = (await s.app.inject('/api/status')).json<{
+      lamp: { lights: string[]; switches: string[] };
+    }>();
+    expect(status.lamp).toMatchObject({ lights: ['light.desk_lamp'], switches: ['switch.fan'] });
+    const before = await s.post(
+      'fixtures/control',
+      { entityId: 'light.desk_lamp', action: 'on' },
+      'live',
+    );
+    expect(before.json()).toMatchObject({ error: { code: 'mqtt_not_ready' } });
+    broker.client.emit('connect');
+    const on = await s.post(
+      'fixtures/control',
+      { entityId: 'light.desk_lamp', action: 'on' },
+      'live',
+    );
+    expect(on.statusCode, on.body).toBe(200);
+    const sent = broker.published.find((p) => p.topic === 'zigbee2mqtt/Desk lamp/set')!;
+    expect(sent.retain).toBe(false);
+    expect(JSON.parse(sent.payload)).toEqual({ state: 'ON', brightness: 217 });
+    expect(on.json()).toMatchObject({
+      event: { output: { stateConfirmed: true, state: 'on', desired: { brightness_pct: 85 } } },
+    });
+    const off = await s.post('fixtures/control', { entityId: 'switch.fan', action: 'off' }, 'live');
+    expect(
+      JSON.parse(broker.published.find((p) => p.topic === 'zigbee2mqtt/Fan/set')!.payload),
+    ).toEqual({ state: 'OFF' });
+    expect(off.json()).toMatchObject({ event: { output: { stateConfirmed: true } } });
+    expect(() => parseConfig({ MQTT_DEVICES: 'fan.x=zigbee2mqtt/x' })).toThrow(/MQTT_DEVICES/);
+    expect(() => parseConfig({ MQTT_DEVICES: 'light.x=zigbee2mqtt/+' })).toThrow(/MQTT_DEVICES/);
+    await s.app.close();
   });
 
   it('refuses a broker URL with credentials in it', () => {

@@ -2,8 +2,11 @@ import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import {
+  commandOf,
+  commandTopics,
   configTopic,
   evaluateExposed,
+  zoneEvent,
   exposedInputSchema,
   exposeMessages,
   exposeProblem,
@@ -15,7 +18,7 @@ import {
   type ExposeWatch,
   type Mode,
 } from '@livinglayer/domain';
-import { LabError, parseInput } from './errors.js';
+import { LabError, parseInput, safeError } from './errors.js';
 import type { MqttLink } from './mqtt.js';
 import type { EvidenceStore } from './store.js';
 
@@ -23,11 +26,18 @@ const LOG_LIMIT = 40;
 /** Config topics published in live mode, so ones deleted while the server was down are cleared. */
 const KNOWN_KEY = 'mqtt_config_topics';
 
+/** What Home Assistant's commands do: exactly what the lab's own buttons do. */
+export interface ExposeActions {
+  setWatching: (on: boolean) => Promise<unknown>;
+  checkRules: () => Promise<unknown>;
+}
+
 /**
  * One mode's entities: works out their states from desk memory and the
  * watcher, tells the lab, and keeps the broker's retained topics the same as
- * what it worked out. Live publishes through the MQTT link; demo never
- * touches the network and keeps a log of what it would have sent.
+ * what it worked out. Live publishes through the MQTT link and takes
+ * commands for its switches and buttons; demo never touches the network and
+ * keeps a log of what it would have sent.
  */
 export class Exposer {
   /** Each topic's last published payload. */
@@ -36,6 +46,9 @@ export class Exposer {
   private log: ExposeView['log'] = [];
   private listeners = new Set<(view: ExposeView) => void>();
   private last = '';
+  /** Each event entity's last published decision, so each entered or left goes out once. */
+  private events = new Map<string, string>();
+  private commands: ExposeView['commands'] = [];
   constructor(
     private deps: {
       mode: Mode;
@@ -43,11 +56,38 @@ export class Exposer {
       watch: () => ExposeWatch | null;
       options: ExposeOptions;
       link: MqttLink | null;
+      actions?: ExposeActions;
       now?: () => number;
     },
   ) {
     const saved = deps.mode === 'live' ? deps.store.setting(KNOWN_KEY) : null;
     this.known = new Set(saved ? (JSON.parse(saved) as string[]) : []);
+    if (deps.mode === 'live' && deps.link)
+      for (const filter of commandTopics(deps.options))
+        deps.link.listen(filter, (topic, payload) => void this.command(topic, payload));
+  }
+  /**
+   * A command from Home Assistant. Only our own switches and buttons, only
+   * their exact payloads; anything else on those topics is ignored.
+   */
+  async command(topic: string, payload: string) {
+    const memory = this.deps.store.memory(this.deps.mode);
+    const cmd = commandOf(memory, this.deps.options, topic, payload);
+    if (!cmd || !this.deps.actions) return;
+    let result = 'done';
+    try {
+      if (cmd.entity.source.kind === 'watching')
+        await this.deps.actions.setWatching(cmd.action === 'on');
+      else if (cmd.entity.source.kind === 'check_rules') await this.deps.actions.checkRules();
+    } catch (error) {
+      result = safeError(error).message;
+    }
+    this.commands = [
+      { at: new Date().toISOString(), key: cmd.entity.key, action: cmd.action, result },
+      ...this.commands,
+    ].slice(0, 10);
+    this.sync();
+    this.emit(true);
   }
   private states() {
     return evaluateExposed(
@@ -68,6 +108,7 @@ export class Exposer {
             : { state: 'off', note: 'Set MQTT_URL and MQTT_LIVE_ENABLED to publish entities.' },
       states,
       log: this.log,
+      commands: this.commands,
     };
   }
   subscribe(listener: (view: ExposeView) => void) {
@@ -119,14 +160,34 @@ export class Exposer {
       if (!keys.has(key)) out.push({ topic, payload: '' });
     }
     for (const m of wanted) if (resend || this.sent.get(m.topic) !== m.payload) out.push(m);
+    // Each entered or left once, not retained: Home Assistant fires it as it arrives.
+    for (const e of memory.exposed ?? []) {
+      if (e.kind !== 'event') continue;
+      const event = zoneEvent(memory, e);
+      const seen = this.events.get(e.id);
+      this.events.set(e.id, event?.decisionId ?? seen ?? '');
+      // A new entity starts from what is already decided, so nothing old goes out.
+      if (seen === undefined || !event || event.decisionId === seen) continue;
+      out.push({
+        topic: `${options.baseTopic}/${e.key}/state`,
+        payload: JSON.stringify({ event_type: event.type, ...event.attributes }),
+        retain: false,
+      });
+    }
     if (out.length) this.publish(out);
     this.emit();
   }
   private publish(messages: ExposeMessage[]) {
     const { link, mode, store, options } = this.deps;
     for (const m of messages) {
-      if (mode === 'live' && !link?.publish(m)) return;
-      if (m.payload === '') this.sent.delete(m.topic);
+      if (mode === 'live' && !link?.publish(m)) {
+        // An event can't wait for a reconnect; retained messages are sent again on it.
+        if (m.retain === false) continue;
+        return;
+      }
+      if (m.retain === false) {
+        // Not retained, so nothing to keep in step.
+      } else if (m.payload === '') this.sent.delete(m.topic);
       else this.sent.set(m.topic, m.payload);
       if (mode === 'demo')
         this.log = [
@@ -149,6 +210,7 @@ export function exposeRoutes(
   app: FastifyInstance,
   exposers: Record<Mode, Exposer>,
   store: EvidenceStore,
+  learnEmpty: (mode: Mode, zoneId: string) => Promise<'features' | 'pixels'>,
 ) {
   // Whatever a person changes, the entities follow.
   app.addHook('onResponse', async (request, reply) => {
@@ -196,6 +258,15 @@ export function exposeRoutes(
       : [...list, entity];
     store.saveMemory(memory);
     return memory;
+  });
+  /** The person says the zone is empty now: remember how it looks, to tell when someone is there. */
+  app.post('/api/expose/learn-empty', async (request) => {
+    const { mode, zoneId } = parseInput(
+      z.object({ mode: modeSchema, zoneId: z.string().min(1).max(64) }).strict(),
+      request.body,
+    );
+    const method = await learnEmpty(mode, zoneId);
+    return { zoneId, method, view: exposers[mode].view() };
   });
   app.post('/api/expose/delete', async (request) => {
     const { mode, id } = parseInput(

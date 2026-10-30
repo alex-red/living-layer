@@ -20,17 +20,18 @@ Demo and live have separate desk memory. Demo runs never count toward the live c
 
 ## Server
 
-| File        | Responsibility                                                                                                                                      |
-| ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `app.ts`    | Routes for the individual probes (`text`, `discover`, `segment`, `lamp`), loopback host/origin checks, and recording each run as an evidence record |
-| `desk.ts`   | The placement workflow: select a mug, track it, save a zone, mark the camera fixed, verify, reset                                                   |
-| `meta.ts`   | Spark (structured JSON output) and SAM (streamed) through the OpenAI-compatible SDK, with retries disabled                                          |
-| `sam.ts`    | Runs the SAM stream through `@meta-sam/parser` and rejects anything incomplete, mismatched, or oversized                                            |
-| `lamp.ts`   | Turns one light on, then polls its state to see whether it matches                                                                                  |
-| `store.ts`  | SQLite tables for evidence, desk memory, placement claims, the spend ledger and settings                                                            |
-| `expose.ts` | Entities shown in Home Assistant: works out their states, keeps the broker's retained topics in step, the lab's routes                              |
-| `mqtt.ts`   | One MQTT connection: last will, Home Assistant's birth message, retained publishes                                                                  |
-| `errors.ts` | `LabError`, and mapping upstream failures to generic messages so provider errors never leak keys or inputs                                          |
+| File              | Responsibility                                                                                                                                      |
+| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `app.ts`          | Routes for the individual probes (`text`, `discover`, `segment`, `lamp`), loopback host/origin checks, and recording each run as an evidence record |
+| `desk.ts`         | The placement workflow: select a mug, track it, save a zone, mark the camera fixed, verify, reset                                                   |
+| `meta.ts`         | Spark (structured JSON output) and SAM (streamed) through the OpenAI-compatible SDK, with retries disabled                                          |
+| `sam.ts`          | Runs the SAM stream through `@meta-sam/parser` and rejects anything incomplete, mismatched, or oversized                                            |
+| `lamp.ts`         | Turns one light on, then polls its state to see whether it matches                                                                                  |
+| `store.ts`        | SQLite tables for evidence, desk memory, placement claims, the spend ledger and settings                                                            |
+| `expose.ts`       | Entities shown in Home Assistant: works out their states, keeps the broker's retained topics in step, the lab's routes                              |
+| `mqtt-control.ts` | Lights and switches switched over MQTT (`MQTT_DEVICES`): one command, then the device's own report                                                  |
+| `mqtt.ts`         | One MQTT connection: last will, Home Assistant's birth message, retained publishes                                                                  |
+| `errors.ts`       | `LabError`, and mapping upstream failures to generic messages so provider errors never leak keys or inputs                                          |
 
 ## Placement rule
 
@@ -101,6 +102,10 @@ Amber stays reserved for lamps: an iso lamp warms only once an action on its lig
 - **States.** `evaluateExposed` is the only place states are worked out, from desk memory and the watcher's `exposeWatch()`. Zone sources read SAM verdicts only, like the lamp. While the watcher runs a verdict stands until SAM changes it; without it the last verdict stays, with `stale: true` among the attributes. A zone with no verdict yet is unavailable.
 - **Publishing.** One `Exposer` per mode (`apps/server/src/expose.ts`) syncs after every successful POST to the desk, fixture, scene, item, watch and expose routes, on every watcher update, and every 5 s for motion holds. It diffs `exposeMessages` (configs first, all retained) against what it last sent, publishes the changes, and clears what went away; an entity that is only unavailable keeps its last state. Config topics are remembered in `settings`, so ones deleted while the server was down are cleared on the next sync. Each config carries `unique_id` (`livinglayer_<install id>_<entity id>`, the install id made once in `settings`), `default_entity_id` (not the removed `object_id`), and two availability topics, `<base>/status` (the broker's last will) and the entity's own. `MqttLink` resends everything on each connect and when Home Assistant publishes `online` on `<prefix>/status`. Live only: demo mode never touches the network and keeps a log of what it would have sent, which the entity panels show (_What it would publish_). The lab follows states through `GET /api/expose/:mode/events`. Broker credentials stay in `.env`; the lab sees the broker's state and a generic note.
 
+- **Presence, locally.** An `occupied` source compares a zone with how it looked empty, which the person shows once (_It's empty now: learn it_, `POST /api/expose/learn-empty`), so someone sitting still still counts. With the feature model (`bun run fetch-model`) the zone's patches are compared (`featureDifference`: the share whose cosine with the empty look is under 0.8); without it, a 32 × 24 grey sample (`pixelDifference`), which light changes fool. Occupied from 12% changed, clear again under 6%, every 3 s while watching (every frame in the demo), from the watcher's grey frames, so no extra ffmpeg run (`packages/domain/src/occupancy.ts`). Empty looks are kept in `settings` per mode and zone. Nothing paid by default: `samConfirm`, a per-entity opt-in the form marks as billed, asks SAM for `person` once each time the zone starts to look occupied (at most once a minute), and the entity is on only if a person's box overlaps the zone. The thresholds are first guesses, not tuned on real rooms.
+- **More kinds.** A `device_tracker` follows an object: its zone's name, `home` when it's in none, `not_home` when missing. An `event` entity (`event_types: entered, left`) gets each zone decision that entered or left once, not retained (`zoneEvent`; a new entity starts from what is already decided). A `switch` (`watching`) turns watching on and off with the camera last chosen in the lab (`setWatching`, shared with `POST /api/watch`); a `button` (`check_rules`) runs `verifyRules`. Commands arrive on `<base>/<key>/set` and `/press` and are taken only for our own switches and buttons, with their exact payloads (`commandOf`); the lab lists the last ten and what came of them. Live only.
+- **Lights over MQTT.** `MQTT_DEVICES` names lights and switches by the topic they report on. They join the entities rules and fixtures may switch; with no `HA_ENTITY_ID`, the first such light is the main lamp. `MqttControl` publishes `{"state":"ON"}` (with brightness 217 of 254 for a light turned on) on `<topic>/set`, not retained, and waits up to 3 s for the device's JSON report with that state. Its `LampResult` reads the same as Home Assistant's: confirmed means the device reported it, not that light was seen. A retained report already in that state confirms at once.
+
 ## Lamp results
 
 Home Assistant accepting a request, the entity reporting the requested state, and the bulb actually lighting up are three separate things. `LampResult` records the first two (`accepted`, `stateConfirmed`). `physicalEffectVerified` is always `false`, because the software has no way to see the lamp.
@@ -111,5 +116,4 @@ Home Assistant accepting a request, the entity reporting the requested state, an
 - Watching a phone camera on the server: a phone streams to the tab, peer to peer, and the server never sees its frames.
 - Camera calibration, so a zone can carry over between frames from a camera that did move
 - Combined conditions, such as two objects in their zones before one light turns on. Each rule is one object, one zone and one light. Entities shown in Home Assistant let its automations combine them instead.
-- Commands from Home Assistant (turning watching on and off, checking rules): entities are publish-only.
 - Extra objects in demo mode: the synthetic SAM output only has the mug

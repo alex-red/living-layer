@@ -261,6 +261,53 @@ describe('the server watching the demo desk', () => {
     const exposed = (await s.app.inject('/api/expose/demo')).json<ExposeView>();
     expect(exposed.states[0]).toMatchObject({ state: 'ON', available: true });
 
+    // Occupancy: a zone just around the mug, learned as it looks now; a change there reads as
+    // occupied, locally.
+    const here = (await s.memory()).observation!;
+    const tight = (
+      await s.post('desk/rules/save', {
+        rule: {
+          label: 'Mug spot',
+          objectId: here.objectId,
+          entityId: null,
+          rect: {
+            x: here.box.x / here.frame.width,
+            y: here.box.y / here.frame.height,
+            width: here.box.width / here.frame.width,
+            height: here.box.height / here.frame.height,
+          },
+        },
+      })
+    ).json<DeskMemory>();
+    const spot = tight.rules!.find((r) => r.label === 'Mug spot')!.id;
+    await s.watcher.idle();
+    await s.post('expose/save', {
+      entity: {
+        key: 'desk_occupied',
+        name: 'Desk occupied',
+        kind: 'binary_sensor',
+        source: { kind: 'occupied', zoneId: spot, holdS: 0, samConfirm: false },
+      },
+    });
+    await s.watcher.idle();
+    const occupied = async () =>
+      (await s.app.inject('/api/expose/demo'))
+        .json<ExposeView>()
+        .states.find((x) => x.key === 'desk_occupied')!;
+    expect((await occupied()).reason).toMatch(/empty first/);
+    const learned = await s.post('expose/learn-empty', { zoneId: spot });
+    expect(learned.json()).toMatchObject({ method: 'pixels' });
+    await s.move('right');
+    expect(await occupied()).toMatchObject({ state: 'ON', attributes: { method: 'pixels' } });
+    await s.move('centre');
+    expect((await occupied()).state).toBe('OFF');
+    // Not opted in: no SAM call was spent on presence (the moves' own zone checks aside).
+    expect(
+      (await runs()).filter(
+        (r) => r.kind === 'segment' && (r.output as Segmentation).concept === 'person',
+      ),
+    ).toHaveLength(0);
+
     // Watching survives a restart of the server: it is kept in desk memory.
     expect(memory.watch).toEqual({ on: true, camera: null });
     const off = (await s.post('watch', { on: false })).json<WatchView>();

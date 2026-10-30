@@ -1284,3 +1284,9 @@
   color: var(--text-2);
   overflow-wrap: anywhere;
 }
+.expose-opt-in {
+  display: block;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--text-2);
+}

@@ -54,6 +54,8 @@ const schema = z.object({
     .regex(/^[\w-]+(\/[\w-]+)*$/)
     .default('livinglayer'),
   MQTT_LIVE_ENABLED: flag,
+  /** Lights and switches switched over MQTT: `light.desk=zigbee2mqtt/Desk lamp`, comma-separated. */
+  MQTT_DEVICES: z.string().default(''),
 });
 
 /** The part of `fetch` the adapters use, so tests can pass a plain mock. */
@@ -86,6 +88,8 @@ export interface Config {
     discoveryPrefix: string;
     baseTopic: string;
     enabled: boolean;
+    /** Lights and switches switched over MQTT, each by the topic it reports its state on. */
+    devices: { entityId: string; topic: string }[];
   };
 }
 
@@ -156,6 +160,30 @@ export function parseConfig(env: NodeJS.ProcessEnv, cwd = process.cwd()): Config
         'MQTT_URL must be mqtt://host:port or mqtts://host:port, with credentials in MQTT_USERNAME and MQTT_PASSWORD.',
       );
   }
+  const devices = value.MQTT_DEVICES.split(',')
+    .map((e) => e.trim())
+    .filter(Boolean)
+    .map((e) => {
+      const at = e.indexOf('=');
+      return { entityId: e.slice(0, at).trim(), topic: e.slice(at + 1).trim() };
+    });
+  for (const d of devices)
+    if (
+      !/^(light|switch)\.[a-z0-9_]+$/.test(d.entityId) ||
+      !d.topic ||
+      /[+#]|^\/|\/$/.test(d.topic)
+    )
+      throw new Error(
+        'MQTT_DEVICES must list light.* or switch.* entities with their MQTT topics, e.g. light.desk=zigbee2mqtt/Desk lamp.',
+      );
+  const known = new Set([value.HA_ENTITY_ID, ...extras, ...switches]);
+  if (
+    devices.some((d) => known.has(d.entityId)) ||
+    new Set(devices.map((d) => d.entityId)).size !== devices.length
+  )
+    throw new Error(
+      'Each entity in MQTT_DEVICES must be listed once, and not among the HA_* entities.',
+    );
   if (value.REMOTE_CAMERA_PORT === value.PORT)
     throw new Error('REMOTE_CAMERA_PORT must differ from PORT.');
   return {
@@ -188,6 +216,7 @@ export function parseConfig(env: NodeJS.ProcessEnv, cwd = process.cwd()): Config
       discoveryPrefix: value.MQTT_DISCOVERY_PREFIX,
       baseTopic: value.MQTT_BASE_TOPIC,
       enabled: value.MQTT_LIVE_ENABLED,
+      devices,
     },
   };
 }

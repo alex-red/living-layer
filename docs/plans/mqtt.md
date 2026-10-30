@@ -177,6 +177,8 @@ Same loopback host and origin checks as every other route.
 
 ## Later, not in this plan
 
+All built since, presence locally instead of with SAM: see [The later list, as built](#the-later-list-as-built).
+
 - **Commands from Home Assistant**: a `switch.ll_watching` to turn watching on and off, a `button.ll_check_rules`. Needs a subscribe path and the same loopback-level trust decision for the broker.
 - **Controlling lights over MQTT** instead of REST, for homes without a token.
 - **`device_tracker`** entities that place an object in a Home Assistant zone, and an `event` entity for entered/left.
@@ -199,3 +201,13 @@ Built in one pass, all seven steps, with the open decisions taken as proposed: s
 - **Deleted while down.** Published config topics are kept in `settings`, so an entity deleted while the server was down is cleared on the next sync.
 - **Doctor** reports the MQTT settings but doesn't connect: it promises no network requests.
 - **Not tried against a real broker.** Tested with a fake MQTT client (`tests/expose.test.ts`) and the demo watcher (`tests/watch.test.ts`); adding `office_presence` against Mosquitto and Home Assistant by hand (step 3's check) hasn't been done. In the running lab, the outline section and the new-entity form were opened and filled in, but nothing was saved there, and the entity panel, the demo publish log and the rule editor's new target haven't been tried by hand.
+
+## The later list, as built
+
+Built after the first pass, with one change asked for on the way: **no paid calls decide presence unless the person opts in.**
+
+- **Presence without SAM.** Not `person` from SAM, but a local `occupied` source: the zone against how it looked empty, by feature patches (or grey levels without the model). It catches someone sitting still, which motion can't, and costs nothing. SAM confirmation is a per-entity checkbox marked billed, off by default, at most one call a minute per zone.
+- **Commands from Home Assistant.** `switch` for watching and `button` for checking rules, as entity kinds a person adds like any other. They do exactly what the lab's own controls do; turning watching on from Home Assistant needs a camera already chosen in the lab, and says so in the command log otherwise. The broker is trusted as far as Home Assistant is: anyone who can publish there can flip these.
+- **Lights over MQTT.** For devices that speak Zigbee2MQTT's JSON (`{"state":"ON"}` on `<topic>/set`, state reports on `<topic>`), not Home Assistant service calls, which MQTT can't make. Other payload formats aren't covered.
+- **`device_tracker` and `event`.** As planned: a tracker's state is the zone's name, `home` or `not_home`; events go out once per decision, not retained.
+- **Not tried for real.** As with the first pass: fake MQTT client and the demo desk only. The occupancy thresholds (12% to turn on, 6% to clear, cosine 0.8) are first guesses; the demo's mug changes 11% of the large main zone, so the test uses a zone drawn around the mug.

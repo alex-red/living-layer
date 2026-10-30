@@ -1075,5 +1075,5 @@ export function deskRoutes(
       );
     return verify(mode, memory);
   });
-  return { trackMug, trackObject, trackFixture, loseFixture };
+  return { trackMug, trackObject, trackFixture, loseFixture, verifyRules };
 }
