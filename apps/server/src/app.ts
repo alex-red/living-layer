@@ -37,6 +37,7 @@ import { itemRoutes } from './item.js';
 import { photoRoutes } from './photo.js';
 import { pinRoutes } from './pin.js';
 import { illustrationRoutes } from './illustration.js';
+import { jobRoutes, jobs } from './jobs.js';
 import { listStreams, streamRoutes, type NetworkStream } from './streams.js';
 import { CameraRegistry, cameraRoutes } from './cameras.js';
 import { Watcher, setWatching, watchRoutes, type WatcherDeps } from './watcher.js';
@@ -232,6 +233,8 @@ export async function buildApp(
   const knownStreams = () => [...remote.streams(), ...cameras.streams()];
   streamRoutes(app, config, options.browseCameras, knownStreams);
   app.get('/api/runs', async () => store.list());
+  jobs.keepIn(store);
+  jobRoutes(app, store);
   app.get('/api/evidence', async (_request, reply) =>
     reply.header('Content-Disposition', 'attachment; filename="livinglayer-evidence.json"').send({
       project: 'LivingLayer',

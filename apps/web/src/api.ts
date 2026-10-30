@@ -3,7 +3,11 @@ import { ApiError, endCall, startCall } from './activity';
 
 export { ApiError };
 
-export async function api<T>(path: string, body?: unknown): Promise<T> {
+export async function api<T>(
+  path: string,
+  body?: unknown,
+  { signal }: { signal?: AbortSignal } = {},
+): Promise<T> {
   const call = body ? startCall(path, body as Record<string, unknown>) : null;
   try {
     const response = await fetch(
@@ -13,8 +17,9 @@ export async function api<T>(path: string, body?: unknown): Promise<T> {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body),
+            signal,
           }
-        : {},
+        : { signal },
     );
     const data = await response.json().catch(() => ({}));
     // The server's error code rides along, so callers can tell e.g. a lost mug from a failure.
@@ -34,10 +39,12 @@ export async function api<T>(path: string, body?: unknown): Promise<T> {
     const error =
       e instanceof ApiError
         ? e
-        : new ApiError(
-            'The local server could not be reached. Is it running (bun run dev)?',
-            'local_unreachable',
-          );
+        : signal?.aborted
+          ? new ApiError('Stopped. Nothing was saved.', 'stopped')
+          : new ApiError(
+              'The local server could not be reached. Is it running (bun run dev)?',
+              'local_unreachable',
+            );
     endCall(call, { error: error.message });
     throw error;
   }

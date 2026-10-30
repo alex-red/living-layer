@@ -17,6 +17,8 @@ function RunInspector() {
   const lab = useLab();
   const selected = lab.selected;
   if (!selected) return <p className="placeholder">Pick a run to inspect it.</p>;
+  // The AI action this call was a step of, if any, to review step by step.
+  const job = lab.aiHistory.find((j) => j.runIds?.includes(selected.id));
   return (
     <section
       className="inspector"
@@ -113,6 +115,11 @@ function RunInspector() {
             Show on scene
           </button>
         )}
+        {job && (
+          <button className="secondary" onClick={() => void lab.reviewAiRun(job.id)}>
+            Review its steps · {job.title ?? 'AI run'}
+          </button>
+        )}
         <button className="text-button" onClick={() => lab.copyRun(selected)}>
           Copy JSON
         </button>
@@ -125,6 +132,44 @@ function RunInspector() {
         <pre>{JSON.stringify(selected, null, 2)}</pre>
       </details>
     </section>
+  );
+}
+
+const OUTCOME_GLYPH = { done: '✓', failed: '×', stopped: '■' } as const;
+
+/** The latest AI actions, each reopening its steps in the AI dialog, read-only. */
+function AiHistory() {
+  const lab = useLab();
+  return (
+    <ul className="aip-history" aria-label="Recent AI runs">
+      {lab.aiHistory.slice(0, 5).map((job) => {
+        const outcome = job.outcome ?? (job.stopped ? 'stopped' : 'done');
+        const took = job.endedAt ? Date.parse(job.endedAt) - Date.parse(job.createdAt) : null;
+        return (
+          <li key={job.id}>
+            <button className="aip-history-row" onClick={() => void lab.reviewAiRun(job.id)}>
+              <span className={`aip-history-mark ${outcome}`} aria-hidden="true">
+                {OUTCOME_GLYPH[outcome]}
+              </span>
+              <strong>
+                {job.title ?? 'AI run'}
+                <span className="aip-sr">, {outcome}</span>
+              </strong>
+              <small>
+                {job.steps.filter((s) => s.state === 'done').length}/{job.steps.length} steps
+                {took !== null && ` · ${(took / 1000).toFixed(1)}s`}
+              </small>
+              <small>
+                {clock(job.createdAt)}{' '}
+                {job.mode && (
+                  <b className={`badge ${job.mode}`}>{job.mode === 'demo' ? 'demo' : 'live'}</b>
+                )}
+              </small>
+            </button>
+          </li>
+        );
+      })}
+    </ul>
   );
 }
 
@@ -223,6 +268,7 @@ export function ActivityDrawer() {
               {logStats.cost > 0 && ` · ≈ ${usd(logStats.cost)}`}
             </p>
           </div>
+          {lab.aiHistory.length > 0 && <AiHistory />}
           <div className="evidence-table">
             {filteredRuns.length ? (
               filteredRuns.slice(0, logLimit).map((run) => (

@@ -346,6 +346,14 @@ export function TopBar() {
         <span className="feedback-text">
           {busy ? `${BUSY[busy] ?? 'Working'}…` : lab.error || lab.message}
         </span>
+        {lab.aiTask && !lab.aiTask.open && (
+          <button
+            className="feedback-steps"
+            onClick={() => lab.setAiTask({ ...lab.aiTask!, open: true })}
+          >
+            {lab.aiTask.status === 'running' ? 'Show steps' : 'Steps'}
+          </button>
+        )}
         {lab.lamp === 'virtual' && <span className="hud-tag">VIRTUAL</span>}
       </div>
       <nav className="topbar-links">

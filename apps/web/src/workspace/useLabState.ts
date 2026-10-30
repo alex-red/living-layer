@@ -98,6 +98,31 @@ export const BUSY: Record<string, string> = {
   redo: 'Redoing',
   restore: 'Loading the save',
 };
+/** A long AI action the dialog follows: its job's steps and how it ended. */
+export interface AiTask {
+  title: string;
+  description?: string;
+  jobId: string;
+  job: Job | null;
+  status: 'running' | 'done' | 'failed' | 'stopped';
+  error?: string;
+  /** Shown; hiding it lets the action go on. */
+  open: boolean;
+  startedAt: number;
+  /** A past action opened to look back at, not one running now. */
+  review?: boolean;
+}
+/** A job as it shows once stopped: what was running or waiting is stopped. */
+function stoppedJob(job: Job): Job {
+  return {
+    ...job,
+    stopped: true,
+    done: true,
+    steps: job.steps.map((s) =>
+      s.state === 'running' || s.state === 'waiting' ? { ...s, state: 'stopped' } : s,
+    ),
+  };
+}
 export const TRANSITION: Record<NonNullable<PlacementDecision['transition']>, string> = {
   entered: 'Entered the zone',
   stayed_inside: 'Still inside',
@@ -1457,26 +1482,178 @@ export function useLabState() {
     setMessage('Drag a box around the thing on the desk photo. Esc cancels.');
   }
   /**
+   * A long AI action shown step by step in its dialog: the job's steps as the
+   * server reports them, kept after it ends until the dialog is closed.
+   */
+  const [aiTask, setAiTask] = useState<AiTask | null>(null);
+  /** The action running now; a stop bumps the generation so its answer is dropped. */
+  const aiGeneration = useRef(0);
+  const aiRun = useRef<{ generation: number; jobId: string; abort: AbortController } | null>(null);
+  const aiClose = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const updateAiTask = (jobId: string, change: Partial<AiTask>) =>
+    setAiTask((t) => (t?.jobId === jobId ? { ...t, ...change } : t));
+  /** Past AI actions, newest first, without their pictures: each is fetched to review. */
+  const [aiHistory, setAiHistory] = useState<Job[]>([]);
+  const loadAiHistory = () =>
+    api<Job[]>('jobs')
+      .then((list) => mounted.current && setAiHistory(list))
+      .catch(() => {});
+  useEffect(() => {
+    void loadAiHistory();
+  }, []);
+  /** Open a past AI action in the dialog, read-only, to see what each step did. */
+  async function reviewAiRun(jobId: string) {
+    if (aiRun.current) return;
+    clearTimeout(aiClose.current);
+    const job = await api<Job>(`jobs/${jobId}`).catch(() => null);
+    if (!job) return setError('That AI run is no longer kept.');
+    setAiTask({
+      title: job.title ?? 'AI run',
+      jobId,
+      job,
+      status: job.outcome ?? (job.stopped ? 'stopped' : 'done'),
+      error: job.error,
+      open: true,
+      startedAt: Date.parse(job.createdAt),
+      review: true,
+    });
+  }
+  /** Stop the running AI action: the server aborts its model call and saves nothing. */
+  function stopAiTask() {
+    const running = aiRun.current;
+    if (!running) return;
+    aiRun.current = null;
+    aiGeneration.current++;
+    const { jobId } = running;
+    updateAiTask(jobId, { status: 'stopped' });
+    setAiTask((t) => (t?.jobId === jobId && t.job ? { ...t, job: stoppedJob(t.job) } : t));
+    setBusy('');
+    setMessage(`Stopped: ${aiTask?.title.toLowerCase() ?? 'the AI call'}. Nothing was saved.`);
+    // Tell the server first, then drop the request. The job may not be registered
+    // yet in the first moments, so the stop is tried again briefly.
+    void (async () => {
+      for (let tries = 0; tries < 5; tries++) {
+        const response = await fetch(`/api/jobs/${jobId}/stop`, { method: 'POST' }).catch(
+          () => null,
+        );
+        if (response?.ok) {
+          const job = (await response.json().catch(() => null)) as Job | null;
+          if (job?.done && !job.stopped) {
+            // It had already finished: what it saved stays, so show it.
+            updateAiTask(jobId, { job, status: 'done' });
+            setMessage('It had already finished, so the result was kept.');
+            void refresh().catch(() => {});
+          } else if (job) updateAiTask(jobId, { job });
+          break;
+        }
+        await new Promise((r) => setTimeout(r, 400));
+      }
+      running.abort.abort();
+      void loadAiHistory();
+    })();
+  }
+  /** Close the dialog; a running action is stopped first. */
+  function closeAiTask() {
+    if (aiRun.current) stopAiTask();
+    clearTimeout(aiClose.current);
+    setAiTask(null);
+  }
+  /**
+   * Run an AI call that reports its steps under a job id, followed in the
+   * dialog until it ends. Resolves to its answer, or null when it was stopped.
+   */
+  async function followAi<T>(
+    task: Pick<AiTask, 'title' | 'description'>,
+    call: (jobId: string, signal: AbortSignal) => Promise<T>,
+  ): Promise<T | null> {
+    const generation = ++aiGeneration.current;
+    const jobId = crypto.randomUUID();
+    const abort = new AbortController();
+    aiRun.current = { generation, jobId, abort };
+    clearTimeout(aiClose.current);
+    setAiTask({ ...task, jobId, job: null, status: 'running', open: true, startedAt: Date.now() });
+    const current = () => mounted.current && generation === aiGeneration.current;
+    let following = true;
+    const poll = async () => {
+      while (following && current()) {
+        const job = await api<Job>(`jobs/${jobId}`).catch(() => null);
+        if (job && following && current()) updateAiTask(jobId, { job });
+        await new Promise((r) => setTimeout(r, 350));
+      }
+    };
+    void poll();
+    try {
+      const result = await call(jobId, abort.signal);
+      return current() ? result : null;
+    } catch (e) {
+      if (!current()) return null;
+      updateAiTask(jobId, {
+        status: 'failed',
+        error: e instanceof Error ? e.message : 'It failed.',
+      });
+      throw e;
+    } finally {
+      following = false;
+      if (current()) {
+        aiRun.current = null;
+        // The last word on every step, success or not.
+        const job = await api<Job>(`jobs/${jobId}`).catch(() => null);
+        setAiTask((t) =>
+          t?.jobId !== jobId
+            ? t
+            : {
+                ...t,
+                job: job ?? t.job,
+                status: t.status === 'running' ? 'done' : t.status,
+              },
+        );
+        void loadAiHistory();
+      }
+    }
+  }
+  /**
    * Draw the photographed room as a picture from the current photo (one
-   * image call and one SAM call, live), and show it.
+   * image call and one SAM call, live), and show it, step by step in the
+   * AI dialog, where it can be stopped.
    */
   async function illustrate(view: 'room' | 'desk' = 'room') {
     if (busy) return;
     setBusy('illustrate');
     setError('');
+    let ok = false;
     try {
-      const result = await api<{
-        run: EvidenceRun;
-        segment: EvidenceRun<Segmentation> | null;
-        memory: DeskMemory;
-      }>('scene/illustrate', {
-        mode,
-        view,
-        // The room is redrawn from its own photo (the last picture's, else this one); the desk from this frame.
-        ...(mode === 'live' && (view === 'desk' || !(memory?.scenePhoto || memory?.illustration))
-          ? { imageDataUrl: image }
-          : {}),
-      });
+      const result = await followAi(
+        {
+          title: view === 'desk' ? 'Drawing the desk' : 'Drawing the room',
+          description:
+            mode === 'live'
+              ? view === 'desk'
+                ? 'Muse Image redraws this frame in the room’s style. One image call, about $0.01.'
+                : 'Muse Image redraws the photo, then SAM finds the desk on it. About $0.02.'
+              : 'Demo: the bundled pictures, no model calls.',
+        },
+        (jobId, signal) =>
+          api<{
+            run: EvidenceRun;
+            segment: EvidenceRun<Segmentation> | null;
+            memory: DeskMemory;
+          }>(
+            'scene/illustrate',
+            {
+              mode,
+              view,
+              jobId,
+              // The room is redrawn from its own photo (the last picture's, else this one); the desk from this frame.
+              ...(mode === 'live' &&
+              (view === 'desk' || !(memory?.scenePhoto || memory?.illustration))
+                ? { imageDataUrl: image }
+                : {}),
+            },
+            { signal },
+          ),
+      );
+      if (!result) return;
+      ok = true;
       setMemory(result.memory);
       setSelected(result.run);
       setShowPicture(true);
@@ -1492,7 +1669,10 @@ export function useLabState() {
     } catch (e) {
       setError(e instanceof Error ? e : 'The room could not be drawn.');
     } finally {
-      setBusy('');
+      // A stop has already freed the lab for the next call.
+      if (!aiRun.current) setBusy((b) => (b === 'illustrate' ? '' : b));
+      // A clean finish closes itself after a moment to look at it.
+      if (ok) aiClose.current = setTimeout(() => setAiTask(null), 2200);
     }
   }
   /**
@@ -1843,6 +2023,12 @@ export function useLabState() {
     sculptFixture,
     sculpting,
     setSculpting,
+    aiTask,
+    setAiTask,
+    aiHistory,
+    reviewAiRun,
+    stopAiTask,
+    closeAiTask,
     selection,
     select,
     outlineOpen,

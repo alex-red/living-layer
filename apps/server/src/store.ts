@@ -6,6 +6,7 @@ import {
   runCost,
   upgradeMemory,
   type EvidenceRun,
+  type Job,
   type LabStatus,
   type DeskMemory,
   type Mode,
@@ -24,7 +25,8 @@ export class EvidenceStore {
       CREATE TABLE IF NOT EXISTS meta_spend (day TEXT PRIMARY KEY, usd REAL NOT NULL);
       CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS desk_memory (mode TEXT PRIMARY KEY, payload TEXT NOT NULL);
-      CREATE TABLE IF NOT EXISTS placement_claims (segment_id TEXT PRIMARY KEY, created_at TEXT NOT NULL);`);
+      CREATE TABLE IF NOT EXISTS placement_claims (segment_id TEXT PRIMARY KEY, created_at TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS jobs (id TEXT PRIMARY KEY, created_at TEXT NOT NULL, payload TEXT NOT NULL);`);
     this.renameDemoMode();
   }
   /**
@@ -95,6 +97,24 @@ export class EvidenceStore {
       .query<Payload, []>('SELECT payload FROM evidence ORDER BY rowid DESC LIMIT 200')
       .all()
       .map((row) => JSON.parse(row.payload) as EvidenceRun);
+  }
+  /** An AI job that ended: its steps, timings, pictures and the runs it made. */
+  saveJob(job: Job): void {
+    this.db.run(
+      'INSERT INTO jobs VALUES (?, ?, ?) ON CONFLICT(id) DO UPDATE SET payload = excluded.payload',
+      [job.id, job.createdAt, JSON.stringify(job)],
+    );
+  }
+  getJob(id: string): Job | undefined {
+    const row = this.db.query<Payload, [string]>('SELECT payload FROM jobs WHERE id = ?').get(id);
+    return row ? (JSON.parse(row.payload) as Job) : undefined;
+  }
+  /** The latest jobs, newest first, as many as the run log keeps. */
+  listJobs(): Job[] {
+    return this.db
+      .query<Payload, []>('SELECT payload FROM jobs ORDER BY created_at DESC LIMIT 200')
+      .all()
+      .map((row) => JSON.parse(row.payload) as Job);
   }
   usedToday(): number {
     const row = this.db

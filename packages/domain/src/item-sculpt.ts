@@ -184,7 +184,7 @@ export function sculptCheckPrompt(label: string): string {
 export interface JobStep {
   id: string;
   label: string;
-  state: 'waiting' | 'running' | 'done' | 'failed';
+  state: 'waiting' | 'running' | 'done' | 'failed' | 'stopped';
   detail?: string;
   /** A small picture of what the step made, as a data URL. */
   image?: string;
@@ -196,4 +196,16 @@ export interface Job {
   steps: JobStep[];
   createdAt: string;
   done: boolean;
+  /** The page stopped it before it finished. */
+  stopped?: boolean;
+  /** What it was, for its history: "Drawing the room". */
+  title?: string;
+  mode?: 'demo' | 'live';
+  /** The evidence runs (model calls) it made, in order. */
+  runIds?: string[];
+  /** How it ended, once it has. */
+  outcome?: 'done' | 'failed' | 'stopped';
+  /** Why it failed. */
+  error?: string;
+  endedAt?: string;
 }

@@ -662,6 +662,7 @@ export class MetaAdapter {
     images: string[],
     prompt: string,
     size = 'auto',
+    signal?: AbortSignal,
   ): Promise<ProviderResult<Buffer>> {
     const settle = this.reserve(META_PRICES.imagePerImage);
     try {
@@ -683,6 +684,7 @@ export class MetaAdapter {
             },
           },
           timeout: Math.max(this.config.timeoutMs, 120_000),
+          ...(signal ? { signal } : {}),
         })
         .withResponse();
       const b64 = response.data.data?.[0]?.b64_json;
@@ -707,7 +709,7 @@ export class MetaAdapter {
     prompt: string,
     width: number,
     height: number,
-    options: { concept?: string; maxMasks?: number } = {},
+    options: { concept?: string; maxMasks?: number; signal?: AbortSignal } = {},
   ): Promise<ProviderResult<Segmentation> & { raw: string }> {
     const concept = options.concept ?? prompt;
     // SAM bills per image, so the reservation is also the cost once Meta accepts the call.
@@ -728,7 +730,12 @@ export class MetaAdapter {
           ],
           stream: true,
         },
-        { timeout: this.config.timeoutMs, signal: AbortSignal.timeout(this.config.timeoutMs) },
+        {
+          timeout: this.config.timeoutMs,
+          signal: options.signal
+            ? AbortSignal.any([options.signal, AbortSignal.timeout(this.config.timeoutMs)])
+            : AbortSignal.timeout(this.config.timeoutMs),
+        },
       )
       .withResponse()
       .then(

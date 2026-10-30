@@ -1,5 +1,6 @@
 import { ProviderActivity } from './ProviderUi';
 import { ActivityDrawer } from './workspace/ActivityDrawer';
+import { AiTaskDialog } from './workspace/AiTaskDialog';
 import { Canvas } from './workspace/Canvas';
 import { Inspector } from './workspace/Inspector';
 import { LabContext } from './workspace/LabContext';
@@ -27,6 +28,7 @@ export function App() {
         <ActivityDrawer />
         <ProviderActivity />
         {lab.showKeys && <KeysDialog />}
+        <AiTaskDialog />
       </div>
     </LabContext.Provider>
   );

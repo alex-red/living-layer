@@ -1,5 +1,15 @@
+import type { FastifyInstance } from 'fastify';
 import sharp from 'sharp';
+import { z } from 'zod';
 import type { Job } from '@livinglayer/domain';
+import { LabError, parseInput } from './errors.js';
+
+/** Where ended jobs are kept, so a past run can be reviewed step by step. */
+export interface JobHistory {
+  saveJob(job: Job): void;
+  getJob(id: string): Job | undefined;
+  listJobs(): Job[];
+}
 
 /** How long a finished or abandoned job stays readable. */
 const KEEP_MS = 10 * 60_000;
@@ -8,27 +18,56 @@ const THUMB = 160;
 /**
  * Long jobs the page asked to follow, by the id it chose: each job's steps
  * move from waiting to running to done as the work goes, so the page can
- * show where it is while its request is still open. Kept in memory only.
+ * show where it is while its request is still open. Running jobs are kept in
+ * memory; once one ends it is kept in the history, if there is one.
  */
 export class Jobs {
   private jobs = new Map<string, Job & { touched: number }>();
+  private trackers = new Map<string, JobTracker>();
+  private history: JobHistory | null = null;
 
+  /** Keep each job that ends, with its steps and pictures, for review. */
+  keepIn(history: JobHistory) {
+    this.history = history;
+  }
   /** Start following a job; with no id, steps are still taken but nobody reads them. */
-  start(id: string | undefined, steps: { id: string; label: string }[]): JobTracker {
+  start(
+    id: string | undefined,
+    steps: { id: string; label: string }[],
+    about: Pick<Job, 'title' | 'mode'> = {},
+  ): JobTracker {
     this.prune();
     const job = {
       id: id ?? '',
+      ...about,
       steps: steps.map((s) => ({ ...s, state: 'waiting' as const })),
       createdAt: new Date().toISOString(),
       done: false,
+      runIds: [],
       touched: Date.now(),
     };
-    if (id) this.jobs.set(id, job);
-    return new JobTracker(job);
+    const tracker = new JobTracker(job, (ended) => {
+      if (!id || !this.history) return;
+      const { touched: _t, ...kept } = ended;
+      this.history.saveJob(structuredClone(kept));
+    });
+    if (id) {
+      this.jobs.set(id, job);
+      this.trackers.set(id, tracker);
+    }
+    return tracker;
   }
+  /** Stop a job the page gave up on: its running call is aborted and nothing after it runs. */
+  stop(id: string): boolean {
+    const tracker = this.trackers.get(id);
+    if (!tracker) return false;
+    tracker.stop();
+    return true;
+  }
+  /** A running or recent job, else an ended one from the history. */
   get(id: string): Job | null {
     const job = this.jobs.get(id);
-    if (!job) return null;
+    if (!job) return this.history?.getJob(id) ?? null;
     const { touched: _t, ...rest } = job;
     return rest;
   }
@@ -39,23 +78,59 @@ export class Jobs {
 }
 
 export class JobTracker {
-  constructor(private job: Job & { touched: number }) {}
+  private abort = new AbortController();
+  constructor(
+    private job: Job & { touched: number },
+    private ended: (job: Job & { touched: number }) => void = () => {},
+  ) {}
+  /** Note an evidence run the job made, so its history links to it. */
+  link(runId: string) {
+    this.job.runIds = [...(this.job.runIds ?? []), runId];
+  }
+  /** Aborts once the page stops the job; pass it to each model call. */
+  get signal(): AbortSignal {
+    return this.abort.signal;
+  }
+  get stopped(): boolean {
+    return this.abort.signal.aborted;
+  }
+  /** Between steps: give up here if the page stopped the job. */
+  check() {
+    if (this.stopped) throw stoppedError();
+  }
+  stop() {
+    if (this.job.done) return;
+    this.abort.abort();
+    for (const s of this.job.steps)
+      if (s.state === 'running' || s.state === 'waiting') {
+        if (s.state === 'running') s.endedAt = new Date().toISOString();
+        s.state = 'stopped';
+      }
+    this.job.stopped = true;
+    this.finish('stopped');
+  }
   private step(id: string) {
     this.job.touched = Date.now();
     return this.job.steps.find((s) => s.id === id);
   }
   run(id: string, detail?: string) {
     const s = this.step(id);
-    if (!s) return;
+    if (!s || this.stopped) return;
     s.state = 'running';
     s.startedAt = new Date().toISOString();
     if (detail) s.detail = detail;
   }
-  /** Finish a step, with what it found and, for a picture, a thumbnail of it. */
-  async done(id: string, detail?: string, png?: Buffer) {
+  /** Show a picture on a running step, such as the frame it is sending. */
+  async show(id: string, png: Buffer, size = THUMB) {
     const s = this.step(id);
-    if (!s) return;
-    if (png) s.image = await thumbnail(png).catch(() => undefined);
+    if (!s || this.stopped) return;
+    s.image = await thumbnail(png, size).catch(() => undefined);
+  }
+  /** Finish a step, with what it found and, for a picture, a thumbnail of it. */
+  async done(id: string, detail?: string, png?: Buffer, size = THUMB) {
+    const s = this.step(id);
+    if (!s || this.stopped) return;
+    if (png) s.image = await thumbnail(png, size).catch(() => undefined);
     s.state = 'done';
     s.startedAt ??= new Date().toISOString();
     s.endedAt = new Date().toISOString();
@@ -63,24 +138,56 @@ export class JobTracker {
   }
   /** The step that was running failed, with the reason shown. */
   fail(detail: string) {
+    if (this.stopped) return;
     const s = this.job.steps.find((x) => x.state === 'running');
     if (s) {
       s.state = 'failed';
       s.detail = detail;
       s.endedAt = new Date().toISOString();
     }
-    this.finish();
+    this.job.error = detail;
+    this.finish('failed');
   }
-  finish() {
+  finish(outcome: NonNullable<Job['outcome']> = 'done') {
+    if (this.job.outcome) return;
     this.job.done = true;
+    this.job.outcome = outcome;
+    this.job.endedAt = new Date().toISOString();
     this.job.touched = Date.now();
+    this.ended(this.job);
   }
 }
 
-async function thumbnail(png: Buffer): Promise<string> {
-  const small = await sharp(png)
-    .resize(THUMB, THUMB, { fit: 'inside', withoutEnlargement: true })
-    .png()
-    .toBuffer();
+/** The error a stopped job's request ends with. */
+export function stoppedError() {
+  return new LabError('stopped', 'Stopped. Nothing was saved.', 409);
+}
+
+async function thumbnail(png: Buffer, size = THUMB): Promise<string> {
+  const resized = sharp(png).resize(size, size, { fit: 'inside', withoutEnlargement: true });
+  // Large previews are kept in the job's history, so they are stored as WebP to stay small.
+  if (size > THUMB) {
+    const webp = await resized.webp({ quality: 82 }).toBuffer();
+    return `data:image/webp;base64,${webp.toString('base64')}`;
+  }
+  const small = await resized.png().toBuffer();
   return `data:image/png;base64,${small.toString('base64')}`;
+}
+
+/** Long jobs the page is following, shared by every route that reports steps. */
+export const jobs = new Jobs();
+
+/** The jobs that have ended, newest first, for the page's history of AI runs. */
+export function jobRoutes(app: FastifyInstance, history: JobHistory) {
+  app.get('/api/jobs', async (request) => {
+    const { pictures } = parseInput(
+      z.object({ pictures: z.enum(['0', '1']).default('0') }).strict(),
+      request.query,
+    );
+    const list = history.listJobs();
+    // The list is light: each step's picture is fetched with its job.
+    return pictures === '1'
+      ? list
+      : list.map((j) => ({ ...j, steps: j.steps.map(({ image: _i, ...s }) => s) }));
+  });
 }

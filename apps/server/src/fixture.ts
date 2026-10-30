@@ -49,7 +49,7 @@ import {
   type Usage,
 } from '@livinglayer/domain';
 import { LabError, parseInput } from './errors.js';
-import { Jobs } from './jobs.js';
+import { jobs } from './jobs.js';
 import sharp from 'sharp';
 import {
   demoDeskThing,
@@ -85,8 +85,6 @@ const SCULPT_STEPS = [
   { id: 'keep', label: 'Keep the better draft' },
   { id: 'save', label: 'Save it' },
 ];
-/** Long jobs the page is following. */
-const jobs = new Jobs();
 const sumUsage = (a: Usage | null, b: Usage | null | undefined): Usage | null =>
   !b
     ? a
@@ -727,10 +725,14 @@ export function fixtureRoutes(
       d: fixture.size.d / longest,
       h: fixture.size.h / longest,
     };
-    const job = jobs.start(jobId, SCULPT_STEPS);
+    const job = jobs.start(jobId, SCULPT_STEPS, {
+      title: `Modelling the ${fixture.label.toLowerCase()}`,
+      mode,
+    });
     const overlap = (iou: number) => `${Math.round(iou * 100)}% overlap with the picture`;
     const parts = (n: number) => `${n} part${n === 1 ? '' : 's'}`;
     const sculptSteps = async (id: string) => {
+      job.link(id);
       const assets = [store.asset(id, 'picture.png', png)];
       await job.done(
         'picture',
@@ -849,6 +851,12 @@ export function fixtureRoutes(
     const job = jobs.get(id);
     if (!job) throw new LabError('job_missing', 'That job isn’t running here.', 404);
     return job;
+  });
+  /** Stop a job the page is following: its running call is aborted and nothing more is saved. */
+  app.post('/api/jobs/:id/stop', async (request) => {
+    const { id } = parseInput(z.object({ id: z.string().uuid() }).strict(), request.params);
+    if (!jobs.stop(id)) throw new LabError('job_missing', 'That job isn’t running here.', 404);
+    return jobs.get(id);
   });
   app.post('/api/fixtures/save', async (request) => {
     const { mode, fixture: input } = parseInput(
