@@ -12,6 +12,8 @@ A person can add the things in a room that _do_ something, or that just belong t
 
 **Objects move, fixtures stay.** Objects (the mug, the book) are followed by the camera and decide rules. Fixtures are placed once by hand, never tracked, and are what rules act on. That one sentence is the distinction the UI should teach.
 
+> **Changed.** Fixtures can now be tracked: once one is found in the camera view it is followed like an object, its place in the room follows it, and it can be the subject of a rule. The sentence becomes "objects are watched, fixtures are acted on, and either can move." See [tracking.md](tracking.md#fixtures-in-the-cameras-view). What's built below is still the placed-only version.
+
 ## Naming
 
 The offline mode used to be called `fixture` in code. It is now `demo` everywhere, matching the UI's **Demo | Live**: `modeSchema = ['demo', 'live']`, `DEMO_LIGHTS` (`light.demo_desk`, …), `apps/server/src/demo.ts`, and test data under `testdata/`. The SQLite store and browser saves migrate old `fixture` data on load. "Fixture" now means only the feature below.
@@ -185,5 +187,5 @@ Not built:
 ## Open decisions
 
 - Control kinds: just light and switch for now? Fans, covers and media players would each need their own actions.
-- Should a fixture be trackable later (a mouse does move), or stay strictly placed by hand?
+- ~~Should a fixture be trackable later (a mouse does move), or stay strictly placed by hand?~~ Decided: trackable, see [tracking.md](tracking.md).
 - Fridge scene: a room fixtures can go in too, or office and office desk only?
