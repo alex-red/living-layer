@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type PointerEvent, type ReactNode } from 'react';
+import { readUi, writeUi } from './session';
 import { typing } from './shortcuts';
 
 const MAX = 8;
@@ -14,6 +15,14 @@ interface View {
   y: number;
 }
 const FIT: View = { s: 1, x: 0, y: 0 };
+/** Views kept per `store`, newest last; older ones are dropped. */
+const KEPT_VIEWS = 20;
+/** A kept view: its zoom, and its pan as shares of the box, so it survives a resize. */
+type Kept = { s: number; x: number; y: number };
+function keptViews(store: string): [string, Kept][] {
+  const data = readUi(`zoom:${store}`);
+  return Array.isArray(data) ? (data as [string, Kept][]) : [];
+}
 
 /**
  * A view that zooms and pans what it holds, by CSS transform: the scroll
@@ -23,7 +32,8 @@ const FIT: View = { s: 1, x: 0, y: 0 };
  * on it) once zoomed in. The content keeps its own pointer
  * handling: pointer maths through `getScreenCTM` or `getBoundingClientRect`
  * already sees the transform. A new `resetKey` goes back to fit, and `off`
- * (nothing to look at) keeps it there with no controls.
+ * (nothing to look at) keeps it there with no controls. With `store`, this
+ * browser keeps the zoom of each `resetKey` and puts it back on a reload.
  */
 export function ZoomPan({
   children,
@@ -31,6 +41,7 @@ export function ZoomPan({
   resetKey,
   off = false,
   hand = false,
+  store,
 }: {
   children: ReactNode;
   className?: string;
@@ -38,6 +49,8 @@ export function ZoomPan({
   off?: boolean;
   /** The hand tool: every drag pans, as with Space held. */
   hand?: boolean;
+  /** The name this view's zoom is kept under, per `resetKey`. */
+  store?: string;
 }) {
   const box = useRef<HTMLDivElement>(null);
   const [view, setView] = useState<View>(FIT);
@@ -53,7 +66,48 @@ export function ZoomPan({
   );
   const swallowClick = useRef(false);
 
-  useEffect(() => setView(FIT), [resetKey, off]);
+  const viewKey = String(resetKey);
+  // The view written next, with where and at what box size, kept until it is
+  // written so an unmount (a hot reload) doesn't lose it.
+  const unsaved = useRef<{ store: string; key: string; kept: Kept } | null>(null);
+  const skipSave = useRef(false);
+  const save = () => {
+    const next = unsaved.current;
+    unsaved.current = null;
+    if (!next) return;
+    const rest = keptViews(next.store).filter(([k]) => k !== next.key);
+    writeUi(
+      `zoom:${next.store}`,
+      next.kept.s === 1 ? rest : [...rest, [next.key, next.kept]].slice(-KEPT_VIEWS),
+    );
+  };
+  useEffect(() => {
+    skipSave.current = true;
+    const b = box.current;
+    const kept = store && !off ? keptViews(store).find(([k]) => k === viewKey)?.[1] : undefined;
+    setView(
+      kept && b?.clientWidth
+        ? clamp({ s: kept.s, x: kept.x * b.clientWidth, y: kept.y * b.clientHeight })
+        : FIT,
+    );
+  }, [resetKey, off]);
+  // Kept a moment after it settles, not on every wheel step or drag move.
+  useEffect(() => {
+    if (skipSave.current) {
+      skipSave.current = false;
+      return;
+    }
+    const b = box.current;
+    if (!store || off || !b?.clientWidth || !b.clientHeight) return;
+    unsaved.current = {
+      store,
+      key: viewKey,
+      kept: { s: view.s, x: view.x / b.clientWidth, y: view.y / b.clientHeight },
+    };
+    const timer = window.setTimeout(save, 300);
+    return () => window.clearTimeout(timer);
+  }, [view]);
+  useEffect(() => () => save(), []);
 
   /** The view kept near the box: no zooming out past fit, and the content never panned out of sight. */
   const clamp = (v: View): View => {

@@ -147,6 +147,8 @@ const CONFIRM_GAP_MS = 2000;
 const REANCHOR_GAP_MS = { first: 2000, max: 30_000 };
 /** Good local steps in a row (about 3 s) before re-anchoring is trusted to have worked. */
 const RECOVERED_STEPS = 30;
+/** Times a wanted camera is tried again before waiting for the person, after it dropped. */
+const REOPEN_TRIES = 4;
 const lumaCanvas = document.createElement('canvas');
 /** Downsample any image or video frame to grayscale for the local tracker. */
 function lumaOf(source: HTMLImageElement | HTMLVideoElement): LumaFrame {
@@ -341,7 +343,7 @@ export function useLabState() {
   const [showZones, setShowZones] = useState(boot.prefs.zones);
   const [stageView, setStageView] = useState<StageView>(boot.prefs.stageView);
   // What a drag on the canvas does.
-  const [tool, setTool] = useState<Tool>('select');
+  const [tool, setTool] = useState<Tool>(boot.prefs.tool);
   // Scene first: nothing runs until the person says which scene they are in.
   const [workScene, setWorkScene] = useState<WorkScene | null>(boot.prefs.workScene);
   const [choosingScene, setChoosingScene] = useState(false);
@@ -355,11 +357,23 @@ export function useLabState() {
     window.history.replaceState(null, '', hash || window.location.pathname);
   };
   // What the iso canvas is doing: showing the room, editing the layout, or editing a model.
-  const [isoPanel, setIsoPanel] = useState<IsoPanel>('room');
+  // An editor reopens only beside what it edits: the layout with the room, a model with its thing.
+  const [isoPanel, setIsoPanel] = useState<IsoPanel>(() => {
+    const kind = selection?.kind;
+    const fits =
+      boot.prefs.isoPanel === 'scene'
+        ? kind === 'room'
+        : boot.prefs.isoPanel === 'item'
+          ? kind === 'object' || kind === 'fixture'
+          : true;
+    return fits ? boot.prefs.isoPanel : 'room';
+  });
   // On phones the outline is a sheet that slides up over the page.
-  const [outlineOpen, setOutlineOpen] = useState(false);
-  const [modelOf, setModelOf] = useState<string>();
-  const [isoSurfaceId, setIsoSurfaceId] = useState<string>();
+  const [outlineOpen, setOutlineOpen] = useState(boot.prefs.outlineOpen);
+  const [modelOf, setModelOf] = useState<string | undefined>(boot.prefs.modelOf || undefined);
+  const [isoSurfaceId, setIsoSurfaceId] = useState<string | undefined>(
+    boot.prefs.isoSurfaceId || undefined,
+  );
   const [ruleDraft, setRuleDraft] = useState<RuleDraft | null>(null);
   /** A fixture waiting for a click in the iso room that says where it stands. */
   const [placing, setPlacing] = useState<FixturePlacing | null>(null);
@@ -428,6 +442,11 @@ export function useLabState() {
   const network = useNetworkStreams();
   /** '' for this device's camera, else the id of a network camera. */
   const [cameraSource, setCameraSource] = useState(boot.prefs.cameraSource);
+  /** The camera should be on: set when one opens, cleared only when the person stops it. */
+  const [cameraWanted, setCameraWanted] = useState(boot.prefs.cameraOn);
+  /** Reopens tried since the camera last opened; they stop after a few failures. */
+  const [reopenTries, setReopenTries] = useState(0);
+  const [tracking, setTracking] = useState(boot.prefs.tracking);
   const file = useRef<HTMLInputElement>(null);
   const imageGeneration = useRef(0);
   const mounted = useRef(true);
@@ -498,7 +517,14 @@ export function useLabState() {
     concept,
     demoPosition,
     cameraSource,
+    cameraOn: cameraWanted,
+    tracking,
     drawer,
+    tool,
+    isoPanel,
+    modelOf: modelOf ?? '',
+    isoSurfaceId: isoSurfaceId ?? '',
+    outlineOpen,
     logKind,
     logMode,
     failuresOnly,
@@ -522,7 +548,11 @@ export function useLabState() {
   useEffect(() => {
     const leave = () => flush.current();
     window.addEventListener('pagehide', leave);
-    return () => window.removeEventListener('pagehide', leave);
+    // A hot reload that remounts the lab reads the save again, so it must be current too.
+    return () => {
+      window.removeEventListener('pagehide', leave);
+      leave();
+    };
   }, []);
   /** Put a whole desk on the server, for an import, an undo or redo, or the demo. */
   async function restoreDesk(next: DeskMemory) {
@@ -596,7 +626,13 @@ export function useLabState() {
       setConcept(next.concept);
       if (next.demoPosition in DEMO_POSITIONS) setDemoPosition(next.demoPosition as DemoPosition);
       setCameraSource(next.cameraSource);
+      setCameraWanted(next.cameraOn);
+      setReopenTries(0);
+      setTracking(next.tracking);
       setDrawer(next.drawer);
+      setTool(next.tool);
+      setIsoSurfaceId(next.isoSurfaceId || undefined);
+      setOutlineOpen(next.outlineOpen);
       setLogKind(RUN_KINDS.includes(next.logKind as RunKind) ? (next.logKind as RunKind) : 'all');
       setLogMode(next.logMode as Mode | 'all');
       setFailuresOnly(next.failuresOnly);
@@ -712,14 +748,21 @@ export function useLabState() {
     closeNetwork.current?.();
     closeNetwork.current = null;
   }
-  const stopCamera = () => {
+  /** Close the camera but keep it wanted, so it opens again once it can (back in live mode, the stream back). */
+  const dropCamera = () => {
     stopFollow();
     cameraGeneration.current++;
     releaseStream();
     setCamera(false);
   };
+  /** The person stopped the camera (or took a frame from it): it stays off, across reloads too. */
+  const stopCamera = () => {
+    setCameraWanted(false);
+    dropCamera();
+  };
   function changeMode(next: Mode) {
-    stopCamera();
+    dropCamera();
+    setReopenTries(0);
     imageGeneration.current++;
     setMode(next);
     setDemoPosition('centre');
@@ -826,8 +869,12 @@ export function useLabState() {
     try {
       const lost = () => {
         if (!mounted.current || generation !== cameraGeneration.current) return;
-        stopCamera();
-        setError(`The network camera "${remote?.name}" stopped sending.`);
+        dropCamera();
+        setError(
+          remote
+            ? `The network camera "${remote.name}" stopped sending.`
+            : 'The camera stopped sending.',
+        );
       };
       const opened = remote
         ? remote.whep
@@ -847,7 +894,11 @@ export function useLabState() {
       }
       stream.current = opened.media;
       closeNetwork.current = opened.close ?? null;
+      // This device's camera ends its track when it is unplugged or taken by another app.
+      if (!remote) opened.media.getVideoTracks()[0]?.addEventListener('ended', lost);
       setCamera(true);
+      setCameraWanted(true);
+      setReopenTries(0);
       // The feed draws in the photo half, which the iso view hides; show both.
       setStageView((v) => (v === 'iso' ? 'split' : v));
     } catch {
@@ -873,6 +924,48 @@ export function useLabState() {
         .catch(() => setError('Camera playback failed. Stop the camera and try an upload.'));
     }
   }, [camera]);
+  // A camera that was on and wasn't stopped by the person opens again: after a reload,
+  // back in live mode, or once a dropped stream can be reached. A few tries, further apart each time.
+  useEffect(() => {
+    if (mode !== 'live' || !cameraWanted || camera || cameraPending || busy || pinning) return;
+    // After the camera list, which can change the room's camera, has loaded.
+    if (!deskReady || !network.loaded || reopenTries >= REOPEN_TRIES) return;
+    const remote = cameraSource ? network.streams.find((s) => s.id === cameraSource) : undefined;
+    // A network camera reopens once it is listed with a live relay; a still-only one never was on.
+    if (cameraSource && !(remote?.whep || remote?.preview)) return;
+    let cancelled = false;
+    const timer = window.setTimeout(
+      async () => {
+        // Never prompt on its own: this device's camera reopens only if it is already allowed.
+        if (!remote) {
+          const state = await navigator.permissions
+            ?.query({ name: 'camera' as PermissionName })
+            .then((p) => p.state)
+            .catch(() => 'prompt');
+          if (cancelled || state !== 'granted') return;
+        }
+        setReopenTries((t) => t + 1);
+        void startCamera(remote);
+      },
+      reopenTries ? 2000 * 2 ** (reopenTries - 1) : 500,
+    );
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [
+    mode,
+    cameraWanted,
+    camera,
+    cameraPending,
+    busy,
+    pinning,
+    deskReady,
+    reopenTries,
+    cameraSource,
+    network.loaded,
+    network.streams,
+  ]);
   function costNote(run: EvidenceRun) {
     const cost = runCost(run);
     return cost === null ? '' : ` · ≈ ${usd(cost)}`;
@@ -2009,6 +2102,8 @@ export function useLabState() {
     setShowZones,
     showPicture,
     setShowPicture,
+    tracking,
+    setTracking,
     stageView,
     setStageView,
     workScene,

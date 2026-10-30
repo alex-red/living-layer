@@ -33,6 +33,8 @@ export interface OpenedStream {
 export function useNetworkStreams() {
   const [streams, setStreams] = useState<NetworkStream[]>([]);
   const [scanning, setScanning] = useState(false);
+  /** Whether the first scan has answered, so a missing camera is known to be missing. */
+  const [loaded, setLoaded] = useState(false);
   const scan = useCallback(async () => {
     setScanning(true);
     try {
@@ -41,10 +43,11 @@ export function useNetworkStreams() {
       setStreams([]);
     } finally {
       setScanning(false);
+      setLoaded(true);
     }
   }, []);
   useEffect(() => void scan(), [scan]);
-  return { streams, scanning, scan };
+  return { streams, scanning, loaded, scan };
 }
 
 /**

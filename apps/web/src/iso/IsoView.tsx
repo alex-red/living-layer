@@ -408,6 +408,7 @@ export function IsoView({
           <ZoomPan
             className="iso-zoom"
             hand={hand}
+            store="iso"
             resetKey={`${kind} ${picture ? 'picture' : 'model'}`}
           >
             {picture && memory && pin ? (

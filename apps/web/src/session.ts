@@ -23,8 +23,22 @@ export interface Prefs {
   demoPosition: string;
   /** '' for this device's camera, else the id of a network camera. */
   cameraSource: string;
+  /** Whether the live camera was on, so a reload or a dropped stream opens it again. */
+  cameraOn: boolean;
+  /** Over the live camera, the tracked objects and fixtures where they were last seen. */
+  tracking: boolean;
   /** Whether the activity drawer is open. */
   drawer: boolean;
+  /** What a drag on the canvas does. */
+  tool: 'select' | 'scale' | 'hand';
+  /** The iso canvas: the room, or the layout or a model open in its editor. */
+  isoPanel: 'room' | 'scene' | 'item';
+  /** The object whose model is open; '' for the mug. */
+  modelOf: string;
+  /** The surface the iso view shows. */
+  isoSurfaceId: string;
+  /** On phones, whether the outline sheet is up. */
+  outlineOpen: boolean;
   logKind: string;
   logMode: string;
   failuresOnly: boolean;
@@ -51,7 +65,14 @@ export const DEFAULT_PREFS: Prefs = {
   concept: 'mug',
   demoPosition: 'centre',
   cameraSource: '',
+  cameraOn: false,
+  tracking: false,
   drawer: false,
+  tool: 'select',
+  isoPanel: 'room',
+  modelOf: '',
+  isoSurfaceId: '',
+  outlineOpen: false,
   logKind: 'all',
   logMode: 'all',
   failuresOnly: false,
@@ -79,7 +100,14 @@ export function prefsOf(saved: Partial<Prefs> | undefined): Prefs {
   one('concept', (v) => text(v) && (v as string).trim().length > 0);
   one('demoPosition', text);
   one('cameraSource', text);
+  one('cameraOn', (v) => typeof v === 'boolean');
+  one('tracking', (v) => typeof v === 'boolean');
   one('drawer', (v) => typeof v === 'boolean');
+  one('tool', among('select', 'scale', 'hand'));
+  one('isoPanel', among('room', 'scene', 'item'));
+  one('modelOf', text);
+  one('isoSurfaceId', text);
+  one('outlineOpen', (v) => typeof v === 'boolean');
   one('logKind', text);
   one('logMode', among('all', 'demo', 'live'));
   one('failuresOnly', (v) => typeof v === 'boolean');
@@ -110,9 +138,34 @@ export function writeSession(prefs: Partial<Prefs>, desks: SessionSave['desks'])
     return false;
   }
 }
+/**
+ * Small view state that belongs to this browser alone and isn't part of a
+ * save file: folded inspector sections, each view's zoom. Missing or blocked
+ * storage just means starting from the defaults.
+ */
+const UI_KEY = 'livinglayer.ui';
+function readUiAll(): Record<string, unknown> {
+  try {
+    const data = JSON.parse(localStorage.getItem(UI_KEY) ?? '{}') as unknown;
+    return data && typeof data === 'object' ? (data as Record<string, unknown>) : {};
+  } catch {
+    return {};
+  }
+}
+export function readUi(key: string): unknown {
+  return readUiAll()[key];
+}
+export function writeUi(key: string, value: unknown) {
+  try {
+    localStorage.setItem(UI_KEY, JSON.stringify({ ...readUiAll(), [key]: value }));
+  } catch {
+    /* storage refused: the view just won't be remembered */
+  }
+}
 export function clearSession() {
   try {
     localStorage.removeItem(KEY);
+    localStorage.removeItem(UI_KEY);
   } catch {
     /* nothing stored, nothing to clear */
   }

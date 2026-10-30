@@ -10,6 +10,7 @@ import {
 import { api } from '../api';
 import { Glyph } from '../Glyph';
 import { MaskOverlay } from '../MaskOverlay';
+import { TrackingOverlay } from '../TrackingOverlay';
 import { PhonePairing } from '../PhonePairing';
 import { CameraSetup, type RoomOption } from '../CameraSetup';
 import { ZoomPan } from '../ZoomPan';
@@ -131,6 +132,8 @@ export function Canvas() {
   const chosenStream = lab.network.streams.find((s) => s.id === lab.cameraSource);
   // The hand gives way to anything being drawn, pinned or placed.
   const hand = lab.tool === 'hand' && !drawing && !pinning && !lab.placing && !lab.boxing;
+  // The tracking layer replaces the follow and watch boxes on the camera with ones fitted to the video.
+  const tracked = camera && lab.tracking;
   return (
     <section className="ws-canvas" aria-label="Scene and segmentation">
       <div className="scene-toolbar">
@@ -150,10 +153,11 @@ export function Canvas() {
                     overlay,
                     lab.showTrail,
                     lab.showZones,
+                    lab.tracking,
                     ...(picture ? [lab.showPicture] : []),
                   ].filter(Boolean).length
                 }
-                /{picture ? 4 : 3}
+                /{picture ? 5 : 4}
               </small>
             </button>
           )}
@@ -170,6 +174,12 @@ export function Canvas() {
                     'Saved zones, on the photo and in the room',
                     lab.showZones,
                     lab.setShowZones,
+                  ],
+                  [
+                    'Tracking',
+                    'Tracked objects and fixtures over the live camera',
+                    lab.tracking,
+                    lab.setTracking,
                   ],
                   ...(picture
                     ? ([
@@ -269,6 +279,7 @@ export function Canvas() {
         >
           <ZoomPan
             hand={hand}
+            store="photo"
             resetKey={`${mode} ${dimensions.width}x${dimensions.height}`}
             off={!camera && mode !== 'demo' && !image}
           >
@@ -432,7 +443,7 @@ export function Canvas() {
                 />
               </svg>
             )}
-            {follow && followView && (
+            {follow && followView && !tracked && (
               <svg
                 className="follow-overlay"
                 viewBox="0 0 1000 1000"
@@ -457,7 +468,7 @@ export function Canvas() {
                 />
               </svg>
             )}
-            {follow && followView && (
+            {follow && followView && !tracked && (
               <span
                 className={`zone-tag follow-tag ${followView.verdict} ${followView.track.lostSteps ? 'unsure' : ''}`}
                 style={{
@@ -473,7 +484,7 @@ export function Canvas() {
                     (followView.track.stillSteps > 0 ? ' · UNSURE' : ' · MOVING')}
               </span>
             )}
-            {!follow && watching && watch && watch.things.length > 0 && (
+            {!follow && !tracked && watching && watch && watch.things.length > 0 && (
               <svg
                 className="follow-overlay"
                 viewBox="0 0 1000 1000"
@@ -493,6 +504,7 @@ export function Canvas() {
               </svg>
             )}
             {!follow &&
+              !tracked &&
               watching &&
               watch?.things.map((t) => (
                 <span
@@ -507,6 +519,15 @@ export function Canvas() {
                     : ` · ${t.status.toUpperCase()}`}
                 </span>
               ))}
+            {tracked && (
+              <TrackingOverlay
+                video={lab.video}
+                memory={memory}
+                watch={watch}
+                follow={follow ? followView : null}
+                segmentation={segmentation}
+              />
+            )}
             {pinning && !camera && (
               <SurfacePin
                 key={pinning.corners ? 'found' : 'clicks'}
