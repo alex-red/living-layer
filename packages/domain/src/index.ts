@@ -41,6 +41,14 @@ export const DEMO_POSITIONS = {
   front: { label: 'Front left', dx: -50, dy: 110 },
 } as const;
 export type DemoPosition = keyof typeof DEMO_POSITIONS;
+/** The illustrated desk's SVG with the mug, its coffee and its shadow moved together to `position`. */
+export function moveDemoMug(svg: string, position: DemoPosition): string {
+  const { dx, dy } = DEMO_POSITIONS[position];
+  return svg
+    .replace('translate(350 180)', `translate(${350 + dx} ${180 + dy})`)
+    .replace('cx="485" cy="455"', `cx="${485 + dx}" cy="${455 + dy}"`)
+    .replace('cx="450" cy="245"', `cx="${450 + dx}" cy="${245 + dy}"`);
+}
 export const demoPositionSchema = z.enum(['centre', 'right', 'front']);
 export const segmentRequestSchema = imageRequestSchema
   .extend({
@@ -326,6 +334,14 @@ export interface DeskMemory {
   fixtures?: Fixture[];
   /** Names the person said aren't fixtures, so scans skip them. */
   dismissed?: string[];
+  /** Whether the server watches the camera, and which one; it resumes after a restart. */
+  watch?: { on: boolean; camera: WatchCamera | null };
+}
+/** A camera the server reads frames from: an RTSP stream, never a tab's. */
+export interface WatchCamera {
+  id: string;
+  name: string;
+  url: string;
 }
 export interface PlacementDecision {
   observationId: string | null;
@@ -471,8 +487,15 @@ export function objectById(
   if (memory.object?.id === objectId)
     return { label: memory.object.label, concept: 'mug', observation: memory.observation };
   const other = memory.others?.find((o) => o.id === objectId);
-  return other
-    ? { label: other.label, concept: other.concept, observation: other.observation }
+  if (other) return { label: other.label, concept: other.concept, observation: other.observation };
+  // A fixture found in the camera's view is followed like an object.
+  const fixture = memory.fixtures?.find((f) => f.id === objectId && f.track);
+  return fixture?.track
+    ? {
+        label: fixture.label,
+        concept: fixture.track.concept,
+        observation: fixture.track.observation,
+      }
     : null;
 }
 /** The mug (no id, or its id), another remembered object or a fixture, with its model. */
@@ -621,6 +644,8 @@ export function upgradeMemory(memory: DeskMemory): DeskMemory {
 }
 export * from './fixture.js';
 export * from './tracker.js';
+export * from './watch.js';
+export * from './appearance.js';
 export * from './iso.js';
 export * from './iso-item.js';
 export * from './color.js';

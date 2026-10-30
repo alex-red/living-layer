@@ -12,7 +12,7 @@ A person can add the things in a room that _do_ something, or that just belong t
 
 **Objects move, fixtures stay.** Objects (the mug, the book) are followed by the camera and decide rules. Fixtures are placed once by hand, never tracked, and are what rules act on. That one sentence is the distinction the UI should teach.
 
-> **Changed.** Fixtures can now be tracked: once one is found in the camera view it is followed like an object, its place in the room follows it, and it can be the subject of a rule. The sentence becomes "objects are watched, fixtures are acted on, and either can move." See [tracking.md](tracking.md#fixtures-in-the-cameras-view). What's built below is still the placed-only version.
+> **Changed.** Fixtures can now be tracked: once one is found in the camera view it is followed like an object, its place in the room follows it, and it can be the subject of a rule. The sentence becomes "objects are watched, fixtures are acted on, and either can move." See [tracking.md](tracking.md#fixtures-in-the-cameras-view). Built: see the Fixtures part of [Watching on the server](../architecture.md#tracking).
 
 ## Naming
 

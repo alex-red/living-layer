@@ -9,6 +9,11 @@ import {
   isoSurface,
   fixtureEntity,
   settleFixtures,
+  sightingSpot,
+  DEMO_SURFACE,
+  linkedFixtures,
+  FIXTURE_MOVED,
+  type Fixture,
   isoItemSchema,
   objectById,
   modelTarget,
@@ -50,6 +55,9 @@ import { LabError, parseInput, safeError } from './errors.js';
 import { demoPhoto, keepLocked, rescore } from './item.js';
 import type { PhotoDraft } from './photo.js';
 import { noteControl } from './fixture.js';
+
+/** What the watcher calls to have SAM's answer recorded and rules checked, as the routes do. */
+export type DeskTracking = ReturnType<typeof deskRoutes>;
 
 export function deskRoutes(
   app: FastifyInstance,
@@ -363,11 +371,7 @@ export function deskRoutes(
    * mug without asking, then verify it. Identity must have been confirmed by
    * hand once, and an ambiguous or empty frame changes nothing.
    */
-  app.post('/api/desk/track', async (request) => {
-    const { mode, segmentRunId } = parseInput(
-      z.object({ mode: modeSchema, segmentRunId: z.string().uuid() }).strict(),
-      request.body,
-    );
+  async function trackMug(mode: Mode, segmentRunId: string) {
     available(mode);
     const memory = store.memory(mode);
     if (!memory.object || !memory.observation)
@@ -388,6 +392,13 @@ export function deskRoutes(
     const event = await verify(mode, memory);
     const rules = await verifyRules(mode, memory.object.id);
     return { memory: store.memory(mode), event, rules };
+  }
+  app.post('/api/desk/track', async (request) => {
+    const { mode, segmentRunId } = parseInput(
+      z.object({ mode: modeSchema, segmentRunId: z.string().uuid() }).strict(),
+      request.body,
+    );
+    return trackMug(mode, segmentRunId);
   });
   app.post('/api/desk/camera', async (request) => {
     const { mode, fixed } = parseInput(
@@ -475,13 +486,7 @@ export function deskRoutes(
     return { memory: store.memory(mode), events };
   });
   /** Follow another object into the newest segmentation of its own concept, then check its rules. */
-  app.post('/api/desk/objects/track', async (request) => {
-    const { mode, objectId, segmentRunId } = parseInput(
-      z
-        .object({ mode: modeSchema, objectId: z.string().uuid(), segmentRunId: z.string().uuid() })
-        .strict(),
-      request.body,
-    );
+  async function trackObject(mode: Mode, objectId: string, segmentRunId: string) {
     available(mode);
     const memory = store.memory(mode);
     const target = memory.others?.find((o) => o.id === objectId);
@@ -514,6 +519,144 @@ export function deskRoutes(
     store.save(evidence('observation', mode, target.observation));
     const events = await verifyRules(mode, target.id);
     return { memory: store.memory(mode), events };
+  }
+  app.post('/api/desk/objects/track', async (request) => {
+    const { mode, objectId, segmentRunId } = parseInput(
+      z
+        .object({ mode: modeSchema, objectId: z.string().uuid(), segmentRunId: z.string().uuid() })
+        .strict(),
+      request.body,
+    );
+    return trackObject(mode, objectId, segmentRunId);
+  });
+  /**
+   * A new sighting of a fixture: remembered with its history, and its place
+   * in the room (and its linked copies' places) moved to where it was seen,
+   * when the pin fits their scene.
+   */
+  function sightFixture(
+    memory: DeskMemory,
+    fixture: Fixture,
+    concept: string,
+    observation: DeskObservation,
+  ) {
+    const before = fixture.track?.observation;
+    const spot = sightingSpot(observation);
+    const was = before && sightingSpot(before);
+    const moved =
+      was && Math.hypot(spot.foot.x - was.foot.x, spot.foot.y - was.foot.y) > FIXTURE_MOVED;
+    for (const f of [fixture, ...linkedFixtures(memory.fixtures ?? [], fixture)]) {
+      f.seen = spot;
+      const pin = memory.surface ?? (memory.mode === 'demo' ? DEMO_SURFACE : null);
+      const place = pin ? placeSeen(f, pin, memory.scene ?? null) : null;
+      if (place) Object.assign(f, place);
+      f.updatedAt = new Date().toISOString();
+    }
+    fixture.track = {
+      concept,
+      observation,
+      history: before ? [before, ...(fixture.track?.history ?? [])].slice(0, HISTORY_LIMIT) : [],
+      status: moved ? 'moved' : 'seen',
+    };
+    store.saveMemory(memory);
+    store.save(evidence('observation', memory.mode, observation));
+  }
+  /** Confirm a fixture in a segmentation by hand, so the camera follows it from now on. */
+  function anchorFixture(mode: Mode, fixtureId: string, segmentRunId: string, detectionId: string) {
+    available(mode);
+    const { run, segmentation } = latestSegmentation(mode, segmentRunId);
+    const detection = segmentation.detections.find((d) => d.objectId === detectionId);
+    if (!detection) throw new LabError('object_selection', 'Pick a mask from this segmentation.');
+    const memory = store.memory(mode);
+    const fixture = memory.fixtures?.find((f) => f.id === fixtureId);
+    if (!fixture)
+      throw new LabError('fixture_unknown', 'That fixture is not in this desk memory.', 404);
+    const observation = sightingOf(fixture.id, run, segmentation, detection, 'manual', null);
+    delete fixture.track;
+    sightFixture(memory, fixture, segmentation.concept, observation);
+    return store.memory(mode);
+  }
+  /** Follow a tracked fixture into the newest segmentation of its concept, then check its rules. */
+  async function trackFixture(mode: Mode, fixtureId: string, segmentRunId: string) {
+    available(mode);
+    const memory = store.memory(mode);
+    const fixture = memory.fixtures?.find((f) => f.id === fixtureId);
+    if (!fixture?.track)
+      throw new LabError('track_identity', 'Find this fixture in the camera first.', 409);
+    const { run, segmentation } = latestSegmentation(mode, segmentRunId);
+    if (!sameConcept(segmentation.concept, fixture.track.concept))
+      throw new LabError(
+        'track_concept',
+        `Segment "${fixture.track.concept}" to track the ${fixture.label}.`,
+        409,
+      );
+    if (!segmentation.detections.length)
+      throw new LabError(
+        'track_lost',
+        `SAM found no ${fixture.track.concept} in this frame. Nothing changed.`,
+        409,
+      );
+    const match = pickTracked(
+      segmentation.detections,
+      segmentation.frame,
+      fixture.track.observation,
+    )!;
+    sightFixture(
+      memory,
+      fixture,
+      fixture.track.concept,
+      sightingOf(fixture.id, run, segmentation, match.detection, 'tracked', match.overlap),
+    );
+    const events = await verifyRules(mode, fixture.id);
+    return { memory: store.memory(mode), events };
+  }
+  /** The watcher lost a fixture: it keeps its last place, drawn as missing. */
+  function loseFixture(mode: Mode, fixtureId: string) {
+    const memory = store.memory(mode);
+    const fixture = memory.fixtures?.find((f) => f.id === fixtureId);
+    if (!fixture?.track || fixture.track.status === 'missing') return;
+    fixture.track.status = 'missing';
+    store.saveMemory(memory);
+  }
+  app.post('/api/fixtures/anchor', async (request) => {
+    const { mode, id, segmentRunId, detectionId } = parseInput(
+      z
+        .object({
+          mode: modeSchema,
+          id: z.string().uuid(),
+          segmentRunId: z.string().uuid(),
+          detectionId: z.string().min(1).max(80),
+        })
+        .strict(),
+      request.body,
+    );
+    return anchorFixture(mode, id, segmentRunId, detectionId);
+  });
+  app.post('/api/fixtures/track', async (request) => {
+    const { mode, id, segmentRunId } = parseInput(
+      z
+        .object({ mode: modeSchema, id: z.string().uuid(), segmentRunId: z.string().uuid() })
+        .strict(),
+      request.body,
+    );
+    return trackFixture(mode, id, segmentRunId);
+  });
+  /** Stop following a fixture; it stays where it was last seen. */
+  app.post('/api/fixtures/untrack', async (request) => {
+    const { mode, id } = parseInput(
+      z.object({ mode: modeSchema, id: z.string().uuid() }).strict(),
+      request.body,
+    );
+    available(mode);
+    const memory = store.memory(mode);
+    const fixture = memory.fixtures?.find((f) => f.id === id);
+    if (!fixture)
+      throw new LabError('fixture_unknown', 'That fixture is not in this desk memory.', 404);
+    delete fixture.track;
+    // Rules it decided can't be checked any more.
+    memory.rules = (memory.rules ?? []).filter((r) => r.objectId !== id);
+    store.saveMemory(memory);
+    return memory;
   });
   app.post('/api/desk/objects/forget', async (request) => {
     const { mode, objectId } = parseInput(
@@ -542,6 +685,8 @@ export function deskRoutes(
     if (!o) throw new LabError('rule_object', 'Confirm that object in a segmentation first.', 409);
     if (!entities(mode).includes(input.entityId))
       throw new LabError('rule_light', 'Choose one of the configured lights or switches.', 400);
+    if (input.fixtureId === input.objectId)
+      throw new LabError('rule_fixture', 'A fixture can’t switch itself on by moving.', 400);
     if (input.fixtureId) {
       const fixture = memory.fixtures?.find((f) => f.id === input.fixtureId);
       if (!fixture || fixtureEntity(fixture) !== input.entityId)
@@ -835,6 +980,8 @@ export function deskRoutes(
       // What the person said isn't a fixture stays said.
       dismissed: store.memory(mode).dismissed ?? [],
       deskIllustration: store.memory(mode).deskIllustration ?? null,
+      // Which camera is watched is a fact about the setup too.
+      ...(store.memory(mode).watch ? { watch: store.memory(mode).watch } : {}),
       history: [],
       placement: null,
       // Extra objects and their rules go with the mug; the scene stays.
@@ -921,4 +1068,5 @@ export function deskRoutes(
       );
     return verify(mode, memory);
   });
+  return { trackMug, trackObject, trackFixture, loseFixture };
 }

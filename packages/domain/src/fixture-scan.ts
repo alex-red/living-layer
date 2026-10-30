@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import {
   CONTROL_KINDS,
+  fixtureBox,
   fixtureGroup,
   fixtureProblem,
   sizeInTiles,
@@ -555,3 +556,55 @@ export function mapScan({
   });
 }
 const round = (n: number) => Math.round(Math.min(8, Math.max(0.1, n)) * 100) / 100;
+
+/**
+ * Where a fixture should show in frames of the pinned camera, in frame
+ * pixels: from where the camera last saw it touch down, or else its box in
+ * the scene drawn through the pin's camera. Null when the pin doesn't fit its
+ * scene or it lies outside the frame: the camera can't watch it.
+ */
+export function fixtureInFrame(
+  fixture: Pick<Fixture, 'scene' | 'surfaceId' | 'at' | 'turns' | 'size' | 'seen'>,
+  pin: SurfacePin,
+  custom: IsoScene | null,
+): Detection['box'] | null {
+  if (!pinFits(pin, fixture.scene)) return null;
+  const { width: W, height: H } = pin.frame;
+  let x0: number, y0: number, x1: number, y1: number;
+  if (fixture.seen) {
+    const { foot, size } = fixture.seen;
+    [x0, x1] = [(foot.x - size.w / 2) * W, (foot.x + size.w / 2) * W];
+    [y0, y1] = [(foot.y - size.h) * H, foot.y * H];
+  } else {
+    const pinned = isoSurface(fixture.scene, pin.surfaceId, custom);
+    if (!pinned) return null;
+    const camera = cameraFromPin(pin.corners, pin.frame, pinned.rect.w, [
+      pinned.rect.d,
+      pinned.rect.d,
+    ]);
+    if (!camera) return null;
+    const { at, size } = fixtureBox(fixture, custom);
+    const corners: Point[] = [];
+    for (const dx of [0, size.w])
+      for (const dy of [0, size.d])
+        for (const dz of [0, size.h]) {
+          const p = projectPoint(
+            camera,
+            at.x + dx - pinned.rect.x,
+            at.y + dy - pinned.rect.y,
+            at.z + dz - pinned.z,
+          );
+          if (!p) return null;
+          corners.push(p);
+        }
+    [x0, x1] = [Math.min(...corners.map((p) => p.x)), Math.max(...corners.map((p) => p.x))];
+    [y0, y1] = [Math.min(...corners.map((p) => p.y)), Math.max(...corners.map((p) => p.y))];
+  }
+  const left = Math.max(0, x0);
+  const top = Math.max(0, y0);
+  const right = Math.min(W, x1);
+  const bottom = Math.min(H, y1);
+  // Less than a few pixels in view isn't something SAM can be pointed at.
+  if (right - left < 4 || bottom - top < 4) return null;
+  return { x: left, y: top, width: right - left, height: bottom - top };
+}

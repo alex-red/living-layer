@@ -882,6 +882,10 @@
   fill: var(--text);
   font-weight: 700;
 }
+/* A fixture the camera lost stands faded where it was last seen. */
+.iso-fixture.missing {
+  opacity: 0.45;
+}
 /* A switch that is on shows in its label; amber stays for lights. */
 .iso-fixture.on text {
   fill: var(--ok);

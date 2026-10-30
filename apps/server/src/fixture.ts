@@ -1,9 +1,11 @@
 import type { FastifyInstance } from 'fastify';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import {
   DEMO_REFERENCES,
   DEMO_SURFACE,
+  demoSourceKey,
+  fixtureInFrame,
   mapScan,
   isDismissed,
   MAX_DISMISSED,
@@ -38,10 +40,12 @@ import {
   type DeskMemory,
   type Detection,
   type Fixture,
+  type FixtureInput,
   type FixtureClass,
   type FixtureDraft,
   type LampResult,
   type Mode,
+  type Segmentation,
   type Usage,
 } from '@livinglayer/domain';
 import { LabError, parseInput } from './errors.js';
@@ -187,6 +191,14 @@ async function outlinedThings(
 }
 const pickLargest = (ds: Detection[]) =>
   [...ds].sort((a, b) => b.mask.foregroundPixels - a.mask.foregroundPixels)[0] ?? null;
+
+/** Whether a save leaves a fixture where it stood. */
+const samePlace = (a: Fixture, b: FixtureInput) =>
+  a.scene === b.scene &&
+  a.surfaceId === b.surfaceId &&
+  a.turns === b.turns &&
+  Math.abs(a.at.x - b.at.x) < 1e-6 &&
+  Math.abs(a.at.y - b.at.y) < 1e-6;
 
 /** Switch one light or switch, through Home Assistant or the demo's virtual adapter. */
 export type Control = (mode: Mode, entityId: string, action: 'on' | 'off') => Promise<LampResult>;
@@ -873,6 +885,9 @@ export function fixtureRoutes(
       // A new entity starts with no known state.
       state: previous && fixtureEntity(previous) === entity ? (previous.state ?? null) : null,
       ...(previous?.link ? { link: previous.link } : {}),
+      // The camera keeps following it unless it was moved by hand.
+      ...(previous?.track && samePlace(previous, input) ? { track: previous.track } : {}),
+      ...(previous?.seen && samePlace(previous, input) ? { seen: previous.seen } : {}),
       createdAt: previous?.createdAt ?? now,
       updatedAt: now,
     };
@@ -924,6 +939,101 @@ export function fixtureRoutes(
    * Delete a fixture. `dismiss` also remembers its name as not a fixture, so
    * scans skip it: something Spark keeps finding that shouldn't be one.
    */
+  /**
+   * Look for a fixture in a camera frame, for a person to confirm which
+   * outline it is: SAM is pointed at where it should stand, from where the
+   * camera last saw it or its place in the room drawn through the pin (one
+   * call). The demo picks the illustrated desk's outlines under that box.
+   * Saved as an ordinary segmentation of the fixture's name.
+   */
+  app.post('/api/fixtures/find', async (request) => {
+    const { mode, id, imageDataUrl } = parseInput(
+      z
+        .object({
+          mode: modeSchema,
+          id: z.string().uuid(),
+          imageDataUrl: z.string().max(7_000_000).optional(),
+        })
+        .strict(),
+      request.body,
+    );
+    const memory = store.memory(mode);
+    const fixture = memory.fixtures?.find((f) => f.id === id);
+    if (!fixture)
+      throw new LabError('fixture_unknown', 'That fixture is not in this desk memory.', 404);
+    const pin = memory.surface ?? (mode === 'demo' ? DEMO_SURFACE : null);
+    if (!pin)
+      throw new LabError('fixture_view', 'Pin the desk first, so the camera’s view is known.', 409);
+    const expected = fixtureInFrame(fixture, pin, memory.scene ?? null);
+    if (!expected)
+      throw new LabError(
+        'fixture_view',
+        `The ${fixture.label.toLowerCase()} stands outside what the pinned camera sees.`,
+        409,
+      );
+    const concept = fixture.label.trim().toLowerCase();
+    if (mode === 'live' && !imageDataUrl)
+      throw new LabError('fixture_frame', 'Send a camera frame to look in.', 400);
+    if (mode === 'demo' && imageDataUrl)
+      throw new LabError('demo_image', 'Demo mode uses only the bundled illustrated desk.');
+    return run('segment', mode, async (runId) => {
+      // Grown by half its size each way: the place is a guess, SAM finds the edge.
+      const grow = (b: typeof expected, sx: number, sy: number, w: number, h: number) => {
+        const left = Math.max(0, (b.x - b.width / 2) * sx);
+        const top = Math.max(0, (b.y - b.height / 2) * sy);
+        return {
+          left,
+          top,
+          right: Math.min(w, (b.x + 1.5 * b.width) * sx),
+          bottom: Math.min(h, (b.y + 1.5 * b.height) * sy),
+        };
+      };
+      if (mode === 'demo') {
+        const photo = await demoPhotoSegmentation();
+        const box = grow(expected, 1, 1, photo.frame.width, photo.frame.height);
+        const inside = (d: Detection) => {
+          const w = Math.min(box.right, d.box.x + d.box.width) - Math.max(box.left, d.box.x);
+          const h = Math.min(box.bottom, d.box.y + d.box.height) - Math.max(box.top, d.box.y);
+          return (Math.max(0, w) * Math.max(0, h)) / (d.box.width * d.box.height);
+        };
+        // The desk itself is a surface, never a fixture.
+        const detections = photo.detections.filter((d) => d.objectId !== '1' && inside(d) >= 0.5);
+        const output: Segmentation = {
+          concept,
+          frame: photo.frame,
+          detections,
+          sourceKey: demoSourceKey(),
+        };
+        return { output };
+      }
+      const image = await validateImage(imageDataUrl!);
+      const box = grow(
+        expected,
+        image.width / pin.frame.width,
+        image.height / pin.frame.height,
+        image.width,
+        image.height,
+      );
+      const outlined = await meta.segmentBoxes(
+        image.dataUrl,
+        [{ id: 1, box }],
+        image.width,
+        image.height,
+      );
+      return {
+        ...outlined,
+        output: {
+          ...outlined.output,
+          concept,
+          sourceKey: createHash('sha256').update(image.bytes).digest('hex'),
+        },
+        assets: [
+          store.asset(runId, 'source.png', image.bytes),
+          store.asset(runId, 'sam-output.txt', outlined.raw),
+        ],
+      };
+    });
+  });
   app.post('/api/fixtures/delete', async (request) => {
     const { mode, fixtureId, dismiss } = parseInput(
       z
@@ -936,11 +1046,14 @@ export function fixtureRoutes(
     if (dismiss && gone && !isDismissed(gone.label, memory.dismissed ?? []))
       memory.dismissed = [...(memory.dismissed ?? []), gone.label].slice(-MAX_DISMISSED);
     memory.fixtures = (memory.fixtures ?? []).filter((f) => f.id !== fixtureId);
-    memory.rules = (memory.rules ?? []).map((r) => {
-      if (r.fixtureId !== fixtureId) return r;
-      const { fixtureId: _gone, ...rest } = r;
-      return rest;
-    });
+    // Rules it decided go with it; rules that switched it keep their entity.
+    memory.rules = (memory.rules ?? [])
+      .filter((r) => r.objectId !== fixtureId)
+      .map((r) => {
+        if (r.fixtureId !== fixtureId) return r;
+        const { fixtureId: _gone, ...rest } = r;
+        return rest;
+      });
     store.saveMemory(memory);
     return memory;
   });

@@ -277,6 +277,7 @@ export function IsoView({
       glow: f.control.kind === 'light' && f.state === 'on',
       ...(f.control.kind === 'none' ? {} : { state: f.state ?? null }),
       focused: f.id === focus?.fixture,
+      ...(f.track?.status === 'missing' ? { missing: true } : {}),
     }));
   const turned = placing ? placing.turns % 2 === 1 : false;
   // The photographed room and its desk show as their pictures, unless something is being drawn or placed on the model.

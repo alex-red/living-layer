@@ -27,6 +27,7 @@
     "test:browser": "playwright test",
     "check": "bun run format:check && bun run typecheck && bun run test && bun run build",
     "doctor": "bun scripts/doctor.ts",
+    "fetch-model": "bun scripts/fetch-model.ts",
     "smoke": "bun scripts/smoke.ts",
     "format": "prettier --write \"apps/**/*.{ts,tsx,css,html,svg,json}\" \"packages/**/*.{ts,json}\" \"scripts/**/*.ts\" \"tests/**/*.ts\" \"*.{ts,json}\"",
     "format:check": "prettier --check \"apps/**/*.{ts,tsx,css,html,svg,json}\" \"packages/**/*.{ts,json}\" \"scripts/**/*.ts\" \"tests/**/*.ts\" \"*.{ts,json}\""
@@ -37,6 +38,7 @@
     "@fontsource-variable/jetbrains-mono": "5.3.0",
     "@meta-sam/parser": "0.1.0",
     "fastify": "^5.6.0",
+    "onnxruntime-node": "1.31.1",
     "openai": "^6.0.0",
     "qrcode": "1.5.4",
     "react": "^19.2.0",

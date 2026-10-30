@@ -138,6 +138,8 @@ export interface IsoFixture {
   /** A light or switch's last confirmed state; null when unknown, absent for plain things. */
   state?: 'on' | 'off' | null;
   focused?: boolean;
+  /** The camera follows it and has lost it: drawn faded where it was last seen. */
+  missing?: boolean;
 }
 /** A fixture waiting to be put down: it follows the pointer until a click. */
 export interface IsoPlacing {
@@ -205,7 +207,7 @@ function FixtureMarker({
   const pip = fixture.state === undefined ? '◇ ' : fixture.state === 'on' ? '● ' : '○ ';
   return (
     <g
-      className={`iso-fixture ${fixture.focused ? 'focused' : ''} ${fixture.state === 'on' ? 'on' : ''}`}
+      className={`iso-fixture ${fixture.focused ? 'focused' : ''} ${fixture.state === 'on' ? 'on' : ''} ${fixture.missing ? 'missing' : ''}`}
       data-fixture={fixture.id}
       onClick={onSelect ? () => onSelect(fixture.id) : undefined}
     >

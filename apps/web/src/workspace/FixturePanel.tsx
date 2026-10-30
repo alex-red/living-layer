@@ -26,7 +26,7 @@ import { Glyph } from '../Glyph';
 import { itemSprite } from '../iso/sprites';
 import type { FixturePlacing } from '../iso/IsoView';
 import { useLab } from './LabContext';
-import { builtInLamps, controlLabel, roomLabel } from './labels';
+import { ago, builtInLamps, controlLabel, roomLabel } from './labels';
 import { pinScene } from './progress';
 import { Cost, Details, Panel, useCall } from './panel';
 import type { IsoSceneKind } from '@livinglayer/domain';
@@ -740,6 +740,7 @@ export function FixturePanel({ id }: { id: string }) {
         </button>
       </div>
       <SculptFixture fixture={f} disabled={off || moving} />
+      <FixtureCamera fixture={f} disabled={off || moving} />
       <p className="micro fixture-placed">
         {byScan ? (
           <>
@@ -892,6 +893,64 @@ export function FixturePanel({ id }: { id: string }) {
  * A lamp that is part of the room's layout: it stands for one light, which
  * can be switched from here. Which light is chosen in the layout editor.
  */
+const TRACK_STATUS = {
+  seen: 'where the camera last saw it',
+  moved: 'moved where the camera saw it',
+  missing: 'missing: the camera lost it, so it stands where it was last seen',
+} as const;
+/**
+ * Following a fixture with the camera: SAM looks where it should stand, a
+ * person confirms which outline it is, and from then on its place follows
+ * what the camera sees and it can decide rules, like an object.
+ */
+function FixtureCamera({ fixture: f, disabled }: { fixture: Fixture; disabled: boolean }) {
+  const lab = useLab();
+  const { busy, segmentation, segmentRunId, now, watch } = lab;
+  const found =
+    segmentRunId && segmentation?.concept === f.label.trim().toLowerCase()
+      ? segmentation.detections
+      : [];
+  const watched = watch?.on && watch.things.some((t) => t.id === f.id);
+  return (
+    <Details summary="In the camera" open={Boolean(f.track) || found.length > 0}>
+      <p className="micro">
+        {f.track
+          ? `Followed: ${TRACK_STATUS[f.track.status]} · seen ${ago(f.track.observation.observedAt, now)}${watched ? ' · the server is watching it' : ''}.`
+          : 'Not followed. Find it in the camera so its place follows it and it can decide rules.'}
+      </p>
+      <div className="save-actions">
+        <button
+          className="secondary"
+          disabled={disabled || Boolean(busy)}
+          onClick={() => void lab.findFixture(f.id)}
+          title="Point SAM at where it should stand in the camera's view (one call)"
+        >
+          {busy === 'find-fixture' ? 'Looking…' : f.track ? 'Find it again' : 'Find in camera'}
+        </button>
+        {f.track && (
+          <button
+            className="text-button"
+            disabled={disabled}
+            onClick={() => void lab.untrackFixture(f.id)}
+          >
+            Stop following
+          </button>
+        )}
+      </div>
+      {found.map((d) => (
+        <button
+          key={d.objectId}
+          className="secondary"
+          disabled={disabled || Boolean(busy)}
+          onClick={() => void lab.anchorFixture(f.id, d.objectId)}
+        >
+          It’s outline #{d.objectId}
+        </button>
+      ))}
+    </Details>
+  );
+}
+
 export function LampPanel({ id }: { id: string }) {
   const lab = useLab();
   const { call, off } = useCall();

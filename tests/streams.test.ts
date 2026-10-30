@@ -99,6 +99,6 @@ describe('network camera discovery', () => {
       ['config', 'http://10.0.0.9:8889/cam/whep'],
     ]);
     await app.close();
-    expect(() => parseConfig({ CAMERA_STREAMS: 'rtsp://cam/whep' })).toThrow();
+    expect(() => parseConfig({ CAMERA_STREAMS: 'ftp://cam/whep' })).toThrow();
   });
 });

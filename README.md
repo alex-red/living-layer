@@ -15,6 +15,7 @@ The lab is scene first: it keeps a small map of your room, and every object, zon
 3. **Objects.** SAM outlines what you name, or what Spark suggests. You confirm which outline is your mug; identity is always your call.
 4. **A rule.** _When the mug is inside this zone, turn on the desk lamp._ Draw the zone on the photo or the iso desk.
 5. **Run it.** Move the mug and track it. If its whole box is inside the zone, Living Layer turns on one Home Assistant light, and the decision is saved with its reason.
+6. **Leave it watching.** `Watch on the server` follows the mug, other objects and fixtures found in the camera with no tab open. Frames are matched locally, a lost thing is looked for by how it looks, and SAM is asked only to confirm a zone crossing or find what nothing else can. Rules still fire only on SAM's answer.
 
 The scene outline on the left doubles as the setup checklist. The inspector on the right shows whatever you select, with one main action. Every model call and decision is in the activity drawer below, with what it cost.
 
@@ -57,7 +58,7 @@ Copy `.env.example` to `.env` and fill in what you need. Restart the server afte
 | `HA_EXTRA_ENTITY_IDS`                | Optional. More `light.*` entities that extra placement rules may switch, comma-separated.   |
 | `HA_SWITCH_ENTITY_IDS`               | Optional. `switch.*` entities that fixtures and rules may turn on and off, comma-separated. |
 | `HA_LIVE_ENABLED`                    | Set to `true` to allow the lamp to be switched.                                             |
-| `CAMERA_STREAMS`                     | Optional. WHEP URLs of network cameras, for networks where mDNS discovery is blocked.       |
+| `CAMERA_STREAMS`                     | Optional. WHEP or `rtsp://` URLs of network cameras, where mDNS discovery is blocked.       |
 | `REMOTE_CAMERA_PORT`                 | HTTPS port for the phone camera page (default 43432). Only listens once a phone is paired.  |
 | `REMOTE_CAMERA_HOST`                 | Optional. Address the pairing QR code points at, if the detected LAN address is wrong.      |
 | `REMOTE_CAMERA_CERT`, `_KEY`         | Optional. PEM certificate and key for the phone page (e.g. mkcert); else self-signed.       |
@@ -68,6 +69,7 @@ You can also run the probes from the command line:
 
 ```sh
 bun run doctor                                     # checks config, makes no network calls
+bun run fetch-model                                # the feature model the watcher uses, ~22 MB
 bun run smoke                                      # offline run against the demo
 bun run smoke --live --image ./desk.jpg            # live run (add --lamp to switch the light)
 ```
@@ -81,6 +83,8 @@ scripts/share-camera.sh                            # --list, --device, --size, -
 ```
 
 It needs `ffmpeg` and [MediaMTX](https://github.com/bluenviron/mediamtx), and offers to install whichever is missing (`--yes` skips the question): ffmpeg through your package manager, MediaMTX through Homebrew or as the checksum-verified release binary in `~/.local/bin`. The camera is encoded once to H.264 (VideoToolbox on macOS, passed through untouched on Linux when the camera already outputs H.264) and served as WebRTC (WHEP, what the labs play, around 100 ms of latency) and RTSP. It is advertised over mDNS, so it shows up as a camera source in the desk lab and the playground; **Find network cameras** rescans.
+
+Its RTSP output is what lets the server watch it with no tab open: choose it as the camera, then **Watch on the server** on the mug. The server reads it with ffmpeg at 10 grey frames a second and takes a full picture only when SAM or the feature model needs one. `bun run fetch-model` downloads that feature model (DINOv3 ViT-S/16, about 22 MB, checksum-verified) into `DATA_DIR`; without it a lost thing goes straight to SAM. A phone camera streams to the tab only, so it can be followed in the tab but not watched by the server.
 
 ### A phone as the camera
 

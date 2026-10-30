@@ -106,8 +106,13 @@ export function parseConfig(env: NodeJS.ProcessEnv, cwd = process.cwd()): Config
     .filter(Boolean);
   for (const stream of cameraStreams) {
     const url = URL.parse(stream);
-    if (!url || !['http:', 'https:'].includes(url.protocol) || url.username || url.password)
-      throw new Error('CAMERA_STREAMS must list HTTP(S) WHEP URLs without credentials.');
+    if (
+      !url ||
+      !['http:', 'https:', 'rtsp:'].includes(url.protocol) ||
+      url.username ||
+      url.password
+    )
+      throw new Error('CAMERA_STREAMS must list HTTP(S) WHEP or RTSP URLs without credentials.');
   }
   if (value.REMOTE_CAMERA_HOST && !/^[\w.-]+$/.test(value.REMOTE_CAMERA_HOST))
     throw new Error('REMOTE_CAMERA_HOST must be a bare host name or IP address.');

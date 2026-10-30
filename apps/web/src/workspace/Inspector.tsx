@@ -656,6 +656,44 @@ function AddPanel({
   );
 }
 
+const WATCH_STATE = {
+  off: 'Off',
+  starting: 'Starting',
+  watching: 'Watching',
+  paused: 'Paused',
+  camera_lost: 'Camera lost',
+} as const;
+/**
+ * The server's watcher: on, it follows every confirmed thing in the camera
+ * and fires rules on SAM's answers whether or not a tab is open.
+ */
+function WatchControl() {
+  const lab = useLab();
+  const { watch, watching, canWatch, mode } = lab;
+  const stats =
+    watch &&
+    `${watch.frames} frame${watch.frames === 1 ? '' : 's'} · ${watch.checks} SAM check${watch.checks === 1 ? '' : 's'}${watch.appearance ? ` · ${watch.refinds} found by appearance` : ''}`;
+  return (
+    <>
+      <button
+        className="secondary"
+        disabled={!watching && !canWatch}
+        onClick={() => void lab.toggleWatch()}
+        title="The server follows every confirmed thing in the camera and checks zone crossings with SAM, with or without this tab"
+      >
+        {watching ? 'Stop watching' : 'Watch on the server'}
+      </button>
+      <p className="micro">
+        {watching && watch
+          ? `${WATCH_STATE[watch.state]}${watch.camera ? ` ${watch.camera.name}` : ''} · ${stats}. ${watch.note}`
+          : canWatch
+            ? `Follows the mug, objects and found fixtures with no tab open, and asks SAM only at a zone edge or when one is lost${mode === 'live' ? '' : ' (here, each move under the canvas is a frame)'}.`
+            : 'The server can watch a network camera that offers RTSP, such as one shared with scripts/share-camera.sh. This camera can be followed in the tab instead.'}
+      </p>
+    </>
+  );
+}
+
 function MugPanel() {
   const lab = useLab();
   const { memory, mode, camera, busy, status, follow, followView, followStats, localZone, now } =
@@ -711,21 +749,26 @@ function MugPanel() {
           : 'Move the mug, start the camera, then capture & track.'}
       </p>
       {status && <Cost>{estimateLabel(status.meta.estimates.segment, 'track')}</Cost>}
-      <button
-        className="secondary"
-        disabled={follow ? false : Boolean(busy) || !currentObservation}
-        onClick={() => (follow ? lab.stopFollow() : void lab.startFollow())}
-        title="Follow the mug frame to frame in the browser, calling SAM only at the zone edge or when the match gets weak"
-      >
-        {follow ? 'Stop following' : 'Follow locally'}
-      </button>
-      <p className="micro">
-        {follow
-          ? `${followStats.frames} local step${followStats.frames === 1 ? '' : 's'} · ${followStats.checks} SAM check${followStats.checks === 1 ? '' : 's'}${followView ? ` · match ${followView.track.score.toFixed(2)}` : ''}${localZone ? '' : ' · no zone to watch: save one and mark the camera fixed'}`
-          : currentObservation
-            ? 'Follows the mug in the browser between SAM calls. SAM confirms each zone crossing before the lamp can fire.'
-            : 'Track the mug in this frame first.'}
-      </p>
+      <WatchControl />
+      {!lab.canWatch && (
+        <>
+          <button
+            className="secondary"
+            disabled={follow ? false : Boolean(busy) || !currentObservation}
+            onClick={() => (follow ? lab.stopFollow() : void lab.startFollow())}
+            title="Follow the mug frame to frame in the browser, calling SAM only at the zone edge or when the match gets weak"
+          >
+            {follow ? 'Stop following' : 'Follow locally'}
+          </button>
+          <p className="micro">
+            {follow
+              ? `${followStats.frames} local step${followStats.frames === 1 ? '' : 's'} · ${followStats.checks} SAM check${followStats.checks === 1 ? '' : 's'}${followView ? ` · match ${followView.track.score.toFixed(2)}` : ''}${localZone ? '' : ' · no zone to watch: save one and mark the camera fixed'}`
+              : currentObservation
+                ? 'Follows the mug in this tab between SAM calls, while the tab is open. SAM confirms each zone crossing before the lamp can fire.'
+                : 'Track the mug in this frame first.'}
+          </p>
+        </>
+      )}
       <div className="insp-links">
         <button className="text-button" onClick={() => lab.select({ kind: 'rule', id: 'main' })}>
           {memory.zone ? 'Zone and light' : 'Draw its zone'} →
@@ -1119,6 +1162,10 @@ function NewRulePanel() {
     ...(memory?.others ?? [])
       .filter((o) => o.observation)
       .map((o) => ({ id: o.id, label: o.label })),
+    // A fixture the camera follows can decide a rule too.
+    ...(memory?.fixtures ?? [])
+      .filter((f) => f.track)
+      .map((f) => ({ id: f.id, label: `${f.label} (fixture)` })),
   ];
   const set = (patch: Partial<typeof draft>) => lab.setRuleDraft({ ...draft, ...patch });
   return (

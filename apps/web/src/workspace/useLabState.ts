@@ -26,6 +26,7 @@ import type {
   SceneGuess,
   SavedItem,
   FixtureInput,
+  WatchView,
 } from '@livinglayer/domain';
 import {
   DEMO_POSITIONS,
@@ -38,12 +39,14 @@ import {
   fixtureInput,
   runCost,
   startLocalTrack,
+  moveDemoMug,
   stepLocalTrack,
   toLuma,
   zoneApplies,
 } from '@livinglayer/domain';
 import { api, ApiError } from '../api';
 import { openStream, useNetworkStreams, type NetworkStream } from '../streams';
+import { useWatch } from '../watch';
 import { usd } from '../cost';
 import { takeHandoff } from '../handoff';
 import type { Issue } from '../ProviderUi';
@@ -104,11 +107,7 @@ export const TRANSITION: Record<NonNullable<PlacementDecision['transition']>, st
 export function demoDesk(svg: string, position: DemoPosition): string {
   const { dx, dy } = DEMO_POSITIONS[position];
   if (!dx && !dy) return '/desk.svg';
-  const moved = svg
-    .replace('translate(350 180)', `translate(${350 + dx} ${180 + dy})`)
-    .replace('cx="485" cy="455"', `cx="${485 + dx}" cy="${455 + dy}"`)
-    .replace('cx="450" cy="245"', `cx="${450 + dx}" cy="${245 + dy}"`);
-  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(moved)}`;
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(moveDemoMug(svg, position))}`;
 }
 /** Local following samples the camera this often, on frames this wide. */
 const FOLLOW_MS = 100;
@@ -414,6 +413,9 @@ export function useLabState() {
   } | null>(null);
   const [followStats, setFollowStats] = useState({ frames: 0, checks: 0 });
   const localTrack = useRef<LocalTrack | null>(null);
+  // The server's watcher: it follows things and fires rules with no tab open; this shows it.
+  const watch = useWatch(mode);
+  const watching = Boolean(watch?.on);
   const lastCheck = useRef(0);
   const reanchorGap = useRef(REANCHOR_GAP_MS.first);
   const goodSteps = useRef(0);
@@ -740,6 +742,7 @@ export function useLabState() {
       `Mug moved to ${DEMO_POSITIONS[next].label.toLowerCase()}. This counts as a new frame: track it or segment it.`,
     );
     if (follow && localTrack.current) void followDemo(next);
+    if (watching) void api('watch/demo', { position: next }).catch(() => {});
   }
   /** Prepare a chosen photo as the current frame; returns it, or nothing on failure. */
   async function upload(chosen?: File): Promise<string | undefined> {
@@ -1024,6 +1027,116 @@ export function useLabState() {
     }, FOLLOW_MS);
     return () => window.clearInterval(timer);
   }, [follow, camera, busy, mode]);
+  /** The selected network camera, when the server can read it too (it offers RTSP). */
+  const watchCamera = network.streams.find((s) => s.id === cameraSource && s.rtsp);
+  /** Whether the server can watch this mode's camera: always in the demo, else an RTSP camera. */
+  const canWatch = mode === 'demo' || Boolean(watchCamera) || Boolean(watch?.camera);
+  async function toggleWatch() {
+    setError('');
+    try {
+      const on = !watching;
+      if (on) stopFollow();
+      const view = await api<WatchView>('watch', {
+        mode,
+        on,
+        ...(on && mode === 'live' && watchCamera ? { streamId: watchCamera.id } : {}),
+      });
+      setMessage(
+        on
+          ? `The server is watching${view.camera ? ` ${view.camera.name}` : ' the illustrated desk'}. Rules fire on SAM’s answer, with or without this tab.`
+          : 'The server stopped watching. Rules fire only when you track by hand.',
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e : 'Could not change watching.');
+    }
+  }
+  // What the watcher's SAM checks changed (sightings, verdicts, a lamp) shows once it lands.
+  const seenChecks = useRef(0);
+  useEffect(() => {
+    if (!watch || watch.checks === seenChecks.current) return;
+    const first = seenChecks.current === 0 && watch.checks > 0 && !watch.on;
+    seenChecks.current = watch.checks;
+    if (first) return;
+    void refresh()
+      .then((desks) => {
+        const action = desks[mode].lastDecision?.output.action;
+        if (action === 'confirmed') light();
+      })
+      .catch(() => {});
+  }, [watch?.checks]);
+  // A fixture marked missing (or found again) changes how the room draws it.
+  const missingFixtures = (watch?.things ?? []).filter(
+    (t) => t.kind === 'fixture' && t.status === 'missing',
+  ).length;
+  useEffect(() => {
+    if (watch) void refresh().catch(() => {});
+  }, [missingFixtures]);
+  /** The frame to look in: the camera's, captured now, or the current photo; the demo desk itself in demo mode. */
+  function frameNow(): string | undefined {
+    if (mode === 'demo') return undefined;
+    if (camera && video.current?.videoWidth)
+      return captureCanvas(video.current, video.current.videoWidth, video.current.videoHeight);
+    return image;
+  }
+  /** Look for a fixture where it should stand in the camera's view; its outlines show for confirming. */
+  async function findFixture(id: string) {
+    setBusy('find-fixture');
+    setError('');
+    try {
+      const imageDataUrl = frameNow();
+      if (mode === 'live' && !imageDataUrl)
+        throw new Error('Start the camera or add a photo of the desk to look in.');
+      const run = await api<EvidenceRun<Segmentation>>('fixtures/find', {
+        mode,
+        id,
+        ...(imageDataUrl ? { imageDataUrl } : {}),
+      });
+      setSegmentation(run.output);
+      setSegmentRunId(run.id);
+      setMessage(
+        run.output.detections.length
+          ? `Found ${run.output.detections.length} outline${run.output.detections.length === 1 ? '' : 's'}${costNote(run)}. Confirm which one it is.`
+          : `SAM found nothing where it should stand${costNote(run)}.`,
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e : 'Could not look for it.');
+    } finally {
+      setBusy('');
+      void refresh().catch(() => {});
+    }
+  }
+  async function anchorFixture(id: string, detectionId: string) {
+    if (!segmentRunId) return;
+    setBusy('anchor-fixture');
+    setError('');
+    try {
+      const next = await api<DeskMemory>('fixtures/anchor', {
+        mode,
+        id,
+        segmentRunId,
+        detectionId,
+      });
+      setMemory(next);
+      setMessage(
+        watching
+          ? 'Confirmed. The server follows it from now on.'
+          : 'Confirmed. Watch on the server to follow it from now on.',
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e : 'Could not confirm it.');
+    } finally {
+      setBusy('');
+    }
+  }
+  async function untrackFixture(id: string) {
+    setError('');
+    try {
+      setMemory(await api<DeskMemory>('fixtures/untrack', { mode, id }));
+      setMessage('No longer followed. It stays where it was last seen.');
+    } catch (e) {
+      setError(e instanceof Error ? e : 'Could not stop following it.');
+    }
+  }
   async function deskAction(
     path: 'select' | 'zone' | 'verify' | 'reset' | 'camera' | 'surface',
     fields: object = {},
@@ -1748,6 +1861,13 @@ export function useLabState() {
     follow,
     followView,
     followStats,
+    watch,
+    watching,
+    canWatch,
+    toggleWatch,
+    findFixture,
+    anchorFixture,
+    untrackFixture,
     undo,
     redo,
     setMemory,

@@ -1,6 +1,6 @@
 # Plan: always-on tracking
 
-Status: planned. Builds on the [Tracking](../architecture.md#tracking) section of the architecture and on [fixtures.md](fixtures.md), both built. Changes two decisions made there: fixtures can now be tracked, and rules fire with no tab open.
+Status: built, see [As built](#as-built). Builds on the [Tracking](../architecture.md#tracking) section of the architecture and on [fixtures.md](fixtures.md), both built. Changes two decisions made there: fixtures can now be tracked, and rules fire with no tab open.
 
 ## Goal
 
@@ -94,6 +94,25 @@ With nobody watching, a stuck re-anchor could spend the day's budget overnight. 
 5. **Tracked fixtures.** `Fixture.track`, `Find in camera`, `at` following SAM, fixtures as rule subjects, the faded `missing` look.
 6. **Layer 2.** Prototypes on each SAM confirm, re-finding, the look-alike case. A bench on recorded clips: re-anchors per hour with and without it.
 7. **Docs.** Architecture's Tracking and Fixtures sections; "As built" here.
+
+## As built
+
+Built in the seven steps above, with these differences:
+
+- **Spike.** ONNX Runtime loads under Bun, so layer 2 runs in the server, no Node child. DINOv3 int8 on the CPU takes about 12 ms at 224 px, 21 ms at 320 px and 44 ms at 448 px on this Mac; the CoreML provider was about three times slower, since most of the int8 graph falls back to the CPU. Under Bun, one ffmpeg with two outputs (grey frames and JPEGs) hangs, so grey frames come from one long-running process, and a full picture is a second, short ffmpeg run (about 60 ms on a local file; more over RTSP).
+- **Camera.** `watch: { on, camera }` in desk memory rather than `camera` set when the camera is marked fixed: watching is turned on by its own button, which takes the selected network camera. Only a camera the lab listed can be chosen, and only one that offers RTSP. A configured `rtsp://` camera has no WHEP, so a tab can't play it.
+- **Missing.** A missing thing is looked for again when its old region moves, not when its zones change.
+- **Sync.** Every successful desk, fixture, scene or item change re-reads desk memory into the watcher, so a person confirming or forgetting something, or drawing a zone, takes effect without restarting it.
+- **Demo pace.** Each move under the canvas is a few frames of the mug already set down: no stillness to wait for and no gap between checks, as the browser's own following did.
+- **Thresholds.** The appearance thresholds (0.6 mean similarity, 0.06 lead) are set from the illustrated desk only. A moved mug scores 0.83 to 0.87 with a lead of 0.15; with the mug painted out, the best window still scores 0.70 but leads by 0.03. Real camera frames will score differently.
+- **Browser.** `Follow locally` stays for cameras the server can't read (this device's, a phone, WHEP-only), instead of being retired.
+
+Not built or not verified:
+
+- The watcher against a live RTSP camera: no MediaMTX here. `FfmpegSource` is tested on a local video file, and the watcher end to end in demo mode, including against the running lab.
+- The recorded-clip bench from step 6, re-anchors per hour with and without layer 2.
+- `Find in camera` and confirming a fixture's outline in the lab UI were not tried by hand; the routes are tested.
+- Live `fixtures/find` is untested against the real Meta API (one `segmentBoxes` call, like the other box prompts).
 
 ## Open decisions
 

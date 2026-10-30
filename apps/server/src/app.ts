@@ -21,6 +21,8 @@ import {
   type Mode,
   type LampResult,
   type Segmentation,
+  type DemoPosition,
+  DEMO_POSITIONS,
 } from '@livinglayer/domain';
 import { type Config, type Fetcher, PROJECT_ROOT } from './config.js';
 import { EvidenceStore } from './store.js';
@@ -34,7 +36,10 @@ import { itemRoutes } from './item.js';
 import { photoRoutes } from './photo.js';
 import { pinRoutes } from './pin.js';
 import { illustrationRoutes } from './illustration.js';
-import { streamRoutes, type NetworkStream } from './streams.js';
+import { listStreams, streamRoutes, type NetworkStream } from './streams.js';
+import { Watcher, watchRoutes, type WatcherDeps } from './watcher.js';
+import { Appearance } from './appearance.js';
+import { DemoSource } from './frames.js';
 import { RemoteCamera, remoteRoutes } from './remote.js';
 import {
   demoScene,
@@ -45,6 +50,10 @@ import {
   demoSceneDraft,
 } from './demo.js';
 
+const watching = new WeakMap<object, Record<Mode, Watcher>>();
+/** The camera watchers of an app `buildApp` made, for tests. */
+export const watchersOf = (app: object) => watching.get(app)!;
+
 export async function buildApp(
   config: Config,
   options: {
@@ -52,6 +61,10 @@ export async function buildApp(
     serveWeb?: boolean;
     browseCameras?: () => Promise<NetworkStream[]>;
     remote?: RemoteCamera;
+    /** Frames for the watchers; tests pass their own. */
+    frames?: WatcherDeps['source'];
+    /** The feature model; tests pass null to leave it out. */
+    appearance?: () => Promise<Appearance | null>;
   } = {},
 ) {
   const app = Fastify({ logger: false, bodyLimit: 7_100_000, requestTimeout: 130000 });
@@ -136,7 +149,7 @@ export async function buildApp(
     mode === 'demo'
       ? [...DEMO_LIGHTS, ...DEMO_SWITCHES]
       : [...config.haLights, ...config.haSwitches];
-  deskRoutes(
+  const tracking = deskRoutes(
     app,
     store,
     async (mode, entityId) =>
@@ -308,8 +321,13 @@ export async function buildApp(
   photoRoutes(app, { store, meta, run, config });
   pinRoutes(app, { store, meta, run });
   illustrationRoutes(app, { store, meta, run });
-  app.post('/api/segment', async (request) => {
-    const input = parseInput(segmentRequestSchema, request.body);
+  /** One SAM segmentation, recorded and billed as a run: the lab's button, or the watcher. */
+  function segment(input: {
+    mode: Mode;
+    concept: string;
+    imageDataUrl?: string;
+    demoPosition?: DemoPosition;
+  }) {
     return run('segment', input.mode, async (id) => {
       if (input.mode === 'demo') {
         if (input.imageDataUrl)
@@ -335,13 +353,60 @@ export async function buildApp(
           store.asset(id, 'sam-output.txt', result.raw),
         ],
       };
-    });
-  });
+    }) as Promise<EvidenceRun<Segmentation>>;
+  }
+  app.post('/api/segment', async (request) =>
+    segment(parseInput(segmentRequestSchema, request.body)),
+  );
   app.post('/api/lamp', async (request) => {
     const { mode } = parseInput(z.object({ mode: modeSchema }).strict(), request.body);
     return run('lamp', mode, async () => ({
       output: mode === 'demo' ? demoLamp : await lamp.turnOn(),
     }));
+  });
+  // The server watches the camera, so rules fire with no tab open.
+  let model: Promise<Appearance | null> | null = null;
+  const demoPicture = new DemoSource();
+  const watcherDeps = (mode: Mode): WatcherDeps => ({
+    mode,
+    store,
+    tracking,
+    segment: (m, concept, picture) =>
+      segment({
+        mode: m,
+        concept,
+        ...('png' in picture
+          ? { imageDataUrl: `data:image/png;base64,${picture.png.toString('base64')}` }
+          : { demoPosition: picture.demoPosition }),
+      }),
+    photoOf: async (segmentRun) => {
+      if (segmentRun.mode === 'demo') {
+        const key = (segmentRun.output as Segmentation).sourceKey ?? '';
+        const position = (key.split('@')[1] ?? 'centre') as DemoPosition;
+        demoPicture.position = DEMO_POSITIONS[position] ? position : 'centre';
+        return (await demoPicture.snapshot()).png;
+      }
+      const photo = segmentRun.assets.find((a) => a.endsWith('/source.png'));
+      return photo ? store.readAsset(photo) : null;
+    },
+    appearance: options.appearance ?? (() => (model ??= Appearance.load(config.dataDir))),
+    ...(options.frames ? { source: options.frames } : {}),
+  });
+  const watchers = {
+    demo: new Watcher(watcherDeps('demo')),
+    live: new Watcher(watcherDeps('live')),
+  };
+  watchRoutes(app, watchers, {
+    store,
+    streams: () => listStreams(config, options.browseCameras, () => remote.streams()),
+  });
+  app.addHook('onReady', async () => {
+    for (const mode of ['demo', 'live'] as const)
+      if (store.memory(mode).watch?.on) void watchers[mode].start();
+  });
+  app.addHook('onClose', async () => {
+    watchers.demo.stop();
+    watchers.live.stop();
   });
   const dist = resolve(PROJECT_ROOT, 'apps/web/dist');
   if (options.serveWeb !== false && existsSync(dist)) {
@@ -351,5 +416,6 @@ export async function buildApp(
   app.setNotFoundHandler((_request, reply) => {
     void reply.code(404).send({ error: { code: 'not_found', message: 'Route not found.' } });
   });
+  watching.set(app, watchers);
   return app;
 }

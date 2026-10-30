@@ -20,6 +20,9 @@ import { Popover } from './Popover';
 import { ToolStrip } from './ToolStrip';
 import { demoDesk } from './useLabState';
 
+/** Which layer placed a watched thing's box last, as its tag says it. */
+const WATCH_LAYER = { local: 'LOCAL', appearance: 'LOOKS', sam: 'SAM' } as const;
+
 const VIEWS: { id: StageView; label: string }[] = [
   { id: 'photo', label: 'Photo' },
   { id: 'iso', label: 'Iso' },
@@ -83,6 +86,8 @@ export function Canvas() {
     follow,
     followView,
     localZone,
+    watch,
+    watching,
     pinning,
     dimensions,
     stageView,
@@ -459,6 +464,40 @@ export function Canvas() {
                     (followView.track.stillSteps > 0 ? ' · UNSURE' : ' · MOVING')}
               </span>
             )}
+            {!follow && watching && watch && watch.things.length > 0 && (
+              <svg
+                className="follow-overlay"
+                viewBox="0 0 1000 1000"
+                preserveAspectRatio="none"
+                aria-label="What the server is watching"
+              >
+                {watch.things.map((t) => (
+                  <rect
+                    key={t.id}
+                    className={`follow-box ${t.status === 'following' ? 'follow' : 'unsure'}`}
+                    x={t.box.x * 1000}
+                    y={t.box.y * 1000}
+                    width={t.box.width * 1000}
+                    height={t.box.height * 1000}
+                  />
+                ))}
+              </svg>
+            )}
+            {!follow &&
+              watching &&
+              watch?.things.map((t) => (
+                <span
+                  key={t.id}
+                  className={`zone-tag follow-tag ${t.status === 'following' ? 'follow' : 'unsure'}`}
+                  style={{ left: `${t.box.x * 100}%`, top: `${t.box.y * 100}%` }}
+                  aria-hidden="true"
+                >
+                  {t.label.toUpperCase()} · {WATCH_LAYER[t.layer]}
+                  {t.status === 'following'
+                    ? ` · ${t.score.toFixed(2)}`
+                    : ` · ${t.status.toUpperCase()}`}
+                </span>
+              ))}
             {pinning && !camera && (
               <SurfacePin
                 key={pinning.corners ? 'found' : 'clicks'}

@@ -10,7 +10,7 @@ export interface NetworkStream {
   id: string;
   name: string;
   host: string;
-  /** WebRTC-HTTP egress endpoint: POST an SDP offer, get the answer back. */
+  /** WebRTC-HTTP egress endpoint: POST an SDP offer, get the answer back. Empty when a tab can't play it. */
   whep: string;
   rtsp?: string;
   source: 'mdns' | 'config' | 'phone';
@@ -222,6 +222,33 @@ export function browseCameras(timeoutMs = 1200): Promise<NetworkStream[]> {
   });
 }
 
+/**
+ * Every camera the lab knows of: paired phones, cameras found over mDNS, and
+ * configured ones. A configured `rtsp://` URL is a camera only the server can
+ * read: the watcher can use it, a tab can't play it.
+ */
+export async function listStreams(
+  config: Config,
+  browse: () => Promise<NetworkStream[]> = browseCameras,
+  known: () => NetworkStream[] = () => [],
+): Promise<NetworkStream[]> {
+  const found = await browse();
+  const configured: NetworkStream[] = config.cameraStreams.map((url) => {
+    const parsed = new URL(url);
+    const rtsp = parsed.protocol === 'rtsp:';
+    return {
+      id: url,
+      name: parsed.host,
+      host: parsed.hostname,
+      whep: rtsp ? '' : url,
+      ...(rtsp ? { rtsp: url } : {}),
+      source: 'config',
+    };
+  });
+  const seen = new Set(found.flatMap((s) => [s.whep, s.rtsp]));
+  return [...known(), ...found, ...configured.filter((s) => !seen.has(s.whep || s.rtsp))];
+}
+
 export function streamRoutes(
   app: FastifyInstance,
   config: Config,
@@ -229,13 +256,5 @@ export function streamRoutes(
   /** Cameras the lab already knows of, like a paired phone. */
   known: () => NetworkStream[] = () => [],
 ) {
-  app.get('/api/streams', async () => {
-    const found = await browse();
-    const configured: NetworkStream[] = config.cameraStreams.map((whep) => {
-      const url = new URL(whep);
-      return { id: whep, name: url.host, host: url.hostname, whep, source: 'config' };
-    });
-    const seen = new Set(found.map((s) => s.whep));
-    return { streams: [...known(), ...found, ...configured.filter((s) => !seen.has(s.whep))] };
-  });
+  app.get('/api/streams', async () => ({ streams: await listStreams(config, browse, known) }));
 }

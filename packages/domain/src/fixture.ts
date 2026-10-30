@@ -3,11 +3,13 @@ import { ISO_PRESETS, isoSurface } from './iso-presets.js';
 import { ITEM_MATERIALS, isoItemSchema, type SavedItem } from './iso-item.js';
 import { archetypeSchema, type Archetype } from './iso-archetypes.js';
 import { isoSceneKindSchema, type IsoBox, type IsoScene, type IsoSceneKind } from './iso.js';
+import type { DeskObservation } from './index.js';
 
 /**
- * A fixture is a thing in a room that stays put: a lamp, a wall switch, a
- * mouse. Objects are followed by the camera and decide rules; fixtures are
- * placed by hand, never tracked, and are what rules act on.
+ * A fixture is a thing in a room that belongs there: a lamp, a wall switch, a
+ * mouse. It is placed by hand and is what rules act on. Once a person has
+ * confirmed it in the camera's view it is followed like an object: its place
+ * in the room follows what SAM sees, and it can decide rules too.
  */
 export const CONTROL_KINDS = ['none', 'light', 'switch'] as const;
 export type ControlKind = (typeof CONTROL_KINDS)[number];
@@ -76,8 +78,37 @@ export interface Fixture extends Omit<FixtureInput, 'id' | 'model'> {
    * the photo the pin was set on, so a corrected pin can place it again.
    */
   seen?: { foot: { x: number; y: number }; size: { w: number; h: number } };
+  /** Set once a person confirmed it in the camera's view; moving it by hand clears it. */
+  track?: FixtureTrack;
   createdAt: string;
   updatedAt: string;
+}
+
+/** A fixture the camera follows, like a remembered object. */
+export interface FixtureTrack {
+  /** The SAM concept it was confirmed from; it is looked for in outlines of the same one. */
+  concept: string;
+  observation: DeskObservation;
+  /** Earlier sightings, newest first. */
+  history: DeskObservation[];
+  /**
+   * `seen`: where SAM last confirmed it. `moved`: SAM saw it somewhere new
+   * and its place in the room followed. `missing`: the watcher lost it; it
+   * keeps its last place.
+   */
+  status: 'seen' | 'moved' | 'missing';
+}
+/** How far its foot must move, as a share of the frame, to count as moved rather than seen again. */
+export const FIXTURE_MOVED = 0.03;
+/** Where a sighting touches down and how big it looks, as shares of its frame, as a scan records it. */
+export function sightingSpot(
+  o: Pick<DeskObservation, 'box' | 'frame'>,
+): NonNullable<Fixture['seen']> {
+  const { box, frame } = o;
+  return {
+    foot: { x: (box.x + box.width / 2) / frame.width, y: (box.y + box.height) / frame.height },
+    size: { w: box.width / frame.width, h: box.height / frame.height },
+  };
 }
 
 /** The group a fixture belongs to: its link, or itself alone. */

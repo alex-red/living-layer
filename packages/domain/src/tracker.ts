@@ -104,7 +104,7 @@ export function frameMotion(a: LumaFrame, b: LumaFrame, region: UnitBox): number
   return changed / (r.width * r.height);
 }
 /** The box grown by its own size on every side, clamped to the frame: where a hand reaching for the mug shows up. */
-const around = (b: UnitBox): UnitBox => {
+export const around = (b: UnitBox): UnitBox => {
   const x = Math.max(0, b.x - b.width);
   const y = Math.max(0, b.y - b.height);
   return {
