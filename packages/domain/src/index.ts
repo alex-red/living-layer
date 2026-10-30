@@ -191,7 +191,7 @@ export function demoSourceKey(position: DemoPosition = 'centre'): string {
  * Every Standard Spark version costs the same; SAM bills per image, not per token.
  */
 export const META_PRICES = {
-  checked: '2026-10-27',
+  checked: '2026-10-29',
   sparkPerMillion: { input: 1.25, output: 4.25 },
   samPerImage: 0.0025,
   /** Muse Image bills per image returned, whatever the reasoning or tools. */
