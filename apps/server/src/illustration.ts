@@ -4,8 +4,10 @@ import { resolve } from 'node:path';
 import sharp from 'sharp';
 import { z } from 'zod';
 import {
+  ILLUSTRATION_NOTE_MAX,
   ILLUSTRATION_PROMPT,
   deskIllustrationPrompt,
+  withNote,
   META_PRICES,
   MAX_SPRITES,
   alignCorners,
@@ -128,6 +130,8 @@ export function illustrationRoutes(
           view: z.enum(['room', 'desk']).default('room'),
           /** Report the steps under this id while the call runs, so the page can follow and stop it. */
           jobId: z.string().uuid().optional(),
+          /** What to change this time, added to the prompt. */
+          note: z.string().trim().max(ILLUSTRATION_NOTE_MAX).optional(),
         })
         .strict(),
       request.body,
@@ -149,7 +153,8 @@ export function illustrationRoutes(
         'Draft your room from a photo and pin its desk first: the picture is tied to the pinned desk.',
         409,
       );
-    if (view === 'desk') return drawDesk(input.imageDataUrl, mode, pin.surfaceId, input.jobId);
+    if (view === 'desk')
+      return drawDesk(input.imageDataUrl, mode, pin.surfaceId, input.jobId, input.note);
     if (live && !meta.canAfford(META_PRICES.imagePerImage + META_PRICES.samPerImage))
       throw new LabError(
         'spend_limit',
@@ -177,7 +182,12 @@ export function illustrationRoutes(
       const drawn = await run('illustration', mode, async (id) => {
         job.link(id);
         const result = image
-          ? await meta.illustrate([image.dataUrl], ILLUSTRATION_PROMPT, 'auto', job.signal)
+          ? await meta.illustrate(
+              [image.dataUrl],
+              withNote(ILLUSTRATION_PROMPT, input.note),
+              'auto',
+              job.signal,
+            )
           : { output: readFileSync(DEMO_PICTURE), model: 'demo', requestId: null, usage: null };
         job.check();
         png = await keyBackground(await sharp(result.output).png().toBuffer());
@@ -254,6 +264,7 @@ export function illustrationRoutes(
     mode: Mode,
     surfaceId: string,
     jobId?: string,
+    note?: string,
   ): Promise<Illustrated> {
     const live = mode === 'live';
     if (live && !meta.canAfford(META_PRICES.imagePerImage))
@@ -283,7 +294,7 @@ export function illustrationRoutes(
         const result = image
           ? await meta.illustrate(
               [image.dataUrl, ...references],
-              deskIllustrationPrompt(Boolean(style)),
+              deskIllustrationPrompt(Boolean(style), note),
               `${image.width}x${image.height}`,
               job.signal,
             )

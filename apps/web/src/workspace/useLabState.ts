@@ -1712,8 +1712,10 @@ export function useLabState() {
    * image call and one SAM call, live), and show it, step by step in the
    * AI dialog, where it can be stopped.
    */
-  async function illustrate(view: 'room' | 'desk' = 'room') {
+  async function illustrate(view: 'room' | 'desk' = 'room', note?: string) {
     if (busy) return;
+    // The desk is drawn from what the camera shows now, not the last frame captured.
+    const photo = view === 'desk' ? frameNow() : image;
     setBusy('illustrate');
     setError('');
     let ok = false;
@@ -1742,8 +1744,9 @@ export function useLabState() {
               // The room is redrawn from its own photo (the last picture's, else this one); the desk from this frame.
               ...(mode === 'live' &&
               (view === 'desk' || !(memory?.scenePhoto || memory?.illustration))
-                ? { imageDataUrl: image }
+                ? { imageDataUrl: photo }
                 : {}),
+              ...(note?.trim() ? { note: note.trim() } : {}),
             },
             { signal },
           ),

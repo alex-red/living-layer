@@ -90,16 +90,27 @@ export type SceneIllustration = z.infer<typeof sceneIllustrationSchema>;
  * there is one (the second image). The frame's composition is kept, so what
  * the camera tracks maps straight onto the drawing.
  */
-export function deskIllustrationPrompt(withStyle: boolean): string {
-  return (
+export function deskIllustrationPrompt(withStyle: boolean, note?: string): string {
+  return withNote(
     'Redraw the desk in the first image (a close camera photo) as a clean illustration of the desk top ' +
-    'and everything standing on it' +
-    (withStyle
-      ? ', in exactly the art style of the second image: the same line weight, flat colours and soft lighting.'
-      : ': crisp outlines, flat colours and soft even lighting.') +
-    ' Keep the camera’s viewpoint and framing, and every object where it is in the photo, with its shape ' +
-    'and colour. Plain black background beyond the desk, no text, no labels.'
+      'and everything standing on it' +
+      (withStyle
+        ? ', in exactly the art style of the second image: the same line weight, flat colours and soft lighting.'
+        : ': crisp outlines, flat colours and soft even lighting.') +
+      ' Keep the camera’s viewpoint and framing, and every object where it is in the photo, with its shape ' +
+      'and colour. Plain black background beyond the desk, no text, no labels.',
+    note,
   );
+}
+/** The longest note a person may add to a redraw. */
+export const ILLUSTRATION_NOTE_MAX = 200;
+/**
+ * A prompt with what the person asked to change this time. The photo and the
+ * prompt are otherwise the same on every redraw, and so is the picture.
+ */
+export function withNote(prompt: string, note?: string): string {
+  const text = note?.trim().slice(0, ILLUSTRATION_NOTE_MAX);
+  return text ? `${prompt} This time, also: ${text}` : prompt;
 }
 /** What the image model is asked for: the photo redrawn as clean isometric line art. */
 export const ILLUSTRATION_PROMPT =

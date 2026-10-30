@@ -874,6 +874,25 @@ describe('photo routes, live with a mocked Meta API', () => {
     );
     const after = (await s.app.inject('/api/status')).json<{ meta: { spentToday: number } }>();
     expect(after.meta.spentToday).toBeCloseTo(0.0225, 6);
+    // A redraw with a note asks for that change too; the same frame alone draws the same.
+    const redraw = await s.app.inject({
+      method: 'POST',
+      url: '/api/scene/illustrate',
+      payload: {
+        mode: 'live',
+        view: 'desk',
+        imageDataUrl: `data:image/png;base64,${frame.toString('base64')}`,
+        note: '  leave out the cables ',
+      },
+    });
+    expect(redraw.statusCode, redraw.body).toBe(200);
+    expect(String(edit!.prompt)).toMatch(/This time, also: leave out the cables$/);
+    const tooLong = await s.app.inject({
+      method: 'POST',
+      url: '/api/scene/illustrate',
+      payload: { mode: 'live', view: 'desk', note: 'x'.repeat(201) },
+    });
+    expect(tooLong.statusCode).toBe(400);
     await s.app.close();
   });
 });

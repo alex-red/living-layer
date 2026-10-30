@@ -9,6 +9,7 @@ import {
   type DeskMemory,
   type EvidenceRun,
   type PlacementDecision,
+  ILLUSTRATION_NOTE_MAX,
 } from '@livinglayer/domain';
 import { estimateLabel } from '../cost';
 import { Glyph } from '../Glyph';
@@ -224,7 +225,11 @@ function PictureControls({ view = 'room' }: { view?: 'room' | 'desk' }) {
   const picture = view === 'desk' ? memory?.deskIllustration : memory?.illustration;
   // The room is drawn from its own photo once it has one; the desk always from this frame.
   const needPhoto =
-    mode === 'live' && !image && (view === 'desk' || !(memory?.scenePhoto || memory?.illustration));
+    mode === 'live' &&
+    !image &&
+    !(view === 'desk' && lab.camera) &&
+    (view === 'desk' || !(memory?.scenePhoto || memory?.illustration));
+  const [note, setNote] = useState('');
   const what = view === 'desk' ? 'desk' : 'room';
   const drawnFrom = picture?.drawnFrom;
   const otherSize =
@@ -234,7 +239,7 @@ function PictureControls({ view = 'room' }: { view?: 'room' | 'desk' }) {
       <button
         className="secondary"
         disabled={Boolean(busy) || !pinned || needPhoto || (mode === 'live' && !lab.metaReady)}
-        onClick={() => void lab.illustrate(view)}
+        onClick={() => void lab.illustrate(view, note)}
       >
         {busy === 'illustrate'
           ? 'Drawing…'
@@ -261,6 +266,31 @@ function PictureControls({ view = 'room' }: { view?: 'room' | 'desk' }) {
                   ? 'SAM found no desk in the last picture, so the mug and zones can’t be placed on it. Redraw to try again.'
                   : `Muse Image redraws ${memory?.scenePhoto || memory?.illustration ? 'the room’s photo' : 'the current photo'} as isometric line art on a transparent background, and SAM finds its desk: one image and one SAM call, about $0.0125.`}
       </p>
+      {picture && mode === 'live' && (
+        <>
+          <label className="input-label" htmlFor={`redraw-note-${view}`}>
+            What to change (optional)
+          </label>
+          <input
+            id={`redraw-note-${view}`}
+            value={note}
+            maxLength={ILLUSTRATION_NOTE_MAX}
+            placeholder="e.g. simpler shapes, warmer light, leave out the cables"
+            disabled={Boolean(busy)}
+            onChange={(e) => setNote(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !busy) void lab.illustrate(view, note);
+            }}
+          />
+          <p className="micro">
+            {view === 'desk'
+              ? lab.camera
+                ? 'Redrawn from what the camera shows now.'
+                : 'Redrawn from the frame on the stage. Start the camera to draw what it shows now.'
+              : 'The same photo comes back drawn much the same; say what should change.'}
+          </p>
+        </>
+      )}
       {view === 'room' && picture?.desk && <LiftFixtures />}
     </div>
   );
