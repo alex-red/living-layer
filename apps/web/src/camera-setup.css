@@ -1,0 +1,106 @@
+.camera-setup {
+  display: grid;
+  gap: 10px;
+  width: min(360px, calc(100vw - 32px));
+  padding: 12px;
+  color: var(--text);
+  font-size: 13px;
+  text-align: left;
+}
+.camera-setup-title {
+  margin: 0;
+  font-weight: 600;
+}
+.camera-setup-note {
+  margin: 0;
+  color: var(--text-2);
+}
+.camera-setup-error {
+  margin: 0;
+  color: var(--blocked);
+}
+.camera-setup-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.camera-setup-list li {
+  display: grid;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-card);
+}
+.camera-setup-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+.camera-setup-name {
+  font-weight: 600;
+}
+.camera-setup-room {
+  color: var(--text-2);
+}
+.camera-setup-url {
+  color: var(--text-3);
+  font-family: var(--mono);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+.camera-setup-still {
+  width: 100%;
+  border-radius: var(--r-card);
+}
+.camera-setup-form {
+  display: grid;
+  gap: 8px;
+}
+.camera-setup-form label {
+  display: grid;
+  gap: 4px;
+  color: var(--text-2);
+}
+.camera-setup-form input,
+.camera-setup-form select {
+  min-height: 32px;
+  padding: 0 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-button);
+  background: var(--surface-2, rgb(33 38 55 / 72%));
+  color: var(--text);
+  font: inherit;
+}
+.camera-setup-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.camera-setup button {
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-button);
+  background: rgb(33 38 55 / 72%);
+  color: var(--text);
+  font: inherit;
+  font-weight: 600;
+}
+.camera-setup button:hover:not(:disabled) {
+  background: var(--surface-3);
+}
+.camera-setup button.primary {
+  border-color: transparent;
+  background: var(--seen);
+  color: var(--void);
+}
+.popover.camera-pop {
+  top: auto;
+  bottom: calc(100% + 6px);
+  left: 0;
+  right: auto;
+  max-height: min(70vh, 640px);
+  overflow-y: auto;
+}

@@ -668,3 +668,4 @@ export * from './illustration.js';
 export * from './fixture-scan.js';
 export * from './expose.js';
 export * from './occupancy.js';
+export * from './camera.js';

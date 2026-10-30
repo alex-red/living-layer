@@ -23,6 +23,7 @@ import {
   type Segmentation,
   type DemoPosition,
   DEMO_POSITIONS,
+  savedIdOf,
 } from '@livinglayer/domain';
 import { type Config, type Fetcher, PROJECT_ROOT } from './config.js';
 import { EvidenceStore } from './store.js';
@@ -37,6 +38,7 @@ import { photoRoutes } from './photo.js';
 import { pinRoutes } from './pin.js';
 import { illustrationRoutes } from './illustration.js';
 import { listStreams, streamRoutes, type NetworkStream } from './streams.js';
+import { CameraRegistry, cameraRoutes } from './cameras.js';
 import { Watcher, setWatching, watchRoutes, type WatcherDeps } from './watcher.js';
 import { Appearance } from './appearance.js';
 import { DemoSource } from './frames.js';
@@ -70,6 +72,8 @@ export async function buildApp(
     appearance?: () => Promise<Appearance | null>;
     /** The MQTT client; tests pass their own. */
     mqttConnect?: MqttConnect;
+    /** Stills from saved cameras; tests pass their own. */
+    snapshots?: Parameters<typeof cameraRoutes>[2]['source'];
   } = {},
 ) {
   const app = Fastify({ logger: false, bodyLimit: 7_100_000, requestTimeout: 130000 });
@@ -222,7 +226,9 @@ export async function buildApp(
   });
   const remote = options.remote ?? new RemoteCamera();
   remoteRoutes(app, config, remote);
-  streamRoutes(app, config, options.browseCameras, () => remote.streams());
+  const cameras = new CameraRegistry(store);
+  const knownStreams = () => [...remote.streams(), ...cameras.streams()];
+  streamRoutes(app, config, options.browseCameras, knownStreams);
   app.get('/api/runs', async () => store.list());
   app.get('/api/evidence', async (_request, reply) =>
     reply.header('Content-Disposition', 'attachment; filename="livinglayer-evidence.json"').send({
@@ -443,6 +449,7 @@ export async function buildApp(
     },
     appearance: options.appearance ?? (() => (model ??= Appearance.load(config.dataDir))),
     ...(options.frames ? { source: options.frames } : {}),
+    cameraUrl: (camera) => cameras.urlOf(camera),
   });
   const watchers = {
     demo: new Watcher(watcherDeps('demo')),
@@ -450,7 +457,24 @@ export async function buildApp(
   };
   watchRoutes(app, watchers, {
     store,
-    streams: () => listStreams(config, options.browseCameras, () => remote.streams()),
+    streams: () => listStreams(config, options.browseCameras, knownStreams),
+    saved: (streamId) => {
+      const id = savedIdOf(streamId);
+      return id === null ? null : cameras.watchCamera(id);
+    },
+  });
+  cameraRoutes(app, cameras, {
+    // Watching a camera that was just removed stops; choosing another starts it again.
+    onRemoved: (streamId) => {
+      for (const mode of ['demo', 'live'] as const) {
+        const memory = store.memory(mode);
+        if (memory.watch?.camera?.id !== streamId) continue;
+        memory.watch = { on: false, camera: null };
+        store.saveMemory(memory);
+        watchers[mode].stop();
+      }
+    },
+    ...(options.snapshots ? { source: options.snapshots } : {}),
   });
   // Entities shown in Home Assistant, worked out from desk memory and what the watchers see.
   const exposers: Record<Mode, Exposer> = {

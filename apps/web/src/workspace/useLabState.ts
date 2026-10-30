@@ -34,6 +34,7 @@ import {
   DEMO_SWITCHES,
   OBSERVATION_MAX_AGE_MS,
   ISO_PRESETS,
+  cameraForScene,
   fixtureAt,
   fixtureBox,
   fixtureInput,
@@ -775,6 +776,28 @@ export function useLabState() {
     setCameraPending(true);
     const generation = ++cameraGeneration.current;
     const remote = source ?? network.streams.find((s) => s.id === cameraSource);
+    // A camera only the server reads plays nowhere here: grab one frame of it instead.
+    if (remote && !remote.whep && remote.snapshot) {
+      try {
+        const response = await fetch(remote.snapshot);
+        if (!response.ok)
+          throw new Error(
+            ((await response.json().catch(() => ({}))) as { error?: { message?: string } }).error
+              ?.message ?? `Could not get a picture from ${remote.name}.`,
+          );
+        const blob = await response.blob();
+        if (mounted.current && generation === cameraGeneration.current) {
+          await upload(new File([blob], 'camera.png', { type: 'image/png' }));
+          setMessage(`A frame from ${remote.name}. Grab another whenever the room changes.`);
+        }
+      } catch (e) {
+        if (mounted.current && generation === cameraGeneration.current)
+          setError(e instanceof Error ? e.message : `Could not get a picture from ${remote.name}.`);
+      } finally {
+        if (mounted.current) setCameraPending(false);
+      }
+      return;
+    }
     try {
       const opened = remote
         ? await openStream(remote.whep, () => {
@@ -1029,6 +1052,15 @@ export function useLabState() {
     }, FOLLOW_MS);
     return () => window.clearInterval(timer);
   }, [follow, camera, busy, mode]);
+  // A room with a camera assigned to it uses that camera, unless the one chosen is assigned there too.
+  useEffect(() => {
+    if (camera) return;
+    const room = workScene === 'custom-desk' ? 'custom' : workScene;
+    const current = network.streams.filter((s) => s.id === cameraSource);
+    if (cameraForScene(current, room)) return;
+    const assigned = cameraForScene(network.streams, room);
+    if (assigned) setCameraSource(assigned.id);
+  }, [workScene, network.streams]);
   /** The selected network camera, when the server can read it too (it offers RTSP). */
   const watchCamera = network.streams.find((s) => s.id === cameraSource && s.rtsp);
   /** Whether the server can watch this mode's camera: always in the demo, else an RTSP camera. */

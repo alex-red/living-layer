@@ -1,6 +1,8 @@
 import { useRef, type CSSProperties } from 'react';
 import {
   DEMO_POSITIONS,
+  ISO_PRESETS,
+  isoSceneKindSchema,
   type EvidenceRun,
   type DemoPosition,
   type SavedItem,
@@ -9,6 +11,7 @@ import { api } from '../api';
 import { Glyph } from '../Glyph';
 import { MaskOverlay } from '../MaskOverlay';
 import { PhonePairing } from '../PhonePairing';
+import { CameraSetup, type RoomOption } from '../CameraSetup';
 import { ZoomPan } from '../ZoomPan';
 import { ErrorCard } from '../ProviderUi';
 import { IsoView } from '../iso/IsoView';
@@ -120,6 +123,12 @@ export function Canvas() {
       : null;
   const showIso = stageView !== 'photo' && !pinning && Boolean(workScene);
   const roomFixtures = (memory?.fixtures ?? []).some((f) => f.scene === workScene);
+  // Rooms a stream camera can be assigned to: the presets, and the person's own scene.
+  const rooms: RoomOption[] = [
+    ...isoSceneKindSchema.options.map((k) => ({ value: k, label: ISO_PRESETS[k].label })),
+    ...(memory?.scene ? [{ value: 'custom' as const, label: memory.scene.label ?? 'Custom' }] : []),
+  ];
+  const chosenStream = lab.network.streams.find((s) => s.id === lab.cameraSource);
   // The hand gives way to anything being drawn, pinned or placed.
   const hand = lab.tool === 'hand' && !drawing && !pinning && !lab.placing && !lab.boxing;
   return (
@@ -660,7 +669,12 @@ export function Canvas() {
                     disabled={Boolean(busy) || lab.cameraPending}
                     onClick={() => void lab.startCamera()}
                   >
-                    <Glyph type="camera" /> {lab.cameraPending ? 'Opening…' : 'Camera'}
+                    <Glyph type="camera" />{' '}
+                    {lab.cameraPending
+                      ? 'Opening…'
+                      : chosenStream?.snapshot && !chosenStream.whep
+                        ? 'Grab frame'
+                        : 'Camera'}
                   </button>
                   <Popover
                     label="Use a phone as the camera"
@@ -682,6 +696,26 @@ export function Canvas() {
                       />
                     )}
                   </Popover>
+                  <Popover
+                    label="Stream cameras"
+                    className="camera-pop"
+                    button={(open, toggle) => (
+                      <button aria-expanded={open} disabled={Boolean(busy)} onClick={toggle}>
+                        Cameras
+                      </button>
+                    )}
+                  >
+                    {(close) => (
+                      <CameraSetup
+                        rooms={rooms}
+                        onChange={() => void lab.network.scan()}
+                        onUse={(id) => {
+                          close();
+                          lab.setCameraSource(id);
+                        }}
+                      />
+                    )}
+                  </Popover>
                   {lab.network.streams.length > 0 && (
                     <select
                       aria-label="Camera source"
@@ -693,6 +727,7 @@ export function Canvas() {
                       {lab.network.streams.map((s) => (
                         <option key={s.id} value={s.id}>
                           {s.name} · {s.host}
+                          {s.scene ? ` · ${rooms.find((r) => r.value === s.scene)?.label}` : ''}
                         </option>
                       ))}
                     </select>

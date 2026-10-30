@@ -111,6 +111,8 @@ export interface WatcherDeps {
   appearance: () => Promise<Appearance | null>;
   /** Frames for a camera; tests pass their own. */
   source?: (camera: WatchCamera | null) => FrameSource;
+  /** The URL to read a camera from: a saved camera's is kept apart, with its credentials. Null when it's gone. */
+  cameraUrl?: (camera: WatchCamera) => string | null;
   now?: () => number;
 }
 
@@ -430,10 +432,16 @@ export class Watcher {
     const camera = memory.watch?.camera ?? null;
     if (this.deps.mode === 'live' && !camera)
       return this.say('camera_lost', 'Choose a camera the server can read (RTSP) to watch.');
+    const url = camera && (this.deps.cameraUrl ? this.deps.cameraUrl(camera) : camera.url);
+    if (this.deps.mode === 'live' && !url)
+      return this.say(
+        'camera_lost',
+        `${camera!.name} was removed. Choose another camera to watch.`,
+      );
     this.model ??= await this.deps.appearance();
     const source =
       this.deps.source?.(camera) ??
-      (this.deps.mode === 'demo' ? new DemoSource() : new FfmpegSource(camera!.url));
+      (this.deps.mode === 'demo' ? new DemoSource() : new FfmpegSource(url!));
     this.source = source;
     // Each thing is followed from the photo SAM last saw it in: the camera is fixed.
     for (const seen of watchedThings(memory)) await this.seed(seen, memory);
@@ -740,7 +748,16 @@ export async function setWatching(
 export function watchRoutes(
   app: FastifyInstance,
   watchers: Record<Mode, Watcher>,
-  { store, streams }: { store: EvidenceStore; streams: () => Promise<NetworkStream[]> },
+  {
+    store,
+    streams,
+    saved = () => null,
+  }: {
+    store: EvidenceStore;
+    streams: () => Promise<NetworkStream[]>;
+    /** A saved camera by its stream id, as desk memory keeps it. */
+    saved?: (streamId: string) => WatchCamera | null;
+  },
 ) {
   // Whatever a person changes in a desk, the watcher follows from then on.
   app.addHook('onResponse', async (request, reply) => {
@@ -785,17 +802,18 @@ export function watchRoutes(
     const memory = store.memory(mode);
     let camera = memory.watch?.camera ?? null;
     if (on && mode === 'live') {
-      // Only a camera the lab found or was configured with, never a URL from the page.
+      // Only a camera the lab found, saved or was configured with, never a URL in this request.
       const stream = streamId ? (await streams()).find((s) => s.id === streamId) : undefined;
       if (streamId && !stream)
         throw new LabError('watch_camera', 'That camera isn’t on the network any more.', 409);
       if (stream && !stream.rtsp)
         throw new LabError(
           'watch_camera',
-          'The server can only watch a camera that offers RTSP, such as one shared with scripts/share-camera.sh. This one can be followed in the tab.',
+          'The server can only watch a camera that offers RTSP, such as one shared with scripts/share-camera.sh or added by its stream URL. This one can be followed in the tab.',
           409,
         );
-      if (stream) camera = { id: stream.id, name: stream.name, url: stream.rtsp! };
+      if (stream)
+        camera = saved(stream.id) ?? { id: stream.id, name: stream.name, url: stream.rtsp! };
       if (!camera) throw new LabError('watch_camera', 'Choose a network camera to watch.', 409);
     }
     return setWatching(store, watchers[mode], on, camera);

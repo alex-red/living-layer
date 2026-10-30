@@ -1,6 +1,7 @@
 import { createSocket, type RemoteInfo } from 'node:dgram';
 import { networkInterfaces } from 'node:os';
 import type { FastifyInstance } from 'fastify';
+import type { CameraScene } from '@livinglayer/domain';
 import type { Config } from './config.js';
 
 /** What `scripts/share-camera.sh` advertises. */
@@ -12,8 +13,13 @@ export interface NetworkStream {
   host: string;
   /** WebRTC-HTTP egress endpoint: POST an SDP offer, get the answer back. Empty when a tab can't play it. */
   whep: string;
+  /** A URL the server reads with ffmpeg; a saved camera's is shown with its password hidden. */
   rtsp?: string;
-  source: 'mdns' | 'config' | 'phone';
+  /** The room a saved camera is assigned to. */
+  scene?: CameraScene;
+  /** Where a tab gets a still from a camera only the server can read. */
+  snapshot?: string;
+  source: 'mdns' | 'config' | 'phone' | 'saved';
 }
 
 const TYPE = { A: 1, PTR: 12, TXT: 16, SRV: 33 } as const;
@@ -223,8 +229,8 @@ export function browseCameras(timeoutMs = 1200): Promise<NetworkStream[]> {
 }
 
 /**
- * Every camera the lab knows of: paired phones, cameras found over mDNS, and
- * configured ones. A configured `rtsp://` URL is a camera only the server can
+ * Every camera the lab knows of: paired phones and saved cameras, cameras
+ * found over mDNS, and configured ones. A configured `rtsp://` URL is a camera only the server can
  * read: the watcher can use it, a tab can't play it.
  */
 export async function listStreams(
@@ -253,7 +259,7 @@ export function streamRoutes(
   app: FastifyInstance,
   config: Config,
   browse: () => Promise<NetworkStream[]> = browseCameras,
-  /** Cameras the lab already knows of, like a paired phone. */
+  /** Cameras the lab already knows of, like a paired phone or a saved camera. */
   known: () => NetworkStream[] = () => [],
 ) {
   app.get('/api/streams', async () => ({ streams: await listStreams(config, browse, known) }));

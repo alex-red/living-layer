@@ -1,17 +1,24 @@
 import { useCallback, useEffect, useState } from 'react';
+import type { CameraScene } from '@livinglayer/domain';
 import { api } from './api';
 
 /**
- * A camera shared on the LAN with `scripts/share-camera.sh`, or a paired phone,
- * as `/api/streams` lists it. A phone's `whep` is a path on the lab server.
+ * A camera shared on the LAN with `scripts/share-camera.sh`, a paired phone or
+ * a camera saved by its stream URL, as `/api/streams` lists it. A phone's
+ * `whep` is a path on the lab server; a saved camera has none, only a
+ * `snapshot` path the tab grabs frames from.
  */
 export interface NetworkStream {
   id: string;
   name: string;
   host: string;
   whep: string;
+  /** A URL the server can read, so it can watch this camera. Passwords are hidden. */
   rtsp?: string;
-  source: 'mdns' | 'config' | 'phone';
+  /** The room a saved camera is assigned to. */
+  scene?: CameraScene;
+  snapshot?: string;
+  source: 'mdns' | 'config' | 'phone' | 'saved';
 }
 
 export interface OpenedStream {

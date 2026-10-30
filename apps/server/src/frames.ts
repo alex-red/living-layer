@@ -36,7 +36,8 @@ export async function lumaOf(image: Buffer, height?: number): Promise<LumaFrame>
 
 /**
  * A camera read through ffmpeg: anything ffmpeg can open, in practice an
- * RTSP URL (`scripts/share-camera.sh` serves one). One process writes raw
+ * RTSP URL (`scripts/share-camera.sh` serves one) or a saved camera's
+ * RTSP(S) or HTTP stream. One process writes raw
  * grey frames to a pipe; a snapshot is a second, short one. Spawned with an
  * argument list, never a shell.
  */
@@ -48,7 +49,7 @@ export class FfmpegSource implements FrameSource {
     private ffmpeg = 'ffmpeg',
   ) {}
   private input() {
-    return this.url.startsWith('rtsp://')
+    return /^rtsps?:\/\//.test(this.url)
       ? ['-rtsp_transport', 'tcp', '-i', this.url]
       : ['-i', this.url];
   }
@@ -59,7 +60,7 @@ export class FfmpegSource implements FrameSource {
         this.ffmpeg.replace(/ffmpeg$/, 'ffprobe'),
         '-v',
         'error',
-        ...(this.url.startsWith('rtsp://') ? ['-rtsp_transport', 'tcp'] : []),
+        ...(/^rtsps?:\/\//.test(this.url) ? ['-rtsp_transport', 'tcp'] : []),
         '-select_streams',
         'v:0',
         '-show_entries',
