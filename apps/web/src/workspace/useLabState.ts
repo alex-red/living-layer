@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type PointerEvent } from 'react';
 import type {
+  Fixture,
   EvidenceRun,
   LabStatus,
   Mode,
@@ -35,8 +36,10 @@ import {
   OBSERVATION_MAX_AGE_MS,
   ISO_PRESETS,
   cameraForScene,
+  closeViewOf,
   fixtureAt,
   fixtureBox,
+  inRoomView,
   fixtureInput,
   runCost,
   startLocalTrack,
@@ -1870,6 +1873,11 @@ export function useLabState() {
    * its size, or handing its place back to scans. Moving it keeps its
    * footprint's centre on the point, on that surface or the floor.
    */
+  /** Whether a fixture is being shown in the room's own view, apart from its office desk. */
+  const inRoomViewOf = (f: Pick<Fixture, 'scene'>) =>
+    workScene === 'custom' &&
+    f.scene === 'custom' &&
+    Boolean(memory?.scene && closeViewOf(memory.scene));
   async function updateFixture(
     id: string,
     change: {
@@ -1877,6 +1885,8 @@ export function useLabState() {
       surfaceId?: string | null;
       size?: FixtureInput['size'];
       scanned?: boolean;
+      /** Null puts it back where the desk's camera puts it, in the room's view too. */
+      room?: null;
     },
     done: string,
   ) {
@@ -1885,17 +1895,22 @@ export function useLabState() {
     const next: FixtureInput = {
       ...fixtureInput(f),
       ...(change.size ? { size: change.size } : {}),
+      ...(change.room === null ? { room: null } : {}),
     };
+    // The room's own view of a room with an office desk keeps its own place for it.
+    const roomView = inRoomViewOf(f);
+    const here = roomView ? inRoomView(f) : f;
     if (change.centre || change.surfaceId !== undefined || change.size) {
-      const { at, size } = fixtureBox(f, memory?.scene);
+      const { at, size } = fixtureBox(here, memory?.scene);
       const centre = change.centre ?? { x: at.x + size.w / 2, y: at.y + size.d / 2 };
       const spot = fixtureAt(
         next,
         centre,
-        change.surfaceId !== undefined ? change.surfaceId : f.surfaceId,
+        change.surfaceId !== undefined ? change.surfaceId : here.surfaceId,
         memory?.scene ?? null,
       );
-      if (spot) Object.assign(next, spot);
+      if (spot && roomView) next.room = spot;
+      else if (spot) Object.assign(next, spot);
     }
     setError('');
     try {
@@ -2143,6 +2158,7 @@ export function useLabState() {
     startPlacing,
     placeFixture,
     updateFixture,
+    inRoomViewOf,
     adjustPin,
     guess,
     asking,

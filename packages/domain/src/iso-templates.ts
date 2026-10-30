@@ -565,6 +565,28 @@ export function mainDesk(scene: IsoScene): IsoSurface | null {
  * as with the preset office and office desk.
  */
 export function closeViewOf(scene: IsoScene, label = 'Office desk'): IsoScene | null {
+  const shift = closeViewShift(scene);
+  if (!shift) return null;
+  const { props, dx, dy, x0, y0, x1, y1 } = shift;
+  const own = new Set(props.map((p) => p.id));
+  return {
+    kind: 'custom',
+    label,
+    grid: {
+      w: Math.min(16, Math.max(2, Math.ceil(x1 - x0) + 2)),
+      d: Math.min(16, Math.max(2, Math.ceil(y1 - y0) + 2)),
+    },
+    props: props.map((p) => ({ ...p, at: { ...p.at, x: p.at.x + dx, y: p.at.y + dy } })),
+    surfaces: scene.surfaces
+      .filter((s) => own.has(s.propId))
+      .map((s) => ({ ...s, rect: { ...s.rect, x: s.rect.x + dx, y: s.rect.y + dy } })),
+  };
+}
+/**
+ * What the close view keeps of a room, and how far it moves it: the room's
+ * point x, y is x + dx, y + dy in the close view.
+ */
+export function closeViewShift(scene: IsoScene) {
   const byId = new Map(scene.props.map((p) => [p.id, p]));
   const desk = mainDesk(scene);
   const deskGroup = desk && byId.get(desk.propId)?.group;
@@ -591,19 +613,5 @@ export function closeViewOf(scene: IsoScene, label = 'Office desk'): IsoScene | 
   const x1 = Math.max(...props.map((p) => p.at.x + p.size.w));
   const y1 = Math.max(...props.map((p) => p.at.y + p.size.d));
   // A tile of floor around the desk, so the view has room to breathe.
-  const dx = 1 - x0;
-  const dy = 1 - y0;
-  const own = new Set(props.map((p) => p.id));
-  return {
-    kind: 'custom',
-    label,
-    grid: {
-      w: Math.min(16, Math.max(2, Math.ceil(x1 - x0) + 2)),
-      d: Math.min(16, Math.max(2, Math.ceil(y1 - y0) + 2)),
-    },
-    props: props.map((p) => ({ ...p, at: { ...p.at, x: p.at.x + dx, y: p.at.y + dy } })),
-    surfaces: scene.surfaces
-      .filter((s) => own.has(s.propId))
-      .map((s) => ({ ...s, rect: { ...s.rect, x: s.rect.x + dx, y: s.rect.y + dy } })),
-  };
+  return { props, dx: 1 - x0, dy: 1 - y0, x0, y0, x1, y1 };
 }

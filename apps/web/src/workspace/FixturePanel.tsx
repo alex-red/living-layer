@@ -763,6 +763,31 @@ export function FixturePanel({ id }: { id: string }) {
           </>
         )}
       </p>
+      {lab.inRoomViewOf(f) && (
+        <p className="micro">
+          {f.room ? (
+            <>
+              The room shows it where you put it here; the office desk shows it where its camera
+              does.{' '}
+              <button
+                className="text-button"
+                disabled={off || moving}
+                onClick={() =>
+                  void lab.updateFixture(
+                    f.id,
+                    { room: null },
+                    `The room shows the ${f.label.toLowerCase()} where the desk’s camera puts it again.`,
+                  )
+                }
+              >
+                Put it where the desk shows it
+              </button>
+            </>
+          ) : (
+            'The room shows it where the desk’s camera puts it. Moving it here keeps a place of its own for the room, and leaves the office desk as it is.'
+          )}
+        </p>
+      )}
       {scene && (
         <>
           <label className="input-label" htmlFor="fixture-surface">
@@ -770,7 +795,7 @@ export function FixturePanel({ id }: { id: string }) {
           </label>
           <select
             id="fixture-surface"
-            value={f.surfaceId ?? ''}
+            value={(lab.inRoomViewOf(f) && f.room ? f.room.surfaceId : f.surfaceId) ?? ''}
             disabled={off || moving}
             onChange={(e) => {
               const surfaceId = e.target.value || null;

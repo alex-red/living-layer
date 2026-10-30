@@ -3,6 +3,8 @@ import {
   DEMO_SURFACE,
   ISO_PRESETS,
   fixtureBox,
+  closeViewShift,
+  inRoomView,
   guessedScene,
   closeViewOf,
   itemHeight,
@@ -16,6 +18,7 @@ import {
   type DeskMemory,
   type DeskObservation,
   type EvidenceRun,
+  type Fixture,
   type FixtureInput,
   type IsoItem,
   type IsoScene as Scene,
@@ -271,13 +274,33 @@ export function IsoView({
     )
       lit.add(rule.entityId);
   const drawingRule = Boolean(ruleDraft && ruleMap);
+  // A photographed room with an office desk keeps its own place for each
+  // fixture; the desk shows them where its camera puts them, moved into its view.
+  const shift =
+    custom && (kind === 'custom' || kind === 'custom-desk') ? closeViewShift(custom) : null;
+  const shown = (f: Fixture) => (kind === 'custom' && shift ? inRoomView(f) : f);
+  const boxOf = (f: Fixture) => {
+    const box = fixtureBox(shown(f), custom);
+    return kind === 'custom-desk' && shift
+      ? { ...box, at: { ...box.at, x: box.at.x + shift.dx, y: box.at.y + shift.dy } }
+      : box;
+  };
+  const onDesk = (f: Fixture) => {
+    const { at, size } = boxOf(f);
+    return at.x >= 0 && at.y >= 0 && at.x + size.w <= scene.grid.w && at.y + size.d <= scene.grid.d;
+  };
   // Fixtures in this scene; one being moved is drawn only where the pointer is.
   const fixtures: IsoFixture[] = (memory?.fixtures ?? [])
-    .filter((f) => f.scene === kind && f.id !== placing?.id)
+    .filter((f) =>
+      kind === 'custom-desk'
+        ? f.scene === 'custom' && Boolean(shift) && onDesk(f)
+        : f.scene === kind,
+    )
+    .filter((f) => f.id !== placing?.id)
     .map((f) => ({
       id: f.id,
       label: f.label,
-      box: fixtureBox(f, custom),
+      box: boxOf(f),
       item: rotateItem(f.model, f.turns),
       glow: f.control.kind === 'light' && f.state === 'on',
       ...(f.control.kind === 'none' ? {} : { state: f.state ?? null }),
@@ -418,9 +441,9 @@ export function IsoView({
                 memory={memory}
                 focus={focus}
                 showZones={layers.zones}
-                fixtures={(memory.fixtures ?? []).filter(
-                  (f) => f.scene === pin.scene && f.id !== placing?.id,
-                )}
+                fixtures={(memory.fixtures ?? [])
+                  .filter((f) => f.scene === pin.scene && f.id !== placing?.id)
+                  .map(shown)}
                 custom={custom}
                 {...(onFixture ? { onFixture } : {})}
                 {...(onMoveFixture && tool === 'select' ? { onMoveFixture } : {})}

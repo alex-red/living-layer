@@ -886,7 +886,9 @@ export function fixtureRoutes(
         400,
       );
     const now = new Date().toISOString();
-    const { id: _id, model, ...rest } = input;
+    const { id: _id, model, room: roomInput, ...rest } = input;
+    // Its own place in the room's view: kept unless the save says otherwise, null clears it.
+    const room = roomInput === undefined ? previous?.room : roomInput;
     // What the model was drafted as: the fixture before, or the draft it came from.
     const base =
       previous?.model ??
@@ -895,6 +897,7 @@ export function fixtureRoutes(
         : undefined);
     const fixture: Fixture = {
       ...rest,
+      ...(room ? { room } : {}),
       id: previous?.id ?? randomUUID(),
       model: {
         ...uniqueParts(model),

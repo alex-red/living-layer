@@ -10,6 +10,7 @@ import {
   MAX_SPRITES,
   alignCorners,
   fixtureBox,
+  inRoomView,
   fixtureInPicture,
   pictureLayerRef,
   sparkCeiling,
@@ -350,7 +351,8 @@ export function illustrationRoutes(
     const wanted = (memory.fixtures ?? [])
       .filter((f) => f.scene === pin.scene)
       .flatMap((f) => {
-        const box = fixtureBox(f, custom);
+        // The room's picture shows each where the room's own view puts it.
+        const box = fixtureBox(inRoomView(f), custom);
         const at = fixtureInPicture(pin, picture, custom, box);
         return at ? [{ f, size: { w: box.size.w, d: box.size.d }, ...at }] : [];
       })

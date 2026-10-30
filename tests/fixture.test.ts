@@ -17,6 +17,7 @@ import {
   fixtureEntity,
   fixtureInputSchema,
   fixtureProblem,
+  inRoomView,
   isoItemSchema,
   itemHeight,
   mugItem,
@@ -88,6 +89,15 @@ describe('fixtures', () => {
     expect(fixtureInputSchema.safeParse(input).success).toBe(true);
     expect(fixtureInputSchema.safeParse({ ...input, turns: 4 }).success).toBe(false);
     expect(fixtureInputSchema.safeParse({ ...input, state: 'on' }).success).toBe(false);
+  });
+  it('keeps its own place in the room’s view, checked like its other one', () => {
+    const f = fixture({ room: { at: { x: 0.5, y: 5 }, surfaceId: null } });
+    expect(inRoomView(f)).toMatchObject({ at: { x: 0.5, y: 5 }, surfaceId: null });
+    expect(inRoomView(fixture()).at).toEqual(fixture().at);
+    expect(fixtureProblem(f)).toBeNull();
+    expect(fixtureProblem(fixture({ room: { at: { x: 7.5, y: 2 }, surfaceId: null } }))).toMatch(
+      /inside the room/,
+    );
   });
   it('stands on its surface, turned', () => {
     const box = fixtureBox(fixture({ turns: 1 }));
@@ -289,6 +299,27 @@ describe('fixture routes', () => {
     });
     return { ...rest, model: { label: model.label, parts: model.parts } };
   };
+  it('keeps its room place through saves that leave it out, until one clears it', async () => {
+    const s = await setup();
+    const room = { at: { x: 0.5, y: 5 }, surfaceId: null };
+    const fan = (
+      await s.post('fixtures/save', { fixture: { ...input(), room } })
+    ).json<DeskMemory>().fixtures![0]!;
+    expect(fan.room).toEqual(room);
+    // A move where the camera puts it leaves the room's place alone.
+    const moved = (
+      await s.post('fixtures/save', { fixture: { ...input(), id: fan.id, at: { x: 3, y: 2 } } })
+    ).json<DeskMemory>().fixtures![0]!;
+    expect(moved).toMatchObject({ at: { x: 3, y: 2 }, room });
+    const cleared = (
+      await s.post('fixtures/save', { fixture: { ...input(), id: fan.id, room: null } })
+    ).json<DeskMemory>().fixtures![0]!;
+    expect(cleared.room).toBeUndefined();
+    const outside = await s.post('fixtures/save', {
+      fixture: { ...input(), id: fan.id, room: { at: { x: 9, y: 9 }, surfaceId: null } },
+    });
+    expect(outside.statusCode).toBe(400);
+  });
   it('saves, moves and refuses a fixture that can’t stand or switch', async () => {
     const s = await setup();
     const saved = (await s.post('fixtures/save', { fixture: input() })).json<DeskMemory>();

@@ -57,6 +57,20 @@ export const fixtureInputSchema = z
     control: fixtureControlSchema,
     /** True hands its place back to scans; any other save keeps it where the person put it. */
     scanned: z.boolean().optional(),
+    /**
+     * Where it stands in the view of a photographed room that has a close
+     * view (the office desk), when the person put it somewhere else there:
+     * `at` and `surfaceId` are then where the desk's camera puts it, in the
+     * close view. Null puts it back where the camera does.
+     */
+    room: z
+      .object({
+        surfaceId: z.string().min(1).max(48).nullable(),
+        at: z.object({ x: z.number().finite(), y: z.number().finite() }).strict(),
+      })
+      .strict()
+      .nullable()
+      .optional(),
   })
   .strict();
 export type FixtureInput = z.infer<typeof fixtureInputSchema>;
@@ -136,7 +150,13 @@ export function fixtureInput(f: Fixture): FixtureInput {
     model: { label: f.model.label, parts: f.model.parts },
     reference: f.reference,
     control: f.control,
+    ...(f.room ? { room: f.room } : {}),
   };
+}
+
+/** A fixture where the room's own view shows it: its room place, else where the camera puts it. */
+export function inRoomView<F extends Pick<Fixture, 'at' | 'surfaceId' | 'room'>>(f: F): F {
+  return f.room ? { ...f, at: f.room.at, surfaceId: f.room.surfaceId } : f;
 }
 
 /** The entity a fixture switches, or null when it only stands there. */
@@ -173,9 +193,14 @@ export function fixtureBox(
  * lie inside the grid (and on the surface, when it stands on one).
  */
 export function fixtureProblem(
-  fixture: Pick<Fixture, 'scene' | 'surfaceId' | 'at' | 'turns' | 'size'>,
+  fixture: Pick<Fixture, 'scene' | 'surfaceId' | 'at' | 'turns' | 'size' | 'room'>,
   custom?: IsoScene | null,
 ): string | null {
+  // Its place in the room's view must hold as well.
+  if (fixture.room) {
+    const problem = fixtureProblem({ ...fixture, ...fixture.room, room: null }, custom);
+    if (problem) return problem;
+  }
   const scene = sceneOf(fixture.scene, custom);
   if (!scene) return 'Save your own scene before placing fixtures in it.';
   const { at, size } = fixtureBox(fixture, custom);
@@ -214,6 +239,11 @@ export function settleFixtures(fixtures: Fixture[], custom: IsoScene | null): Fi
     const x = Math.min(Math.max(next.at.x, 0), Math.max(custom.grid.w - size.w, 0));
     const y = Math.min(Math.max(next.at.y, 0), Math.max(custom.grid.d - size.d, 0));
     if (x !== next.at.x || y !== next.at.y) next = { ...next, at: { x, y } };
+    // A room place that no longer holds goes; the room shows it where the camera puts it.
+    if (next.room && fixtureProblem({ ...next, ...next.room, room: null }, custom)) {
+      const { room: _gone, ...rest } = next;
+      next = rest;
+    }
     return [next];
   });
 }

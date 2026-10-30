@@ -11,6 +11,7 @@ import {
   addTemplate,
   buildScene,
   closeViewOf,
+  closeViewShift,
   depthOrder,
   groupBounds,
   isoSceneSchema,
@@ -394,6 +395,10 @@ describe('close view of a photographed room', () => {
     expect(moved.rect.w).toBe(top.rect.w);
     expect(moved.rect.x - top.rect.x).toBe(-2);
     expect(isoSceneSchema.safeParse(view).success).toBe(true);
+    // The shift takes a room point into the close view.
+    const shift = closeViewShift(room)!;
+    expect(top.rect.x + shift.dx).toBe(moved.rect.x);
+    expect(top.rect.y + shift.dy).toBe(moved.rect.y);
   });
 
   it('has none without a desk or table', () => {
