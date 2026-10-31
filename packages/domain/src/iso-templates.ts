@@ -355,7 +355,45 @@ export function moveGroup(scene: IsoScene, g: string, dx: number, dy: number, dz
     (s) => ({ ...s, rect: { ...s.rect, x: s.rect.x + cx, y: s.rect.y + cy }, z: s.z + dz }),
   );
 }
-/** Turn a group a quarter clockwise (seen from above) about its footprint's centre. */
+/**
+ * The groups standing on a group's surfaces, and on theirs in turn: a lamp
+ * and a monitor on a desk, books on a shelf on it. A group stands on a
+ * surface when its footprint's centre is over it and its base at its height.
+ */
+export function ridersOf(scene: IsoScene, g: string): string[] {
+  const found: string[] = [];
+  const queue = [g];
+  while (queue.length) {
+    const base = queue.shift()!;
+    const own = new Set(groupProps(scene, base).map((p) => p.id));
+    const tops = scene.surfaces.filter((s) => own.has(s.propId));
+    for (const other of groupIds(scene)) {
+      if (other === g || found.includes(other)) continue;
+      const b = groupBounds(scene, other);
+      if (!b) continue;
+      const cx = b.at.x + b.size.w / 2;
+      const cy = b.at.y + b.size.d / 2;
+      const on = tops.some(
+        (t) =>
+          Math.abs(b.at.z - t.z) < 0.05 &&
+          cx >= t.rect.x - EPS &&
+          cx <= t.rect.x + t.rect.w + EPS &&
+          cy >= t.rect.y - EPS &&
+          cy <= t.rect.y + t.rect.d + EPS,
+      );
+      if (on) {
+        found.push(other);
+        queue.push(other);
+      }
+    }
+  }
+  return found;
+}
+/**
+ * Turn a group a quarter clockwise (seen from above) about its footprint's
+ * centre, and everything standing on it with it, so what is on a desk stays
+ * where it was on the desk.
+ */
 export function rotateGroup(scene: IsoScene, g: string): IsoScene {
   const b = groupBounds(scene, g);
   if (!b) return scene;
@@ -368,25 +406,39 @@ export function rotateGroup(scene: IsoScene, g: string): IsoScene {
     w: d,
     d: w,
   });
-  const turned = mapGroup(
-    scene,
-    g,
-    (p) => {
-      const r = turn(p.at.x, p.at.y, p.size.w, p.size.d);
-      return {
-        ...p,
-        at: { ...p.at, x: r.x, y: r.y },
-        size: { ...p.size, w: r.w, d: r.d },
-        ...(p.form ? { turns: ((p.turns ?? 0) + 1) % 4 } : {}),
-      };
-    },
-    (s) => {
-      const r = turn(s.rect.x, s.rect.y, s.rect.w, s.rect.d);
-      return { ...s, rect: { x: r.x, y: r.y, w: r.w, d: r.d } };
-    },
-  );
-  // Turning can push a long group past the edge; nudge it back in.
-  return moveGroup(turned, g, 0, 0);
+  const together = [g, ...ridersOf(scene, g)];
+  let turned = scene;
+  for (const one of together)
+    turned = mapGroup(
+      turned,
+      one,
+      (p) => {
+        const r = turn(p.at.x, p.at.y, p.size.w, p.size.d);
+        return {
+          ...p,
+          at: { ...p.at, x: r.x, y: r.y },
+          size: { ...p.size, w: r.w, d: r.d },
+          ...(p.form ? { turns: ((p.turns ?? 0) + 1) % 4 } : {}),
+        };
+      },
+      (s) => {
+        const r = turn(s.rect.x, s.rect.y, s.rect.w, s.rect.d);
+        return { ...s, rect: { x: r.x, y: r.y, w: r.w, d: r.d } };
+      },
+    );
+  // Turning can push a long group past the edge; nudge it back in, with what is on it.
+  const after = groupBounds(turned, g)!;
+  const dx = Math.max(-after.at.x, Math.min(turned.grid.w - after.at.x - after.size.w, 0));
+  const dy = Math.max(-after.at.y, Math.min(turned.grid.d - after.at.y - after.size.d, 0));
+  if (!dx && !dy) return turned;
+  for (const one of together)
+    turned = mapGroup(
+      turned,
+      one,
+      (p) => ({ ...p, at: { ...p.at, x: p.at.x + dx, y: p.at.y + dy } }),
+      (s) => ({ ...s, rect: { ...s.rect, x: s.rect.x + dx, y: s.rect.y + dy } }),
+    );
+  return turned;
 }
 /** The room's own walls, which stay on its back and left whichever way it is turned. */
 const PERIMETER = ['wall-back', 'wall-left'];

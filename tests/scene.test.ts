@@ -22,6 +22,7 @@ import {
   removeGroup,
   rotateGroup,
   rotateScene,
+  ridersOf,
   sceneDraftSchema,
   settleGroup,
   type DeskMemory,
@@ -75,6 +76,31 @@ describe('scene templates', () => {
     for (let i = 0; i < 4; i++) back = rotateGroup(back, 'desk');
     expect(groupBounds(back, 'desk')!.at.x).toBeCloseTo(b0.at.x);
     expect(groupBounds(back, 'desk')!.at.y).toBeCloseTo(b0.at.y);
+  });
+  it('turns what stands on a desk with the desk, each where it was on it', () => {
+    const office = asCustom(ISO_PRESETS.office);
+    const riders = ridersOf(office, 'desk').sort();
+    expect(riders).toEqual(['book', 'bottle', 'keyboard', 'lamp', 'monitor']);
+    const once = rotateGroup(office, 'desk');
+    // Still on the desk, all of them, and nothing else came along.
+    expect(ridersOf(once, 'desk').sort()).toEqual(riders);
+    expect(groupBounds(once, 'chair')).toEqual(groupBounds(office, 'chair'));
+    // Each turned about the desk's centre: its offset from it turned a quarter clockwise.
+    const centre = (sc: IsoScene, g: string) => {
+      const b = groupBounds(sc, g)!;
+      return { x: b.at.x + b.size.w / 2, y: b.at.y + b.size.d / 2 };
+    };
+    const d0 = centre(office, 'desk');
+    const d1 = centre(once, 'desk');
+    for (const g of riders) {
+      const a = centre(office, g);
+      const b = centre(once, g);
+      expect(b.x - d1.x).toBeCloseTo(-(a.y - d0.y));
+      expect(b.y - d1.y).toBeCloseTo(a.x - d0.x);
+    }
+    let back = office;
+    for (let i = 0; i < 4; i++) back = rotateGroup(back, 'desk');
+    for (const g of ['desk', ...riders]) expect(centre(back, g).x).toBeCloseTo(centre(office, g).x);
   });
   it('turns the whole room a quarter, its walls staying on the back and left', () => {
     const office = asCustom(ISO_PRESETS.office);

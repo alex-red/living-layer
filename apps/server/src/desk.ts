@@ -11,6 +11,7 @@ import {
   isoSurface,
   fixtureEntity,
   settleFixtures,
+  followSurfaces,
   sightingSpot,
   DEMO_SURFACE,
   linkedFixtures,
@@ -756,8 +757,14 @@ export function deskRoutes(
     );
     available(mode);
     const memory = store.memory(mode);
+    const before = memory.scene ?? null;
     memory.scene = scene as IsoScene | null;
-    if (memory.fixtures) memory.fixtures = settleFixtures(memory.fixtures, memory.scene);
+    // What stands on a desk that was turned or moved goes with it, then settles into the scene.
+    if (memory.fixtures)
+      memory.fixtures = settleFixtures(
+        followSurfaces(memory.fixtures, before, memory.scene),
+        memory.scene,
+      );
     if (
       memory.surface?.scene === 'custom' &&
       !isoSurface('custom', memory.surface.surfaceId, memory.scene)

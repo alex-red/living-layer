@@ -225,6 +225,56 @@ export function fixtureProblem(
 }
 
 /**
+ * Fixtures standing on a surface of the person's scene follow it when the
+ * scene is saved with that surface moved or turned: a lamp on a desk that
+ * was turned stays where it was on the desk, turned with it. A surface's
+ * turn is its prop's (`turns`), or a quarter when its sides swapped.
+ */
+export function followSurfaces(
+  fixtures: Fixture[],
+  before: IsoScene | null,
+  after: IsoScene | null,
+): Fixture[] {
+  if (!before || !after) return fixtures;
+  return fixtures.map((f) => {
+    if (f.scene !== 'custom' || !f.surfaceId) return f;
+    const was = before.surfaces.find((t) => t.id === f.surfaceId);
+    const now = after.surfaces.find((t) => t.id === f.surfaceId);
+    if (!was || !now) return f;
+    const turnsOf = (scene: IsoScene, propId: string) =>
+      scene.props.find((p) => p.id === propId)?.turns ?? 0;
+    const formed = after.props.find((p) => p.id === now.propId)?.form;
+    const k = formed
+      ? (((turnsOf(after, now.propId) - turnsOf(before, was.propId)) % 4) + 4) % 4
+      : Math.abs(was.rect.w - now.rect.d) < 1e-6 &&
+          Math.abs(was.rect.d - now.rect.w) < 1e-6 &&
+          Math.abs(was.rect.w - was.rect.d) > 1e-6
+        ? 1
+        : 0;
+    const moved =
+      k !== 0 ||
+      Math.abs(was.rect.x - now.rect.x) > 1e-6 ||
+      Math.abs(was.rect.y - now.rect.y) > 1e-6;
+    if (!moved) return f;
+    const box = fixtureBox(f, before);
+    // Its centre from the surface's centre, turned k quarters clockwise (seen from above).
+    let u = box.at.x + box.size.w / 2 - (was.rect.x + was.rect.w / 2);
+    let v = box.at.y + box.size.d / 2 - (was.rect.y + was.rect.d / 2);
+    for (let i = 0; i < k; i++) [u, v] = [-v, u];
+    const turns = ((f.turns + k) % 4) as Fixture['turns'];
+    const size = fixtureBox({ ...f, turns }, after).size;
+    return {
+      ...f,
+      turns,
+      at: {
+        x: now.rect.x + now.rect.w / 2 + u - size.w / 2,
+        y: now.rect.y + now.rect.d / 2 + v - size.d / 2,
+      },
+    };
+  });
+}
+
+/**
  * Fixtures after the person's own scene changed: one whose surface is gone
  * stands on the floor where it was, and one that no longer fits the grid is
  * pulled back inside it. Preset scenes never change, so their fixtures stay.

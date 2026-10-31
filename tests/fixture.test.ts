@@ -25,6 +25,8 @@ import {
   placeTemplate,
   ruleInputSchema,
   settleFixtures,
+  followSurfaces,
+  rotateGroup,
   sizeInTiles,
   tileCm,
   upgradeMemory,
@@ -124,6 +126,33 @@ describe('fixtures', () => {
     expect(kept).toBe(preset);
     expect(settled).toMatchObject({ surfaceId: null, at: { x: 7, y: 2 } });
     expect(settleFixtures([preset, mine], null)).toEqual([preset]);
+  });
+  it('keeps a fixture where it stood on a desk that was turned, turned with it', () => {
+    const before = customDesk();
+    const lamp = fixture({ scene: 'custom', surfaceId: 'desk:top', at: { x: 1.4, y: 1.3 } });
+    expect(fixtureProblem(lamp, before)).toBeNull();
+    const after = rotateGroup(before, 'desk');
+    const [moved] = followSurfaces([lamp], before, after);
+    expect(moved!.turns).toBe(1);
+    expect(fixtureProblem(moved!, after)).toBeNull();
+    // Its offset from the desk's centre, turned a quarter clockwise.
+    const centre = (f: Fixture, sc: IsoScene) => {
+      const b = fixtureBox(f, sc);
+      return { x: b.at.x + b.size.w / 2, y: b.at.y + b.size.d / 2 };
+    };
+    const top = (sc: IsoScene) => sc.surfaces.find((t) => t.id === 'desk:top')!.rect;
+    const mid = (r: { x: number; y: number; w: number; d: number }) => ({
+      x: r.x + r.w / 2,
+      y: r.y + r.d / 2,
+    });
+    const a = centre(lamp, before);
+    const b = centre(moved!, after);
+    expect(b.x - mid(top(after)).x).toBeCloseTo(-(a.y - mid(top(before)).y));
+    expect(b.y - mid(top(after)).y).toBeCloseTo(a.x - mid(top(before)).x);
+    // A fixture on the floor, or on a surface that didn't move, stays put.
+    const floor = fixture({ scene: 'custom', surfaceId: null, at: { x: 6, y: 6 } });
+    expect(followSurfaces([floor], before, after)[0]).toBe(floor);
+    expect(followSurfaces([lamp], before, before)[0]).toBe(lamp);
   });
   it('lets rules target a switch or a fixture', () => {
     const rule = {
