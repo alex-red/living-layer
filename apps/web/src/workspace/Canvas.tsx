@@ -685,6 +685,7 @@ export function Canvas() {
             }}
             captureFrame={lab.cameraFrame}
             onCalibrateByHand={lab.calibrateByHand}
+            onCalibrateHere={lab.calibrateHere}
             cameraLive={camera}
             onMemory={(m) => {
               lab.setMemory(m);

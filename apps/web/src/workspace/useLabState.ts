@@ -1680,6 +1680,26 @@ export function useLabState() {
       'Set the far corner by hand: drag the red mark onto where the walls meet the floor (behind the furniture if need be), then each wall’s marks onto its floor line. Check the room’s size, then calibrate and draft from the camera.',
     );
   }
+  /**
+   * Calibrate by hand on the frame the camera shows now, or the current
+   * photo, with no model calls: the marks start where the last calibration
+   * left them on a frame this size, or as a guess to drag.
+   */
+  function calibrateHere() {
+    const v = video.current;
+    const size = camera && v?.videoWidth ? frameSize(v.videoWidth, v.videoHeight) : dimensions;
+    if (!frameNow()) return;
+    const known = memory?.camera;
+    const same =
+      known?.camera.frame.width === size.width && known.camera.frame.height === size.height;
+    calibrateByHand({
+      marks: same ? known.marks : null,
+      room: known
+        ? { w: Math.round(known.camera.room.w * 30), d: Math.round(known.camera.room.d * 30) }
+        : { w: 300, d: 240 },
+      frame: size,
+    });
+  }
   async function saveCalibration(draft: CalibrationDraft) {
     setBusy('calibrate');
     setError('');
@@ -2404,6 +2424,7 @@ export function useLabState() {
     imageCrop,
     cameraFrame,
     calibrateByHand,
+    calibrateHere,
     zoomable: zoomable(),
     startZooming,
     saveZoom,

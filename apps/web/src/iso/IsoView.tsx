@@ -133,6 +133,7 @@ export function IsoView({
   captureFrame,
   cameraLive = false,
   onCalibrateByHand,
+  onCalibrateHere,
   follow,
   onMessage,
   onError,
@@ -198,6 +199,8 @@ export function IsoView({
   cameraLive?: boolean;
   /** Calibrate by hand from what an automatic setup found. */
   onCalibrateByHand?: (found: CalibrateByHand) => void;
+  /** Calibrate by hand on the current frame, with no model calls. */
+  onCalibrateHere?: () => void;
   /** Follow long AI calls step by step in the AI dialog. */
   follow?: AiFollow;
   onMessage: (message: string) => void;
@@ -431,6 +434,7 @@ export function IsoView({
             {...(captureFrame ? { captureFrame } : {})}
             onCalibrated={onMemory}
             {...(onCalibrateByHand ? { onCalibrateByHand } : {})}
+            {...(onCalibrateHere ? { onCalibrateHere } : {})}
             {...(follow ? { follow } : {})}
             onPhotoSaved={(m) => {
               onMemory(m);

@@ -45,6 +45,14 @@ const groupLabel = (scene: Scene, g: string) => {
 };
 
 type StartFrom = 'camera' | IsoSceneKind | 'empty';
+type Snapshot = { draft: Scene; turned: number };
+const HISTORY_LIMIT = 100;
+/** Edits under one key closer together than this are one undo step (a drag, typing a size). */
+const COALESCE_MS = 600;
+/** Keys typed into a field are its own: native undo there, no shortcuts. */
+const isTyping = (t: EventTarget | null) =>
+  t instanceof HTMLElement &&
+  (t.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(t.tagName));
 /** What a setup found before it needed the person: the marks, Spark's sizes and the frame. */
 export interface CalibrateByHand {
   marks: RoomMarks | null;
@@ -74,6 +82,7 @@ export function SceneEditor({
   follow,
   room,
   onCalibrateByHand,
+  onCalibrateHere,
   captureFrame,
   cameraLive = false,
   onCalibrated,
@@ -108,6 +117,8 @@ export function SceneEditor({
   onCalibrated?: (memory: DeskMemory) => void;
   /** The setup couldn't fit the camera by itself: carry on by hand from what it found. */
   onCalibrateByHand?: (found: CalibrateByHand) => void;
+  /** Calibrate by hand on the current frame, with no model calls. */
+  onCalibrateHere?: () => void;
 }) {
   // The room the view shows, not whatever was saved last: editing the office starts from the office.
   const showsSaved = Boolean(saved) && base === saved;
@@ -127,6 +138,57 @@ export function SceneEditor({
   useEffect(() => {
     if (showsSaved) setDraft(saved!);
   }, [saved, showsSaved]);
+
+  // Undo and redo: the draft (and its turns) before each edit. A drag or a typed
+  // size sends many edits under one key; those within a moment make one step.
+  const now = useRef({ draft, turned });
+  now.current = { draft, turned };
+  const past = useRef<Snapshot[]>([]);
+  const future = useRef<Snapshot[]>([]);
+  const lastEdit = useRef<{ key?: string; at: number }>({ at: 0 });
+  const [, setHistoryVersion] = useState(0);
+  function edit(next: Scene | ((d: Scene) => Scene), key?: string) {
+    const at = Date.now();
+    const last = lastEdit.current;
+    if (!key || key !== last.key || at - last.at > COALESCE_MS) {
+      past.current = [...past.current.slice(1 - HISTORY_LIMIT), now.current];
+      future.current = [];
+      setHistoryVersion((v) => v + 1);
+    }
+    lastEdit.current = { key, at };
+    setDraft(next);
+  }
+  function restore(from: Snapshot[], to: Snapshot[]) {
+    const snap = from.pop();
+    if (!snap) return;
+    to.push(now.current);
+    lastEdit.current = { at: 0 };
+    setDraft(snap.draft);
+    setTurned(snap.turned);
+    setSelected((g) => (g && snap.draft.props.some((p) => p.group === g) ? g : undefined));
+    setHistoryVersion((v) => v + 1);
+  }
+  const undo = () => restore(past.current, future.current);
+  const redo = () => restore(future.current, past.current);
+  const keys = useRef<(e: KeyboardEvent) => void>(() => {});
+  keys.current = (e) => {
+    if (photo || isTyping(e.target)) return;
+    const mod = e.metaKey || e.ctrlKey;
+    const k = e.key.toLowerCase();
+    if (mod && k === 'z') (e.shiftKey ? redo : undo)();
+    else if (mod && k === 'y') redo();
+    else if (!mod && selected && (e.key === 'Delete' || e.key === 'Backspace')) {
+      edit((d) => removeGroup(d, selected));
+      setSelected(undefined);
+    } else if (!mod && e.key === 'Escape' && selected) setSelected(undefined);
+    else return;
+    e.preventDefault();
+  };
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => keys.current(e);
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
   const flagged = overlappingGroups(draft);
   const check = isoSceneSchema.safeParse(draft);
   const dirty = JSON.stringify(draft) !== JSON.stringify(saved ?? null);
@@ -136,7 +198,7 @@ export function SceneEditor({
 
   function start(from: IsoSceneKind | 'empty') {
     setTurned(0);
-    setDraft(from === 'empty' ? EMPTY : asCustom(ISO_PRESETS[from]));
+    edit(from === 'empty' ? EMPTY : asCustom(ISO_PRESETS[from]));
     setSelected(undefined);
     setSummary('');
   }
@@ -220,7 +282,7 @@ export function SceneEditor({
         busy={busy}
         onSaved={(m) => {
           setPhoto(null);
-          if (m.scene) setDraft(m.scene);
+          if (m.scene) edit(m.scene);
           onPhotoSaved(m);
         }}
         onCancel={() => setPhoto(null)}
@@ -236,7 +298,7 @@ export function SceneEditor({
         mode,
         ...(mode === 'live' ? { imageDataUrl: url } : {}),
       });
-      setDraft({ ...run.output.scene, label: 'Drafted room' });
+      edit({ ...run.output.scene, label: 'Drafted room' });
       setSummary(run.output.draft.summary);
       setSelected(undefined);
       onDrafted(run);
@@ -287,7 +349,7 @@ export function SceneEditor({
               aria-label={`Grid ${k === 'w' ? 'width' : 'depth'}`}
               onChange={(e) => {
                 const v = Math.max(2, Math.min(16, Math.round(Number(e.target.value) || 2)));
-                setDraft({ ...draft, grid: { ...draft.grid, [k]: v } });
+                edit((d) => ({ ...d, grid: { ...d.grid, [k]: v } }), `grid.${k}`);
               }}
             />
           </label>
@@ -297,7 +359,7 @@ export function SceneEditor({
           disabled={busy || drafting}
           title="Turn the whole room a quarter clockwise, to face the way the camera sees it. The back and left walls stay put."
           onClick={() => {
-            setDraft(rotateScene(draft));
+            edit(rotateScene(draft));
             setSelected(undefined);
             setTurned((t) => (t + 1) % 4);
           }}
@@ -335,11 +397,23 @@ export function SceneEditor({
             Draft from the demo camera
           </button>
         ) : !memory?.camera ? (
-          <span className="tiny">
-            {image || cameraLive
-              ? 'Or calibrate the corner camera by hand first, then draft through it.'
-              : 'Capture a frame from the room’s corner camera to set it up.'}
-          </span>
+          <>
+            {onCalibrateHere && (
+              <button
+                className="secondary"
+                disabled={busy || drafting || !canSetUp}
+                title="Place the far corner and each wall’s floor line yourself on the current frame, with no model calls. Then draft through it."
+                onClick={onCalibrateHere}
+              >
+                Calibrate by hand
+              </button>
+            )}
+            {!canSetUp && (
+              <span className="tiny">
+                Capture a frame from the room’s corner camera to set it up.
+              </span>
+            )}
+          </>
         ) : (
           <>
             <button
@@ -369,6 +443,16 @@ export function SceneEditor({
             >
               Use the current frame
             </button>
+            {onCalibrateHere && (
+              <button
+                className="secondary"
+                disabled={busy || drafting || !canSetUp}
+                title="Place the far corner and each wall’s floor line again on the current frame, with no model calls."
+                onClick={onCalibrateHere}
+              >
+                Calibrate again
+              </button>
+            )}
           </>
         )}
         <label className="photo-check">
@@ -394,7 +478,8 @@ export function SceneEditor({
               selected,
               flagged,
               onSelect: setSelected,
-              onMove: (g, dx, dy) => setDraft((d) => settleGroup(moveGroup(d, g, dx, dy), g)),
+              onMove: (g, dx, dy) =>
+                edit((d) => settleGroup(moveGroup(d, g, dx, dy), g), `move.${g}`),
             }}
           />
         </div>
@@ -404,7 +489,7 @@ export function SceneEditor({
           scene={draft}
           onAdd={(id) => {
             const next = addTemplate(draft, id);
-            setDraft(next.scene);
+            edit(next.scene);
             setSelected(next.group);
           }}
         />
@@ -417,14 +502,14 @@ export function SceneEditor({
             </span>
             <button
               className="secondary"
-              onClick={() => setDraft((d) => settleGroup(rotateGroup(d, selected), selected))}
+              onClick={() => edit((d) => settleGroup(rotateGroup(d, selected), selected))}
             >
               Turn
             </button>
             <button
               className="secondary"
               onClick={() => {
-                setDraft((d) => removeGroup(d, selected));
+                edit((d) => removeGroup(d, selected));
                 setSelected(undefined);
               }}
             >
@@ -437,7 +522,7 @@ export function SceneEditor({
                   aria-label="Lamp light"
                   value={lamp.lightId ?? ''}
                   onChange={(e) =>
-                    setDraft((d) => ({
+                    edit((d) => ({
                       ...d,
                       props: d.props.map((p) =>
                         p.group === selected && p.role === 'lamp'
@@ -458,7 +543,9 @@ export function SceneEditor({
             )}
           </>
         ) : (
-          <span className="tiny">Pick a prop to move, turn or remove it. Drag to move.</span>
+          <span className="tiny">
+            Pick a prop to move, turn or remove it. Drag to move, Delete to remove, ⌘Z to undo.
+          </span>
         )}
       </div>
       <p className="iso-note" role="status">
@@ -486,10 +573,26 @@ export function SceneEditor({
         </button>
         <button
           className="secondary"
+          disabled={busy || !past.current.length}
+          title="Undo (⌘Z / Ctrl+Z)"
+          onClick={undo}
+        >
+          Undo
+        </button>
+        <button
+          className="secondary"
+          disabled={busy || !future.current.length}
+          title="Redo (⇧⌘Z / Ctrl+Y)"
+          onClick={redo}
+        >
+          Redo
+        </button>
+        <button
+          className="secondary"
           disabled={busy || !dirty}
           onClick={() => {
             setTurned(0);
-            setDraft(initial());
+            edit(initial());
           }}
         >
           Revert
