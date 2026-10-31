@@ -26,7 +26,7 @@ import { IsoScene } from './IsoScene';
 import { PropPickerPopover } from './PropPicker';
 import { PhotoReview, type PhotoRun } from './PhotoReview';
 import { demoFrameUrl } from '../workspace/demoFrame';
-import { Details } from '../workspace/panel';
+import { Popover } from '../workspace/Popover';
 
 export type LayoutRun = EvidenceRun<{ draft: SceneDraft; scene: Scene }>;
 const EMPTY: Scene = {
@@ -315,205 +315,20 @@ export function SceneEditor({
 
   const presets: Preset[] = [...(Object.keys(ISO_PRESETS) as IsoSceneKind[]), 'empty'];
   const metres = (tiles: number) => ((tiles * ISO_TILE_CM) / 100).toFixed(1);
+  const note = !check.success
+    ? (check.error.issues[0]?.message ?? 'This scene does not fit its grid.')
+    : flagged.size
+      ? `${flagged.size} props cut into each other and may draw out of order. Move them apart.`
+      : turned % 2 && memory?.camera
+        ? 'Turned. The camera was calibrated for the room the other way round: save, then calibrate it again.'
+        : summary
+          ? `Spark: ${summary} Review it, then save.`
+          : !memory?.camera && mode !== 'demo'
+            ? 'The camera isn’t calibrated yet: Layout → From the camera.'
+            : '';
 
   return (
     <div className="scene-editor">
-      {/* Replacing the layout comes first in a fresh room, folded away once the camera knows it. */}
-      <Details summary="Start a new layout" open={!memory?.camera}>
-        <p className="micro">
-          Replaces the layout below. Undo brings it back until you leave the editor.
-        </p>
-        <div className="scene-start" role="group" aria-label="From the camera">
-          <span className="tiny">FROM THE CAMERA</span>
-          <div className="scene-row">
-            <button
-              className="primary"
-              disabled={busy || drafting || !canSetUp}
-              title="Spark sizes the room, SAM finds its walls, the camera is calibrated and the scene drafted through it, for you to review."
-              onClick={() => void setUp()}
-            >
-              {running === 'setup' ? 'Setting up…' : 'Set up from the camera'}
-            </button>
-            {mode === 'demo' ? (
-              <button
-                className="secondary"
-                disabled={busy || drafting}
-                title="Draft through the demo camera, which is already calibrated."
-                onClick={() => void fromPhoto()}
-              >
-                {running === 'frame' ? 'Drafting…' : 'Use the demo frame'}
-              </button>
-            ) : (
-              memory?.camera && (
-                <>
-                  <button
-                    className="secondary"
-                    disabled={busy || drafting || !canSetUp}
-                    title="Draft through the calibrated camera from what it shows now."
-                    onClick={() => void fromPhoto(captureFrame?.().url ?? image)}
-                  >
-                    {running === 'frame' ? 'Drafting…' : 'Use the current frame'}
-                  </button>
-                  <button
-                    className="secondary"
-                    disabled={busy || drafting || !onUpload}
-                    title="Draft through the calibrated camera from a frame you saved."
-                    onClick={() => file.current?.click()}
-                  >
-                    {running === 'upload' ? 'Drafting…' : 'Upload a frame'}
-                  </button>
-                  <input
-                    ref={file}
-                    type="file"
-                    accept="image/png,image/jpeg"
-                    hidden
-                    aria-label="Frame of the room's camera to draft a scene from"
-                    onChange={async (e) => {
-                      const chosen = e.target.files?.[0];
-                      e.target.value = '';
-                      const url = chosen && onUpload ? await onUpload(chosen) : undefined;
-                      if (url) await fromPhoto(url, 'upload');
-                    }}
-                  />
-                </>
-              )
-            )}
-          </div>
-          <p className="micro">
-            {mode === 'demo'
-              ? 'Demo: no model calls.'
-              : !canSetUp
-                ? 'Start the camera or capture a frame first.'
-                : `${sparkCheck ? 3 : 2} billed calls: Spark lists, SAM outlines${sparkCheck ? ', Spark checks' : ''}.`}
-          </p>
-          <details className="scene-more">
-            <summary>More ways</summary>
-            <div className="scene-row">
-              {onCalibrateHere && mode !== 'demo' && (
-                <button
-                  className="secondary"
-                  disabled={busy || drafting || !canSetUp}
-                  title="Place the far corner and each wall’s floor line yourself on the current frame, with no model calls. Then draft through it."
-                  onClick={onCalibrateHere}
-                >
-                  {memory?.camera ? 'Calibrate again by hand' : 'Calibrate by hand'}
-                </button>
-              )}
-              <button
-                className="secondary"
-                disabled={busy || drafting || !canSetUp}
-                title="Spark alone lays out the room from the frame: one billed call, no camera."
-                onClick={() => void askSpark()}
-              >
-                {running === 'spark' ? 'Drafting…' : 'Spark only'}
-              </button>
-              <label className="photo-check">
-                <input
-                  type="checkbox"
-                  checked={sparkCheck}
-                  onChange={(e) => setSparkCheck(e.target.checked)}
-                />
-                <span>Spark checks the draft</span>
-              </label>
-            </div>
-          </details>
-        </div>
-        <div className="scene-start" role="group" aria-label="From a preset">
-          <span className="tiny">FROM A PRESET</span>
-          <div className="scene-row">
-            {presets.map((k) => (
-              <button
-                key={k}
-                className="secondary"
-                disabled={busy || drafting}
-                onClick={() => start(k)}
-              >
-                {k === 'empty' ? 'Empty floor' : ISO_PRESETS[k].label}
-              </button>
-            ))}
-          </div>
-        </div>
-      </Details>
-      <div className="scene-selected" role="toolbar" aria-label="Edit the layout">
-        <PropPickerPopover
-          scene={draft}
-          onAdd={(id) => {
-            const next = addTemplate(draft, id);
-            edit(next.scene);
-            setSelected(next.group);
-          }}
-        />
-        {selected && bounds ? (
-          <>
-            <span className="scene-picked">{groupLabel(draft, selected)}</span>
-            <button
-              className="secondary"
-              disabled={busy || drafting}
-              title="Turn it a quarter clockwise."
-              onClick={() => edit((d) => settleGroup(rotateGroup(d, selected), selected))}
-            >
-              ↻ Turn
-            </button>
-            <button
-              className="secondary"
-              disabled={busy || drafting}
-              title="Remove it (Delete)."
-              onClick={() => {
-                edit((d) => removeGroup(d, selected));
-                setSelected(undefined);
-              }}
-            >
-              Remove
-            </button>
-            {lamp && (
-              <label className="iso-surface-pick">
-                <span className="tiny">LIGHT</span>
-                <select
-                  aria-label="Lamp light"
-                  value={lamp.lightId ?? ''}
-                  onChange={(e) =>
-                    edit((d) => ({
-                      ...d,
-                      props: d.props.map((p) =>
-                        p.group === selected && p.role === 'lamp'
-                          ? { ...p, lightId: e.target.value || undefined }
-                          : p,
-                      ),
-                    }))
-                  }
-                >
-                  <option value="">Main light</option>
-                  {lights.map((l) => (
-                    <option key={l} value={l}>
-                      {l}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            )}
-          </>
-        ) : (
-          <span className="micro">Click a prop to turn or remove it. Drag it to move it.</span>
-        )}
-        <span className="scene-history">
-          <button
-            className="secondary"
-            disabled={busy || drafting || !past.current.length}
-            title="Undo (⌘Z / Ctrl+Z)"
-            onClick={undo}
-          >
-            ↶ Undo
-          </button>
-          <button
-            className="secondary"
-            disabled={busy || drafting || !future.current.length}
-            title="Redo (⇧⌘Z / Ctrl+Y)"
-            onClick={redo}
-          >
-            ↷ Redo
-          </button>
-        </span>
-      </div>
       <div className="scene-editor-body">
         <div className="scene-canvas">
           <IsoScene
@@ -529,89 +344,297 @@ export function SceneEditor({
           />
         </div>
       </div>
-      <div className="scene-editor-tools" role="group" aria-label="The room">
-        <span className="iso-surface-pick" role="group" aria-label="Room size in tiles">
-          <span className="tiny">ROOM</span>
-          {(['w', 'd'] as const).map((k, i) => (
-            <span key={k} className="scene-size">
-              {i > 0 && <span aria-hidden="true">×</span>}
-              <input
-                type="number"
-                min={2}
-                max={16}
-                value={draft.grid[k]}
-                disabled={busy || drafting}
-                aria-label={`Grid ${k === 'w' ? 'width' : 'depth'}`}
-                title={k === 'w' ? 'Width in tiles' : 'Depth in tiles'}
-                onChange={(e) => {
-                  const v = Math.max(2, Math.min(16, Math.round(Number(e.target.value) || 2)));
-                  edit((d) => ({ ...d, grid: { ...d.grid, [k]: v } }), `grid.${k}`);
-                }}
-              />
-            </span>
-          ))}
-          <span className="micro">
-            tiles · {metres(draft.grid.w)} × {metres(draft.grid.d)} m
+      {note && (
+        <p className="iso-note" role="status">
+          {note}
+        </p>
+      )}
+      <div className="scene-edit-bar" role="toolbar" aria-label="Edit the layout">
+        <Popover
+          label="Layout"
+          className="scene-pop"
+          button={(open, toggle) => (
+            <button
+              className={open ? 'primary' : 'secondary'}
+              aria-expanded={open}
+              aria-haspopup="dialog"
+              onClick={toggle}
+            >
+              {drafting ? 'Working…' : 'Layout ▾'}
+            </button>
+          )}
+        >
+          {(close) => {
+            // Close on the way out, so the canvas shows what the action did.
+            const then = (act: () => void) => () => {
+              close();
+              act();
+            };
+            return (
+              <>
+                <div className="scene-pop-row">
+                  <span className="tiny">SIZE</span>
+                  {(['w', 'd'] as const).map((k, i) => (
+                    <span key={k} className="scene-size">
+                      {i > 0 && <span aria-hidden="true">×</span>}
+                      <input
+                        type="number"
+                        min={2}
+                        max={16}
+                        value={draft.grid[k]}
+                        disabled={busy || drafting}
+                        aria-label={`Grid ${k === 'w' ? 'width' : 'depth'} in tiles`}
+                        onChange={(e) => {
+                          const v = Math.max(
+                            2,
+                            Math.min(16, Math.round(Number(e.target.value) || 2)),
+                          );
+                          edit((d) => ({ ...d, grid: { ...d.grid, [k]: v } }), `grid.${k}`);
+                        }}
+                      />
+                    </span>
+                  ))}
+                  <span className="micro">
+                    {metres(draft.grid.w)} × {metres(draft.grid.d)} m
+                  </span>
+                  <button
+                    className="secondary scene-icon"
+                    disabled={busy || drafting}
+                    title="Turn the whole room a quarter clockwise, to face the way the camera sees it. The back and left walls stay put."
+                    aria-label="Turn room"
+                    onClick={() => {
+                      edit(rotateScene(draft));
+                      setSelected(undefined);
+                      setTurned((t) => (t + 1) % 4);
+                    }}
+                  >
+                    ↻
+                  </button>
+                </div>
+                <div className="scene-pop-group" role="group" aria-label="Start over">
+                  <span className="tiny">START OVER · UNDO BRINGS IT BACK</span>
+                  <div className="scene-pop-row">
+                    <button
+                      className="primary"
+                      disabled={busy || drafting || !canSetUp}
+                      title="Spark sizes the room, SAM finds its walls, the camera is calibrated and the scene drafted through it, for you to review."
+                      onClick={then(() => void setUp())}
+                    >
+                      From the camera
+                    </button>
+                    {mode === 'demo' ? (
+                      <button
+                        className="secondary"
+                        disabled={busy || drafting}
+                        title="Draft through the demo camera, which is already calibrated."
+                        onClick={then(() => void fromPhoto())}
+                      >
+                        Demo frame
+                      </button>
+                    ) : (
+                      memory?.camera && (
+                        <>
+                          <button
+                            className="secondary"
+                            disabled={busy || drafting || !canSetUp}
+                            title="Draft through the calibrated camera from what it shows now."
+                            onClick={then(() => void fromPhoto(captureFrame?.().url ?? image))}
+                          >
+                            This frame
+                          </button>
+                          <button
+                            className="secondary"
+                            disabled={busy || drafting || !onUpload}
+                            title="Draft through the calibrated camera from a frame you saved."
+                            onClick={then(() => file.current?.click())}
+                          >
+                            Upload…
+                          </button>
+                        </>
+                      )
+                    )}
+                  </div>
+                  <div className="scene-pop-row">
+                    {presets.map((k) => (
+                      <button
+                        key={k}
+                        className="secondary"
+                        disabled={busy || drafting}
+                        onClick={then(() => start(k))}
+                      >
+                        {k === 'empty' ? 'Empty' : ISO_PRESETS[k].label}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="micro">
+                    {mode === 'demo'
+                      ? 'Demo: no model calls.'
+                      : !canSetUp
+                        ? 'Start the camera or capture a frame to draft from it.'
+                        : `From the camera: ${sparkCheck ? 3 : 2} billed calls.`}
+                  </p>
+                  <details className="scene-more">
+                    <summary>More ways</summary>
+                    <div className="scene-pop-row">
+                      {onCalibrateHere && mode !== 'demo' && (
+                        <button
+                          className="secondary"
+                          disabled={busy || drafting || !canSetUp}
+                          title="Place the far corner and each wall’s floor line yourself on the current frame, with no model calls. Then draft through it."
+                          onClick={then(onCalibrateHere)}
+                        >
+                          Calibrate by hand
+                        </button>
+                      )}
+                      <button
+                        className="secondary"
+                        disabled={busy || drafting || !canSetUp}
+                        title="Spark alone lays out the room from the frame: one billed call, no camera."
+                        onClick={then(() => void askSpark())}
+                      >
+                        Spark only
+                      </button>
+                      <label className="photo-check">
+                        <input
+                          type="checkbox"
+                          checked={sparkCheck}
+                          onChange={(e) => setSparkCheck(e.target.checked)}
+                        />
+                        <span>Spark checks the draft</span>
+                      </label>
+                    </div>
+                  </details>
+                </div>
+                <div className="scene-pop-row scene-pop-end">
+                  <button
+                    className="secondary"
+                    disabled={busy || drafting || !dirty}
+                    title="Back to the saved scene. Undo brings your edits back."
+                    onClick={then(() => {
+                      setTurned(0);
+                      edit(initial());
+                    })}
+                  >
+                    Revert
+                  </button>
+                  {saved && (
+                    <button
+                      className="text-button destructive"
+                      disabled={busy || drafting}
+                      onClick={then(() => onSave(null))}
+                    >
+                      Remove custom scene
+                    </button>
+                  )}
+                </div>
+              </>
+            );
+          }}
+        </Popover>
+        <input
+          ref={file}
+          type="file"
+          accept="image/png,image/jpeg"
+          hidden
+          aria-label="Frame of the room's camera to draft a scene from"
+          onChange={async (e) => {
+            const chosen = e.target.files?.[0];
+            e.target.value = '';
+            const url = chosen && onUpload ? await onUpload(chosen) : undefined;
+            if (url) await fromPhoto(url, 'upload');
+          }}
+        />
+        <PropPickerPopover
+          scene={draft}
+          label="+ Prop"
+          onAdd={(id) => {
+            const next = addTemplate(draft, id);
+            edit(next.scene);
+            setSelected(next.group);
+          }}
+        />
+        {selected && bounds && (
+          <span className="scene-picked" role="group" aria-label="Selected prop">
+            <span className="scene-picked-name">{groupLabel(draft, selected)}</span>
+            <button
+              className="secondary scene-icon"
+              disabled={busy || drafting}
+              title="Turn it a quarter clockwise"
+              aria-label="Turn prop"
+              onClick={() => edit((d) => settleGroup(rotateGroup(d, selected), selected))}
+            >
+              ↻
+            </button>
+            <button
+              className="secondary scene-icon"
+              disabled={busy || drafting}
+              title="Remove it (Delete)"
+              aria-label="Remove prop"
+              onClick={() => {
+                edit((d) => removeGroup(d, selected));
+                setSelected(undefined);
+              }}
+            >
+              ✕
+            </button>
+            {lamp && (
+              <select
+                aria-label="Lamp light"
+                title="The light this lamp drives"
+                value={lamp.lightId ?? ''}
+                onChange={(e) =>
+                  edit((d) => ({
+                    ...d,
+                    props: d.props.map((p) =>
+                      p.group === selected && p.role === 'lamp'
+                        ? { ...p, lightId: e.target.value || undefined }
+                        : p,
+                    ),
+                  }))
+                }
+              >
+                <option value="">Main light</option>
+                {lights.map((l) => (
+                  <option key={l} value={l}>
+                    {l}
+                  </option>
+                ))}
+              </select>
+            )}
           </span>
-        </span>
-        <button
-          className="secondary"
-          disabled={busy || drafting}
-          title="Turn the whole room a quarter clockwise, to face the way the camera sees it. The back and left walls stay put."
-          onClick={() => {
-            edit(rotateScene(draft));
-            setSelected(undefined);
-            setTurned((t) => (t + 1) % 4);
-          }}
-        >
-          ↻ Turn room
-        </button>
-      </div>
-      <p className="iso-note" role="status">
-        {!check.success
-          ? (check.error.issues[0]?.message ?? 'This scene does not fit its grid.')
-          : flagged.size
-            ? `${flagged.size} props cut into each other and may draw out of order. Move them apart.`
-            : turned % 2 && memory?.camera
-              ? 'Turned. The camera was calibrated for the room the other way round: save, then calibrate it again so it sees the room this way.'
-              : turned
-                ? `Turned ${turned === 2 ? 'half way' : 'a quarter'}. Save to keep it.`
-                : summary
-                  ? `Spark: ${summary} Review it, then save.`
-                  : saved && !showsSaved
-                    ? `Saving replaces your custom scene${saved.label ? ` “${saved.label}”` : ''}. It shows up as Custom in the room view, ready to pin.`
-                    : dirty && past.current.length > 0
-                      ? 'Unsaved changes. Save to use this layout in the room view.'
-                      : 'Saved scenes show up as Custom in the room view, ready to pin.'}
-      </p>
-      <div className="item-actions">
-        <button
-          className="primary"
-          disabled={busy || drafting || !dirty || !check.success}
-          onClick={() => onSave(draft)}
-        >
-          Save scene
-        </button>
-        <button
-          className="secondary"
-          disabled={busy || drafting || !dirty}
-          title="Back to the saved scene. Undo brings your edits back."
-          onClick={() => {
-            setTurned(0);
-            edit(initial());
-          }}
-        >
-          Revert
-        </button>
-        {saved && (
-          <button
-            className="text-button destructive scene-remove"
-            disabled={busy || drafting}
-            onClick={() => onSave(null)}
-          >
-            Remove custom scene
-          </button>
         )}
+        <span className="scene-edit-bar-end">
+          <button
+            className="secondary scene-icon"
+            disabled={busy || drafting || !past.current.length}
+            title="Undo (⌘Z)"
+            aria-label="Undo"
+            onClick={undo}
+          >
+            ↶
+          </button>
+          <button
+            className="secondary scene-icon"
+            disabled={busy || drafting || !future.current.length}
+            title="Redo (⇧⌘Z)"
+            aria-label="Redo"
+            onClick={redo}
+          >
+            ↷
+          </button>
+          <button
+            className="primary"
+            disabled={busy || drafting || !dirty || !check.success}
+            title={
+              saved && !showsSaved
+                ? `Replaces your custom scene${saved.label ? ` “${saved.label}”` : ''}.`
+                : 'Saved scenes show up as Custom in the room view, ready to pin.'
+            }
+            onClick={() => onSave(draft)}
+          >
+            Save
+          </button>
+        </span>
       </div>
     </div>
   );

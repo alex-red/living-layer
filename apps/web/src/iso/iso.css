@@ -549,12 +549,36 @@
   width: 100%;
   min-height: 0;
 }
-.scene-editor-tools,
-.scene-selected {
+/* One lean toolbar under the room; the layout as a whole lives in its popover. */
+.scene-edit-bar {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
+}
+.scene-edit-bar-end {
+  display: inline-flex;
+  gap: 6px;
+  margin-left: auto;
+}
+.scene-editor .scene-icon {
+  min-width: 32px;
+  padding: 0 8px;
+}
+.scene-picked {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding-left: 8px;
+  border-left: 1px solid var(--line);
+}
+.scene-picked-name {
+  max-width: 14ch;
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 /* Fields as tall as the buttons beside them, in the app's type. */
 .scene-editor select,
@@ -564,7 +588,7 @@
   font-size: 13px;
 }
 .scene-editor input[type='number'] {
-  width: 56px;
+  width: 52px;
 }
 .scene-size {
   display: inline-flex;
@@ -572,25 +596,33 @@
   gap: 6px;
   color: var(--text-3);
 }
-.scene-history {
-  display: inline-flex;
-  gap: 4px;
-  margin-left: auto;
-}
-.scene-picked {
-  font-size: 13px;
-  font-weight: 600;
-}
-/* Ways to start over: a labelled group each, inside the fold. */
-.scene-start {
+/* The layout popover opens upward from the toolbar, over the room. */
+.popover.scene-pop {
+  top: auto;
+  bottom: calc(100% + 6px);
+  left: 0;
+  right: auto;
   display: grid;
-  gap: 6px;
+  gap: 12px;
+  width: min(340px, calc(100vw - 32px));
+  padding: 12px;
 }
-.scene-row {
+.scene-pop-group {
+  display: grid;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+.scene-pop-row {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
+}
+.scene-pop-end {
+  justify-content: space-between;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
 }
 .scene-more > summary {
   width: fit-content;
@@ -602,10 +634,7 @@
   color: var(--text);
 }
 .scene-more[open] > summary {
-  margin-bottom: 6px;
-}
-.scene-editor .item-actions .scene-remove {
-  margin-left: auto;
+  margin-bottom: 8px;
 }
 .scene-editor-body {
   display: grid;
@@ -858,9 +887,6 @@
 }
 .scene-editor .iso-note {
   color: var(--text-2);
-}
-.scene-editor .item-actions {
-  margin-top: auto;
 }
 
 /* Scene from a photo */
