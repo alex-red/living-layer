@@ -65,7 +65,7 @@
 }
 .camera-setup-form input,
 .camera-setup-form select {
-  min-height: 32px;
+  min-height: var(--control-h);
   padding: 0 8px;
   border: 1px solid var(--line-strong);
   border-radius: var(--r-button);
@@ -79,7 +79,7 @@
   gap: 6px;
 }
 .camera-setup button {
-  min-height: 30px;
+  min-height: var(--control-h);
   padding: 0 10px;
   border: 1px solid var(--line-strong);
   border-radius: var(--r-button);

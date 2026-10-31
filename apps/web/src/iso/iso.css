@@ -13,7 +13,7 @@
   gap: 8px;
 }
 .iso-surface-pick select {
-  min-height: 28px;
+  min-height: var(--control-h);
 }
 .iso-actions {
   display: inline-flex;
@@ -269,7 +269,7 @@
   align-items: center;
   gap: 8px;
   width: 100%;
-  min-height: 28px;
+  min-height: var(--control-h);
   padding: 0 8px;
   border: 1px solid transparent;
   border-radius: 2px;
@@ -429,7 +429,7 @@
   gap: 4px;
 }
 .item-views button {
-  min-height: 26px;
+  min-height: var(--control-h-sm);
 }
 .item-photo {
   flex: 1;
@@ -522,7 +522,7 @@
   gap: 4px;
 }
 .iso-panels button {
-  min-height: 26px;
+  min-height: var(--control-h-sm);
   padding: 0 10px;
   border: 1px solid var(--line);
   border-radius: 2px;
@@ -579,13 +579,6 @@
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-/* Fields as tall as the buttons beside them, in the app's type. */
-.scene-editor select,
-.scene-editor input[type='number'] {
-  min-height: 32px;
-  font: inherit;
-  font-size: 13px;
 }
 .scene-editor input[type='number'] {
   width: 52px;
@@ -673,7 +666,7 @@
   color: var(--text-3);
 }
 .prop-picker-search {
-  min-height: 28px;
+  min-height: var(--control-h);
   font-size: 12px;
 }
 .prop-picker-shelves {
@@ -990,7 +983,7 @@
 }
 .photo-things select {
   max-width: 140px;
-  min-height: 26px;
+  min-height: var(--control-h-sm);
 }
 .photo-things tr.removed td,
 .photo-things tr.not-found td,
@@ -1053,7 +1046,7 @@
 }
 .rules-add input,
 .rules-new input {
-  min-height: 28px;
+  min-height: var(--control-h);
   width: 120px;
 }
 .rules-panel .link,
@@ -1155,7 +1148,7 @@
   letter-spacing: normal;
 }
 .pin-tag.pin-review button {
-  min-height: 28px;
+  min-height: var(--control-h);
   font-size: 12px;
 }
 /* Calibrating the room camera: the floor's tiles drawn through the camera the marks imply. */
@@ -1212,7 +1205,7 @@
   flex-basis: 100%;
 }
 .calibrate-panel button {
-  min-height: 28px;
+  min-height: var(--control-h);
   font-size: 12px;
 }
 .calibrate-tag input[type='number'] {

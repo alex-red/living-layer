@@ -1,0 +1,347 @@
+/*
+ * Shared controls: buttons, fields, checks and segmented switches.
+ * Every screen uses these classes, through the components in controls.tsx
+ * or directly; sizes come from the --control-* tokens.
+ */
+
+/* Buttons */
+.primary,
+.secondary,
+.physical,
+.ghost,
+.capture-actions button,
+.pg-button {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: var(--control-h);
+  padding: 0 var(--control-px);
+  border: 1px solid transparent;
+  border-radius: var(--r-button);
+  font: 500 13px/1 var(--ui);
+  white-space: nowrap;
+  transition:
+    background var(--t-fast),
+    border-color var(--t-fast),
+    color var(--t-fast),
+    box-shadow var(--t-fast),
+    transform var(--t-fast);
+}
+:is(.primary, .secondary, .physical, .ghost, .pg-button):active:not(:disabled) {
+  transform: scale(0.98);
+}
+.primary,
+.pg-button.primary {
+  background: var(--seen);
+  color: var(--void);
+  font-weight: 600;
+}
+.primary:hover:not(:disabled) {
+  box-shadow: 0 0 20px var(--seen-glow);
+}
+.physical {
+  background: var(--warm);
+  color: var(--void);
+  font-weight: 600;
+}
+.physical:hover:not(:disabled) {
+  box-shadow: 0 0 24px var(--warm-glow);
+}
+.shell.lamp-live .physical:not(:disabled) {
+  box-shadow: 0 0 24px var(--warm-glow);
+}
+.secondary,
+.pg-button.secondary,
+.capture-actions button {
+  background: var(--control-bg);
+  border-color: var(--control-line);
+  color: var(--text);
+}
+:is(.secondary, .pg-button.secondary, .capture-actions button):hover:not(:disabled) {
+  background: var(--control-bg-hover);
+  border-color: var(--control-line-hover);
+}
+/* Quiet: no frame until hovered, for toolbars and repeated row actions. */
+.ghost,
+.pg-button.tertiary {
+  background: none;
+  color: var(--text-2);
+}
+:is(.ghost, .pg-button.tertiary):hover:not(:disabled) {
+  background: var(--control-bg-hover);
+  color: var(--text);
+}
+.ghost[aria-pressed='true'],
+.ghost[aria-expanded='true'] {
+  background: var(--control-bg-hover);
+  color: var(--text);
+}
+/* Small: dense rows and toolbars. */
+:is(.primary, .secondary, .physical, .ghost, .pg-button).sm {
+  min-height: var(--control-h-sm);
+  padding: 0 8px;
+  font-size: 12px;
+}
+.block {
+  width: 100%;
+}
+
+/* Tertiary: a link-like action in running text or under a control. */
+.text-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: var(--control-h);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-2);
+  font-size: 13px;
+  text-align: left;
+  transition: color var(--t-fast);
+}
+.text-button:hover:not(:disabled) {
+  color: var(--text);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.text-button.destructive,
+.ghost.destructive {
+  color: var(--blocked);
+}
+.ghost.destructive:hover:not(:disabled) {
+  background: var(--blocked-wash);
+  color: var(--blocked);
+}
+
+/* Icon buttons: square, quiet, labelled by title and aria-label. */
+.icon-button {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: var(--control-h);
+  height: var(--control-h);
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--r-button);
+  background: none;
+  color: var(--text-2);
+  font-size: 15px;
+  line-height: 1;
+  transition:
+    background var(--t-fast),
+    color var(--t-fast);
+}
+.icon-button:hover:not(:disabled),
+.icon-button[aria-pressed='true'],
+.icon-button[aria-expanded='true'] {
+  background: var(--control-bg-hover);
+  color: var(--text);
+}
+.icon-button.framed {
+  border-color: var(--control-line);
+  background: var(--control-bg);
+}
+.icon-button.sm {
+  width: var(--control-h-sm);
+  height: var(--control-h-sm);
+  font-size: 13px;
+}
+.icon-button svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* Fields: zero specificity, so a screen's own rule (a width, say) still wins. */
+:where(
+  input:not([type]),
+  input[type='text'],
+  input[type='number'],
+  input[type='search'],
+  input[type='url'],
+  input[type='email'],
+  input[type='password'],
+  input[type='time'],
+  input[type='date'],
+  select,
+  textarea
+) {
+  min-width: 0;
+  min-height: var(--control-h);
+  padding: 0 8px;
+  border: 1px solid var(--control-line);
+  border-radius: var(--r-button);
+  background-color: var(--control-bg);
+  color: var(--text);
+  font: 400 13px/1.3 var(--ui);
+  transition:
+    border-color var(--t-fast),
+    background-color var(--t-fast);
+}
+:where(input, select, textarea):hover:not(:disabled, :focus) {
+  border-color: var(--control-line-hover);
+}
+:where(input, select, textarea):focus-visible {
+  outline: none;
+  border-color: var(--seen);
+  box-shadow: 0 0 0 3px var(--seen-wash);
+}
+:where(input, select, textarea):disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+:where(input[type='number']) {
+  font-variant-numeric: tabular-nums;
+}
+:where(textarea) {
+  padding: 6px 8px;
+  line-height: 18px;
+  resize: vertical;
+}
+:where(input, textarea)::placeholder {
+  color: var(--text-3);
+}
+:where(select) {
+  appearance: none;
+  padding-right: 26px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' fill='none' stroke='%237c8299' stroke-width='1.5' stroke-linecap='round'%3E%3Cpath d='m1 1 4 4 4-4'/%3E%3C/svg%3E");
+  background-position: right 9px center;
+  background-repeat: no-repeat;
+  cursor: pointer;
+}
+:where(select) option {
+  background: var(--surface-2);
+  color: var(--text);
+}
+:where(input[type='range']) {
+  accent-color: var(--seen);
+}
+input[type='checkbox'],
+input[type='radio'] {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--seen);
+}
+
+/* A labelled field: the label over the control, a hint under it. */
+.ui-field {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+.ui-field.inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.ui-field > .tiny {
+  color: var(--text-3);
+}
+.ui-field > .micro {
+  margin: 0;
+}
+.ui-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: var(--control-h);
+  color: var(--text-2);
+  font-size: 13px;
+  cursor: pointer;
+}
+.ui-check:hover {
+  color: var(--text);
+}
+
+/* Segmented switch: one sliding thumb over n equal segments. */
+.segmented,
+.mode-switch {
+  --n: 2;
+  --i: 0;
+  position: relative;
+  display: inline-grid;
+  grid-auto-columns: 1fr;
+  grid-auto-flow: column;
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-button);
+  background: var(--surface-2);
+}
+.segmented::before,
+.mode-switch::before {
+  content: '';
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  left: 2px;
+  width: calc((100% - 4px) / var(--n));
+  border-radius: 2px;
+  background: var(--surface-3);
+  box-shadow:
+    var(--glass-edge),
+    0 1px 4px rgb(0 0 0 / 35%);
+  transform: translateX(calc(var(--i) * 100%));
+  transition: transform var(--t-base) var(--spring);
+}
+.segmented button,
+.mode-switch button {
+  position: relative;
+  min-width: 48px;
+  min-height: calc(var(--control-h) - 6px);
+  padding: 0 10px;
+  border: 0;
+  background: none;
+  color: var(--text-2);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  transition: color var(--t-fast);
+}
+.segmented button:hover:not(:disabled),
+.mode-switch button:hover:not(:disabled) {
+  color: var(--text);
+}
+.segmented button[aria-pressed='true'],
+.mode-switch button[aria-pressed='true'] {
+  color: var(--text);
+}
+/* Class-only switches, before they move to <Segmented>: the thumb follows the pressed segment. */
+.mode-switch:has(> button:nth-child(3)) {
+  --n: 3;
+}
+.mode-switch:has(> button:nth-child(2)[aria-pressed='true']) {
+  --i: 1;
+}
+.mode-switch:has(> button:nth-child(3)[aria-pressed='true']) {
+  --i: 2;
+}
+
+/* A toolbar: controls in a row, with an end group pushed right. */
+.ui-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.ui-toolbar > .end {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+}
+.ui-toolbar .divider {
+  width: 1px;
+  height: 16px;
+  background: var(--line-strong);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .segmented::before,
+  .mode-switch::before {
+    transition: none;
+  }
+}

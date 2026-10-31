@@ -115,7 +115,7 @@
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  min-height: 32px;
+  min-height: var(--control-h);
   padding: 0 10px;
   border: 1px solid var(--line-strong);
   border-radius: var(--r-button);
@@ -238,7 +238,7 @@
   align-items: flex-start;
   gap: 8px;
   width: 100%;
-  min-height: 32px;
+  min-height: var(--control-h);
   padding: 6px 8px;
   border: 0;
   border-radius: var(--r-chip);
@@ -360,7 +360,7 @@
   font-size: 12px;
 }
 .ol-bulk button {
-  min-height: 28px;
+  min-height: var(--control-h);
   padding: 0 10px;
   font-size: 12px;
 }
@@ -401,7 +401,7 @@
   animation: menu-in var(--t-fast) var(--ease-out);
 }
 .context-menu button {
-  min-height: 28px;
+  min-height: var(--control-h);
   padding: 0 10px;
   border: 0;
   border-radius: var(--r-chip);
@@ -453,21 +453,6 @@
 }
 
 /* Canvas: the stage view gets a third segment, and split puts both side by side. */
-.mode-switch.three {
-  grid-template-columns: repeat(3, 1fr);
-}
-.mode-switch.three::before {
-  width: calc((100% - 6px) / 3);
-}
-.mode-switch.three:has(button:nth-child(2)[aria-pressed='true'])::before {
-  transform: translateX(100%);
-}
-.mode-switch.three:has(button:nth-child(3)[aria-pressed='true'])::before {
-  transform: translateX(200%);
-}
-.mode-switch.three button {
-  min-width: 56px;
-}
 .stage-fit.split {
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 8px;
@@ -655,7 +640,7 @@
   padding-top: 4px;
 }
 .insp-details > summary {
-  min-height: 28px;
+  min-height: var(--control-h);
   display: flex;
   align-items: center;
   gap: 6px;
@@ -703,7 +688,7 @@
   gap: 4px;
 }
 .field select {
-  min-height: 32px;
+  min-height: var(--control-h);
 }
 .freshness {
   flex: none;
@@ -748,7 +733,7 @@
 .rule-builder input,
 .remember-row input {
   min-width: 0;
-  min-height: 32px;
+  min-height: var(--control-h);
 }
 .remember-row {
   display: grid;
@@ -800,7 +785,7 @@
   line-height: 16px;
 }
 .setup-steps .primary {
-  min-height: 28px;
+  min-height: var(--control-h);
 }
 
 /* Activity drawer */
@@ -1010,7 +995,7 @@
 
 /* Canvas layers menu. */
 .layers-button {
-  min-height: 28px;
+  min-height: var(--control-h);
   font-size: 12px;
 }
 .layers-button small {
@@ -1056,7 +1041,7 @@
     display: inline-flex;
     align-items: center;
     gap: 8px;
-    min-height: 32px;
+    min-height: var(--control-h);
     padding: 0 10px;
     border: 1px solid var(--line-strong);
     border-radius: var(--r-button);
@@ -1189,7 +1174,7 @@
   align-self: flex-start;
   align-items: center;
   gap: 2px;
-  min-height: 28px;
+  min-height: var(--control-h);
   padding: 2px;
   border: 1px solid var(--line);
   border-radius: var(--r-button);

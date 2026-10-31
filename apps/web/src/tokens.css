@@ -44,6 +44,15 @@
   --r-card: 3px;
   --r-panel: 4px;
 
+  /* Controls: one height for buttons, fields and segments; small for dense toolbars. */
+  --control-h: 28px;
+  --control-h-sm: 24px;
+  --control-px: 10px;
+  --control-bg: rgb(255 255 255 / 4%);
+  --control-bg-hover: rgb(255 255 255 / 8%);
+  --control-line: var(--line-strong);
+  --control-line-hover: rgb(170 185 255 / 30%);
+
   /* Glass */
   --glass-thin: rgb(17 20 29 / 55%);
   --glass-regular: rgb(17 20 29 / 72%);

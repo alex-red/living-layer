@@ -62,7 +62,7 @@
   flex: 1;
 }
 .phone-pairing button {
-  min-height: 32px;
+  min-height: var(--control-h);
   padding: 0 12px;
   border: 1px solid var(--line-strong);
   border-radius: var(--r-button);

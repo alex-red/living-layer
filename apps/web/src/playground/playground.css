@@ -85,7 +85,7 @@
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  min-height: 32px;
+  min-height: var(--control-h);
   color: var(--text);
   text-decoration: none;
   font-weight: 600;
@@ -549,46 +549,6 @@
 }
 
 /* Buttons */
-.pg-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  min-height: 32px;
-  padding: 0 12px;
-  border: 1px solid transparent;
-  border-radius: 2px;
-  font: 600 13px/18px var(--ui);
-  transition:
-    background var(--t-fast),
-    border-color var(--t-fast),
-    color var(--t-fast);
-}
-.pg-button.primary {
-  background: var(--seen);
-  color: var(--void);
-}
-.pg-button.primary:hover:not(:disabled) {
-  box-shadow: 0 0 24px var(--seen-glow);
-}
-.pg-button.secondary {
-  background: rgb(33 38 55 / 72%);
-  border-color: var(--line-strong);
-  color: var(--text);
-}
-.pg-button.secondary:hover:not(:disabled) {
-  background: var(--surface-3);
-}
-.pg-button.tertiary {
-  padding: 0 8px;
-  background: none;
-  color: var(--text-2);
-  font-weight: 400;
-}
-.pg-button.tertiary:hover {
-  color: var(--text);
-  text-decoration: underline;
-}
 
 /* Fields */
 .pg-field {
@@ -608,7 +568,7 @@
 }
 .pg-field select,
 .pg-field input:not([type]) {
-  min-height: 32px;
+  min-height: var(--control-h);
   padding: 0 12px;
   border: 1px solid var(--line-strong);
   border-radius: 2px;
@@ -626,7 +586,7 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  min-height: 32px;
+  min-height: var(--control-h);
   font-size: 13px;
   color: var(--text-2);
   cursor: pointer;
@@ -645,7 +605,7 @@
   gap: 8px;
 }
 .pg-chip {
-  min-height: 28px;
+  min-height: var(--control-h);
   padding: 0 10px;
   border: 1px solid var(--line-strong);
   border-radius: 3px;
