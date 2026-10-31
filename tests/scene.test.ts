@@ -77,6 +77,23 @@ describe('scene templates', () => {
     expect(groupBounds(back, 'desk')!.at.x).toBeCloseTo(b0.at.x);
     expect(groupBounds(back, 'desk')!.at.y).toBeCloseTo(b0.at.y);
   });
+  it('moves what stands on a desk with the desk, and leaves the rest', () => {
+    const office = asCustom(ISO_PRESETS.office);
+    const moved = moveGroup(office, 'desk', 1, 2);
+    for (const g of ['desk', 'book', 'bottle', 'keyboard', 'lamp', 'monitor']) {
+      expect(groupBounds(moved, g)!.at.x).toBeCloseTo(groupBounds(office, g)!.at.x + 1);
+      expect(groupBounds(moved, g)!.at.y).toBeCloseTo(groupBounds(office, g)!.at.y + 2);
+    }
+    expect(groupBounds(moved, 'chair')).toEqual(groupBounds(office, 'chair'));
+    expect(ridersOf(moved, 'desk').sort()).toEqual(ridersOf(office, 'desk').sort());
+    // Pushed against the wall, the desk stops there and what is on it stops with it.
+    const far = moveGroup(office, 'desk', 50, 0);
+    const shift = groupBounds(far, 'desk')!.at.x - groupBounds(office, 'desk')!.at.x;
+    expect(groupBounds(far, 'lamp')!.at.x - groupBounds(office, 'lamp')!.at.x).toBeCloseTo(shift);
+    // Moving a lamp off the desk takes nothing along.
+    const lamp = moveGroup(office, 'lamp', 0, 1);
+    expect(groupBounds(lamp, 'monitor')).toEqual(groupBounds(office, 'monitor'));
+  });
   it('turns what stands on a desk with the desk, each where it was on it', () => {
     const office = asCustom(ISO_PRESETS.office);
     const riders = ridersOf(office, 'desk').sort();

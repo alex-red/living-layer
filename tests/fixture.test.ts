@@ -27,6 +27,7 @@ import {
   settleFixtures,
   followSurfaces,
   rotateGroup,
+  moveGroup,
   sizeInTiles,
   tileCm,
   upgradeMemory,
@@ -153,6 +154,9 @@ describe('fixtures', () => {
     const floor = fixture({ scene: 'custom', surfaceId: null, at: { x: 6, y: 6 } });
     expect(followSurfaces([floor], before, after)[0]).toBe(floor);
     expect(followSurfaces([lamp], before, before)[0]).toBe(lamp);
+    // A desk dragged across the room takes the lamp along, unturned.
+    const [carried] = followSurfaces([lamp], before, moveGroup(before, 'desk', 2, 1));
+    expect(carried).toMatchObject({ turns: 0, at: { x: 3.4, y: 2.3 } });
   });
   it('lets rules target a switch or a fixture', () => {
     const rule = {

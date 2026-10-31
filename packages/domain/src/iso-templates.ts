@@ -342,18 +342,25 @@ function mapGroup(
     surfaces: scene.surfaces.map((s) => (own.has(s.propId) ? surf(s) : s)),
   };
 }
-/** Move a group by (dx, dy, dz), kept inside the grid. */
+/**
+ * Move a group by (dx, dy, dz), kept inside the grid, and everything
+ * standing on it with it: a desk dragged across the room keeps what is on it.
+ */
 export function moveGroup(scene: IsoScene, g: string, dx: number, dy: number, dz = 0): IsoScene {
   const b = groupBounds(scene, g);
   if (!b) return scene;
   const cx = Math.max(-b.at.x, Math.min(scene.grid.w - b.at.x - b.size.w, dx));
   const cy = Math.max(-b.at.y, Math.min(scene.grid.d - b.at.y - b.size.d, dy));
-  return mapGroup(
-    scene,
-    g,
-    (p) => ({ ...p, at: { x: p.at.x + cx, y: p.at.y + cy, z: p.at.z + dz } }),
-    (s) => ({ ...s, rect: { ...s.rect, x: s.rect.x + cx, y: s.rect.y + cy }, z: s.z + dz }),
-  );
+  if (!cx && !cy && !dz) return scene;
+  let moved = scene;
+  for (const one of [g, ...ridersOf(scene, g)])
+    moved = mapGroup(
+      moved,
+      one,
+      (p) => ({ ...p, at: { x: p.at.x + cx, y: p.at.y + cy, z: p.at.z + dz } }),
+      (s) => ({ ...s, rect: { ...s.rect, x: s.rect.x + cx, y: s.rect.y + cy }, z: s.z + dz }),
+    );
+  return moved;
 }
 /**
  * The groups standing on a group's surfaces, and on theirs in turn: a lamp
