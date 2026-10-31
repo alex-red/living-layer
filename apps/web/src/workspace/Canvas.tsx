@@ -19,6 +19,7 @@ import { ErrorCard } from '../ProviderUi';
 import { IsoView } from '../iso/IsoView';
 import { SurfacePin } from '../iso/SurfacePin';
 import { RoomCalibrate } from '../iso/RoomCalibrate';
+import { CalibrationOverlay } from '../iso/CalibrationOverlay';
 import type { StageView } from '../session';
 import { useLab } from './LabContext';
 import { DeskStep, Onboarding } from './Onboarding';
@@ -134,6 +135,17 @@ export function Canvas() {
       ? focusSeen
       : null;
   const showIso = stageView !== 'photo' && !pinning && Boolean(workScene);
+  // The saved calibration, over the frames it was made on (the camera's own size while it runs).
+  const calibration = memory?.camera ?? null;
+  const cornerShown =
+    calibration &&
+    lab.showCorner &&
+    !lab.calibrating &&
+    (camera ||
+      (calibration.camera.frame.width === dimensions.width &&
+        calibration.camera.frame.height === dimensions.height))
+      ? calibration
+      : null;
   const roomFixtures = (memory?.fixtures ?? []).some((f) => f.scene === workScene);
   // Rooms a stream camera can be assigned to: the presets, and the person's own scene.
   const rooms: RoomOption[] = [
@@ -166,9 +178,10 @@ export function Canvas() {
                     lab.showZones,
                     lab.tracking,
                     ...(picture ? [lab.showPicture] : []),
+                    ...(calibration ? [lab.showCorner] : []),
                   ].filter(Boolean).length
                 }
-                /{picture ? 5 : 4}
+                /{4 + Number(picture) + Number(Boolean(calibration))}
               </small>
             </button>
           )}
@@ -199,6 +212,16 @@ export function Canvas() {
                           'The room as its drawing, not its model',
                           lab.showPicture,
                           lab.setShowPicture,
+                        ],
+                      ] as const)
+                    : []),
+                  ...(calibration
+                    ? ([
+                        [
+                          'Corner',
+                          'The far corner and walls the room’s camera was calibrated on',
+                          lab.showCorner,
+                          lab.setShowCorner,
                         ],
                       ] as const)
                     : []),
@@ -573,6 +596,7 @@ export function Canvas() {
                 segmentation={segmentation}
               />
             )}
+            {cornerShown && <CalibrationOverlay calibration={cornerShown} />}
             {lab.calibrating && !camera && (
               <RoomCalibrate
                 frame={dimensions}

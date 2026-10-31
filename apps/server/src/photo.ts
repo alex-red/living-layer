@@ -6,6 +6,9 @@ import {
   ARCHETYPES,
   DEMO_CALIBRATION,
   ISO_PRESETS,
+  ISO_TILE_CM,
+  type CameraCrop,
+  type DeskMemory,
   cameraCropSchema,
   isoSceneKindSchema,
   type IsoScene,
@@ -601,87 +604,126 @@ export function photoRoutes(
           PREVIEW,
         );
 
-        // 2. Where the floor meets the walls.
-        job.run('walls');
-        const floor = await findFloorMarks({ store, meta, run }, mode, image);
-        const floorCm = { w: room.rightWallCm, d: room.leftWallCm };
-        // Where it can't go on by itself, the person places the corner, starting from what was found.
-        const byHand = (message: string, found: RoomMarks | null) =>
-          new LabError('calibrate_by_hand', message, 422, undefined, {
-            marks: found,
-            room: floorCm,
-            heightCm: room.cameraHeightCm,
-            frame,
-          });
-        const marks = floor.marks;
-        if (!marks)
-          throw byHand(
-            'SAM found no floor where it meets the walls. Place the far corner and the walls’ floor lines by hand.',
-            null,
-          );
-        // Both walls' floor lines, or the fit bends the camera to one line and looks right when it isn't.
-        if (!marks.back.length || !marks.left.length)
-          throw byHand(
-            `Furniture hides the ${marks.back.length ? 'left' : 'right'} wall’s floor line, so the camera can’t be fitted by itself. Place the far corner and that wall’s line by hand.`,
-            marks,
-          );
-        job.check();
-        await job.done(
-          'walls',
-          `The far corner, ${marks.back.length} points along the right wall and ${marks.left.length} along the left`,
-        );
-
-        // 3. The camera, both ways round: the better fit says which wall is the back.
-        // Spark's height is an estimate: it guides the fit without pinning it.
-        job.run('calibrate');
-        const memory = store.memory(mode);
-        const heightSpreadCm = 20;
-        const ways = [floorCm, { w: floorCm.d, d: floorCm.w }].map((size) => ({
-          floorCm: size,
-          error: fitRoom(
-            {
-              mode,
-              marks,
-              room: size,
-              heightCm: room.cameraHeightCm,
-              heightSpreadCm,
-              scene: input.scene,
-              crop: input.crop ?? null,
+        // A saved calibration through this frame and zoom is the person's (or an earlier
+        // setup's): keep it rather than ask SAM again for walls it may not see.
+        const saved = store.memory(mode).camera;
+        const kept =
+          saved &&
+          saved.camera.frame.width === frame.width &&
+          saved.camera.frame.height === frame.height &&
+          sameCrop(saved.crop ?? null, input.crop ?? null)
+            ? saved
+            : null;
+        const sceneOf = (memory: DeskMemory) =>
+          input.scene === 'custom'
+            ? (memory.scene ?? ISO_PRESETS.office)
+            : ISO_PRESETS[input.scene];
+        let calibration: RoomCalibration;
+        let setup: NonNullable<PhotoDraft['setup']>;
+        if (kept) {
+          calibration = kept;
+          const { room: tiles, position, f, frame: size } = kept.camera;
+          setup = {
+            room,
+            floorCm: innerFloorCm(sceneOf(store.memory(mode)), tiles),
+            fit: {
+              error: kept.error,
+              heightCm: Math.round(position[2] * ISO_TILE_CM),
+              hfovDeg: Math.round((2 * Math.atan(size.width / 2 / f) * 180) / Math.PI),
             },
-            frame,
-            memory,
-          ).error,
-        }));
-        const best = ways.sort((a, b) => a.error - b.error)[0]!;
-        const calibrated = await calibrateRoom(store, {
-          mode,
-          image,
-          marks,
-          room: best.floorCm,
-          heightCm: room.cameraHeightCm,
-          heightSpreadCm,
-          scene: input.scene,
-          crop: input.crop ?? null,
-        }).catch((e: unknown) => {
-          throw e instanceof LabError && e.code === 'calibrate_fit'
-            ? byHand(`${e.message} Place the far corner by hand.`, marks)
-            : e;
-        });
-        const calibration = calibrationOf(calibrated.memory)!;
-        const turned = best.floorCm.w !== room.rightWallCm;
-        assists.push(
-          `Calibrated a ${best.floorCm.w} × ${best.floorCm.d} cm room${turned ? ' (turned: the left wall fits as the back)' : ''}, fit ${calibrated.fit.error.toFixed(1)} px`,
-        );
-        job.check();
-        await job.done(
-          'calibrate',
-          `${best.floorCm.w} × ${best.floorCm.d} cm${turned ? ', turned' : ''}; the camera about ${calibrated.fit.heightCm} cm up and ${calibrated.fit.hfovDeg}° wide, off by ${calibrated.fit.error.toFixed(1)} px`,
-          await renderScene(
-            input.scene === 'custom' ? calibrated.memory.scene! : ISO_PRESETS[input.scene],
-            calibration,
-          ),
-          PREVIEW,
-        );
+          };
+          const note = `Kept the room’s calibration from ${new Date(kept.calibratedAt).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' })}, off by ${kept.error.toFixed(1)} px`;
+          assists.push(note);
+          job.run('walls');
+          await job.done('walls', 'Skipped: the room is already calibrated through this view');
+          job.run('calibrate');
+          await job.done(
+            'calibrate',
+            note,
+            await renderScene(sceneOf(store.memory(mode)), kept),
+            PREVIEW,
+          );
+        } else {
+          // 2. Where the floor meets the walls.
+          job.run('walls');
+          const floor = await findFloorMarks({ store, meta, run }, mode, image);
+          const floorCm = { w: room.rightWallCm, d: room.leftWallCm };
+          // Where it can't go on by itself, the person places the corner, starting from what was found.
+          const byHand = (message: string, found: RoomMarks | null) =>
+            new LabError('calibrate_by_hand', message, 422, undefined, {
+              marks: found,
+              room: floorCm,
+              heightCm: room.cameraHeightCm,
+              frame,
+            });
+          const marks = floor.marks;
+          if (!marks)
+            throw byHand(
+              'SAM found no floor where it meets the walls. Place the far corner and the walls’ floor lines by hand.',
+              null,
+            );
+          // Both walls' floor lines, or the fit bends the camera to one line and looks right when it isn't.
+          if (!marks.back.length || !marks.left.length)
+            throw byHand(
+              `Furniture hides the ${marks.back.length ? 'left' : 'right'} wall’s floor line, so the camera can’t be fitted by itself. Place the far corner and that wall’s line by hand.`,
+              marks,
+            );
+          job.check();
+          await job.done(
+            'walls',
+            `The far corner, ${marks.back.length} points along the right wall and ${marks.left.length} along the left`,
+          );
+
+          // 3. The camera, both ways round: the better fit says which wall is the back.
+          // Spark's height is an estimate: it guides the fit without pinning it.
+          job.run('calibrate');
+          const memory = store.memory(mode);
+          const heightSpreadCm = 20;
+          const ways = [floorCm, { w: floorCm.d, d: floorCm.w }].map((size) => ({
+            floorCm: size,
+            error: fitRoom(
+              {
+                mode,
+                marks,
+                room: size,
+                heightCm: room.cameraHeightCm,
+                heightSpreadCm,
+                scene: input.scene,
+                crop: input.crop ?? null,
+              },
+              frame,
+              memory,
+            ).error,
+          }));
+          const best = ways.sort((a, b) => a.error - b.error)[0]!;
+          const calibrated = await calibrateRoom(store, {
+            mode,
+            image,
+            marks,
+            room: best.floorCm,
+            heightCm: room.cameraHeightCm,
+            heightSpreadCm,
+            scene: input.scene,
+            crop: input.crop ?? null,
+          }).catch((e: unknown) => {
+            throw e instanceof LabError && e.code === 'calibrate_fit'
+              ? byHand(`${e.message} Place the far corner by hand.`, marks)
+              : e;
+          });
+          calibration = calibrationOf(calibrated.memory)!;
+          setup = { room, floorCm: best.floorCm, fit: calibrated.fit };
+          const turned = best.floorCm.w !== room.rightWallCm;
+          assists.push(
+            `Calibrated a ${best.floorCm.w} × ${best.floorCm.d} cm room${turned ? ' (turned: the left wall fits as the back)' : ''}, fit ${calibrated.fit.error.toFixed(1)} px`,
+          );
+          job.check();
+          await job.done(
+            'calibrate',
+            `${best.floorCm.w} × ${best.floorCm.d} cm${turned ? ', turned' : ''}; the camera about ${calibrated.fit.heightCm} cm up and ${calibrated.fit.hfovDeg}° wide, off by ${calibrated.fit.error.toFixed(1)} px`,
+            await renderScene(sceneOf(calibrated.memory), calibration),
+            PREVIEW,
+          );
+        }
 
         const result = await draftThrough({
           job,
@@ -700,7 +742,7 @@ export function photoRoutes(
         usage = result.usage;
         const output: PhotoDraft = {
           ...result.output,
-          setup: { room, floorCm: best.floorCm, fit: calibrated.fit },
+          setup,
         };
         return { output, assets, usage, model, requestId };
       });
@@ -713,10 +755,24 @@ export function photoRoutes(
 /** The demo office's own size and camera, as Spark would estimate them. */
 function demoRoomEstimate(): RoomEstimate {
   const { room, position } = DEMO_CALIBRATION.camera;
-  const wall = (g: string) => ISO_PRESETS.office.props.find((p) => p.group === g);
+  const floor = innerFloorCm(ISO_PRESETS.office, room);
   return {
-    rightWallCm: Math.round((room.w - (wall('wall-left')?.size.w ?? 0)) * 30),
-    leftWallCm: Math.round((room.d - (wall('wall-back')?.size.d ?? 0)) * 30),
-    cameraHeightCm: Math.round(position[2] * 30),
+    rightWallCm: floor.w,
+    leftWallCm: floor.d,
+    cameraHeightCm: Math.round(position[2] * ISO_TILE_CM),
   };
 }
+/** A scene's floor inside its walls, in centimetres, when it spans `tiles` walls included. */
+function innerFloorCm(scene: IsoScene, tiles: { w: number; d: number }) {
+  const wall = (g: string) => scene.props.find((p) => p.group === g);
+  return {
+    w: Math.round((tiles.w - (wall('wall-left')?.size.w ?? 0)) * ISO_TILE_CM),
+    d: Math.round((tiles.d - (wall('wall-back')?.size.d ?? 0)) * ISO_TILE_CM),
+  };
+}
+/** Whether two zoomed views are the same, to the pixel or so. */
+const sameCrop = (a: CameraCrop | null, b: CameraCrop | null) =>
+  a === b ||
+  (a !== null &&
+    b !== null &&
+    (['x', 'y', 'w', 'h'] as const).every((k) => Math.abs(a[k] - b[k]) < 1e-3));

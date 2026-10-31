@@ -335,6 +335,25 @@ describe('photo routes, offline', () => {
     );
     expect(run.output.layout.things.find((t) => t.id === 'desk')?.status).toBe('placed');
     expect(s.fetcher).not.toHaveBeenCalled();
+
+    // Set up again through the same view: the saved calibration (a person's, maybe) is kept.
+    const againId = crypto.randomUUID();
+    const again = await s.post('scene/setup', { scene: 'office', jobId: againId });
+    expect(again.statusCode, again.body).toBe(200);
+    const steps = (await s.app.inject(`/api/jobs/${againId}`)).json<Job>().steps;
+    expect(steps.find((x) => x.id === 'walls')?.detail).toMatch(/already calibrated/);
+    const kept = again.json<EvidenceRun<PhotoDraft>>().output;
+    expect(kept.calibration.calibratedAt).toBe(memory.camera!.calibratedAt);
+    expect(kept.setup!.floorCm).toEqual(done!.floorCm);
+    expect(kept.setup!.fit.heightCm).toBe(done!.fit.heightCm);
+    // Through another zoom, the camera is fitted afresh.
+    const zoomed = await s.post('scene/setup', {
+      scene: 'office',
+      crop: { x: 0.1, y: 0.1, w: 0.8, h: 0.8 },
+    });
+    expect(zoomed.json<EvidenceRun<PhotoDraft>>().output.calibration.calibratedAt).not.toBe(
+      memory.camera!.calibratedAt,
+    );
     await s.app.close();
   });
   it('refuses a stale draft, an outside pin and objects SAM did not outline', async () => {

@@ -360,6 +360,7 @@ export function useLabState() {
   const [overlay, setOverlay] = useState(boot.prefs.overlay);
   const [showTrail, setShowTrail] = useState(boot.prefs.trail);
   const [showPicture, setShowPicture] = useState(boot.prefs.picture);
+  const [showCorner, setShowCorner] = useState(boot.prefs.corner);
   const [fixtureLook, setFixtureLook] = useState(boot.prefs.fixtureLook);
   const [showZones, setShowZones] = useState(boot.prefs.zones);
   const [stageView, setStageView] = useState<StageView>(boot.prefs.stageView);
@@ -540,6 +541,7 @@ export function useLabState() {
     trail: showTrail,
     zones: showZones,
     picture: showPicture,
+    corner: showCorner,
     fixtureLook,
     concept,
     demoPosition,
@@ -649,6 +651,7 @@ export function useLabState() {
       setShowTrail(next.trail);
       setShowZones(next.zones);
       setShowPicture(next.picture);
+      setShowCorner(next.corner);
       setFixtureLook(next.fixtureLook);
       setConcept(next.concept);
       if (next.demoPosition in DEMO_POSITIONS) setDemoPosition(next.demoPosition as DemoPosition);
@@ -1636,13 +1639,7 @@ export function useLabState() {
         back: [{ x: width * 0.85, y: height * 0.65 }],
         left: [{ x: width * 0.15, y: height * 0.6 }],
       };
-      const known = memory?.camera?.camera.room;
-      setCalibrating({
-        marks,
-        room: known
-          ? { w: Math.round(known.w * 30), d: Math.round(known.d * 30) }
-          : { w: 300, d: 240 },
-      });
+      setCalibrating({ marks, room: roomFloorCm() });
       if (stageView === 'iso') setStageView('split');
       setMessage(
         result.marks
@@ -1669,14 +1666,40 @@ export function useLabState() {
           ? {
               ...t,
               open: true,
-              next: { label: 'Place corner by hand', run: () => openCalibration(found) },
+              next: {
+                label: 'Place corner by hand',
+                run: () => openCalibration(withOwnSize(found)),
+              },
             }
           : t,
       );
       setMessage('The setup stopped short of calibrating: place the far corner by hand.');
       return;
     }
-    openCalibration(found);
+    openCalibration(withOwnSize(found));
+  }
+  /** A room the person drew or calibrated is sized as they made it, not as Spark guessed. */
+  function withOwnSize(found: HandCalibration): HandCalibration {
+    const own = memory?.camera || workScene === 'custom' || workScene === 'custom-desk';
+    return own ? { ...found, room: roomFloorCm() } : found;
+  }
+  /**
+   * The room's floor inside its walls, in centimetres, as the calibration
+   * starts it: as last calibrated, else as the room's scene is drawn (turned
+   * or not), so its sides run along the walls they belong to.
+   */
+  function roomFloorCm() {
+    const custom = workScene === 'custom' || workScene === 'custom-desk';
+    const scene = custom
+      ? memory?.scene
+      : ISO_PRESETS[workScene === 'desk' || !workScene ? 'office' : workScene];
+    const wall = (g: string) => scene?.props.find((p) => p.group === g);
+    const left = wall('wall-left')?.size.w ?? 0;
+    const back = wall('wall-back')?.size.d ?? 0;
+    const known = memory?.camera?.camera.room;
+    const tiles = known ?? scene?.grid;
+    if (!tiles) return { w: 300, d: 240 };
+    return { w: Math.round((tiles.w - left) * 30), d: Math.round((tiles.d - back) * 30) };
   }
   /** Stop the camera on the frame in hand and open calibration from what was found. */
   function openCalibration(found: HandCalibration) {
@@ -1715,9 +1738,7 @@ export function useLabState() {
       known?.camera.frame.width === size.width && known.camera.frame.height === size.height;
     openCalibration({
       marks: same ? known.marks : null,
-      room: known
-        ? { w: Math.round(known.camera.room.w * 30), d: Math.round(known.camera.room.d * 30) }
-        : { w: 300, d: 240 },
+      room: roomFloorCm(),
       frame: size,
     });
   }
@@ -2405,6 +2426,8 @@ export function useLabState() {
     setShowZones,
     showPicture,
     setShowPicture,
+    showCorner,
+    setShowCorner,
     tracking,
     setTracking,
     stageView,

@@ -13,10 +13,11 @@ export interface Prefs {
   workScene: WorkScene | null;
   stageView: StageView;
   overlay: boolean;
-  /** Canvas layers besides the masks: the mug's trail, saved zones, and a room's picture. */
+  /** Canvas layers besides the masks: the mug's trail, saved zones, a room's picture, and its calibration. */
   trail: boolean;
   zones: boolean;
   picture: boolean;
+  corner: boolean;
   /** On the room's picture, fixtures as the picture shows them or as their models. */
   fixtureLook: 'picture' | 'model';
   concept: string;
@@ -61,6 +62,7 @@ export const DEFAULT_PREFS: Prefs = {
   trail: true,
   zones: true,
   picture: true,
+  corner: true,
   fixtureLook: 'picture',
   concept: 'mug',
   demoPosition: 'centre',
@@ -96,6 +98,7 @@ export function prefsOf(saved: Partial<Prefs> | undefined): Prefs {
   one('trail', (v) => typeof v === 'boolean');
   one('zones', (v) => typeof v === 'boolean');
   one('picture', (v) => typeof v === 'boolean');
+  one('corner', (v) => typeof v === 'boolean');
   one('fixtureLook', among('picture', 'model'));
   one('concept', (v) => text(v) && (v as string).trim().length > 0);
   one('demoPosition', text);

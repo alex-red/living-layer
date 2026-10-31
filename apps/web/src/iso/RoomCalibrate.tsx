@@ -155,8 +155,8 @@ export function RoomCalibrate({
                 : `These marks don't fit a camera in the room's front corner (off by ${fit.error.toFixed(0)} px).`
               : 'Give the room’s size inside its walls.'}
           </span>
-          <label>
-            Width
+          <label title="The back wall: the one running right from the far corner.">
+            Back wall
             <input
               type="number"
               min={60}
@@ -166,8 +166,8 @@ export function RoomCalibrate({
             />
             cm
           </label>
-          <label>
-            Depth
+          <label title="The left wall: the one running left from the far corner.">
+            Left wall
             <input
               type="number"
               min={60}

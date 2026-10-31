@@ -1165,6 +1165,31 @@
   stroke-opacity: 0.45;
   stroke-width: 1px;
 }
+/* The saved calibration, for looking: quieter than the handles that set it. */
+.calibration-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.calibration-overlay .calibrate-grid {
+  fill: none;
+  stroke: var(--chosen);
+  stroke-opacity: 0.35;
+  stroke-width: 1px;
+}
+.calibration-overlay polyline {
+  fill: none;
+  stroke: var(--chosen);
+  stroke-width: 2px;
+  stroke-dasharray: 6 4;
+}
+.calibration-overlay circle {
+  fill: var(--chosen);
+  filter: drop-shadow(0 0 6px var(--chosen-glow));
+}
 .calibrate-tag label {
   display: inline-flex;
   align-items: center;
