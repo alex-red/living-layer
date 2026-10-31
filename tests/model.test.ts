@@ -1,7 +1,5 @@
 import { describe, expect, it, setDefaultTimeout } from 'bun:test';
-import { existsSync, mkdirSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
-import sharp from 'sharp';
+import { expectGolden } from './lib/golden.js';
 import {
   ARCHETYPES,
   applyCheck,
@@ -364,7 +362,6 @@ describe('fitting a model to a photo', () => {
  * review sheet.
  */
 describe('reference sprites', () => {
-  const dir = join(import.meta.dir, 'golden');
   const colours: Record<string, string[]> = {
     mug: ['#d9cdb4', '#5a3d2b'],
     cup: ['#8a90a8'],
@@ -381,18 +378,6 @@ describe('reference sprites', () => {
     it(`draws the ${archetype} as before`, async () => {
       const item = buildItem(archetype, defaultFit(archetype, colours[archetype]));
       const s = renderSprite(voxelize(item.parts, { resolution: 32 }), { scale: 1 });
-      const file = join(dir, `${archetype}.png`);
-      if (process.env.UPDATE_GOLDEN || !existsSync(file)) {
-        mkdirSync(dir, { recursive: true });
-        await sharp(Buffer.from(s.rgba), { raw: { width: s.width, height: s.height, channels: 4 } })
-          .png()
-          .toFile(file);
-      }
-      const golden = await sharp(readFileSync(file)).raw().toBuffer({ resolveWithObject: true });
-      expect([golden.info.width, golden.info.height]).toEqual([s.width, s.height]);
-      let off = 0;
-      for (let i = 0; i < s.rgba.length; i += 4)
-        if ([0, 1, 2, 3].some((k) => Math.abs(golden.data[i + k]! - s.rgba[i + k]!) > 8)) off++;
-      expect(off / (s.width * s.height)).toBeLessThan(0.01);
+      await expectGolden(archetype, s);
     });
 });

@@ -120,20 +120,88 @@ function seeded(seed: number) {
 }
 
 /**
- * Builds a model in a `w × d × h` box. `outline` asks for the coarse shape
- * a camera's mask shows instead (a chair's base as a disc), so matching a
- * model to a photo isn't thrown by parts thinner than the mask's pixels.
+ * Every model's measurements, in centimetres. `heightCm` is the height its
+ * template stands at. Builders read these instead of literals, so a sweep
+ * (`bun run bench:scene --set desk.topCm=3,4,5`) or a test can try other
+ * proportions with `withFurniture`, without editing this file.
  */
-type Build = (w: number, d: number, h: number, outline?: boolean) => PropPart[];
+export const FURNITURE_SPECS = {
+  desk: { heightCm: 72, topCm: 5, legCm: 5, insetCm: 5, railCm: 5, frontRail: false },
+  table: { heightCm: 75, topCm: 5, legCm: 6, insetCm: 5, railCm: 5, frontRail: false },
+  chair: {
+    heightCm: 95,
+    /** The width the parts below are drawn for; a wider box scales them. */
+    footprintCm: 66,
+    seatCm: 40,
+    seatWCm: 50,
+    seatDCm: 48,
+    cushionCm: 7,
+    reachCm: 30,
+    backWCm: 44,
+    backGapCm: 16,
+    armCm: 21,
+    arms: true,
+  },
+  bookcase: { heightCm: 120, boardCm: 1.8, plinthCm: 7, shelfPitchCm: 36 },
+  cabinet: { heightCm: 72, plinthCm: 6, drawerCm: 20 },
+  pot: { heightCm: 28, widthCm: 30 },
+  foliage: { heightCm: 56 },
+  'lamp-stand': { heightCm: 36, baseCm: 16 },
+  'lamp-shade': { heightCm: 14 },
+  monitor: { heightCm: 47, liftCm: 11, panelCm: 1.8, neckCm: 5, footWCm: 24, footDCm: 18 },
+  keyboard: { heightCm: 3, rows: 5, cols: 15, marginCm: 1.2, gapCm: 0.35 },
+  book: { heightCm: 3.5, coverCm: 0.4 },
+  bottle: { heightCm: 26 },
+  jar: { heightCm: 12 },
+  carton: { heightCm: 24 },
+} satisfies Record<PropForm, { heightCm: number } & Record<string, number | boolean>>;
+export type FurnitureSpecs = typeof FURNITURE_SPECS;
+export type FurnitureOverrides = { [F in PropForm]?: Partial<FurnitureSpecs[F]> };
 
-/** A slab on four legs with a rail under it, its top at `h`. */
-function legged(legTone: IsoTone, round: boolean): Build {
-  return (w, d, h) => {
-    const top = cm(5);
-    const leg = round ? cm(6) : cm(5);
-    const inset = cm(5);
-    const rail = cm(5);
+let overrides: FurnitureOverrides = {};
+/** A form's measurements, with any overrides `withFurniture` has in force. */
+export function furnitureSpec<F extends PropForm>(form: F): FurnitureSpecs[F] {
+  return { ...FURNITURE_SPECS[form], ...overrides[form] };
+}
+/**
+ * Run `fn` with some measurements changed, for sweeps and tests. Templates
+ * and models built inside it use them; nothing outside it does. Sprites the
+ * web has cached aren't keyed by them, so this is for scripts, not the app.
+ */
+export function withFurniture<T>(changes: FurnitureOverrides, fn: () => T): T {
+  const before = overrides;
+  overrides = { ...before };
+  for (const [form, values] of Object.entries(changes) as [PropForm, object][])
+    overrides = { ...overrides, [form]: { ...overrides[form], ...values } };
+  try {
+    return fn();
+  } finally {
+    overrides = before;
+  }
+}
+
+/**
+ * Builds a model in a `w × d × h` box from its measurements. `outline` asks
+ * for the coarse shape a camera's mask shows instead (a chair's base as a
+ * disc), so matching a model to a photo isn't thrown by parts thinner than
+ * the mask's pixels.
+ */
+type Build<F extends PropForm> = (
+  w: number,
+  d: number,
+  h: number,
+  o: { outline: boolean; spec: FurnitureSpecs[F] },
+) => PropPart[];
+
+/** A slab on four legs with rails under it, its top at `h`. */
+function legged(legTone: IsoTone, round: boolean): Build<'desk' | 'table'> {
+  return (w, d, h, { spec }) => {
+    const top = cm(spec.topCm);
+    const leg = cm(spec.legCm);
+    const inset = cm(spec.insetCm);
+    const rail = cm(spec.railCm);
     const under = h - top;
+    const span = w - 2 * (inset + leg);
     const corners = [
       [inset, inset],
       [w - inset - leg, inset],
@@ -149,8 +217,11 @@ function legged(legTone: IsoTone, round: boolean): Build {
             ])
           : box(x, y, 0, leg, leg, under, legTone, { radius: 0.2, material: 'metal' }),
       ),
-      // Rails hold the legs at the back and sides; the front stays open for knees.
-      box(inset + leg, inset, under - rail, w - 2 * (inset + leg), cm(2), rail, legTone),
+      // Rails hold the legs at the back and sides; the front can stay open for knees.
+      box(inset + leg, inset, under - rail, span, cm(2), rail, legTone),
+      ...(spec.frontRail
+        ? [box(inset + leg, d - inset - cm(2), under - rail, span, cm(2), rail, legTone)]
+        : []),
       box(inset, inset + leg, under - rail, cm(2), d - 2 * (inset + leg), rail, legTone),
       box(
         w - inset - cm(2),
@@ -167,11 +238,11 @@ function legged(legTone: IsoTone, round: boolean): Build {
 }
 
 /** An office chair facing -y (toward the desk), its back toward +y. */
-const chair: Build = (w, d, h, outline) => {
+const chair: Build<'chair'> = (w, d, h, { outline, spec }) => {
   const cx = w / 2;
   const cy = d / 2;
-  const s = Math.min(w, d) / cm(66);
-  const reach = cm(30) * s;
+  const s = Math.min(w, d) / cm(spec.footprintCm);
+  const reach = cm(spec.reachCm) * s;
   const parts: PropPart[] = [];
   // The base's footprint, casters included, for a camera's outline.
   const foot = reach + cm(2.6);
@@ -195,7 +266,10 @@ const chair: Build = (w, d, h, outline) => {
       turned(ex - cm(2.6), ey - cm(2.6), 0, cm(5.2), cm(5.2), cm(5.5), 'floor', CYLINDER),
     );
   }
-  const seatZ = cm(40);
+  const seatZ = cm(spec.seatCm);
+  const seatW = cm(spec.seatWCm) * s;
+  const seatD = cm(spec.seatDCm) * s;
+  const backZ = seatZ + cm(spec.backGapCm);
   parts.push(
     turned(cx - cm(4), cy - cm(4), cm(7), cm(8), cm(8), cm(6), 'steel', CYLINDER, {
       material: 'metal',
@@ -206,8 +280,7 @@ const chair: Build = (w, d, h, outline) => {
       material: 'metal',
     }),
     box(cx - cm(10), cy - cm(10), seatZ - cm(2), cm(20), cm(20), cm(3), 'floor'),
-    // Seat: 50 × 48 cm, its top at 47 cm.
-    box(cx - cm(25) * s, cy - cm(25) * s, seatZ, cm(50) * s, cm(48) * s, cm(7), 'fabric', {
+    box(cx - seatW / 2, cy - seatW / 2, seatZ, seatW, seatD, cm(spec.cushionCm), 'fabric', {
       radius: 0.45,
       material: 'fabric',
     }),
@@ -216,58 +289,47 @@ const chair: Build = (w, d, h, outline) => {
       [
         [cx, cy + cm(14) * s, seatZ + cm(1)],
         [cx, cy + cm(27) * s, seatZ + cm(2)],
-        [cx, cy + cm(27) * s, seatZ + cm(18)],
+        [cx, cy + cm(27) * s, backZ + cm(2)],
       ],
       cm(2),
       'floor',
     ),
     box(
-      cx - cm(22) * s,
+      cx - (cm(spec.backWCm) * s) / 2,
       cy + cm(23) * s,
-      seatZ + cm(16),
-      cm(44) * s,
+      backZ,
+      cm(spec.backWCm) * s,
       cm(6),
-      h - seatZ - cm(16),
+      h - backZ,
       'fabric',
-      {
-        radius: 0.45,
-        material: 'fabric',
-      },
+      { radius: 0.45, material: 'fabric' },
     ),
   );
   // Armrests: a post on each side and a pad on top.
-  for (const side of outline ? [] : [-1, 1]) {
-    const ax = cx + side * cm(24) * s;
+  for (const side of outline || !spec.arms ? [] : [-1, 1]) {
+    const ax = cx + side * (seatW / 2 - cm(1));
+    const armZ = seatZ + cm(spec.armCm);
     parts.push(
       tube(
         [
           [ax, cy + cm(6) * s, seatZ + cm(3)],
-          [ax + side * cm(2), cy + cm(6) * s, seatZ + cm(21)],
+          [ax + side * cm(2), cy + cm(6) * s, armZ],
         ],
         cm(1.5),
         'floor',
       ),
-      box(
-        ax + side * cm(2) - cm(3),
-        cy - cm(10) * s,
-        seatZ + cm(21),
-        cm(6),
-        cm(24) * s,
-        cm(2.5),
-        'floor',
-        {
-          radius: 0.4,
-        },
-      ),
+      box(ax + side * cm(2) - cm(3), cy - cm(10) * s, armZ, cm(6), cm(24) * s, cm(2.5), 'floor', {
+        radius: 0.4,
+      }),
     );
   }
   return parts;
 };
 
 /** An open bookcase against a wall at -y, its shelves full of books. */
-const bookcase: Build = (w, d, h) => {
-  const board = cm(1.8);
-  const plinth = cm(7);
+const bookcase: Build<'bookcase'> = (w, d, h, { spec }) => {
+  const board = cm(spec.boardCm);
+  const plinth = cm(spec.plinthCm);
   const parts: PropPart[] = [
     box(0, 0, 0, board, d, h, 'wood', { radius: 0.15, material: 'wood' }),
     box(w - board, 0, 0, board, d, h, 'wood', { radius: 0.15, material: 'wood' }),
@@ -275,7 +337,7 @@ const bookcase: Build = (w, d, h) => {
     box(board, cm(2), 0, w - 2 * board, d - cm(2), plinth, 'wood', { material: 'wood' }),
     box(board, 0, plinth, w - 2 * board, cm(1), h - board - plinth, 'wall'),
   ];
-  const rows = Math.max(1, Math.round((h - plinth) / cm(36)));
+  const rows = Math.max(1, Math.round((h - plinth) / cm(spec.shelfPitchCm)));
   const pitch = (h - board - plinth) / rows;
   const spines: IsoTone[] = ['book', 'paper', 'fabric', 'ceramic', 'plant', 'appliance', 'steel'];
   for (let r = 0; r < rows; r++) {
@@ -326,13 +388,13 @@ const bookcase: Build = (w, d, h) => {
 };
 
 /** A low chest of drawers, fronts facing +y. */
-const cabinet: Build = (w, d, h) => {
-  const plinth = cm(6);
+const cabinet: Build<'cabinet'> = (w, d, h, { spec }) => {
+  const plinth = cm(spec.plinthCm);
   const parts: PropPart[] = [
     box(cm(1), cm(1), 0, w - cm(2), d - cm(5), plinth, 'floor'),
     box(0, 0, plinth, w, d - cm(3.5), h - plinth, 'wood', { radius: 0.06, material: 'wood' }),
   ];
-  const drawers = Math.max(1, Math.round((h - plinth) / cm(20)));
+  const drawers = Math.max(1, Math.round((h - plinth) / cm(spec.drawerCm)));
   const gap = cm(0.8);
   const each = (h - plinth - cm(2) - gap * (drawers - 1)) / drawers;
   for (let i = 0; i < drawers; i++) {
@@ -351,17 +413,27 @@ const cabinet: Build = (w, d, h) => {
   return parts;
 };
 
-/** A 27-inch monitor on a stand, screen facing +y. */
-const monitor: Build = (w, d, h) => {
-  const panelZ = cm(11);
+/** A monitor on a stand, screen facing +y. */
+const monitor: Build<'monitor'> = (w, d, h, { spec }) => {
+  const panelZ = cm(spec.liftCm);
   const panelH = h - panelZ;
   const panelY = d / 2 + cm(1);
-  const neckW = cm(5);
+  const panel = cm(spec.panelCm);
+  const neckW = cm(spec.neckCm);
   return [
-    box(w / 2 - cm(12), d / 2 - cm(8), 0, cm(24), cm(18), cm(1.5), 'steel', {
-      radius: 0.5,
-      material: 'metal',
-    }),
+    box(
+      w / 2 - cm(spec.footWCm) / 2,
+      d / 2 - cm(8),
+      0,
+      cm(spec.footWCm),
+      cm(spec.footDCm),
+      cm(1.5),
+      'steel',
+      {
+        radius: 0.5,
+        material: 'metal',
+      },
+    ),
     box(
       w / 2 - neckW / 2,
       d / 2 - cm(5),
@@ -379,11 +451,11 @@ const monitor: Build = (w, d, h) => {
     box(w * 0.2, panelY - cm(3), panelZ + panelH * 0.12, w * 0.6, cm(3.5), panelH * 0.7, 'floor', {
       radius: 0.3,
     }),
-    box(0, panelY, panelZ, w, cm(1.8), panelH, 'floor', { radius: 0.12 }),
+    box(0, panelY, panelZ, w, panel, panelH, 'floor', { radius: 0.12 }),
     // The screen, behind a thin bezel.
     box(
       cm(0.8),
-      panelY + cm(1.6),
+      panelY + panel - cm(0.2),
       panelZ + cm(1.8),
       w - cm(1.6),
       cm(0.6),
@@ -398,18 +470,19 @@ const monitor: Build = (w, d, h) => {
 };
 
 /** A full-size keyboard, its keys in rows. */
-const keyboard: Build = (w, d, h) => {
+const keyboard: Build<'keyboard'> = (w, d, h, { spec }) => {
   const parts: PropPart[] = [box(0, 0, 0, w, d, h * 0.6, 'steel', { radius: 0.3 })];
-  const margin = cm(1.2);
-  const gap = cm(0.35);
-  const rows = 5;
-  const cols = 15;
+  const margin = cm(spec.marginCm);
+  const gap = cm(spec.gapCm);
+  const { rows, cols } = spec;
   const key = (w - 2 * margin - gap * (cols - 1)) / cols;
   const depth = (d - 2 * margin - gap * (rows - 1)) / rows;
   for (let r = 0; r < rows; r++) {
     const y = margin + r * (depth + gap);
-    // The bottom row: four keys, the space bar, four keys.
-    const widths = r === rows - 1 ? [1, 1, 1, 1.5, 6, 1.5, 1, 1, 1] : Array(cols).fill(1);
+    // The bottom row: four keys either side of a space bar as wide as the rest.
+    const side = [1, 1, 1, 1.5];
+    const widths =
+      r === rows - 1 ? [...side, cols - 2 * 4.5, ...[...side].reverse()] : Array(cols).fill(1);
     let x = margin;
     for (const span of widths) {
       const kw = key * span + gap * (span - 1);
@@ -421,8 +494,8 @@ const keyboard: Build = (w, d, h) => {
 };
 
 /** A hardback lying flat, its spine at -x. */
-const book: Build = (w, d, h) => {
-  const cover = Math.min(cm(0.4), h / 4);
+const book: Build<'book'> = (w, d, h, { spec }) => {
+  const cover = Math.min(cm(spec.coverCm), h / 4);
   const edge = cm(0.4);
   return [
     box(0, 0, 0, w, d, cover, 'book', { radius: 0.2 }),
@@ -434,7 +507,7 @@ const book: Build = (w, d, h) => {
   ];
 };
 
-const BUILDS: Record<PropForm, Build> = {
+const BUILDS: { [F in PropForm]: Build<F> } = {
   desk: legged('steel', false),
   table: legged('wood', true),
   chair,
@@ -586,7 +659,8 @@ export function propModel(
   // Build in the unturned frame, then turn it into the prop's box.
   let w = turns % 2 ? prop.size.d : prop.size.w;
   let d = turns % 2 ? prop.size.w : prop.size.d;
-  let parts = BUILDS[prop.form](w, d, prop.size.h, outline);
+  const build = BUILDS[prop.form] as Build<PropForm>;
+  let parts = build(w, d, prop.size.h, { outline, spec: furnitureSpec(prop.form) });
   for (let i = 0; i < turns; i++) {
     parts = parts.map((p) => turnPart(p, d));
     [w, d] = [d, w];

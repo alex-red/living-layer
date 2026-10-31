@@ -11,6 +11,7 @@ import type { AutoPin } from '../apps/server/src/pin.js';
 import { MetaAdapter } from '../apps/server/src/meta.js';
 import { EvidenceStore } from '../apps/server/src/store.js';
 import {
+  SCENE_TARGETS,
   cameraFromPin,
   cleanInventory,
   framePointInPicture,
@@ -280,15 +281,15 @@ describe('photo layout', () => {
       layout.pin!.corners.forEach((c, i) => {
         expect(
           Math.hypot(c.x - s.truth.corners[i]!.x, c.y - s.truth.corners[i]!.y) / diag,
-        ).toBeLessThan(0.025);
+        ).toBeLessThan(SCENE_TARGETS.corners);
       });
       expect(Math.abs(layout.camera!.surface.d - 2.5)).toBeLessThan(0.25);
       const origin = layout.origin!;
       const chair = layout.things.find((t) => t.id === 'chair')!;
       expect(chair.status).toBe('placed');
       const b = groupBounds(layout.scene, chair.group!)!;
-      expect(Math.abs(b.at.x - origin.x - 1.3)).toBeLessThan(0.5);
-      expect(Math.abs(b.at.y - origin.y - 3.2)).toBeLessThan(0.5);
+      expect(Math.abs(b.at.x - origin.x - 1.3)).toBeLessThan(SCENE_TARGETS.position);
+      expect(Math.abs(b.at.y - origin.y - 3.2)).toBeLessThan(SCENE_TARGETS.position);
       const mug = layout.things.find((t) => t.id === 'mug')!;
       expect(mug.status).toBe('object');
       expect(mug.foot!.at.z).toBeCloseTo(origin.z, 3);

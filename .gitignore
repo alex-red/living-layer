@@ -16,3 +16,6 @@ artifacts/
 
 # Private planning notes
 hackathon/
+
+# Script output (contact sheets, bench results)
+out/

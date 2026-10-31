@@ -1107,6 +1107,11 @@ export function refineFit(
 }
 
 /** Fit a model to a masked crop. */
+/**
+ * What a fitted turned body should reach, shared by the fit bench and the
+ * tests: silhouette overlap at least `iou`, colour error at most `deltaE`.
+ */
+export const FIT_TARGETS = { iou: 0.9, deltaE: 8 } as const;
 export function fitItem(input: FitInput): FitOutput {
   const photo = preparePhoto(input);
   const archetype = input.archetype ?? 'generic';

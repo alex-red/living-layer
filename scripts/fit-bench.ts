@@ -15,13 +15,17 @@
  * - real crops: any `testdata/items/<name>.png` (a masked RGBA crop) with a
  *   `<name>.json` of `{ "label", "archetype", "elevation"? }` beside it.
  *
- *   bun scripts/fit-bench.ts
+ *   bun run bench:fit
+ *   bun run bench:fit --json out/fit-base.json, later --compare out/fit-base.json
+ *
+ * Targets are FIT_TARGETS; flags are in scripts/lib/bench.ts.
  */
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import sharp from 'sharp';
 import {
   ARCHETYPE_FAMILY,
+  FIT_TARGETS,
   buildItem,
   defaultFit,
   fitItem,
@@ -32,6 +36,8 @@ import {
 } from '@livinglayer/domain';
 import { maskedCrop } from '../apps/server/src/images.js';
 import { demoReference, demoSegmentation } from '../apps/server/src/demo.js';
+import { parseArgs } from './lib/args.js';
+import { report, type Row } from './lib/bench.js';
 
 const root = resolve(import.meta.dir, '..');
 interface Case {
@@ -145,31 +151,38 @@ if (existsSync(dir))
  * samples and voxels. Reported, but they don't fail the run.
  */
 const KNOWN_GAPS = new Set(['desk lamp 15°', 'illustrated lamp']);
-let misses = 0;
-console.log('case                        source     archetype  IoU    ΔE     camera  ms');
+const rows: Row[] = [];
 for (const c of cases) {
   const start = performance.now();
   const out = fitItem(c.input);
   const ms = Math.round(performance.now() - start);
+  // Only turned bodies are held to the targets; the rest are shown as they are.
   const lathe = ARCHETYPE_FAMILY[c.input.archetype ?? 'generic'] === 'lathe';
-  const below = lathe && (out.score.iou < 0.9 || out.score.deltaE > 8);
-  const miss = below && c.source !== 'real' && !KNOWN_GAPS.has(c.name);
-  if (miss) misses++;
-  console.log(
-    [
-      c.name.padEnd(27),
-      c.source.padEnd(10),
-      out.archetype.padEnd(10),
-      out.score.iou.toFixed(3).padEnd(6),
-      out.score.deltaE.toFixed(2).padEnd(6),
-      `${Math.round(out.elevation)}°`.padEnd(7),
-      String(ms),
-      miss ? '  ← below target' : below ? '  ← below target (known gap)' : '',
-    ].join(' '),
-  );
+  const iou = out.score.iou.toFixed(3);
+  const deltaE = out.score.deltaE.toFixed(2);
+  rows.push({
+    case: c.name,
+    variant: 'as built',
+    knownGap: c.source === 'real' || KNOWN_GAPS.has(c.name),
+    metrics: lathe
+      ? {
+          IoU: { value: out.score.iou, target: FIT_TARGETS.iou, better: 'higher', digits: 3 },
+          ΔE: { value: out.score.deltaE, target: FIT_TARGETS.deltaE, better: 'lower' },
+        }
+      : {},
+    notes: {
+      source: c.source,
+      model: out.archetype,
+      ...(lathe ? {} : { 'IoU*': iou, 'ΔE*': deltaE }),
+      camera: `${Math.round(out.elevation)}°`,
+      ms: String(ms),
+    },
+  });
 }
+const code = report(rows, parseArgs(), 'fit');
+console.log('* shown, not held to a target: only turned bodies are.');
 if (!cases.some((c) => c.source === 'real'))
   console.log(
     '\nNo real crops in testdata/items yet: add <name>.png and <name>.json to measure them.',
   );
-process.exit(misses ? 1 : 0);
+process.exit(code);

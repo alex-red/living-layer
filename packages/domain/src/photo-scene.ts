@@ -807,6 +807,13 @@ function topOf(id: TemplateId, size?: { w: number; d: number }): number {
 const WORK_WIDTH = 200;
 /** How far from the pinned surface a thing may stand before it is left out, in tiles. */
 const REACH = 10;
+/**
+ * What a layout from one photo should reach, shared by the scene bench and
+ * the photo tests: pin corners within this share of the frame's diagonal,
+ * the surface's depth within this share of the truth, every thing within
+ * this many tiles of where it really stands.
+ */
+export const SCENE_TARGETS = { corners: 0.025, depth: 0.1, position: 0.5 } as const;
 const OFF = 24;
 const BIG = 64;
 

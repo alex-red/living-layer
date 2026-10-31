@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { IsoBox, IsoProp, IsoScene, IsoSurface } from './iso.js';
-import { cm, type PropForm } from './iso-furniture.js';
+import { cm, furnitureSpec, type PropForm } from './iso-furniture.js';
 
 /**
  * The prop palette: every preset, every scene a person builds and every
@@ -49,6 +49,8 @@ const surface = (
   z: number,
 ): IsoSurface => ({ id: `${g}:${id}`, label, propId, rect, z });
 
+/** How tall a form stands, from its measurements (see FURNITURE_SPECS). */
+const tall = (form: PropForm) => cm(furnitureSpec(form).heightCm);
 /**
  * One prop drawn as a furniture model, plus the surface on its top if it
  * has one. Sizes are real (see `cm`): a desk top stands at 72 cm.
@@ -57,13 +59,15 @@ function modelled(
   label: string,
   form: PropForm,
   tone: IsoProp['tone'],
-  h: number,
   top?: string,
 ): Template['build'] {
-  return (g, x, y, z, { w, d }) => ({
-    props: [prism(g, '', label, [x, y, z], [w, d, h], tone, { form })],
-    surfaces: top ? [surface(g, 'top', top, g, { x, y, w, d }, z + h)] : [],
-  });
+  return (g, x, y, z, { w, d }) => {
+    const h = tall(form);
+    return {
+      props: [prism(g, '', label, [x, y, z], [w, d, h], tone, { form })],
+      surfaces: top ? [surface(g, 'top', top, g, { x, y, w, d }, z + h)] : [],
+    };
+  };
 }
 
 export const PROP_TEMPLATES = {
@@ -71,31 +75,31 @@ export const PROP_TEMPLATES = {
     label: 'Desk',
     size: { w: 4, d: 2.5 },
     onTop: false,
-    build: modelled('Desk', 'desk', 'wood', cm(72), 'Desktop'),
+    build: modelled('Desk', 'desk', 'wood', 'Desktop'),
   },
   table: {
     label: 'Table',
     size: { w: 3, d: 3 },
     onTop: false,
-    build: modelled('Table', 'table', 'wood', cm(75), 'Table top'),
+    build: modelled('Table', 'table', 'wood', 'Table top'),
   },
   chair: {
     label: 'Chair',
     size: { w: cm(66), d: cm(66) },
     onTop: false,
-    build: modelled('Chair', 'chair', 'fabric', cm(95)),
+    build: modelled('Chair', 'chair', 'fabric'),
   },
   shelf: {
     label: 'Bookshelf',
     size: { w: cm(80), d: cm(30) },
     onTop: false,
-    build: modelled('Bookshelf', 'bookcase', 'wood', cm(120), 'Bookshelf top'),
+    build: modelled('Bookshelf', 'bookcase', 'wood', 'Bookshelf top'),
   },
   cabinet: {
     label: 'Cabinet',
     size: { w: cm(60), d: cm(40) },
     onTop: false,
-    build: modelled('Cabinet', 'cabinet', 'wood', cm(72), 'Cabinet top'),
+    build: modelled('Cabinet', 'cabinet', 'wood', 'Cabinet top'),
   },
   // The fridge opens toward +y with its door swung out on the left, so its
   // shelves read like a photo taken into it: back at the top of the frame.
@@ -176,7 +180,8 @@ export const PROP_TEMPLATES = {
     size: { w: cm(48), d: cm(48) },
     onTop: false,
     build: (g, x, y, z, { w, d }) => {
-      const pot = Math.min(w, d, cm(30));
+      const pot = Math.min(w, d, cm(furnitureSpec('pot').widthCm));
+      const potH = tall('pot');
       return {
         props: [
           prism(
@@ -184,11 +189,13 @@ export const PROP_TEMPLATES = {
             'pot',
             'Plant pot',
             [x + (w - pot) / 2, y + (d - pot) / 2, z],
-            [pot, pot, cm(28)],
+            [pot, pot, potH],
             'ceramic',
             { form: 'pot' },
           ),
-          prism(g, '', 'Plant', [x, y, z + cm(28)], [w, d, cm(56)], 'plant', { form: 'foliage' }),
+          prism(g, '', 'Plant', [x, y, z + potH], [w, d, tall('foliage')], 'plant', {
+            form: 'foliage',
+          }),
         ],
         surfaces: [],
       };
@@ -218,8 +225,8 @@ export const PROP_TEMPLATES = {
     size: { w: cm(20), d: cm(20) },
     onTop: true,
     build: (g, x, y, z, { w, d }) => {
-      const base = Math.min(w, d, cm(16));
-      const pole = cm(36);
+      const base = Math.min(w, d, cm(furnitureSpec('lamp-stand').baseCm));
+      const pole = tall('lamp-stand');
       return {
         props: [
           prism(
@@ -231,7 +238,7 @@ export const PROP_TEMPLATES = {
             'steel',
             { form: 'lamp-stand' },
           ),
-          prism(g, '', 'Desk lamp', [x, y, z + pole], [w, d, cm(14)], 'steel', {
+          prism(g, '', 'Desk lamp', [x, y, z + pole], [w, d, tall('lamp-shade')], 'steel', {
             role: 'lamp',
             form: 'lamp-shade',
           }),
@@ -244,37 +251,37 @@ export const PROP_TEMPLATES = {
     label: 'Monitor',
     size: { w: cm(61), d: cm(20) },
     onTop: true,
-    build: modelled('Monitor', 'monitor', 'appliance', cm(47)),
+    build: modelled('Monitor', 'monitor', 'appliance'),
   },
   keyboard: {
     label: 'Keyboard',
     size: { w: cm(44), d: cm(14) },
     onTop: true,
-    build: modelled('Keyboard', 'keyboard', 'appliance', cm(3)),
+    build: modelled('Keyboard', 'keyboard', 'appliance'),
   },
   book: {
     label: 'Book',
     size: { w: cm(16), d: cm(23) },
     onTop: true,
-    build: modelled('Book', 'book', 'book', cm(3.5)),
+    build: modelled('Book', 'book', 'book'),
   },
   bottle: {
     label: 'Bottle',
     size: { w: cm(7.5), d: cm(7.5) },
     onTop: true,
-    build: modelled('Bottle', 'bottle', 'glass', cm(26)),
+    build: modelled('Bottle', 'bottle', 'glass'),
   },
   jar: {
     label: 'Jar',
     size: { w: cm(10), d: cm(10) },
     onTop: true,
-    build: modelled('Jar', 'jar', 'ceramic', cm(12)),
+    build: modelled('Jar', 'jar', 'ceramic'),
   },
   carton: {
     label: 'Carton',
     size: { w: cm(7), d: cm(7) },
     onTop: true,
-    build: modelled('Carton', 'carton', 'paper', cm(24)),
+    build: modelled('Carton', 'carton', 'paper'),
   },
 } satisfies Record<string, Template>;
 export type TemplateId = keyof typeof PROP_TEMPLATES;

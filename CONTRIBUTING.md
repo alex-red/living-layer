@@ -28,6 +28,19 @@ A few conventions:
 - Dependencies are pinned to exact versions (`bunfig.toml` sets `exact`).
 - Don't commit anything from `.data/`, real photos, or `.env`.
 
+## Measuring changes
+
+Some changes pass the tests and still make things worse. These scripts show it in seconds, with no server:
+
+```sh
+bun run sheet                 # every furniture template, all four turns, as out/prop-sheet.png
+bun run bench:scene           # how well a scene is laid out from synthetic photos
+bun run bench:fit             # how well item models fit their crops
+bun run bench:at main scene   # the scene bench on main, then your tree against it
+```
+
+Each bench shows how much room every case has left before its target. `--set desk.topCm=3,4,5` tries other furniture measurements without editing code. If you change how something looks on purpose, update its golden picture with `UPDATE_GOLDEN=1 bun test tests/model.test.ts tests/furniture.test.ts`, and check the new PNGs before committing them. [AGENTS.md](AGENTS.md) has more on when to run which.
+
 ## Commit messages
 
 We use [Conventional Commits](https://www.conventionalcommits.org/):

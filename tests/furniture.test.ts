@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'bun:test';
 import {
+  FURNITURE_SPECS,
   ISO_PRESETS,
   TEMPLATE_IDS,
   believableWidth,
   cm,
+  depthOrder,
   groupBounds,
   isoSceneSchema,
   overlappingGroups,
@@ -11,8 +13,11 @@ import {
   propModel,
   propSolids,
   rotateGroup,
+  withFurniture,
   type IsoScene,
 } from '../packages/domain/src/index.js';
+import { drawProps } from '../scripts/lib/draw.js';
+import { expectGolden } from './lib/golden.js';
 
 const EPS = 1e-6;
 const scene = (id: (typeof TEMPLATE_IDS)[number]): IsoScene => {
@@ -101,5 +106,27 @@ describe('believable widths', () => {
     expect(believableWidth(0.4, 'thing', 'mug')).toBeCloseTo(0.4);
     // Nothing known about it: left as measured.
     expect(believableWidth(0.8, 'gadget')).toBe(0.8);
+  });
+});
+
+/**
+ * Reference sprites for every template, unturned, through the room's own
+ * palette: a change to a model's look shows up here first. Accept a new
+ * look with UPDATE_GOLDEN=1; look at all turns with `bun run sheet`.
+ */
+describe('reference furniture', () => {
+  for (const id of TEMPLATE_IDS)
+    it(`draws the ${id} as before`, async () => {
+      await expectGolden(`props/${id}`, drawProps(depthOrder(scene(id).props)));
+    });
+});
+
+describe('measurement overrides', () => {
+  it('builds with other measurements only inside withFurniture', () => {
+    const height = () => groupBounds(scene('desk'), 'desk')!.size.h;
+    expect(withFurniture({ desk: { heightCm: 60 } }, height)).toBeCloseTo(cm(60));
+    expect(height()).toBeCloseTo(cm(FURNITURE_SPECS.desk.heightCm));
+    const rails = (o = {}) => withFurniture(o, () => propModel(scene('desk').props[0]!)!.length);
+    expect(rails({ desk: { frontRail: true } })).toBe(rails() + 1);
   });
 });
