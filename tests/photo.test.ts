@@ -11,6 +11,7 @@ import type { AutoPin } from '../apps/server/src/pin.js';
 import { MetaAdapter } from '../apps/server/src/meta.js';
 import { EvidenceStore } from '../apps/server/src/store.js';
 import {
+  SCENE_CASES,
   SCENE_TARGETS,
   cameraFromPin,
   cleanInventory,
@@ -79,15 +80,10 @@ function camera(elevation: number, yaw: number, f: number, frame = { width: 1280
   const centre = Math.hypot(C[0]! - 2, C[1]! - 1.25, C[2]!);
   return Object.assign(project, { elevation: (Math.asin(C[2]! / centre) * 180) / Math.PI });
 }
-/** A desk with a chair in front of it and a mug on it, as SAM would outline them. */
-const deskPhoto = (elevation: number, yaw: number) =>
-  syntheticPhoto({
-    elevation,
-    yaw,
-    f: 1000,
-    furniture: [{ id: 'chair', as: 'chair', x: 1.3, y: 3.2 }],
-    objects: [{ id: 'mug', as: 'mug', x: 2.5, y: 1.2, r: 0.3, h: 0.7 }],
-  });
+/** The scene bench's desks: a chair in front, a mug and a bottle on top, as SAM would outline them. */
+const deskCases = SCENE_CASES.filter((c) => c.kind === 'desk');
+const deskPhoto = (name = 'desk, 35° turned') =>
+  syntheticPhoto(SCENE_CASES.find((c) => c.name === name)!.options);
 
 describe('photo masks', () => {
   it('reads SAM paths, absolute and relative, and fills them by the even-odd rule', () => {
@@ -245,13 +241,9 @@ describe('the pinned surface', () => {
 });
 
 describe('pin from one mask', () => {
-  for (const [elevation, yaw] of [
-    [35, 0.4],
-    [50, -0.3],
-    [28, 0],
-  ] as const)
-    it(`pins a close photo's desk from its outline alone (${elevation}°, turned ${yaw})`, () => {
-      const s = deskPhoto(elevation, yaw);
+  for (const { name } of deskCases)
+    it(`pins a close photo's desk from its outline alone (${name})`, () => {
+      const s = deskPhoto(name);
       const desk = s.segmentation.detections.find((d) => d.objectId === s.detections.surface)!;
       const pin = pinFromMask(desk, s.segmentation.frame)!;
       // The mug's hole and the legs are ignored, without the other masks.
@@ -266,13 +258,9 @@ describe('pin from one mask', () => {
 });
 
 describe('photo layout', () => {
-  for (const [elevation, yaw] of [
-    [35, 0.4],
-    [50, -0.3],
-    [28, 0],
-  ] as const)
-    it(`measures a desk, a chair and a mug from their masks (${elevation}°, turned ${yaw})`, () => {
-      const s = deskPhoto(elevation, yaw);
+  for (const { name } of deskCases)
+    it(`measures a desk, a chair and a mug from their masks (${name})`, () => {
+      const s = deskPhoto(name);
       const layout = layoutPhoto({ ...s, refine: true });
       expect(isoSceneSchema.safeParse(layout.scene).success).toBe(true);
       // The desk's top is found above its legs, and pinned within a few pixels.
@@ -283,30 +271,34 @@ describe('photo layout', () => {
           Math.hypot(c.x - s.truth.corners[i]!.x, c.y - s.truth.corners[i]!.y) / diag,
         ).toBeLessThan(SCENE_TARGETS.corners);
       });
-      expect(Math.abs(layout.camera!.surface.d - 2.5)).toBeLessThan(0.25);
+      const { surface, at } = s.truth;
+      expect(Math.abs(layout.camera!.surface.d - surface.d) / surface.d).toBeLessThan(
+        SCENE_TARGETS.depth,
+      );
       const origin = layout.origin!;
       const chair = layout.things.find((t) => t.id === 'chair')!;
       expect(chair.status).toBe('placed');
       const b = groupBounds(layout.scene, chair.group!)!;
-      expect(Math.abs(b.at.x - origin.x - 1.3)).toBeLessThan(SCENE_TARGETS.position);
-      expect(Math.abs(b.at.y - origin.y - 3.2)).toBeLessThan(SCENE_TARGETS.position);
+      expect(Math.abs(b.at.x - origin.x - at.chair!.x)).toBeLessThan(SCENE_TARGETS.position);
+      expect(Math.abs(b.at.y - origin.y - at.chair!.y)).toBeLessThan(SCENE_TARGETS.position);
       const mug = layout.things.find((t) => t.id === 'mug')!;
       expect(mug.status).toBe('object');
       expect(mug.foot!.at.z).toBeCloseTo(origin.z, 3);
-      expect(Math.abs(mug.foot!.at.x + mug.foot!.size.w / 2 - origin.x - 2.5)).toBeLessThan(0.3);
-      expect(Math.abs(mug.foot!.at.y + mug.foot!.size.d / 2 - origin.y - 1.2)).toBeLessThan(0.4);
+      const x = mug.foot!.at.x + mug.foot!.size.w / 2 - origin.x;
+      const y = mug.foot!.at.y + mug.foot!.size.d / 2 - origin.y;
+      expect(Math.hypot(x - at.mug!.x, y - at.mug!.y)).toBeLessThan(SCENE_TARGETS.position);
       expect(layout.score!).toBeGreaterThan(0.7);
       expect(chair.iou!).toBeGreaterThan(0.6);
     });
   it('reads the same desk when a review edit lays the draft out again from its own corners', () => {
-    const s = deskPhoto(35, 0.4);
+    const s = deskPhoto();
     const draft = layoutPhoto({ ...s, refine: true });
     const again = layoutPhoto({ ...s, corners: draft.pin!.corners, refine: true });
     expect(again.camera!.surface.w).toBe(draft.camera!.surface.w);
     expect(again.camera!.surface.d).toBeCloseTo(draft.camera!.surface.d, 6);
   });
   it('paints the desk top from the photo where the camera saw it', () => {
-    const s = deskPhoto(35, 0.4);
+    const s = deskPhoto();
     const layout = layoutPhoto({ ...s, refine: true });
     // A photo that is red on its upper half and blue below, at the frame's size.
     const { width, height } = s.segmentation.frame;
@@ -339,17 +331,22 @@ describe('photo layout', () => {
     for (let n = 3; n < top!.data.length; n += 4) expect(top!.data[n]).toBe(255);
   });
   it('spreads things over the room without a surface, and leaves the pin to a person', () => {
-    const layout = layoutPhoto({ ...deskPhoto(35, 0.4), edits: { surface: { as: 'rug' } } });
+    const layout = layoutPhoto({ ...deskPhoto(), edits: { surface: { as: 'rug' } } });
     expect(layout.pin).toBeNull();
     expect(layout.camera).toBeNull();
     expect(layout.things.find((t) => t.id === 'chair')!.status).toBe('placed');
     expect(isoSceneSchema.safeParse(layout.scene).success).toBe(true);
   });
   it('leaves out what a person removed and what SAM did not find', () => {
-    const s = deskPhoto(35, 0.4);
+    const s = deskPhoto();
     const { chair: _, ...found } = s.detections;
     const layout = layoutPhoto({ ...s, detections: found, edits: { mug: { removed: true } } });
-    expect(layout.things.map((t) => t.status)).toEqual(['placed', 'not-found', 'removed']);
+    expect(layout.things.map((t) => t.status)).toEqual([
+      'placed',
+      'not-found',
+      'removed',
+      'object',
+    ]);
     expect(layout.scene.props.every((p) => p.group === 'desk')).toBe(true);
   });
   it('stands untracked objects with a template in the saved scene, and leaves tracked ones out', () => {
