@@ -26,7 +26,9 @@ export type IsoTone =
   | 'glass'
   | 'appliance'
   | 'plant'
-  | 'ceramic';
+  | 'ceramic'
+  | 'screen'
+  | 'soil';
 export interface IsoVec {
   x: number;
   y: number;
@@ -253,6 +255,8 @@ const isoPropSchema = z
       'appliance',
       'plant',
       'ceramic',
+      'screen',
+      'soil',
     ]),
     group: z.string().min(1).max(32),
     template: z.enum(TEMPLATE_IDS).optional(),

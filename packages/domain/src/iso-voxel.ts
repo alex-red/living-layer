@@ -575,8 +575,9 @@ export function voxelize(
       const along = part.size.w >= part.size.d ? x - part.at.x : y - part.at.y;
       const across = part.size.w >= part.size.d ? y - part.at.y : x - part.at.x;
       const len2 = Math.max(part.size.w, part.size.d);
-      const g = ((across / len2) * 9 + Math.sin((along / len2) * 7 + across * 3) * 0.35) % 1;
-      if (g - Math.floor(g) < 0.2) c = [c[0] * 0.9, c[1], c[2] * 1.05];
+      const g = ((across / len2) * 9 + Math.sin((along / len2) * 5 + across * 3) * 0.12) % 1;
+      // Fine streaks, a shade apart: grain, not stripes.
+      if (g - Math.floor(g) < 0.08) c = [c[0] * 0.9, c[1], c[2] * 1.03];
     } else if (material === 'fabric' && (ix + iy + iz) % 2) c = [c[0] * 0.95, c[1], c[2]];
     colors[k * 3] = c[0];
     colors[k * 3 + 1] = c[1];

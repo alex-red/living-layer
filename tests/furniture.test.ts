@@ -126,7 +126,9 @@ describe('measurement overrides', () => {
     const height = () => groupBounds(scene('desk'), 'desk')!.size.h;
     expect(withFurniture({ desk: { heightCm: 60 } }, height)).toBeCloseTo(cm(60));
     expect(height()).toBeCloseTo(cm(FURNITURE_SPECS.desk.heightCm));
-    const rails = (o = {}) => withFurniture(o, () => propModel(scene('desk').props[0]!)!.length);
-    expect(rails({ desk: { frontRail: true } })).toBe(rails() + 1);
+    const parts = (o = {}) => withFurniture(o, () => propModel(scene('desk').props[0]!)!.length);
+    // Rails under the top (back, sides, and the front when asked for) only when they have a size.
+    expect(parts({ desk: { railCm: 5 } })).toBe(parts() + 3);
+    expect(parts({ desk: { railCm: 5, frontRail: true } })).toBe(parts() + 4);
   });
 });

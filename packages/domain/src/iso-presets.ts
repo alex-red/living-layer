@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { IsoScene, IsoSceneKind, IsoSurface, SurfacePin } from './iso.js';
+import { cm } from './iso-furniture.js';
 import { placeTemplate } from './iso-templates.js';
 
 type Item = Parameters<typeof placeTemplate>;
@@ -33,7 +34,8 @@ const deskScene = compose('desk', 'Office desk', { w: 8, d: 6 }, [
 const officeScene = compose('office', 'Office', { w: 10, d: 8 }, [
   ['wall', 'wall-back', 0, 0, 0, { size: { w: 10, d: 0.2 }, label: 'Back wall' }],
   ['wall', 'wall-left', 0, 0.2, 0, { size: { w: 0.2, d: 7.8 }, label: 'Left wall' }],
-  ['desk', 'desk', 1.2, 1.2, 0, { size: { w: 5, d: 3 } }],
+  // A 160 × 80 cm desk.
+  ['desk', 'desk', 1.2, 1.2, 0, { size: { w: cm(160), d: cm(80) } }],
   ['monitor', 'monitor', 2.7, 1.45, 2.4, { optional: true }],
   ['keyboard', 'keyboard', 2.97, 2.75, 2.4, { optional: true }],
   ['book', 'book', 1.5, 1.55, 2.4, { label: 'Green book', optional: true }],

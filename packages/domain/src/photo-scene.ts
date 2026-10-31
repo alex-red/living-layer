@@ -1376,6 +1376,8 @@ const FLAT: Record<IsoTone, [number, number, number]> = {
   appliance: [60, 62, 70],
   plant: [70, 140, 80],
   ceramic: [220, 214, 196],
+  screen: [40, 50, 80],
+  soil: [100, 70, 50],
 };
 /**
  * The layout drawn from the photo's camera in flat colours, far things first,

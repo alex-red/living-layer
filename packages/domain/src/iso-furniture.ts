@@ -50,9 +50,11 @@ export interface PropPart {
   radius?: number;
   /** Blob: how lumpy, 0 to 1. */
   rough?: number;
+  /** Lathe: an open top with walls this thick, as a share of the radius. */
+  wall?: number;
 }
 
-type Opts = Partial<Pick<PropPart, 'material' | 'radius' | 'profile' | 'rough'>>;
+type Opts = Partial<Pick<PropPart, 'material' | 'radius' | 'profile' | 'rough' | 'wall'>>;
 const box = (
   x: number,
   y: number,
@@ -126,7 +128,7 @@ function seeded(seed: number) {
  * proportions with `withFurniture`, without editing this file.
  */
 export const FURNITURE_SPECS = {
-  desk: { heightCm: 72, topCm: 5, legCm: 5, insetCm: 5, railCm: 5, frontRail: false },
+  desk: { heightCm: 72, topCm: 6, legCm: 6, insetCm: 2, railCm: 0, frontRail: false },
   table: { heightCm: 75, topCm: 5, legCm: 6, insetCm: 5, railCm: 5, frontRail: false },
   chair: {
     heightCm: 98,
@@ -135,10 +137,12 @@ export const FURNITURE_SPECS = {
     seatCm: 40,
     seatWCm: 50,
     seatDCm: 48,
-    cushionCm: 7,
+    cushionCm: 9,
     reachCm: 30,
     backWCm: 44,
-    backGapCm: 16,
+    /** From the seat's underside to the back's lower edge. */
+    backGapCm: 14,
+    backCm: 7,
     armCm: 21,
     arms: true,
   },
@@ -193,7 +197,7 @@ type Build<F extends PropForm> = (
   o: { outline: boolean; spec: FurnitureSpecs[F] },
 ) => PropPart[];
 
-/** A slab on four legs with rails under it, its top at `h`. */
+/** A slab on four legs, its top at `h`, with rails under it when `railCm` isn't 0. */
 function legged(legTone: IsoTone, round: boolean): Build<'desk' | 'table'> {
   return (w, d, h, { spec }) => {
     const top = cm(spec.topCm);
@@ -202,12 +206,24 @@ function legged(legTone: IsoTone, round: boolean): Build<'desk' | 'table'> {
     const rail = cm(spec.railCm);
     const under = h - top;
     const span = w - 2 * (inset + leg);
+    const side = d - 2 * (inset + leg);
     const corners = [
       [inset, inset],
       [w - inset - leg, inset],
       [inset, d - inset - leg],
       [w - inset - leg, d - inset - leg],
     ] as const;
+    // Rails hold the legs at the back and sides; the front can stay open for knees.
+    const rails = rail
+      ? [
+          box(inset + leg, inset, under - rail, span, cm(2), rail, legTone),
+          ...(spec.frontRail
+            ? [box(inset + leg, d - inset - cm(2), under - rail, span, cm(2), rail, legTone)]
+            : []),
+          box(inset, inset + leg, under - rail, cm(2), side, rail, legTone),
+          box(w - inset - cm(2), inset + leg, under - rail, cm(2), side, rail, legTone),
+        ]
+      : [];
     return [
       ...corners.map(([x, y]) =>
         round
@@ -215,37 +231,27 @@ function legged(legTone: IsoTone, round: boolean): Build<'desk' | 'table'> {
               { r: 0.7, z: 0 },
               { r: 1, z: 1 },
             ])
-          : box(x, y, 0, leg, leg, under, legTone, { radius: 0.2, material: 'metal' }),
+          : box(x, y, 0, leg, leg, under, legTone, { radius: 0.15, material: 'matte' }),
       ),
-      // Rails hold the legs at the back and sides; the front can stay open for knees.
-      box(inset + leg, inset, under - rail, span, cm(2), rail, legTone),
-      ...(spec.frontRail
-        ? [box(inset + leg, d - inset - cm(2), under - rail, span, cm(2), rail, legTone)]
-        : []),
-      box(inset, inset + leg, under - rail, cm(2), d - 2 * (inset + leg), rail, legTone),
-      box(
-        w - inset - cm(2),
-        inset + leg,
-        under - rail,
-        cm(2),
-        d - 2 * (inset + leg),
-        rail,
-        legTone,
-      ),
-      box(0, 0, under, w, d, top, 'wood', { radius: 0.3, material: 'wood' }),
+      ...rails,
+      box(0, 0, under, w, d, top, 'wood', { radius: 0.25, material: 'wood' }),
     ];
   };
 }
 
-/** An office chair facing -y (toward the desk), its back toward +y. */
+/**
+ * An office chair facing -y (toward the desk), its back toward +y: a thick
+ * cushion, a slab back on a bracket, arms each side, five spokes on casters.
+ */
 const chair: Build<'chair'> = (w, d, h, { outline, spec }) => {
   const cx = w / 2;
   const cy = d / 2;
   const s = Math.min(w, d) / cm(spec.footprintCm);
   const reach = cm(spec.reachCm) * s;
+  const wheel = cm(3);
   const parts: PropPart[] = [];
   // The base's footprint, casters included, for a camera's outline.
-  const foot = reach + cm(2.6);
+  const foot = reach + wheel;
   if (outline)
     parts.push(turned(cx - foot, cy - foot, 0, foot * 2, foot * 2, cm(10), 'steel', CYLINDER));
   // Five spokes from the hub, each on a caster.
@@ -257,70 +263,65 @@ const chair: Build<'chair'> = (w, d, h, { outline, spec }) => {
       tube(
         [
           [cx, cy, cm(10)],
-          [ex, ey, cm(7)],
+          [ex, ey, cm(8)],
         ],
-        cm(1.8),
+        cm(2.2),
         'steel',
-        { material: 'metal' },
+        { material: 'matte' },
       ),
-      turned(ex - cm(2.6), ey - cm(2.6), 0, cm(5.2), cm(5.2), cm(5.5), 'floor', CYLINDER),
+      turned(ex - wheel, ey - wheel, 0, wheel * 2, wheel * 2, cm(6), 'floor', CYLINDER),
     );
   }
   const seatZ = cm(spec.seatCm);
   const seatW = cm(spec.seatWCm) * s;
   const seatD = cm(spec.seatDCm) * s;
+  const cushion = cm(spec.cushionCm);
   const backZ = seatZ + cm(spec.backGapCm);
+  const backT = cm(spec.backCm);
+  // The back stands at the seat's rear edge, a little behind it.
+  const backY = cy - seatW / 2 + seatD - backT * 0.6;
   parts.push(
-    turned(cx - cm(4), cy - cm(4), cm(7), cm(8), cm(8), cm(6), 'steel', CYLINDER, {
-      material: 'metal',
+    turned(cx - cm(5), cy - cm(5), cm(6), cm(10), cm(10), cm(7), 'steel', CYLINDER, {
+      material: 'matte',
     }),
-    // The gas lift in its shroud.
-    turned(cx - cm(3), cy - cm(3), cm(12), cm(6), cm(6), cm(12), 'floor', CYLINDER),
-    turned(cx - cm(2), cy - cm(2), cm(24), cm(4), cm(4), seatZ - cm(24), 'steel', CYLINDER, {
-      material: 'metal',
-    }),
-    box(cx - cm(10), cy - cm(10), seatZ - cm(2), cm(20), cm(20), cm(3), 'floor'),
-    box(cx - seatW / 2, cy - seatW / 2, seatZ, seatW, seatD, cm(spec.cushionCm), 'fabric', {
-      radius: 0.45,
+    // The gas lift.
+    turned(cx - cm(3), cy - cm(3), cm(12), cm(6), cm(6), seatZ - cm(14), 'floor', CYLINDER),
+    box(cx - cm(11), cy - cm(11), seatZ - cm(3), cm(22), cm(22), cm(4), 'floor'),
+    box(cx - seatW / 2, cy - seatW / 2, seatZ, seatW, seatD, cushion, 'fabric', {
+      radius: 0.5,
       material: 'fabric',
     }),
-    // The back, on a bent spine from under the seat.
-    tube(
-      [
-        [cx, cy + cm(14) * s, seatZ + cm(1)],
-        [cx, cy + cm(27) * s, seatZ + cm(2)],
-        [cx, cy + cm(27) * s, backZ + cm(2)],
-      ],
-      cm(2),
+    // The bracket that carries the back, behind the seat.
+    box(
+      cx - cm(6),
+      backY - cm(1),
+      seatZ - cm(2),
+      cm(12),
+      backT + cm(1),
+      backZ - seatZ + cm(6),
       'floor',
     ),
     box(
       cx - (cm(spec.backWCm) * s) / 2,
-      cy + cm(23) * s,
+      backY,
       backZ,
       cm(spec.backWCm) * s,
-      cm(6),
+      backT,
       h - backZ,
       'fabric',
-      { radius: 0.45, material: 'fabric' },
+      {
+        radius: 0.5,
+        material: 'fabric',
+      },
     ),
   );
   // Armrests: a post on each side and a pad on top.
   for (const side of outline || !spec.arms ? [] : [-1, 1]) {
-    const ax = cx + side * (seatW / 2 - cm(1));
+    const ax = cx + side * (seatW / 2 + cm(1)) - cm(2);
     const armZ = seatZ + cm(spec.armCm);
     parts.push(
-      tube(
-        [
-          [ax, cy + cm(6) * s, seatZ + cm(3)],
-          [ax + side * cm(2), cy + cm(6) * s, armZ],
-        ],
-        cm(1.5),
-        'floor',
-      ),
-      box(ax + side * cm(2) - cm(3), cy - cm(10) * s, armZ, cm(6), cm(24) * s, cm(2.5), 'floor', {
-        radius: 0.4,
-      }),
+      box(ax, cy - cm(2) * s, seatZ + cm(2), cm(4), cm(5), armZ - seatZ - cm(2), 'floor'),
+      box(ax - cm(1), cy - cm(12) * s, armZ, cm(6), cm(26) * s, cm(3), 'floor', { radius: 0.4 }),
     );
   }
   return parts;
@@ -339,7 +340,7 @@ const bookcase: Build<'bookcase'> = (w, d, h, { spec }) => {
   ];
   const rows = Math.max(1, Math.round((h - plinth) / cm(spec.shelfPitchCm)));
   const pitch = (h - board - plinth) / rows;
-  const spines: IsoTone[] = ['book', 'paper', 'fabric', 'ceramic', 'plant', 'appliance', 'steel'];
+  const spines: IsoTone[] = ['paper', 'book', 'fabric', 'paper', 'screen', 'book', 'appliance'];
   for (let r = 0; r < rows; r++) {
     const floor = plinth + r * pitch + (r ? board : 0);
     if (r) parts.push(box(board, cm(1), floor - board, w - 2 * board, d - cm(1.5), board, 'wood'));
@@ -460,10 +461,10 @@ const monitor: Build<'monitor'> = (w, d, h, { spec }) => {
       w - cm(1.6),
       cm(0.6),
       panelH - cm(2.6),
-      'glass',
+      'screen',
       {
         radius: 0.02,
-        material: 'glass',
+        material: 'gloss',
       },
     ),
   ];
@@ -513,44 +514,56 @@ const BUILDS: { [F in PropForm]: Build<F> } = {
   chair,
   bookcase,
   cabinet,
+  // A tapered pot with a rolled rim, open, with soil a little under the rim.
   pot: (w, d, h) => [
-    turned(0, 0, 0, w, d, h * 0.92, 'ceramic', [
-      { r: 0.72, z: 0 },
-      { r: 0.8, z: 0.08 },
-      { r: 0.94, z: 1 },
-    ]),
-    turned(0, 0, h * 0.88, w, d, h * 0.12, 'ceramic', [
-      { r: 1, z: 0 },
-      { r: 1, z: 1 },
-    ]),
+    turned(
+      0,
+      0,
+      0,
+      w,
+      d,
+      h,
+      'ceramic',
+      [
+        { r: 0.74, z: 0 },
+        { r: 0.8, z: 0.06 },
+        { r: 0.92, z: 0.8 },
+        { r: 1, z: 0.82 },
+        { r: 1, z: 1 },
+      ],
+      { wall: 0.12 },
+    ),
+    turned(w * 0.1, d * 0.1, h * 0.75, w * 0.8, d * 0.8, h * 0.13, 'soil', CYLINDER),
   ],
+  // A trunk out of the soil and a rounded crown of clumps.
   foliage: (w, d, h) => {
     const rand = seeded(7);
+    const clump = (cx: number, cy: number, z: number, s: number): PropPart => ({
+      shape: 'blob',
+      at: { x: w * (cx - s / 2), y: d * (cy - s / 2), z: h * z },
+      size: { w: w * s, d: d * s, h: h * s * 0.85 },
+      tone: 'plant',
+      rough: 0.35,
+    });
     const parts: PropPart[] = [
-      {
-        shape: 'blob',
-        at: { x: w * 0.2, y: d * 0.2, z: 0 },
-        size: { w: w * 0.6, d: d * 0.6, h: h * 0.55 },
-        tone: 'plant',
-        rough: 0.7,
-      },
+      tube(
+        [
+          [w / 2, d / 2, 0],
+          [w / 2, d / 2, h * 0.4],
+        ],
+        cm(1.2),
+        'soil',
+      ),
+      clump(0.5, 0.5, 0.55, 0.42),
     ];
-    for (let i = 0; i < 6; i++) {
-      const a = (i / 6) * Math.PI * 2 + rand();
-      const r = 0.18 + rand() * 0.06;
-      const s = 0.36 + rand() * 0.12;
-      parts.push({
-        shape: 'blob',
-        at: {
-          x: w * (0.5 + Math.cos(a) * r - s / 2),
-          y: d * (0.5 + Math.sin(a) * r - s / 2),
-          z: h * (0.15 + rand() * 0.45),
-        },
-        size: { w: w * s, d: d * s, h: h * 0.4 },
-        tone: 'plant',
-        rough: 0.8,
-      });
-    }
+    for (const [ring, z, count, s] of [
+      [0.24, 0.32, 6, 0.36],
+      [0.16, 0.18, 4, 0.3],
+    ] as const)
+      for (let i = 0; i < count; i++) {
+        const a = (i / count) * Math.PI * 2 + rand() * 0.6;
+        parts.push(clump(0.5 + Math.cos(a) * ring, 0.5 + Math.sin(a) * ring, z + rand() * 0.08, s));
+      }
     return parts;
   },
   'lamp-stand': (w, d, h) => [

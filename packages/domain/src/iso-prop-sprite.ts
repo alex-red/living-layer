@@ -11,19 +11,25 @@ import { renderSprite, voxelize, type Sprite } from './iso-voxel.js';
  * same pixels.
  */
 
-/** Muted materials for the dark room. The signal colours stay for the overlay. */
+/**
+ * Materials for the dark room, as the colour of a face lit side-on: a top
+ * is a step lighter and a face turned from the light two steps darker (see
+ * `rampLab`). Matched to the reference picture of the office.
+ */
 export const PROP_TONES: Record<IsoTone, string> = {
   floor: '#171b27',
-  wall: '#202535',
-  wood: '#5b4c3f',
-  steel: '#4a5164',
-  fabric: '#3a4659',
-  paper: '#c9c3b5',
-  book: '#3c554a',
+  wall: '#1d273f',
+  wood: '#7c583e',
+  steel: '#5b6788',
+  fabric: '#4f5876',
+  paper: '#cbc5b9',
+  book: '#34683e',
   glass: '#5f7c88',
-  appliance: '#8d93a1',
-  plant: '#4d6a54',
-  ceramic: '#b3a796',
+  appliance: '#99a5c3',
+  plant: '#3b8b3f',
+  ceramic: '#c1b9a9',
+  screen: '#2c3858',
+  soil: '#57372b',
 };
 const TONE_MATERIAL: Partial<Record<IsoTone, ItemMaterial>> = {
   wood: 'wood',
@@ -32,6 +38,7 @@ const TONE_MATERIAL: Partial<Record<IsoTone, ItemMaterial>> = {
   glass: 'glass',
   appliance: 'gloss',
   ceramic: 'gloss',
+  screen: 'gloss',
 };
 /**
  * The room's palette: four ramp steps and an outline for every tone. Props
