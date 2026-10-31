@@ -6,68 +6,29 @@
  * room is left before each target (SCENE_TARGETS): the fitted pin's corners
  * against the true ones (share of the frame diagonal), the surface depth the
  * corners imply against the truth, and the worst position error of any thing
- * in tiles. The illustrated demo is listed too. Flags are in scripts/lib/bench.ts.
+ * in tiles. The cases are SCENE_CASES, which the tests lay out too. The
+ * illustrated demo is listed as well. Flags are in scripts/lib/bench.ts.
  *
  *   bun run bench:scene
  *   bun run bench:scene --set desk.topCm=3,4,5      sweep a measurement
  *   bun run bench:scene --compare out/scene-base.json
  */
 import {
+  SCENE_CASES,
   SCENE_TARGETS,
   groupBounds,
   layoutPhoto,
   syntheticPhoto,
   withFurniture,
-  type SyntheticPhotoOptions,
 } from '@livinglayer/domain';
 import { parseArgs, variants } from './lib/args.js';
 import { report, type Row } from './lib/bench.js';
 import { demoPhotoInventory, demoPhotoSegmentation } from '../apps/server/src/demo.js';
 
-const deskThings: Pick<SyntheticPhotoOptions, 'furniture' | 'objects'> = {
-  furniture: [{ id: 'chair', as: 'chair', x: 1.3, y: 3.2 }],
-  objects: [
-    { id: 'mug', as: 'mug', x: 2.6, y: 1.2, r: 0.3, h: 0.7 },
-    { id: 'bottle', as: 'bottle', x: 0.7, y: 0.8, r: 0.25, h: 1.5 },
-  ],
-};
-const roomThings: Pick<SyntheticPhotoOptions, 'furniture' | 'objects'> = {
-  furniture: [
-    { id: 'chair', as: 'chair', x: 1.6, y: 3.3 },
-    { id: 'shelf', as: 'shelf', x: 5.2, y: -0.4 },
-    { id: 'plant', as: 'plant', x: -1.8, y: 1.6 },
-  ],
-  objects: [{ id: 'mug', as: 'mug', x: 3, y: 1.4, r: 0.3, h: 0.7 }],
-};
-const cases: { name: string; options: SyntheticPhotoOptions }[] = [
-  { name: 'desk, 35° turned', options: { elevation: 35, yaw: 0.4, f: 1000, ...deskThings } },
-  { name: 'desk, 50° turned', options: { elevation: 50, yaw: -0.3, f: 1000, ...deskThings } },
-  { name: 'desk, 28° square on', options: { elevation: 28, yaw: 0, f: 1000, ...deskThings } },
-  { name: 'desk, 60° wide lens', options: { elevation: 60, yaw: 0.25, f: 700, ...deskThings } },
-  {
-    name: 'table, 40° turned',
-    options: {
-      elevation: 40,
-      yaw: -0.5,
-      f: 1100,
-      surface: { as: 'table', w: 3, d: 3 },
-      objects: deskThings.objects,
-    },
-  },
-  { name: 'room, 32° turned', options: { elevation: 32, yaw: 0.35, f: 900, ...roomThings } },
-];
-
-/**
- * A square table top seen at an angle can't tell its depth from its width
- * as surely as a desk's long edge does: its depth reads 12% short. Reported,
- * but it doesn't fail the run.
- */
-const KNOWN_GAPS = new Set(['table, 40° turned']);
-
 const args = parseArgs();
 const rows: Row[] = [];
 for (const v of variants(args.flags.get('set')))
-  for (const c of cases)
+  for (const c of SCENE_CASES)
     withFurniture(v.overrides, () => {
       const s = syntheticPhoto(c.options);
       const start = performance.now();
@@ -104,7 +65,6 @@ for (const v of variants(args.flags.get('set')))
       rows.push({
         case: c.name,
         variant: v.label,
-        knownGap: KNOWN_GAPS.has(c.name),
         metrics: {
           corners: { value: corners, target: SCENE_TARGETS.corners, better: 'lower', unit: '%' },
           depth: {

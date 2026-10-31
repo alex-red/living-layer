@@ -1068,7 +1068,26 @@ export function layoutPhoto(input: LayoutInput): PhotoLayout {
     });
   }
 
-  // 4. Move it all into a grid that just fits, half a tile from the edges.
+  // 4. Score each drawing against its mask, nudging things into place when
+  // asked, while the grid is still roomy enough not to stop them.
+  let score: number | null = null;
+  if (camera && origin) {
+    const draft: PhotoLayout = {
+      scene,
+      pin: null,
+      camera,
+      surfaceThing: surfaceThing?.id ?? null,
+      quadIou,
+      things,
+      score: null,
+      origin,
+    };
+    scoreLayout(draft, masks, scale, input.refine ?? false);
+    scene = draft.scene;
+    score = draft.score;
+  }
+
+  // 5. Move it all into a grid that just fits, half a tile from the edges.
   const boxes: IsoBox[] = [
     ...scene.props,
     ...things.filter((t) => t.status === 'object').map((t) => t.foot!),
@@ -1113,10 +1132,9 @@ export function layoutPhoto(input: LayoutInput): PhotoLayout {
     surfaceThing: surfaceThing?.id ?? null,
     quadIou,
     things,
-    score: null,
+    score,
     origin,
   };
-  if (camera && origin) scoreLayout(layout, masks, scale, input.refine ?? false);
   return layout;
 }
 const clamp = (n: number, min: number, max: number) => Math.max(min, Math.min(max, n));
@@ -1233,6 +1251,20 @@ function turnToFit(
   return best;
 }
 /**
+ * How `refinePin` may move the corners in one step, as a direction for each
+ * (1 with the step, -1 against it, 0 still): one corner, an edge slid,
+ * an edge stretched or squeezed, or all four. Moving one corner at a time
+ * can't slide or widen an edge without shearing the quad, so it stalls
+ * short of the top's real edges.
+ */
+const MOVES: number[][] = [
+  ...[0, 1, 2, 3].map((k) => [0, 1, 2, 3].map((i) => Number(i === k))),
+  ...[0, 1, 2, 3].flatMap((k) =>
+    [1, -1].map((sign) => [0, 1, 2, 3].map((i) => (i === k ? 1 : i === (k + 1) % 4 ? sign : 0))),
+  ),
+  [1, 1, 1, 1],
+];
+/**
  * Corners nudged until the whole surface template, top, front and legs,
  * drawn from the camera those corners imply, matches the surface's mask. A
  * quad fitted to the mask alone sits on the front face's bottom edge, not
@@ -1259,17 +1291,22 @@ function refinePin(
   let best = corners.map((p) => ({ ...p })) as Quad;
   let score = match(best);
   let evaluations = 0;
-  for (let step = Math.max(frame.width, frame.height) * 0.02; step * scale >= 0.5; step /= 2)
-    for (let moved = true; moved && evaluations < 400;) {
+  // Down to an eighth of a working pixel: a corner moved that little still
+  // tips the camera enough to move some of the template's edges across one.
+  for (let step = Math.max(frame.width, frame.height) * 0.02; step * scale >= 0.125; step /= 2)
+    for (let moved = true; moved && evaluations < 1500;) {
       moved = false;
-      for (let k = 0; k < 4; k++)
+      for (const move of MOVES)
         for (const [dx, dy] of [
           [0, step],
           [0, -step],
           [step, 0],
           [-step, 0],
         ] as const) {
-          const q = best.map((p, i) => (i === k ? { x: p.x + dx, y: p.y + dy } : p)) as Quad;
+          const q = best.map((p, i) => ({
+            x: p.x + dx * move[i]!,
+            y: p.y + dy * move[i]!,
+          })) as Quad;
           evaluations++;
           const s = match(q);
           if (s > score + 1e-5) {
@@ -1286,9 +1323,10 @@ function refinePin(
 }
 /**
  * Score every thing's drawing against its mask, and when asked, nudge each
- * placed template (not the pinned surface) by turns and half, quarter and
- * eighth tiles while its match improves. Pixels another mask covers don't
- * count against a thing, since that other thing may stand in front of it.
+ * placed template (not the pinned surface) at each of its turns by whole,
+ * half, quarter and eighth tiles while its match improves, keeping the best.
+ * Pixels another mask covers don't count against a thing, since that other
+ * thing may stand in front of it.
  */
 function scoreLayout(
   layout: PhotoLayout,
@@ -1321,36 +1359,39 @@ function scoreLayout(
         const onTop = PROP_TEMPLATES[t.as as TemplateId]?.onTop;
         const settle = (s: IsoScene) => (onTop ? settleGroup(s, g) : s);
         let scene = layout.scene;
-        let trial = scene;
-        for (let k = 1; k < 4; k++) {
-          trial = settle(rotateGroup(trial, g));
-          const s = matchOf(t.id, groupBoxes(trial, g));
-          if (s > best + 1e-4) {
-            best = s;
-            scene = trial;
-          }
-        }
-        let evaluations = 3;
-        for (const step of [0.5, 0.25, 0.125])
-          for (let moved = true; moved && evaluations < 40;) {
-            moved = false;
-            for (const [dx, dy] of [
-              [step, 0],
-              [-step, 0],
-              [0, step],
-              [0, -step],
-            ] as const) {
-              if (evaluations >= 40) break;
-              const next = settle(moveGroup(scene, g, dx, dy));
-              evaluations++;
-              const s = matchOf(t.id, groupBoxes(next, g));
-              if (s > best + 1e-4) {
-                best = s;
-                scene = next;
-                moved = true;
+        // Each turn gets its own search: a turn that fits a little better
+        // where the thing starts may fit worse than another does where it ends.
+        let turned = layout.scene;
+        for (let k = 0; k < 4; k++) {
+          if (k) turned = settle(rotateGroup(turned, g));
+          let here = turned;
+          let score = matchOf(t.id, groupBoxes(here, g));
+          let evaluations = 0;
+          for (const step of [1, 0.5, 0.25, 0.125])
+            for (let moved = true; moved && evaluations < 40;) {
+              moved = false;
+              for (const [dx, dy] of [
+                [step, 0],
+                [-step, 0],
+                [0, step],
+                [0, -step],
+              ] as const) {
+                if (evaluations >= 40) break;
+                const next = settle(moveGroup(here, g, dx, dy));
+                evaluations++;
+                const s = matchOf(t.id, groupBoxes(next, g));
+                if (s > score + 1e-4) {
+                  score = s;
+                  here = next;
+                  moved = true;
+                }
               }
             }
+          if (score > best + 1e-4) {
+            best = score;
+            scene = here;
           }
+        }
         layout.scene = scene;
       }
       t.iou = best;
@@ -1481,6 +1522,72 @@ export interface SyntheticPhotoOptions {
   /** Round objects standing on the surface: centre, radius and height in tiles. */
   objects?: { id: string; as: PhotoAs; x: number; y: number; r: number; h: number }[];
 }
+/** A chair in front of the desk, a mug and a bottle on it. */
+const DESK_THINGS: Pick<SyntheticPhotoOptions, 'furniture' | 'objects'> = {
+  furniture: [{ id: 'chair', as: 'chair', x: 1.3, y: 3.2 }],
+  objects: [
+    { id: 'mug', as: 'mug', x: 2.6, y: 1.2, r: 0.3, h: 0.7 },
+    { id: 'bottle', as: 'bottle', x: 0.7, y: 0.8, r: 0.25, h: 1.5 },
+  ],
+};
+/**
+ * The synthetic photos a layout is judged on against `SCENE_TARGETS`, by
+ * the scene bench and the tests alike. `kind` says what the photo shows: a
+ * desk with `DESK_THINGS`, a square table with only the objects, or a desk
+ * among more furniture.
+ */
+export const SCENE_CASES: {
+  name: string;
+  kind: 'desk' | 'table' | 'room';
+  options: SyntheticPhotoOptions;
+}[] = [
+  {
+    name: 'desk, 35° turned',
+    kind: 'desk',
+    options: { elevation: 35, yaw: 0.4, f: 1000, ...DESK_THINGS },
+  },
+  {
+    name: 'desk, 50° turned',
+    kind: 'desk',
+    options: { elevation: 50, yaw: -0.3, f: 1000, ...DESK_THINGS },
+  },
+  {
+    name: 'desk, 28° square on',
+    kind: 'desk',
+    options: { elevation: 28, yaw: 0, f: 1000, ...DESK_THINGS },
+  },
+  {
+    name: 'desk, 60° wide lens',
+    kind: 'desk',
+    options: { elevation: 60, yaw: 0.25, f: 700, ...DESK_THINGS },
+  },
+  {
+    name: 'table, 40° turned',
+    kind: 'table',
+    options: {
+      elevation: 40,
+      yaw: -0.5,
+      f: 1100,
+      surface: { as: 'table', w: 3, d: 3 },
+      objects: DESK_THINGS.objects,
+    },
+  },
+  {
+    name: 'room, 32° turned',
+    kind: 'room',
+    options: {
+      elevation: 32,
+      yaw: 0.35,
+      f: 900,
+      furniture: [
+        { id: 'chair', as: 'chair', x: 1.6, y: 3.3 },
+        { id: 'shelf', as: 'shelf', x: 5.2, y: -0.4 },
+        { id: 'plant', as: 'plant', x: -1.8, y: 1.6 },
+      ],
+      objects: [{ id: 'mug', as: 'mug', x: 3, y: 1.4, r: 0.3, h: 0.7 }],
+    },
+  },
+];
 /** A pinhole camera from `SyntheticPhotoOptions`, aimed at the surface's centre. */
 function syntheticCamera(o: SyntheticPhotoOptions, frame: Segmentation['frame'], centre: Vec3) {
   const el = (o.elevation * Math.PI) / 180;
