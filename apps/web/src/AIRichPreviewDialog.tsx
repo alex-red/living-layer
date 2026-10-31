@@ -43,6 +43,8 @@ export interface AIRichPreviewDialogProps {
   review?: boolean;
   /** Replaces the foot's note once the work has ended, such as links to the runs it made. */
   footer?: ReactNode;
+  /** What to do next once the work has ended, such as finishing by hand what it couldn't. */
+  action?: { label: string; onClick: () => void };
 }
 
 const time = (t: string | number | undefined) =>
@@ -80,6 +82,7 @@ export function AIRichPreviewDialog({
   startedAt,
   onStop,
   onClose,
+  action,
   onHide,
   review = false,
   footer,
@@ -306,6 +309,15 @@ export function AIRichPreviewDialog({
                 <button className="secondary aip-stop" onClick={onStop} autoFocus>
                   <span className="aip-stop-glyph" aria-hidden="true" />
                   Stop
+                </button>
+              </>
+            ) : action ? (
+              <>
+                <button className="secondary" onClick={onClose}>
+                  Close
+                </button>
+                <button className="primary" onClick={action.onClick} autoFocus>
+                  {action.label}
                 </button>
               </>
             ) : (

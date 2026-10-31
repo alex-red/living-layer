@@ -25,6 +25,18 @@ export function AiTaskDialog() {
       review={task.review}
       onStop={lab.stopAiTask}
       onClose={lab.closeAiTask}
+      {...(task.next
+        ? {
+            action: {
+              label: task.next.label,
+              onClick: () => {
+                const next = task.next!;
+                lab.closeAiTask();
+                next.run();
+              },
+            },
+          }
+        : {})}
       onHide={() => lab.setAiTask({ ...task, open: false })}
       footer={
         runs.length ? (

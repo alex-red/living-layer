@@ -113,6 +113,13 @@ export const BUSY: Record<string, string> = {
   restore: 'Loading the save',
 };
 /** A long AI action the dialog follows: its job's steps and how it ended. */
+/** What calibrating by hand starts from: marks found so far, the room's size and the frame. */
+interface HandCalibration {
+  marks: RoomMarks | null;
+  room: { w: number; d: number };
+  heightCm?: number;
+  frame: { width: number; height: number };
+}
 export interface AiTask {
   title: string;
   description?: string;
@@ -125,6 +132,8 @@ export interface AiTask {
   startedAt: number;
   /** A past action opened to look back at, not one running now. */
   review?: boolean;
+  /** What to do after it stopped short: the dialog stays open and offers it. */
+  next?: { label: string; run: () => void };
 }
 /** A job as it shows once stopped: what was running or waiting is stopped. */
 function stoppedJob(job: Job): Job {
@@ -1652,12 +1661,25 @@ export function useLabState() {
    * lines where it saw them, a guess for a hidden wall, and Spark's sizes. The
    * frame stays the one the setup used, so the camera stops to show it.
    */
-  function calibrateByHand(found: {
-    marks: RoomMarks | null;
-    room: { w: number; d: number };
-    heightCm?: number;
-    frame: { width: number; height: number };
-  }) {
+  function calibrateByHand(found: HandCalibration) {
+    // The setup's dialog stays open on why it stopped, and offers this as the next step.
+    if (aiTaskNow.current) {
+      setAiTask((t) =>
+        t
+          ? {
+              ...t,
+              open: true,
+              next: { label: 'Place corner by hand', run: () => openCalibration(found) },
+            }
+          : t,
+      );
+      setMessage('The setup stopped short of calibrating: place the far corner by hand.');
+      return;
+    }
+    openCalibration(found);
+  }
+  /** Stop the camera on the frame in hand and open calibration from what was found. */
+  function openCalibration(found: HandCalibration) {
     const { width, height } = found.frame;
     const corner = found.marks?.corner ?? { x: width / 2, y: height * 0.3 };
     // A hidden wall starts as a line from the corner towards its side of the frame, to drag into place.
@@ -1669,7 +1691,6 @@ export function useLabState() {
     const back = found.marks?.back.length ? found.marks.back : towards(1);
     const left = found.marks?.left.length ? found.marks.left : towards(-1);
     if (camera) stopCamera();
-    setAiTask((t) => (t ? { ...t, open: false } : t));
     setCalibrating({
       marks: { corner, back, left, backEnd: null, leftEnd: null },
       room: found.room,
@@ -1692,7 +1713,7 @@ export function useLabState() {
     const known = memory?.camera;
     const same =
       known?.camera.frame.width === size.width && known.camera.frame.height === size.height;
-    calibrateByHand({
+    openCalibration({
       marks: same ? known.marks : null,
       room: known
         ? { w: Math.round(known.camera.room.w * 30), d: Math.round(known.camera.room.d * 30) }
@@ -1784,6 +1805,9 @@ export function useLabState() {
    * server reports them, kept after it ends until the dialog is closed.
    */
   const [aiTask, setAiTask] = useState<AiTask | null>(null);
+  // The task as it is now, for handlers made before it started (a setup's error lands after).
+  const aiTaskNow = useRef(aiTask);
+  aiTaskNow.current = aiTask;
   /** The action running now; a stop bumps the generation so its answer is dropped. */
   const aiGeneration = useRef(0);
   const aiRun = useRef<{ generation: number; jobId: string; abort: AbortController } | null>(null);
