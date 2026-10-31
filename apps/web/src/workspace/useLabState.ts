@@ -5,6 +5,7 @@ import type {
   LabStatus,
   Mode,
   Scene,
+  RoomMarks,
   Segmentation,
   Detection,
   FixtureDraft,
@@ -43,7 +44,6 @@ import {
   fixtureInput,
   runCost,
   startLocalTrack,
-  moveDemoMug,
   stepLocalTrack,
   toLuma,
   zoneApplies,
@@ -54,7 +54,8 @@ import { useExpose, useWatch } from '../watch';
 import { usd } from '../cost';
 import { takeHandoff } from '../handoff';
 import type { Issue } from '../ProviderUi';
-import type { FixturePlacing, IsoPanel, RuleDraft } from '../iso/IsoView';
+import type { DraftZone, FixturePlacing, IsoPanel, RuleDraft } from '../iso/IsoView';
+import type { CalibrationDraft } from '../iso/RoomCalibrate';
 import {
   clearSession,
   downloadSave,
@@ -81,6 +82,7 @@ import {
   type StepId,
   type WorkScene,
 } from './progress';
+import { demoFrameUrl } from './demoFrame';
 import { sceneOf } from './labels';
 import type { Tool } from './ToolStrip';
 
@@ -133,12 +135,6 @@ export const TRANSITION: Record<NonNullable<PlacementDecision['transition']>, st
   left: 'Left the zone',
   stayed_outside: 'Still outside',
 };
-/** Redraw the demo desk with the mug, its coffee and its shadow moved together. */
-export function demoDesk(svg: string, position: DemoPosition): string {
-  const { dx, dy } = DEMO_POSITIONS[position];
-  if (!dx && !dy) return '/desk.svg';
-  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(moveDemoMug(svg, position))}`;
-}
 /** Local following samples the camera this often, on frames this wide. */
 const FOLLOW_MS = 100;
 const LUMA_WIDTH = 160;
@@ -330,7 +326,12 @@ export function useLabState() {
   const [memories, setMemories] = useState<Partial<Record<Mode, DeskMemory>>>({});
   const memory = memories[mode];
   const [segmentRunId, setSegmentRunId] = useState<string>();
-  const [draftZone, setDraftZone] = useState<ZoneRect>({ x: 0.3, y: 0.2, width: 0.4, height: 0.6 });
+  const [draftZone, setDraftZone] = useState<DraftZone>({
+    x: 0.3,
+    y: 0.2,
+    width: 0.4,
+    height: 0.6,
+  });
   const [drawing, setDrawing] = useState(false);
   const zoneStart = useRef<{ x: number; y: number } | null>(null);
   const [concept, setConcept] = useState(boot.prefs.concept);
@@ -339,7 +340,6 @@ export function useLabState() {
       ? (boot.prefs.demoPosition as DemoPosition)
       : 'centre',
   );
-  const [deskSvg, setDeskSvg] = useState('');
   const [overlay, setOverlay] = useState(boot.prefs.overlay);
   const [showTrail, setShowTrail] = useState(boot.prefs.trail);
   const [showPicture, setShowPicture] = useState(boot.prefs.picture);
@@ -399,6 +399,7 @@ export function useLabState() {
       setWorkScene('custom');
   }, [workScene, memory]);
   // Clicking a surface's corners on the photo, for the iso view.
+  const [calibrating, setCalibrating] = useState<CalibrationDraft | null>(null);
   const [pinning, setPinning] = useState<{
     scene: IsoSceneKind | 'custom';
     surfaceId: string;
@@ -701,12 +702,6 @@ export function useLabState() {
     );
   }
   useEffect(() => {
-    void fetch('/desk.svg')
-      .then((r) => r.text())
-      .then(setDeskSvg)
-      .catch(() => {});
-  }, []);
-  useEffect(() => {
     mounted.current = true;
     void refresh()
       .then(async (desks) => {
@@ -775,7 +770,7 @@ export function useLabState() {
     setError('');
     setMessage(
       next === 'demo'
-        ? 'Demo selected: the illustrated desk, with no model calls and a virtual lamp.'
+        ? 'Demo selected: the office from its corner camera, with no model calls and a virtual lamp.'
         : 'Add a desk photo. It stays local until you explicitly run a live probe.',
     );
   }
@@ -802,8 +797,7 @@ export function useLabState() {
     );
     return url;
   }
-  const sceneUrl = (position: DemoPosition) =>
-    deskSvg ? demoDesk(deskSvg, position) : '/desk.svg';
+  const sceneUrl = (position: DemoPosition) => demoFrameUrl(position);
   function moveDemoMug(next: DemoPosition) {
     setDemoPosition(next);
     setScene(undefined);
@@ -1204,7 +1198,7 @@ export function useLabState() {
       });
       setMessage(
         on
-          ? `The server is watching${view.camera ? ` ${view.camera.name}` : ' the illustrated desk'}. Rules fire on SAM’s answer, with or without this tab.`
+          ? `The server is watching${view.camera ? ` ${view.camera.name}` : ' the demo camera'}. Rules fire on SAM’s answer, with or without this tab.`
           : 'The server stopped watching. Rules fire only when you track by hand.',
       );
     } catch (e) {
@@ -1525,8 +1519,9 @@ export function useLabState() {
     setSelection({ kind: 'new-rule' });
   }
   /**
-   * Find a surface's corners on the current photo (one SAM call, live), then
-   * open the pin with them to check. No desk found means clicking by hand.
+   * Find a surface's corners where the room's calibrated camera sees it (no
+   * call), then open the pin with them to check. Not in view means clicking
+   * by hand.
    */
   async function autoPin(target: {
     scene: IsoSceneKind | 'custom';
@@ -1539,35 +1534,97 @@ export function useLabState() {
     setDrawing(false);
     try {
       const result = await api<{
-        run: EvidenceRun<Segmentation>;
+        run: EvidenceRun<Segmentation> | null;
         pin: { corners: Quad; iou: number; frame: { width: number; height: number } } | null;
-      }>('desk/auto-pin', { mode, ...(mode === 'live' ? { imageDataUrl: image } : {}) });
-      setSelected(result.run);
+      }>('desk/auto-pin', { mode, surfaceId: target.surfaceId });
+      const cost = ' through the calibrated camera';
       const fits =
         result.pin &&
         result.pin.frame.width === dimensions.width &&
         result.pin.frame.height === dimensions.height;
       if (!result.pin || !fits) {
         setPinning(target);
-        setMessage(
-          `No ${target.label} found in this photo${costNote(result.run)}. Click its four corners instead.`,
-        );
+        setMessage(`The ${target.label} isn’t in view${cost}. Click its four corners instead.`);
       } else {
-        const unsure = result.pin.iou < 0.85;
-        setPinning({
-          ...target,
-          corners: result.pin.corners,
-          note: unsure
-            ? `The ${target.label}’s outline isn’t a clean rectangle, so check each corner before saving.`
-            : undefined,
-        });
+        setPinning({ ...target, corners: result.pin.corners });
         setMessage(
-          `Found the ${target.label}${costNote(result.run)}. Drag any corner that’s off, then save the pin.`,
+          `Found the ${target.label}${cost}. Drag any corner that’s off, then save the pin.`,
         );
       }
       void refresh().catch(() => {});
     } catch (e) {
-      setError(e instanceof Error ? e : 'Could not find the desk.');
+      setError(e instanceof Error ? e : 'Could not place the surface.');
+    } finally {
+      setBusy('');
+    }
+  }
+  /**
+   * Calibrate the room's camera on the current frame: SAM outlines the floor
+   * and walls (two calls, live) to suggest the marks, which open on the photo
+   * to drag into place beside the room's size.
+   */
+  async function startCalibrating() {
+    if (busy) return;
+    setBusy('calibrate');
+    setError('');
+    setDrawing(false);
+    setPinning(null);
+    try {
+      const result = await api<{
+        run: EvidenceRun<Segmentation>;
+        marks: RoomMarks | null;
+        frame: { width: number; height: number };
+      }>('room/floor', { mode, ...(mode === 'live' ? { imageDataUrl: image } : {}) });
+      const { width, height } = result.frame;
+      const marks = result.marks ?? {
+        corner: { x: width / 2, y: height * 0.3 },
+        back: [{ x: width * 0.85, y: height * 0.65 }],
+        left: [{ x: width * 0.15, y: height * 0.6 }],
+      };
+      const known = memory?.camera?.camera.room;
+      setCalibrating({
+        marks,
+        room: known
+          ? { w: Math.round(known.w * 30), d: Math.round(known.d * 30) }
+          : { w: 300, d: 240 },
+      });
+      if (stageView === 'iso') setStageView('split');
+      setMessage(
+        result.marks
+          ? `Found the floor and walls${costNote(result.run)}. Drag the marks onto the far corner and along each wall's floor line, and give the room's size.`
+          : `No floor found${costNote(result.run)}. Drag the marks onto the far corner and along each wall's floor line.`,
+      );
+      void refresh().catch(() => {});
+    } catch (e) {
+      setError(e instanceof Error ? e : 'Could not find the floor.');
+    } finally {
+      setBusy('');
+    }
+  }
+  async function saveCalibration(draft: CalibrationDraft) {
+    setBusy('calibrate');
+    setError('');
+    try {
+      const scene =
+        workScene === 'custom' || workScene === 'custom-desk' ? 'custom' : (workScene ?? 'office');
+      const result = await api<{
+        memory: DeskMemory;
+        fit: { error: number; heightCm: number; hfovDeg: number };
+      }>('room/calibrate', {
+        mode,
+        ...(mode === 'live' ? { imageDataUrl: image } : {}),
+        ...draft,
+        scene: scene === 'desk' ? 'office' : scene,
+      });
+      setMemory(result.memory);
+      setCalibrating(null);
+      // One camera, one room: the frame and the room side by side.
+      setStageView('split');
+      setMessage(
+        `Calibrated: the camera is about ${result.fit.heightCm} cm up and ${result.fit.hfovDeg}° wide. Zones drawn in the room now apply to every frame from it.`,
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e : 'Could not calibrate the camera.');
     } finally {
       setBusy('');
     }
@@ -1728,8 +1785,8 @@ export function useLabState() {
             mode === 'live'
               ? view === 'desk'
                 ? 'Muse Image redraws this frame in the room’s style. One image call, about $0.01.'
-                : 'Muse Image redraws the photo, then SAM finds the desk on it. About $0.02.'
-              : 'Demo: the bundled pictures, no model calls.',
+                : 'Muse Image redraws the corner camera’s frame, keeping its framing. One image call, about $0.01.'
+              : 'Demo: the saved room through the demo camera, no model calls.',
         },
         (jobId, signal) =>
           api<{
@@ -1761,9 +1818,7 @@ export function useLabState() {
       setMessage(
         view === 'desk'
           ? `Drew the desk from this frame${costNote(result.run)}. Sightings in frames this size show on it.`
-          : result.memory.illustration?.desk
-            ? `Drew the room as a picture${costNote(result.run)}. The mug and zones sit on its desk.`
-            : `Drew the room as a picture${costNote(result.run)}, but SAM found no desk in it, so nothing can be placed on it.`,
+          : `Drew the room as a picture${costNote(result.run)}. The room’s camera places the mug and zones on it.`,
       );
       void refresh().catch(() => {});
     } catch (e) {
@@ -1796,7 +1851,7 @@ export function useLabState() {
           description:
             mode === 'live'
               ? 'Spark lists what stays put, SAM outlines each one, and each is placed through the pin. One Spark and one SAM call.'
-              : 'Demo: the illustrated desk, no model calls.',
+              : 'Demo: the office from its corner camera, no model calls.',
         },
         (jobId, signal) =>
           api<{ run: EvidenceRun; mapped: MappedThing[]; memory: DeskMemory }>(
@@ -2174,7 +2229,6 @@ export function useLabState() {
     concept,
     setConcept,
     demoPosition,
-    deskSvg,
     overlay,
     setOverlay,
     showTrail,
@@ -2233,6 +2287,10 @@ export function useLabState() {
     pinning,
     setPinning,
     autoPin,
+    calibrating,
+    setCalibrating,
+    startCalibrating,
+    saveCalibration,
     busy,
     issue,
     setIssue,

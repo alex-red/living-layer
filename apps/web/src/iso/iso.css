@@ -867,6 +867,22 @@
   min-height: 28px;
   font-size: 12px;
 }
+/* Calibrating the room camera: the floor's tiles drawn through the camera the marks imply. */
+.calibrate-overlay .calibrate-grid {
+  fill: none;
+  stroke: var(--chosen);
+  stroke-opacity: 0.45;
+  stroke-width: 1px;
+}
+.calibrate-tag label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-2);
+}
+.calibrate-tag input[type='number'] {
+  width: 64px;
+}
 /* Fixtures stand where a person put them; a click selects one. */
 .iso-fixture {
   cursor: pointer;

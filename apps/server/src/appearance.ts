@@ -57,15 +57,15 @@ export class Appearance {
     }
   }
   /** Patch features of an image, or of `region` of it (a share of the image). One run at a time. */
-  embed(image: Buffer, region?: UnitBox): Promise<PatchGrid> {
-    const next = this.queue.then(() => this.run(image, region));
+  embed(image: Buffer, region?: UnitBox, side?: number): Promise<PatchGrid> {
+    const next = this.queue.then(() => this.run(image, region, side));
     this.queue = next.then(
       () => undefined,
       () => undefined,
     );
     return next;
   }
-  private async run(image: Buffer, region?: UnitBox): Promise<PatchGrid> {
+  private async run(image: Buffer, region?: UnitBox, side?: number): Promise<PatchGrid> {
     let picture = sharp(image).removeAlpha();
     const { width: W = 1, height: H = 1 } = await sharp(image).metadata();
     let w = W;
@@ -77,7 +77,7 @@ export class Appearance {
       h = Math.max(1, Math.min(H - top, Math.round(region.height * H)));
       picture = picture.extract({ left, top, width: w, height: h });
     }
-    const size = embedSize(w, h);
+    const size = embedSize(w, h, side);
     const { data } = await picture
       .resize(size.width, size.height, { fit: 'fill' })
       .raw()

@@ -11,32 +11,25 @@ import type { AutoPin } from '../apps/server/src/pin.js';
 import { MetaAdapter } from '../apps/server/src/meta.js';
 import { EvidenceStore } from '../apps/server/src/store.js';
 import {
-  SCENE_CASES,
-  SCENE_TARGETS,
+  DEMO_CAMERA,
+  DEMO_SURFACE,
+  marksOf,
   cameraFromPin,
   cleanInventory,
   framePointInPicture,
-  fillRings,
-  fitSurfaceQuad,
-  groupBounds,
   isoSceneSchema,
-  layoutPhoto,
+  placeTemplate,
   maskBits,
-  newBits,
-  orderCorners,
   pathRings,
-  photoTextures,
-  pinFromMask,
   projectPoint,
   promptBox,
   sceneForSave,
-  surfaceTop,
-  syntheticPhoto,
   unprojectPoint,
   type DeskMemory,
   type EvidenceRun,
   type Job,
   type PhotoInventory,
+  type PhotoLayout,
   type Point,
   type Quad,
   type Segmentation,
@@ -80,10 +73,6 @@ function camera(elevation: number, yaw: number, f: number, frame = { width: 1280
   const centre = Math.hypot(C[0]! - 2, C[1]! - 1.25, C[2]!);
   return Object.assign(project, { elevation: (Math.asin(C[2]! / centre) * 180) / Math.PI });
 }
-/** The scene bench's desks: a chair in front, a mug and a bottle on top, as SAM would outline them. */
-const deskCases = SCENE_CASES.filter((c) => c.kind === 'desk');
-const deskPhoto = (name = 'desk, 35° turned') =>
-  syntheticPhoto(SCENE_CASES.find((c) => c.name === name)!.options);
 
 describe('photo masks', () => {
   it('reads SAM paths, absolute and relative, and fills them by the even-odd rule', () => {
@@ -147,78 +136,10 @@ describe('photo masks', () => {
   });
 });
 
-describe('the pinned surface', () => {
-  it('orders corners clockwise from the back left', () => {
-    const q = orderCorners([
-      { x: 90, y: 80 },
-      { x: 10, y: 10 },
-      { x: 5, y: 85 },
-      { x: 100, y: 12 },
-    ]);
-    expect(q).toEqual([
-      { x: 10, y: 10 },
-      { x: 100, y: 12 },
-      { x: 90, y: 80 },
-      { x: 5, y: 85 },
-    ]);
-  });
-  it('finds a thin top seen nearly edge-on, without the drawer unit under one end', () => {
-    // A long desk running away from the camera: its top a thin strip, a drawer unit below its near end.
-    const top: Quad = [
-      { x: 0, y: 60 },
-      { x: 190, y: 40 },
-      { x: 190, y: 52 },
-      { x: 0, y: 96 },
-    ];
-    const drawers: Quad = [
-      { x: 10, y: 90 },
-      { x: 70, y: 80 },
-      { x: 70, y: 130 },
-      { x: 10, y: 130 },
-    ];
-    const bits = newBits(200, 130);
-    fillRings(bits, [top]);
-    fillRings(bits, [drawers]);
-    const found = surfaceTop(bits, []);
-    const at = (x: number, y: number) => found.data[y * 200 + x];
-    // The far, thin end of the top stays; the drawer fronts go.
-    expect(at(170, 47)).toBe(1);
-    expect(at(40, 120)).toBe(0);
-    expect(at(40, 110)).toBe(0);
-    const fit = fitSurfaceQuad(found, { width: 200, height: 130 })!;
-    expect(Math.max(...fit.corners.map((c) => c.y))).toBeLessThan(100);
-  });
-  it('keeps all of a desk seen at an angle, its near side rising above the front edge', () => {
-    const top: Quad = [
-      { x: 40, y: 30 },
-      { x: 170, y: 40 },
-      { x: 150, y: 80 },
-      { x: 20, y: 110 },
-    ];
-    const bits = newBits(200, 130);
-    fillRings(bits, [top]);
-    const found = surfaceTop(bits, []);
-    expect(found.data[105 * 200 + 25]).toBe(1);
-    expect(found.data[60 * 200 + 150]).toBe(1);
-  });
-  it('fits four corners to a perspective quad’s mask', () => {
-    const truth: Quad = [
-      { x: 52, y: 40 },
-      { x: 160, y: 30 },
-      { x: 190, y: 110 },
-      { x: 20, y: 118 },
-    ];
-    const bits = newBits(200, 130);
-    fillRings(bits, [truth]);
-    const fit = fitSurfaceQuad(bits, { width: 200, height: 130 })!;
-    expect(fit.iou).toBeGreaterThan(0.97);
-    fit.corners.forEach((c, i) => {
-      expect(Math.hypot(c.x - truth[i]!.x, c.y - truth[i]!.y)).toBeLessThan(3);
-    });
-  });
+describe('the camera behind a pin', () => {
   it('recovers the camera exactly when the perspective shows the focal length', () => {
     const cam = camera(35, 0.45, 900);
-    const corners = orderCorners([cam(0, 0, 0), cam(4, 0, 0), cam(4, 2.5, 0), cam(0, 2.5, 0)]);
+    const corners: Quad = [cam(0, 0, 0), cam(4, 0, 0), cam(4, 2.5, 0), cam(0, 2.5, 0)];
     const c = cameraFromPin(corners, { width: 1280, height: 720 }, 4)!;
     expect(c.focalGuessed).toBe(false);
     expect(c.f).toBeCloseTo(900, 0);
@@ -232,7 +153,7 @@ describe('the pinned surface', () => {
   });
   it('falls back to a typical lens when the desk is seen square on, and stays close', () => {
     const cam = camera(35, 0, 900);
-    const corners = orderCorners([cam(0, 0, 0), cam(4, 0, 0), cam(4, 2.5, 0), cam(0, 2.5, 0)]);
+    const corners: Quad = [cam(0, 0, 0), cam(4, 0, 0), cam(4, 2.5, 0), cam(0, 2.5, 0)];
     const c = cameraFromPin(corners, { width: 1280, height: 720 }, 4)!;
     expect(c.focalGuessed).toBe(true);
     expect(Math.abs(c.surface.d - 2.5) / 2.5).toBeLessThan(0.15);
@@ -240,129 +161,31 @@ describe('the pinned surface', () => {
   });
 });
 
-describe('pin from one mask', () => {
-  for (const { name } of deskCases)
-    it(`pins a close photo's desk from its outline alone (${name})`, () => {
-      const s = deskPhoto(name);
-      const desk = s.segmentation.detections.find((d) => d.objectId === s.detections.surface)!;
-      const pin = pinFromMask(desk, s.segmentation.frame)!;
-      // The mug's hole and the legs are ignored, without the other masks.
-      expect(pin.iou).toBeGreaterThan(0.9);
-      const diag = Math.hypot(1280, 720);
-      pin.corners.forEach((c, i) =>
-        expect(
-          Math.hypot(c.x - s.truth.corners[i]!.x, c.y - s.truth.corners[i]!.y) / diag,
-        ).toBeLessThan(0.03),
-      );
-    });
-});
-
-describe('photo layout', () => {
-  for (const { name } of deskCases)
-    it(`measures a desk, a chair and a mug from their masks (${name})`, () => {
-      const s = deskPhoto(name);
-      const layout = layoutPhoto({ ...s, refine: true });
-      expect(isoSceneSchema.safeParse(layout.scene).success).toBe(true);
-      // The desk's top is found above its legs, and pinned within a few pixels.
-      expect(layout.quadIou).toBeGreaterThan(0.9);
-      const diag = Math.hypot(1280, 720);
-      layout.pin!.corners.forEach((c, i) => {
-        expect(
-          Math.hypot(c.x - s.truth.corners[i]!.x, c.y - s.truth.corners[i]!.y) / diag,
-        ).toBeLessThan(SCENE_TARGETS.corners);
-      });
-      const { surface, at } = s.truth;
-      expect(Math.abs(layout.camera!.surface.d - surface.d) / surface.d).toBeLessThan(
-        SCENE_TARGETS.depth,
-      );
-      const origin = layout.origin!;
-      const chair = layout.things.find((t) => t.id === 'chair')!;
-      expect(chair.status).toBe('placed');
-      const b = groupBounds(layout.scene, chair.group!)!;
-      expect(Math.abs(b.at.x - origin.x - at.chair!.x)).toBeLessThan(SCENE_TARGETS.position);
-      expect(Math.abs(b.at.y - origin.y - at.chair!.y)).toBeLessThan(SCENE_TARGETS.position);
-      const mug = layout.things.find((t) => t.id === 'mug')!;
-      expect(mug.status).toBe('object');
-      expect(mug.foot!.at.z).toBeCloseTo(origin.z, 3);
-      const x = mug.foot!.at.x + mug.foot!.size.w / 2 - origin.x;
-      const y = mug.foot!.at.y + mug.foot!.size.d / 2 - origin.y;
-      expect(Math.hypot(x - at.mug!.x, y - at.mug!.y)).toBeLessThan(SCENE_TARGETS.position);
-      expect(layout.score!).toBeGreaterThan(0.7);
-      expect(chair.iou!).toBeGreaterThan(0.6);
-    });
-  it('reads the same desk when a review edit lays the draft out again from its own corners', () => {
-    const s = deskPhoto();
-    const draft = layoutPhoto({ ...s, refine: true });
-    const again = layoutPhoto({ ...s, corners: draft.pin!.corners, refine: true });
-    expect(again.camera!.surface.w).toBe(draft.camera!.surface.w);
-    expect(again.camera!.surface.d).toBeCloseTo(draft.camera!.surface.d, 6);
-  });
-  it('paints the desk top from the photo where the camera saw it', () => {
-    const s = deskPhoto();
-    const layout = layoutPhoto({ ...s, refine: true });
-    // A photo that is red on its upper half and blue below, at the frame's size.
-    const { width, height } = s.segmentation.frame;
-    const data = new Uint8Array(width * height * 4);
-    for (let y = 0; y < height; y++)
-      for (let x = 0; x < width; x++)
-        data.set(y < height / 2 ? [200, 0, 0, 255] : [0, 0, 200, 255], (y * width + x) * 4);
-    const textures = photoTextures(layout.scene, layout.pin!, { width, height, data });
-    const surface = layout.scene.surfaces.find((x) => x.id === layout.pin!.surfaceId)!;
-    const top = textures.get(surface.propId)?.top;
-    expect(top).toBeDefined();
-    // Each texel holds the photo's colour where its point on the top projects.
-    const cam = layout.camera!;
-    const origin = layout.origin!;
-    const prop = layout.scene.props.find((p) => p.id === surface.propId)!;
-    for (const [a, b] of [
-      [0.5, 0.05],
-      [0.5, 0.95],
-      [0.1, 0.5],
-    ] as const) {
-      const X = prop.at.x + prop.size.w * a - origin.x;
-      const Y = prop.at.y + prop.size.d * b - origin.y;
-      const px = projectPoint(cam, X, Y, prop.at.z + prop.size.h - origin.z)!;
-      const i = Math.floor(a * top!.width);
-      const j = Math.floor(b * top!.height);
-      const texel = top!.data[(j * top!.width + i) * 4]!;
-      expect(texel > 100).toBe(px.y < height / 2);
-    }
-    // Every texel is opaque: unseen ones take the face's mean colour.
-    for (let n = 3; n < top!.data.length; n += 4) expect(top!.data[n]).toBe(255);
-  });
-  it('spreads things over the room without a surface, and leaves the pin to a person', () => {
-    const layout = layoutPhoto({ ...deskPhoto(), edits: { surface: { as: 'rug' } } });
-    expect(layout.pin).toBeNull();
-    expect(layout.camera).toBeNull();
-    expect(layout.things.find((t) => t.id === 'chair')!.status).toBe('placed');
-    expect(isoSceneSchema.safeParse(layout.scene).success).toBe(true);
-  });
-  it('leaves out what a person removed and what SAM did not find', () => {
-    const s = deskPhoto();
-    const { chair: _, ...found } = s.detections;
-    const layout = layoutPhoto({ ...s, detections: found, edits: { mug: { removed: true } } });
-    expect(layout.things.map((t) => t.status)).toEqual([
-      'placed',
-      'not-found',
-      'removed',
-      'object',
-    ]);
-    expect(layout.scene.props.every((p) => p.group === 'desk')).toBe(true);
-  });
+describe('the saved scene', () => {
   it('stands untracked objects with a template in the saved scene, and leaves tracked ones out', () => {
-    const s = syntheticPhoto({
-      elevation: 40,
-      yaw: 0.3,
-      f: 1000,
-      objects: [
-        { id: 'mug', as: 'mug', x: 1, y: 1.2, r: 0.3, h: 0.7 },
-        { id: 'bottle', as: 'bottle', x: 3, y: 1, r: 0.25, h: 1.4 },
-      ],
+    const desk = placeTemplate('desk', 'desk', 1, 1, 0);
+    const top = desk.surfaces[0]!.z;
+    const object = (id: 'mug' | 'bottle', x: number) => ({
+      id,
+      label: id,
+      as: id,
+      role: 'object' as const,
+      on: 'desk',
+      box: { x1: 0, y1: 0, x2: 10, y2: 10 },
+      detectionId: id,
+      status: 'object' as const,
+      foot: { at: { x, y: 1.6, z: top }, size: { w: 0.3, d: 0.3, h: 0.4 } },
     });
-    const layout = layoutPhoto(s);
+    const layout: PhotoLayout = {
+      scene: { kind: 'custom', label: 'Room', grid: { w: 8, d: 8 }, ...desk },
+      pin: null,
+      surfaceThing: null,
+      things: [object('mug', 1.5), object('bottle', 3)],
+      score: null,
+    };
     const scene = sceneForSave(layout, ['mug']);
     expect(scene.props.filter((p) => p.template === 'bottle')).toHaveLength(1);
-    expect(scene.props.filter((p) => p.template === 'bottle')[0]!.at.z).toBeCloseTo(2.4, 3);
+    expect(scene.props.find((p) => p.template === 'bottle')!.at.z).toBeCloseTo(top, 3);
     expect(isoSceneSchema.safeParse(scene).success).toBe(true);
   });
 });
@@ -382,23 +205,18 @@ describe('photo routes, offline', () => {
       app.inject({ method: 'POST', url: `/api/${path}`, payload: { mode: 'demo', ...body } });
     return { app, post, fetcher };
   }
-  it('auto-pins the illustrated desk from its outline, saving only the segmentation', async () => {
+  it('auto-pins the demo room’s desk through its calibrated camera, with no call', async () => {
     const s = await setup();
     const res = await s.post('desk/auto-pin');
     expect(res.statusCode, res.body).toBe(200);
     const { run, pin } = res.json<AutoPin>();
-    expect(run.kind).toBe('segment');
-    expect(run.output.concept).toBe('desk');
-    // The illustration is all desktop, so the corners are the frame's.
+    expect(run).toBeNull();
+    // The desk's top as the demo camera sees it.
     expect(pin!.frame).toEqual({ width: 960, height: 640 });
-    const frame = [
-      { x: 0, y: 0 },
-      { x: 960, y: 0 },
-      { x: 960, y: 640 },
-      { x: 0, y: 640 },
-    ];
     pin!.corners.forEach((c, i) =>
-      expect(Math.hypot(c.x - frame[i]!.x, c.y - frame[i]!.y)).toBeLessThan(25),
+      expect(
+        Math.hypot(c.x - DEMO_SURFACE.corners[i]!.x, c.y - DEMO_SURFACE.corners[i]!.y),
+      ).toBeLessThan(25),
     );
     // Nothing is pinned until the person saves the corners.
     expect((await s.app.inject('/api/desk/demo')).json<DeskMemory>().surface ?? null).toBeNull();
@@ -406,7 +224,7 @@ describe('photo routes, offline', () => {
       (await s.post('desk/auto-pin', { imageDataUrl: 'data:image/png;base64,AA' })).statusCode,
     ).toBe(400);
   });
-  it('drafts the illustrated desk, then saves the scene, the pin and the ticked objects with their models', async () => {
+  it('drafts the demo room, then saves the scene, the pin and the ticked objects with their models', async () => {
     const s = await setup();
     const jobId = crypto.randomUUID();
     const drafted = await s.post('scene/from-photo', { check: true, jobId });
@@ -427,13 +245,13 @@ describe('photo routes, offline', () => {
     for (const id of ['photo', 'list', 'outline', 'layout'])
       expect(job.steps.find((x) => x.id === id)!.image).toBeTruthy();
     const { layout, items } = run.output;
-    // The illustration is all desktop, so the pin is the frame itself.
-    expect(layout.pin!.corners).toEqual([
-      { x: 0, y: 0 },
-      { x: 960, y: 0 },
-      { x: 960, y: 640 },
-      { x: 0, y: 640 },
-    ]);
+    // Laid out through the calibrated demo camera: the desk's top is where that camera sees it.
+    expect(run.output.calibration).toBeTruthy();
+    layout.pin!.corners.forEach((c, i) =>
+      expect(
+        Math.hypot(c.x - DEMO_SURFACE.corners[i]!.x, c.y - DEMO_SURFACE.corners[i]!.y),
+      ).toBeLessThan(10),
+    );
     expect(layout.things.map((t) => [t.id, t.status])).toEqual([
       ['desk', 'placed'],
       ['mug', 'object'],
@@ -461,7 +279,7 @@ describe('photo routes, offline', () => {
     });
     expect(saved.statusCode, saved.body).toBe(200);
     const memory = saved.json<DeskMemory>();
-    expect(memory.scene?.label).toBe('From photo');
+    expect(memory.scene?.label).toBe('From the room camera');
     expect(memory.surface?.scene).toBe('custom');
     expect(memory.object?.label).toBe('Cream mug');
     expect(memory.observation?.detectionId).toBe('2');
@@ -469,14 +287,9 @@ describe('photo routes, offline', () => {
     expect(memory.others?.map((o) => [o.label, o.concept, Boolean(o.item)])).toEqual([
       ['Sage bottle', 'sage bottle', true],
     ]);
-    // The desk's top is painted from the photo, and its texture is served as a PNG.
+    // The room is drawn from its templates: nothing from the photo is pasted on.
     expect(isoSceneSchema.safeParse(memory.scene).success).toBe(true);
-    const top = memory.scene!.props.find((p) => p.texture?.top)?.texture?.top;
-    expect(top).toMatch(new RegExp(`^${run.id}/tex-\\d+\\.png$`));
-    const texture = await s.app.inject(`/api/scene/texture?asset=${encodeURIComponent(top!)}`);
-    expect(texture.statusCode).toBe(200);
-    expect(texture.headers['content-type']).toBe('image/png');
-    expect((await sharp(texture.rawPayload).metadata()).width).toBeGreaterThan(8);
+    expect(memory.scene!.props.some((p) => p.texture)).toBe(false);
     // Only textures are served, nothing else of the evidence.
     const other = await s.app.inject(
       `/api/scene/texture?asset=${encodeURIComponent(`${run.id}/source.png`)}`,
@@ -506,7 +319,7 @@ describe('photo routes, offline', () => {
     expect((await save({})).statusCode).toBe(409);
     await s.app.close();
   });
-  it('shows a photographed room as its ready-made demo picture, and only once its desk is pinned', async () => {
+  it('draws the demo room through its camera as its picture, and only once its desk is pinned', async () => {
     const s = await setup();
     // No room yet: nothing to tie a picture to.
     const early = await s.post('scene/illustrate');
@@ -524,43 +337,25 @@ describe('photo routes, offline', () => {
     const { memory } = res.json<{ memory: DeskMemory }>();
     const picture = memory.illustration!;
     expect(picture.asset).toMatch(/\/illustration\.png$/);
-    expect(picture.desk).toHaveLength(4);
-    // The mug's spot in the frame lands inside the picture's desk top.
-    const middle = framePointInPicture(layout.pin!, picture, layout.pin!.frame, {
-      x: 480,
-      y: 320,
-    })!;
-    const xs = picture.desk!.map((p) => p.x);
-    const ys = picture.desk!.map((p) => p.y);
-    expect(middle.x).toBeGreaterThan(Math.min(...xs));
-    expect(middle.x).toBeLessThan(Math.max(...xs));
-    expect(middle.y).toBeGreaterThan(Math.min(...ys));
-    expect(middle.y).toBeLessThan(Math.max(...ys));
+    // It redraws the camera's frame, so a frame point maps by scale and the desk sits where the pin is.
+    expect(picture.drawnFrom).toEqual({ width: 960, height: 640 });
+    expect(picture.desk).toBeNull();
+    const pin = layout.pin!;
+    expect(framePointInPicture(pin, picture, pin.frame, pin.corners[0])).toEqual(pin.corners[0]);
+    expect(
+      framePointInPicture(pin, picture, { width: 1280, height: 720 }, { x: 480, y: 320 }),
+    ).toBeNull();
     const served = await s.app.inject(
       `/api/scene/illustration?asset=${encodeURIComponent(picture.asset)}`,
     );
     expect(served.statusCode).toBe(200);
     expect(served.headers['content-type']).toBe('image/png');
-    // The desk close up is drawn from the frame and keeps its framing, so frames that size map by scale.
-    const desk = (await s.post('scene/illustrate', { view: 'desk' })).json<{ memory: DeskMemory }>()
-      .memory.deskIllustration!;
-    expect(desk.drawnFrom).toEqual({ width: 960, height: 640 });
-    expect(desk.desk).toBeNull();
-    const pin = layout.pin!;
-    expect(framePointInPicture(pin, desk, { width: 960, height: 640 }, { x: 480, y: 320 })).toEqual(
-      {
-        x: desk.frame.width / 2,
-        y: desk.frame.height / 2,
-      },
-    );
-    expect(
-      framePointInPicture(pin, desk, { width: 1280, height: 720 }, { x: 480, y: 320 }),
-    ).toBeNull();
-    // Starting over forgets the mug, not the room: both pictures stay.
+    // The demo has only its corner camera, so there is no close frame of the desk to draw.
+    expect((await s.post('scene/illustrate', { view: 'desk' })).statusCode).toBe(400);
+    // Starting over forgets the mug, not the room: the picture stays.
     const reset = (await s.post('desk/reset')).json<DeskMemory>();
     expect(reset.illustration?.asset).toBe(picture.asset);
-    expect(reset.deskIllustration?.asset).toBe(desk.asset);
-    // A new photo makes a new room, so its old picture goes.
+    // A new scan makes a new room, so its old picture goes.
     const again = (await s.post('scene/from-photo')).json<EvidenceRun<PhotoDraft>>();
     const resaved = await s.post('scene/from-photo/save', {
       runId: again.id,
@@ -569,7 +364,6 @@ describe('photo routes, offline', () => {
       track: [],
     });
     expect(resaved.json<DeskMemory>().illustration ?? null).toBeNull();
-    expect(resaved.json<DeskMemory>().deskIllustration ?? null).toBeNull();
     expect(s.fetcher).not.toHaveBeenCalled();
     await s.app.close();
   });
@@ -633,7 +427,7 @@ describe('photo routes, live with a mocked Meta API', () => {
   // SAM's box-prompted answer outlines only the mug, under the id its box was sent with.
   const mugBody = demo.wire.replace(/^<0f>7/, '');
 
-  async function setup(env: Record<string, string> = {}) {
+  async function setup(env: Record<string, string> = {}, { calibrated = true } = {}) {
     const dataDir = mkdtempSync(join(tmpdir(), 'livinglayer-photo-live-'));
     dirs.push(dataDir);
     const asked: string[] = [];
@@ -659,7 +453,22 @@ describe('photo routes, live with a mocked Meta API', () => {
       }),
       { fetcher, serveWeb: false },
     );
-    const photo = await sharp(readFileSync('apps/web/public/desk.svg')).png().toBuffer();
+    const photo = await sharp(readFileSync('testdata/desk.svg')).png().toBuffer();
+    // The room's corner camera, calibrated on a frame of the photo's size from the demo camera's marks.
+    if (calibrated) {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/room/calibrate',
+        payload: {
+          mode: 'live',
+          imageDataUrl: `data:image/png;base64,${photo.toString('base64')}`,
+          marks: marksOf(DEMO_CAMERA),
+          room: { w: 294, d: 234 },
+          scene: 'office',
+        },
+      });
+      if (res.statusCode !== 200) throw new Error(res.body);
+    }
     const post = (body: object) =>
       app.inject({
         method: 'POST',
@@ -672,7 +481,15 @@ describe('photo routes, live with a mocked Meta API', () => {
       });
     return { app, post, asked, fetcher };
   }
-  it('asks Spark once and SAM once with every box, and skips the check with no camera to draw from', async () => {
+  it('refuses before any call until the room’s camera is calibrated', async () => {
+    const s = await setup({}, { calibrated: false });
+    const res = await s.post({ check: true });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error.code).toBe('not_calibrated');
+    expect(s.fetcher).not.toHaveBeenCalled();
+    await s.app.close();
+  });
+  it('asks Spark once and SAM once with every box, then Spark checks the room drawn through the camera', async () => {
     const s = await setup();
     const res = await s.post({ check: true });
     expect(res.statusCode, res.body).toBe(200);
@@ -680,6 +497,7 @@ describe('photo routes, live with a mocked Meta API', () => {
     expect(s.asked).toEqual([
       'spark:photo_inventory',
       'sam:<0f>1<|box;x1=0;y1=0;x2=959;y2=639;w=960;h=640|>,2<|box;x1=345;y1=172;x2=614;y2=467;w=960;h=640|>',
+      'spark:photo_check',
     ]);
     // SAM outlined only the mug; the desk is reported, not invented, so nothing is pinned.
     expect(run.output.layout.things.map((t) => [t.id, t.status])).toEqual([
@@ -687,9 +505,10 @@ describe('photo routes, live with a mocked Meta API', () => {
       ['mug', 'object'],
     ]);
     expect(run.output.layout.pin).toBeNull();
-    expect(run.output.check).toBeNull();
+    expect(run.output.check?.note).toBe('Close.');
+    expect(run.assets.some((a) => a.endsWith('/scene-render.png'))).toBe(true);
     expect(run.output.items.mug?.fit?.archetype).toBe('mug');
-    expect(run.usage?.totalTokens).toBe(120);
+    expect(run.usage?.totalTokens).toBe(240);
     expect(run.assets.some((a) => a.endsWith('/source.png'))).toBe(true);
     await s.app.close();
   });
@@ -776,11 +595,12 @@ describe('photo routes, live with a mocked Meta API', () => {
     expect(s.fetcher).not.toHaveBeenCalled();
     await s.app.close();
   });
-  it('draws a photographed room as a picture: one image call, one SAM call, its desk tied to the pin', async () => {
+  it('draws the room as a picture from its camera’s frame: one image call, tied to the camera', async () => {
     const s = await setup();
-    // At the frame size the recorded SAM answer was made for.
-    const picture = await sharp(readFileSync('apps/server/assets/demo-illustration.webp'))
-      .resize(960, 640)
+    // Muse Image may answer at another size; the picture is kept at the frame's.
+    const picture = await sharp({
+      create: { width: 1024, height: 683, channels: 3, background: '#e8e0d0' },
+    })
       .png()
       .toBuffer();
     let edit: Record<string, unknown> | null = null;
@@ -798,10 +618,10 @@ describe('photo routes, live with a mocked Meta API', () => {
           { headers: { 'content-type': 'application/json' } },
         );
       }
-      if (body.model === 'sam-3.1') return samResponse(demo.wire);
-      throw new Error(`unexpected call ${String(url)}`);
+      throw new Error(`unexpected call ${String(url)}: ${body.model}`);
     });
-    // A room drafted offline, restored as the live desk with its pin.
+    // A room drafted offline, restored as the live desk with its pin and the calibrated camera.
+    const { camera } = (await s.app.inject('/api/desk/live')).json<DeskMemory>();
     const offline = await buildApp(parseConfig({ DATA_DIR: mkdtempSync(join(tmpdir(), 'll-')) }), {
       serveWeb: false,
     });
@@ -818,11 +638,11 @@ describe('photo routes, live with a mocked Meta API', () => {
       url: '/api/desk/restore',
       payload: {
         mode: 'live',
-        memory: { mode: 'live', object: null, scene: draft.scene, surface: draft.pin },
+        memory: { mode: 'live', object: null, scene: draft.scene, surface: draft.pin, camera },
       },
     });
     expect(restored.statusCode, restored.body).toBe(200);
-    const photo = await sharp(readFileSync('apps/web/public/desk.svg')).png().toBuffer();
+    const photo = await sharp(readFileSync('testdata/desk.svg')).png().toBuffer();
     const res = await s.app.inject({
       method: 'POST',
       url: '/api/scene/illustrate',
@@ -831,9 +651,12 @@ describe('photo routes, live with a mocked Meta API', () => {
     expect(res.statusCode, res.body).toBe(200);
     const out = res.json<{
       run: EvidenceRun;
-      segment: EvidenceRun<Segmentation>;
+      segment: EvidenceRun<Segmentation> | null;
       memory: DeskMemory;
     }>();
+    expect(s.fetcher).toHaveBeenCalledTimes(1);
+    expect(edit!.size).toBe('960x640');
+    expect(String(edit!.prompt)).toContain('framing exactly');
     // The edit asks Muse Image for a PNG, with its search and tools off.
     expect(edit!.model).toBe('muse-image-1.0');
     expect(edit!.output_format).toBe('png');
@@ -846,15 +669,15 @@ describe('photo routes, live with a mocked Meta API', () => {
       /^data:image\/png;base64,/,
     );
     expect(out.run.kind).toBe('illustration');
-    expect(out.segment.kind).toBe('segment');
-    expect(out.segment.output.concept).toBe('desk');
+    expect(out.segment).toBeNull();
     const illustration = out.memory.illustration!;
     expect(illustration.surfaceId).toBe(draft.pin!.surfaceId);
     expect(illustration.frame).toEqual({ width: 960, height: 640 });
-    expect(illustration.desk).not.toBeNull();
-    // A cent for the picture and SAM's price for the outline, both counted against the limit.
+    expect(illustration.drawnFrom).toEqual({ width: 960, height: 640 });
+    expect(illustration.desk).toBeNull();
+    // A cent for the picture, counted against the limit.
     const status = (await s.app.inject('/api/status')).json<{ meta: { spentToday: number } }>();
-    expect(status.meta.spentToday).toBeCloseTo(0.0125, 6);
+    expect(status.meta.spentToday).toBeCloseTo(0.01, 6);
 
     // The desk: a close frame and the room picture as style, shaped like the frame, and no SAM call.
     const calls = s.fetcher.mock.calls.length;
@@ -886,7 +709,7 @@ describe('photo routes, live with a mocked Meta API', () => {
       illustration.asset,
     );
     const after = (await s.app.inject('/api/status')).json<{ meta: { spentToday: number } }>();
-    expect(after.meta.spentToday).toBeCloseTo(0.0225, 6);
+    expect(after.meta.spentToday).toBeCloseTo(0.02, 6);
     // A redraw with a note asks for that change too; the same frame alone draws the same.
     const redraw = await s.app.inject({
       method: 'POST',

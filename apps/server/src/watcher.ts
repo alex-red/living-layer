@@ -5,7 +5,14 @@ import {
   appearanceSure,
   asked,
   demoPositionSchema,
+  appearanceRegion,
+  cameraEdges,
+  cameraMoved,
+  cropMask,
   findByAppearance,
+  intoRegion,
+  outOfRegion,
+  searchRegion,
   frameMotion,
   maskBits,
   missed,
@@ -122,6 +129,8 @@ export interface WatcherDeps {
  * a zone crossing or to find a lost thing; its answer goes through the same
  * track paths as the lab's buttons, so rules fire exactly as they do there.
  */
+/** How often a live camera's view is checked against its calibration frame. */
+const CAMERA_CHECK_MS = 10_000;
 export class Watcher {
   private source: FrameSource | null = null;
   private things = new Map<string, WatchThing>();
@@ -141,6 +150,7 @@ export class Watcher {
   private empty = new Map<string, EmptyLook>();
   private occupancy = new Map<string, ZoneOccupancy>();
   private lastOccupancyCheck = 0;
+  private lastCameraCheck = 0;
   private lastSam = new Map<string, number>();
   private comparing = false;
   private model: Appearance | null = null;
@@ -571,8 +581,18 @@ export class Watcher {
     frame: Segmentation['frame'],
   ) {
     try {
-      const grid = await this.model!.embed(photo);
-      const mask = maskBits(detection, frame, 1);
+      // A square around the thing, so a small one still spans a few patches.
+      const region = appearanceRegion(
+        {
+          x: detection.box.x / frame.width,
+          y: detection.box.y / frame.height,
+          width: detection.box.width / frame.width,
+          height: detection.box.height / frame.height,
+        },
+        frame,
+      );
+      const grid = await this.model!.embed(photo, region);
+      const mask = cropMask(maskBits(detection, frame, 1), region);
       const proto = prototypeOf(grid, patchWeights(mask, grid.cols, grid.rows));
       if (!proto) return;
       this.prototypes.set(
@@ -606,24 +626,43 @@ export class Watcher {
     if (this.pending.length && !this.checking) void this.track(this.check());
     // Demo frames come one deliberate move at a time, so each is compared.
     const every = this.deps.mode === 'demo' ? 0 : OCCUPANCY.everyMs;
+    if (now - this.lastCameraCheck >= CAMERA_CHECK_MS) {
+      this.lastCameraCheck = now;
+      this.checkCamera(frame);
+    }
     if (this.occupancyZones.size && now - this.lastOccupancyCheck >= every) {
       this.lastOccupancyCheck = now;
       void this.track(this.compareZones(frame));
     }
     this.emit();
   }
+  /**
+   * Whether the camera moved since it was calibrated. Once it has, zones no
+   * longer line up, so every rule is blocked until it is calibrated again.
+   */
+  private checkCamera(frame: LumaFrame) {
+    const memory = this.deps.store.memory(this.deps.mode);
+    const calibration = memory.camera;
+    if (!calibration?.reference || calibration.moved) return;
+    if (!cameraMoved(calibration.reference, cameraEdges(frame)).moved) return;
+    memory.camera = { ...calibration, moved: true };
+    this.deps.store.saveMemory(memory);
+    this.emit(true);
+  }
   /** Look for a lost thing by appearance; SAM is asked only if this can't find it. */
   private async refind(id: string) {
     const protos = this.prototypes.get(id);
     if (!this.model || !protos?.length || !this.source) return;
     try {
-      const { png } = await this.source.snapshot();
-      const grid = await this.model.embed(png);
+      const shot = await this.source.snapshot();
       const thing = this.things.get(id);
       if (!thing) return;
-      const match = findByAppearance(grid, protos, thing.track.box);
+      // Looked for around where it was last, at the zoom its prototypes were made at.
+      const { region, side } = searchRegion(thing.track.box, shot);
+      const grid = await this.model.embed(shot.png, region, side);
+      const match = findByAppearance(grid, protos, intoRegion(thing.track.box, region));
       if (!appearanceSure(match)) return;
-      this.things.set(id, refound(thing, match.box));
+      this.things.set(id, refound(thing, outOfRegion(match.box, region)));
       this.stats.refinds++;
       this.emit(true);
     } catch {

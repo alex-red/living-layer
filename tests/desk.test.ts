@@ -9,7 +9,11 @@ import { EvidenceStore } from '../apps/server/src/store.js';
 import { deskRoutes } from '../apps/server/src/desk.js';
 import Fastify from 'fastify';
 import {
+  DEMO_CALIBRATION,
+  DEMO_SURFACE,
   boxInZone,
+  surfaceMap,
+  zoneFromSurface,
   pickTracked,
   placementGate,
   type Detection,
@@ -36,7 +40,8 @@ async function waitFor(done: () => boolean, timeoutMs = 1000) {
     await new Promise((resolve) => setTimeout(resolve, 5));
   }
 }
-const inside = { x: 0.3, y: 0.2, width: 0.4, height: 0.6 };
+// Around the demo mug where it starts, and clear of where it moves to.
+const inside = { x: 0.5, y: 0.3, width: 0.1, height: 0.12 };
 const outside = { x: 0, y: 0, width: 0.1, height: 0.1 };
 
 async function setup() {
@@ -105,7 +110,7 @@ describe('desk placement', () => {
       (
         await s.post('desk/zone', {
           observationId: s.memory.observation!.id,
-          rect: { ...inside, x: 0.9 },
+          rect: { ...inside, x: 0.95 },
         })
       ).statusCode,
     ).toBe(400);
@@ -172,7 +177,7 @@ describe('desk placement', () => {
     expect(
       placementGate({
         ...z,
-        zone: { ...z.zone!, rect: { x: 0.4, y: 0.2, width: 0.3, height: 0.6 } },
+        zone: { ...z.zone!, rect: { x: 0.56, y: 0.3, width: 0.1, height: 0.12 } },
       }).decision,
     ).toBe('outside');
     await s.app.close();
@@ -252,6 +257,54 @@ describe('desk tracking', () => {
     const seg = (await s.post('segment', { concept: 'mug', demoPosition })).json<EvidenceRun>();
     return s.post('desk/track', { segmentRunId: seg.id });
   }
+  it('applies a zone drawn in the room to every frame of the calibrated camera', async () => {
+    const s = await setup();
+    // Around the mug on the desk top, in the surface's own unit square.
+    const a = { x: 0.6, y: 0.2 };
+    const b = { x: 0.78, y: 0.65 };
+    const map = surfaceMap(DEMO_SURFACE, DEMO_SURFACE.frame)!;
+    const rect = zoneFromSurface(a, b, DEMO_SURFACE.frame, map.toFrame)!;
+    const saved = await s.post('desk/zone', {
+      observationId: s.memory.observation!.id,
+      rect,
+      onSurface: { scene: 'office', surfaceId: 'desk:top', a, b },
+    });
+    expect(saved.statusCode, saved.body).toBe(200);
+    // No fixed-camera assumption: the demo camera is calibrated.
+    const steps: Tracked[] = [];
+    for (const spot of ['right', 'centre']) steps.push((await track(s, spot)).json<Tracked>());
+    expect(steps.map((t) => t.event.output.transition)).toEqual(['stayed_outside', 'entered']);
+    expect(steps.every((t) => !t.event.output.assumedFixedCamera)).toBe(true);
+    const wrong = await s.post('desk/zone', {
+      observationId: steps.at(-1)!.memory.observation!.id,
+      rect,
+      onSurface: { scene: 'office', surfaceId: 'nowhere', a, b },
+    });
+    expect(wrong.statusCode).toBe(400);
+    await s.app.close();
+  });
+  it('blocks every decision once the camera has moved', () => {
+    const memory = {
+      mode: 'live',
+      object: { id: 'o', label: 'Mug', createdAt: new Date().toISOString() },
+      observation: {
+        id: 'b',
+        objectId: 'o',
+        segmentRunId: 's',
+        detectionId: '7',
+        observedAt: new Date().toISOString(),
+        sourceKey: 'k',
+        frame: { width: 960, height: 640 },
+        box: { x: 500, y: 200, width: 20, height: 20 },
+        identity: 'manual',
+      },
+      zone: { id: 'z', sourceKey: 'k', rect: inside, frame: { width: 960, height: 640 } },
+      lastDecision: null,
+      camera: { ...DEMO_CALIBRATION, moved: true },
+    } as DeskMemory;
+    expect(placementGate(memory)).toMatchObject({ decision: 'blocked' });
+    expect(placementGate({ ...memory, camera: DEMO_CALIBRATION }).decision).toBe('inside');
+  });
   it('carries the zone on a fixed camera and fires the lamp only on entering', async () => {
     const s = await setup();
     await s.zone();
@@ -270,7 +323,7 @@ describe('desk tracking', () => {
     const last = steps.at(-1)!.memory;
     expect(last.observation).toMatchObject({ identity: 'tracked' });
     expect(last.history).toHaveLength(5);
-    expect(last.history![0]!.box.y).toBe(290);
+    expect(last.history![0]!.box.y).toBe(178);
     expect(s.fetcher).not.toHaveBeenCalled();
     await s.app.close();
   });

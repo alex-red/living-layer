@@ -1,18 +1,9 @@
 import { z } from 'zod';
-import type { Detection, Segmentation } from './index.js';
-import {
-  applyHomography,
-  homography,
-  pointSchema,
-  toIso,
-  type IsoScreen,
-  type Point,
-  type Quad,
-  type SurfacePin,
-} from './iso.js';
+import type { Segmentation } from './index.js';
+import { pointSchema, toIso, type IsoScreen, type Point, type SurfacePin } from './iso.js';
 import { ISO_PRESETS, isoSurface } from './iso-presets.js';
-import { worldSurface, type IsoBox, type IsoScene, type IsoSurface, type IsoVec } from './iso.js';
-import { pinCamera, fitSurfaceQuad, maskBits, projectPoint, surfaceTop } from './photo-scene.js';
+import type { IsoBox, IsoScene, IsoVec } from './iso.js';
+import { pinCamera, projectPoint, unprojectPoint } from './photo-scene.js';
 
 /** A room's picture: `runId/illustration.png` in the evidence store. */
 export const illustrationRef = z.string().regex(/^[a-z0-9-]{1,64}\/illustration\.png$/);
@@ -47,10 +38,11 @@ export const pictureSpriteSchema = z
   .strict();
 export type PictureSprite = z.infer<typeof pictureSpriteSchema>;
 /**
- * A clean isometric picture of a person's room, drawn by an image model from
- * its photo, and where the pinned surface's top is in it. The corners follow
- * the pin's order, so the pin's unit square maps onto them: a point the camera
- * sees on the desk lands on the desk in the picture.
+ * A clean picture of a person's room, or of its desk close up, redrawn by an
+ * image model from one camera frame and keeping that frame's composition. A
+ * point of the scene goes through the pinned surface's camera into the frame,
+ * and onto the picture by scale alone, so what the camera sees on the desk
+ * lands on the desk in the picture.
  */
 const frameSchema = z
   .object({ width: z.number().int().positive(), height: z.number().int().positive() })
@@ -61,10 +53,13 @@ export const sceneIllustrationSchema = z
     frame: frameSchema,
     /** The surface of the scene the corners belong to. */
     surfaceId: z.string().min(1).max(40),
-    /** The top's corners in picture pixels, or null when no desk was found in it. */
+    /**
+     * Where the top's corners were found on a picture drawn before the room
+     * had its corner camera; always null now. Such a picture is dropped on load.
+     */
     desk: z.tuple([pointSchema, pointSchema, pointSchema, pointSchema]).nullable(),
     /**
-     * The camera frame a desk picture redraws, keeping its composition: a point
+     * The camera frame the picture redraws, keeping its composition: a point
      * of a frame this size maps onto the picture by scale alone.
      */
     drawnFrom: frameSchema.optional(),
@@ -112,97 +107,46 @@ export function withNote(prompt: string, note?: string): string {
   const text = note?.trim().slice(0, ILLUSTRATION_NOTE_MAX);
   return text ? `${prompt} This time, also: ${text}` : prompt;
 }
-/** What the image model is asked for: the photo redrawn as clean isometric line art. */
+/**
+ * What the image model is asked for: the room's corner camera frame redrawn
+ * as clean line art. Its viewpoint and framing are kept, so the room's camera
+ * maps the scene onto the picture as it does onto the frame.
+ */
 export const ILLUSTRATION_PROMPT =
-  'Redraw this photo as a clean isometric 2.5D illustration of the same room: a true isometric ' +
-  'view (2:1 dimetric, 30 degree angles, no perspective), seen from the front, on a plain black ' +
-  'background. Keep every piece of furniture and every object where it is in the photo, with the ' +
-  'same shapes, colours and relative sizes. Draw the desk top as a clean flat surface with its ' +
-  'edges visible. Soft even lighting, crisp outlines, no text, no labels, no walls or floor beyond ' +
-  "the furniture's footprint.";
-
-const UNIT: Quad = [
-  { x: 0, y: 0 },
-  { x: 1, y: 0 },
-  { x: 1, y: 1 },
-  { x: 0, y: 1 },
-];
-const centre = (q: Quad) => ({
-  x: q.reduce((s, p) => s + p.x, 0) / 4,
-  y: q.reduce((s, p) => s + p.y, 0) / 4,
-});
-const angle = (p: Point, c: Point) => Math.atan2(p.y - c.y, p.x - c.x);
+  'Redraw this photo, taken by a camera high in a corner of the room, as a clean illustration ' +
+  'of the same room. Keep the camera’s viewpoint, perspective and framing exactly, and every ' +
+  'piece of furniture and every object where it is in the photo, with the same shapes, colours ' +
+  'and relative sizes. Crisp outlines, flat colours, soft even lighting. Plain black background ' +
+  'beyond the walls and floor, no text, no labels.';
 
 /**
- * The desk top's corners in the picture from SAM's outline of the desk. The
- * picture is clean line art, so the surface fitter finds the top as it does
- * on a photo, without needing a camera.
- */
-export function pictureDesk(d: Detection, frame: Segmentation['frame']): Quad | null {
-  const scale = Math.min(1, 200 / frame.width);
-  return fitSurfaceQuad(surfaceTop(maskBits(d, frame, scale), []), frame)?.corners ?? null;
-}
-
-/**
- * The picture's corners in the pin's order. The picture keeps the photo's
- * composition, so each pin corner is matched with the picture corner in the
- * same direction from the middle: of the four ways round, the one whose
- * directions agree best.
- */
-export function alignCorners(picture: Quad, pin: Quad): Quad {
-  const cp = centre(picture);
-  const cq = centre(pin);
-  let best = picture;
-  let least = Infinity;
-  for (let k = 0; k < 4; k++) {
-    const turned = [0, 1, 2, 3].map((i) => picture[(i + k) % 4]!) as Quad;
-    let off = 0;
-    for (let i = 0; i < 4; i++) {
-      const d = Math.abs(angle(turned[i]!, cp) - angle(pin[i]!, cq));
-      off += Math.min(d, 2 * Math.PI - d);
-    }
-    if (off < least) {
-      least = off;
-      best = turned;
-    }
-  }
-  return best;
-}
-
-/**
- * A camera frame point in picture pixels. A desk picture redraws one frame,
- * so a frame of that size maps by scale. A room picture goes through the
- * pinned surface: frame to the surface's unit square by the pin, then onto the
- * picture's desk top. Null when the picture can't place a frame of this size.
+ * A camera frame point in picture pixels. A picture redraws one frame, so a
+ * frame of that size maps by scale. Null for a frame of another size.
  */
 export function framePointInPicture(
-  pin: SurfacePin,
+  _pin: SurfacePin,
   picture: SceneIllustration,
   frame: Segmentation['frame'],
   p: Point,
 ): Point | null {
   const from = picture.drawnFrom;
-  if (from)
-    return frame.width === from.width && frame.height === from.height
-      ? {
-          x: (p.x / from.width) * picture.frame.width,
-          y: (p.y / from.height) * picture.frame.height,
-        }
-      : null;
-  if (!picture.desk || frame.width !== pin.frame.width || frame.height !== pin.frame.height)
-    return null;
-  const toUnit = homography(pin.corners, UNIT);
-  const toPicture = homography(UNIT, picture.desk);
-  return toUnit && toPicture ? applyHomography(toPicture, applyHomography(toUnit, p)) : null;
+  return from && frame.width === from.width && frame.height === from.height
+    ? { x: (p.x / from.width) * picture.frame.width, y: (p.y / from.height) * picture.frame.height }
+    : null;
 }
 
+/** The pinned surface and its camera, for a picture redrawn from frames of the pin's size. */
+function pictureCamera(pin: SurfacePin, picture: SceneIllustration, custom: IsoScene | null) {
+  const surface = isoSurface(pin.scene, pin.surfaceId, custom);
+  const from = picture.drawnFrom;
+  if (!surface || !from || from.width !== pin.frame.width || from.height !== pin.frame.height)
+    return null;
+  const camera = pinCamera(pin.corners, pin.frame, surface.rect.w, surface.rect.d);
+  return camera && { surface, camera, from };
+}
 /**
- * Where a point of the pinned scene shows in its picture. On the room's
- * picture the desk top is known, so a point is placed on that plane and
- * raised or lowered by its height: the picture is drawn in parallel
- * projection, where up is up the page at about a tile's length per tile. On
- * a picture redrawn from a frame, the point goes through the pin's camera
- * into the frame first, when the pin was set on frames of that size.
+ * Where a point of the pinned scene shows in its picture: through the pin's
+ * camera into the frame the picture redraws, then onto the picture by scale.
  */
 export function scenePointInPicture(
   pin: SurfacePin,
@@ -210,50 +154,16 @@ export function scenePointInPicture(
   custom: IsoScene | null,
   p: IsoVec,
 ): Point | null {
-  const surface = isoSurface(pin.scene, pin.surfaceId, custom);
-  if (!surface) return null;
-  if (picture.drawnFrom) {
-    const { w, d } = surface.rect;
-    const camera = pinCamera(pin.corners, pin.frame, w, d);
-    const at =
-      camera && projectPoint(camera, p.x - surface.rect.x, p.y - surface.rect.y, p.z - surface.z);
-    return at && framePointInPicture(pin, picture, pin.frame, at);
-  }
-  const fit = pictureFit(picture, surface);
-  if (!fit) return null;
-  const uv = worldSurface(surface, p);
-  return {
-    x: fit.c.x + uv.x * fit.a.x + uv.y * fit.b.x,
-    y: fit.c.y + uv.x * fit.a.y + uv.y * fit.b.y - (p.z - surface.z) * fit.tile,
-  };
+  const seen = pictureCamera(pin, picture, custom);
+  if (!seen) return null;
+  const { surface, camera } = seen;
+  const at = projectPoint(camera, p.x - surface.rect.x, p.y - surface.rect.y, p.z - surface.z);
+  return at && framePointInPicture(pin, picture, pin.frame, at);
 }
 /**
- * The pinned surface's plane on the room picture, as parallel projection
- * maps it: an origin and the picture's step per share of the surface across
- * (a) and back to front (b), and its length of a tile, which is how far up
- * the page a tile of height goes. A homography through four drawn corners
- * would run off to a horizon away from the desk.
- */
-function pictureFit(picture: SceneIllustration, surface: IsoSurface) {
-  const desk = picture.desk;
-  if (!desk || picture.drawnFrom) return null;
-  const [d0, d1, d2, d3] = desk;
-  const a = { x: (d1.x - d0.x + d2.x - d3.x) / 2, y: (d1.y - d0.y + d2.y - d3.y) / 2 };
-  const b = { x: (d3.x - d0.x + d2.x - d1.x) / 2, y: (d3.y - d0.y + d2.y - d1.y) / 2 };
-  const c = {
-    x: (d0.x + d1.x + d2.x + d3.x) / 4 - (a.x + b.x) / 2,
-    y: (d0.y + d1.y + d2.y + d3.y) / 4 - (a.y + b.y) / 2,
-  };
-  const len = (p: Point, q: Point) => Math.hypot(q.x - p.x, q.y - p.y);
-  const tile =
-    ((len(d0, d1) + len(d3, d2)) / surface.rect.w + (len(d0, d3) + len(d1, d2)) / surface.rect.d) /
-    4;
-  return { a, b, c, tile };
-}
-/**
- * The point of the scene at height `z` that a point of the room picture
- * shows, for following the pointer across a plane, as a resize handle does.
- * Null where `pictureToScene` would be.
+ * The point of the scene at height `z` that a point of the picture shows,
+ * for following the pointer across a plane, as a resize handle does. Null
+ * where `pictureToScene` would be.
  */
 export function pictureToSceneAt(
   pin: SurfacePin,
@@ -262,23 +172,21 @@ export function pictureToSceneAt(
   pt: Point,
   z: number,
 ): { x: number; y: number } | null {
-  const pinned = isoSurface(pin.scene, pin.surfaceId, custom);
-  const fit = pinned && pictureFit(picture, pinned);
-  if (!pinned || !fit) return null;
-  const { a, b, c, tile } = fit;
-  const det = a.x * b.y - a.y * b.x;
-  if (Math.abs(det) < 1e-9) return null;
-  const qx = pt.x - c.x;
-  const qy = pt.y - c.y + (z - pinned.z) * tile;
-  const u = (qx * b.y - qy * b.x) / det;
-  const v = (a.x * qy - a.y * qx) / det;
-  return { x: pinned.rect.x + u * pinned.rect.w, y: pinned.rect.y + v * pinned.rect.d };
+  const seen = pictureCamera(pin, picture, custom);
+  if (!seen) return null;
+  const { surface, camera, from } = seen;
+  const p = {
+    x: (pt.x / picture.frame.width) * from.width,
+    y: (pt.y / picture.frame.height) * from.height,
+  };
+  const at = unprojectPoint(camera, p, z - surface.z);
+  return at && { x: surface.rect.x + at.X, y: surface.rect.y + at.Y };
 }
 /**
- * Where a point of the room picture is in the scene: on the highest surface
+ * Where a point of the picture is in the scene: on the highest surface
  * whose top it falls on, else on the floor. The inverse of drawing, for
- * dragging a fixture to where the picture shows it. Null on a picture
- * redrawn from a frame, or when the pinned surface is gone.
+ * dragging a fixture to where the picture shows it. Null when the pinned
+ * surface is gone, or the pin was set on frames of another size.
  */
 export function pictureToScene(
   pin: SurfacePin,
@@ -342,8 +250,8 @@ export function fixtureInPicture(
 /**
  * Where a sprite is drawn for its fixture as it stands now: moved with its
  * base's centre, and scaled about it as the footprint's area changed since
- * the cut. The picture is a parallel projection, so a move alone keeps it
- * the same size.
+ * the cut. A short move across the room barely changes how far it is from
+ * the camera, so a move alone keeps it the same size.
  */
 export function spriteBox(
   sprite: PictureSprite,
@@ -390,8 +298,9 @@ export type PictureFind = z.infer<typeof pictureFindSchema>;
 /**
  * The affine map that lays a fixture's model, drawn in the iso view's own
  * screen space, onto the room picture where its box stands: fitted by least
- * squares to the eight corners of its box, as SVG's matrix(a b c d e f). The
- * picture's projection is close to the iso view's, so the fit is close too.
+ * squares to the eight corners of its box, as SVG's matrix(a b c d e f). Over
+ * one fixture the corner camera's perspective is close to the iso view's
+ * parallel projection, so the fit is close too.
  * Null where the box doesn't place on the picture.
  */
 export function isoToPicture(

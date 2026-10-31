@@ -28,6 +28,7 @@ import {
   type SavedItem,
   type SceneGuess,
   type SurfacePin,
+  type ZoneOnSurface,
   type ZoneRect,
 } from '@livinglayer/domain';
 import { api, type AiFollow } from '../api';
@@ -51,7 +52,11 @@ export interface RuleDraft {
   entityId: string;
   label: string;
   rect: ZoneRect | null;
+  /** Where in the room it was drawn, when it was drawn here. */
+  onSurface?: ZoneOnSurface;
 }
+/** A zone being drawn: its frame rectangle, and where in the room when drawn in the room. */
+export type DraftZone = ZoneRect & { onSurface?: ZoneOnSurface };
 
 /** A fixture waiting to be put down: everything about it but where it stands. */
 export type FixturePlacing = Omit<FixtureInput, 'at' | 'surfaceId'>;
@@ -177,7 +182,7 @@ export function IsoView({
   /** The saved zone, or the draft while drawing, in frame coordinates. */
   zone?: ZoneRect;
   busy: boolean;
-  onDraftZone: (zone: ZoneRect) => void;
+  onDraftZone: (zone: DraftZone) => void;
   onRun: (
     run: EvidenceRun<SceneGuess | SavedItem | LayoutRun['output'] | PhotoRun['output']>,
   ) => void;
@@ -359,7 +364,7 @@ export function IsoView({
             busy={off}
             sparkNote={
               mode === 'demo'
-                ? 'Demo: no model call. Drafts fit the illustrated mug’s own pixels.'
+                ? 'Demo: no model call. Drafts fit the demo mug’s own pixels, from a close photo of it.'
                 : 'A Spark draft makes up to four billed calls (Spark twice, SAM up to twice) and sends only the masked crop.'
             }
             cropUrl={
@@ -488,14 +493,17 @@ export function IsoView({
                 defaultLight={defaultLight}
                 drawing={drawingRule || (drawing && Boolean(mug))}
                 onDrag={(a, b) => {
+                  // Drawn in the room, so it is the room's zone, not one image's.
+                  const onSurface =
+                    pin && surface ? { scene: pin.scene, surfaceId: surface.id, a, b } : undefined;
                   if (drawingRule && ruleTarget && ruleMap) {
                     const rect = zoneFromSurface(a, b, ruleTarget.frame, ruleMap.toFrame);
-                    if (rect && ruleDraft) onRuleDraft({ ...ruleDraft, rect });
+                    if (rect && ruleDraft) onRuleDraft({ ...ruleDraft, rect, onSurface });
                     return;
                   }
                   if (!mug || !o) return;
                   const next = zoneFromSurface(a, b, o.frame, mug.map.toFrame);
-                  if (next) onDraftZone(next);
+                  if (next) onDraftZone({ ...next, onSurface });
                 }}
               />
             )}

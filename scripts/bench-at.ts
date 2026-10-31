@@ -6,9 +6,9 @@
  * this tree and quietly measures the new code twice. Nothing in this
  * checkout is touched; the worktree is removed afterwards.
  *
- *   bun run bench:at HEAD                  scene bench at HEAD, then this tree against it
+ *   bun run bench:at HEAD                  room bench at HEAD, then this tree against it
  *   bun run bench:at main fit              the fit bench
- *   bun run bench:at HEAD~3 scene --set desk.topCm=4,5
+ *   bun run bench:at HEAD~3 room --set desk.topCm=4,5
  *                                          extra flags go to this tree's run
  *
  * Commits from before the shared bench reporter can't write JSON: their own
@@ -20,9 +20,8 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
 const root = resolve(import.meta.dir, '..');
-const [ref = 'HEAD', bench = 'scene', ...rest] = process.argv.slice(2);
-if (bench !== 'scene' && bench !== 'fit')
-  throw new Error(`Bench is "scene" or "fit", not "${bench}"`);
+const [ref = 'HEAD', bench = 'room', ...rest] = process.argv.slice(2);
+if (!['fit', 'room'].includes(bench)) throw new Error(`Bench is "room" or "fit", not "${bench}"`);
 const script = `scripts/${bench}-bench.ts`;
 const run = (cmd: string, args: string[], cwd: string, quiet = false) => {
   const r = spawnSync(cmd, args, { cwd, stdio: quiet ? 'pipe' : 'inherit', encoding: 'utf8' });

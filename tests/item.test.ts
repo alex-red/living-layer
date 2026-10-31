@@ -8,6 +8,7 @@ import { parseConfig, type Fetcher } from '../apps/server/src/config.js';
 import { detectionBits, maskedCrop } from '../apps/server/src/images.js';
 import { syntheticStream } from '../apps/server/src/sam.js';
 import {
+  DEMO_MUG,
   deltaE,
   hexLab,
   isoItemSchema,
@@ -135,7 +136,7 @@ describe('item routes', () => {
     expect(drafted.run.kind).toBe('item');
     expect(drafted.run.output.source).toBe('demo');
     expect(drafted.memory.item?.segmentRunId).toBe(segment.id);
-    // The demo runs the real fitter on the illustrated desk's own pixels.
+    // The demo runs the real fitter on the demo mug's own pixels.
     expect(drafted.memory.item?.parts.map((p) => p.id)).toEqual(['body', 'handle']);
     const fit = drafted.memory.item!.fit!;
     expect(fit.archetype).toBe('mug');
@@ -144,9 +145,9 @@ describe('item routes', () => {
     expect(fit.assists[0]).toContain('Spark: mug');
     const body = drafted.memory.item!.parts[0]!;
     expect(body.shape).toBe('lathe');
-    // Cream body with coffee in it, as drawn.
-    expect(deltaE(hexLab(body.color), hexLab('#ece5d0'))).toBeLessThan(3);
-    expect(deltaE(hexLab(body.inside!.liquid!), hexLab('#73604c'))).toBeLessThan(5);
+    // Cream body with coffee in it, as rendered.
+    expect(deltaE(hexLab(body.color), hexLab(DEMO_MUG.color))).toBeLessThan(6);
+    expect(deltaE(hexLab(body.inside!.liquid!), hexLab(DEMO_MUG.coffee))).toBeLessThan(6);
     const crop = await s.app.inject({ method: 'GET', url: '/api/item/crop?mode=demo' });
     expect(crop.statusCode).toBe(200);
     expect(crop.headers['content-type']).toBe('image/png');
@@ -252,7 +253,7 @@ describe('live item drafts with Meta’s help', () => {
     const post = (path: string, body: object) =>
       app.inject({ method: 'POST', url: `/api/${path}`, payload: { mode: 'live', ...body } });
     // A live photo: the illustrated desk, rasterized as a camera would deliver it.
-    const photo = await sharp(readFileSync('apps/web/public/desk.svg')).png().toBuffer();
+    const photo = await sharp(readFileSync('testdata/desk.svg')).png().toBuffer();
     const segment = (
       await post('segment', {
         concept: 'mug',

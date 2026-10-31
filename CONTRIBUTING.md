@@ -34,9 +34,9 @@ Some changes pass the tests and still make things worse. These scripts show it i
 
 ```sh
 bun run sheet                 # every furniture template, all four turns, as out/prop-sheet.png
-bun run bench:scene           # how well a scene is laid out from synthetic photos
+bun run bench:room            # how well a room is scanned through its calibrated corner camera
 bun run bench:fit             # how well item models fit their crops
-bun run bench:at main scene   # the scene bench on main, then your tree against it
+bun run bench:at main room    # the room bench on main, then your tree against it
 bun run verify                # all of the above that matters, plus format, types and tests, in one summary
 ```
 

@@ -35,7 +35,84 @@ export const APPEARANCE = {
   minLead: 0.06,
   /** Prototypes kept per thing, from different sightings. */
   maxPrototypes: 4,
+  /**
+   * A thing is embedded from a square of the frame this many times its size,
+   * so a mug across the room still spans a few patches; the square is also
+   * where a lost thing is looked for.
+   */
+  zoom: 7,
+  /** A lost thing is looked for in a square twice as wide, embedded at up to twice the side. */
+  searchZoom: 14,
 };
+
+/**
+ * Where to look for a lost thing last seen at `box`, and the side to embed
+ * it at so the thing keeps the scale its prototypes were made at.
+ */
+export function searchRegion(box: UnitBox, frame: { width: number; height: number }) {
+  const learn = appearanceRegion(box, frame);
+  const region = appearanceRegion(box, frame, APPEARANCE.searchZoom);
+  const px = (r: UnitBox) => Math.max(r.width * frame.width, r.height * frame.height);
+  const side =
+    Math.round(
+      Math.min(2, Math.max(1, px(region) / px(learn))) * (APPEARANCE.side / APPEARANCE.patch),
+    ) * APPEARANCE.patch;
+  return { region, side };
+}
+
+/**
+ * The square of the frame (as shares of it) to embed for a thing at `box`:
+ * `APPEARANCE.zoom` times its longer side, centred on it and kept inside the
+ * frame. A thing too big for that gets the whole frame.
+ */
+export function appearanceRegion(
+  box: UnitBox,
+  frame: { width: number; height: number },
+  zoom = APPEARANCE.zoom,
+): UnitBox {
+  const side = Math.max(box.width * frame.width, box.height * frame.height) * zoom;
+  if (side >= Math.min(frame.width, frame.height)) return { x: 0, y: 0, width: 1, height: 1 };
+  const w = side / frame.width;
+  const h = side / frame.height;
+  const cx = box.x + box.width / 2;
+  const cy = box.y + box.height / 2;
+  return {
+    x: Math.min(1 - w, Math.max(0, cx - w / 2)),
+    y: Math.min(1 - h, Math.max(0, cy - h / 2)),
+    width: w,
+    height: h,
+  };
+}
+/** A box in frame shares as shares of `region`, and back. */
+export const intoRegion = (b: UnitBox, r: UnitBox): UnitBox => ({
+  x: (b.x - r.x) / r.width,
+  y: (b.y - r.y) / r.height,
+  width: b.width / r.width,
+  height: b.height / r.height,
+});
+export const outOfRegion = (b: UnitBox, r: UnitBox): UnitBox => ({
+  x: r.x + b.x * r.width,
+  y: r.y + b.y * r.height,
+  width: b.width * r.width,
+  height: b.height * r.height,
+});
+/** The part of a frame-sized mask inside `region`. */
+export function cropMask(
+  mask: { width: number; height: number; data: Uint8Array },
+  r: UnitBox,
+): { width: number; height: number; data: Uint8Array } {
+  const left = Math.max(0, Math.floor(r.x * mask.width));
+  const top = Math.max(0, Math.floor(r.y * mask.height));
+  const width = Math.max(1, Math.min(mask.width - left, Math.round(r.width * mask.width)));
+  const height = Math.max(1, Math.min(mask.height - top, Math.round(r.height * mask.height)));
+  const data = new Uint8Array(width * height);
+  for (let y = 0; y < height; y++)
+    data.set(
+      mask.data.subarray((top + y) * mask.width + left, (top + y) * mask.width + left + width),
+      y * width,
+    );
+  return { width, height, data };
+}
 
 function normalize(v: Float32Array): Float32Array | null {
   let n = 0;

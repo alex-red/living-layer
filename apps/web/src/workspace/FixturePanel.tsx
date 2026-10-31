@@ -220,7 +220,7 @@ export function ScanFixtures({
   const [mapped, setMapped] = useState<MappedThing[] | null>(null);
   const [replace, setReplace] = useState(false);
   const live = lab.mode === 'live';
-  // The demo scans the illustrated desk, whose pin is always the same.
+  // The demo scans its office through the demo camera, whose pin is always the same.
   const pin = live ? lab.memory?.surface : DEMO_SURFACE;
   const scenes = useScenes().filter((s) => pin && pinFits(pin, s.id));
   const [chosen, setChosen] = useState<WorkScene | null>(initial);
@@ -236,7 +236,7 @@ export function ScanFixtures({
       <p className="micro">
         {live
           ? `Spark lists what stays put in ${lab.camera ? 'what the camera shows' : lab.image ? 'the desk photo' : 'the room’s photo'}, SAM outlines each one, and each is placed through the pin where it touches down. A fixture you already have is reused; anything new is modelled from its outline.`
-          : 'Scans the illustrated desk with no model call. A fixture you already have is reused; anything new is modelled from its outline.'}
+          : 'Scans the demo office with no model call. A fixture you already have is reused; anything new is modelled from its outline.'}
       </p>
       {scenes.length > 1 && (
         <div className="mode-switch" role="group" aria-label="Scene to map into">
@@ -411,7 +411,7 @@ export function NewFixturePanel() {
         status={
           mode === 'live'
             ? 'Drag a box around the thing. Spark sees only what is around the box; SAM outlines it.'
-            : 'Drag a box around the mug, the book or the bottle on the illustrated desk.'
+            : 'Drag a box around the mug, the book or the bottle in the demo office.'
         }
         tone="seen"
       >

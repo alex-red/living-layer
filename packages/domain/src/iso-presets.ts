@@ -84,19 +84,6 @@ export function isoSurface(
   const scene = kind === 'custom' ? custom : ISO_PRESETS[kind];
   return scene?.surfaces.find((s) => s.id === surfaceId);
 }
-/** The illustrated demo fills the frame with the desktop, so it needs no corners. */
-export const DEMO_SURFACE: SurfacePin = {
-  scene: 'desk',
-  surfaceId: 'desk:top',
-  corners: [
-    { x: 0, y: 0 },
-    { x: 960, y: 0 },
-    { x: 960, y: 640 },
-    { x: 0, y: 640 },
-  ],
-  frame: { width: 960, height: 640 },
-};
-
 const OPTIONAL_PROPS = [
   ...new Set(
     Object.values(ISO_PRESETS).flatMap((s) =>

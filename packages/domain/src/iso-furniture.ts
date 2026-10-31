@@ -124,7 +124,7 @@ function seeded(seed: number) {
 /**
  * Every model's measurements, in centimetres. `heightCm` is the height its
  * template stands at. Builders read these instead of literals, so a sweep
- * (`bun run bench:scene --set desk.topCm=3,4,5`) or a test can try other
+ * (`bun run bench:room --set desk.topCm=3,4,5`) or a test can try other
  * proportions with `withFurniture`, without editing this file.
  */
 export const FURNITURE_SPECS = {

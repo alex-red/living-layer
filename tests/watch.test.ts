@@ -8,7 +8,12 @@ import { demoSegmentation } from '../apps/server/src/demo.js';
 import { buildApp, watchersOf } from '../apps/server/src/app.js';
 import { parseConfig, type Fetcher } from '../apps/server/src/config.js';
 import {
+  appearanceRegion,
+  cropMask,
   findByAppearance,
+  intoRegion,
+  outOfRegion,
+  searchRegion,
   appearanceSure,
   fixtureInFrame,
   mugItem,
@@ -21,7 +26,6 @@ import {
   asked,
   WATCH,
   DEMO_SURFACE,
-  DEMO_POSITIONS,
   maskBits,
   patchWeights,
   type DeskMemory,
@@ -212,7 +216,7 @@ describe('the server watching the demo desk', () => {
     await s.post('desk/camera', { fixed: true });
     await s.post('desk/zone', {
       observationId: selected.observation!.id,
-      rect: { x: 0.3, y: 0.2, width: 0.4, height: 0.6 },
+      rect: { x: 0.5, y: 0.3, width: 0.1, height: 0.12 },
     });
     // Inside to start with: SAM confirms it once, so the next entry is an entry.
     await s.post('desk/verify', {
@@ -359,7 +363,7 @@ describe('the server watching the demo desk', () => {
         label: 'Lamp spot',
         objectId: id,
         entityId: 'switch.demo_fan',
-        rect: { x: 0.3, y: 0.2, width: 0.4, height: 0.6 },
+        rect: { x: 0.5, y: 0.3, width: 0.1, height: 0.12 },
       },
     });
     expect(rule.statusCode, rule.body).toBe(200);
@@ -451,31 +455,45 @@ const modelDir = resolve('.data');
 describe.skipIf(!existsSync(appearanceModelPath(modelDir)))(
   'the feature model on the demo desk',
   () => {
-    it('finds the moved mug from a prototype of its mask', async () => {
+    it('finds the moved mug nearby, and is never sure of a wrong place', async () => {
+      // Across the room the mug is about 17 × 23 pixels. A zoomed square still gives it a
+      // prototype, but a match is only a reason to look again: what matters is that a
+      // confident match is a right one. When it isn't sure, SAM is asked.
       const model = (await Appearance.load(modelDir))!;
       expect(model).not.toBeNull();
       const desk = new DemoSource();
       const centre = (await desk.snapshot()).png;
       const mug = (await demoSegmentation('mug', 'centre')).output;
       const d = mug.detections[0]!;
-      const grid = await model.embed(centre);
+      const share = {
+        x: d.box.x / 960,
+        y: d.box.y / 640,
+        width: d.box.width / 960,
+        height: d.box.height / 640,
+      };
+      const learn = appearanceRegion(share, mug.frame);
+      const grid = await model.embed(centre, learn);
       const proto = prototypeOf(
         grid,
-        patchWeights(maskBits(d, mug.frame, 1), grid.cols, grid.rows),
+        patchWeights(cropMask(maskBits(d, mug.frame, 1), learn), grid.cols, grid.rows),
       )!;
+      expect(proto).not.toBeNull();
       for (const position of ['right', 'front'] as const) {
         await desk.show(position);
-        const moved = await model.embed((await desk.snapshot()).png);
-        const size = { width: d.box.width / 960, height: d.box.height / 640 };
-        const match = findByAppearance(moved, [proto], size);
-        expect(appearanceSure(match)).toBe(true);
-        const { dx, dy } = DEMO_POSITIONS[position];
+        const { region, side } = searchRegion(share, mug.frame);
+        const moved = await model.embed((await desk.snapshot()).png, region, side);
+        const found = findByAppearance(moved, [proto], intoRegion(share, region));
+        const match = { ...found!, box: outOfRegion(found!.box, region) };
+        const there = (await demoSegmentation('mug', position)).output.detections[0]!.box;
         const want = {
-          x: (d.box.x + dx + d.box.width / 2) / 960,
-          y: (d.box.y + dy + d.box.height / 2) / 640,
+          x: (there.x + there.width / 2) / 960,
+          y: (there.y + there.height / 2) / 640,
         };
-        expect(Math.abs(match!.box.x + match!.box.width / 2 - want.x)).toBeLessThan(0.06);
-        expect(Math.abs(match!.box.y + match!.box.height / 2 - want.y)).toBeLessThan(0.08);
+        const right =
+          Math.abs(match.box.x + match.box.width / 2 - want.x) < 0.03 &&
+          Math.abs(match.box.y + match.box.height / 2 - want.y) < 0.04;
+        if (appearanceSure(found)) expect(right).toBe(true);
+        if (position === 'right') expect(right).toBe(true);
       }
     });
   },

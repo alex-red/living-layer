@@ -5,7 +5,11 @@ import { join } from 'node:path';
 import { buildApp } from '../apps/server/src/app.js';
 import { parseConfig, type Fetcher } from '../apps/server/src/config.js';
 import {
+  DEMO_POSITIONS,
   DEMO_SURFACE,
+  demoFrame,
+  detectionFromBits,
+  roomMask,
   ISO_PRESETS,
   applyHomography,
   depthOrder,
@@ -22,7 +26,6 @@ import {
   surfacePinSchema,
   toIso,
   zoneFromSurface,
-  zoneOnSurface,
   type DeskMemory,
   type EvidenceRun,
   type IsoBox,
@@ -141,18 +144,19 @@ describe('surface homography', () => {
 });
 
 describe('placing the demo mug', () => {
-  const surface = isoSurface('desk', 'desk:top')!;
+  const surface = isoSurface('office', 'desk:top')!;
   const map = surfaceMap(DEMO_SURFACE, DEMO_SURFACE.frame)!;
   it('stands the mug where its box touches the desk', () => {
-    const mug = { x: 400, y: 260, width: 160, height: 200 };
-    const placed = projectBox(mug, surface, map.toSurface);
-    expect(placed.onSurface).toBe(true);
-    expect(placed.foot.x).toBeCloseTo(0.5);
-    expect(placed.foot.y).toBeCloseTo(460 / 640);
-    expect(placed.box.at.z).toBe(surface.z);
-    // Centred on the foot, one sixth of the desk wide.
-    expect(placed.box.at.x + placed.box.size.w / 2).toBeCloseTo(1 + 0.5 * 6);
-    expect(placed.box.size.w).toBeCloseTo(1);
+    for (const position of ['centre', 'right', 'front'] as const) {
+      const mug = detectionFromBits('7', roomMask(demoFrame(position), 'mug'))!;
+      const placed = projectBox(mug.box, surface, map.toSurface);
+      expect(placed.onSurface).toBe(true);
+      expect(placed.box.at.z).toBe(surface.z);
+      // The box's bottom edge is the mug's front rim, so it lands a little in front of its centre.
+      const at = DEMO_POSITIONS[position];
+      expect(placed.box.at.x + placed.box.size.w / 2).toBeCloseTo(at.x, 0);
+      expect(Math.abs(placed.box.at.y + placed.box.size.d / 2 - at.y)).toBeLessThan(0.4);
+    }
   });
   it('flags a box whose foot falls off the surface', () => {
     const map2 = surfaceMap({ ...DEMO_SURFACE, corners: tilted, frame }, frame)!;
@@ -160,14 +164,17 @@ describe('placing the demo mug', () => {
       projectBox({ x: 10, y: 10, width: 40, height: 40 }, surface, map2.toSurface).onSurface,
     ).toBe(false);
   });
-  it('round-trips a zone drawn on the surface', () => {
-    const zone = { x: 0.25, y: 0.25, width: 0.5, height: 0.5 };
-    const quad = zoneOnSurface(zone, DEMO_SURFACE.frame, map.toSurface);
-    const back = zoneFromSurface(quad[0], quad[2], DEMO_SURFACE.frame, map.toFrame)!;
-    expect(back.x).toBeCloseTo(zone.x);
-    expect(back.y).toBeCloseTo(zone.y);
-    expect(back.width).toBeCloseTo(zone.width);
-    expect(back.height).toBeCloseTo(zone.height);
+  it('turns a zone drawn on the surface into the frame rectangle around it', () => {
+    const a = { x: 0.25, y: 0.25 };
+    const b = { x: 0.75, y: 0.75 };
+    const back = zoneFromSurface(a, b, DEMO_SURFACE.frame, map.toFrame)!;
+    for (const p of [a, { x: b.x, y: a.y }, b, { x: a.x, y: b.y }]) {
+      const q = applyHomography(map.toFrame, p);
+      expect(q.x / DEMO_SURFACE.frame.width).toBeGreaterThanOrEqual(back.x - 1e-9);
+      expect(q.x / DEMO_SURFACE.frame.width).toBeLessThanOrEqual(back.x + back.width + 1e-9);
+      expect(q.y / DEMO_SURFACE.frame.height).toBeGreaterThanOrEqual(back.y - 1e-9);
+      expect(q.y / DEMO_SURFACE.frame.height).toBeLessThanOrEqual(back.y + back.height + 1e-9);
+    }
     expect(
       zoneFromSurface({ x: 0.5, y: 0.5 }, { x: 0.5, y: 0.5 }, DEMO_SURFACE.frame, map.toFrame),
     ).toBeNull();

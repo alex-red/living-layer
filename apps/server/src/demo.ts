@@ -1,8 +1,12 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import {
-  DEMO_POSITIONS,
+  DEMO_FRAME,
   DEMO_LIGHTS,
+  demoCloseUp,
+  demoFrame,
+  detectionFromBits,
+  roomMask,
   DEMO_SWITCHES,
   isMugConcept,
   type DemoPosition,
@@ -14,6 +18,7 @@ import {
   type PhotoCheck,
   type PhotoInventory,
   type Segmentation,
+  type RoomPicture,
   type DemoReference,
   type FixtureClass,
   type FixtureScan,
@@ -23,12 +28,10 @@ import {
 } from '@livinglayer/domain';
 import sharp from 'sharp';
 import { PROJECT_ROOT } from './config.js';
-import { demoPhoto } from './item.js';
 import { LabError } from './errors.js';
-import { decodeSegmentation, syntheticStream } from './sam.js';
 
 export const demoScene: Scene = {
-  summary: 'An illustrated desk with a cream mug, a green book, and a sage bottle.',
+  summary: 'An office desk with a cream mug, a green book, and a sage bottle.',
   objects: [
     { label: 'cream mug', category: 'mug', appearance: 'Cream body with a handle on the right.' },
     {
@@ -42,9 +45,9 @@ export const demoScene: Scene = {
 export const demoSceneGuess: SceneGuess = {
   kind: 'desk',
   visibleProps: ['book', 'bottle'],
-  summary: 'An illustrated desk seen from above, with a book and a bottle.',
+  summary: 'An office desk seen from its corner camera, with a book and a bottle.',
 };
-/** What a Spark layout of the illustrated desk could look like, with no model call. */
+/** What a Spark layout of the demo office could look like, with no model call. */
 export const demoSceneDraft: SceneDraft = {
   grid: { w: 10, d: 8 },
   items: [
@@ -58,133 +61,116 @@ export const demoSceneDraft: SceneDraft = {
     { template: 'plant', x: 7.8, y: 5.6, turns: 0 },
     { template: 'rug', x: 3, y: 5.2, turns: 0 },
   ],
-  summary: 'An illustrated desk against a wall, with a lamp, a book, a bottle and a chair.',
+  summary: 'An office desk against a wall, with a lamp, a book, a bottle and a chair.',
 };
-/** What a Spark inventory of the illustrated desk could look like, boxes in thousandths. */
+/** The demo room's things a Spark inventory would list, by the render's ids. */
+const DEMO_THINGS = [
+  { id: 'desk', label: 'desk top', as: 'desk', role: 'surface', on: 'floor' },
+  { id: 'mug', label: 'cream mug', as: 'mug', role: 'object', on: 'desk' },
+  { id: 'book', label: 'green book', as: 'book', role: 'object', on: 'desk' },
+  { id: 'bottle', label: 'sage bottle', as: 'bottle', role: 'object', on: 'desk' },
+] as const;
+/** A thing's box in the demo frame, in thousandths, from its rendered pixels. */
+function demoBox(id: string) {
+  const d = demoDetection(id, 'centre', id)!;
+  const { width, height } = DEMO_FRAME;
+  return {
+    x1: Math.round((d.box.x / width) * 1000),
+    y1: Math.round((d.box.y / height) * 1000),
+    x2: Math.round(((d.box.x + d.box.width) / width) * 1000),
+    y2: Math.round(((d.box.y + d.box.height) / height) * 1000),
+  };
+}
+/** What a Spark inventory of the demo room could look like, boxes in thousandths. */
 export const demoPhotoInventory: PhotoInventory = {
   kind: 'desk',
-  things: [
-    {
-      id: 'desk',
-      label: 'desk top',
-      as: 'desk',
-      role: 'surface',
-      on: 'floor',
-      box: { x1: 0, y1: 0, x2: 1000, y2: 1000 },
-    },
-    {
-      id: 'mug',
-      label: 'cream mug',
-      as: 'mug',
-      role: 'object',
-      on: 'desk',
-      box: { x1: 360, y1: 270, x2: 640, y2: 730 },
-    },
-    {
-      id: 'book',
-      label: 'green book',
-      as: 'book',
-      role: 'object',
-      on: 'desk',
-      box: { x1: 80, y1: 300, x2: 300, y2: 760 },
-    },
-    {
-      id: 'bottle',
-      label: 'sage bottle',
-      as: 'bottle',
-      role: 'object',
-      on: 'desk',
-      box: { x1: 750, y1: 210, x2: 850, y2: 700 },
-    },
-  ],
-  summary: 'An illustrated desk seen from above, with a cream mug, a green book and a sage bottle.',
+  things: DEMO_THINGS.map((t) => ({ ...t, box: demoBox(t.id) })),
+  summary:
+    'An office seen from its corner, with a cream mug, a green book and a sage bottle on the desk.',
 };
 export const demoPhotoCheck: PhotoCheck = {
   missing: [],
   extra: [],
   note: 'Demo: the drawn desk matches the illustration.',
 };
-/** A polygon in frame pixels as a detection: box around it, the path in the box's own pixels. */
-function polygonDetection(objectId: string, points: [number, number][]): Detection {
-  const xs = points.map((p) => p[0]);
-  const ys = points.map((p) => p[1]);
-  const x = Math.floor(Math.min(...xs));
-  const y = Math.floor(Math.min(...ys));
-  const width = Math.ceil(Math.max(...xs)) - x;
-  const height = Math.ceil(Math.max(...ys)) - y;
-  const local = points.map(([px, py]) => [px - x, py - y] as const);
-  const area =
-    Math.abs(
-      local.reduce((s, [ax, ay], i) => {
-        const [bx, by] = local[(i + 1) % local.length]!;
-        return s + ax * by - bx * ay;
-      }, 0),
-    ) / 2;
+/** One thing of the demo frame as a SAM detection: its rendered pixels, nothing nearer over them. */
+export function demoDetection(
+  id: string,
+  position: DemoPosition = 'centre',
+  objectId = '1',
+): Detection | null {
+  return detectionFromBits(objectId, roomMask(demoFrame(position), id));
+}
+const pngs = new Map<string, Promise<Buffer>>();
+const pngOf = (key: string, picture: () => RoomPicture) => {
+  let png = pngs.get(key);
+  if (!png) {
+    const { width, height, rgba } = picture();
+    png = sharp(Buffer.from(rgba), { raw: { width, height, channels: 4 } })
+      .png()
+      .toBuffer();
+    pngs.set(key, png);
+  }
+  return png;
+};
+/** The demo frame as a PNG, as the camera would send it. */
+export const demoPng = (position: DemoPosition = 'centre') =>
+  pngOf(`frame@${position}`, () => demoFrame(position));
+/**
+ * A close photo of the demo mug and its outline, for modelling it: across
+ * the room it is too few pixels to fit a model to.
+ */
+export async function demoMugCloseUp(position: DemoPosition = 'centre') {
+  const picture = demoCloseUp(position);
   return {
-    objectId,
-    confidence: 0.97,
-    box: { x, y, width, height },
-    mask: {
-      width,
-      height,
-      foregroundPixels: Math.round(area),
-      svgPath: `M${local.map(([px, py]) => `${px.toFixed(1)} ${py.toFixed(1)}`).join('L')}Z`,
-    },
+    png: await pngOf(`close@${position}`, () => picture),
+    detection: detectionFromBits('7', roomMask(picture, 'mug'))!,
   };
 }
 /**
- * Box-prompted SAM on the illustrated desk: the desktop, the book and the
- * bottle drawn from the SVG's own shapes, and the mug's synthetic mask. Ids
- * follow the inventory's order, as box prompts would be numbered.
+ * Box-prompted SAM on the demo room: each inventory thing's rendered
+ * pixels. Ids follow the inventory's order, as box prompts would be numbered.
  */
 export async function demoPhotoSegmentation(): Promise<Segmentation> {
-  const mug = (await demoSegmentation('mug')).output.detections[0]!;
-  const turn = (x: number, y: number): [number, number] => {
-    const a = (-9 * Math.PI) / 180;
-    const [dx, dy] = [x - 180, y - 340];
-    return [180 + dx * Math.cos(a) - dy * Math.sin(a), 340 + dx * Math.sin(a) + dy * Math.cos(a)];
-  };
   return {
     concept: 'photo scene',
-    frame: { width: 960, height: 640 },
-    detections: [
-      polygonDetection('1', [
-        [0, 0],
-        [960, 0],
-        [960, 640],
-        [0, 640],
-      ]),
-      { ...mug, objectId: '2' },
-      polygonDetection('3', [turn(85, 210), turn(270, 210), turn(270, 470), turn(85, 470)]),
-      polygonDetection('4', [
-        [748, 140],
-        [795, 140],
-        [795, 170],
-        [812, 170],
-        [812, 440],
-        [730, 440],
-        [730, 170],
-        [748, 170],
-      ]),
-    ],
+    frame: { ...DEMO_FRAME },
+    detections: DEMO_THINGS.flatMap((t, i) => demoDetection(t.id, 'centre', String(i + 1)) ?? []),
   };
 }
-/** The synthetic mug mask, moved to `position` the same way the web redraws the desk. */
+/** Words a person might ask SAM for, and the demo room's things they name. */
+const DEMO_CONCEPTS: [RegExp, (name: string) => boolean][] = [
+  [/\b(desk|table)s?\b/, (n) => n === 'desk'],
+  [/\b(book ?case|book ?shelf|shelf|shelves)\b/, (n) => n === 'shelf'],
+  [/\b(monitor|screen|display)s?\b/, (n) => n === 'monitor'],
+  [/\bkeyboards?\b/, (n) => n === 'keyboard'],
+  [/\b(book|notebook)s?\b/, (n) => n === 'book'],
+  [/\bbottles?\b/, (n) => n === 'bottle'],
+  [/\blamps?\b/, (n) => n === 'lamp'],
+  [/\bchairs?\b/, (n) => n === 'chair'],
+  [/\b(plant|pot)s?\b/, (n) => n === 'plant'],
+  [/\bfloor\b/, (n) => n === 'floor'],
+  [/\bwalls?\b/, (n) => n.startsWith('wall')],
+];
+/**
+ * SAM on the demo frame, with no model call: the rendered pixels of every
+ * thing the concept names, the mug where `position` puts it.
+ */
 export async function demoSegmentation(concept: string, position: DemoPosition = 'centre') {
-  const demo = JSON.parse(readFileSync(resolve(PROJECT_ROOT, 'testdata/sam-mug.json'), 'utf8')) as {
-    width: number;
-    height: number;
-    wire: string;
-  };
-  const result = await decodeSegmentation(
-    syntheticStream(isMugConcept(concept) ? demo.wire : ''),
-    concept,
-    demo.width,
-    demo.height,
+  const picture = demoFrame(position);
+  const c = concept.toLowerCase();
+  const names = isMugConcept(concept)
+    ? ['mug']
+    : picture.names.filter((n) => DEMO_CONCEPTS.some(([re, is]) => re.test(c) && is(n)));
+  // SAM numbers objects sparsely; the mug keeps the id it always had, 7.
+  const detections = names.flatMap(
+    (n, i) => demoDetection(n, position, n === 'mug' ? '7' : String(i + 1)) ?? [],
   );
-  const { dx, dy } = DEMO_POSITIONS[position];
-  for (const d of result.output.detections) d.box = { ...d.box, x: d.box.x + dx, y: d.box.y + dy };
-  return result;
+  const output: Segmentation = { concept, frame: { ...DEMO_FRAME }, detections };
+  return {
+    output,
+    raw: `Synthetic: ${detections.length} mask(s) read off the demo room's render for "${concept}". Not a model response.`,
+  };
 }
 export const demoLamp: LampResult = {
   entityId: DEMO_LIGHTS[0]!,
@@ -276,14 +262,14 @@ export async function demoReference(
   return reference;
 }
 
-/** Usual sizes of the illustrated desk's things, as Spark would give them. */
+/** Usual sizes of the demo desk's things, as Spark would give them. */
 const DEMO_DESK_SIZES: Record<string, FixtureClass['sizeCm']> = {
   mug: { w: 9, d: 9, h: 10 },
   book: { w: 15, d: 22, h: 3 },
   bottle: { w: 7, d: 7, h: 24 },
 };
 /**
- * The illustrated desk's thing under a box drawn on it, as a fixture class,
+ * The demo desk's thing under a box drawn on it, as a fixture class,
  * with its outline: the one the box overlaps most, if it overlaps one at all.
  * The desk itself is a surface, not a fixture. No model is called.
  */
@@ -312,14 +298,14 @@ export async function demoDeskThing(box: {
     ? (thing.as as Archetype)
     : archetypeOf(thing.label);
   return {
-    png: await demoPhoto(),
+    png: await demoPng(),
     detection: best.d,
     cls: {
       label: thing.label.charAt(0).toUpperCase() + thing.label.slice(1),
       archetype,
       material: archetype === 'mug' ? 'gloss' : 'matte',
       control: 'none',
-      description: `The ${thing.label} on the illustrated desk.`,
+      description: `The ${thing.label} on the demo desk.`,
       box: thing.box,
       sizeCm: DEMO_DESK_SIZES[thing.id] ?? { w: 10, d: 10, h: 10 },
     },
@@ -327,7 +313,7 @@ export async function demoDeskThing(box: {
 }
 
 /**
- * What a Spark scan of the illustrated desk could look like: the book and
+ * What a Spark scan of the demo desk could look like: the book and
  * the bottle stay put; the mug is the object the camera follows.
  */
 export const demoFixtureScan: FixtureScan = {

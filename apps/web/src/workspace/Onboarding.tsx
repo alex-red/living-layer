@@ -36,7 +36,8 @@ export function Onboarding() {
             <span className="tiny">QUICKEST</span>
             <strong>Use the demo office</strong>
             <span>
-              An illustrated office with a desk, a chair and a shelf. No camera or key needed.
+              An office with a desk, a chair and a shelf, seen by a virtual corner camera. No camera
+              or key needed.
             </span>
           </span>
         </button>
@@ -59,7 +60,7 @@ export function Onboarding() {
             </strong>
             <span>
               {mode === 'demo'
-                ? 'Run the photo-to-scene pipeline on the illustrated desk, with no model calls.'
+                ? 'Scan the office through the demo camera, with no model calls.'
                 : 'Spark lists what is in the photo, SAM outlines it, and you review the layout. About 2 billed calls.'}
             </span>
           </span>
@@ -102,8 +103,9 @@ export function Onboarding() {
 }
 
 /**
- * Step 2, in live mode: the office is set, but the desk isn't pinned to a
- * camera frame yet. The demo desk comes pinned, so this never shows there.
+ * Step 2, in live mode: the office is set, but its corner camera isn't
+ * calibrated yet. Calibrating pins the desk too. The demo camera comes
+ * calibrated, so this never shows there.
  */
 export function DeskStep() {
   const lab = useLab();
@@ -118,16 +120,17 @@ export function DeskStep() {
   )
     return null;
   const desk = { scene: pinScene(progress.view), surfaceId: progress.deskId };
+  if (lab.memory?.camera || lab.calibrating) return null;
   return (
-    <div className="desk-step" role="note" aria-label="Set up the office desk">
-      <span className="tiny">STEP 2 OF 2 · THE DESK</span>
+    <div className="desk-step" role="note" aria-label="Calibrate the room's camera">
+      <span className="tiny">STEP 2 OF 2 · THE CAMERA</span>
       <p>
-        <strong>Now get close to the desk.</strong>{' '}
+        <strong>Mount the camera high in a corner, looking across the room.</strong>{' '}
         {camera
-          ? 'Capture a frame when the desktop fills the view.'
+          ? 'Capture a frame once it is fixed in place.'
           : image
-            ? 'Find its top on the photo: SAM outlines the desk and its corners are measured for you to check. One billed call.'
-            : 'Point the camera at the desktop, or upload a close photo. This is the view the lamp rule watches.'}
+            ? 'Calibrate it on this frame: SAM outlines the floor and walls (two billed calls), then drag the far corner and each wall’s floor line into place and give the room’s size. The desk is pinned where the camera sees it.'
+            : 'Use the camera, or upload a frame from it. It stays where it is from now on: everything the lab watches is placed through it.'}
       </p>
       <div className="save-actions">
         {image && !camera ? (
@@ -135,16 +138,16 @@ export function DeskStep() {
             <button
               className="primary"
               disabled={Boolean(busy)}
-              onClick={() => void lab.autoPin({ ...desk, label: 'desktop' })}
+              onClick={() => void lab.startCalibrating()}
             >
-              {busy === 'autopin' ? 'Finding the desktop…' : 'Find the desktop'}
+              {busy === 'calibrate' ? 'Outlining the floor…' : 'Calibrate the camera'}
             </button>
             <button
               className="secondary"
               disabled={Boolean(busy)}
               onClick={() => lab.setPinning({ ...desk, label: 'desktop' })}
             >
-              Pin by hand
+              Pin the desk by hand
             </button>
           </>
         ) : (
@@ -162,7 +165,7 @@ export function DeskStep() {
                 disabled={Boolean(busy)}
                 onClick={() => lab.file.current?.click()}
               >
-                Upload a close photo
+                Upload a frame
               </button>
             </>
           )

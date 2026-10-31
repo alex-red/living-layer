@@ -1,10 +1,9 @@
 import type { FastifyInstance } from 'fastify';
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
 import sharp from 'sharp';
 import { z } from 'zod';
 import {
   DEMO_POSITIONS,
+  type DemoPosition,
   applyCheck,
   archetypeOf,
   buildItem,
@@ -36,7 +35,7 @@ import {
   type Segmentation,
   type Usage,
 } from '@livinglayer/domain';
-import { PROJECT_ROOT } from './config.js';
+import { demoMugCloseUp, demoPng } from './demo.js';
 import { LabError, parseInput } from './errors.js';
 import { detectionBits, maskedCrop } from './images.js';
 import type { MetaAdapter, ProviderResult } from './meta.js';
@@ -50,7 +49,7 @@ export type Runner = (
   ) => Promise<Partial<ProviderResult<unknown>> & { output: unknown; assets?: string[] }>,
 ) => Promise<EvidenceRun>;
 
-/** What a Spark class looks like offline: the illustrated mug is a glossy mug. */
+/** What a Spark class looks like offline: the demo mug is a glossy mug. */
 export const demoItemClass: ItemClass = {
   archetype: 'mug',
   material: 'gloss',
@@ -64,18 +63,9 @@ const PART_CONCEPTS: Partial<Record<Archetype, { handle?: string; inside?: strin
   plant: { inside: 'soil' },
 };
 
-/** The demo desk is an SVG the web draws; rasterize it once, as the camera would see it. */
-let demoDesk: Buffer | null = null;
-export async function demoPhoto(): Promise<Buffer> {
-  demoDesk ??= await sharp(readFileSync(resolve(PROJECT_ROOT, 'apps/web/public/desk.svg')))
-    .png()
-    .toBuffer();
-  return demoDesk;
-}
-/**
- * The detection's masked crop. In demo mode the desk is always drawn with
- * the mug in the centre, so a moved detection is cut from where the mug was drawn.
- */
+/** The demo camera's frame: the office rendered from its corner, the mug at `position`. */
+export const demoPhoto = (position: DemoPosition = 'centre') => demoPng(position);
+/** The detection's masked crop, from the frame it was seen in. */
 export async function itemCrop(
   store: EvidenceStore,
   mode: Mode,
@@ -84,12 +74,10 @@ export async function itemCrop(
 ) {
   if (mode === 'demo') {
     const output = segment.output as Segmentation & { sourceKey?: string };
-    const position = (output.sourceKey?.split('@')[1] ?? 'centre') as keyof typeof DEMO_POSITIONS;
-    const { dx, dy } = DEMO_POSITIONS[position] ?? DEMO_POSITIONS.centre;
-    return maskedCrop(await demoPhoto(), {
-      ...detection,
-      box: { ...detection.box, x: detection.box.x - dx, y: detection.box.y - dy },
-    });
+    const position = (output.sourceKey?.split('@')[1] ?? 'centre') as DemoPosition;
+    // The demo mug is modelled from a close photo of it, as a person would take one.
+    const close = await demoMugCloseUp(DEMO_POSITIONS[position] ? position : 'centre');
+    return maskedCrop(close.png, close.detection);
   }
   const photo = segment.assets.find((a) => a.endsWith('/source.png'));
   const bytes = photo ? store.readAsset(photo) : null;

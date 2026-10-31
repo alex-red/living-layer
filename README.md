@@ -38,7 +38,7 @@ Open http://127.0.0.1:43430. The API runs on port 43431.
 
 ![The first screen: start from the demo office or a photo of your own](docs/media/start.png)
 
-Choose **Use the demo office**. The illustrated desk comes already pinned. Then:
+Choose **Use the demo office**. Its frames come from a virtual camera high in the office’s front corner, already calibrated, so the desk comes pinned. Then:
 
 1. In the outline, choose **Add object**, then **Segment object** and **Confirm mug mask #7**.
 2. Select **Main zone**, choose **Draw / edit zone**, drag a box around the mug and **Save zone**.
@@ -68,7 +68,7 @@ Copy `.env.example` to `.env` and fill in what you need. Restart the server afte
 | `REMOTE_CAMERA_HOST`                     | Optional. Address the pairing QR code points at, if the detected LAN address is wrong.                                    |
 | `REMOTE_CAMERA_CERT`, `_KEY`             | Optional. PEM certificate and key for the phone page (e.g. mkcert); else self-signed.                                     |
 
-Then switch to **Live** mode and go through the same steps with your own photos or camera: photograph the office, then a close photo of the desk for **Find the desktop**. Photos are only sent to Meta when you press a button that says it calls a model. The spend pill in the top bar shows today's spend against the limit.
+Then switch to **Live** mode and go through the same steps with your own camera: mount it high in a corner of the room, looking across at the far corner, and **Calibrate the camera** on one of its frames (SAM outlines the floor and walls; you drag three marks and give the room’s size). Every scan, pin and picture then goes through that camera. Photos are only sent to Meta when you press a button that says it calls a model. The spend pill in the top bar shows today's spend against the limit.
 
 You can also run the probes from the command line:
 
@@ -106,13 +106,13 @@ bun run format
 
 `bun install` points git at `.githooks`, whose pre-push hook runs `check` and `test:browser:strict`; `git push --no-verify` skips it.
 
-| Path              | What's there                                                                     |
-| ----------------- | -------------------------------------------------------------------------------- |
-| `apps/web`        | React UI                                                                         |
-| `apps/server`     | Fastify API, Meta/SAM and Home Assistant adapters, SQLite store                  |
-| `packages/domain` | Shared types, schemas, and the placement rule                                    |
-| `testdata`        | Synthetic SAM output for the illustrated desk ([provenance](testdata/README.md)) |
-| `tests`           | `bun test` integration tests and Playwright browser tests                        |
+| Path              | What's there                                                                           |
+| ----------------- | -------------------------------------------------------------------------------------- |
+| `apps/web`        | React UI                                                                               |
+| `apps/server`     | Fastify API, Meta/SAM and Home Assistant adapters, SQLite store                        |
+| `packages/domain` | Shared types, schemas, and the placement rule                                          |
+| `testdata`        | Recorded SAM output and sample photos for the tests ([provenance](testdata/README.md)) |
+| `tests`           | `bun test` integration tests and Playwright browser tests                              |
 
 Local data (captures, raw SAM output, SQLite history, exports) is written to `.data/`, which is gitignored. Delete it with the server stopped to start fresh. The evidence export leaves out image bytes but does include object descriptions and your lamp's entity ID, so read it before sharing.
 

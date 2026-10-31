@@ -36,6 +36,7 @@ import { deskRoutes } from './desk.js';
 import { itemRoutes } from './item.js';
 import { photoRoutes } from './photo.js';
 import { pinRoutes } from './pin.js';
+import { roomRoutes } from './room.js';
 import { illustrationRoutes } from './illustration.js';
 import { jobRoutes, jobs } from './jobs.js';
 import { listStreams, streamRoutes, type NetworkStream } from './streams.js';
@@ -331,7 +332,7 @@ export async function buildApp(
     return run('discover', input.mode, async (id) => {
       if (input.mode === 'demo') {
         if (input.imageDataUrl)
-          throw new LabError('demo_image', 'Demo mode uses only the bundled illustrated desk.');
+          throw new LabError('demo_image', 'Demo mode uses only the demo room’s camera.');
         return { output: demoScene };
       }
       const image = await validateImage(input.imageDataUrl);
@@ -349,7 +350,7 @@ export async function buildApp(
     return run('layout', input.mode, async (id) => {
       if (input.mode === 'demo') {
         if (input.imageDataUrl)
-          throw new LabError('demo_image', 'Demo mode uses only the bundled illustrated desk.');
+          throw new LabError('demo_image', 'Demo mode uses only the demo room’s camera.');
         return { output: drafted(demoSceneDraft) };
       }
       const image = await validateImage(input.imageDataUrl);
@@ -372,7 +373,7 @@ export async function buildApp(
     return run('scene', input.mode, async (id) => {
       if (input.mode === 'demo') {
         if (input.imageDataUrl)
-          throw new LabError('demo_image', 'Demo mode uses only the bundled illustrated desk.');
+          throw new LabError('demo_image', 'Demo mode uses only the demo room’s camera.');
         return { output: demoSceneGuess };
       }
       const image = await validateImage(input.imageDataUrl);
@@ -382,7 +383,8 @@ export async function buildApp(
   });
   itemRoutes(app, { store, meta, run });
   photoRoutes(app, { store, meta, run, config });
-  pinRoutes(app, { store, meta, run });
+  pinRoutes(app, { store });
+  roomRoutes(app, { store, meta, run });
   illustrationRoutes(app, { store, meta, run });
   /** One SAM segmentation, recorded and billed as a run: the lab's button, or the watcher. */
   function segment(input: {
@@ -394,7 +396,7 @@ export async function buildApp(
     return run('segment', input.mode, async (id) => {
       if (input.mode === 'demo') {
         if (input.imageDataUrl)
-          throw new LabError('demo_image', 'Demo mode uses only the bundled illustrated desk.');
+          throw new LabError('demo_image', 'Demo mode uses only the demo room’s camera.');
         const result = await demoSegmentation(input.concept, input.demoPosition);
         return {
           output: { ...result.output, sourceKey: demoSourceKey(input.demoPosition) },

@@ -1,11 +1,10 @@
-import { useMemo, useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   ARCHETYPES,
   PROP_TEMPLATES,
   TEMPLATE_IDS,
   itemHeight,
-  layoutPhoto,
-  quadIsConvex,
+  layoutRoom,
   sceneForSave,
   type DeskMemory,
   type EvidenceRun,
@@ -14,7 +13,6 @@ import {
   type PhotoDraft,
   type PhotoEdit,
   type PlacedThing,
-  type Quad,
 } from '@livinglayer/domain';
 import { api } from '../api';
 import { IsoScene, type IsoObject } from './IsoScene';
@@ -30,9 +28,10 @@ const STATUS: Record<PlacedThing['status'], string> = {
 const pct = (n: number | null | undefined) => (n == null ? '–' : `${Math.round(n * 100)}%`);
 
 /**
- * Review a scene drafted from a photo before anything is saved. Left: the
- * photo with SAM's outlines and the pinned surface's corners, which can be
- * dragged. Right: the scene as drafted, with each object's fitted model.
+ * Review a scene drafted from a frame of the room's camera before anything is
+ * saved. Left: the frame with SAM's outlines and the main surface as the
+ * calibrated camera sees it. Right: the scene as drafted, with each object's
+ * fitted model.
  * Below: one row per thing, to change what it is drawn as, remove it, or
  * track it. The layout is pure code, so every change is laid out again here.
  */
@@ -58,8 +57,6 @@ export function PhotoReview({
   const draft = run.output;
   const frame = draft.segmentation.frame;
   const [edits, setEdits] = useState<Record<string, PhotoEdit>>({});
-  const [corners, setCorners] = useState<Quad | null>(draft.layout.pin?.corners ?? null);
-  const [dragging, setDragging] = useState<number | null>(null);
   const [track, setTrack] = useState<string[]>(() => {
     // Nothing remembered yet: offer the first mug as the main object.
     if (memory?.object) return [];
@@ -69,26 +66,21 @@ export function PhotoReview({
     return mug ? [mug.id] : [];
   });
   const [saving, setSaving] = useState(false);
-  const svg = useRef<SVGSVGElement>(null);
-
-  const moved =
-    JSON.stringify(corners) !== JSON.stringify(draft.layout.pin?.corners ?? null) ||
-    Object.keys(edits).length > 0;
   const layout = useMemo(
     () =>
-      moved
-        ? layoutPhoto({
+      // Through the room's calibrated camera, as the draft was: the pin follows from it.
+      Object.keys(edits).length === 0
+        ? draft.layout
+        : layoutRoom({
             inventory: draft.inventory,
             segmentation: draft.segmentation,
             detections: draft.detections,
-            corners,
             edits,
-            // Refining while a corner is dragged would make the drag lag.
-            refine: dragging === null,
-          })
-        : draft.layout,
-    [draft, corners, edits, dragging, moved],
+            calibration: draft.calibration,
+          }),
+    [draft, edits],
   );
+  const shown = layout.pin?.corners ?? null;
   const tracked = track.filter((id) =>
     layout.things.some((t) => t.id === id && t.detectionId && t.status !== 'removed'),
   );
@@ -103,15 +95,6 @@ export function PhotoReview({
     });
   const byDetection = new Map(draft.segmentation.detections.map((d) => [d.objectId, d]));
 
-  function point(e: React.PointerEvent) {
-    const m = svg.current?.getScreenCTM();
-    if (!m) return null;
-    const p = new DOMPoint(e.clientX, e.clientY).matrixTransform(m.inverse());
-    return {
-      x: Math.max(0, Math.min(frame.width, p.x)),
-      y: Math.max(0, Math.min(frame.height, p.y)),
-    };
-  }
   function edit(id: string, change: PhotoEdit) {
     setEdits((e) => ({ ...e, [id]: { ...e[id], ...change } }));
   }
@@ -140,32 +123,9 @@ export function PhotoReview({
         <figure className="photo-review-photo">
           <img src={photoUrl} alt="The photo the scene was drafted from" />
           <svg
-            ref={svg}
             viewBox={`0 0 ${frame.width} ${frame.height}`}
             preserveAspectRatio="none"
-            aria-label="SAM outlines and the pinned surface"
-            onPointerMove={(e) => {
-              if (dragging === null || !corners) return;
-              const p = point(e);
-              if (!p) return;
-              const next = corners.map((c, i) => (i === dragging ? p : c)) as Quad;
-              if (quadIsConvex(next, (frame.width * frame.height) / 400)) setCorners(next);
-            }}
-            // Grab the nearest corner from anywhere close by: a corner on the photo's edge
-            // has half its handle outside the picture.
-            onPointerDown={(e) => {
-              const p = point(e);
-              if (!p || !corners) return;
-              const reach = Math.max(frame.width, frame.height) / 20;
-              const near = corners
-                .map((c, i) => ({ i, d: Math.hypot(c.x - p.x, c.y - p.y) }))
-                .sort((a, b) => a.d - b.d)[0]!;
-              if (near.d > reach) return;
-              e.currentTarget.setPointerCapture?.(e.pointerId);
-              setDragging(near.i);
-            }}
-            onPointerUp={() => setDragging(null)}
-            onPointerLeave={() => setDragging(null)}
+            aria-label="SAM outlines and the main surface"
           >
             {layout.things.map((t) => {
               const d = t.detectionId ? byDetection.get(t.detectionId) : undefined;
@@ -183,26 +143,12 @@ export function PhotoReview({
                 </path>
               );
             })}
-            {corners && (
-              <>
-                <polygon
-                  className="photo-pin"
-                  points={corners.map((c) => `${c.x},${c.y}`).join(' ')}
-                  vectorEffect="non-scaling-stroke"
-                />
-                {corners.map((c, i) => (
-                  <circle
-                    key={i}
-                    className={`photo-corner ${dragging === i ? 'active' : ''}`}
-                    cx={c.x}
-                    cy={c.y}
-                    r={Math.max(frame.width, frame.height) / 70}
-                    role="slider"
-                    aria-label={`Pin corner ${i + 1}`}
-                    aria-valuetext={`${Math.round(c.x)}, ${Math.round(c.y)}`}
-                  />
-                ))}
-              </>
+            {shown && (
+              <polygon
+                className="photo-pin"
+                points={shown.map((c) => `${c.x},${c.y}`).join(' ')}
+                vectorEffect="non-scaling-stroke"
+              />
             )}
           </svg>
         </figure>
@@ -288,8 +234,8 @@ export function PhotoReview({
       </table>
       <p className="iso-note" role="status">
         {layout.pin
-          ? `Pinned the ${surfaceLabel} (camera ${Math.round(layout.camera!.elevation)}° up${layout.camera!.focalGuessed ? ', lens guessed' : ''}). Scene match ${pct(layout.score)}. Drag a corner if the pin is off.`
-          : 'No surface could be pinned, so things are spread by where they are in the photo. Save, then pin a surface by hand.'}{' '}
+          ? `The ${surfaceLabel} is pinned where the room’s camera sees it. Scene match ${pct(layout.score)}.`
+          : `Scene match ${pct(layout.score)}. No desk or table in view to pin.`}{' '}
         {tracked.length
           ? `The first ticked object becomes the main one${memory?.object ? ` (${memory.object.label})` : ''}.`
           : 'Tick the objects to track.'}

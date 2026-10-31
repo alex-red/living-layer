@@ -1,6 +1,9 @@
 import { z } from 'zod';
 import type { IsoScene, SurfacePin } from './iso.js';
 import type { SceneIllustration } from './illustration.js';
+import { DEMO_CAMERA, type DemoPosition } from './demo-room.js';
+import { marksOf, roomCameraSchema, roomMarksSchema } from './room-camera.js';
+import { pointSchema } from './iso.js';
 import type { SavedItem } from './iso-item.js';
 import { entityIdSchema, type Fixture } from './fixture.js';
 import type { ExposedEntity } from './expose.js';
@@ -31,25 +34,6 @@ export const imageRequestSchema = z
     imageDataUrl: z.string().max(7_000_000).optional(),
   })
   .strict();
-/**
- * Where the demo mug sits. The illustrated desk is redrawn with the mug
- * offset by this many frame pixels, and the synthetic mask moves with it, so
- * the tracking loop can be tested without a camera or any model call.
- */
-export const DEMO_POSITIONS = {
-  centre: { label: 'Centre', dx: 0, dy: 0 },
-  right: { label: 'Right', dx: 100, dy: -20 },
-  front: { label: 'Front left', dx: -50, dy: 110 },
-} as const;
-export type DemoPosition = keyof typeof DEMO_POSITIONS;
-/** The illustrated desk's SVG with the mug, its coffee and its shadow moved together to `position`. */
-export function moveDemoMug(svg: string, position: DemoPosition): string {
-  const { dx, dy } = DEMO_POSITIONS[position];
-  return svg
-    .replace('translate(350 180)', `translate(${350 + dx} ${180 + dy})`)
-    .replace('cx="485" cy="455"', `cx="${485 + dx}" cy="${455 + dy}"`)
-    .replace('cx="450" cy="245"', `cx="${450 + dx}" cy="${245 + dy}"`);
-}
 export const demoPositionSchema = z.enum(['centre', 'right', 'front']);
 export const segmentRequestSchema = imageRequestSchema
   .extend({
@@ -180,7 +164,7 @@ export interface ApiFailure {
 
 export const MAX_IMAGE_PIXELS = 4_000_000;
 export const MAX_MASK_PIXELS = 4_000_000;
-export const DEMO_ID = 'illustrated-desk-v1';
+export const DEMO_ID = 'corner-office-v1';
 /** Each demo position is its own source image, as a new photo would be. */
 export function demoSourceKey(position: DemoPosition = 'centre'): string {
   return position === 'centre' ? DEMO_ID : `${DEMO_ID}@${position}`;
@@ -287,6 +271,49 @@ export const zoneRectSchema = z
   .strict()
   .refine((r) => r.x + r.width <= 1.000001 && r.y + r.height <= 1.000001);
 export type ZoneRect = z.infer<typeof zoneRectSchema>;
+/**
+ * Where a zone was drawn in the room: two opposite corners on a surface, in
+ * its own unit square. With a calibrated camera the zone is the room's, not
+ * one image's, so it applies to every frame that camera sends.
+ */
+export const zoneOnSurfaceSchema = z
+  .object({
+    scene: z.enum(['office', 'desk', 'fridge', 'custom']),
+    surfaceId: z.string().min(1).max(48),
+    a: pointSchema,
+    b: pointSchema,
+  })
+  .strict();
+export type ZoneOnSurface = z.infer<typeof zoneOnSurfaceSchema>;
+/**
+ * The room's camera once calibrated: where it is and how it sees, the marks
+ * it was fitted to, and whether it has since been seen to move.
+ */
+export const roomCalibrationSchema = z
+  .object({
+    camera: roomCameraSchema,
+    marks: roomMarksSchema,
+    scene: z.enum(['office', 'desk', 'fridge', 'custom']),
+    /** Root mean square distance of the marks from the fitted camera's floor lines, in pixels. */
+    error: z.number().min(0),
+    calibratedAt: z.string(),
+    /** Edges of the frame it was calibrated on, to tell whether the camera moved since. */
+    reference: z.string().max(20_000).optional(),
+    moved: z.boolean().optional(),
+  })
+  .strict();
+export type RoomCalibration = z.infer<typeof roomCalibrationSchema>;
+/** The demo camera, calibrated: the office's corner camera, as a person would have set it. */
+export const DEMO_CALIBRATION: RoomCalibration = {
+  camera: DEMO_CAMERA,
+  marks: marksOf(DEMO_CAMERA),
+  scene: 'office',
+  error: 0,
+  calibratedAt: '2026-10-30T00:00:00.000Z',
+};
+/** The room camera that applies: the calibrated one, or the demo's. */
+export const calibrationOf = (memory: Pick<DeskMemory, 'mode' | 'camera'>) =>
+  memory.camera ?? (memory.mode === 'demo' ? DEMO_CALIBRATION : null);
 export interface DeskObservation {
   id: string;
   objectId: string;
@@ -306,7 +333,13 @@ export interface DeskMemory {
   object: { id: string; label: string; createdAt: string } | null;
   observation: DeskObservation | null;
   /** `frame` is the size of the image the zone was drawn on; older zones lack it. */
-  zone: { id: string; sourceKey: string; rect: ZoneRect; frame?: Segmentation['frame'] } | null;
+  zone: {
+    id: string;
+    sourceKey: string;
+    rect: ZoneRect;
+    frame?: Segmentation['frame'];
+    onSurface?: ZoneOnSurface;
+  } | null;
   lastDecision: EvidenceRun<PlacementDecision> | null;
   /**
    * Opt-in: the camera hasn't moved, so a zone carries over to any new frame of
@@ -319,6 +352,8 @@ export interface DeskMemory {
   placement?: 'inside' | 'outside' | null;
   /** Corners that tie frames of one size to a surface of an isometric scene. */
   surface?: SurfacePin | null;
+  /** The room's one camera, calibrated against the room itself. */
+  camera?: RoomCalibration | null;
   /** Further remembered objects, each followed like the mug. */
   others?: TrackedObject[];
   /** Further zones, each tied to one object and one light or switch. */
@@ -366,6 +401,8 @@ export interface PlacementDecision {
   ruleId?: string;
 }
 export const OBSERVATION_MAX_AGE_MS = 5 * 60 * 1000;
+const MOVED_CAMERA =
+  'The camera has moved since it was calibrated, so zones no longer line up. Calibrate it again.';
 /** True when the whole box (in frame pixels) fits inside the normalized zone. */
 export function boxInZone(
   b: Detection['box'],
@@ -428,15 +465,32 @@ export function pickTracked(
 }
 /** Whether the saved zone applies to the current observation, and whether only by assumption. */
 export function zoneApplies(memory: DeskMemory): { applies: boolean; carried: boolean } {
-  return zoneAppliesTo(memory.observation, memory.zone, memory.fixedCamera);
+  return zoneAppliesTo(memory.observation, memory.zone, memory.fixedCamera, calibrationOf(memory));
 }
-/** Whether a zone applies to an observation: the same image, or by the fixed-camera assumption. */
+/**
+ * Whether a zone applies to an observation: one drawn in the room applies to
+ * every frame of its calibrated camera; otherwise the same image, or any frame
+ * of its size by the fixed-camera assumption.
+ */
 export function zoneAppliesTo(
   o: DeskObservation | null | undefined,
-  z: { sourceKey: string; frame?: Segmentation['frame'] } | null | undefined,
+  z:
+    | { sourceKey: string; frame?: Segmentation['frame']; onSurface?: ZoneOnSurface }
+    | null
+    | undefined,
   fixedCamera = false,
+  calibration: RoomCalibration | null = null,
 ): { applies: boolean; carried: boolean } {
   if (!o || !z) return { applies: false, carried: false };
+  const frame = calibration?.camera.frame;
+  if (
+    z.onSurface &&
+    frame?.width === o.frame.width &&
+    frame?.height === o.frame.height &&
+    z.frame?.width === frame.width &&
+    z.frame?.height === frame.height
+  )
+    return { applies: true, carried: false };
   if (z.sourceKey === o.sourceKey) return { applies: true, carried: false };
   const sameSize = z.frame?.width === o.frame.width && z.frame?.height === o.frame.height;
   return fixedCamera && sameSize
@@ -467,7 +521,12 @@ export interface PlacementRule {
   entityId: string | null;
   /** The fixture the entity was picked as, when it was picked as one. */
   fixtureId?: string;
-  zone: { sourceKey: string; rect: ZoneRect; frame: Segmentation['frame'] };
+  zone: {
+    sourceKey: string;
+    rect: ZoneRect;
+    frame: Segmentation['frame'];
+    onSurface?: ZoneOnSurface;
+  };
   placement?: 'inside' | 'outside' | null;
   lastDecision?: EvidenceRun<PlacementDecision> | null;
 }
@@ -485,6 +544,7 @@ export const ruleInputSchema = z
     entityId: entityIdSchema.nullable(),
     fixtureId: z.string().uuid().optional(),
     rect: zoneRectSchema,
+    onSurface: zoneOnSurfaceSchema.optional(),
   })
   .strict()
   .refine((r) => r.entityId || !r.fixtureId, { message: 'A fixture needs its entity.' });
@@ -579,7 +639,8 @@ export function ruleGate(
       decision: 'blocked',
       reason: `The last sighting of the ${target.label} is stale. Track it in a new frame.`,
     };
-  const zone = zoneAppliesTo(o, rule.zone, memory.fixedCamera);
+  if (calibrationOf(memory)?.moved) return { decision: 'blocked', reason: MOVED_CAMERA };
+  const zone = zoneAppliesTo(o, rule.zone, memory.fixedCamera, calibrationOf(memory));
   if (!zone.applies)
     return {
       decision: 'blocked',
@@ -614,6 +675,7 @@ export function placementGate(
       decision: 'blocked',
       reason: 'Observation is stale. Segment a new frame and confirm the mug.',
     };
+  if (calibrationOf(memory)?.moved) return { decision: 'blocked', reason: MOVED_CAMERA };
   const zone = zoneApplies(memory);
   if (!z || !zone.applies)
     return {
@@ -636,20 +698,56 @@ export function placementGate(
         assumedFixedCamera: zone.carried,
       };
 }
+/** The demo's frames before it was a camera in the office: an illustrated desk, close up. */
+const OLD_DEMO_ID = 'illustrated-desk-v1';
 /**
- * Desk memory as saved by an earlier version: rules named only a light
- * (`lightId`) before they could target switches and fixtures.
+ * Desk memory as saved by an earlier version. Rules named only a light
+ * (`lightId`) before they could target switches and fixtures. And demo memory
+ * from the illustrated desk: its sightings, zones, pin and drafted room were
+ * drawn on a picture the demo no longer shows, of the same size, so a zone
+ * carried by the fixed camera would land somewhere else entirely. They are
+ * dropped; fixtures in the preset rooms, entities and settings stay. A room
+ * picture drawn before the corner camera was tied to a desk top found on it,
+ * not to a camera frame, so nothing places on it any more: it is dropped too.
  */
 export function upgradeMemory(memory: DeskMemory): DeskMemory {
-  if (!memory.rules?.some((r) => r.entityId === undefined)) return memory;
-  return {
-    ...memory,
-    rules: memory.rules.map((rule) => {
-      if (rule.entityId !== undefined) return rule;
-      const { lightId, ...rest } = rule as PlacementRule & { lightId?: string };
-      return { ...rest, entityId: lightId ?? '' };
-    }),
-  };
+  let next = memory;
+  if (next.rules?.some((r) => r.entityId === undefined))
+    next = {
+      ...next,
+      rules: next.rules.map((rule) => {
+        if (rule.entityId !== undefined) return rule;
+        const { lightId, ...rest } = rule as PlacementRule & { lightId?: string };
+        return { ...rest, entityId: lightId ?? '' };
+      }),
+    };
+  const old = (key?: string) => key?.startsWith(OLD_DEMO_ID) ?? false;
+  if (
+    next.mode === 'demo' &&
+    (old(next.observation?.sourceKey) ||
+      old(next.zone?.sourceKey) ||
+      next.rules?.some((r) => old(r.zone?.sourceKey)))
+  )
+    next = {
+      ...next,
+      object: null,
+      observation: null,
+      zone: null,
+      lastDecision: null,
+      history: [],
+      placement: null,
+      others: [],
+      rules: [],
+      item: null,
+      surface: null,
+      scene: null,
+      scenePhoto: null,
+      illustration: null,
+      deskIllustration: null,
+      fixtures: (next.fixtures ?? []).filter((f) => f.scene !== 'custom'),
+    };
+  if (next.illustration && !next.illustration.drawnFrom) next = { ...next, illustration: null };
+  return next;
 }
 export * from './fixture.js';
 export * from './tracker.js';
@@ -664,9 +762,13 @@ export * from './iso-archetypes.js';
 export * from './item-fit.js';
 export * from './item-sculpt.js';
 export * from './photo-scene.js';
-export * from './photo-texture.js';
+export * from './iso-face.js';
 export * from './illustration.js';
 export * from './fixture-scan.js';
 export * from './expose.js';
 export * from './occupancy.js';
 export * from './camera.js';
+export * from './room-camera.js';
+export * from './room-render.js';
+export * from './demo-room.js';
+export * from './room-scan.js';

@@ -1,8 +1,10 @@
 import type { FastifyInstance } from 'fastify';
 import { randomUUID } from 'node:crypto';
-import sharp from 'sharp';
 import { z } from 'zod';
 import {
+  roomCalibrationSchema,
+  zoneOnSurfaceSchema,
+  type ZoneOnSurface,
   modeSchema,
   zoneRectSchema,
   surfacePinSchema,
@@ -46,17 +48,20 @@ import {
   type LampResult,
   type IsoScene,
   type SurfacePin,
-  PROP_FACES,
-  photoTextures,
   sceneIllustrationSchema,
   textureRef,
-  type PropFace,
 } from '@livinglayer/domain';
 import { EvidenceStore } from './store.js';
 import { LabError, parseInput, safeError } from './errors.js';
-import { demoPhoto, keepLocked, rescore } from './item.js';
+import { keepLocked, rescore } from './item.js';
 import type { PhotoDraft } from './photo.js';
 import { noteControl } from './fixture.js';
+
+/** A zone drawn in the room must name a surface the room has. */
+function checkOnSurface(memory: DeskMemory, onSurface: ZoneOnSurface | undefined) {
+  if (onSurface && !isoSurface(onSurface.scene, onSurface.surfaceId, memory.scene))
+    throw new LabError('zone_surface', 'That zone names a surface the room lacks.', 400);
+}
 
 /** What the watcher calls to have SAM's answer recorded and rules checked, as the routes do. */
 export type DeskTracking = ReturnType<typeof deskRoutes>;
@@ -688,6 +693,7 @@ export function deskRoutes(
       throw new LabError('rule_light', 'Choose one of the configured lights or switches.', 400);
     if (input.fixtureId === input.objectId)
       throw new LabError('rule_fixture', 'A fixture can’t switch itself on by moving.', 400);
+    checkOnSurface(memory, input.onSurface);
     if (input.fixtureId) {
       const fixture = memory.fixtures?.find((f) => f.id === input.fixtureId);
       if (!fixture || fixtureEntity(fixture) !== input.entityId)
@@ -702,7 +708,12 @@ export function deskRoutes(
       objectId: input.objectId,
       entityId: input.entityId,
       ...(input.fixtureId ? { fixtureId: input.fixtureId } : {}),
-      zone: { sourceKey: o.sourceKey, rect: input.rect, frame: o.frame },
+      zone: {
+        sourceKey: o.sourceKey,
+        rect: input.rect,
+        frame: o.frame,
+        ...(input.onSurface ? { onSurface: input.onSurface } : {}),
+      },
       // A new or moved zone starts a new inside/outside story.
       placement: null,
       lastDecision: null,
@@ -761,48 +772,7 @@ export function deskRoutes(
    * model fitted to it. The first ticked object becomes the main one (the
    * mug), so identity stays a person's choice, as it does for a mask.
    */
-  /**
-   * The scene with each prop's faces painted from the photo it was drafted
-   * from, where the pin's camera saw them. The textures are kept as evidence
-   * of the draft; a scene that can't be painted is saved as it is.
-   */
-  async function paintFromPhoto(
-    scene: IsoScene,
-    pin: SurfacePin,
-    runId: string,
-    mode: Mode,
-  ): Promise<IsoScene> {
-    const bytes = mode === 'live' ? store.readAsset(`${runId}/source.png`) : await demoPhoto();
-    if (!bytes) return scene;
-    const { data, info } = await sharp(bytes)
-      .resize(pin.frame.width, pin.frame.height, { fit: 'fill' })
-      .ensureAlpha()
-      .raw()
-      .toBuffer({ resolveWithObject: true });
-    const textures = photoTextures(scene, pin, { width: info.width, height: info.height, data });
-    let n = 0;
-    const props = await Promise.all(
-      scene.props.map(async (prop) => {
-        const { texture: _old, ...plain } = prop;
-        const faces = textures.get(prop.id);
-        if (!faces) return plain;
-        const texture: Partial<Record<PropFace, string>> = {};
-        for (const face of PROP_FACES) {
-          const img = faces[face];
-          if (!img) continue;
-          const png = await sharp(Buffer.from(img.data), {
-            raw: { width: img.width, height: img.height, channels: 4 },
-          })
-            .png()
-            .toBuffer();
-          texture[face] = store.asset(runId, `tex-${n++}.png`, png);
-        }
-        return { ...plain, texture };
-      }),
-    );
-    return { ...scene, props };
-  }
-  /** A face texture of a scene drafted from a photo. */
+  /** A face texture of a scene drafted from a photo, before the room had a calibrated camera. */
   app.get('/api/scene/texture', async (request, reply) => {
     const { asset } = parseInput(z.object({ asset: textureRef }).strict(), request.query);
     const png = store.readAsset(asset);
@@ -857,9 +827,8 @@ export function deskRoutes(
         `Up to ${MAX_OTHER_OBJECTS} more objects can be remembered. Forget one, or tick fewer.`,
         409,
       );
-    memory.scene = pin
-      ? await paintFromPhoto(scene as IsoScene, pin as SurfacePin, runId, mode)
-      : (scene as IsoScene);
+    // The room is drawn from its templates; nothing from the photo is pasted on.
+    memory.scene = scene as IsoScene;
     if (memory.fixtures) memory.fixtures = settleFixtures(memory.fixtures, memory.scene);
     memory.surface = pin as SurfacePin | null;
     memory.scenePhoto =
@@ -935,9 +904,14 @@ export function deskRoutes(
     return memory;
   });
   app.post('/api/desk/zone', async (request) => {
-    const { mode, observationId, rect } = parseInput(
+    const { mode, observationId, rect, onSurface } = parseInput(
       z
-        .object({ mode: modeSchema, observationId: z.string().uuid(), rect: zoneRectSchema })
+        .object({
+          mode: modeSchema,
+          observationId: z.string().uuid(),
+          rect: zoneRectSchema,
+          onSurface: zoneOnSurfaceSchema.optional(),
+        })
         .strict(),
       request.body,
     );
@@ -949,11 +923,13 @@ export function deskRoutes(
         'Confirm the current mug before saving its zone.',
         409,
       );
+    checkOnSurface(memory, onSurface);
     memory.zone = {
       id: randomUUID(),
       sourceKey: memory.observation.sourceKey,
       rect,
       frame: memory.observation.frame,
+      ...(onSurface ? { onSurface } : {}),
     };
     // A new zone starts a new inside/outside story.
     memory.placement = null;
@@ -974,6 +950,7 @@ export function deskRoutes(
       // Whether the camera moves is a fact about the setup, not about the mug.
       fixedCamera: store.memory(mode).fixedCamera ?? false,
       surface: store.memory(mode).surface ?? null,
+      camera: store.memory(mode).camera ?? null,
       scene: store.memory(mode).scene ?? null,
       // The scene's pictures are part of the scene, so they stay with it.
       illustration: store.memory(mode).illustration ?? null,
@@ -1013,6 +990,7 @@ export function deskRoutes(
                 .object({ id: z.string().min(1), label: z.string(), createdAt: z.string() })
                 .nullable(),
               surface: surfacePinSchema.nullable().optional(),
+              camera: roomCalibrationSchema.nullable().optional(),
               scene: isoSceneSchema.nullable().optional(),
               scenePhoto: z
                 .string()

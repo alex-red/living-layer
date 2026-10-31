@@ -8,8 +8,15 @@ import {
   cleanInventory,
   fitItem,
   demoSourceKey,
-  flatView,
-  layoutPhoto,
+  DEMO_FRAME,
+  calibrationOf,
+  floorSolid,
+  elevationAt,
+  layoutRoom,
+  renderRoom,
+  sceneSolids,
+  type LayoutInput,
+  type RoomCalibration,
   modeSchema,
   promptBox,
   sparkCeiling,
@@ -46,17 +53,21 @@ const draftSteps = (check: boolean) => [
   ...(check ? [{ id: 'check', label: 'Spark compares the drafted room with the photo' }] : []),
   { id: 'models', label: 'Fit a model to each object' },
 ];
-/** The drafted room drawn from the photo's camera, or null when it has none. */
-async function renderLayout(layout: PhotoLayout, frame: { width: number }) {
-  const view = layout.camera ? flatView(layout, Math.min(960, frame.width)) : null;
-  return view
-    ? sharp(Buffer.from(view.rgba), {
-        raw: { width: view.width, height: view.height, channels: 4 },
-      })
-        .png()
-        .toBuffer()
-    : null;
+/** The drafted room as the room's camera would see it: what Spark compares with the photo. */
+async function renderLayout(layout: PhotoLayout, calibration: RoomCalibration) {
+  const picture = renderRoom(calibration.camera, [
+    floorSolid(layout.scene.grid),
+    ...sceneSolids(layout.scene),
+  ]);
+  return sharp(Buffer.from(picture.rgba), {
+    raw: { width: picture.width, height: picture.height, channels: 4 },
+  })
+    .png()
+    .toBuffer();
 }
+/** Why a frame can't be scanned without the room's camera. */
+export const NOT_CALIBRATED =
+  'Calibrate the room’s corner camera first: a scan places everything through it.';
 
 /** The most a live photo draft can cost: the inventory and SAM, then the check and SAM again. */
 const photoDraftCeiling = (check: boolean) =>
@@ -79,11 +90,11 @@ function addUsage(a: Usage | null, b: Usage | null | undefined): Usage | null {
 const isArchetype = (as: string): as is Archetype => (ARCHETYPES as readonly string[]).includes(as);
 
 /**
- * A scene from one photo. Spark lists what is in it with loose boxes (one
- * call), SAM outlines every box (one call), and the layout measures the rest
- * from the masks: the desktop's corners, the camera, where each thing stands,
- * and how well the drawing matches. Each object gets a model from the local
- * fitter. Spark may then look at the drawing beside the photo (one more call,
+ * A scene from one frame of the room's calibrated corner camera. Spark lists
+ * what is in it with loose boxes (one call), SAM outlines every box (one
+ * call), and `layoutRoom` places each thing through the camera: where it
+ * stands, its turn, and how well its drawing matches. Each object gets a
+ * model from the local fitter. Spark may then look at the drawing beside the photo (one more call,
  * and one more SAM call for anything it says is missing). Nothing is saved to
  * desk memory until the person saves the review.
  */
@@ -138,7 +149,9 @@ export function photoRoutes(
     const { mode } = input;
     const live = mode === 'live';
     if (!live && input.imageDataUrl)
-      throw new LabError('demo_image', 'Demo mode uses only the bundled illustrated desk.');
+      throw new LabError('demo_image', 'Demo mode uses only the demo room’s camera.');
+    if (!calibrationOf(store.memory(mode)))
+      throw new LabError('not_calibrated', NOT_CALIBRATED, 409);
     // Refuse up front rather than stop halfway, with the inventory already paid for.
     if (live && !meta.canAfford(photoDraftCeiling(Boolean(input.check))))
       throw new LabError(
@@ -160,13 +173,24 @@ export function photoRoutes(
         let requestId: string | null = null;
         const image = live ? await validateImage(input.imageDataUrl) : null;
         const photo = image ? image.bytes : await demoPhoto();
-        const frame = image
-          ? { width: image.width, height: image.height }
-          : { width: 960, height: 640 };
+        const frame = image ? { width: image.width, height: image.height } : { ...DEMO_FRAME };
+        // Everything is placed through the room's camera, so the frame must be one of its.
+        const calibration = calibrationOf(store.memory(mode));
+        if (!calibration) throw new LabError('not_calibrated', NOT_CALIBRATED, 409);
+        const { width, height } = calibration.camera.frame;
+        if (width !== frame.width || height !== frame.height)
+          throw new LabError(
+            'not_calibrated',
+            `This frame is ${frame.width} × ${frame.height}, but the room’s camera was calibrated on ${width} × ${height} frames. Send a frame from that camera, or calibrate again.`,
+            409,
+          );
+        const lay = (args: LayoutInput) => layoutRoom({ ...args, calibration });
         const assets = image ? [store.asset(id, 'source.png', image.bytes)] : [];
         await job.done(
           'photo',
-          image ? `${image.width} × ${image.height}` : 'Demo: the illustrated desk, no model calls',
+          image
+            ? `${image.width} × ${image.height}`
+            : 'Demo: the office from its corner camera, no model calls',
           photo,
           PREVIEW,
         );
@@ -211,7 +235,7 @@ export function photoRoutes(
           raw = result.raw;
         } else {
           segmentation = await demoPhotoSegmentation();
-          raw = 'Synthetic box-prompted segmentation of the illustrated desk.';
+          raw = 'Synthetic box-prompted segmentation of the demo room’s render.';
         }
         const detections: Record<string, string> = {};
         for (const p of prompts)
@@ -238,13 +262,11 @@ export function photoRoutes(
 
         // 3. Measure the scene from the masks.
         job.run('layout');
-        let layout = layoutPhoto({ inventory, segmentation, detections, refine: true });
+        let layout = lay({ inventory, segmentation, detections });
         assists.push(
-          layout.pin
-            ? `Pinned the ${layout.things.find((t) => t.id === layout.surfaceThing)?.label} from its mask (camera ${Math.round(layout.camera!.elevation)}° up)`
-            : 'No surface to pin: things are spread by where they are in the photo',
+          `Laid out through the calibrated room camera (fit ${calibration.error.toFixed(1)} px)`,
         );
-        const drawn = await renderLayout(layout, frame);
+        const drawn = await renderLayout(layout, calibration);
         await job.done(
           'layout',
           `${layout.things.filter((t) => t.status === 'placed').length} placed. ${assists.at(-1)}`,
@@ -256,82 +278,78 @@ export function photoRoutes(
         // 4. Spark looks at the drawing beside the photo.
         let check: PhotoDraft['check'] = null;
         if (input.check) job.run('check');
-        if (input.check && layout.camera) {
-          const png = drawn;
-          if (png) {
-            assets.push(store.asset(id, 'scene-render.png', png));
-            const listing = layout.things
-              .filter((t) => t.status === 'placed' || t.status === 'object')
-              .map((t) => `${t.id} (${t.label}, ${t.as})`)
-              .join('; ');
-            const result = image
-              ? await meta.photoCheck(
-                  image.dataUrl,
-                  `data:image/png;base64,${png.toString('base64')}`,
-                  listing,
-                  job.signal,
-                )
-              : { output: demoPhotoCheck, usage: null };
-            usage = addUsage(usage, result.usage);
-            const added: string[] = [];
-            let kept = false;
-            const missing = cleanInventory({
-              kind: inventory.kind,
-              things: [...inventory.things, ...result.output.missing],
-              summary: inventory.summary,
-            }).things.slice(inventory.things.length);
-            // Anything missing gets one more SAM call, only if today's spending limit has room.
-            if (image && missing.length && meta.canAfford(META_PRICES.samPerImage)) {
-              const more = missing
-                .map((t, i) => ({
-                  thing: t.id,
-                  id: prompts.length + i + 1,
-                  box: promptBox(t, frame),
-                }))
-                .filter((p): p is typeof p & { box: NonNullable<typeof p.box> } => Boolean(p.box));
-              if (more.length) {
-                const extra = await meta.segmentBoxes(
-                  image.dataUrl,
-                  more,
-                  frame.width,
-                  frame.height,
-                  job.signal,
-                );
-                const nextInventory = { ...inventory, things: [...inventory.things, ...missing] };
-                const nextSegmentation = {
-                  ...segmentation,
-                  detections: [...segmentation.detections, ...extra.output.detections],
-                };
-                const nextDetections = { ...detections };
-                for (const p of more)
-                  if (extra.output.detections.some((d) => d.objectId === String(p.id))) {
-                    nextDetections[p.thing] = String(p.id);
-                    added.push(p.thing);
-                  }
-                const next = layoutPhoto({
-                  inventory: nextInventory,
-                  segmentation: nextSegmentation,
-                  detections: nextDetections,
-                  refine: true,
-                });
-                // Keep the additions only if the scene still matches the photo as well.
-                kept = added.length > 0 && (next.score ?? 0) >= (layout.score ?? 0) - 0.02;
-                if (kept) {
-                  inventory = nextInventory;
-                  segmentation = nextSegmentation;
-                  Object.assign(detections, nextDetections);
-                  layout = next;
-                  // A new segment run holds every mask, so a sighting can point at any of them.
-                  raw = `${raw}\n${extra.raw}`;
-                  segmentRunId = saveSegment(mode, segmentation, photo, raw, live);
+        if (input.check) {
+          assets.push(store.asset(id, 'scene-render.png', drawn));
+          const listing = layout.things
+            .filter((t) => t.status === 'placed' || t.status === 'object')
+            .map((t) => `${t.id} (${t.label}, ${t.as})`)
+            .join('; ');
+          const result = image
+            ? await meta.photoCheck(
+                image.dataUrl,
+                `data:image/png;base64,${drawn.toString('base64')}`,
+                listing,
+                job.signal,
+              )
+            : { output: demoPhotoCheck, usage: null };
+          usage = addUsage(usage, result.usage);
+          const added: string[] = [];
+          let kept = false;
+          const missing = cleanInventory({
+            kind: inventory.kind,
+            things: [...inventory.things, ...result.output.missing],
+            summary: inventory.summary,
+          }).things.slice(inventory.things.length);
+          // Anything missing gets one more SAM call, only if today's spending limit has room.
+          if (image && missing.length && meta.canAfford(META_PRICES.samPerImage)) {
+            const more = missing
+              .map((t, i) => ({
+                thing: t.id,
+                id: prompts.length + i + 1,
+                box: promptBox(t, frame),
+              }))
+              .filter((p): p is typeof p & { box: NonNullable<typeof p.box> } => Boolean(p.box));
+            if (more.length) {
+              const extra = await meta.segmentBoxes(
+                image.dataUrl,
+                more,
+                frame.width,
+                frame.height,
+                job.signal,
+              );
+              const nextInventory = { ...inventory, things: [...inventory.things, ...missing] };
+              const nextSegmentation = {
+                ...segmentation,
+                detections: [...segmentation.detections, ...extra.output.detections],
+              };
+              const nextDetections = { ...detections };
+              for (const p of more)
+                if (extra.output.detections.some((d) => d.objectId === String(p.id))) {
+                  nextDetections[p.thing] = String(p.id);
+                  added.push(p.thing);
                 }
+              const next = lay({
+                inventory: nextInventory,
+                segmentation: nextSegmentation,
+                detections: nextDetections,
+              });
+              // Keep the additions only if the scene still matches the photo as well.
+              kept = added.length > 0 && (next.score ?? 0) >= (layout.score ?? 0) - 0.02;
+              if (kept) {
+                inventory = nextInventory;
+                segmentation = nextSegmentation;
+                Object.assign(detections, nextDetections);
+                layout = next;
+                // A new segment run holds every mask, so a sighting can point at any of them.
+                raw = `${raw}\n${extra.raw}`;
+                segmentRunId = saveSegment(mode, segmentation, photo, raw, live);
               }
             }
-            check = { ...result.output, kept, added: kept ? added : [] };
-            assists.push(
-              `Spark check (${kept ? `added ${added.join(', ')}` : 'nothing added'}): ${result.output.note}`,
-            );
           }
+          check = { ...result.output, kept, added: kept ? added : [] };
+          assists.push(
+            `Spark check (${kept ? `added ${added.join(', ')}` : 'nothing added'}): ${result.output.note}`,
+          );
         }
         if (input.check) {
           job.check();
@@ -339,8 +357,8 @@ export function photoRoutes(
             'check',
             check
               ? `${check.kept ? `Added ${check.added.join(', ')}. ` : 'Nothing added. '}${check.note}`
-              : 'No drawing to compare: the room has no pinned surface',
-            check?.kept ? ((await renderLayout(layout, frame)) ?? undefined) : undefined,
+              : 'Nothing to compare',
+            check?.kept ? await renderLayout(layout, calibration) : undefined,
             PREVIEW,
           );
         }
@@ -364,8 +382,14 @@ export function photoRoutes(
               label: t.label,
               archetype,
               material: null,
-              // The illustration has no real camera; a photo's comes from the pin.
-              elevation: live ? (layout.camera?.elevation ?? null) : null,
+              // How far the room's camera looks down on it, where it stands.
+              elevation: t.foot
+                ? elevationAt(calibration.camera, {
+                    x: t.foot.at.x + t.foot.size.w / 2,
+                    y: t.foot.at.y + t.foot.size.d / 2,
+                    z: t.foot.at.z,
+                  })
+                : null,
             });
             const cropAsset = store.asset(id, `crop-${t.id}.png`, crop.png);
             items[t.id] = {
@@ -409,6 +433,7 @@ export function photoRoutes(
           items,
           check,
           assists,
+          calibration,
         };
         return { output, assets, usage, model, requestId };
       });

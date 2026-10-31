@@ -101,8 +101,8 @@ export function IllustrationView({
   const svg = useRef<SVGSVGElement>(null);
   const [drag, setDrag] = useState<{ id: string; start: Point; delta: Point } | null>(null);
   const [stretching, setStretching] = useState<{ id: string; rect: BaseRect } | null>(null);
-  // Only the room's picture maps back to the scene; a desk redrawn from a frame doesn't.
-  const mappable = Boolean(!illustration.drawnFrom && illustration.desk);
+  // A picture redrawn from a frame maps back to the scene through the pin's camera.
+  const mappable = Boolean(illustration.drawnFrom);
   const movable = Boolean(onMoveFixture && mappable);
   const pointerAt = (e: PointerEvent) => {
     const m = svg.current?.getScreenCTM();
@@ -119,6 +119,9 @@ export function IllustrationView({
   };
   const toPicture = (frame: Segmentation['frame'], p: Point) =>
     framePointInPicture(pin, illustration, frame, p);
+  // The pinned top, where the camera sees it.
+  const top = pin.corners.map((c) => toPicture(pin.frame, c));
+  const desk = top.every(Boolean) ? (top as Point[]) : null;
   const foot = (o: DeskObservation | null | undefined) =>
     o
       ? toPicture(o.frame, { x: o.box.x + o.box.width / 2, y: o.box.y + o.box.height * 0.92 })
@@ -238,9 +241,7 @@ export function IllustrationView({
         width={width}
         height={height}
       />
-      {illustration.desk && (
-        <polygon className="illustration-desk" points={pts(illustration.desk)} />
-      )}
+      {desk && <polygon className="illustration-desk" points={pts(desk)} />}
       {areas.map((a) => (
         <g
           key={a.id}

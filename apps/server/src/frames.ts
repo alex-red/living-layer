@@ -1,8 +1,5 @@
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
 import sharp from 'sharp';
-import { moveDemoMug, type DemoPosition, type LumaFrame } from '@livinglayer/domain';
-import { PROJECT_ROOT } from './config.js';
+import { DEMO_FRAME, type DemoPosition, type LumaFrame } from '@livinglayer/domain';
 
 /** The watcher's grey frames are this wide; local matching runs on them. */
 export const LUMA_WIDTH = 320;
@@ -186,19 +183,18 @@ export class FfmpegSource implements FrameSource {
   }
 }
 
-let deskSvg: string | null = null;
 /**
- * The illustrated desk as a camera: a frame whenever the mug is moved, so the
- * demo runs the real watcher with no camera and no model calls.
+ * The demo room as a camera: the office rendered from its corner, a frame
+ * whenever the mug is moved, so the demo runs the real watcher with no camera
+ * and no model calls.
  */
 export class DemoSource implements FrameSource {
   private onFrame: ((frame: LumaFrame) => void) | null = null;
   position: DemoPosition = 'centre';
   private async picture(position: DemoPosition) {
-    deskSvg ??= readFileSync(resolve(PROJECT_ROOT, 'apps/web/public/desk.svg'), 'utf8');
-    return sharp(Buffer.from(moveDemoMug(deskSvg, position)))
-      .png()
-      .toBuffer();
+    // Imported here: the demo module renders, which the live path never needs.
+    const { demoPng } = await import('./demo.js');
+    return demoPng(position);
   }
   async start(onFrame: (frame: LumaFrame) => void) {
     this.onFrame = onFrame;
@@ -214,6 +210,6 @@ export class DemoSource implements FrameSource {
     for (let i = 0; i < repeat; i++) this.onFrame?.(frame);
   }
   async snapshot() {
-    return { png: await this.picture(this.position), width: 960, height: 640 };
+    return { png: await this.picture(this.position), ...DEMO_FRAME };
   }
 }

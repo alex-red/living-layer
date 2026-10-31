@@ -17,12 +17,13 @@ import { ZoomPan } from '../ZoomPan';
 import { ErrorCard } from '../ProviderUi';
 import { IsoView } from '../iso/IsoView';
 import { SurfacePin } from '../iso/SurfacePin';
+import { RoomCalibrate } from '../iso/RoomCalibrate';
 import type { StageView } from '../session';
 import { useLab } from './LabContext';
 import { DeskStep, Onboarding } from './Onboarding';
 import { Popover } from './Popover';
 import { ToolStrip } from './ToolStrip';
-import { demoDesk } from './useLabState';
+import { demoFrameUrl } from './demoFrame';
 
 /** Which layer placed a watched thing's box last, as its tag says it. */
 const WATCH_LAYER = { local: 'LOCAL', appearance: 'LOOKS', sam: 'SAM' } as const;
@@ -288,16 +289,10 @@ export function Canvas() {
             ) : mode === 'demo' || image ? (
               <img
                 data-pan
-                src={
-                  mode === 'demo'
-                    ? lab.deskSvg
-                      ? demoDesk(lab.deskSvg, lab.demoPosition)
-                      : '/desk.svg'
-                    : image
-                }
+                src={mode === 'demo' ? demoFrameUrl(lab.demoPosition) : image}
                 alt={
                   mode === 'demo'
-                    ? 'Illustrated desk with a mug, book, and bottle; synthetic demo'
+                    ? 'The demo office seen from its corner camera, with a mug, book and bottle on the desk; synthetic demo'
                     : 'Your prepared desk photo'
                 }
               />
@@ -526,6 +521,15 @@ export function Canvas() {
                 watch={watch}
                 follow={follow ? followView : null}
                 segmentation={segmentation}
+              />
+            )}
+            {lab.calibrating && !camera && (
+              <RoomCalibrate
+                frame={dimensions}
+                initial={lab.calibrating}
+                busy={lab.busy === 'calibrate'}
+                onSave={(draft) => void lab.saveCalibration(draft)}
+                onCancel={() => lab.setCalibrating(null)}
               />
             )}
             {pinning && !camera && (

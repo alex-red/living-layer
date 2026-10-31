@@ -7,8 +7,10 @@ import { buildApp } from '../apps/server/src/app.js';
 import { parseConfig, type Fetcher } from '../apps/server/src/config.js';
 import { syntheticStream } from '../apps/server/src/sam.js';
 import {
-  DEMO_SURFACE,
+  DEMO_CAMERA,
+  DEMO_SURFACE as ROOM_SURFACE,
   ISO_PRESETS,
+  projectRoom,
   fixtureProblem,
   libraryScore,
   mapScan,
@@ -43,6 +45,19 @@ import {
   type SurfacePin,
   type ScannedThing,
 } from '@livinglayer/domain';
+
+/** A pin that fills the frame with the office desk's top, to test the mapping on. */
+const DEMO_SURFACE: SurfacePin = {
+  scene: 'desk',
+  surfaceId: 'desk:top',
+  corners: [
+    { x: 0, y: 0 },
+    { x: 960, y: 0 },
+    { x: 960, y: 640 },
+    { x: 0, y: 640 },
+  ],
+  frame: { width: 960, height: 640 },
+};
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -194,49 +209,39 @@ describe('mapping a scan into the room the view is part of', () => {
   });
 });
 
+/**
+ * The demo room's picture: the camera's frame redrawn at twice its size,
+ * keeping its framing, as Muse Image is asked to.
+ */
+const roomPicture = {
+  asset: 'x/illustration.png',
+  frame: { width: 1920, height: 1280 },
+  surfaceId: 'desk:top',
+  desk: null,
+  drawnFrom: { width: 960, height: 640 },
+  createdAt: '',
+};
+const roomPin = ROOM_SURFACE;
+
 describe('fixtures on the room picture', () => {
-  it('places scene points on the drawn desk, raised by their height', () => {
-    const pin = { ...DEMO_SURFACE, scene: 'office' as const };
+  it('places scene points where the room’s camera sees them, at the picture’s scale', () => {
     const top = ISO_PRESETS.office.surfaces.find((s) => s.id === 'desk:top')!;
-    const picture = {
-      asset: 'x/illustration.png',
-      frame: { width: 1000, height: 800 },
-      surfaceId: 'desk:top',
-      desk: [
-        { x: 100, y: 400 },
-        { x: 600, y: 150 },
-        { x: 900, y: 300 },
-        { x: 400, y: 550 },
-      ] as [Point, Point, Point, Point],
-      createdAt: '',
-    };
-    const at = (x: number, y: number, z: number) =>
-      scenePointInPicture(pin, picture, null, { x, y, z })!;
-    expect(at(top.rect.x, top.rect.y, top.z)).toEqual({ x: 100, y: 400 });
-    const far = at(top.rect.x + top.rect.w, top.rect.y + top.rect.d, top.z);
-    expect(far.x).toBeCloseTo(900);
-    expect(far.y).toBeCloseTo(300);
-    // Off the desk it stays on the same plane, without running off to a horizon.
-    const floor = at(0, 0, 0);
-    expect(Math.abs(floor.x)).toBeLessThan(2000);
-    expect(floor.y).toBeGreaterThan(at(0, 0, top.z).y);
+    for (const p of [
+      { x: top.rect.x, y: top.rect.y, z: top.z },
+      { x: top.rect.x + top.rect.w, y: top.rect.y + top.rect.d, z: top.z },
+      { x: top.rect.x + 1, y: top.rect.y + 0.5, z: top.z + 1.5 },
+      { x: 3, y: 5, z: 0 },
+    ]) {
+      const at = scenePointInPicture(roomPin, roomPicture, null, p)!;
+      const seen = projectRoom(DEMO_CAMERA, p)!;
+      expect(Math.hypot(at.x - 2 * seen.x, at.y - 2 * seen.y)).toBeLessThan(2);
+    }
   });
 });
 
 describe('moving a fixture on the room picture', () => {
-  const pin = { ...DEMO_SURFACE, scene: 'office' as const };
-  const picture = {
-    asset: 'x/illustration.png',
-    frame: { width: 1000, height: 800 },
-    surfaceId: 'desk:top',
-    desk: [
-      { x: 100, y: 400 },
-      { x: 600, y: 150 },
-      { x: 900, y: 300 },
-      { x: 400, y: 550 },
-    ] as [Point, Point, Point, Point],
-    createdAt: '',
-  };
+  const pin = roomPin;
+  const picture = roomPicture;
   it('maps a picture point back to the scene and the surface it is on', () => {
     const top = ISO_PRESETS.office.surfaces.find((s) => s.id === 'desk:top')!;
     const onDesk = { x: top.rect.x + 1, y: top.rect.y + 1, z: top.z };
@@ -249,7 +254,7 @@ describe('moving a fixture on the room picture', () => {
     expect(back.surfaceId).toBe('desk:top');
     expect(back.x).toBeCloseTo(onDesk.x);
     expect(back.y).toBeCloseTo(onDesk.y);
-    const onFloor = { x: 8.5, y: 6.5, z: 0 };
+    const onFloor = { x: 3, y: 5, z: 0 };
     const down = pictureToScene(
       pin,
       picture,
@@ -284,7 +289,7 @@ describe('moving a fixture on the room picture', () => {
     };
     const [a, b, c, d, e, f] = isoToPicture(pin, picture, null, box)!;
     // Each corner of the box, drawn by the iso view, lands near where the picture puts it:
-    // an affine map can't follow the picture's perspective exactly, so near is a share of
+    // an affine map can't follow the camera's perspective exactly, so near is a share of
     // the box's size on the picture.
     const corners = [0, 1].flatMap((i) =>
       [0, 1].flatMap((j) =>
@@ -305,18 +310,10 @@ describe('moving a fixture on the room picture', () => {
     });
     expect(errors.reduce((t, x) => t + x, 0) / errors.length).toBeLessThan(extent * 0.2);
   });
-  it('doesn’t map back on a picture redrawn from a frame', () => {
-    expect(
-      pictureToScene(
-        pin,
-        { ...picture, desk: null, drawnFrom: { width: 960, height: 640 } },
-        null,
-        {
-          x: 10,
-          y: 10,
-        },
-      ),
-    ).toBeNull();
+  it('doesn’t map a picture redrawn from frames of another size than the pin’s', () => {
+    const other = { ...picture, drawnFrom: { width: 1280, height: 720 } };
+    expect(pictureToScene(pin, other, null, { x: 10, y: 10 })).toBeNull();
+    expect(scenePointInPicture(pin, other, null, { x: 3, y: 5, z: 0 })).toBeNull();
   });
 });
 
@@ -494,8 +491,9 @@ describe('scanning the demo desk', () => {
       ['Sage bottle', 'fitted'],
     ]);
     expect(one.memory.fixtures).toHaveLength(2);
+    // The demo camera sees the office, so that is the room a scan maps into.
     expect(one.memory.fixtures![0]).toMatchObject({
-      scene: 'desk',
+      scene: 'office',
       surfaceId: 'desk:top',
       model: { source: 'sampled', fit: { crop: `${one.run.id}/item-crop-1.png` } },
       control: { kind: 'none' },
@@ -518,6 +516,7 @@ describe('scanning the demo desk', () => {
     } = fixture({
       label: 'Green book',
       control: { kind: 'none' },
+      scene: 'desk',
     });
     const saved = await s.post('fixtures/save', {
       fixture: { ...rest, model: { label: model.label, parts: model.parts } },
@@ -525,14 +524,14 @@ describe('scanning the demo desk', () => {
     expect(saved.statusCode, saved.body).toBe(200);
     const r = (await s.post('fixtures/scan')).json<Scanned>();
     expect(r.mapped[0]).toMatchObject({ label: 'Green book', match: 'library' });
-    const book = r.memory.fixtures!.find((f) => f.scene === 'desk' && f.label === 'Green book')!;
+    const book = r.memory.fixtures!.find((f) => f.scene === 'office' && f.label === 'Green book')!;
     expect(book.model.parts.length).toBe(model.parts.length);
     expect(book.model.source).toBe('demo');
   });
-  it('maps the office too, linking each thing with its close view, and edits both', async () => {
+  it('maps the desk’s close view too, linking each thing with the room’s, and edits both', async () => {
     const s = await setup();
     const desk = (await s.post('fixtures/scan')).json<Scanned>();
-    const office = await s.post('fixtures/scan', { scene: 'office' });
+    const office = await s.post('fixtures/scan', { scene: 'desk' });
     expect(office.statusCode, office.body).toBe(200);
     const r = office.json<Scanned>();
     expect(r.mapped.map((m) => m.match)).toEqual(['library', 'library']);
@@ -543,7 +542,7 @@ describe('scanning the demo desk', () => {
     expect(books[0]!.link).toBe(books[1]!.link!);
     expect(books[0]!.link).toBe(desk.memory.fixtures!.find((f) => f.label === 'Green book')!.id);
     // Scanning again finds both there, still linked.
-    const again = (await s.post('fixtures/scan', { scene: 'office' })).json<Scanned>();
+    const again = (await s.post('fixtures/scan', { scene: 'desk' })).json<Scanned>();
     expect(again.mapped.map((m) => m.match)).toEqual(['existing', 'existing']);
     expect(again.memory.fixtures).toHaveLength(4);
     // A rename in one scene is a rename in the other.
@@ -670,7 +669,7 @@ describe('scanning the demo desk', () => {
     expect(movedBook.at).not.toEqual(book!.at);
     expect(after.find((f) => f.id === bottle!.id)!.at).toEqual(bottle!.at);
     // Handing them all back lets scans place the bottle too.
-    const released = (await s.post('fixtures/release', { scene: 'desk' })).json<DeskMemory>();
+    const released = (await s.post('fixtures/release', { scene: book!.scene })).json<DeskMemory>();
     expect(released.fixtures!.every((f) => f.scanned)).toBe(true);
   });
   it('lifts the room’s fixtures off its picture, as sprites over a base, and puts them back', async () => {
@@ -839,7 +838,7 @@ describe('scanning live, with a mocked Meta API', () => {
       { MODEL_API_KEY: 'test-key', META_LIVE_ENABLED: 'true', ...env },
       fetcher,
     );
-    const photo = await sharp(readFileSync('apps/web/public/desk.svg')).png().toBuffer();
+    const photo = await sharp(readFileSync('testdata/desk.svg')).png().toBuffer();
     const imageDataUrl = `data:image/png;base64,${photo.toString('base64')}`;
     const scan = () => s.post('fixtures/scan', { mode: 'live', imageDataUrl });
     return { ...s, prompts, scan };
@@ -939,16 +938,13 @@ describe('scanning live, with a mocked Meta API', () => {
     });
     const drawn = (await s.post('scene/illustrate')).json<{ memory: DeskMemory }>().memory;
     const top = layout.scene.surfaces.find((x) => x.id === layout.pin!.surfaceId)!;
-    // The mocked SAM reply is for a 960×640 frame, so the live picture is drawn that size.
+    // The picture redraws the camera's 960×640 frame, the size the mocked SAM reply is for.
     const old = drawn.illustration!;
-    const k = { x: 960 / old.frame.width, y: 640 / old.frame.height };
+    expect(old.frame).toEqual({ width: 960, height: 640 });
     mkdirSync(join(s.dataDir, 'evidence', 'live-picture'), { recursive: true });
     writeFileSync(
       join(s.dataDir, 'evidence', 'live-picture', 'illustration.png'),
-      await sharp(readFileSync(join(s.dataDir, 'evidence', old.asset)))
-        .resize(960, 640, { fit: 'fill' })
-        .png()
-        .toBuffer(),
+      readFileSync(join(s.dataDir, 'evidence', old.asset)),
     );
     const restored = await s.post('desk/restore', {
       mode: 'live',
@@ -957,12 +953,7 @@ describe('scanning live, with a mocked Meta API', () => {
         object: null,
         scene: drawn.scene,
         surface: drawn.surface,
-        illustration: {
-          ...old,
-          asset: 'live-picture/illustration.png',
-          frame: { width: 960, height: 640 },
-          desk: old.desk!.map((p) => ({ x: p.x * k.x, y: p.y * k.y })),
-        },
+        illustration: { ...old, asset: 'live-picture/illustration.png' },
       },
     });
     expect(restored.statusCode, restored.body).toBe(200);
@@ -1079,7 +1070,7 @@ describe('scanning live, with a mocked Meta API', () => {
     await pin(s);
     expect((await s.post('fixtures/scan', { mode: 'live' })).statusCode).toBe(400);
     const runId = crypto.randomUUID();
-    const photo = await sharp(readFileSync('apps/web/public/desk.svg')).png().toBuffer();
+    const photo = await sharp(readFileSync('testdata/desk.svg')).png().toBuffer();
     const dir = join(s.dataDir, 'evidence', runId);
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, 'source.png'), photo);
@@ -1109,7 +1100,7 @@ describe('scanning live, with a mocked Meta API', () => {
     mkdirSync(dir, { recursive: true });
     writeFileSync(
       join(dir, 'source.png'),
-      await sharp(readFileSync('apps/web/public/desk.svg')).resize(640, 480).png().toBuffer(),
+      await sharp(readFileSync('testdata/desk.svg')).resize(640, 480).png().toBuffer(),
     );
     const desk = placeTemplate('desk', 'desk', 1, 1);
     await s.post('desk/restore', {
@@ -1139,7 +1130,7 @@ describe('scanning live, with a mocked Meta API', () => {
     mkdirSync(dir, { recursive: true });
     writeFileSync(
       join(dir, 'source.png'),
-      await sharp(readFileSync('apps/web/public/desk.svg')).resize(480, 320).png().toBuffer(),
+      await sharp(readFileSync('testdata/desk.svg')).resize(480, 320).png().toBuffer(),
     );
     const desk = placeTemplate('desk', 'desk', 1, 1);
     await s.post('desk/restore', {
@@ -1158,7 +1149,7 @@ describe('scanning live, with a mocked Meta API', () => {
     // A 4:3 photo from a phone is not the pinned camera's 3:2 view: it isn't stretched to pass for it.
     writeFileSync(
       join(dir, 'source.png'),
-      await sharp(readFileSync('apps/web/public/desk.svg')).resize(640, 480).png().toBuffer(),
+      await sharp(readFileSync('testdata/desk.svg')).resize(640, 480).png().toBuffer(),
     );
     const other = await s.app.inject('/api/scene/photo?mode=live');
     expect(other.statusCode).toBe(409);

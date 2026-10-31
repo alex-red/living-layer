@@ -29,7 +29,7 @@ const demo = JSON.parse(readFileSync('testdata/sam-mug.json', 'utf8')) as { wire
 
 describe('SAM contract and actual public parser', () => {
   it('decodes a split-token mug mask with sparse object ID and source-pixel bounds', async () => {
-    const result = await demoSegmentation('mug');
+    const result = await decodeSegmentation(syntheticStream(demo.wire), 'mug', 960, 640);
     expect(result.output.frame).toEqual({ width: 960, height: 640 });
     const d = result.output.detections[0]!;
     expect(d.objectId).toBe('7');
@@ -40,7 +40,20 @@ describe('SAM contract and actual public parser', () => {
     expect(d.mask.height).toBe(64);
   });
   it('returns no detections for a completed absent-target result', async () => {
+    expect(
+      (await decodeSegmentation(syntheticStream(''), 'unicorn', 960, 640)).output.detections,
+    ).toEqual([]);
     expect((await demoSegmentation('unicorn')).output.detections).toEqual([]);
+  });
+  it('outlines what the demo camera sees, from the rendered room', async () => {
+    const mug = (await demoSegmentation('mug')).output.detections;
+    expect(mug.map((d) => d.objectId)).toEqual(['7']);
+    expect(mug[0]!.mask.foregroundPixels).toBeGreaterThan(150);
+    const right = (await demoSegmentation('mug', 'right')).output.detections[0]!;
+    expect(right.box.x).toBeGreaterThan(mug[0]!.box.x);
+    // Other concepts name the room's own things.
+    for (const concept of ['desk', 'book', 'chair', 'floor', 'bookshelf'])
+      expect((await demoSegmentation(concept)).output.detections).toHaveLength(1);
   });
   it('rejects incomplete or non-segmentation output instead of treating it as no-match', async () => {
     await expect(

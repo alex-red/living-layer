@@ -22,6 +22,7 @@ import {
 import { api, type AiFollow } from '../api';
 import { IsoScene } from './IsoScene';
 import { PhotoReview, type PhotoRun } from './PhotoReview';
+import { demoFrameUrl } from '../workspace/demoFrame';
 
 export type LayoutRun = EvidenceRun<{ draft: SceneDraft; scene: Scene }>;
 const EMPTY: Scene = {
@@ -101,7 +102,7 @@ export function SceneEditor({
     setSelected(undefined);
     setSummary('');
   }
-  /** Spark lists what is in the photo, SAM outlines it, and the layout measures the rest. */
+  /** Spark lists what is in the frame, SAM outlines it, and each thing is placed through the room's camera. */
   async function fromPhoto(url?: string) {
     if (mode === 'live' && !url) return;
     setDrafting(true);
@@ -113,14 +114,14 @@ export function SceneEditor({
               title: 'Drafting the room',
               description:
                 mode === 'live'
-                  ? `Spark lists what is in the photo, SAM outlines it, and the room is measured from the outlines${sparkCheck ? ', then Spark compares the draft with the photo' : ''}.`
-                  : 'Demo: the illustrated desk, no model calls.',
+                  ? `Spark lists what is in the frame, SAM outlines it, and each thing is placed through the room’s camera${sparkCheck ? ', then Spark compares the draft with the frame' : ''}.`
+                  : 'Demo: the office from its corner camera, no model calls.',
             },
             (jobId, signal) => api<PhotoRun>('scene/from-photo', { ...body, jobId }, { signal }),
           )
         : await api<PhotoRun>('scene/from-photo', body);
       if (!run) return;
-      setPhoto({ run, url: mode === 'live' ? url! : '/desk.svg' });
+      setPhoto({ run, url: mode === 'live' ? url! : demoFrameUrl() });
       onDrafted(run);
     } catch (e) {
       onError(e instanceof Error ? e : 'The photo could not be drafted.');
@@ -206,12 +207,20 @@ export function SceneEditor({
           {drafting ? 'Drafting…' : 'Draft with Spark'}
         </button>
       </div>
-      <div className="scene-editor-tools photo-start" role="group" aria-label="Scene from a photo">
-        <span className="tiny">FROM A PHOTO</span>
+      <div
+        className="scene-editor-tools photo-start"
+        role="group"
+        aria-label="Scene from the camera"
+      >
+        <span className="tiny">FROM THE CAMERA</span>
         {mode === 'demo' ? (
           <button className="primary" disabled={busy || drafting} onClick={() => void fromPhoto()}>
-            {drafting ? 'Drafting…' : 'Draft from the illustrated desk'}
+            {drafting ? 'Drafting…' : 'Draft from the demo camera'}
           </button>
+        ) : !memory?.camera ? (
+          <span className="tiny">
+            Calibrate the room’s corner camera first: a draft places everything through it.
+          </span>
         ) : (
           <>
             <button
@@ -219,14 +228,14 @@ export function SceneEditor({
               disabled={busy || drafting || !onUpload}
               onClick={() => file.current?.click()}
             >
-              {drafting ? 'Drafting…' : 'Upload a photo'}
+              {drafting ? 'Drafting…' : 'Upload a frame'}
             </button>
             <input
               ref={file}
               type="file"
               accept="image/png,image/jpeg"
               hidden
-              aria-label="Photo to draft a scene from"
+              aria-label="Frame of the room's camera to draft a scene from"
               onChange={async (e) => {
                 const chosen = e.target.files?.[0];
                 e.target.value = '';
@@ -239,7 +248,7 @@ export function SceneEditor({
               disabled={busy || drafting || !image}
               onClick={() => void fromPhoto(image)}
             >
-              Use the current photo
+              Use the current frame
             </button>
           </>
         )}

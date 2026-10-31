@@ -11,6 +11,7 @@ import {
   type PlacementDecision,
   ILLUSTRATION_NOTE_MAX,
 } from '@livinglayer/domain';
+import { api } from '../api';
 import { estimateLabel } from '../cost';
 import { Glyph } from '../Glyph';
 import { useLab } from './LabContext';
@@ -222,6 +223,7 @@ function PictureControls({ view = 'room' }: { view?: 'room' | 'desk' }) {
   const lab = useLab();
   const { memory, mode, image, busy, dimensions } = lab;
   const pinned = memory?.surface?.scene === 'custom';
+  const calibrated = Boolean(memory?.camera || mode === 'demo');
   const picture = view === 'desk' ? memory?.deskIllustration : memory?.illustration;
   // The room is drawn from its own photo once it has one; the desk always from this frame.
   const needPhoto =
@@ -238,7 +240,14 @@ function PictureControls({ view = 'room' }: { view?: 'room' | 'desk' }) {
     <div className="picture-controls">
       <button
         className="secondary"
-        disabled={Boolean(busy) || !pinned || needPhoto || (mode === 'live' && !lab.metaReady)}
+        disabled={
+          Boolean(busy) ||
+          !pinned ||
+          needPhoto ||
+          (view === 'room' && !calibrated) ||
+          (view === 'desk' && mode === 'demo') ||
+          (mode === 'live' && !lab.metaReady)
+        }
         onClick={() => void lab.illustrate(view, note)}
       >
         {busy === 'illustrate'
@@ -250,21 +259,23 @@ function PictureControls({ view = 'room' }: { view?: 'room' | 'desk' }) {
               : 'Draw it as a picture'}
       </button>
       <p className="micro">
-        {!pinned
-          ? 'Pin the desk first: the picture is tied to it.'
-          : needPhoto
-            ? view === 'desk'
-              ? 'Capture a close frame of the desk first; the picture is drawn from it.'
-              : 'Add the room’s photo first; the picture is drawn from it.'
-            : mode === 'demo'
-              ? `Demo: shows a ready-made picture of the illustrated desk, with no model calls.`
-              : view === 'desk'
-                ? otherSize
-                  ? `The desk picture was drawn from a ${drawnFrom!.width}×${drawnFrom!.height} frame, so only sightings in frames that size show on it. Redraw from this frame to match.`
-                  : `Muse Image redraws this close frame of the desk${memory?.illustration ? ' in the room picture’s style' : ''}, keeping its framing, so what the camera tracks lands on it: one image call, about $0.01.`
-                : picture && !picture.desk
-                  ? 'SAM found no desk in the last picture, so the mug and zones can’t be placed on it. Redraw to try again.'
-                  : `Muse Image redraws ${memory?.scenePhoto || memory?.illustration ? 'the room’s photo' : 'the current photo'} as isometric line art on a transparent background, and SAM finds its desk: one image and one SAM call, about $0.0125.`}
+        {view === 'desk' && mode === 'demo'
+          ? 'The demo has only its corner camera: draw the room as a picture instead.'
+          : !pinned
+            ? 'Pin the desk first: the picture is tied to it.'
+            : view === 'room' && !calibrated
+              ? 'Calibrate the room’s corner camera first: the picture redraws one of its frames.'
+              : needPhoto
+                ? view === 'desk'
+                  ? 'Capture a close frame of the desk first; the picture is drawn from it.'
+                  : 'Add a frame from the room’s camera first; the picture is drawn from it.'
+                : mode === 'demo'
+                  ? 'Demo: draws the saved room through the demo camera, with no model calls.'
+                  : view === 'desk'
+                    ? otherSize
+                      ? `The desk picture was drawn from a ${drawnFrom!.width}×${drawnFrom!.height} frame, so only sightings in frames that size show on it. Redraw from this frame to match.`
+                      : `Muse Image redraws this close frame of the desk${memory?.illustration ? ' in the room picture’s style' : ''}, keeping its framing, so what the camera tracks lands on it: one image call, about $0.01.`
+                    : `Muse Image redraws ${memory?.scenePhoto || memory?.illustration ? 'the room’s photo' : 'the current frame'} as clean line art, keeping the corner camera’s framing, so the room’s camera places the mug and zones on it: one image call, about $0.01.`}
       </p>
       {picture && mode === 'live' && (
         <>
@@ -291,7 +302,7 @@ function PictureControls({ view = 'room' }: { view?: 'room' | 'desk' }) {
           </p>
         </>
       )}
-      {view === 'room' && picture?.desk && <LiftFixtures />}
+      {view === 'room' && picture?.drawnFrom && <LiftFixtures />}
     </div>
   );
 }
@@ -439,7 +450,7 @@ function RoomPanel() {
 /** Pin a surface to the camera frame: the bridge between the photo and the iso room. */
 function SurfacePanel({ id, closeView }: { id: string; closeView?: boolean }) {
   const lab = useLab();
-  const { memory, mode, image, busy, progress, pinning, status } = lab;
+  const { memory, mode, image, busy, progress, pinning } = lab;
   const rows = surfaceRows(lab);
   const row = [...rows.view, ...rows.room].find((r) => r.surface.id === id);
   if (!row)
@@ -459,8 +470,8 @@ function SurfacePanel({ id, closeView }: { id: string; closeView?: boolean }) {
   const demoPin = mode === 'demo' && !memory?.surface && row.pinned;
   const needPhoto = mode === 'live' && !image;
   const title = closeView && progress.view ? viewLabel(progress.view) : row.surface.label;
-  // The fitter measures desk-shaped tops: a desk or a table, seen from above its front edge.
-  const findable = /^(desk|table)/.test(row.surface.id) || row.surface.id === progress.deskId;
+  // The room's calibrated camera sees every surface of the room; a close view has its own camera.
+  const findable = !closeView && Boolean(memory?.camera || mode === 'demo');
   return (
     <Panel
       tiny={
@@ -496,7 +507,7 @@ function SurfacePanel({ id, closeView }: { id: string; closeView?: boolean }) {
             disabled={Boolean(busy)}
             onClick={() => lab.file.current?.click()}
           >
-            Upload a close photo
+            Upload a frame
           </button>
           <button
             className="secondary"
@@ -507,9 +518,6 @@ function SurfacePanel({ id, closeView }: { id: string; closeView?: boolean }) {
           </button>
         </div>
       ) : null}
-      {findable && !row.pinned && status && (
-        <Cost>{estimateLabel(status.meta.estimates.segment, 'image')}</Cost>
-      )}
       {closeView && row.pinned && progress.view && (
         <p className="micro">
           The {label} is shared with the {roomLabel(progress.room, memory).toLowerCase()}, so what
@@ -525,8 +533,8 @@ function SurfacePanel({ id, closeView }: { id: string; closeView?: boolean }) {
       <div className="save-actions">
         {findable && (
           <button
-            className={row.pinned || needPhoto ? 'secondary' : 'primary'}
-            disabled={Boolean(busy) || Boolean(pinning) || lab.camera || needPhoto}
+            className={row.pinned ? 'secondary' : 'primary'}
+            disabled={Boolean(busy) || Boolean(pinning) || lab.camera}
             onClick={() =>
               void lab.autoPin({ scene: pinScene(row.scene), surfaceId: row.surface.id, label })
             }
@@ -551,6 +559,37 @@ function SurfacePanel({ id, closeView }: { id: string; closeView?: boolean }) {
             onClick={() => void lab.deskAction('surface', { pin: null })}
           >
             Clear pin
+          </button>
+        )}
+      </div>
+      <p className="micro">
+        {memory?.camera
+          ? `The room's camera is calibrated (${memory.camera.error.toFixed(1)} px)${memory.camera.moved ? ', but it has moved since: zones are paused until it is calibrated again' : ''}.`
+          : mode === 'demo'
+            ? 'The demo camera is calibrated already. Calibrate it again to try the marks.'
+            : 'Mount one camera high in a corner of the room, then calibrate it: zones drawn in the room then apply to every frame it sends.'}
+      </p>
+      <div className="save-actions">
+        <button
+          className={memory?.camera || mode === 'demo' ? 'secondary' : 'primary'}
+          disabled={Boolean(busy) || Boolean(pinning) || lab.camera || needPhoto}
+          onClick={() => void lab.startCalibrating()}
+        >
+          {busy === 'calibrate'
+            ? 'Finding the floor…'
+            : memory?.camera
+              ? 'Calibrate again'
+              : 'Calibrate the camera'}
+        </button>
+        {memory?.camera && (
+          <button
+            className="text-button"
+            disabled={Boolean(busy)}
+            onClick={() =>
+              void api<DeskMemory>('room/forget', { mode }).then((m) => lab.setMemory(m))
+            }
+          >
+            Forget calibration
           </button>
         )}
       </div>
@@ -1020,7 +1059,11 @@ function ZonePanel() {
                   value={Math.round(draftZone[key] * 100)}
                   disabled={Boolean(busy)}
                   onChange={(e) =>
-                    lab.setDraftZone((z) => ({ ...z, [key]: Number(e.target.value) / 100 }))
+                    // A rectangle edited in the frame is no longer the one drawn in the room.
+                    lab.setDraftZone(({ onSurface: _, ...z }) => ({
+                      ...z,
+                      [key]: Number(e.target.value) / 100,
+                    }))
                   }
                 />
               </label>
@@ -1032,7 +1075,13 @@ function ZonePanel() {
             onClick={() =>
               void lab.deskAction('zone', {
                 observationId: currentObservation?.id,
-                rect: draftZone,
+                rect: {
+                  x: draftZone.x,
+                  y: draftZone.y,
+                  width: draftZone.width,
+                  height: draftZone.height,
+                },
+                ...(draftZone.onSurface ? { onSurface: draftZone.onSurface } : {}),
               })
             }
           >
@@ -1316,6 +1365,7 @@ function NewRulePanel() {
                   objectId: draft.objectId,
                   entityId: draft.entityId || null,
                   rect: draft.rect,
+                  ...(draft.onSurface ? { onSurface: draft.onSurface } : {}),
                 },
               },
               (m) => {

@@ -177,7 +177,7 @@ async function roomPhoto(memory: DeskMemory, store: EvidenceStore): Promise<stri
 
 /**
  * Each scanned thing's outline, by its place in the scan: SAM from Spark's
- * boxes live (one call), or the illustrated desk's own outlines in the demo,
+ * boxes live (one call), or the demo render's own outlines,
  * matched by how much they overlap the box. Null where nothing was outlined.
  */
 async function outlinedThings(
@@ -275,7 +275,7 @@ export function fixtureRoutes(
           imageDataUrl: z.string().max(7_000_000).optional(),
           /**
            * A box drawn around the thing on a desk photo, in thousandths: the
-           * live photo sent with it, or the illustrated desk in the demo.
+           * live photo sent with it, or the demo camera's frame in the demo.
            */
           box: z
             .object({
@@ -300,7 +300,7 @@ export function fixtureRoutes(
         'demo_image',
         live
           ? 'Live mode drafts from your own photo, not the bundled pictures.'
-          : 'Demo mode drafts from a bundled picture or a box on the illustrated desk.',
+          : 'Demo mode drafts from a bundled picture or a box in the demo office.',
       );
     const custom = store.memory(mode).scene;
     if (scene === 'custom' && !custom)
@@ -478,7 +478,7 @@ export function fixtureRoutes(
    * fitted to what SAM outlined of it (one call for all of Spark's boxes), or
    * a placeholder when SAM found nothing. The masks also say where each thing
    * touches down, which a loose box doesn't. Demo mode scans the
-   * illustrated desk, which fills the frame, with no model call.
+   * demo office through its camera, with no model call.
    */
   app.post('/api/fixtures/scan', async (request) => {
     const { mode, imageDataUrl, scene, replace, jobId } = parseInput(
@@ -498,7 +498,7 @@ export function fixtureRoutes(
     );
     const live = mode === 'live';
     if (!live && imageDataUrl)
-      throw new LabError('demo_image', 'Demo mode scans only the illustrated desk.');
+      throw new LabError('demo_image', 'Demo mode scans only the demo room’s camera.');
     const before = store.memory(mode);
     const pin = live ? before.surface : DEMO_SURFACE;
     if (!pin || (pin.scene === 'custom' && !before.scene))
@@ -550,7 +550,9 @@ export function fixtureRoutes(
         : { width: 960, height: 640 };
       await job.done(
         'photo',
-        image ? `${image.width} × ${image.height}` : 'Demo: the illustrated desk, no model calls',
+        image
+          ? `${image.width} × ${image.height}`
+          : 'Demo: the office from its corner camera, no model calls',
         png,
         SCAN_PREVIEW,
       );
@@ -1072,7 +1074,7 @@ export function fixtureRoutes(
    * Look for a fixture in a camera frame, for a person to confirm which
    * outline it is: SAM is pointed at where it should stand, from where the
    * camera last saw it or its place in the room drawn through the pin (one
-   * call). The demo picks the illustrated desk's outlines under that box.
+   * call). The demo picks the render's outlines under that box.
    * Saved as an ordinary segmentation of the fixture's name.
    */
   app.post('/api/fixtures/find', async (request) => {
@@ -1104,7 +1106,7 @@ export function fixtureRoutes(
     if (mode === 'live' && !imageDataUrl)
       throw new LabError('fixture_frame', 'Send a camera frame to look in.', 400);
     if (mode === 'demo' && imageDataUrl)
-      throw new LabError('demo_image', 'Demo mode uses only the bundled illustrated desk.');
+      throw new LabError('demo_image', 'Demo mode uses only the demo room’s camera.');
     return run('segment', mode, async (runId) => {
       // Grown by half its size each way: the place is a guess, SAM finds the edge.
       const grow = (b: typeof expected, sx: number, sy: number, w: number, h: number) => {

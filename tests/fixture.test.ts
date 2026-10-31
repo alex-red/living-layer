@@ -8,6 +8,7 @@ import { parseConfig, type Fetcher } from '../apps/server/src/config.js';
 import { EvidenceStore } from '../apps/server/src/store.js';
 import { ControlAdapter } from '../apps/server/src/control.js';
 import { syntheticStream } from '../apps/server/src/sam.js';
+import { demoPhotoInventory } from '../apps/server/src/demo.js';
 import {
   archetypeOf,
   buildItem,
@@ -593,7 +594,7 @@ describe('drafting a fixture live, with a mocked Meta API', () => {
       { MODEL_API_KEY: 'test-key', META_LIVE_ENABLED: 'true', ...env },
       fetcher,
     );
-    const photo = await sharp(readFileSync('apps/web/public/desk.svg')).png().toBuffer();
+    const photo = await sharp(readFileSync('testdata/desk.svg')).png().toBuffer();
     const imageDataUrl = `data:image/png;base64,${photo.toString('base64')}`;
     const draft = (body: object = {}) =>
       s.app.inject({
@@ -719,13 +720,12 @@ describe('switching a light directly', () => {
 });
 
 describe('drafting a fixture from a box on the desk photo', () => {
-  it('picks the illustrated desk’s thing under the box in the demo', async () => {
+  it('picks the demo room’s thing under the box', async () => {
     const s = await setup();
-    // The book stands at the left of the illustrated desk.
-    const book = await s.post('fixtures/draft', {
-      scene: 'desk',
-      box: { x1: 80, y1: 300, x2: 300, y2: 760 },
-    });
+    // A box drawn a little loosely around the book on the demo room's desk.
+    const at = demoPhotoInventory.things.find((t) => t.id === 'book')!.box;
+    const box = { x1: at.x1 - 10, y1: at.y1 - 10, x2: at.x2 + 10, y2: at.y2 + 10 };
+    const book = await s.post('fixtures/draft', { scene: 'office', box });
     expect(book.statusCode, book.body).toBe(200);
     const { run, draft } = book.json<{ run: EvidenceRun; draft: FixtureDraft }>();
     expect(draft).toMatchObject({ label: 'Green book', archetype: 'book', suggested: 'none' });
@@ -735,15 +735,11 @@ describe('drafting a fixture from a box on the desk photo', () => {
     ).metadata();
     expect(shown.width).toBeLessThan(960);
     const empty = await s.post('fixtures/draft', {
-      scene: 'desk',
+      scene: 'office',
       box: { x1: 0, y1: 0, x2: 60, y2: 60 },
     });
     expect(empty.statusCode).toBe(422);
-    const both = await s.post('fixtures/draft', {
-      scene: 'desk',
-      reference: 'mouse',
-      box: { x1: 80, y1: 300, x2: 300, y2: 760 },
-    });
+    const both = await s.post('fixtures/draft', { scene: 'office', reference: 'mouse', box });
     expect(both.statusCode).toBe(400);
   });
 });

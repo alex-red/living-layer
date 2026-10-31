@@ -1,11 +1,11 @@
 /**
  * Everything worth knowing about a change, in one go and about a minute,
- * with no build and no server: formatting, types, the tests, both benches,
+ * with no build and no server: formatting, types, the tests, the benches,
  * and the colour audit of every template. Prints one summary. Fails only on
  * formatting, types or tests; the benches and the audit report, as agreed.
  *
  *   bun run verify
- *   bun run verify --against main     also the scene bench at main, and what moved
+ *   bun run verify --against main     also the room bench at main, and what moved
  *
  * Run it before committing, and on any merge of another branch.
  */
@@ -47,8 +47,8 @@ const steps: Step[] = [
       `${/(\d+) pass/.exec(out)?.[1] ?? '?'} pass, ${/(\d+) fail/.exec(out)?.[1] ?? '?'} fail`,
   },
   {
-    name: 'scene bench',
-    cmd: ['bun', 'scripts/scene-bench.ts'],
+    name: 'room bench',
+    cmd: ['bun', 'scripts/room-bench.ts'],
     gate: false,
     read: (out) =>
       `${count(out, /← below target$/gm)} misses, ${count(out, /\(known gap\)/g)} known gaps`,
@@ -72,8 +72,8 @@ const steps: Step[] = [
   ...(against
     ? [
         {
-          name: `scene vs ${against}`,
-          cmd: ['bun', 'scripts/bench-at.ts', against, 'scene'],
+          name: `room vs ${against}`,
+          cmd: ['bun', 'scripts/bench-at.ts', against, 'room'],
           gate: false,
           read: (out: string) =>
             `${count(out, /REGRESSION/g)} regressions, ${count(out, /← fixed/g)} fixed`,

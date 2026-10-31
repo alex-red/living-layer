@@ -1,6 +1,4 @@
 import type { FastifyInstance } from 'fastify';
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
 import sharp from 'sharp';
 import { z } from 'zod';
 import {
@@ -10,7 +8,6 @@ import {
   withNote,
   META_PRICES,
   MAX_SPRITES,
-  alignCorners,
   fixtureBox,
   inRoomView,
   fixtureInPicture,
@@ -18,18 +15,21 @@ import {
   sparkCeiling,
   isoSurface,
   modeSchema,
-  pictureDesk,
+  calibrationOf,
+  floorSolid,
+  renderRoom,
+  sceneSolids,
   type DeskMemory,
-  type Detection,
   type EvidenceRun,
   type Mode,
   type PictureFind,
   type PictureSprite,
-  type Quad,
   type SceneIllustration,
+  type Detection,
+  type IsoScene,
+  type RoomCamera,
   type Segmentation,
 } from '@livinglayer/domain';
-import { PROJECT_ROOT } from './config.js';
 import { LabError, parseInput } from './errors.js';
 import { validateImage } from './images.js';
 import type { Runner } from './item.js';
@@ -49,27 +49,11 @@ import { listedPreview, outlinedPreview } from './scan-preview.js';
 import { SPARK_BUDGET, type MetaAdapter } from './meta.js';
 import type { EvidenceStore } from './store.js';
 
-/**
- * The illustrated demo desk as Muse Image redrew it, and where SAM found its
- * top, so demo mode shows a picture without any model call.
- */
-const DEMO_PICTURE = resolve(PROJECT_ROOT, 'apps/server/assets/demo-illustration.webp');
-/** The top's corners, as shares of the picture's width and height, in the order the demo pin's corners take. */
-export const DEMO_PICTURE_DESK: Quad = [
-  { x: 0.0505, y: 0.639 },
-  { x: 0.668, y: 0.293 },
-  { x: 0.949, y: 0.517 },
-  { x: 0.311, y: 0.879 },
-];
-/** The illustrated desk redrawn close up in the demo picture's style; it keeps the demo frame's composition. */
-const DEMO_DESK_PICTURE = resolve(PROJECT_ROOT, 'apps/server/assets/demo-desk-illustration.webp');
-const DEMO_FRAME = { width: 960, height: 640 };
 /** What drawing the room reports while it runs, and how big its previews are. */
 const ROOM_STEPS = [
   { id: 'photo', label: 'Send the photo' },
   { id: 'draw', label: 'Muse Image redraws the room' },
-  { id: 'outline', label: 'SAM outlines the desk' },
-  { id: 'save', label: 'Tie the picture to the pinned desk' },
+  { id: 'save', label: 'Tie the picture to the room’s camera' },
 ];
 const DESK_STEPS = [
   { id: 'photo', label: 'Send the close frame' },
@@ -84,21 +68,19 @@ const LIFT_STEPS = [
   { id: 'base', label: 'Muse Image redraws the room without them' },
   { id: 'save', label: 'Save the layers' },
 ];
-/** The picture with the desk top found on it outlined, for the page to show. */
-async function withDesk(png: Buffer, desk: Quad, frame: { width: number; height: number }) {
-  const points = desk.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
-  const stroke = Math.max(2, Math.round(Math.max(frame.width, frame.height) / 240));
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${frame.width}" height="${frame.height}"><polygon points="${points}" fill="rgb(111 211 224 / 0.18)" stroke="#6fd3e0" stroke-width="${stroke}" stroke-linejoin="round"/></svg>`;
-  return sharp(png)
-    .composite([{ input: Buffer.from(svg) }])
+/** The room as its camera sees it, drawn from the scene: the demo's picture of it. */
+async function roomPicture(scene: IsoScene, camera: RoomCamera) {
+  const { width, height, rgba } = renderRoom(camera, [
+    floorSolid(scene.grid),
+    ...sceneSolids(scene),
+  ]);
+  return sharp(Buffer.from(rgba), { raw: { width, height, channels: 4 } })
     .png()
     .toBuffer();
 }
-const areaOf = (d: Detection) =>
-  (d.mask.foregroundPixels * d.box.width * d.box.height) / (d.mask.width * d.mask.height);
 
 export interface Illustrated {
-  /** The picture's run, and the SAM run that outlined its desk (live only). */
+  /** The picture's run; `segment` is always null now, kept for the page. */
   run: EvidenceRun<{ illustration: SceneIllustration }>;
   segment: EvidenceRun<Segmentation> | null;
   illustration: SceneIllustration;
@@ -106,11 +88,12 @@ export interface Illustrated {
 }
 
 /**
- * Draw a person's room as a clean isometric picture. Muse Image redraws the
- * photo (one image, $0.01), SAM outlines the desk in the picture (one call),
- * and the surface fitter finds its top, which is tied to the pinned surface so
- * the mug and the zones can be drawn on the picture. The scene and its pin
- * stay what they were; the picture is how the room is shown.
+ * Draw a person's room as a clean picture. Muse Image redraws a frame of the
+ * room's calibrated corner camera (one image, $0.01), keeping its framing, so
+ * the room's camera maps the scene, the mug and the zones onto it with no
+ * other call. The demo draws its saved room through the demo camera instead.
+ * The scene and its pin stay what they were; the picture is how the room is
+ * shown.
  */
 export function illustrationRoutes(
   app: FastifyInstance,
@@ -135,7 +118,7 @@ export function illustrationRoutes(
     const { mode, view } = input;
     const live = mode === 'live';
     if (!live && input.imageDataUrl)
-      throw new LabError('demo_image', 'Demo mode uses only the bundled illustrated desk.');
+      throw new LabError('demo_image', 'Demo mode uses only the demo room’s camera.');
     const memory = store.memory(mode);
     const pin = memory.surface;
     if (
@@ -149,9 +132,29 @@ export function illustrationRoutes(
         'Draft your room from a photo and pin its desk first: the picture is tied to the pinned desk.',
         409,
       );
-    if (view === 'desk')
+    if (view === 'desk') {
+      if (!live)
+        throw new LabError(
+          'demo_image',
+          'The demo has only its corner camera: draw the room as a picture instead.',
+        );
       return drawDesk(input.imageDataUrl, mode, pin.surfaceId, input.jobId, input.note);
-    if (live && !meta.canAfford(META_PRICES.imagePerImage + META_PRICES.samPerImage))
+    }
+    const calibration = calibrationOf(memory);
+    if (!calibration)
+      throw new LabError(
+        'not_calibrated',
+        'Calibrate the room’s corner camera first: the picture redraws one of its frames.',
+        409,
+      );
+    const from = calibration.camera.frame;
+    if (pin.frame.width !== from.width || pin.frame.height !== from.height)
+      throw new LabError(
+        'illustration_pin',
+        'The desk was pinned on frames of another size than the room’s camera: pin it again.',
+        409,
+      );
+    if (live && !meta.canAfford(META_PRICES.imagePerImage))
       throw new LabError(
         'spend_limit',
         "Drawing the room would pass today's Meta spending limit. Raise the limit in Setup, or wait for the next UTC day.",
@@ -159,7 +162,7 @@ export function illustrationRoutes(
       );
     const job = jobs.start(input.jobId, ROOM_STEPS, { title: 'Drawing the room', mode });
     return following(job, async () => {
-      // Live, the room is drawn from the photo sent, else from the room's own photo.
+      // Live, the room is drawn from the frame sent, else from the room's own photo.
       job.run('photo');
       const saved = live && !input.imageDataUrl ? roomPhotoBytes(memory, store) : null;
       const image = live
@@ -168,11 +171,17 @@ export function illustrationRoutes(
               (saved ? `data:image/png;base64,${saved.toString('base64')}` : undefined),
           )
         : null;
+      if (image && (image.width !== from.width || image.height !== from.height))
+        throw new LabError(
+          'not_calibrated',
+          `This frame is ${image.width} × ${image.height}, but the room’s camera was calibrated on ${from.width} × ${from.height} frames.`,
+          409,
+        );
       if (image) await job.done('photo', `${image.width} × ${image.height}`, image.bytes, PREVIEW);
-      else await job.done('photo', 'Demo: the bundled picture, no model call');
+      else await job.done('photo', 'Demo: the saved room through the demo camera, no model call');
       job.check();
 
-      // 1. The picture, its plain background made transparent.
+      // The picture, its plain background made transparent, the frame's size and framing.
       job.run('draw');
       let png: Buffer = Buffer.alloc(0);
       const drawn = await run('illustration', mode, async (id) => {
@@ -181,12 +190,22 @@ export function illustrationRoutes(
           ? await meta.illustrate(
               [image.dataUrl],
               withNote(ILLUSTRATION_PROMPT, input.note),
-              'auto',
+              `${image.width}x${image.height}`,
               job.signal,
             )
-          : { output: readFileSync(DEMO_PICTURE), model: 'demo', requestId: null, usage: null };
+          : {
+              output: await roomPicture(memory.scene!, calibration.camera),
+              model: 'demo',
+              requestId: null,
+              usage: null,
+            };
         job.check();
-        png = await keyBackground(await sharp(result.output).png().toBuffer());
+        png = await keyBackground(
+          await sharp(result.output)
+            .resize(from.width, from.height, { fit: 'fill' })
+            .png()
+            .toBuffer(),
+        );
         const asset = store.asset(id, 'illustration.png', png);
         return {
           ...result,
@@ -195,56 +214,28 @@ export function illustrationRoutes(
         };
       });
       const asset = (drawn.output as { asset: string }).asset;
-      const size = await sharp(png).metadata();
-      const frame = { width: size.width!, height: size.height! };
-      await job.done('draw', `${frame.width} × ${frame.height}`, png, PREVIEW);
-      job.check();
-
-      // 2. Its desk top, tied to the pin.
-      job.run('outline');
-      let segment: EvidenceRun<Segmentation> | null = null;
-      let desk: Quad | null;
-      if (!live)
-        desk = DEMO_PICTURE_DESK.map((p) => ({
-          x: p.x * frame.width,
-          y: p.y * frame.height,
-        })) as Quad;
-      else {
-        const dataUrl = await onBlack(png);
-        segment = (await run('segment', mode, async (id) => {
-          job.link(id);
-          const result = await meta.segment(dataUrl, 'desk', frame.width, frame.height, {
-            signal: job.signal,
-          });
-          return { ...result, assets: [store.asset(id, 'sam-output.txt', result.raw)] };
-        })) as EvidenceRun<Segmentation>;
-        const top = [...(segment.output.detections ?? [])].sort((a, b) => areaOf(b) - areaOf(a))[0];
-        const found = top ? pictureDesk(top, frame) : null;
-        desk = found && alignCorners(found, pin.corners);
-      }
-      if (desk)
-        await job.done('outline', 'Found its top', await withDesk(png, desk, frame), PREVIEW);
-      else await job.done('outline', 'No desk found on the picture');
+      await job.done('draw', `${from.width} × ${from.height}`, png, PREVIEW);
       // Past here nothing more is spent; a stop still keeps the old picture.
       job.check();
 
       job.run('save');
       const illustration: SceneIllustration = {
         asset,
-        frame,
+        frame: { ...from },
         surfaceId: pin.surfaceId,
-        desk,
+        desk: null,
+        drawnFrom: { ...from },
         createdAt: new Date().toISOString(),
       };
       store.saveMemory({ ...store.memory(mode), illustration });
-      await job.done('save', desk ? 'The mug and zones sit on its desk' : 'Saved without a desk');
+      await job.done('save', 'The mug and zones show on it through the room’s camera');
       job.finish();
       return {
         memory: store.memory(mode),
         run: { ...drawn, output: { illustration } } as EvidenceRun<{
           illustration: SceneIllustration;
         }>,
-        segment,
+        segment: null,
         illustration,
       };
     });
@@ -262,8 +253,7 @@ export function illustrationRoutes(
     jobId?: string,
     note?: string,
   ): Promise<Illustrated> {
-    const live = mode === 'live';
-    if (live && !meta.canAfford(META_PRICES.imagePerImage))
+    if (!meta.canAfford(META_PRICES.imagePerImage))
       throw new LabError(
         'spend_limit',
         "Drawing the desk would pass today's Meta spending limit. Raise the limit in Setup, or wait for the next UTC day.",
@@ -272,9 +262,8 @@ export function illustrationRoutes(
     const job = jobs.start(jobId, DESK_STEPS, { title: 'Drawing the desk', mode });
     return following(job, async () => {
       job.run('photo');
-      const image = live ? await validateImage(imageDataUrl) : null;
-      if (image) await job.done('photo', `${image.width} × ${image.height}`, image.bytes, PREVIEW);
-      else await job.done('photo', 'Demo: the bundled desk, no model call');
+      const image = await validateImage(imageDataUrl);
+      await job.done('photo', `${image.width} × ${image.height}`, image.bytes, PREVIEW);
       job.check();
       const room = store.memory(mode).illustration;
       const style = room ? store.readAsset(room.asset) : null;
@@ -287,19 +276,12 @@ export function illustrationRoutes(
               `data:image/jpeg;base64,${(await sharp(style).resize(1280, 1280, { fit: 'inside' }).jpeg().toBuffer()).toString('base64')}`,
             ]
           : [];
-        const result = image
-          ? await meta.illustrate(
-              [image.dataUrl, ...references],
-              deskIllustrationPrompt(Boolean(style), note),
-              `${image.width}x${image.height}`,
-              job.signal,
-            )
-          : {
-              output: readFileSync(DEMO_DESK_PICTURE),
-              model: 'demo',
-              requestId: null,
-              usage: null,
-            };
+        const result = await meta.illustrate(
+          [image.dataUrl, ...references],
+          deskIllustrationPrompt(Boolean(style), note),
+          `${image.width}x${image.height}`,
+          job.signal,
+        );
         job.check();
         png = await keyBackground(await sharp(result.output).png().toBuffer());
         const asset = store.asset(id, 'illustration.png', png);
@@ -318,7 +300,7 @@ export function illustrationRoutes(
         frame: { width: size.width!, height: size.height! },
         surfaceId,
         desk: null,
-        drawnFrom: image ? { width: image.width, height: image.height } : DEMO_FRAME,
+        drawnFrom: { width: image.width, height: image.height },
         createdAt: new Date().toISOString(),
       };
       store.saveMemory({ ...store.memory(mode), deskIllustration: illustration });
@@ -357,10 +339,10 @@ export function illustrationRoutes(
     const memory = store.memory(mode);
     const picture = memory.illustration;
     const pin = memory.surface;
-    if (!picture?.desk || picture.drawnFrom || !pin)
+    if (!picture?.drawnFrom || !pin)
       throw new LabError(
         'separate_picture',
-        'Draw the room as a picture first, with its desk found: the fixtures are lifted off it.',
+        'Draw the room as a picture first: the fixtures are lifted off it.',
         409,
       );
     const custom = memory.scene ?? null;

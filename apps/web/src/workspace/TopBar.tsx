@@ -384,7 +384,7 @@ export function TopBar() {
               aria-pressed={mode === value}
               title={
                 value === 'demo'
-                  ? 'The illustrated demo: no model calls, a virtual lamp'
+                  ? 'The demo office from its corner camera: no model calls, a virtual lamp'
                   : 'Your photos and camera, real model calls and your lamp'
               }
               onClick={() => lab.changeMode(value)}

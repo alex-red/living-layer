@@ -1,7 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import sharp from 'sharp';
 
-/** The lab opens on a choice of room; the demo office holds the illustrated desk. */
+/** The lab opens on a choice of room; the demo office is seen by its corner camera. */
 async function chooseScene(page: Page, name = 'Use the demo office') {
   await page
     .getByRole('group', { name: 'Choose a scene' })
@@ -223,7 +223,7 @@ test('draws the remembered mug in the isometric desk and follows it to a new fra
   await expect(page.locator('.iso-trail')).toBeVisible();
   await page.getByRole('button', { name: /^Edit model/ }).click();
   await page.getByRole('button', { name: 'Sample a draft', exact: true }).click();
-  // The fitter measures a turned body and a handle from the illustrated mug.
+  // The fitter measures a turned body and a handle from the demo mug.
   await expect(page.getByRole('listbox', { name: 'Item parts' }).getByRole('option')).toHaveCount(
     2,
   );
@@ -325,14 +325,14 @@ test('drafts a custom room offline, saves it, and lights a rule’s lamp', async
   await expect(page.locator('[data-prop="lamp"] .iso-lamp.lit')).toBeVisible();
 });
 
-test('drafts a scene from the illustrated desk, reviews the pin and objects, and saves it in one go', async ({
+test('drafts a scene from the demo camera, reviews the pin and objects, and saves it in one go', async ({
   page,
 }) => {
   await freshDesk(page);
   await page.goto('/');
-  // The second way in: draft the room from a photo, here the demo photo.
+  // The second way in: draft the room from a frame of its camera, here the demo camera's.
   await chooseScene(page, 'Draft from the demo photo');
-  await page.getByRole('button', { name: 'Draft from the illustrated desk', exact: true }).click();
+  await page.getByRole('button', { name: 'Draft from the demo camera', exact: true }).click();
   const rows = page.locator('.photo-things tbody tr');
   // The draft fits a model per object and renders the check, which takes a few seconds on CI.
   await expect(rows).toHaveCount(4, { timeout: 20_000 });
@@ -343,18 +343,8 @@ test('drafts a scene from the illustrated desk, reviews the pin and objects, and
   await expect(mug.getByRole('checkbox')).toBeChecked();
   await expect(mug).toContainText('main');
   await rows.filter({ hasText: 'sage bottle' }).getByRole('checkbox').check();
-  // A dragged corner lays the scene out again.
-  // Corner 3 sits on the photo's bottom-right edge; press just inside it.
-  const photo = (await page.locator('.photo-review-photo svg').boundingBox())!;
-  const [cx, cy] = [photo.x + photo.width - 4, photo.y + photo.height - 4];
-  await page.mouse.move(cx, cy);
-  await page.mouse.down();
-  await page.mouse.move(cx - 30, cy - 30, { steps: 4 });
-  await page.mouse.up();
-  await expect(page.getByRole('slider', { name: 'Pin corner 3' })).not.toHaveAttribute(
-    'aria-valuetext',
-    '960, 640',
-  );
+  // The pin is where the demo camera sees the desk: nothing to drag.
+  await expect(page.getByRole('slider', { name: 'Pin corner 3' })).toHaveCount(0);
   await page.setViewportSize({ width: 390, height: 844 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: '.data/screenshots/photo-review-mobile.png', fullPage: true });
