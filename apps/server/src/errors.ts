@@ -8,6 +8,8 @@ export class LabError extends Error {
     public statusCode = 400,
     /** For a provider call: what the provider said, safe to show. */
     public detail?: ProviderFailure,
+    /** What the page needs to carry on by hand, such as the marks a setup found. */
+    public data?: Record<string, unknown>,
   ) {
     super(message);
   }

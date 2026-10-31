@@ -155,6 +155,7 @@ export async function buildApp(
         code: normalized.code,
         message: normalized.message,
         ...(normalized.detail ? { detail: normalized.detail } : {}),
+        ...(normalized.data ? { data: normalized.data } : {}),
         ...(runId ? { runId } : {}),
       },
     });

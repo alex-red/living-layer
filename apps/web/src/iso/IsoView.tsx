@@ -30,6 +30,7 @@ import {
   type SurfacePin,
   type ZoneOnSurface,
   type ZoneRect,
+  type CameraCrop,
 } from '@livinglayer/domain';
 import { api, type AiFollow } from '../api';
 import { ZoomPan } from '../ZoomPan';
@@ -38,7 +39,7 @@ import type { Tool } from '../workspace/ToolStrip';
 import { IsoScene, type IsoFixture, type IsoObject, type IsoZone } from './IsoScene';
 import { ItemEditor } from './ItemEditor';
 import { IllustrationView } from './IllustrationView';
-import { SceneEditor, type LayoutRun } from './SceneEditor';
+import { SceneEditor, type CalibrateByHand, type LayoutRun } from './SceneEditor';
 import type { PhotoRun } from './PhotoReview';
 import { pinScene, type WorkScene as Kind } from '../workspace/progress';
 import './iso.css';
@@ -129,6 +130,9 @@ export function IsoView({
   onRun,
   onMemory,
   onUpload,
+  captureFrame,
+  cameraLive = false,
+  onCalibrateByHand,
   follow,
   onMessage,
   onError,
@@ -189,6 +193,11 @@ export function IsoView({
   onMemory: (memory: DeskMemory) => void;
   /** Prepare a chosen photo as the current frame, and return it. */
   onUpload?: (file: File) => Promise<string | undefined>;
+  /** A frame from the live camera, captured now, or the current photo; with its zoomed view. */
+  captureFrame?: () => { url: string | undefined; crop: CameraCrop | null };
+  cameraLive?: boolean;
+  /** Calibrate by hand from what an automatic setup found. */
+  onCalibrateByHand?: (found: CalibrateByHand) => void;
   /** Follow long AI calls step by step in the AI dialog. */
   follow?: AiFollow;
   onMessage: (message: string) => void;
@@ -411,6 +420,17 @@ export function IsoView({
             memory={memory}
             onDrafted={onRun}
             onUpload={onUpload}
+            room={
+              kind === 'custom' || kind === 'custom-desk'
+                ? 'custom'
+                : kind === 'desk'
+                  ? 'office'
+                  : kind
+            }
+            cameraLive={cameraLive}
+            {...(captureFrame ? { captureFrame } : {})}
+            onCalibrated={onMemory}
+            {...(onCalibrateByHand ? { onCalibrateByHand } : {})}
             {...(follow ? { follow } : {})}
             onPhotoSaved={(m) => {
               onMemory(m);

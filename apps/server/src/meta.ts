@@ -16,6 +16,7 @@ import {
   sceneDraftSchema,
   templateCatalog,
   photoInventorySchema,
+  setupInventorySchema,
   photoCheckSchema,
   photoCatalog,
   sparkCeiling,
@@ -514,6 +515,29 @@ export class MetaAdapter {
    * tiles or turns; SAM and the layout measure those.
    */
   async photoInventory(imageDataUrl: string, signal?: AbortSignal) {
+    return this.inventory(imageDataUrl, photoInventorySchema, [], signal);
+  }
+  /**
+   * The inventory, plus the room around the corner camera: how long the two
+   * walls that meet at the far corner are, and how high the camera is. The
+   * same one call; calibration checks the estimate against the floor.
+   */
+  async setupInventory(imageDataUrl: string, signal?: AbortSignal) {
+    return this.inventory(
+      imageDataUrl,
+      setupInventorySchema,
+      [
+        'The photo is from a camera mounted high in one corner of the room, looking across at the far corner. Estimate the room in whole centimetres from things of known size (a desk is about 75 cm high, a door about 200 cm, a floor tile or board): rightWallCm, the length of the wall running to the right from the far corner; leftWallCm, the length of the wall running to the left from it; and cameraHeightCm, how high the camera is above the floor.',
+      ],
+      signal,
+    );
+  }
+  private async inventory<T>(
+    imageDataUrl: string,
+    schema: z.ZodType<T>,
+    extra: string[],
+    signal?: AbortSignal,
+  ) {
     const response = await this.spark(
       1,
       {
@@ -530,7 +554,8 @@ export class MetaAdapter {
                   'List the furniture and objects in this photo so they can be drawn as a small isometric scene.',
                   photoCatalog(),
                   'For each thing give: a short id (lowercase, like desk or mug-1); a short grounded label from what you see (no names, owners or brands); as, the closest template or object model; role: surface for what things stand on (a desk, a table, a cabinet top, a shelf), furniture for anything else that stands on the floor, object for small movable things; on, the id of what it stands on, or floor; and box, a loose box around it as x1, y1, x2, y2 from 0 to 1000 across and down the photo.',
-                  'Include the main surface if there is one. Use at most 16 things, only what is clearly visible, biggest first. Do not guess sizes or distances. Summarise the scene in one short sentence.',
+                  'Include the main surface if there is one. Use at most 16 things, only what is clearly visible, biggest first. Do not guess sizes or distances of the things. Summarise the scene in one short sentence.',
+                  ...extra,
                 ].join('\n'),
               },
               { type: 'input_image', image_url: imageDataUrl, detail: 'auto' },
@@ -542,19 +567,14 @@ export class MetaAdapter {
             type: 'json_schema',
             name: 'photo_inventory',
             strict: true,
-            schema: z.toJSONSchema(photoInventorySchema),
+            schema: z.toJSONSchema(schema),
           },
         },
       },
       this.config.timeoutMs,
       signal,
     );
-    return this.parsed(
-      response,
-      photoInventorySchema,
-      'photo inventory',
-      SPARK_BUDGET.photoInventory,
-    );
+    return this.parsed(response, schema, 'photo inventory', SPARK_BUDGET.photoInventory);
   }
   /**
    * Spark compares the photo with the drafted scene drawn from the same

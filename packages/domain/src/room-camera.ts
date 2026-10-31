@@ -244,6 +244,7 @@ export function cameraFromMarks(
     insetCm = CORNER_DEFAULTS.insetCm,
     origin = { x: 0, y: 0 },
     crop,
+    heightSpreadCm,
   }: {
     heightCm?: number;
     insetCm?: number;
@@ -251,6 +252,8 @@ export function cameraFromMarks(
     origin?: { x: number; y: number };
     /** The camera's zoomed view, when the frame is that part of the camera's whole frame. */
     crop?: CameraCrop | null;
+    /** How sure `heightCm` is: a measured height is held to a few centimetres, an estimate looser. */
+    heightSpreadCm?: number;
   } = {},
 ): RoomFit {
   if (crop) {
@@ -270,7 +273,12 @@ export function cameraFromMarks(
       },
       full,
       room,
-      { ...(heightCm ? { heightCm } : {}), insetCm, origin },
+      {
+        ...(heightCm ? { heightCm } : {}),
+        ...(heightSpreadCm ? { heightSpreadCm } : {}),
+        insetCm,
+        origin,
+      },
     );
     const camera = { ...fit.camera, cx: fit.camera.cx - dx, cy: fit.camera.cy - dy, frame };
     return { ...fit, camera, hfovDeg: (2 * Math.atan(frame.width / 2 / camera.f) * 180) / Math.PI };
@@ -320,7 +328,7 @@ export function cameraFromMarks(
     e += ((fov! - CORNER_DEFAULTS.hfovDeg) / 40) ** 2 * px * px;
     e += (roll! / 0.05) ** 2 * px * px;
     const want = cm(heightCm ?? CORNER_DEFAULTS.heightCm);
-    e += ((h! - want) / (heightCm ? 0.05 : 5)) ** 2 * px * px;
+    e += ((h! - want) / (heightCm ? cm(heightSpreadCm ?? 1.5) : 5)) ** 2 * px * px;
     return e;
   };
   // Start a few ways and keep the best.
@@ -560,13 +568,21 @@ export function cameraMoved(reference: string, frame: string) {
 export function marksFromWalls(
   floor: { width: number; height: number; data: Uint8Array },
   wall: { width: number; height: number; data: Uint8Array },
+  /** Each wall's own mask, to find a corner the furniture hides from the floor. */
+  walls: { data: Uint8Array }[] = [],
 ): RoomMarks | null {
   const { width, height } = floor;
+  // A skirting board runs between the floor's mask and the wall's: allow its height.
+  const gap = Math.max(3, Math.round(height * 0.016));
   const points: Point[] = [];
   for (let x = 1; x < width - 1; x++)
-    for (let y = 3; y < height - 1; y++) {
+    for (let y = gap; y < height - 1; y++) {
       if (!floor.data[y * width + x] || floor.data[(y - 1) * width + x]) continue;
-      if ([1, 2, 3].some((k) => wall.data[(y - k) * width + x])) points.push({ x, y });
+      for (let k = 1; k <= gap; k++)
+        if (wall.data[(y - k) * width + x]) {
+          points.push({ x, y });
+          break;
+        }
     }
   if (points.length < 8) return null;
   // Deterministic: every pair of points a stride apart, scored by inliers.
@@ -591,15 +607,13 @@ export function marksFromWalls(
     const m = sxy / sxx;
     return { m, c: my - m * mx, inliers: best.inliers };
   };
+  type Line = NonNullable<ReturnType<typeof fit>>;
   const back = fit(points, (s) => s > 0.05);
   const left = fit(
     points.filter((p) => !back?.inliers.includes(p)),
     (s) => s < -0.05,
   );
-  if (!back || !left || Math.abs(back.m - left.m) < 1e-6) return null;
-  const x = (left.c - back.c) / (back.m - left.m);
-  const corner = { x, y: back.m * x + back.c };
-  const along = (l: { m: number; c: number; inliers: Point[] }, right: boolean) => {
+  const along = (l: Line, corner: Point, right: boolean) => {
     const xs = l.inliers.map((p) => p.x);
     const far = right ? Math.max(...xs) : Math.min(...xs);
     return Array.from({ length: 6 }, (_, i) => {
@@ -607,11 +621,38 @@ export function marksFromWalls(
       return { x: px, y: l.m * px + l.c };
     });
   };
-  return {
-    corner,
-    back: along(back, true),
-    left: along(left, false),
-    backEnd: null,
-    leftEnd: null,
-  };
+  if (back && left && Math.abs(back.m - left.m) > 1e-6) {
+    const x = (left.c - back.c) / (back.m - left.m);
+    const corner = { x, y: back.m * x + back.c };
+    return {
+      corner,
+      back: along(back, corner, true),
+      left: along(left, corner, false),
+      backEnd: null,
+      leftEnd: null,
+    };
+  }
+  // One wall's floor line, the other hidden behind furniture: the corner is
+  // where that wall itself ends, along its line, as its own mask shows it.
+  const one = back ?? left;
+  if (!one || !walls.length) return null;
+  const right = one === back;
+  const lift = gap + 4;
+  const above = (w: { data: Uint8Array }) =>
+    one.inliers.filter((p) => p.y - lift > 0 && w.data[(p.y - lift) * width + p.x]).length;
+  const own = walls.reduce((a, b) => (above(b) > above(a) ? b : a));
+  if (!above(own)) return null;
+  const xs = one.inliers.map((p) => p.x).sort((a, b) => a - b);
+  let end: number | null = null;
+  // From the middle of the line towards the hidden corner, while that wall still stands above it.
+  for (let x = xs[xs.length >> 1]!; x >= 0 && x < width; x += right ? -1 : 1) {
+    const y = Math.round(one.m * x + one.c) - lift;
+    if (y <= 0 || y >= height || !own.data[y * width + x]) break;
+    end = x;
+  }
+  if (end === null) return null;
+  const corner = { x: end, y: one.m * end + one.c };
+  return right
+    ? { corner, back: along(one, corner, true), left: [], backEnd: null, leftEnd: null }
+    : { corner, back: [], left: along(one, corner, false), backEnd: null, leftEnd: null };
 }

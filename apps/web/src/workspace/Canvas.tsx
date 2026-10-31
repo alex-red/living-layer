@@ -663,7 +663,8 @@ export function Canvas() {
             lampOn={lab.lamp !== 'off'}
             drawing={drawing}
             zone={visibleZone ?? undefined}
-            busy={Boolean(busy) || camera || lab.cameraPending}
+            // A running camera doesn't block the editors: they capture their frame from it.
+            busy={Boolean(busy) || lab.cameraPending}
             onDraftZone={lab.setDraftZone}
             onRun={(run) => {
               lab.setSelected(run as EvidenceRun);
@@ -678,6 +679,9 @@ export function Canvas() {
               );
               void lab.refresh();
             }}
+            captureFrame={lab.cameraFrame}
+            onCalibrateByHand={lab.calibrateByHand}
+            cameraLive={camera}
             onMemory={(m) => {
               lab.setMemory(m);
               // A scene saved from a photo is the room now; the next step is its surface or objects.

@@ -7,6 +7,7 @@ import {
   convexHull,
   cornerCamera,
   marksFromFloor,
+  marksFromWalls,
   marksOf,
   newBits,
   fillRings,
@@ -117,6 +118,78 @@ describe('room camera', () => {
     expect(marks.leftEnd).toBeTruthy();
     const fit = cameraFromMarks(marks, truth.frame, room);
     expect(close(fit.camera, truth)).toBeLessThan(8);
+  });
+});
+
+describe('reading the marks off the walls', () => {
+  // The floor and both walls as SAM outlines them, a skirting board's height of each wall left out.
+  const scene = (hide?: (truth: RoomCamera) => { x: number; y: number }[]) => {
+    const truth = cornerCamera(room);
+    const { width, height } = truth.frame;
+    const poly = (pts: { x: number; y: number; z: number }[]) => {
+      const b = newBits(width, height);
+      fillRings(b, [pts.map((p) => projectRoom(truth, p)!)]);
+      return b;
+    };
+    const floor = poly([
+      { x: 0, y: 0, z: 0 },
+      { x: room.w, y: 0, z: 0 },
+      { x: room.w, y: room.d, z: 0 },
+      { x: 0, y: room.d, z: 0 },
+    ]);
+    const skirting = 0.25;
+    const back = poly([
+      { x: 0, y: 0, z: skirting },
+      { x: room.w, y: 0, z: skirting },
+      { x: room.w, y: 0, z: 8 },
+      { x: 0, y: 0, z: 8 },
+    ]);
+    const left = poly([
+      { x: 0, y: 0, z: skirting },
+      { x: 0, y: room.d, z: skirting },
+      { x: 0, y: room.d, z: 8 },
+      { x: 0, y: 0, z: 8 },
+    ]);
+    if (hide) {
+      const cover = newBits(width, height);
+      fillRings(cover, [hide(truth)]);
+      for (const m of [floor, back, left])
+        for (let i = 0; i < m.data.length; i++) if (cover.data[i]) m.data[i] = 0;
+    }
+    const walls = newBits(width, height);
+    for (let i = 0; i < walls.data.length; i++) walls.data[i] = back.data[i]! | left.data[i]!;
+    return { truth, floor, walls, parts: [back, left] };
+  };
+  const corner = (truth: RoomCamera) => projectRoom(truth, { x: 0, y: 0, z: 0 })!;
+
+  it('finds the corner where both floor lines meet, across a skirting board', () => {
+    const { truth, floor, walls, parts } = scene();
+    const marks = marksFromWalls(floor, walls, parts)!;
+    const c = corner(truth);
+    expect(Math.hypot(marks.corner.x - c.x, marks.corner.y - c.y)).toBeLessThan(4);
+    expect(marks.back).toHaveLength(6);
+    expect(marks.left).toHaveLength(6);
+  });
+
+  it('keeps one wall’s line and where that wall ends when furniture hides the other', () => {
+    // A long cabinet against the left wall, from just past the corner, hides its floor line.
+    const { truth, floor, walls, parts } = scene((t) =>
+      [
+        { x: 0, y: 0.15, z: 0 },
+        { x: 2, y: 0.15, z: 0 },
+        { x: 2, y: room.d, z: 0 },
+        { x: 2, y: room.d, z: 3 },
+        { x: 0, y: room.d, z: 3 },
+        { x: 0, y: 0.15, z: 3 },
+      ].map((p) => projectRoom(t, p)!),
+    );
+    const marks = marksFromWalls(floor, walls, parts)!;
+    expect(marks.left).toEqual([]);
+    expect(marks.back).toHaveLength(6);
+    const c = corner(truth);
+    expect(Math.hypot(marks.corner.x - c.x, marks.corner.y - c.y)).toBeLessThan(6);
+    // Without each wall's own mask there is no telling where the corner is.
+    expect(marksFromWalls(floor, walls)).toBeNull();
   });
 });
 

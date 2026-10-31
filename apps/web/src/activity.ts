@@ -118,6 +118,8 @@ export class ApiError extends Error {
     public code?: string,
     public detail?: ProviderFailure,
     public runId?: string,
+    /** What the server found before it stopped, for carrying on by hand. */
+    public data?: Record<string, unknown>,
   ) {
     super(message);
   }

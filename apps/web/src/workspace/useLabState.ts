@@ -1274,6 +1274,11 @@ export function useLabState() {
       );
     return image;
   }
+  /** A frame to set the room up from, with the zoomed view it came through. */
+  function cameraFrame() {
+    const url = frameNow();
+    return { url, crop: url ? imageCrop.current : null };
+  }
   /** Look for a fixture where it should stand in the camera's view; its outlines show for confirming. */
   async function findFixture(id: string) {
     setBusy('find-fixture');
@@ -1641,6 +1646,39 @@ export function useLabState() {
     } finally {
       setBusy('');
     }
+  }
+  /**
+   * Calibrate by hand from what an automatic setup found: its corner and wall
+   * lines where it saw them, a guess for a hidden wall, and Spark's sizes. The
+   * frame stays the one the setup used, so the camera stops to show it.
+   */
+  function calibrateByHand(found: {
+    marks: RoomMarks | null;
+    room: { w: number; d: number };
+    heightCm?: number;
+    frame: { width: number; height: number };
+  }) {
+    const { width, height } = found.frame;
+    const corner = found.marks?.corner ?? { x: width / 2, y: height * 0.3 };
+    // A hidden wall starts as a line from the corner towards its side of the frame, to drag into place.
+    const towards = (side: -1 | 1) =>
+      [1, 2].map((k) => ({
+        x: Math.min(width, Math.max(0, corner.x + side * k * width * 0.15)),
+        y: Math.min(height, corner.y + k * height * 0.06),
+      }));
+    const back = found.marks?.back.length ? found.marks.back : towards(1);
+    const left = found.marks?.left.length ? found.marks.left : towards(-1);
+    if (camera) stopCamera();
+    setAiTask((t) => (t ? { ...t, open: false } : t));
+    setCalibrating({
+      marks: { corner, back, left, backEnd: null, leftEnd: null },
+      room: found.room,
+      ...(found.heightCm ? { heightCm: found.heightCm } : {}),
+    });
+    setStageView('split');
+    setMessage(
+      'Set the far corner by hand: drag the red mark onto where the walls meet the floor (behind the furniture if need be), then each wall’s marks onto its floor line. Check the room’s size, then calibrate and draft from the camera.',
+    );
   }
   async function saveCalibration(draft: CalibrationDraft) {
     setBusy('calibrate');
@@ -2363,6 +2401,8 @@ export function useLabState() {
     zooming,
     setZooming,
     openCrop,
+    cameraFrame,
+    calibrateByHand,
     zoomable: zoomable(),
     startZooming,
     saveZoom,

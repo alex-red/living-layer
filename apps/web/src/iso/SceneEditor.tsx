@@ -8,6 +8,7 @@ import {
   overlappingGroups,
   removeGroup,
   rotateGroup,
+  rotateScene,
   settleGroup,
   type EvidenceRun,
   type IsoScene as Scene,
@@ -15,8 +16,11 @@ import {
   type Mode,
   type SceneDraft,
   type DeskMemory,
+  type CameraCrop,
+  type RoomMarks,
 } from '@livinglayer/domain';
 import { api, type AiFollow } from '../api';
+import { ApiError } from '../activity';
 import { IsoScene } from './IsoScene';
 import { PropPickerPopover } from './PropPicker';
 import { PhotoReview, type PhotoRun } from './PhotoReview';
@@ -40,6 +44,15 @@ const groupLabel = (scene: Scene, g: string) => {
   return props.find((p) => p.id === g)?.label ?? props[0]?.label ?? g;
 };
 
+type StartFrom = 'camera' | IsoSceneKind | 'empty';
+/** What a setup found before it needed the person: the marks, Spark's sizes and the frame. */
+export interface CalibrateByHand {
+  marks: RoomMarks | null;
+  room: { w: number; d: number };
+  heightCm?: number;
+  frame: { width: number; height: number };
+}
+
 /**
  * Build a scene from the template palette: start from a preset, an empty
  * floor or a Spark draft, then add, drag, turn and remove whole groups.
@@ -59,6 +72,11 @@ export function SceneEditor({
   onPhotoSaved,
   onError,
   follow,
+  room,
+  onCalibrateByHand,
+  captureFrame,
+  cameraLive = false,
+  onCalibrated,
 }: {
   mode: Mode;
   /** The person's saved scene, if any. */
@@ -77,6 +95,19 @@ export function SceneEditor({
   onError: (error: string | Error) => void;
   /** Follow a photo draft step by step in the AI dialog. */
   follow?: AiFollow;
+  /** The room the camera is calibrated for when setting the room up. */
+  room: IsoSceneKind | 'custom';
+  /**
+   * The frame to set the room up from: one captured from the live camera now,
+   * else the current photo, with the zoomed view it came through.
+   */
+  captureFrame?: () => { url: string | undefined; crop: CameraCrop | null };
+  /** Whether the room's camera is streaming, so a frame can be taken from it. */
+  cameraLive?: boolean;
+  /** The camera was calibrated: the room's memory as it is now. */
+  onCalibrated?: (memory: DeskMemory) => void;
+  /** The setup couldn't fit the camera by itself: carry on by hand from what it found. */
+  onCalibrateByHand?: (found: CalibrateByHand) => void;
 }) {
   // The room the view shows, not whatever was saved last: editing the office starts from the office.
   const showsSaved = Boolean(saved) && base === saved;
@@ -87,6 +118,11 @@ export function SceneEditor({
   const [drafting, setDrafting] = useState(false);
   const [photo, setPhoto] = useState<{ run: PhotoRun; url: string } | null>(null);
   const [sparkCheck, setSparkCheck] = useState(true);
+  // The camera is the best place to start: chosen whenever there is a frame to set the room up from.
+  const canSetUp = mode === 'demo' || cameraLive || Boolean(image);
+  const [startFrom, setStartFrom] = useState<StartFrom>('camera');
+  /** Quarter turns of the whole room since it was last loaded, to say what a turn means for the camera. */
+  const [turned, setTurned] = useState(0);
   const file = useRef<HTMLInputElement>(null);
   useEffect(() => {
     if (showsSaved) setDraft(saved!);
@@ -99,6 +135,7 @@ export function SceneEditor({
   const bounds = selected ? groupBounds(draft, selected) : null;
 
   function start(from: IsoSceneKind | 'empty') {
+    setTurned(0);
     setDraft(from === 'empty' ? EMPTY : asCustom(ISO_PRESETS[from]));
     setSelected(undefined);
     setSummary('');
@@ -130,6 +167,49 @@ export function SceneEditor({
       setDrafting(false);
     }
   }
+  /**
+   * The whole setup from one frame, calibrated or not: Spark lists the room
+   * and estimates its size, SAM finds the floor and walls, the camera is
+   * fitted (which wall is the back decides the scene's direction) and saved,
+   * then the draft runs through it for review.
+   */
+  async function setUp() {
+    const frame = mode === 'live' ? captureFrame?.() : undefined;
+    const url = frame?.url;
+    if (mode === 'live' && !url) return;
+    setDrafting(true);
+    try {
+      const body = {
+        mode,
+        check: sparkCheck,
+        scene: room,
+        ...(mode === 'live' ? { imageDataUrl: url, crop: frame?.crop ?? null } : {}),
+      };
+      const run = follow
+        ? await follow(
+            {
+              title: 'Setting up the room',
+              description:
+                mode === 'live'
+                  ? `Spark lists the room and estimates its size, SAM finds the floor and walls, the corner camera is fitted and saved, then each thing is placed through it${sparkCheck ? ' and Spark compares the draft with the frame' : ''}.`
+                  : 'Demo: the office from its corner camera, no model calls.',
+            },
+            (jobId, signal) => api<PhotoRun>('scene/setup', { ...body, jobId }, { signal }),
+          )
+        : await api<PhotoRun>('scene/setup', body);
+      // Calibrated even when the draft was then stopped: the room's memory has the camera.
+      onCalibrated?.(await api<DeskMemory>(`desk/${mode}`));
+      if (!run) return;
+      setPhoto({ run, url: mode === 'live' ? url! : demoFrameUrl() });
+      onDrafted(run);
+    } catch (e) {
+      if (e instanceof ApiError && e.code === 'calibrate_by_hand' && e.data && onCalibrateByHand)
+        onCalibrateByHand(e.data as unknown as CalibrateByHand);
+      else onError(e instanceof Error ? e : 'The room could not be set up.');
+    } finally {
+      setDrafting(false);
+    }
+  }
   if (photo)
     return (
       <PhotoReview
@@ -148,11 +228,13 @@ export function SceneEditor({
       />
     );
   async function askSpark() {
+    const url = mode === 'live' ? (captureFrame?.().url ?? image) : undefined;
+    if (mode === 'live' && !url) return;
     setDrafting(true);
     try {
       const run = await api<LayoutRun>('scene/draft', {
         mode,
-        ...(mode === 'live' ? { imageDataUrl: image } : {}),
+        ...(mode === 'live' ? { imageDataUrl: url } : {}),
       });
       setDraft({ ...run.output.scene, label: 'Drafted room' });
       setSummary(run.output.draft.summary);
@@ -172,16 +254,26 @@ export function SceneEditor({
           <span className="tiny">START FROM</span>
           <select
             aria-label="Start from"
-            value=""
-            onChange={(e) => e.target.value && start(e.target.value as IsoSceneKind | 'empty')}
+            value={startFrom}
+            onChange={(e) => {
+              const from = e.target.value as StartFrom;
+              setStartFrom(from);
+              if (from === 'camera') void setUp();
+              else start(from);
+            }}
           >
-            <option value="">Choose…</option>
+            {canSetUp && (
+              <option value="camera">
+                {mode === 'demo' ? 'Demo camera' : cameraLive ? 'Current camera' : 'Current frame'}
+              </option>
+            )}
             {(Object.keys(ISO_PRESETS) as IsoSceneKind[]).map((k) => (
               <option key={k} value={k}>
                 {ISO_PRESETS[k].label} preset
               </option>
             ))}
             <option value="empty">Empty floor</option>
+            {!canSetUp && startFrom === 'camera' && <option value="camera">Choose…</option>}
           </select>
         </label>
         {(['w', 'd'] as const).map((k) => (
@@ -202,7 +294,19 @@ export function SceneEditor({
         ))}
         <button
           className="secondary"
-          disabled={busy || drafting || (mode === 'live' && !image)}
+          disabled={busy || drafting}
+          title="Turn the whole room a quarter clockwise, to face the way the camera sees it. The back and left walls stay put."
+          onClick={() => {
+            setDraft(rotateScene(draft));
+            setSelected(undefined);
+            setTurned((t) => (t + 1) % 4);
+          }}
+        >
+          ↻ Rotate scene
+        </button>
+        <button
+          className="secondary"
+          disabled={busy || drafting || !canSetUp}
           onClick={() => void askSpark()}
         >
           {drafting ? 'Drafting…' : 'Draft with Spark'}
@@ -214,13 +318,27 @@ export function SceneEditor({
         aria-label="Scene from the camera"
       >
         <span className="tiny">FROM THE CAMERA</span>
+        <button
+          className="primary"
+          disabled={busy || drafting || !canSetUp}
+          title="Spark sizes the room, SAM finds its walls, the camera is calibrated and the scene drafted through it, for you to review."
+          onClick={() => void setUp()}
+        >
+          {drafting ? 'Working…' : 'Set up from the camera'}
+        </button>
         {mode === 'demo' ? (
-          <button className="primary" disabled={busy || drafting} onClick={() => void fromPhoto()}>
-            {drafting ? 'Drafting…' : 'Draft from the demo camera'}
+          <button
+            className="secondary"
+            disabled={busy || drafting}
+            onClick={() => void fromPhoto()}
+          >
+            Draft from the demo camera
           </button>
         ) : !memory?.camera ? (
           <span className="tiny">
-            Calibrate the room’s corner camera first: a draft places everything through it.
+            {image || cameraLive
+              ? 'Or calibrate the corner camera by hand first, then draft through it.'
+              : 'Capture a frame from the room’s corner camera to set it up.'}
           </span>
         ) : (
           <>
@@ -246,8 +364,8 @@ export function SceneEditor({
             />
             <button
               className="secondary"
-              disabled={busy || drafting || !image}
-              onClick={() => void fromPhoto(image)}
+              disabled={busy || drafting || !canSetUp}
+              onClick={() => void fromPhoto(captureFrame?.().url ?? image)}
             >
               Use the current frame
             </button>
@@ -348,11 +466,15 @@ export function SceneEditor({
           ? (check.error.issues[0]?.message ?? 'This scene does not fit its grid.')
           : flagged.size
             ? `${flagged.size} props cut into each other and may draw out of order. Move them apart.`
-            : summary
-              ? `Spark: ${summary} Review it, then save.`
-              : saved && !showsSaved
-                ? `Saving replaces your custom scene${saved.label ? ` “${saved.label}”` : ''}. It shows up as Custom in the room view, ready to pin.`
-                : 'Saved scenes show up as Custom in the room view, ready to pin.'}
+            : turned % 2 && memory?.camera
+              ? 'Turned. The camera was calibrated for the room the other way round: save, then calibrate it again so it sees the room this way.'
+              : turned
+                ? `Turned ${turned === 2 ? 'half way' : 'a quarter'}. Save to keep it.`
+                : summary
+                  ? `Spark: ${summary} Review it, then save.`
+                  : saved && !showsSaved
+                    ? `Saving replaces your custom scene${saved.label ? ` “${saved.label}”` : ''}. It shows up as Custom in the room view, ready to pin.`
+                    : 'Saved scenes show up as Custom in the room view, ready to pin.'}
       </p>
       <div className="item-actions">
         <button
@@ -362,7 +484,14 @@ export function SceneEditor({
         >
           Save scene
         </button>
-        <button className="secondary" disabled={busy || !dirty} onClick={() => setDraft(initial())}>
+        <button
+          className="secondary"
+          disabled={busy || !dirty}
+          onClick={() => {
+            setTurned(0);
+            setDraft(initial());
+          }}
+        >
           Revert
         </button>
         {saved && (

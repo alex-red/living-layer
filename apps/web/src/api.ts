@@ -30,6 +30,7 @@ export async function api<T>(
         data.error?.code,
         data.error?.detail,
         data.error?.runId,
+        data.error?.data,
       );
     // A provider route answers with its run, or with a run inside a bigger result.
     const run = (data?.kind ? data : data?.run) as EvidenceRun | undefined;

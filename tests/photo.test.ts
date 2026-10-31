@@ -304,6 +304,39 @@ describe('photo routes, offline', () => {
     expect(s.fetcher).not.toHaveBeenCalled();
     await s.app.close();
   });
+  it('sets the demo room up from its camera: sizes it, calibrates it, then drafts through it', async () => {
+    const s = await setup();
+    const jobId = crypto.randomUUID();
+    const res = await s.post('scene/setup', { scene: 'office', jobId });
+    expect(res.statusCode, res.body).toBe(200);
+    const run = res.json<EvidenceRun<PhotoDraft>>();
+    const job = (await s.app.inject(`/api/jobs/${jobId}`)).json<Job>();
+    expect(job).toMatchObject({ title: 'Setting up the room', outcome: 'done' });
+    expect(job.steps.map((x) => [x.id, x.state])).toEqual([
+      ['photo', 'done'],
+      ['list', 'done'],
+      ['walls', 'done'],
+      ['calibrate', 'done'],
+      ['outline', 'done'],
+      ['layout', 'done'],
+      ['models', 'done'],
+    ]);
+    // The office's own size, the right way round: its back wall is the longer one.
+    const { setup: done } = run.output;
+    expect(done!.floorCm.w).toBe(done!.room.rightWallCm);
+    expect(done!.fit.error).toBeLessThan(2);
+    // The camera is saved, and sees the desk where the demo camera does.
+    const memory = (await s.app.inject('/api/desk/demo')).json<DeskMemory>();
+    expect(memory.camera?.scene).toBe('office');
+    run.output.layout.pin!.corners.forEach((c, i) =>
+      expect(
+        Math.hypot(c.x - DEMO_SURFACE.corners[i]!.x, c.y - DEMO_SURFACE.corners[i]!.y),
+      ).toBeLessThan(10),
+    );
+    expect(run.output.layout.things.find((t) => t.id === 'desk')?.status).toBe('placed');
+    expect(s.fetcher).not.toHaveBeenCalled();
+    await s.app.close();
+  });
   it('refuses a stale draft, an outside pin and objects SAM did not outline', async () => {
     const s = await setup();
     const run = (await s.post('scene/from-photo')).json<EvidenceRun<PhotoDraft>>();

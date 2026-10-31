@@ -66,6 +66,25 @@ export const photoInventorySchema = z
   })
   .strict();
 export type PhotoInventory = z.infer<typeof photoInventorySchema>;
+/**
+ * Spark's estimate of the room around a corner camera, for setting it up in
+ * one go: each wall named by the side of the far corner it runs to in the
+ * photo, so the right one is the room's back wall and the left one its left
+ * wall, as the iso view draws them. Estimates, which calibration checks.
+ */
+export const roomEstimateSchema = z
+  .object({
+    rightWallCm: z.number().int().min(60).max(480),
+    leftWallCm: z.number().int().min(60).max(480),
+    cameraHeightCm: z.number().int().min(100).max(400),
+  })
+  .strict();
+export type RoomEstimate = z.infer<typeof roomEstimateSchema>;
+/** The inventory with the room's estimate: one Spark call for setting a room up. */
+export const setupInventorySchema = photoInventorySchema
+  .extend({ room: roomEstimateSchema })
+  .strict();
+export type SetupInventory = z.infer<typeof setupInventorySchema>;
 export type PhotoThing = z.infer<typeof photoThingSchema>;
 /** Spark's second look: the photo beside the drawn scene, naming what's missing or extra. */
 export const photoCheckSchema = z
@@ -454,6 +473,13 @@ export interface PhotoDraft {
   assists: string[];
   /** The room camera the layout was drawn through, so a review lays it out the same way. */
   calibration: RoomCalibration;
+  /** When the draft set the room up too: Spark's estimate and how the camera was fitted to it. */
+  setup?: {
+    room: RoomEstimate;
+    /** The room's inner floor as calibrated, in centimetres: the estimate, maybe turned. */
+    floorCm: { w: number; d: number };
+    fit: { error: number; heightCm: number; hfovDeg: number };
+  };
 }
 
 /**

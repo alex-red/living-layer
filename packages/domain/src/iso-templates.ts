@@ -388,6 +388,49 @@ export function rotateGroup(scene: IsoScene, g: string): IsoScene {
   // Turning can push a long group past the edge; nudge it back in.
   return moveGroup(turned, g, 0, 0);
 }
+/** The room's own walls, which stay on its back and left whichever way it is turned. */
+const PERIMETER = ['wall-back', 'wall-left'];
+/**
+ * Turn the whole room a quarter clockwise (seen from above), about its floor
+ * inside the walls, so it can be made to face the way its camera sees it.
+ * Everything in it turns, its grid's sides swap, and the back and left walls
+ * stay where the iso view draws them, stretched to the new sides.
+ */
+export function rotateScene(scene: IsoScene): IsoScene {
+  const own = (g: string) => scene.props.some((p) => p.group === g);
+  const left = own('wall-left') ? (groupBounds(scene, 'wall-left')?.size.w ?? 0) : 0;
+  const back = own('wall-back') ? (groupBounds(scene, 'wall-back')?.size.d ?? 0) : 0;
+  const inner = { w: scene.grid.w - left, d: scene.grid.d - back };
+  // Inside the walls, (u, v) → (d - v, u), applied to a box's far corner.
+  const turn = (x: number, y: number, w: number, d: number) => ({
+    x: left + inner.d - (y - back + d),
+    y: back + (x - left),
+    w: d,
+    d: w,
+  });
+  const grid = { w: left + inner.d, d: back + inner.w };
+  const walls = new Set(scene.props.filter((p) => PERIMETER.includes(p.group)).map((p) => p.id));
+  return {
+    ...scene,
+    grid,
+    props: scene.props.map((p) => {
+      if (p.group === 'wall-back') return { ...p, size: { ...p.size, w: grid.w } };
+      if (p.group === 'wall-left') return { ...p, size: { ...p.size, d: grid.d - back } };
+      const r = turn(p.at.x, p.at.y, p.size.w, p.size.d);
+      return {
+        ...p,
+        at: { ...p.at, x: r.x, y: r.y },
+        size: { ...p.size, w: r.w, d: r.d },
+        ...(p.form ? { turns: ((p.turns ?? 0) + 1) % 4 } : {}),
+      };
+    }),
+    surfaces: scene.surfaces.map((s) => {
+      if (walls.has(s.propId)) return s;
+      const r = turn(s.rect.x, s.rect.y, s.rect.w, s.rect.d);
+      return { ...s, rect: { x: r.x, y: r.y, w: r.w, d: r.d } };
+    }),
+  };
+}
 export function removeGroup(scene: IsoScene, g: string): IsoScene {
   const gone = new Set(groupProps(scene, g).map((p) => p.id));
   return {

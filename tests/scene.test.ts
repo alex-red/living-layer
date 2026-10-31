@@ -21,6 +21,7 @@ import {
   placeTemplate,
   removeGroup,
   rotateGroup,
+  rotateScene,
   sceneDraftSchema,
   settleGroup,
   type DeskMemory,
@@ -74,6 +75,42 @@ describe('scene templates', () => {
     for (let i = 0; i < 4; i++) back = rotateGroup(back, 'desk');
     expect(groupBounds(back, 'desk')!.at.x).toBeCloseTo(b0.at.x);
     expect(groupBounds(back, 'desk')!.at.y).toBeCloseTo(b0.at.y);
+  });
+  it('turns the whole room a quarter, its walls staying on the back and left', () => {
+    const office = asCustom(ISO_PRESETS.office);
+    const once = rotateScene(office);
+    expect(once.grid).toEqual({ w: office.grid.d, d: office.grid.w });
+    expect(isoSceneSchema.safeParse(once).success).toBe(true);
+    expect(overlappingGroups(once)).toEqual(overlappingGroups(office));
+    // The walls are still the back and left ones, stretched to the new sides.
+    expect(groupBounds(once, 'wall-back')).toMatchObject({
+      at: { x: 0, y: 0 },
+      size: { w: once.grid.w },
+    });
+    expect(groupBounds(once, 'wall-left')!.at.x).toBe(0);
+    expect(groupBounds(once, 'wall-left')!.size.d).toBeCloseTo(once.grid.d - 0.2);
+    // The desk turned with the room: its long side now runs the other way.
+    const desk0 = groupBounds(office, 'desk')!;
+    const desk1 = groupBounds(once, 'desk')!;
+    expect(desk1.size.w).toBeCloseTo(desk0.size.d);
+    expect(desk1.size.d).toBeCloseTo(desk0.size.w);
+    for (const g of ['desk', 'shelf', 'plant']) {
+      const b = groupBounds(once, g)!;
+      expect(b.at.x).toBeGreaterThanOrEqual(0.2 - 1e-9);
+      expect(b.at.y).toBeGreaterThanOrEqual(0.2 - 1e-9);
+      expect(b.at.x + b.size.w).toBeLessThanOrEqual(once.grid.w + 1e-9);
+      expect(b.at.y + b.size.d).toBeLessThanOrEqual(once.grid.d + 1e-9);
+    }
+    let back = office;
+    for (let i = 0; i < 4; i++) back = rotateScene(back);
+    expect(back.grid).toEqual(office.grid);
+    back.props.forEach((p, i) => {
+      const q = office.props[i]!;
+      expect(p.at.x).toBeCloseTo(q.at.x);
+      expect(p.at.y).toBeCloseTo(q.at.y);
+      expect(p.size.w).toBeCloseTo(q.size.w);
+      expect(p.turns ?? 0).toBe(q.turns ?? 0);
+    });
   });
   it('settles tabletop things onto the surface under them, and back to the floor', () => {
     let scene = deskWithBook();
