@@ -13,6 +13,7 @@ import {
   type ExposeKind,
   type ExposeSource,
 } from '@livinglayer/domain';
+import { Button, Check } from '../ui/controls';
 import { useLab } from './LabContext';
 import { Details, Panel, useCall, type Tone } from './panel';
 
@@ -263,9 +264,9 @@ function EntityEditor({
         {PRESETS.map((p) => {
           const blocked = (p.needsZone && !zones.length) || (p.needsThing && !list.length);
           return (
-            <button
+            <Button
               key={p.id}
-              className="secondary expose-preset"
+              className="expose-preset"
               disabled={blocked}
               title={
                 blocked
@@ -282,7 +283,7 @@ function EntityEditor({
             >
               <strong>{p.label}</strong>
               <small>{p.hint}</small>
-            </button>
+            </Button>
           );
         })}
       </div>
@@ -432,19 +433,16 @@ function EntityEditor({
         <fieldset className="expose-zones">
           <legend className="micro">Zones</legend>
           {zones.map((z) => (
-            <label key={z.id}>
-              <input
-                type="checkbox"
-                checked={s.zoneIds.includes(z.id)}
-                onChange={(e) => {
-                  const zoneIds = e.target.checked
-                    ? [...s.zoneIds, z.id]
-                    : s.zoneIds.filter((id) => id !== z.id);
-                  if (zoneIds.length) set({ source: { ...s, zoneIds } });
-                }}
-              />{' '}
+            <Check
+              key={z.id}
+              checked={s.zoneIds.includes(z.id)}
+              onChange={(on) => {
+                const zoneIds = on ? [...s.zoneIds, z.id] : s.zoneIds.filter((id) => id !== z.id);
+                if (zoneIds.length) set({ source: { ...s, zoneIds } });
+              }}
+            >
               {z.label} ({thingLabel(memory, z.objectId)})
-            </label>
+            </Check>
           ))}
         </fieldset>
       )}
@@ -465,8 +463,8 @@ function EntityEditor({
         {options ? ` · one of ${options.join(', ')}` : ''}
       </p>
       <div className="save-actions">
-        <button
-          className="primary"
+        <Button
+          variant="primary"
           disabled={off || !draft.name.trim() || !/^[a-z0-9_]{1,48}$/.test(key)}
           onClick={() =>
             void call<DeskMemory>('expose/save', { entity: input }, (m) => {
@@ -480,13 +478,10 @@ function EntityEditor({
           }
         >
           {entity ? 'Save changes' : 'Show in Home Assistant'}
-        </button>
-        <button
-          className="secondary"
-          onClick={() => (entity ? onSaved(entity.id) : setDraft(null))}
-        >
+        </Button>
+        <Button onClick={() => (entity ? onSaved(entity.id) : setDraft(null))}>
           {entity ? 'Cancel' : 'Back'}
-        </button>
+        </Button>
       </div>
     </>
   );
@@ -498,8 +493,8 @@ function EmptyLook({ zoneId, learned }: { zoneId: string; learned: boolean }) {
   const { call, off } = useCall();
   return (
     <div className="save-actions">
-      <button
-        className={learned ? 'secondary' : 'primary'}
+      <Button
+        variant={learned ? 'secondary' : 'primary'}
         disabled={off || !lab.watching}
         title={lab.watching ? undefined : 'Turn on watching first.'}
         onClick={() =>
@@ -513,7 +508,7 @@ function EmptyLook({ zoneId, learned }: { zoneId: string; learned: boolean }) {
         }
       >
         {learned ? 'Learn it empty again' : 'It’s empty now: learn it'}
-      </button>
+      </Button>
     </div>
   );
 }
@@ -595,11 +590,8 @@ export function EntityPanel({ id }: { id: string }) {
         <EntityEditor entity={e} onSaved={() => setEditing(false)} />
       ) : (
         <div className="save-actions">
-          <button className="secondary" onClick={() => setEditing(true)}>
-            Change
-          </button>
-          <button
-            className="secondary"
+          <Button onClick={() => setEditing(true)}>Change</Button>
+          <Button
             onClick={() =>
               void navigator.clipboard
                 ?.writeText(entityId)
@@ -608,7 +600,7 @@ export function EntityPanel({ id }: { id: string }) {
             }
           >
             Copy entity id
-          </button>
+          </Button>
         </div>
       )}
       {e.source.kind === 'occupied' && (
@@ -641,8 +633,8 @@ export function EntityPanel({ id }: { id: string }) {
         </p>
       </Details>
       <Details summary="Delete">
-        <button
-          className="text-button destructive"
+        <Button
+          variant="danger"
           disabled={off}
           onClick={() =>
             void call<DeskMemory>('expose/delete', { id: e.id }, (m) => {
@@ -653,7 +645,7 @@ export function EntityPanel({ id }: { id: string }) {
           }
         >
           Remove {entityId}
-        </button>
+        </Button>
       </Details>
     </Panel>
   );

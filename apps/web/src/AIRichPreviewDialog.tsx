@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { Button, IconButton } from './ui/controls';
 import './ai-rich-preview.css';
 
 export type AIStepState = 'pending' | 'running' | 'done' | 'failed' | 'stopped';
@@ -167,9 +168,9 @@ export function AIRichPreviewDialog({
             {description && <p className="micro">{description}</p>}
           </div>
           {!running && (
-            <button className="icon-button aip-close" aria-label="Close" onClick={onClose}>
+            <IconButton label="Close" onClick={onClose}>
               ×
-            </button>
+            </IconButton>
           )}
         </header>
         <div
@@ -302,28 +303,26 @@ export function AIRichPreviewDialog({
             {running ? (
               <>
                 {onHide && (
-                  <button className="secondary" onClick={onHide}>
+                  <Button variant="ghost" onClick={onHide}>
                     Hide
-                  </button>
+                  </Button>
                 )}
-                <button className="secondary aip-stop" onClick={onStop} autoFocus>
+                <Button className="aip-stop" onClick={onStop} autoFocus>
                   <span className="aip-stop-glyph" aria-hidden="true" />
                   Stop
-                </button>
+                </Button>
               </>
             ) : action ? (
               <>
-                <button className="secondary" onClick={onClose}>
-                  Close
-                </button>
-                <button className="primary" onClick={action.onClick} autoFocus>
+                <Button onClick={onClose}>Close</Button>
+                <Button variant="primary" onClick={action.onClick} autoFocus>
                   {action.label}
-                </button>
+                </Button>
               </>
             ) : (
-              <button className="primary" onClick={onClose} autoFocus>
+              <Button variant="primary" onClick={onClose} autoFocus>
                 {status === 'done' && !review ? 'Done' : 'Close'}
-              </button>
+              </Button>
             )}
           </span>
         </footer>

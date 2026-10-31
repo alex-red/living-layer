@@ -1074,20 +1074,6 @@ p {
   font-size: 12px;
   color: var(--text-2);
 }
-.log-filters > label:not(.overlay-toggle) {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-}
-.log-filters select {
-  min-height: var(--control-h);
-  padding: 0 10px;
-  border: 1px solid var(--line-strong);
-  border-radius: var(--r-chip);
-  background: var(--surface-2);
-  color: var(--text);
-  font: inherit;
-}
 .log-stats {
   margin-left: auto;
   font: 500 12px/16px var(--mono);
@@ -1144,19 +1130,6 @@ p {
 .inspector-head .result {
   font: 500 12px/16px var(--mono);
 }
-.inspector-close {
-  width: 28px;
-  height: var(--control-h);
-  border: 0;
-  border-radius: var(--r-button);
-  background: none;
-  color: var(--text-2);
-  font-size: 20px;
-}
-.inspector-close:hover {
-  background: var(--surface-3);
-  color: var(--text);
-}
 .inspector-detail {
   color: var(--text) !important;
 }
@@ -1188,10 +1161,6 @@ p {
   align-items: center;
   gap: 8px;
   padding: 0 10px 8px;
-}
-.inspector-actions .secondary {
-  width: auto;
-  padding: 0 10px;
 }
 .inspector > .micro {
   padding: 0 10px 8px;
@@ -1451,17 +1420,6 @@ button svg {
   flex-wrap: wrap;
   gap: 8px;
 }
-.danger {
-  justify-self: start;
-  min-height: var(--control-h);
-  padding: 0 12px;
-  border: 1px solid var(--blocked);
-  border-radius: var(--r-button);
-  background: var(--blocked-wash);
-  color: var(--blocked);
-  font-size: 13px;
-  font-weight: 600;
-}
 
 /* Keyboard shortcut help. */
 .keys-backdrop {
@@ -1600,18 +1558,6 @@ button svg {
   font: 12px/16px var(--mono);
   color: var(--text-2);
   font-variant-numeric: tabular-nums;
-}
-.ai-close {
-  min-width: 20px;
-  min-height: 20px;
-  border: 0;
-  background: none;
-  color: var(--text-3);
-  font-size: 15px;
-  line-height: 1;
-}
-.ai-close:hover {
-  color: var(--text);
 }
 .ai-steps {
   display: flex;
@@ -1798,21 +1744,10 @@ button svg {
 .zoom-controls:focus-within {
   opacity: 1;
 }
-.zoom-controls button {
-  min-width: 26px;
-  height: 24px;
-  padding: 0 6px;
-  border: 0;
-  background: none;
-  color: var(--text-2);
-  font: 500 12px/1 var(--mono);
-}
-.zoom-controls button:hover:not(:disabled) {
-  color: var(--text);
-}
 .zoom-controls .zoom-level {
   min-width: 46px;
-  border-inline: 1px solid var(--line);
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
 }
 .iso-zoom > .zoom-pan-content {
   display: grid;

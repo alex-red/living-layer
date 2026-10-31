@@ -11,6 +11,7 @@ import {
 } from '@livinglayer/domain';
 import { ItemSprite } from './IsoItem';
 import { itemSprite, viewOverlay } from './sprites';
+import { Button, Check, IconButton, Segmented } from '../ui/controls';
 
 /** Colours to offer next to the sampled ones: neutral materials, not the signal hues. */
 const MATERIALS = ['#ece5d0', '#b3a796', '#73604c', '#3c554a', '#5f7c88', '#4a5164', '#1f232f'];
@@ -193,8 +194,8 @@ function ProfileEditor({
         ))}
       </svg>
       <div className="item-add">
-        <button
-          className="secondary"
+        <Button
+          size="sm"
           disabled={profile.length >= 16}
           onClick={() => {
             // Split the longest segment.
@@ -220,14 +221,14 @@ function ProfileEditor({
           }}
         >
           Add point
-        </button>
-        <button
-          className="secondary"
+        </Button>
+        <Button
+          size="sm"
           disabled={profile.length <= 2}
           onClick={() => onChange(profile.filter((_, i) => i !== Math.floor(profile.length / 2)))}
         >
           Remove point
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -253,9 +254,9 @@ function PaintLayer({
             ? `PRINT FROM PHOTO · ${layer.w}×${layer.h} · ${layer.colors.length} COLOURS`
             : layer.kind.toUpperCase()}
         </span>
-        <button className="link" onClick={onRemove}>
+        <Button variant="text" onClick={onRemove}>
           Remove
-        </button>
+        </Button>
       </div>
       {layer.kind === 'band' && (
         <>
@@ -478,20 +479,16 @@ export function ItemEditor({
           and checks the result, and SAM finds parts such as the handle.
         </p>
         <div className="item-actions">
-          <button
-            className="primary"
+          <Button
+            variant="primary"
             disabled={busy || !onDraft}
             onClick={() => onDraft?.('sampled')}
           >
             Sample a draft
-          </button>
-          <button
-            className="secondary"
-            disabled={busy || !onDraft}
-            onClick={() => onDraft?.('spark')}
-          >
+          </Button>
+          <Button disabled={busy || !onDraft} onClick={() => onDraft?.('spark')}>
             Draft with Spark
-          </button>
+          </Button>
         </div>
         <small>{sparkNote}</small>
       </div>
@@ -549,8 +546,8 @@ export function ItemEditor({
               </option>
             ))}
           </select>
-          <button
-            className="secondary"
+          <Button
+            size="sm"
             disabled={draft.parts.length >= 12}
             onClick={() => {
               const p = newPart(
@@ -562,22 +559,20 @@ export function ItemEditor({
             }}
           >
             Add part
-          </button>
+          </Button>
         </div>
         {part && (
           <div className="item-fields">
             <div className="item-head">
               <span className="tiny">{part.id.toUpperCase()}</span>
-              <label className="tiny item-lock">
-                <input
-                  type="checkbox"
-                  checked={Boolean(part.locked)}
-                  onChange={(e) => update({ locked: e.target.checked || undefined })}
-                />
-                KEEP ON REFIT
-              </label>
-              <button
-                className="link"
+              <Check
+                checked={Boolean(part.locked)}
+                onChange={(locked) => update({ locked: locked || undefined })}
+              >
+                <span className="tiny">KEEP ON REFIT</span>
+              </Check>
+              <Button
+                variant="text"
                 disabled={draft.parts.length <= 1}
                 onClick={() => {
                   const rest = draft.parts.filter((p) => p.id !== part.id);
@@ -586,7 +581,7 @@ export function ItemEditor({
                 }}
               >
                 Remove part
-              </button>
+              </Button>
             </div>
             <label className="item-slider">
               <span className="tiny">SHAPE</span>
@@ -764,16 +759,17 @@ export function ItemEditor({
               </ul>
               <div className="item-add">
                 {(Object.keys(NEW_PAINT) as (keyof typeof NEW_PAINT)[]).map((kind) => (
-                  <button
+                  <Button
                     key={kind}
-                    className="secondary"
+                    variant="ghost"
+                    size="sm"
                     disabled={paints.length >= 6}
                     onClick={() =>
                       update({ paint: [...paints, NEW_PAINT[kind](colours[1] ?? MATERIALS[5]!)] })
                     }
                   >
                     + {kind}
-                  </button>
+                  </Button>
                 ))}
               </div>
             </div>
@@ -782,14 +778,15 @@ export function ItemEditor({
       </div>
       <div className="item-preview">
         {fit && cropUrl && (
-          <div className="item-views iso-panels" role="group" aria-label="Preview">
-            <button aria-pressed={view === 'model'} onClick={() => setView('model')}>
-              Model
-            </button>
-            <button aria-pressed={view === 'photo'} onClick={() => setView('photo')}>
-              Photo vs model
-            </button>
-          </div>
+          <Segmented
+            label="Preview"
+            value={view}
+            onChange={setView}
+            options={[
+              { value: 'model', label: 'Model' },
+              { value: 'photo', label: 'Photo vs model' },
+            ]}
+          />
         )}
         {view === 'photo' && fit && cropUrl ? (
           <PhotoCompare item={draft} url={cropUrl} elevation={fit.elevation} />
@@ -825,20 +822,12 @@ export function ItemEditor({
           </div>
         )}
         <div className="item-turns">
-          <button
-            className="secondary"
-            aria-label="Turn left"
-            onClick={() => setTurns((t) => t - 1)}
-          >
+          <IconButton framed label="Turn left" onClick={() => setTurns((t) => t - 1)}>
             ⟲
-          </button>
-          <button
-            className="secondary"
-            aria-label="Turn right"
-            onClick={() => setTurns((t) => t + 1)}
-          >
+          </IconButton>
+          <IconButton framed label="Turn right" onClick={() => setTurns((t) => t + 1)}>
             ⟳
-          </button>
+          </IconButton>
         </div>
         <p
           className={`item-save-state ${dirty ? (valid ? 'unsaved' : 'invalid') : ''}`}
@@ -853,8 +842,8 @@ export function ItemEditor({
                 : `Can’t save yet: ${problem}. Fix it, or Revert.`}
         </p>
         <div className="item-actions">
-          <button
-            className="primary"
+          <Button
+            variant="primary"
             disabled={busy || !dirty || !valid}
             title={
               !dirty
@@ -866,33 +855,29 @@ export function ItemEditor({
             onClick={() => onSave(draft)}
           >
             Save model
-          </button>
-          <button
-            className="secondary"
-            disabled={busy || !dirty}
-            onClick={() => setDraft(editable(item))}
-          >
+          </Button>
+          <Button disabled={busy || !dirty} onClick={() => setDraft(editable(item))}>
             Revert
-          </button>
+          </Button>
           {fit?.crop && (
-            <button className="secondary" disabled={busy || !valid} onClick={() => onRefit(draft)}>
+            <Button disabled={busy || !valid} onClick={() => onRefit(draft)}>
               Refit to photo
-            </button>
+            </Button>
           )}
           {onDraft && (
             <>
-              <button className="secondary" disabled={busy} onClick={() => onDraft('sampled')}>
+              <Button variant="ghost" disabled={busy} onClick={() => onDraft('sampled')}>
                 Resample
-              </button>
-              <button className="secondary" disabled={busy} onClick={() => onDraft('spark')}>
+              </Button>
+              <Button variant="ghost" disabled={busy} onClick={() => onDraft('spark')}>
                 Redraft with Spark
-              </button>
+              </Button>
             </>
           )}
           {item && onDraft && (
-            <button className="link" disabled={busy} onClick={() => onSave(null)}>
+            <Button variant="danger" disabled={busy} onClick={() => onSave(null)}>
               Remove model
-            </button>
+            </Button>
           )}
         </div>
         {onDraft && <small>{sparkNote}</small>}

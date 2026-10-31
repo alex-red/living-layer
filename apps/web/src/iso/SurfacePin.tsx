@@ -1,5 +1,6 @@
 import { useState, type PointerEvent } from 'react';
 import { quadIsConvex, type Point, type Quad } from '@livinglayer/domain';
+import { Button } from '../ui/controls';
 
 const CORNERS = ['back left', 'back right', 'front right', 'front left'];
 
@@ -101,12 +102,10 @@ export function SurfacePin({
               ? (note ?? `Found the ${label}. Drag any corner that’s off, then save.`)
               : 'Those corners cross. Drag them apart, or click the corners yourself.'}
           </span>
-          <button className="primary" disabled={!ok} onClick={() => onDone(corners)}>
+          <Button variant="primary" disabled={!ok} onClick={() => onDone(corners)}>
             Save pin
-          </button>
-          <button className="secondary" onClick={() => setCorners(null)}>
-            Click corners instead
-          </button>
+          </Button>
+          <Button onClick={() => setCorners(null)}>Click corners instead</Button>
         </span>
       </>
     );

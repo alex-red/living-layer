@@ -464,7 +464,7 @@
   gap: 10px;
   padding: 0 8px;
 }
-.pg-shutter-bar .pg-switch:last-child {
+.pg-shutter-bar .ui-check:last-child {
   justify-self: end;
 }
 .pg-shutter {
@@ -548,54 +548,20 @@
   flex-wrap: wrap;
 }
 
-/* Buttons */
-
-/* Fields */
-.pg-field {
-  display: grid;
-  gap: 6px;
-  font-size: 12px;
-  color: var(--text-2);
-}
-.pg-field > span {
+/* A slider's field: its value readout at the end of the label. */
+.pg-field > .tiny {
   display: flex;
   justify-content: space-between;
 }
 .pg-field b {
-  font: 500 12px/16px var(--mono);
   color: var(--text);
+  font-weight: 500;
   font-variant-numeric: tabular-nums;
-}
-.pg-field select,
-.pg-field input:not([type]) {
-  min-height: var(--control-h);
-  padding: 0 12px;
-  border: 1px solid var(--line-strong);
-  border-radius: 2px;
-  background: var(--surface-2);
-  color: var(--text);
-  font: inherit;
-  font-size: 13px;
+  text-transform: none;
 }
 .pg-field input[type='range'] {
   width: 100%;
   min-height: 28px;
-  accent-color: var(--seen);
-}
-.pg-switch {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-height: var(--control-h);
-  font-size: 13px;
-  color: var(--text-2);
-  cursor: pointer;
-}
-.pg-switch input {
-  width: 18px;
-  height: 18px;
-  margin: 0;
-  accent-color: var(--seen);
 }
 
 /* Object chips: what Muse Spark named. Pick one to re-mask it. */
@@ -706,7 +672,7 @@
   font-size: 12px;
   line-height: 18px;
 }
-.pg-strip-head .pg-button {
+.pg-strip-head > .ghost {
   margin-left: auto;
 }
 .pg-strip ol {
@@ -746,7 +712,7 @@
 .pg-strip li.open .pg-thumb {
   box-shadow: 0 0 0 2px var(--seen);
 }
-.pg-strip li > .pg-button {
+.pg-strip li > .ghost {
   justify-self: start;
 }
 .pg-placeholder {

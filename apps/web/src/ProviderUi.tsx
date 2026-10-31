@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { runCost, type ProviderFailure } from '@livinglayer/domain';
 import { dismissCall, useProviderCalls, type ProviderCall } from './activity';
 import { usd } from './cost';
+import { Button, IconButton } from './ui/controls';
 
 const seconds = (ms: number) => `${(ms / 1000).toFixed(ms < 10_000 ? 1 : 0)}s`;
 const tokens = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n));
@@ -21,9 +22,9 @@ function CallRow({ call }: { call: ProviderCall }) {
         <span className={`ai-mode ${call.mode}`}>{call.mode === 'live' ? 'LIVE' : 'DEMO'}</span>
         <span className="ai-time">{seconds(elapsed)}</span>
         {!running && (
-          <button className="ai-close" aria-label="Dismiss" onClick={() => dismissCall(call.id)}>
+          <IconButton label="Dismiss" size="sm" onClick={() => dismissCall(call.id)}>
             ×
-          </button>
+          </IconButton>
         )}
       </div>
       <ol className="ai-steps">
@@ -161,9 +162,9 @@ export function ErrorCard({
     <div className="error error-card" role="alert">
       <div className="error-head">
         <p>{issue.message}</p>
-        <button className="ai-close" aria-label="Dismiss error" onClick={onDismiss}>
+        <IconButton label="Dismiss error" size="sm" onClick={onDismiss}>
           ×
-        </button>
+        </IconButton>
       </div>
       {facts.length > 0 && (
         <dl className="error-facts">
@@ -183,12 +184,12 @@ export function ErrorCard({
       {hint && <p className="error-hint">{hint}</p>}
       <div className="error-actions">
         {issue.runId && onInspect && (
-          <button className="text-button" onClick={() => onInspect(issue.runId!)}>
+          <Button variant="text" onClick={() => onInspect(issue.runId!)}>
             Inspect the failed run
-          </button>
+          </Button>
         )}
-        <button
-          className="text-button"
+        <Button
+          variant="text"
           onClick={() =>
             void navigator.clipboard
               .writeText(JSON.stringify(issue, null, 2))
@@ -197,7 +198,7 @@ export function ErrorCard({
           }
         >
           {copied ? 'Copied' : 'Copy details'}
-        </button>
+        </Button>
       </div>
     </div>
   );

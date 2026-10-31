@@ -1,5 +1,6 @@
 import { ISO_PRESETS } from '@livinglayer/domain';
 import { IsoScene } from '../iso/IsoScene';
+import { Button } from '../ui/controls';
 import { useLab } from './LabContext';
 import { pinScene } from './progress';
 
@@ -68,13 +69,12 @@ export function Onboarding() {
       </div>
       {mode === 'demo' && (
         <div className="onboarding-own">
-          <button
-            className="secondary"
+          <Button
             disabled={Boolean(busy) || camera || cameraPending || !metaReady}
             onClick={() => lab.draftOwnPhoto()}
           >
             Use your own photo
-          </button>
+          </Button>
           <span className="micro">
             {metaReady
               ? 'Switches to Live and drafts the office from a photo you upload. About 2 billed calls.'
@@ -84,18 +84,16 @@ export function Onboarding() {
       )}
       <div className="onboarding-more">
         <span className="tiny">OTHER SCENES</span>
-        <button className="text-button" onClick={() => lab.pickScene('fridge')}>
+        <Button variant="text" onClick={() => lab.pickScene('fridge')}>
           Fridge
-        </button>
+        </Button>
         {memory?.scene && (
-          <button className="text-button" onClick={() => lab.pickScene('custom')}>
+          <Button variant="text" onClick={() => lab.pickScene('custom')}>
             {memory.scene.label} (yours)
-          </button>
+          </Button>
         )}
         {workScene && (
-          <button className="secondary" onClick={() => lab.setChoosingScene(false)}>
-            Keep the current scene
-          </button>
+          <Button onClick={() => lab.setChoosingScene(false)}>Keep the current scene</Button>
         )}
       </div>
     </div>
@@ -135,48 +133,43 @@ export function DeskStep() {
       <div className="save-actions">
         {image && !camera ? (
           <>
-            <button
-              className="primary"
+            <Button
+              variant="primary"
               disabled={Boolean(busy)}
               onClick={() => void lab.startCalibrating()}
             >
               {busy === 'calibrate' ? 'Outlining the floor…' : 'Calibrate the camera'}
-            </button>
-            <button
-              className="secondary"
+            </Button>
+            <Button
               disabled={Boolean(busy)}
               onClick={() => lab.setPinning({ ...desk, label: 'desktop' })}
             >
               Pin the desk by hand
-            </button>
+            </Button>
           </>
         ) : (
           !camera && (
             <>
-              <button
-                className="primary"
+              <Button
+                variant="primary"
                 disabled={Boolean(busy) || cameraPending}
                 onClick={() => void lab.startCamera()}
               >
                 Use the camera
-              </button>
-              <button
-                className="secondary"
-                disabled={Boolean(busy)}
-                onClick={() => lab.file.current?.click()}
-              >
+              </Button>
+              <Button disabled={Boolean(busy)} onClick={() => lab.file.current?.click()}>
                 Upload a frame
-              </button>
+              </Button>
             </>
           )
         )}
-        <button
-          className="text-button"
+        <Button
+          variant="text"
           disabled={Boolean(busy) || camera}
           onClick={() => lab.changeMode('demo')}
         >
           Try the demo desk instead
-        </button>
+        </Button>
       </div>
     </div>
   );

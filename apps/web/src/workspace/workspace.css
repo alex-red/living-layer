@@ -108,7 +108,7 @@
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
 }
-.topbar-links .mode-switch button {
+.topbar-links .segmented button {
   min-width: 64px;
 }
 .budget-pill {
@@ -358,22 +358,6 @@
   flex: 1 1 100%;
   color: var(--text-2);
   font-size: 12px;
-}
-.ol-bulk button {
-  min-height: var(--control-h);
-  padding: 0 10px;
-  font-size: 12px;
-}
-.ol-bulk button.destructive {
-  border: 1px solid transparent;
-  border-radius: var(--r-button);
-  background: var(--blocked);
-  color: var(--void);
-  font-weight: 600;
-}
-.ol-bulk button.destructive:hover:not(:disabled) {
-  box-shadow: 0 0 18px var(--blocked-wash);
-  filter: brightness(1.08);
 }
 @keyframes rise-in {
   from {
@@ -683,13 +667,6 @@
 .insp-list small {
   color: var(--text-3);
 }
-.field {
-  display: grid;
-  gap: 4px;
-}
-.field select {
-  min-height: var(--control-h);
-}
 .freshness {
   flex: none;
   width: 16px;
@@ -783,9 +760,6 @@
   color: var(--text-3);
   font-size: 12px;
   line-height: 16px;
-}
-.setup-steps .primary {
-  min-height: var(--control-h);
 }
 
 /* Activity drawer */
@@ -950,7 +924,7 @@
   .topbar-links {
     gap: 6px;
   }
-  .topbar-links .mode-switch button {
+  .topbar-links .segmented button {
     min-width: 52px;
   }
   .workspace {
@@ -994,10 +968,6 @@
 }
 
 /* Canvas layers menu. */
-.layers-button {
-  min-height: var(--control-h);
-  font-size: 12px;
-}
 .layers-button small {
   color: var(--text-3);
   font: 500 11px/14px var(--mono);
@@ -1097,10 +1067,6 @@
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 6px;
-}
-.fixture-size label {
-  display: grid;
-  gap: 2px;
 }
 .fixture-size input {
   width: 100%;

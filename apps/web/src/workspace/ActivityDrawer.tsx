@@ -6,6 +6,7 @@ import {
   type Segmentation,
 } from '@livinglayer/domain';
 import { usd } from '../cost';
+import { Button, Check, Field, IconButton, Select } from '../ui/controls';
 import { useLab } from './LabContext';
 import { LOG_PAGE, RESULT_GLYPH, RUN_KINDS, isProbe, runDetail } from './useLabState';
 
@@ -37,13 +38,9 @@ function RunInspector() {
           <span aria-hidden="true">{RESULT_GLYPH[selected.status]}</span>{' '}
           {selected.status.replace('_', ' ')}
         </span>
-        <button
-          className="inspector-close"
-          aria-label="Close inspector"
-          onClick={() => lab.setSelected(undefined)}
-        >
+        <IconButton label="Close inspector" onClick={() => lab.setSelected(undefined)}>
           ×
-        </button>
+        </IconButton>
       </header>
       {runDetail(selected) && <p className="inspector-detail">{runDetail(selected)}</p>}
       {selected.kind === 'lamp' && <p>{(selected.output as LampResult).explanation}</p>}
@@ -91,19 +88,19 @@ function RunInspector() {
       </dl>
       <div className="inspector-actions">
         {isProbe(selected.kind) && (
-          <button
-            className="secondary"
+          <Button
+            size="sm"
             disabled={Boolean(lab.rerunBlock(selected))}
             title={lab.rerunBlock(selected) ?? undefined}
             onClick={() => lab.rerun(selected)}
           >
             Run again
             {selected.kind === 'segment' && ` · “${(selected.output as Segmentation).concept}”`}
-          </button>
+          </Button>
         )}
         {(selected.kind === 'segment' || selected.kind === 'discover') && (
-          <button
-            className="secondary"
+          <Button
+            size="sm"
             disabled={!lab.canRestore(selected)}
             title={
               lab.canRestore(selected)
@@ -113,16 +110,16 @@ function RunInspector() {
             onClick={() => lab.restore(selected)}
           >
             Show on scene
-          </button>
+          </Button>
         )}
         {job && (
-          <button className="secondary" onClick={() => void lab.reviewAiRun(job.id)}>
+          <Button size="sm" onClick={() => void lab.reviewAiRun(job.id)}>
             Review its steps · {job.title ?? 'AI run'}
-          </button>
+          </Button>
         )}
-        <button className="text-button" onClick={() => lab.copyRun(selected)}>
+        <Button variant="text" onClick={() => lab.copyRun(selected)}>
           Copy JSON
-        </button>
+        </Button>
       </div>
       {isProbe(selected.kind) && lab.rerunBlock(selected) && (
         <p className="micro">{lab.rerunBlock(selected)}</p>
@@ -220,48 +217,42 @@ export function ActivityDrawer() {
       <div className="drawer-body" id="drawer-body" hidden={!drawer}>
         <div className="drawer-runs">
           <div className="log-filters" role="group" aria-label="Filter the evidence log">
-            <label>
-              Kind
-              <select
+            <Field label="Kind" inline>
+              <Select<RunKind | 'all'>
                 value={lab.logKind}
-                onChange={(e) => {
-                  lab.setLogKind(e.target.value as RunKind | 'all');
+                options={[
+                  { value: 'all', label: 'All kinds' },
+                  ...RUN_KINDS.map((kind) => ({ value: kind, label: kind })),
+                ]}
+                onChange={(kind) => {
+                  lab.setLogKind(kind);
                   lab.setLogLimit(LOG_PAGE);
                 }}
-              >
-                <option value="all">All kinds</option>
-                {RUN_KINDS.map((kind) => (
-                  <option key={kind} value={kind}>
-                    {kind}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Mode
-              <select
+              />
+            </Field>
+            <Field label="Mode" inline>
+              <Select<Mode | 'all'>
                 value={lab.logMode}
-                onChange={(e) => {
-                  lab.setLogMode(e.target.value as Mode | 'all');
+                options={[
+                  { value: 'all', label: 'Both modes' },
+                  { value: 'demo', label: 'Demo' },
+                  { value: 'live', label: 'Live' },
+                ]}
+                onChange={(mode) => {
+                  lab.setLogMode(mode);
                   lab.setLogLimit(LOG_PAGE);
                 }}
-              >
-                <option value="all">Both modes</option>
-                <option value="demo">Demo</option>
-                <option value="live">Live</option>
-              </select>
-            </label>
-            <label className="overlay-toggle">
-              <input
-                type="checkbox"
-                checked={lab.failuresOnly}
-                onChange={(e) => {
-                  lab.setFailuresOnly(e.target.checked);
-                  lab.setLogLimit(LOG_PAGE);
-                }}
-              />{' '}
+              />
+            </Field>
+            <Check
+              checked={lab.failuresOnly}
+              onChange={(on) => {
+                lab.setFailuresOnly(on);
+                lab.setLogLimit(LOG_PAGE);
+              }}
+            >
               Failures only
-            </label>
+            </Check>
             <p className="log-stats" aria-live="polite">
               {filteredRuns.length} run{filteredRuns.length === 1 ? '' : 's'}
               {logStats.medianMs !== null && ` · median ${logStats.medianMs} ms`}

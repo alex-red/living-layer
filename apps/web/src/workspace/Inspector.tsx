@@ -14,6 +14,7 @@ import {
 import { api } from '../api';
 import { estimateLabel } from '../cost';
 import { Glyph } from '../Glyph';
+import { Button, Check, Field, Select } from '../ui/controls';
 import { useLab } from './LabContext';
 import { Cost, Details, Panel, useCall } from './panel';
 import { FixturePanel, LampPanel, NewFixturePanel, ScanFixtures } from './FixturePanel';
@@ -114,9 +115,8 @@ function MaskResults() {
         <>
           <p className="micro">Which outline is your mug? Identity is always your call.</p>
           {sorted.map((d) => (
-            <button
+            <Button
               key={d.objectId}
-              className="secondary"
               disabled={Boolean(busy) || !segmentRunId || d.objectId === confirmedId}
               onClick={async () => {
                 await lab.deskAction('select', { segmentRunId, detectionId: d.objectId });
@@ -124,7 +124,7 @@ function MaskResults() {
               }}
             >
               Confirm mug mask #{d.objectId}
-            </button>
+            </Button>
           ))}
         </>
       ) : others.length < MAX_OTHER_OBJECTS ? (
@@ -140,8 +140,7 @@ function MaskResults() {
                   value={name}
                   onChange={(e) => setNames({ ...names, [d.objectId]: e.target.value })}
                 />
-                <button
-                  className="secondary"
+                <Button
                   disabled={off || !name.trim() || !segmentRunId}
                   onClick={() =>
                     void call<Events>(
@@ -157,7 +156,7 @@ function MaskResults() {
                   }
                 >
                   Remember #{d.objectId}
-                </button>
+                </Button>
               </div>
             );
           })}
@@ -200,13 +199,14 @@ function SetupPanel() {
               <strong>{s.label}</strong>
               <small>{s.detail}</small>
             </span>
-            <button
-              className={s.state === 'current' ? 'primary' : 'text-button'}
+            <Button
+              variant={s.state === 'current' ? 'primary' : 'text'}
+              size="sm"
               disabled={s.state === 'locked'}
               onClick={() => lab.goToStep(s.id)}
             >
               {s.state === 'done' ? 'Open' : 'Go'}
-            </button>
+            </Button>
           </li>
         ))}
       </ol>
@@ -238,8 +238,7 @@ function PictureControls({ view = 'room' }: { view?: 'room' | 'desk' }) {
     drawnFrom && (drawnFrom.width !== dimensions.width || drawnFrom.height !== dimensions.height);
   return (
     <div className="picture-controls">
-      <button
-        className="secondary"
+      <Button
         disabled={
           Boolean(busy) ||
           !pinned ||
@@ -257,7 +256,7 @@ function PictureControls({ view = 'room' }: { view?: 'room' | 'desk' }) {
             : view === 'desk'
               ? 'Draw the desk as a picture'
               : 'Draw it as a picture'}
-      </button>
+      </Button>
       <p className="micro">
         {view === 'desk' && mode === 'demo'
           ? 'The demo has only its corner camera: draw the room as a picture instead.'
@@ -279,27 +278,28 @@ function PictureControls({ view = 'room' }: { view?: 'room' | 'desk' }) {
       </p>
       {picture && mode === 'live' && (
         <>
-          <label className="input-label" htmlFor={`redraw-note-${view}`}>
-            What to change (optional)
-          </label>
-          <input
-            id={`redraw-note-${view}`}
-            value={note}
-            maxLength={ILLUSTRATION_NOTE_MAX}
-            placeholder="e.g. simpler shapes, warmer light, leave out the cables"
-            disabled={Boolean(busy)}
-            onChange={(e) => setNote(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !busy) void lab.illustrate(view, note);
-            }}
-          />
-          <p className="micro">
-            {view === 'desk'
-              ? lab.camera
-                ? 'Redrawn from what the camera shows now.'
-                : 'Redrawn from the frame on the stage. Start the camera to draw what it shows now.'
-              : 'The same photo comes back drawn much the same; say what should change.'}
-          </p>
+          <Field
+            label="What to change (optional)"
+            hint={
+              view === 'desk'
+                ? lab.camera
+                  ? 'Redrawn from what the camera shows now.'
+                  : 'Redrawn from the frame on the stage. Start the camera to draw what it shows now.'
+                : 'The same photo comes back drawn much the same; say what should change.'
+            }
+          >
+            <input
+              id={`redraw-note-${view}`}
+              value={note}
+              maxLength={ILLUSTRATION_NOTE_MAX}
+              placeholder="e.g. simpler shapes, warmer light, leave out the cables"
+              disabled={Boolean(busy)}
+              onChange={(e) => setNote(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !busy) void lab.illustrate(view, note);
+              }}
+            />
+          </Field>
         </>
       )}
       {view === 'room' && picture?.drawnFrom && <LiftFixtures />}
@@ -320,21 +320,17 @@ function LiftFixtures() {
   return (
     <div className="lift-fixtures">
       <div className="lift-actions">
-        <button className="secondary" disabled={blocked} onClick={() => void lab.separate()}>
+        <Button disabled={blocked} onClick={() => void lab.separate()}>
           {busy === 'separate'
             ? 'Lifting…'
             : layers
               ? 'Lift them again'
               : 'Lift the fixtures off the picture'}
-        </button>
+        </Button>
         {layers && (
-          <button
-            className="text-button"
-            disabled={Boolean(busy)}
-            onClick={() => void lab.separate(true)}
-          >
+          <Button variant="text" disabled={Boolean(busy)} onClick={() => void lab.separate(true)}>
             Put them back
-          </button>
+          </Button>
         )}
       </div>
       <p className="micro">
@@ -370,13 +366,11 @@ function RoomPanel() {
       tone="ok"
     >
       {lab.isoPanel === 'scene' && lab.stageView !== 'photo' ? (
-        <button className="secondary" onClick={() => lab.setIsoPanel('room')}>
-          Done editing
-        </button>
+        <Button onClick={() => lab.setIsoPanel('room')}>Done editing</Button>
       ) : (
-        <button className="primary" disabled={!workScene} onClick={lab.editLayout}>
+        <Button variant="primary" disabled={!workScene} onClick={lab.editLayout}>
           Edit layout
-        </button>
+        </Button>
       )}
       <p className="micro">
         Draft the room from a photo, start from a preset, or move, turn and add furniture. The
@@ -384,45 +378,45 @@ function RoomPanel() {
       </p>
       {room === 'custom' && <PictureControls />}
       {memory?.surface && pinScene(room) === memory.surface.scene && (
-        <button
-          className="text-button"
+        <Button
+          variant="text"
           disabled={Boolean(lab.busy) || Boolean(lab.pinning)}
           onClick={() => void lab.adjustPin()}
         >
           Adjust the pin’s corners on the photo →
-        </button>
+        </Button>
       )}
       <ScanFixtures initial={pinScene(room)} open />
       {progress.view && (
-        <button className="text-button" onClick={() => lab.select({ kind: 'view' })}>
+        <Button variant="text" onClick={() => lab.select({ kind: 'view' })}>
           {progress.pinned ? 'Open the' : 'Next: set up the'}{' '}
           {viewLabel(progress.view).toLowerCase()} →
-        </button>
+        </Button>
       )}
-      <label className="field">
-        <span className="tiny">ROOM</span>
-        <select
+      <Field label="Room">
+        <Select
           aria-label="Room"
           value={room}
           disabled={Boolean(busy)}
-          onChange={(e) => lab.pickScene(e.target.value as typeof room)}
-        >
-          <option value="office">Office</option>
-          <option value="fridge">Fridge</option>
-          {memory?.scene && <option value="custom">{memory.scene.label}</option>}
-        </select>
-      </label>
+          onChange={(v) => lab.pickScene(v)}
+          options={[
+            { value: 'office', label: 'Office' },
+            { value: 'fridge', label: 'Fridge' },
+            ...(memory?.scene ? [{ value: 'custom' as const, label: memory.scene.label }] : []),
+          ]}
+        />
+      </Field>
       {rows.room.length > 0 && (
         <Details summary={`Surfaces · ${rows.room.length + rows.view.length}`} open>
           <ul className="insp-list">
             {[...rows.view, ...rows.room].map((r) => (
               <li key={r.surface.id}>
-                <button
-                  className="text-button"
+                <Button
+                  variant="text"
                   onClick={() => lab.select({ kind: 'surface', id: r.surface.id })}
                 >
                   {r.surface.label}
-                </button>
+                </Button>
                 <small>{r.pinned ? '✓ pinned' : '◌ not pinned'}</small>
               </li>
             ))}
@@ -434,13 +428,12 @@ function RoomPanel() {
           Spark looks at the current photo and says which preset it shows and which props it can
           see. It never invents positions.
         </p>
-        <button
-          className="secondary"
+        <Button
           disabled={Boolean(busy) || lab.asking || room === 'custom' || (mode === 'live' && !image)}
           onClick={() => void lab.askGuess()}
         >
           {lab.asking ? 'Asking Spark…' : 'Guess scene'}
-        </button>
+        </Button>
         {guess && <p className="micro">Spark: {guess.summary}</p>}
       </Details>
     </Panel>
@@ -461,9 +454,7 @@ function SurfacePanel({ id, closeView }: { id: string; closeView?: boolean }) {
         status="This scene has no surface to pin."
         tone="unsure"
       >
-        <button className="secondary" onClick={lab.editLayout}>
-          Edit layout
-        </button>
+        <Button onClick={lab.editLayout}>Edit layout</Button>
       </Panel>
     );
   const label = row.surface.label.toLowerCase();
@@ -492,30 +483,29 @@ function SurfacePanel({ id, closeView }: { id: string; closeView?: boolean }) {
       tone={row.pinned ? 'ok' : 'seen'}
     >
       {row.pinned ? (
-        <button
-          className="primary"
+        <Button
+          variant="primary"
           onClick={() =>
             lab.select(memory?.object ? { kind: 'object', id: 'main' } : { kind: 'add' })
           }
         >
           {memory?.object ? `Open ${memory.object.label}` : 'Find objects'} <Glyph type="arrow" />
-        </button>
+        </Button>
       ) : needPhoto ? (
         <div className="save-actions">
-          <button
-            className="primary"
+          <Button
+            variant="primary"
             disabled={Boolean(busy)}
             onClick={() => lab.file.current?.click()}
           >
             Upload a frame
-          </button>
-          <button
-            className="secondary"
+          </Button>
+          <Button
             disabled={Boolean(busy) || lab.cameraPending || lab.camera}
             onClick={() => void lab.startCamera()}
           >
             Use the camera
-          </button>
+          </Button>
         </div>
       ) : null}
       {closeView && row.pinned && progress.view && (
@@ -532,18 +522,18 @@ function SurfacePanel({ id, closeView }: { id: string; closeView?: boolean }) {
       )}
       <div className="save-actions">
         {findable && (
-          <button
-            className={row.pinned ? 'secondary' : 'primary'}
+          <Button
+            variant={row.pinned ? 'secondary' : 'primary'}
             disabled={Boolean(busy) || Boolean(pinning) || lab.camera}
             onClick={() =>
               void lab.autoPin({ scene: pinScene(row.scene), surfaceId: row.surface.id, label })
             }
           >
             {busy === 'autopin' ? 'Finding…' : row.pinned ? 'Find it again' : `Find the ${label}`}
-          </button>
+          </Button>
         )}
-        <button
-          className={row.pinned || needPhoto || findable ? 'secondary' : 'primary'}
+        <Button
+          variant={row.pinned || needPhoto || findable ? 'secondary' : 'primary'}
           disabled={Boolean(busy) || Boolean(pinning) || lab.camera || needPhoto}
           onClick={() => {
             lab.setDrawing(false);
@@ -551,15 +541,15 @@ function SurfacePanel({ id, closeView }: { id: string; closeView?: boolean }) {
           }}
         >
           {row.pinned && memory?.surface ? 'Re-pin surface' : 'Pin surface'}
-        </button>
+        </Button>
         {memory?.surface && row.pinned && (
-          <button
-            className="text-button"
+          <Button
+            variant="text"
             disabled={Boolean(busy)}
             onClick={() => void lab.deskAction('surface', { pin: null })}
           >
             Clear pin
-          </button>
+          </Button>
         )}
       </div>
       <p className="micro">
@@ -570,8 +560,8 @@ function SurfacePanel({ id, closeView }: { id: string; closeView?: boolean }) {
             : 'Mount one camera high in a corner of the room, then calibrate it: zones drawn in the room then apply to every frame it sends.'}
       </p>
       <div className="save-actions">
-        <button
-          className={memory?.camera || mode === 'demo' ? 'secondary' : 'primary'}
+        {/* Secondary even uncalibrated: the pin or photo action above is this step's primary. */}
+        <Button
           disabled={Boolean(busy) || Boolean(pinning) || lab.camera || needPhoto}
           onClick={() => void lab.startCalibrating()}
         >
@@ -580,17 +570,17 @@ function SurfacePanel({ id, closeView }: { id: string; closeView?: boolean }) {
             : memory?.camera
               ? 'Calibrate again'
               : 'Calibrate the camera'}
-        </button>
+        </Button>
         {memory?.camera && (
-          <button
-            className="text-button"
+          <Button
+            variant="text"
             disabled={Boolean(busy)}
             onClick={() =>
               void api<DeskMemory>('room/forget', { mode }).then((m) => lab.setMemory(m))
             }
           >
             Forget calibration
-          </button>
+          </Button>
         )}
       </div>
       {closeView && (
@@ -598,13 +588,13 @@ function SurfacePanel({ id, closeView }: { id: string; closeView?: boolean }) {
           <p className="micro">
             Forget the mug, its zone and its sightings. The evidence log stays.
           </p>
-          <button
-            className="text-button destructive"
+          <Button
+            variant="danger"
             disabled={Boolean(busy) || !memory?.object}
             onClick={() => void lab.deskAction('reset')}
           >
             Reset desk memory
-          </button>
+          </Button>
         </Details>
       )}
     </Panel>
@@ -636,8 +626,8 @@ function AddPanel({
       tone={needPhoto ? 'unsure' : 'seen'}
     >
       {preset ? (
-        <button
-          className="primary"
+        <Button
+          variant="primary"
           disabled={!canVision}
           onClick={() => {
             lab.setConcept(preset.category);
@@ -646,7 +636,7 @@ function AddPanel({
         >
           {busy === 'segment' ? 'Decoding…' : 'Find its outline'}
           <Glyph type="arrow" />
-        </button>
+        </Button>
       ) : (
         <>
           <label className="input-label" htmlFor="concept">
@@ -664,14 +654,14 @@ function AddPanel({
             />
             <span>↵ TO RUN</span>
           </div>
-          <button
-            className="primary"
+          <Button
+            variant="primary"
             disabled={!canVision || !concept.trim()}
             onClick={() => void lab.execute('segment')}
           >
             {busy === 'segment' ? 'Decoding…' : 'Segment object'}
             <Glyph type="arrow" />
-          </button>
+          </Button>
         </>
       )}
       {status && <Cost>{estimateLabel(status.meta.estimates.segment, 'image')}</Cost>}
@@ -681,13 +671,9 @@ function AddPanel({
           <p className="micro">
             Spark names up to three objects on the desk. They show in the outline as suggestions.
           </p>
-          <button
-            className="secondary"
-            disabled={!canVision}
-            onClick={() => void lab.execute('discover')}
-          >
+          <Button disabled={!canVision} onClick={() => void lab.execute('discover')}>
             {busy === 'discover' ? 'Discovering…' : 'Discover objects'}
-          </button>
+          </Button>
           {status && <Cost>{estimateLabel(status.meta.estimates.discover)}</Cost>}
           {scene && (
             <>
@@ -717,13 +703,13 @@ function AddPanel({
         <p className="micro">
           Ask for something that isn’t there. A good result is no outline at all.
         </p>
-        <button
-          className="text-button"
+        <Button
+          variant="text"
           disabled={!canVision}
           onClick={() => void lab.execute('segment', 'unicorn')}
         >
           Test absent target <span>↗</span>
-        </button>
+        </Button>
       </Details>
     </Panel>
   );
@@ -748,14 +734,13 @@ function WatchControl() {
     `${watch.frames} frame${watch.frames === 1 ? '' : 's'} · ${watch.checks} SAM check${watch.checks === 1 ? '' : 's'}${watch.appearance ? ` · ${watch.refinds} found by appearance` : ''}`;
   return (
     <>
-      <button
-        className="secondary"
+      <Button
         disabled={!watching && !canWatch}
         onClick={() => void lab.toggleWatch()}
         title="The server follows every confirmed thing in the camera and checks zone crossings with SAM, with or without this tab"
       >
         {watching ? 'Stop watching' : 'Watch on the server'}
-      </button>
+      </Button>
       <p className="micro">
         {watching && watch
           ? `${WATCH_STATE[watch.state]}${watch.camera ? ` ${watch.camera.name}` : ''} · ${stats}. ${watch.note}`
@@ -780,9 +765,9 @@ function MugPanel() {
         status="Find the mug and confirm its outline first."
         tone="unsure"
       >
-        <button className="primary" onClick={() => lab.select({ kind: 'add' })}>
+        <Button variant="primary" onClick={() => lab.select({ kind: 'add' })}>
           Find the mug
-        </button>
+        </Button>
       </Panel>
     );
   const o = memory.observation;
@@ -803,8 +788,8 @@ function MugPanel() {
       tone={currentObservation ? 'chosen' : observationStale ? 'unsure' : 'seen'}
       aside={o && <Freshness observedAt={o.observedAt} />}
     >
-      <button
-        className="primary"
+      <Button
+        variant="primary"
         disabled={!lab.canTrack}
         onClick={() => void lab.track()}
         title="Segment the mug in the current frame, match it to the remembered mug, and check the zone"
@@ -815,7 +800,7 @@ function MugPanel() {
             ? 'Capture & track'
             : 'Track the mug'}
         <Glyph type="arrow" />
-      </button>
+      </Button>
       <p className="micro">
         {mode === 'demo'
           ? 'Move the mug with the buttons under the canvas, then track it.'
@@ -825,14 +810,13 @@ function MugPanel() {
       <WatchControl />
       {!lab.canWatch && (
         <>
-          <button
-            className="secondary"
+          <Button
             disabled={follow ? false : Boolean(busy) || !currentObservation}
             onClick={() => (follow ? lab.stopFollow() : void lab.startFollow())}
             title="Follow the mug frame to frame in the browser, calling SAM only at the zone edge or when the match gets weak"
           >
             {follow ? 'Stop following' : 'Follow locally'}
-          </button>
+          </Button>
           <p className="micro">
             {follow
               ? `${followStats.frames} local step${followStats.frames === 1 ? '' : 's'} · ${followStats.checks} SAM check${followStats.checks === 1 ? '' : 's'}${followView ? ` · match ${followView.track.score.toFixed(2)}` : ''}${localZone ? '' : ' · no zone to watch: save one and mark the camera fixed'}`
@@ -843,16 +827,12 @@ function MugPanel() {
         </>
       )}
       <div className="insp-links">
-        <button className="text-button" onClick={() => lab.select({ kind: 'rule', id: 'main' })}>
+        <Button variant="text" onClick={() => lab.select({ kind: 'rule', id: 'main' })}>
           {memory.zone ? 'Zone and light' : 'Draw its zone'} →
-        </button>
-        <button
-          className="text-button"
-          disabled={Boolean(busy)}
-          onClick={() => lab.openModel(undefined)}
-        >
+        </Button>
+        <Button variant="text" disabled={Boolean(busy)} onClick={() => lab.openModel(undefined)}>
           Edit model {memory.item ? '· fitted' : ''} →
-        </button>
+        </Button>
       </div>
       {sightings.length > 0 && (
         <Details
@@ -895,13 +875,13 @@ function MugPanel() {
       )}
       <Details summary="Forget">
         <p className="micro">Forget the mug, its zone and its sightings. The evidence log stays.</p>
-        <button
-          className="text-button destructive"
+        <Button
+          variant="danger"
           disabled={Boolean(busy)}
           onClick={() => void lab.deskAction('reset')}
         >
           Reset desk memory
-        </button>
+        </Button>
       </Details>
     </Panel>
   );
@@ -931,8 +911,8 @@ function OtherPanel({ id }: { id: string }) {
       aside={o.observation && <Freshness observedAt={o.observation.observedAt} />}
     >
       {canTrack ? (
-        <button
-          className="primary"
+        <Button
+          variant="primary"
           disabled={off}
           onClick={() =>
             void call<Events>('desk/objects/track', { objectId: o.id, segmentRunId }, (r) => {
@@ -942,15 +922,15 @@ function OtherPanel({ id }: { id: string }) {
           }
         >
           Track
-        </button>
+        </Button>
       ) : (
-        <button
-          className="primary"
+        <Button
+          variant="primary"
           disabled={!canVision}
           onClick={() => void lab.execute('segment', o.concept)}
         >
           Find it in this frame
-        </button>
+        </Button>
       )}
       <p className="micro">
         {canTrack
@@ -959,17 +939,17 @@ function OtherPanel({ id }: { id: string }) {
       </p>
       <div className="insp-links">
         {lab.entities.length > 0 && o.observation && (
-          <button className="text-button" onClick={() => lab.startRule(o.id)}>
+          <Button variant="text" onClick={() => lab.startRule(o.id)}>
             Add a rule for it →
-          </button>
+          </Button>
         )}
-        <button className="text-button" disabled={off} onClick={() => lab.openModel(o.id)}>
+        <Button variant="text" disabled={off} onClick={() => lab.openModel(o.id)}>
           Edit model →
-        </button>
+        </Button>
       </div>
       <Details summary="Forget">
-        <button
-          className="text-button destructive"
+        <Button
+          variant="danger"
           disabled={off}
           onClick={() =>
             void call<DeskMemory>('desk/objects/forget', { objectId: o.id }, (m) => {
@@ -980,7 +960,7 @@ function OtherPanel({ id }: { id: string }) {
           }
         >
           Forget the {o.label}
-        </button>
+        </Button>
       </Details>
     </Panel>
   );
@@ -998,9 +978,9 @@ function ZonePanel() {
         status="Remember the mug first; its zone is drawn on a frame it was seen in."
         tone="unsure"
       >
-        <button className="primary" onClick={() => lab.select({ kind: 'add' })}>
+        <Button variant="primary" onClick={() => lab.select({ kind: 'add' })}>
           Find the mug
-        </button>
+        </Button>
       </Panel>
     );
   const d = memory.lastDecision?.output;
@@ -1032,8 +1012,7 @@ function ZonePanel() {
         <strong>{memory.zone ? 'ZN-01' : 'a zone'}</strong>, turn on{' '}
         <strong>{lab.lights[0] ?? 'the main lamp'}</strong>.
       </p>
-      <button
-        className="secondary"
+      <Button
         disabled={Boolean(busy) || !currentObservation || camera}
         onClick={() => {
           lab.setDraftZone(memory.zone?.rect ?? { x: 0.3, y: 0.2, width: 0.4, height: 0.6 });
@@ -1041,7 +1020,7 @@ function ZonePanel() {
         }}
       >
         Draw / edit zone
-      </button>
+      </Button>
       {drawing && (
         <div className="zone-editor">
           <p className="micro">
@@ -1069,8 +1048,8 @@ function ZonePanel() {
               </label>
             ))}
           </div>
-          <button
-            className="primary"
+          <Button
+            variant="primary"
             disabled={Boolean(busy) || !currentObservation}
             onClick={() =>
               void lab.deskAction('zone', {
@@ -1086,11 +1065,11 @@ function ZonePanel() {
             }
           >
             Save zone
-          </button>
+          </Button>
         </div>
       )}
-      <button
-        className="physical"
+      <Button
+        variant="physical"
         disabled={
           Boolean(busy) ||
           drawing ||
@@ -1110,7 +1089,7 @@ function ZonePanel() {
           : mode === 'demo'
             ? 'Verify placement · virtual lamp'
             : 'Verify placement · turn on lamp'}
-      </button>
+      </Button>
       {mode === 'live' && !lampReady && (
         <p className="micro">
           The lamp isn’t set up, so placement can’t be verified live. Set the HA_ variables and
@@ -1148,15 +1127,13 @@ function ZonePanel() {
         </Details>
       )}
       <Details summary="Camera">
-        <label className="overlay-toggle">
-          <input
-            type="checkbox"
-            checked={Boolean(memory.fixedCamera)}
-            disabled={Boolean(busy)}
-            onChange={(e) => void lab.deskAction('camera', { fixed: e.target.checked })}
-          />
+        <Check
+          checked={Boolean(memory.fixedCamera)}
+          disabled={Boolean(busy)}
+          onChange={(fixed) => void lab.deskAction('camera', { fixed })}
+        >
           The camera is fixed: keep the zone for new frames of the same size
-        </label>
+        </Check>
         <p className="micro">
           {!memory.zone
             ? 'No zone saved yet.'
@@ -1214,17 +1191,13 @@ function RulePanel({ id }: { id: string }) {
       {shown ? (
         <p className="micro">
           Shown in Home Assistant as{' '}
-          <button
-            className="text-button"
-            onClick={() => lab.select({ kind: 'entity', id: shown.id })}
-          >
+          <Button variant="text" onClick={() => lab.select({ kind: 'entity', id: shown.id })}>
             {exposedEntityId(shown)}
-          </button>
+          </Button>
           .
         </p>
       ) : (
-        <button
-          className="secondary"
+        <Button
           disabled={off}
           onClick={() => {
             const key = keyFromName(r.label) || 'zone';
@@ -1252,10 +1225,10 @@ function RulePanel({ id }: { id: string }) {
           }}
         >
           Also show in Home Assistant
-        </button>
+        </Button>
       )}
-      <button
-        className="primary"
+      <Button
+        variant="primary"
         disabled={off}
         onClick={() =>
           void call<Events>('desk/rules/verify', {}, (res) => {
@@ -1265,10 +1238,10 @@ function RulePanel({ id }: { id: string }) {
         }
       >
         Check rules
-      </button>
+      </Button>
       <Details summary="Delete">
-        <button
-          className="text-button destructive"
+        <Button
+          variant="danger"
           disabled={off}
           onClick={() =>
             void call<DeskMemory>('desk/rules/delete', { ruleId: r.id }, (m) => {
@@ -1279,7 +1252,7 @@ function RulePanel({ id }: { id: string }) {
           }
         >
           Delete “{r.label}”
-        </button>
+        </Button>
       </Details>
     </Panel>
   );
@@ -1319,17 +1292,12 @@ function NewRulePanel() {
     >
       <div className="rule-builder">
         <span>When</span>
-        <select
+        <Select
           aria-label="Rule object"
           value={draft.objectId}
-          onChange={(e) => set({ objectId: e.target.value, rect: null })}
-        >
-          {objects.map((o) => (
-            <option key={o.id} value={o.id}>
-              {o.label}
-            </option>
-          ))}
-        </select>
+          onChange={(objectId) => set({ objectId, rect: null })}
+          options={objects.map((o) => ({ value: o.id, label: o.label }))}
+        />
         <span>is inside</span>
         <input
           aria-label="Rule name"
@@ -1339,22 +1307,19 @@ function NewRulePanel() {
           onChange={(e) => set({ label: e.target.value })}
         />
         <span>turn on</span>
-        <select
+        <Select
           aria-label="Rule light"
           value={draft.entityId}
-          onChange={(e) => set({ entityId: e.target.value })}
-        >
-          {entities.map((l) => (
-            <option key={l} value={l}>
-              {l}
-            </option>
-          ))}
-          <option value="">nothing: tell Home Assistant only</option>
-        </select>
+          onChange={(entityId) => set({ entityId })}
+          options={[
+            ...entities.map((l) => ({ value: l, label: l })),
+            { value: '', label: 'nothing: tell Home Assistant only' },
+          ]}
+        />
       </div>
       <div className="save-actions">
-        <button
-          className="primary"
+        <Button
+          variant="primary"
           disabled={off || !draft.rect || !draft.label.trim()}
           onClick={() =>
             void call<DeskMemory>(
@@ -1380,10 +1345,8 @@ function NewRulePanel() {
           }
         >
           Save rule
-        </button>
-        <button className="secondary" onClick={() => lab.select(null)}>
-          Cancel
-        </button>
+        </Button>
+        <Button onClick={() => lab.select(null)}>Cancel</Button>
       </div>
       {!entities.length && (
         <p className="micro">
@@ -1441,9 +1404,9 @@ export function Inspector() {
     <aside className="ws-inspector" aria-label="Inspector">
       {lab.selection && lab.progress.room && (
         <div className="pane-head">
-          <button className="text-button" onClick={() => lab.select(null)}>
+          <Button variant="text" onClick={() => lab.select(null)}>
             ← Setup
-          </button>
+          </Button>
         </div>
       )}
       {body(lab, lab.selection)}

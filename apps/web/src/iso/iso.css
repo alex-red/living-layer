@@ -341,18 +341,6 @@
   border: 0;
   background: none;
 }
-.item-editor .link {
-  border: 0;
-  background: none;
-  padding: 0;
-  color: var(--text-2);
-  font-size: 12px;
-  text-decoration: underline;
-  text-underline-offset: 3px;
-}
-.item-editor .link:disabled {
-  opacity: 0.4;
-}
 .item-preview {
   display: flex;
   flex-direction: column;
@@ -398,11 +386,6 @@
 .item-profile circle.active {
   fill: var(--chosen);
 }
-.item-lock {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
 .item-paint,
 .item-inside {
   display: flex;
@@ -423,13 +406,6 @@
   display: flex;
   flex-direction: column;
   gap: 4px;
-}
-.item-views {
-  display: flex;
-  gap: 4px;
-}
-.item-views button {
-  min-height: var(--control-h-sm);
 }
 .item-photo {
   flex: 1;
@@ -515,32 +491,6 @@
   stroke-dasharray: 3 3;
 }
 
-/* Panel switcher under the scene tools */
-.iso-panels {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-}
-.iso-panels button {
-  min-height: var(--control-h-sm);
-  padding: 0 10px;
-  border: 1px solid var(--line);
-  border-radius: 2px;
-  background: none;
-  color: var(--text-2);
-  font: 500 11px/1 var(--mono);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-.iso-panels button[aria-pressed='true'] {
-  border-color: var(--line-strong);
-  background: var(--surface-3);
-  color: var(--text);
-}
-.iso-panels button:disabled {
-  opacity: 0.4;
-}
-
 /* Scene editor */
 .scene-editor {
   display: flex;
@@ -549,22 +499,7 @@
   width: 100%;
   min-height: 0;
 }
-/* One lean toolbar under the room; the layout as a whole lives in its popover. */
-.scene-edit-bar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-}
-.scene-edit-bar-end {
-  display: inline-flex;
-  gap: 6px;
-  margin-left: auto;
-}
-.scene-editor .scene-icon {
-  min-width: 32px;
-  padding: 0 8px;
-}
+/* The selected prop's tools, in the toolbar under the room. */
 .scene-picked {
   display: inline-flex;
   align-items: center;
@@ -883,8 +818,7 @@
 }
 
 /* Scene from a photo */
-.photo-check,
-.photo-track {
+.photo-check {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -1049,8 +983,7 @@
   min-height: var(--control-h);
   width: 120px;
 }
-.rules-panel .link,
-.scene-editor .link {
+.rules-panel .link {
   border: 0;
   background: none;
   padding: 0;

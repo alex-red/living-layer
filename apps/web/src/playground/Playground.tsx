@@ -10,6 +10,7 @@ import { PhonePairing } from '../PhonePairing';
 import { PixelFeed, type PixelPalette } from './PixelFeed';
 import { networkSource, useCamera } from './useCamera';
 import { useNetworkStreams } from '../streams';
+import { Button, Check, Field, Select, type Option } from '../ui/controls';
 import { useMotionGate, type Stillness } from './useMotionGate';
 import './playground.css';
 
@@ -43,6 +44,11 @@ type Tone = 'idle' | 'seen' | 'ok' | 'unsure' | 'blocked';
 const UNIT = { width: 1, height: 1 };
 /** The shortest gap between two automatic calls, however often the desk settles. */
 const WATCH_GAP_MS = 3000;
+const PALETTE_OPTIONS: Option<PixelPalette>[] = [
+  { value: 'neon', label: 'Quiet Neon' },
+  { value: 'mono', label: 'Mono, 4 tones' },
+  { value: 'full', label: 'Full colour, posterized' },
+];
 const clamp = (n: number, min = 0, max = 1) => Math.max(min, Math.min(max, n));
 const pct = (n: number) => `${Math.round(n * 100)}%`;
 const time = (d: Date) =>
@@ -477,21 +483,18 @@ export function Playground() {
             </div>
             <p>Point it straight down at the desk and keep it still. The zone depends on it.</p>
             {live ? (
-              <button className="pg-button secondary" onClick={camera.stop}>
-                Stop camera
-              </button>
+              <Button onClick={camera.stop}>Stop camera</Button>
             ) : (
-              <button
-                className="pg-button primary"
+              <Button
+                variant="primary"
                 disabled={camera.state === 'opening'}
                 onClick={() => void camera.start(source(camera.deviceId))}
               >
                 <Glyph type="camera" /> {camera.state === 'opening' ? 'Opening…' : 'Start camera'}
-              </button>
+              </Button>
             )}
             {(camera.devices.length > 1 || network.streams.length > 0) && (
-              <label className="pg-field">
-                <span>Device</span>
+              <Field label="Device">
                 <select
                   value={camera.deviceId}
                   disabled={camera.state === 'opening'}
@@ -516,22 +519,24 @@ export function Playground() {
                     </optgroup>
                   )}
                 </select>
-              </label>
+              </Field>
             )}
-            <button
-              className="pg-button tertiary"
+            <Button
+              variant="ghost"
+              size="sm"
               disabled={network.scanning}
               onClick={() => void network.scan()}
             >
               {network.scanning ? 'Looking for network cameras…' : 'Find network cameras'}
-            </button>
-            <button
-              className="pg-button tertiary"
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
               aria-expanded={pairPhone}
               onClick={() => setPairPhone((v) => !v)}
             >
               {pairPhone ? 'Hide phone pairing' : 'Use a phone as the camera'}
-            </button>
+            </Button>
             {pairPhone && (
               <PhonePairing
                 onUse={(phone) => {
@@ -542,20 +547,19 @@ export function Playground() {
               />
             )}
             {camera.info?.label && <p className="pg-mono">{camera.info.label}</p>}
-            <label className="pg-switch">
-              <input
-                type="checkbox"
-                checked={pixelArt}
-                onChange={(e) => setPixelArt(e.target.checked)}
-              />
+            <Check checked={pixelArt} onChange={setPixelArt}>
               Pixel-art preview
-            </label>
+            </Check>
             {pixelArt && (
               <>
-                <label className="pg-field">
-                  <span>
-                    Pixel size <b>{blockPx} px</b>
-                  </span>
+                <Field
+                  className="pg-field"
+                  label={
+                    <>
+                      Pixel size <b>{blockPx} px</b>
+                    </>
+                  }
+                >
                   <input
                     type="range"
                     min="2"
@@ -564,26 +568,17 @@ export function Playground() {
                     value={blockPx}
                     onChange={(e) => setBlockPx(Number(e.target.value))}
                   />
-                </label>
-                <label className="pg-field">
-                  <span>Palette</span>
-                  <select
+                </Field>
+                <Field label="Palette">
+                  <Select<PixelPalette>
                     value={palette}
-                    onChange={(e) => setPalette(e.target.value as PixelPalette)}
-                  >
-                    <option value="neon">Quiet Neon</option>
-                    <option value="mono">Mono, 4 tones</option>
-                    <option value="full">Full colour, posterized</option>
-                  </select>
-                </label>
-                <label className="pg-switch">
-                  <input
-                    type="checkbox"
-                    checked={dither}
-                    onChange={(e) => setDither(e.target.checked)}
+                    options={PALETTE_OPTIONS}
+                    onChange={setPalette}
                   />
+                </Field>
+                <Check checked={dither} onChange={setDither}>
                   Ordered dithering
-                </label>
+                </Check>
                 <p>Preview only. Captures and the motion gate still use the clean feed.</p>
               </>
             )}
@@ -594,9 +589,9 @@ export function Playground() {
               hidden
               onChange={(e) => void openFile(e.target.files?.[0])}
             />
-            <button className="pg-button tertiary" onClick={() => file.current?.click()}>
+            <Button variant="ghost" size="sm" onClick={() => file.current?.click()}>
               <Glyph type="upload" /> Open a desk photo instead
-            </button>
+            </Button>
           </section>
 
           <section className={`pg-card ${live && !reviewing ? 'current' : ''}`}>
@@ -629,10 +624,14 @@ export function Playground() {
               />
               {motion.history.length > 1 && <polyline points={spark} />}
             </svg>
-            <label className="pg-field">
-              <span>
-                Threshold <b>{threshold.toFixed(1)}% of pixels</b>
-              </span>
+            <Field
+              className="pg-field"
+              label={
+                <>
+                  Threshold <b>{threshold.toFixed(1)}% of pixels</b>
+                </>
+              }
+            >
               <input
                 type="range"
                 min="0.2"
@@ -641,11 +640,15 @@ export function Playground() {
                 value={threshold}
                 onChange={(e) => setThreshold(Number(e.target.value))}
               />
-            </label>
-            <label className="pg-field">
-              <span>
-                Settle time <b>{settleMs} ms</b>
-              </span>
+            </Field>
+            <Field
+              className="pg-field"
+              label={
+                <>
+                  Settle time <b>{settleMs} ms</b>
+                </>
+              }
+            >
               <input
                 type="range"
                 min="200"
@@ -654,23 +657,13 @@ export function Playground() {
                 value={settleMs}
                 onChange={(e) => setSettleMs(Number(e.target.value))}
               />
-            </label>
-            <label className="pg-switch">
-              <input
-                type="checkbox"
-                checked={showCells}
-                onChange={(e) => setShowCells(e.target.checked)}
-              />
+            </Field>
+            <Check checked={showCells} onChange={setShowCells}>
               Show where it sees motion
-            </label>
-            <label className="pg-switch">
-              <input
-                type="checkbox"
-                checked={autoCapture}
-                onChange={(e) => setAutoCapture(e.target.checked)}
-              />
+            </Check>
+            <Check checked={autoCapture} onChange={setAutoCapture}>
               Capture automatically when the desk settles
-            </label>
+            </Check>
           </section>
         </aside>
         <section className="pg-scene" aria-label="Camera viewfinder">
@@ -763,9 +756,9 @@ export function Playground() {
                       : 'Start the camera to try the viewfinder.'}
                   </p>
                   <small>Frames stay in this tab unless you ask to detect objects.</small>
-                  <button className="pg-button tertiary" onClick={() => file.current?.click()}>
+                  <Button variant="ghost" onClick={() => file.current?.click()}>
                     <Glyph type="upload" /> Or open a desk photo
-                  </button>
+                  </Button>
                 </div>
               )}
 
@@ -865,17 +858,17 @@ export function Playground() {
                     )}
                   </p>
                   <div>
-                    <button className="pg-button tertiary" onClick={() => openInLab(shot)}>
+                    <Button variant="ghost" onClick={() => openInLab(shot)}>
                       Open in desk lab
-                    </button>
-                    <button className="pg-button secondary" onClick={leaveReview}>
+                    </Button>
+                    <Button onClick={leaveReview}>
                       {shot.source === 'file' || kept.some((k) => k.id === shot.id)
                         ? 'Close'
                         : 'Retake'}
-                    </button>
-                    <button className="pg-button primary" onClick={keep}>
+                    </Button>
+                    <Button variant="primary" onClick={keep}>
                       Keep frame
-                    </button>
+                    </Button>
                   </div>
                 </div>
               )}
@@ -883,14 +876,9 @@ export function Playground() {
           </div>
 
           <div className="pg-shutter-bar">
-            <label className="pg-switch">
-              <input
-                type="checkbox"
-                checked={mirror}
-                onChange={(e) => setMirror(e.target.checked)}
-              />
+            <Check checked={mirror} onChange={setMirror}>
               Mirror preview
-            </label>
+            </Check>
             <button
               className={`pg-shutter ${motion.state}`}
               disabled={!live || reviewing}
@@ -899,23 +887,18 @@ export function Playground() {
             >
               <span />
             </button>
-            <label className="pg-switch">
-              <input
-                type="checkbox"
-                checked={guides}
-                onChange={(e) => setGuides(e.target.checked)}
-              />
+            <Check checked={guides} onChange={setGuides}>
               Guides
-            </label>
+            </Check>
           </div>
           <section className="pg-strip" aria-label="Kept frames">
             <div className="pg-strip-head">
               <h2>Kept frames</h2>
               <span className="pg-hud">THIS TAB ONLY · {kept.length} / 6</span>
               {kept.length > 0 && (
-                <button className="pg-button tertiary" onClick={() => setKept([])}>
+                <Button variant="ghost" size="sm" onClick={() => setKept([])}>
                   Clear
-                </button>
+                </Button>
               )}
             </div>
             {kept.length ? (
@@ -940,9 +923,9 @@ export function Playground() {
                         {k.source === 'file' ? 'FILE' : k.state === 'still' ? '✓' : '◌'}
                       </span>
                     </span>
-                    <button className="pg-button tertiary" onClick={() => openInLab(k)}>
+                    <Button variant="ghost" size="sm" onClick={() => openInLab(k)}>
                       Open in desk lab
-                    </button>
+                    </Button>
                   </li>
                 ))}
               </ol>
@@ -976,33 +959,30 @@ export function Playground() {
               daily spending limit.
             </p>
             {meta && !canDetect && <p className="pg-mono">{meta.note}</p>}
-            <label className="pg-field">
-              <span>Object to mask</span>
+            <Field label="Object to mask">
               <input
                 value={concept}
                 maxLength={80}
                 onChange={(e) => setConcept(e.target.value)}
                 placeholder="mug"
               />
-            </label>
-            <label className="pg-switch">
-              <input
-                type="checkbox"
-                checked={watch}
-                disabled={
-                  !canDetect ||
-                  !live ||
-                  !concept.trim() ||
-                  (!watch && budgetLeft < (meta?.estimates.segment.usd ?? 0))
-                }
-                onChange={(e) => {
-                  setWatch(e.target.checked);
-                  watchDue.current = true;
-                  if (!e.target.checked) setSighting(undefined);
-                }}
-              />
+            </Field>
+            <Check
+              checked={watch}
+              disabled={
+                !canDetect ||
+                !live ||
+                !concept.trim() ||
+                (!watch && budgetLeft < (meta?.estimates.segment.usd ?? 0))
+              }
+              onChange={(on) => {
+                setWatch(on);
+                watchDue.current = true;
+                if (!on) setSighting(undefined);
+              }}
+            >
               Watch the desk: mask the {concept.trim() || 'object'} each time it settles
-            </label>
+            </Check>
             {meta && canDetect && (
               <p className="pg-mono">
                 {usd(meta.estimates.segment.usd)} per settle, at most one every{' '}
@@ -1019,13 +999,13 @@ export function Playground() {
               </p>
             )}
             <div className="pg-row">
-              <button
-                className="pg-button primary"
+              <Button
+                variant="primary"
                 disabled={!shot || !canDetect || Boolean(detecting) || !concept.trim()}
                 onClick={() => shot && void detect(shot)}
               >
                 {detecting ? 'Detecting…' : 'Detect on this frame'}
-              </button>
+              </Button>
             </div>
             {meta && (
               <p className="pg-mono">
@@ -1079,24 +1059,20 @@ export function Playground() {
             </p>
             <div className="pg-row">
               {drawing ? (
-                <button className="pg-button secondary" onClick={() => setDrawing(false)}>
-                  Done
-                </button>
+                <Button onClick={() => setDrawing(false)}>Done</Button>
               ) : (
-                <button className="pg-button secondary" onClick={startDrawing}>
-                  {zone ? 'Redraw zone' : 'Draw zone'}
-                </button>
+                <Button onClick={startDrawing}>{zone ? 'Redraw zone' : 'Draw zone'}</Button>
               )}
               {zone && (
-                <button
-                  className="pg-button tertiary"
+                <Button
+                  variant="ghost"
                   onClick={() => {
                     setZone(undefined);
                     setDrawing(false);
                   }}
                 >
                   Clear
-                </button>
+                </Button>
               )}
             </div>
             {zone && (
@@ -1104,14 +1080,9 @@ export function Playground() {
                 X {pct(zone.x)} · Y {pct(zone.y)} · W {pct(zone.width)} · H {pct(zone.height)}
               </p>
             )}
-            <label className="pg-switch">
-              <input
-                type="checkbox"
-                checked={testBox}
-                onChange={(e) => setTestBox(e.target.checked)}
-              />
+            <Check checked={testBox} onChange={setTestBox}>
               Test box (used until a frame has a real detection)
-            </label>
+            </Check>
             <p className={`pg-verdict ${verdict.tone}`}>
               <span>{verdict.glyph}</span>
               {verdict.text}

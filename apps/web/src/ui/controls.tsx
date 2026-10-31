@@ -109,7 +109,13 @@ export function Field({
   );
 }
 
-export type Option<T extends string> = { value: T; label: ReactNode; disabled?: boolean };
+export type Option<T extends string> = {
+  value: T;
+  label: ReactNode;
+  disabled?: boolean;
+  /** A tooltip for this option. */
+  title?: string;
+};
 
 export function Select<T extends string>({
   value,
@@ -124,7 +130,7 @@ export function Select<T extends string>({
   return (
     <select {...rest} value={value} onChange={(e) => onChange(e.target.value as T)}>
       {options.map((o) => (
-        <option key={o.value} value={o.value} disabled={o.disabled}>
+        <option key={o.value} value={o.value} disabled={o.disabled} title={o.title}>
           {o.label}
         </option>
       ))}
@@ -218,6 +224,7 @@ export function Segmented<T extends string>({
           type="button"
           aria-pressed={o.value === value}
           disabled={disabled || o.disabled}
+          title={o.title}
           onClick={() => onChange(o.value)}
         >
           {o.label}

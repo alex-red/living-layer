@@ -56,32 +56,7 @@
 }
 .phone-pairing-actions {
   display: flex;
-  gap: 8px;
-}
-.phone-pairing-actions button {
-  flex: 1;
-}
-.phone-pairing button {
-  min-height: var(--control-h);
-  padding: 0 12px;
-  border: 1px solid var(--line-strong);
-  border-radius: var(--r-button);
-  background: rgb(33 38 55 / 72%);
-  color: var(--text);
-  font: inherit;
-  font-weight: 600;
-}
-.phone-pairing button:hover:not(:disabled) {
-  background: var(--surface-3);
-}
-.phone-pairing button.primary {
-  border-color: transparent;
-  background: var(--seen);
-  color: var(--void);
-}
-.phone-pairing button.primary:hover:not(:disabled) {
-  background: var(--seen);
-  box-shadow: 0 0 24px var(--seen-glow);
+  gap: 4px;
 }
 .popover.phone-pop {
   top: auto;

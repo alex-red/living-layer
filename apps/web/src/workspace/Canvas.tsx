@@ -21,6 +21,7 @@ import { SurfacePin } from '../iso/SurfacePin';
 import { RoomCalibrate } from '../iso/RoomCalibrate';
 import { CalibrationOverlay } from '../iso/CalibrationOverlay';
 import type { StageView } from '../session';
+import { Button, Check, Segmented, type Option } from '../ui/controls';
 import { useLab } from './LabContext';
 import { DeskStep, Onboarding } from './Onboarding';
 import { Popover } from './Popover';
@@ -30,10 +31,10 @@ import { demoFrameUrl } from './demoFrame';
 /** Which layer placed a watched thing's box last, as its tag says it. */
 const WATCH_LAYER = { local: 'LOCAL', appearance: 'LOOKS', sam: 'SAM' } as const;
 
-const VIEWS: { id: StageView; label: string }[] = [
-  { id: 'photo', label: 'Photo' },
-  { id: 'iso', label: 'Iso' },
-  { id: 'split', label: 'Split' },
+const VIEWS: Option<StageView>[] = [
+  { value: 'photo', label: 'Photo' },
+  { value: 'iso', label: 'Iso' },
+  { value: 'split', label: 'Split' },
 ];
 
 /** What the canvas is busy with, if it has taken over: one edit mode at a time. */
@@ -64,9 +65,7 @@ function EditBanner() {
   return (
     <div className="edit-banner" role="status">
       <span>{text}</span>
-      <button className="secondary" onClick={done}>
-        {label}
-      </button>
+      <Button onClick={done}>{label}</Button>
     </div>
   );
 }
@@ -168,7 +167,7 @@ export function Canvas() {
           label="Layers"
           className="layers"
           button={(open, toggle) => (
-            <button className="secondary layers-button" aria-expanded={open} onClick={toggle}>
+            <Button size="sm" className="layers-button" aria-expanded={open} onClick={toggle}>
               Layers
               <small>
                 {
@@ -183,7 +182,7 @@ export function Canvas() {
                 }
                 /{4 + Number(picture) + Number(Boolean(calibration))}
               </small>
-            </button>
+            </Button>
           )}
         >
           {() => (
@@ -227,29 +226,22 @@ export function Canvas() {
                     : []),
                 ] as const
               ).map(([name, hint, on, set]) => (
-                <label key={name} className="overlay-toggle">
-                  <input type="checkbox" checked={on} onChange={(e) => set(e.target.checked)} />
-                  <span>
-                    {name}
-                    <small>{hint}</small>
-                  </span>
-                </label>
+                <Check key={name} className="overlay-toggle" checked={on} onChange={set}>
+                  {name}
+                  <small>{hint}</small>
+                </Check>
               ))}
             </div>
           )}
         </Popover>
-        <div className="mode-switch stage-view three" aria-label="Stage view">
-          {VIEWS.map((v) => (
-            <button
-              key={v.id}
-              aria-pressed={stageView === v.id}
-              disabled={Boolean(pinning)}
-              onClick={() => lab.setStageView(v.id)}
-            >
-              {v.label}
-            </button>
-          ))}
-        </div>
+        <Segmented
+          className="stage-view"
+          label="Stage view"
+          value={stageView}
+          options={VIEWS}
+          disabled={Boolean(pinning)}
+          onChange={lab.setStageView}
+        />
       </div>
       {!onboarding && (
         <div className="stage-tools">
@@ -274,27 +266,24 @@ export function Canvas() {
             }
           />
           {showIso && picture && lab.showPicture && roomFixtures && (
-            <div className="mode-switch fixture-look" aria-label="Fixtures on the picture">
-              {(
-                [
-                  [
-                    'picture',
-                    'Picture',
-                    'Fixtures as the picture shows them: their cut-outs, once lifted',
-                  ],
-                  ['model', 'Models', 'Fixtures as their own models, drawn on the picture'],
-                ] as const
-              ).map(([id, label, hint]) => (
-                <button
-                  key={id}
-                  aria-pressed={lab.fixtureLook === id}
-                  title={hint}
-                  onClick={() => lab.setFixtureLook(id)}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
+            <Segmented
+              className="fixture-look"
+              label="Fixtures on the picture"
+              value={lab.fixtureLook}
+              onChange={lab.setFixtureLook}
+              options={[
+                {
+                  value: 'picture',
+                  label: 'Picture',
+                  title: 'Fixtures as the picture shows them: their cut-outs, once lifted',
+                },
+                {
+                  value: 'model',
+                  label: 'Models',
+                  title: 'Fixtures as their own models, drawn on the picture',
+                },
+              ]}
+            />
           )}
         </div>
       )}
@@ -754,7 +743,7 @@ export function Canvas() {
             <div className="capture-actions">
               {camera ? (
                 <>
-                  <button
+                  <Button
                     disabled={Boolean(busy)}
                     onClick={() => {
                       const v = lab.video.current;
@@ -765,12 +754,12 @@ export function Canvas() {
                     }}
                   >
                     Capture frame
-                  </button>
-                  <button onClick={lab.stopCamera}>Stop camera</button>
+                  </Button>
+                  <Button onClick={lab.stopCamera}>Stop camera</Button>
                   {lab.zoomable &&
                     (lab.zooming ? (
                       <>
-                        <button
+                        <Button
                           disabled={!zoomOk || Boolean(busy)}
                           title={
                             zoomRect && !zoomOk
@@ -780,32 +769,32 @@ export function Canvas() {
                           onClick={() => void lab.saveZoom(zoomRect ?? null)}
                         >
                           Keep this view
-                        </button>
-                        <button onClick={() => lab.setZooming(null)}>Cancel</button>
+                        </Button>
+                        <Button onClick={() => lab.setZooming(null)}>Cancel</Button>
                       </>
                     ) : (
                       <>
-                        <button
+                        <Button
                           disabled={Boolean(busy)}
                           title="Draw the part of this camera’s view to keep. It opens on it every time it connects."
                           onClick={lab.startZooming}
                         >
                           Zoom view
-                        </button>
+                        </Button>
                         {lab.zoomable.crop && (
-                          <button disabled={Boolean(busy)} onClick={() => void lab.saveZoom(null)}>
+                          <Button disabled={Boolean(busy)} onClick={() => void lab.saveZoom(null)}>
                             Whole view
-                          </button>
+                          </Button>
                         )}
                       </>
                     ))}
                 </>
               ) : (
                 <>
-                  <button disabled={Boolean(busy)} onClick={() => lab.file.current?.click()}>
+                  <Button disabled={Boolean(busy)} onClick={() => lab.file.current?.click()}>
                     <Glyph type="upload" /> Upload
-                  </button>
-                  <button
+                  </Button>
+                  <Button
                     disabled={Boolean(busy) || lab.cameraPending}
                     onClick={() => void lab.startCamera()}
                   >
@@ -815,14 +804,14 @@ export function Canvas() {
                       : chosenStream?.snapshot && !chosenStream.whep && !chosenStream.preview
                         ? 'Grab frame'
                         : 'Camera'}
-                  </button>
+                  </Button>
                   <Popover
                     label="Use a phone as the camera"
                     className="phone-pop"
                     button={(open, toggle) => (
-                      <button aria-expanded={open} disabled={Boolean(busy)} onClick={toggle}>
+                      <Button aria-expanded={open} disabled={Boolean(busy)} onClick={toggle}>
                         Phone
-                      </button>
+                      </Button>
                     )}
                   >
                     {(close) => (
@@ -840,9 +829,9 @@ export function Canvas() {
                     label="Stream cameras"
                     className="camera-pop"
                     button={(open, toggle) => (
-                      <button aria-expanded={open} disabled={Boolean(busy)} onClick={toggle}>
+                      <Button aria-expanded={open} disabled={Boolean(busy)} onClick={toggle}>
                         Cameras
-                      </button>
+                      </Button>
                     )}
                   >
                     {(close) => (

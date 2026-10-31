@@ -284,11 +284,13 @@ test('drafts a custom room offline, saves it, and lights a rule’s lamp', async
   await page.getByRole('button', { name: 'Iso', exact: true }).click();
   await outline(page, 'Office').click();
   await page.getByRole('button', { name: 'Edit layout', exact: true }).click();
-  await page.getByRole('button', { name: 'Draft with Spark', exact: true }).click();
+  await page.getByRole('button', { name: 'Layout', exact: true }).click();
+  await page.getByText('More ways', { exact: true }).click();
+  await page.getByRole('button', { name: 'Spark only', exact: true }).click();
   await expect(page.locator('.scene-editor .iso-note')).toContainText('Spark:');
   await page.locator('.scene-canvas [data-prop="lamp"]').dispatchEvent('pointerdown');
   await page.getByLabel('Lamp light').selectOption('light.demo_shelf');
-  await page.getByRole('button', { name: 'Save scene', exact: true }).click();
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
   // The saved scene is the room now, with its own office desk close view.
   await expect(outline(page, 'Drafted room')).toHaveAttribute('aria-current', 'true');
   await expect(outline(page, 'Office desk')).toBeVisible();

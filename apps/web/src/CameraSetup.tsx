@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { savedStreamId, type CameraScene, type CameraView } from '@livinglayer/domain';
 import { api } from './api';
+import { Button, Field, Select } from './ui/controls';
 import './camera-setup.css';
 
 export interface RoomOption {
@@ -124,33 +125,54 @@ export function CameraSetup({
                 </p>
               )}
               <div className="camera-setup-actions">
-                <button
-                  className="primary"
+                <Button
+                  variant="primary"
+                  size="sm"
                   disabled={busy}
                   onClick={() => onUse(savedStreamId(c.id))}
                 >
                   Use
-                </button>
-                <button disabled={busy} onClick={() => setPreview({ id: c.id, n: Date.now() })}>
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled={busy}
+                  onClick={() => setPreview({ id: c.id, n: Date.now() })}
+                >
                   Check
-                </button>
-                <button
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
                   disabled={busy}
                   onClick={() => setDraft({ id: c.id, name: c.name, url: '', scene: c.scene })}
                 >
                   Edit
-                </button>
+                </Button>
                 {removing === c.id ? (
                   <>
-                    <button disabled={busy} onClick={() => void remove(c)}>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="destructive"
+                      disabled={busy}
+                      onClick={() => void remove(c)}
+                    >
                       Yes, remove (watching stops if it uses it)
-                    </button>
-                    <button onClick={() => setRemoving(null)}>Keep</button>
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={() => setRemoving(null)}>
+                      Keep
+                    </Button>
                   </>
                 ) : (
-                  <button disabled={busy} onClick={() => setRemoving(c.id)}>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    disabled={busy}
+                    onClick={() => setRemoving(c.id)}
+                  >
                     Remove
-                  </button>
+                  </Button>
                 )}
               </div>
             </li>
@@ -165,17 +187,15 @@ export function CameraSetup({
             void save();
           }}
         >
-          <label>
-            Name
+          <Field label="Name">
             <input
               value={draft.name}
               maxLength={60}
               placeholder="Office camera"
               onChange={(e) => setDraft({ ...draft, name: e.target.value })}
             />
-          </label>
-          <label>
-            Stream URL
+          </Field>
+          <Field label="Stream URL">
             <input
               value={draft.url}
               maxLength={500}
@@ -188,40 +208,27 @@ export function CameraSetup({
               }
               onChange={(e) => setDraft({ ...draft, url: e.target.value })}
             />
-          </label>
-          <label>
-            Room
-            <select
+          </Field>
+          <Field label="Room">
+            <Select<string>
               value={draft.scene ?? ''}
-              onChange={(e) =>
-                setDraft({ ...draft, scene: (e.target.value || null) as CameraScene })
-              }
-            >
-              <option value="">No room</option>
-              {rooms.map((r) => (
-                <option key={r.value} value={r.value}>
-                  {r.label}
-                </option>
-              ))}
-            </select>
-          </label>
+              options={[{ value: '', label: 'No room' }, ...rooms]}
+              onChange={(v) => setDraft({ ...draft, scene: (v || null) as CameraScene })}
+            />
+          </Field>
           <div className="camera-setup-actions">
-            <button
-              className="primary"
-              type="submit"
-              disabled={busy || !draft.name.trim() || !urlOk}
-            >
+            <Button variant="primary" type="submit" disabled={busy || !draft.name.trim() || !urlOk}>
               {draft.id ? 'Save' : 'Add camera'}
-            </button>
-            <button type="button" disabled={busy} onClick={() => setDraft(null)}>
+            </Button>
+            <Button type="button" disabled={busy} onClick={() => setDraft(null)}>
               Cancel
-            </button>
+            </Button>
           </div>
         </form>
       ) : (
-        <button disabled={busy || cameras === null} onClick={() => setDraft(EMPTY)}>
+        <Button disabled={busy || cameras === null} onClick={() => setDraft(EMPTY)}>
           Add a camera by URL
-        </button>
+        </Button>
       )}
     </div>
   );

@@ -93,7 +93,7 @@ Display flourish: the large title and big numerals (such as the `0 / 4` checklis
 - **Grid:** 4 px base. Spacing steps are 4, 8, 12, 16, 24, 32, 48, 64, 96.
 - **Radii:** nearly square. 2 for chips, inputs and buttons, 3 for cards, 4 for panels and the scene frame. Only status dots, checklist rings and the shutter stay round.
 - **HUD brackets:** detections and the scene frame get corner ticks (four L-shaped 12 px strokes) instead of full boxes. Brackets are our "cyberpunk" shape. Cut, chamfered panel corners are not; see [originality](#originality).
-- **Density:** the labs are dense tools. Buttons and inputs are 32 px tall (28 px for tabs and segmented controls), and the body text is 13 px.
+- **Density:** the labs are dense tools. Buttons, inputs, selects and segmented controls are 28 px tall (`--control-h`), 24 px in dense rows and toolbars (`--control-h-sm`); control and body text is 13 px, helper text 12 px. Take heights from the tokens, never a literal.
 - **Desktop:** content max width 1440 px, 12 columns, 24 px gutters. The scene outline sits on the left, the canvas in the middle and the inspector on the right. The activity drawer (the evidence log) sits full width below. See [plans/workspace.md](plans/workspace.md).
 - **Mobile (under 768 px):** a single column with the scene first. The current step's primary action sits in a sticky bottom bar within thumb reach. There must be no horizontal scroll; a browser test already checks this.
 
@@ -139,7 +139,7 @@ Under `prefers-reduced-motion`, every sweep, ignition and shimmer becomes a 150 
 
 **Status capsule.** A floating glass pill, top centre, inspired by the Dynamic Island. It shows the current operation ("Discovering objects", "Lamp on · confirmed") with a signal dot, and replaces today's feedback bar. It expands to show an error message and collapses after 4 s. It's also the `aria-live` region.
 
-**Mode switch.** An iOS-style segmented control (`Demo | Live`; the code calls demo mode `demo`) with a sliding thumb. In Live mode, a small `LIVE` HUD tag appears in the top bar.
+**Segmented control.** One of a few, with a sliding thumb (`<Segmented>`): the mode switch (`Demo | Live`; the code calls demo mode `demo`), the stage view, an item's views. In Live mode, a small `LIVE` HUD tag appears in the top bar.
 
 **Privacy dots.** While the camera is streaming, a green dot shows next to the camera button, and in the status capsule, following Apple's camera indicator. Users already know this pattern; don't restyle it.
 
@@ -149,11 +149,14 @@ Under `prefers-reduced-motion`, every sweep, ignition and shimmer becomes a 150 
 | ----------- | --------------------------------------------- | -------------------------------- |
 | Primary     | Filled `--seen`, `--void` text                | Discover objects, Segment object |
 | Physical    | Filled `--warm`, `--void` text, glow on hover | Verify placement · turn on lamp  |
-| Secondary   | Regular glass, `--text`                       | Confirm mug mask, Save zone      |
+| Secondary   | Faint fill and line, `--text`                 | Confirm mug mask, Save zone      |
+| Ghost       | No frame until hovered, `--text-2`            | Toolbar and row actions          |
 | Tertiary    | Text only, `--text-2`, underline on hover     | Test absent target, Draw zone    |
 | Destructive | Text only, `--blocked`                        | Reset desk memory                |
 
-Only one primary or physical button is visible per step.
+Only one primary or physical button is visible per step. Icon-only actions are `<IconButton>`: square, quiet, and named by their label for the tooltip and screen readers.
+
+**Controls in code.** Use the components in `apps/web/src/ui/controls.tsx` (`Button`, `IconButton`, `Field`, `Select`, `NumberInput`, `Check`, `Segmented`, `Toolbar`); their look lives in `ui/controls.css`, loaded before every screen's styles so a screen can still set a width or a place. A screen never sets a control's height, padding or font.
 
 **Detections.** HUD brackets in `--seen` around the box, the mask at 24% `--seen-wash` with a 1 px contour, and a mono tag above it: `MUG · #7 · 0.94`. A confirmed detection switches its brackets to `--chosen`.
 

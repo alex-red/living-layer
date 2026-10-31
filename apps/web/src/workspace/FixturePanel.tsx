@@ -21,6 +21,15 @@ import {
 } from '@livinglayer/domain';
 import { api } from '../api';
 import { Glyph } from '../Glyph';
+import {
+  Button,
+  Check,
+  Field,
+  IconButton,
+  Segmented,
+  Select,
+  type ButtonVariant,
+} from '../ui/controls';
 import { itemSprite } from '../iso/sprites';
 import type { FixturePlacing } from '../iso/IsoView';
 import { useLab } from './LabContext';
@@ -85,13 +94,13 @@ async function photoDataUrl(file: File): Promise<string> {
 }
 /** A button that picks a photo; with `capture`, phones open the camera instead. */
 function PhotoButton({
-  className,
+  variant,
   capture,
   disabled,
   onFile,
   children,
 }: {
-  className: string;
+  variant: ButtonVariant;
   capture?: boolean;
   disabled: boolean;
   onFile: (file: File) => void;
@@ -100,9 +109,9 @@ function PhotoButton({
   const input = useRef<HTMLInputElement>(null);
   return (
     <>
-      <button className={className} disabled={disabled} onClick={() => input.current?.click()}>
+      <Button variant={variant} disabled={disabled} onClick={() => input.current?.click()}>
         {children}
-      </button>
+      </Button>
       <input
         ref={input}
         type="file"
@@ -239,16 +248,14 @@ export function ScanFixtures({
           : 'Scans the demo office with no model call. A fixture you already have is reused; anything new is modelled from its outline.'}
       </p>
       {scenes.length > 1 && (
-        <div className="mode-switch" role="group" aria-label="Scene to map into">
-          {scenes.map((s) => (
-            <button key={s.id} aria-pressed={scene === s.id} onClick={() => setChosen(s.id)}>
-              {s.label}
-            </button>
-          ))}
-        </div>
+        <Segmented
+          label="Scene to map into"
+          value={scene ?? ''}
+          onChange={(id) => setChosen(id as WorkScene)}
+          options={scenes.map((s) => ({ value: s.id, label: s.label }))}
+        />
       )}
-      <button
-        className="secondary"
+      <Button
         disabled={off || blocked}
         title={blocked ? (scene ? 'Add a desk photo first.' : 'Pin a surface first.') : undefined}
         onClick={() =>
@@ -262,17 +269,11 @@ export function ScanFixtures({
           : inScene.some((f) => f.scanned)
             ? 'Scan again'
             : 'Scan and map'}
-      </button>
+      </Button>
       {placedByHand && (
-        <label className="photo-check">
-          <input
-            type="checkbox"
-            checked={replace}
-            disabled={off}
-            onChange={(e) => setReplace(e.target.checked)}
-          />
+        <Check checked={replace} disabled={off} onChange={setReplace}>
           Also move fixtures you placed by hand to where the scan finds them
-        </label>
+        </Check>
       )}
       <Cost>
         One Spark call and one SAM call, refused up front if today’s limit can’t cover them.
@@ -284,10 +285,10 @@ export function ScanFixtures({
             <span key={d}>
               {i > 0 && ', '}
               {d}{' '}
-              <button
-                className="text-button"
+              <IconButton
+                size="sm"
                 disabled={off}
-                aria-label={`Let scans find “${d}” again`}
+                label={`Let scans find “${d}” again`}
                 onClick={() =>
                   void call<DeskMemory>('fixtures/undismiss', { label: d }, (m) => {
                     lab.setMemory(m);
@@ -296,7 +297,7 @@ export function ScanFixtures({
                 }
               >
                 ✕
-              </button>
+              </IconButton>
             </span>
           ))}
         </p>
@@ -383,8 +384,7 @@ export function NewFixturePanel() {
         tone="seen"
       >
         <div className="save-actions">
-          <button
-            className="secondary"
+          <Button
             onClick={() =>
               lab.setPlacing({
                 ...placing,
@@ -393,10 +393,8 @@ export function NewFixturePanel() {
             }
           >
             Turn ↻
-          </button>
-          <button className="secondary" onClick={() => lab.setPlacing(null)}>
-            Cancel
-          </button>
+          </Button>
+          <Button onClick={() => lab.setPlacing(null)}>Cancel</Button>
         </div>
       </Panel>
     );
@@ -416,16 +414,14 @@ export function NewFixturePanel() {
         tone="seen"
       >
         <div className="save-actions">
-          <button
-            className="primary"
+          <Button
+            variant="primary"
             disabled={!big || pending || Boolean(busy) || !target}
             onClick={() => rect && void draftFrom({ box: rect })}
           >
             {pending ? 'Drafting…' : 'Draft from the box'}
-          </button>
-          <button className="secondary" onClick={() => lab.setBoxing(null)}>
-            Cancel
-          </button>
+          </Button>
+          <Button onClick={() => lab.setBoxing(null)}>Cancel</Button>
         </div>
       </Panel>
     );
@@ -444,7 +440,7 @@ export function NewFixturePanel() {
         <div className="fixture-drop" aria-disabled={!live}>
           <div className="save-actions">
             <PhotoButton
-              className="primary"
+              variant="primary"
               capture
               disabled={!live || off}
               onFile={(file) => void draftFrom({ file })}
@@ -452,7 +448,7 @@ export function NewFixturePanel() {
               {pending && live ? 'Drafting…' : 'Take a photo'}
             </PhotoButton>
             <PhotoButton
-              className="secondary"
+              variant="secondary"
               disabled={!live || off}
               onFile={(file) => void draftFrom({ file })}
             >
@@ -460,10 +456,7 @@ export function NewFixturePanel() {
             </PhotoButton>
           </div>
           {live && (
-            <>
-              <label className="input-label" htmlFor="fixture-hint">
-                What is it? (optional)
-              </label>
+            <Field label="What is it? (optional)">
               <input
                 id="fixture-hint"
                 value={hint}
@@ -471,7 +464,7 @@ export function NewFixturePanel() {
                 placeholder="desk lamp"
                 onChange={(e) => setHint(e.target.value)}
               />
-            </>
+            </Field>
           )}
           <p className="micro">
             {live
@@ -479,14 +472,14 @@ export function NewFixturePanel() {
               : 'Demo mode drafts from the bundled pictures below, with no model call. Switch to Live to use your own photo.'}
           </p>
         </div>
-        <button
-          className="text-button"
+        <Button
+          variant="text"
           disabled={off || (live && !lab.image)}
           title={live && !lab.image ? 'Add a desk photo first.' : undefined}
           onClick={() => lab.startBoxing()}
         >
           Or box it on the desk photo →
-        </button>
+        </Button>
         <ScanFixtures initial={target} />
         {!live && (
           <div className="object-grid">
@@ -532,16 +525,15 @@ export function NewFixturePanel() {
           {d.model.parts.length === 1 ? '' : 's'} · drawn as a {d.archetype}
         </p>
       )}
-      <label className="input-label" htmlFor="fixture-name">
-        Name
-      </label>
-      <input
-        id="fixture-name"
-        value={label}
-        maxLength={40}
-        onChange={(e) => setLabel(e.target.value)}
-      />
-      <span className="input-label">What is it?</span>
+      <Field label="Name">
+        <input
+          id="fixture-name"
+          value={label}
+          maxLength={40}
+          onChange={(e) => setLabel(e.target.value)}
+        />
+      </Field>
+      <span className="tiny">What is it?</span>
       <ControlPicker kind={kind} entity={entity} onKind={setKind} onEntity={setEntity} />
       <p className="micro">
         {d.suggested === 'none'
@@ -549,26 +541,18 @@ export function NewFixturePanel() {
           : `Looks like a ${d.suggested}.`}
       </p>
       {scenes.length > 1 && (
-        <>
-          <label className="input-label" htmlFor="fixture-scene">
-            Room
-          </label>
-          <select
+        <Field label="Room">
+          <Select
             id="fixture-scene"
             value={target ?? ''}
-            onChange={(e) => setScene(e.target.value as WorkScene)}
-          >
-            {scenes.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.label}
-              </option>
-            ))}
-          </select>
-        </>
+            onChange={(id) => setScene(id as WorkScene)}
+            options={scenes.map((s) => ({ value: s.id, label: s.label }))}
+          />
+        </Field>
       )}
       <div className="save-actions">
-        <button
-          className="primary"
+        <Button
+          variant="primary"
           disabled={!ready}
           onClick={() =>
             lab.startPlacing({
@@ -584,10 +568,8 @@ export function NewFixturePanel() {
         >
           Place it
           <Glyph type="arrow" />
-        </button>
-        <button className="secondary" onClick={() => setDraft(null)}>
-          Start over
-        </button>
+        </Button>
+        <Button onClick={() => setDraft(null)}>Start over</Button>
       </div>
     </Panel>
   );
@@ -661,16 +643,12 @@ export function FixturePanel({ id }: { id: string }) {
       {entityId && (
         <>
           <div className="save-actions">
-            <button className="primary" disabled={off || liveBlocked} onClick={() => control('on')}>
+            <Button variant="primary" disabled={off || liveBlocked} onClick={() => control('on')}>
               Turn on
-            </button>
-            <button
-              className="secondary"
-              disabled={off || liveBlocked}
-              onClick={() => control('off')}
-            >
+            </Button>
+            <Button disabled={off || liveBlocked} onClick={() => control('off')}>
               Turn off
-            </button>
+            </Button>
           </div>
           {liveBlocked && (
             <p className="micro">Set the HA_* variables and HA_LIVE_ENABLED to switch it.</p>
@@ -689,27 +667,24 @@ export function FixturePanel({ id }: { id: string }) {
           {linked.map((l, i) => (
             <span key={l.id}>
               {i > 0 && ', '}
-              <button
-                className="text-button"
-                onClick={() => lab.select({ kind: 'fixture', id: l.id })}
-              >
+              <Button variant="text" onClick={() => lab.select({ kind: 'fixture', id: l.id })}>
                 {l.scene === 'custom' ? roomLabel('custom', memory) : ISO_PRESETS[l.scene].label}
-              </button>
+              </Button>
             </span>
           ))}
           : its name, model and switch stay the same in each.
         </p>
       )}
       <div className="save-actions">
-        <button
-          className="secondary"
+        <Button
+          size="sm"
           disabled={off}
           onClick={() => (moving ? lab.setPlacing(null) : lab.startPlacing(inputOf(f)))}
         >
           {moving ? 'Cancel move' : 'Move'}
-        </button>
-        <button
-          className="secondary"
+        </Button>
+        <Button
+          size="sm"
           disabled={off || moving}
           onClick={() =>
             save(
@@ -719,10 +694,10 @@ export function FixturePanel({ id }: { id: string }) {
           }
         >
           Turn ↻
-        </button>
-        <button className="secondary" disabled={off || moving} onClick={() => lab.openModel(f.id)}>
+        </Button>
+        <Button size="sm" disabled={off || moving} onClick={() => lab.openModel(f.id)}>
           Edit model
-        </button>
+        </Button>
       </div>
       <SculptFixture fixture={f} disabled={off || moving} />
       <FixtureCamera fixture={f} disabled={off || moving} />
@@ -735,8 +710,8 @@ export function FixturePanel({ id }: { id: string }) {
         ) : (
           <>
             Placed by you: scans leave it here.{' '}
-            <button
-              className="text-button"
+            <Button
+              variant="text"
               disabled={off || moving}
               onClick={() =>
                 void lab.updateFixture(
@@ -747,7 +722,7 @@ export function FixturePanel({ id }: { id: string }) {
               }
             >
               Let scans place it
-            </button>
+            </Button>
           </>
         )}
       </p>
@@ -757,8 +732,8 @@ export function FixturePanel({ id }: { id: string }) {
             <>
               The room shows it where you put it here; the office desk shows it where its camera
               does.{' '}
-              <button
-                className="text-button"
+              <Button
+                variant="text"
                 disabled={off || moving}
                 onClick={() =>
                   void lab.updateFixture(
@@ -769,7 +744,7 @@ export function FixturePanel({ id }: { id: string }) {
                 }
               >
                 Put it where the desk shows it
-              </button>
+              </Button>
             </>
           ) : (
             'The room shows it where the desk’s camera puts it. Moving it here keeps a place of its own for the room, and leaves the office desk as it is.'
@@ -777,16 +752,17 @@ export function FixturePanel({ id }: { id: string }) {
         </p>
       )}
       {scene && (
-        <>
-          <label className="input-label" htmlFor="fixture-surface">
-            Stands on
-          </label>
-          <select
+        <Field label="Stands on">
+          <Select
             id="fixture-surface"
             value={(lab.inRoomViewOf(f) && f.room ? f.room.surfaceId : f.surfaceId) ?? ''}
             disabled={off || moving}
-            onChange={(e) => {
-              const surfaceId = e.target.value || null;
+            options={[
+              { value: '', label: 'The floor' },
+              ...scene.surfaces.map((s) => ({ value: s.id, label: s.label })),
+            ]}
+            onChange={(value) => {
+              const surfaceId = value || null;
               const name = scene.surfaces.find((s) => s.id === surfaceId)?.label ?? 'the floor';
               void lab.updateFixture(
                 f.id,
@@ -794,20 +770,12 @@ export function FixturePanel({ id }: { id: string }) {
                 `The ${f.label.toLowerCase()} stands on ${surfaceId ? name.toLowerCase() : name} now.`,
               );
             }}
-          >
-            <option value="">The floor</option>
-            {scene.surfaces.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.label}
-              </option>
-            ))}
-          </select>
-        </>
+          />
+        </Field>
       )}
       <Details summary="What it is">
         <ControlPicker kind={kind} entity={entity} onKind={setKind} onEntity={setEntity} />
-        <button
-          className="secondary"
+        <Button
           disabled={off || (kind !== 'none' && !entity)}
           onClick={() =>
             save(
@@ -822,13 +790,12 @@ export function FixturePanel({ id }: { id: string }) {
           }
         >
           Save
-        </button>
+        </Button>
       </Details>
       <Details summary="Size">
         <div className="fixture-size">
           {(['w', 'd', 'h'] as const).map((k) => (
-            <label key={k}>
-              <span className="tiny">{{ w: 'Width', d: 'Depth', h: 'Height' }[k]}</span>
+            <Field key={k} label={{ w: 'Width', d: 'Depth', h: 'Height' }[k]}>
               <input
                 type="number"
                 min={0.1}
@@ -842,27 +809,26 @@ export function FixturePanel({ id }: { id: string }) {
                   })
                 }
               />
-            </label>
+            </Field>
           ))}
         </div>
         <p className="micro">
           In tiles of this scene, about {tileCm()} cm each. The model is scaled to fit, centred
           where it stands.
         </p>
-        <button
-          className="secondary"
+        <Button
           disabled={off || moving || !resized}
           onClick={() =>
             void lab.updateFixture(f.id, { size }, `Resized the ${f.label.toLowerCase()}.`)
           }
         >
           Save size
-        </button>
+        </Button>
       </Details>
       <Details summary="Delete">
         <div className="save-actions">
-          <button
-            className="text-button destructive"
+          <Button
+            variant="danger"
             disabled={off}
             onClick={() =>
               void call<DeskMemory>('fixtures/delete', { fixtureId: f.id }, (m) => {
@@ -873,9 +839,9 @@ export function FixturePanel({ id }: { id: string }) {
             }
           >
             Delete “{f.label}”
-          </button>
-          <button
-            className="text-button destructive"
+          </Button>
+          <Button
+            variant="danger"
             disabled={off}
             onClick={() =>
               void call<DeskMemory>('fixtures/delete', { fixtureId: f.id, dismiss: true }, (m) => {
@@ -888,7 +854,7 @@ export function FixturePanel({ id }: { id: string }) {
             }
           >
             Not a fixture
-          </button>
+          </Button>
         </div>
         <p className="micro">
           “Not a fixture” also tells scans to skip it, for something they keep finding that isn’t
@@ -929,33 +895,27 @@ function FixtureCamera({ fixture: f, disabled }: { fixture: Fixture; disabled: b
           : 'Not followed. Find it in the camera so its place follows it and it can decide rules.'}
       </p>
       <div className="save-actions">
-        <button
-          className="secondary"
+        <Button
           disabled={disabled || Boolean(busy)}
           onClick={() => void lab.findFixture(f.id)}
           title="Point SAM at where it should stand in the camera's view (one call)"
         >
           {busy === 'find-fixture' ? 'Looking…' : f.track ? 'Find it again' : 'Find in camera'}
-        </button>
+        </Button>
         {f.track && (
-          <button
-            className="text-button"
-            disabled={disabled}
-            onClick={() => void lab.untrackFixture(f.id)}
-          >
+          <Button variant="text" disabled={disabled} onClick={() => void lab.untrackFixture(f.id)}>
             Stop following
-          </button>
+          </Button>
         )}
       </div>
       {found.map((d) => (
-        <button
+        <Button
           key={d.objectId}
-          className="secondary"
           disabled={disabled || Boolean(busy)}
           onClick={() => void lab.anchorFixture(f.id, d.objectId)}
         >
           It’s outline #{d.objectId}
-        </button>
+        </Button>
       ))}
     </Details>
   );
@@ -995,16 +955,12 @@ export function LampPanel({ id }: { id: string }) {
     >
       {lamp.entity && (
         <div className="save-actions">
-          <button className="primary" disabled={off || liveBlocked} onClick={() => control('on')}>
+          <Button variant="primary" disabled={off || liveBlocked} onClick={() => control('on')}>
             Turn on
-          </button>
-          <button
-            className="secondary"
-            disabled={off || liveBlocked}
-            onClick={() => control('off')}
-          >
+          </Button>
+          <Button disabled={off || liveBlocked} onClick={() => control('off')}>
             Turn off
-          </button>
+          </Button>
         </div>
       )}
       {liveBlocked && (
@@ -1017,9 +973,9 @@ export function LampPanel({ id }: { id: string }) {
         </p>
       )}
       {lamp.scene === 'custom' ? (
-        <button className="text-button" disabled={off} onClick={() => lab.editLayout()}>
+        <Button variant="text" disabled={off} onClick={() => lab.editLayout()}>
           Choose its light in the layout →
-        </button>
+        </Button>
       ) : (
         <p className="micro">
           A preset room’s lamps can’t be changed. Edit a layout of your own to choose another light.
@@ -1052,13 +1008,12 @@ function SculptFixture({ fixture, disabled }: { fixture: Fixture; disabled: bool
           : null;
   return (
     <div className="sculpt-fixture">
-      <button
-        className="secondary"
+      <Button
         disabled={disabled || Boolean(busy) || Boolean(why)}
         onClick={() => void lab.sculptFixture(fixture.id)}
       >
         {busy === 'sculpt' ? 'Modelling…' : 'Model with AI'}
-      </button>
+      </Button>
       <p className="micro">
         {why ??
           `Spark rebuilds the ${fixture.label.toLowerCase()}’s model in parts you can edit, from its ${lifted ? 'cut-out on the room’s picture' : 'photo'}, starting from the model it has: two Spark calls, about $0.05 to $0.10, and a minute or two. Parts you locked stay.`}

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Glyph } from '../Glyph';
+import { Button, IconButton, Segmented } from '../ui/controls';
 import { estimateLabel, usd } from '../cost';
 import { SHORTCUTS } from '../shortcuts';
 import { useLab } from './LabContext';
@@ -83,8 +84,8 @@ function Readiness() {
             : 'Turns on your configured lamp. Check the physical effect separately.'}
         </p>
         <div className="save-actions">
-          <button
-            className="physical"
+          <Button
+            variant="physical"
             disabled={Boolean(busy) || (mode === 'live' && !lampReady)}
             onClick={() => void lab.execute('lamp')}
           >
@@ -93,14 +94,13 @@ function Readiness() {
               : mode === 'demo'
                 ? 'Simulate lamp action'
                 : 'Turn on desk lamp'}
-          </button>
-          <button
-            className="secondary"
+          </Button>
+          <Button
             disabled={Boolean(busy) || (mode === 'live' && !metaReady)}
             onClick={() => void lab.execute('text')}
           >
             {busy === 'text' ? 'Checking…' : 'Run text smoke test'}
-          </button>
+          </Button>
         </div>
         {mode === 'live' && status && (
           <p className="micro">{estimateLabel(status.meta.estimates.text)}</p>
@@ -149,21 +149,13 @@ function Readiness() {
               value={lab.limitDraft}
               onChange={(e) => lab.setLimitDraft(e.target.value)}
             />
-            <button
-              className="secondary"
-              type="submit"
-              disabled={Number(lab.limitDraft) === status.meta.spendLimit}
-            >
+            <Button type="submit" disabled={Number(lab.limitDraft) === status.meta.spendLimit}>
               Save
-            </button>
+            </Button>
             {status.meta.spendLimit !== status.meta.defaultSpendLimit && (
-              <button
-                className="text-button"
-                type="button"
-                onClick={() => void lab.saveSpendLimit(null)}
-              >
+              <Button variant="text" type="button" onClick={() => void lab.saveSpendLimit(null)}>
                 Use .env ({usd(status.meta.defaultSpendLimit)})
-              </button>
+              </Button>
             )}
           </div>
         </form>
@@ -192,8 +184,8 @@ function MoreMenu({ close }: { close: () => void }) {
         Photos and the evidence log stay out of saves.
       </p>
       <div className="save-actions">
-        <button
-          className="secondary"
+        <Button
+          size="sm"
           onClick={() =>
             lab.setMessage(
               lab.saveNow() ? 'Saved to this browser.' : 'This browser would not store the save.',
@@ -201,17 +193,13 @@ function MoreMenu({ close }: { close: () => void }) {
           }
         >
           Save now
-        </button>
-        <button className="secondary" onClick={lab.exportSave}>
+        </Button>
+        <Button size="sm" onClick={lab.exportSave}>
           Export save
-        </button>
-        <button
-          className="secondary"
-          disabled={Boolean(busy)}
-          onClick={() => lab.importFile.current?.click()}
-        >
+        </Button>
+        <Button size="sm" disabled={Boolean(busy)} onClick={() => lab.importFile.current?.click()}>
           Import save
-        </button>
+        </Button>
       </div>
       <span className="tiny">HISTORY</span>
       <p className="micro">
@@ -221,15 +209,15 @@ function MoreMenu({ close }: { close: () => void }) {
       </p>
       <span className="tiny">MORE</span>
       <div className="menu-links">
-        <button
-          className="text-button"
+        <Button
+          variant="text"
           onClick={() => {
             close();
             lab.setShowKeys(true);
           }}
         >
           Keyboard shortcuts
-        </button>
+        </Button>
         <a className="text-button" href="/playground">
           Camera playground ↗
         </a>
@@ -242,8 +230,8 @@ function MoreMenu({ close }: { close: () => void }) {
             replaced. The evidence log is kept. Export a save first to keep a copy.
           </p>
           <div className="save-actions">
-            <button
-              className="danger"
+            <Button
+              variant="danger"
               disabled={Boolean(busy)}
               onClick={() => {
                 close();
@@ -251,16 +239,14 @@ function MoreMenu({ close }: { close: () => void }) {
               }}
             >
               Yes, reset everything
-            </button>
-            <button className="secondary" onClick={() => setResetting(false)}>
-              Keep my work
-            </button>
+            </Button>
+            <Button onClick={() => setResetting(false)}>Keep my work</Button>
           </div>
         </>
       ) : (
-        <button className="danger" disabled={Boolean(busy)} onClick={() => setResetting(true)}>
+        <Button variant="danger" disabled={Boolean(busy)} onClick={() => setResetting(true)}>
           Reset everything to demo
-        </button>
+        </Button>
       )}
     </section>
   );
@@ -279,9 +265,9 @@ export function KeysDialog() {
       >
         <div className="keys-head">
           <h3>Keyboard shortcuts</h3>
-          <button className="icon-button" aria-label="Close" onClick={() => setShowKeys(false)}>
+          <IconButton label="Close" onClick={() => setShowKeys(false)}>
             ×
-          </button>
+          </IconButton>
         </div>
         <dl>
           {SHORTCUTS.map((k) => (
@@ -376,42 +362,41 @@ export function TopBar() {
         {lab.lamp === 'virtual' && <span className="hud-tag">VIRTUAL</span>}
       </div>
       <nav className="topbar-links">
-        <div className="mode-switch" aria-label="Data source">
-          {(['demo', 'live'] as const).map((value) => (
-            <button
-              key={value}
-              disabled={Boolean(busy) || camera || cameraPending}
-              aria-pressed={mode === value}
-              title={
-                value === 'demo'
-                  ? 'The demo office from its corner camera: no model calls, a virtual lamp'
-                  : 'Your photos and camera, real model calls and your lamp'
-              }
-              onClick={() => lab.changeMode(value)}
-            >
-              {value === 'demo' ? 'Demo' : 'Live'}
-            </button>
-          ))}
-        </div>
+        <Segmented
+          label="Data source"
+          value={mode}
+          disabled={Boolean(busy) || camera || cameraPending}
+          onChange={lab.changeMode}
+          options={[
+            {
+              value: 'demo',
+              label: 'Demo',
+              title: 'The demo office from its corner camera: no model calls, a virtual lamp',
+            },
+            {
+              value: 'live',
+              label: 'Live',
+              title: 'Your photos and camera, real model calls and your lamp',
+            },
+          ]}
+        />
         <span className="history" role="group" aria-label="Undo and redo">
-          <button
-            className="icon-button"
-            aria-label="Undo"
+          <IconButton
+            label="Undo"
             title={`Undo (${SHORTCUTS[0]!.keys})`}
             disabled={!undo.current[mode].length || Boolean(busy) || camera}
             onClick={() => void lab.stepHistory(true)}
           >
             ↶
-          </button>
-          <button
-            className="icon-button"
-            aria-label="Redo"
+          </IconButton>
+          <IconButton
+            label="Redo"
             title={`Redo (${SHORTCUTS[1]!.keys})`}
             disabled={!redo.current[mode].length || Boolean(busy) || camera}
             onClick={() => void lab.stepHistory(false)}
           >
             ↷
-          </button>
+          </IconButton>
         </span>
         <Popover
           label="Readiness"
@@ -437,15 +422,14 @@ export function TopBar() {
         <Popover
           label="Menu"
           button={(open, toggle) => (
-            <button
-              className="icon-button"
-              aria-label="More"
+            <IconButton
+              label="More"
               aria-expanded={open}
               title="Saves, shortcuts and starting over"
               onClick={toggle}
             >
               ⋯
-            </button>
+            </IconButton>
           )}
         >
           {(close) => <MoreMenu close={close} />}

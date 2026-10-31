@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type PointerEvent, type ReactNode } from 'react';
 import { readUi, writeUi } from './session';
 import { typing } from './shortcuts';
+import { Button, IconButton } from './ui/controls';
 
 const MAX = 8;
 const STEP = 1.25;
@@ -254,20 +255,32 @@ export function ZoomPan({
           aria-label="Zoom"
           title="Scroll or pinch to zoom. Hold Space and drag, or drag with the middle button, to pan; once zoomed, dragging the background pans too. Double-click the background to fit."
         >
-          <button aria-label="Zoom out" disabled={!zoomed} onClick={() => zoomBy(1 / STEP)}>
+          <IconButton
+            label="Zoom out"
+            size="sm"
+            disabled={!zoomed}
+            onClick={() => zoomBy(1 / STEP)}
+          >
             −
-          </button>
-          <button
+          </IconButton>
+          <Button
+            variant="ghost"
+            size="sm"
             className="zoom-level"
             aria-label="Fit to view"
             disabled={fitted}
             onClick={() => setView(FIT)}
           >
             {Math.round(view.s * 100)}%
-          </button>
-          <button aria-label="Zoom in" disabled={view.s >= MAX} onClick={() => zoomBy(STEP)}>
+          </Button>
+          <IconButton
+            label="Zoom in"
+            size="sm"
+            disabled={view.s >= MAX}
+            onClick={() => zoomBy(STEP)}
+          >
             +
-          </button>
+          </IconButton>
         </div>
       )}
     </div>

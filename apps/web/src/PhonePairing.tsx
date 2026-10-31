@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from './api';
 import type { NetworkStream } from './streams';
+import { Button } from './ui/controls';
 import './phone-pairing.css';
 
 interface Pairing {
@@ -74,9 +75,9 @@ export function PhonePairing({ onUse }: { onUse: (stream: NetworkStream) => void
       {error && <p className="phone-pairing-error">{error}</p>}
       {!pairing && !error && <p className="phone-pairing-note">Making a pairing code…</p>}
       {!pairing && error && (
-        <button disabled={busy} onClick={() => void pair()}>
+        <Button disabled={busy} onClick={() => void pair()}>
           Try again
-        </button>
+        </Button>
       )}
       {pairing && waiting && (
         <>
@@ -101,23 +102,23 @@ export function PhonePairing({ onUse }: { onUse: (stream: NetworkStream) => void
           <p className="phone-pairing-ready">
             <span className="phone-pairing-dot" /> {pairing.stream?.name ?? 'Phone'} is sharing
           </p>
-          <button
-            className="primary"
+          <Button
+            variant="primary"
             disabled={!pairing.stream}
             onClick={() => pairing.stream && onUse(pairing.stream)}
           >
             Use the phone camera
-          </button>
+          </Button>
         </>
       )}
       {pairing && (
         <div className="phone-pairing-actions">
-          <button disabled={busy} onClick={() => void pair()}>
+          <Button variant="ghost" size="sm" disabled={busy} onClick={() => void pair()}>
             New code
-          </button>
-          <button disabled={busy} onClick={() => void unpair()}>
+          </Button>
+          <Button variant="ghost" size="sm" disabled={busy} onClick={() => void unpair()}>
             Unpair
-          </button>
+          </Button>
         </div>
       )}
     </div>

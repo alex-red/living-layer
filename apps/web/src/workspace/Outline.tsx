@@ -7,6 +7,7 @@ import {
   type DeskMemory,
   type Fixture,
 } from '@livinglayer/domain';
+import { Button, IconButton } from '../ui/controls';
 import { ContextMenu, type MenuItem } from './ContextMenu';
 import { stateLabel } from './ExposePanel';
 import { useLab } from './LabContext';
@@ -145,23 +146,23 @@ export function Outline() {
       )}
       <aside className={`ws-outline ${lab.outlineOpen ? 'open' : ''}`} aria-label="Scene outline">
         <div className="pane-head">
-          <button
-            className="icon-button sheet-close"
-            aria-label="Close the outline"
+          <IconButton
+            className="sheet-close"
+            label="Close the outline"
             onClick={() => lab.setOutlineOpen(false)}
           >
             ×
-          </button>
+          </IconButton>
           <span className="tiny">
             SCENE · {done}/{progress.steps.length}
           </span>
-          <button
-            className="text-button"
+          <Button
+            variant="text"
             disabled={Boolean(busy) || Boolean(pinning)}
             onClick={() => lab.setChoosingScene(true)}
           >
             {progress.room ? 'Change' : 'Choose'}
-          </button>
+          </Button>
         </div>
         {!progress.room ? (
           <p className="ol-empty">Choose the room you are working in to begin.</p>
@@ -433,24 +434,24 @@ function FixtureRows() {
         <span className="tiny">FIXTURES{selecting ? ` · ${chosen.length} SELECTED` : ''}</span>
         {selecting ? (
           <span className="ol-head-actions">
-            <button
-              className="text-button"
+            <Button
+              variant="text"
               onClick={() => {
                 setPicked(all ? new Set() : new Set(fixtures.map((f) => f.id)));
                 setConfirming(null);
               }}
             >
               {all ? 'None' : 'All'}
-            </button>
-            <button className="text-button" onClick={leave}>
+            </Button>
+            <Button variant="text" onClick={leave}>
               Done
-            </button>
+            </Button>
           </span>
         ) : (
           fixtures.length > 1 && (
-            <button className="text-button" disabled={off} onClick={() => setSelecting(true)}>
+            <Button variant="text" disabled={off} onClick={() => setSelecting(true)}>
               Select
-            </button>
+            </Button>
           )
         )}
       </div>
@@ -508,7 +509,9 @@ function FixtureRows() {
                   ? `Delete ${chosen.length} fixture${chosen.length === 1 ? '' : 's'}?`
                   : `Delete ${chosen.length} and skip ${chosen.length === 1 ? 'it' : 'them'} in scans?`}
               </span>
-              <button
+              <Button
+                variant="ghost"
+                size="sm"
                 className="destructive"
                 disabled={off}
                 autoFocus
@@ -520,31 +523,33 @@ function FixtureRows() {
                 }
               >
                 {off ? 'Deleting…' : 'Delete'}
-              </button>
-              <button className="secondary" disabled={off} onClick={() => setConfirming(null)}>
+              </Button>
+              <Button size="sm" disabled={off} onClick={() => setConfirming(null)}>
                 Cancel
-              </button>
+              </Button>
             </>
           ) : (
             <>
               <span className="ol-bulk-note">
                 {chosen.length ? `${chosen.length} selected` : 'Pick fixtures · shift-click a run'}
               </span>
-              <button
+              <Button
+                variant="ghost"
+                size="sm"
                 className="destructive"
                 disabled={off || !chosen.length}
                 onClick={() => setConfirming('delete')}
               >
                 Delete
-              </button>
-              <button
-                className="secondary"
+              </Button>
+              <Button
+                size="sm"
                 disabled={off || !chosen.length}
                 title="Delete them, and have scans skip things named like them."
                 onClick={() => setConfirming('dismiss')}
               >
                 Not fixtures
-              </button>
+              </Button>
             </>
           )}
         </div>

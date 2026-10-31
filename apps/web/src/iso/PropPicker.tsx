@@ -10,6 +10,7 @@ import {
   type TemplateId,
 } from '@livinglayer/domain';
 import { Popover } from '../workspace/Popover';
+import { Button } from '../ui/controls';
 import { propSprite, type SpriteImage } from './sprites';
 
 type Shelf = 'all' | 'furniture' | 'tabletop' | 'room';
@@ -255,14 +256,9 @@ export function PropPickerPopover({
       label="Add a prop"
       className={`prop-pop ${className ?? ''}`}
       button={(open, toggle) => (
-        <button
-          className={open ? 'primary' : 'secondary'}
-          aria-expanded={open}
-          aria-haspopup="dialog"
-          onClick={toggle}
-        >
+        <Button variant="ghost" aria-expanded={open} aria-haspopup="dialog" onClick={toggle}>
           {label}
-        </button>
+        </Button>
       )}
     >
       {() => <PropPicker scene={scene} onAdd={onAdd} autoFocus />}

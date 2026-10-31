@@ -58,43 +58,10 @@
   display: grid;
   gap: 8px;
 }
-.camera-setup-form label {
-  display: grid;
-  gap: 4px;
-  color: var(--text-2);
-}
-.camera-setup-form input,
-.camera-setup-form select {
-  min-height: var(--control-h);
-  padding: 0 8px;
-  border: 1px solid var(--line-strong);
-  border-radius: var(--r-button);
-  background: var(--surface-2, rgb(33 38 55 / 72%));
-  color: var(--text);
-  font: inherit;
-}
 .camera-setup-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-}
-.camera-setup button {
-  min-height: var(--control-h);
-  padding: 0 10px;
-  border: 1px solid var(--line-strong);
-  border-radius: var(--r-button);
-  background: rgb(33 38 55 / 72%);
-  color: var(--text);
-  font: inherit;
-  font-weight: 600;
-}
-.camera-setup button:hover:not(:disabled) {
-  background: var(--surface-3);
-}
-.camera-setup button.primary {
-  border-color: transparent;
-  background: var(--seen);
-  color: var(--void);
 }
 .popover.camera-pop {
   top: auto;

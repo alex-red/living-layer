@@ -9,8 +9,7 @@
 .secondary,
 .physical,
 .ghost,
-.capture-actions button,
-.pg-button {
+.capture-actions button {
   display: inline-flex;
   flex: none;
   align-items: center;
@@ -29,11 +28,10 @@
     box-shadow var(--t-fast),
     transform var(--t-fast);
 }
-:is(.primary, .secondary, .physical, .ghost, .pg-button):active:not(:disabled) {
+:is(.primary, .secondary, .physical, .ghost):active:not(:disabled) {
   transform: scale(0.98);
 }
-.primary,
-.pg-button.primary {
+.primary {
   background: var(--seen);
   color: var(--void);
   font-weight: 600;
@@ -53,23 +51,21 @@
   box-shadow: 0 0 24px var(--warm-glow);
 }
 .secondary,
-.pg-button.secondary,
 .capture-actions button {
   background: var(--control-bg);
   border-color: var(--control-line);
   color: var(--text);
 }
-:is(.secondary, .pg-button.secondary, .capture-actions button):hover:not(:disabled) {
+:is(.secondary, .capture-actions button):hover:not(:disabled) {
   background: var(--control-bg-hover);
   border-color: var(--control-line-hover);
 }
 /* Quiet: no frame until hovered, for toolbars and repeated row actions. */
-.ghost,
-.pg-button.tertiary {
+.ghost {
   background: none;
   color: var(--text-2);
 }
-:is(.ghost, .pg-button.tertiary):hover:not(:disabled) {
+:is(.ghost):hover:not(:disabled) {
   background: var(--control-bg-hover);
   color: var(--text);
 }
@@ -79,7 +75,7 @@
   color: var(--text);
 }
 /* Small: dense rows and toolbars. */
-:is(.primary, .secondary, .physical, .ghost, .pg-button).sm {
+:is(.primary, .secondary, .physical, .ghost).sm {
   min-height: var(--control-h-sm);
   padding: 0 8px;
   font-size: 12px;

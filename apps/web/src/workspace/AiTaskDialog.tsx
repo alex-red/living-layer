@@ -1,4 +1,5 @@
 import { AIRichPreviewDialog, type AIStep } from '../AIRichPreviewDialog';
+import { Button } from '../ui/controls';
 import { useLab } from './LabContext';
 import { RESULT_GLYPH } from './useLabState';
 
@@ -43,9 +44,9 @@ export function AiTaskDialog() {
           <span className="aip-runs">
             Its runs:
             {runs.map((run) => (
-              <button
+              <Button
                 key={run.id}
-                className="text-button"
+                variant="text"
                 onClick={() => {
                   lab.closeAiTask();
                   lab.inspect(run);
@@ -53,7 +54,7 @@ export function AiTaskDialog() {
               >
                 <span aria-hidden="true">{RESULT_GLYPH[run.status]}</span> {run.kind}{' '}
                 <code>{run.id.slice(0, 8)}</code>
-              </button>
+              </Button>
             ))}
           </span>
         ) : undefined

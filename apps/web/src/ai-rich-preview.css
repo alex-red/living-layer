@@ -85,9 +85,6 @@
 .aip-clock {
   color: var(--text-3);
 }
-.aip-close {
-  flex: none;
-}
 
 /* The meter: one segment per step */
 .aip-meter {

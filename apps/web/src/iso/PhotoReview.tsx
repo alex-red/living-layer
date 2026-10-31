@@ -16,6 +16,7 @@ import {
 } from '@livinglayer/domain';
 import { api } from '../api';
 import { IsoScene, type IsoObject } from './IsoScene';
+import { Button, Check } from '../ui/controls';
 
 export type PhotoRun = EvidenceRun<PhotoDraft>;
 const STATUS: Record<PlacedThing['status'], string> = {
@@ -203,28 +204,25 @@ export function PhotoReview({
                 <td>{pct(t.iou)}</td>
                 <td>
                   {t.detectionId && t.status !== 'removed' && t.id !== layout.surfaceThing ? (
-                    <label className="photo-track">
-                      <input
-                        type="checkbox"
-                        checked={tracked.includes(t.id)}
-                        onChange={(e) =>
-                          setTrack((list) =>
-                            e.target.checked ? [...list, t.id] : list.filter((x) => x !== t.id),
-                          )
-                        }
-                      />
-                      <span>{main ? 'main' : tracked.includes(t.id) ? 'yes' : ''}</span>
-                    </label>
+                    <Check
+                      checked={tracked.includes(t.id)}
+                      onChange={(on) =>
+                        setTrack((list) => (on ? [...list, t.id] : list.filter((x) => x !== t.id)))
+                      }
+                    >
+                      {main ? 'main' : tracked.includes(t.id) ? 'yes' : ''}
+                    </Check>
                   ) : null}
                 </td>
                 <td>
                   {t.status !== 'not-found' && (
-                    <button
-                      className="link"
+                    <Button
+                      variant="ghost"
+                      size="sm"
                       onClick={() => edit(t.id, { removed: t.status !== 'removed' })}
                     >
                       {t.status === 'removed' ? 'Restore' : 'Remove'}
-                    </button>
+                    </Button>
                   )}
                 </td>
               </tr>
@@ -252,12 +250,17 @@ export function PhotoReview({
         </ol>
       </details>
       <div className="item-actions">
-        <button className="primary" disabled={busy || saving} onClick={() => void save()}>
-          {saving ? 'Saving…' : `Save scene${tracked.length ? ` and track ${tracked.length}` : ''}`}
-        </button>
-        <button className="secondary" disabled={busy || saving} onClick={onCancel}>
+        <Button
+          variant="primary"
+          disabled={busy}
+          busy={saving && 'Saving…'}
+          onClick={() => void save()}
+        >
+          {`Save scene${tracked.length ? ` and track ${tracked.length}` : ''}`}
+        </Button>
+        <Button disabled={busy || saving} onClick={onCancel}>
           Discard draft
-        </button>
+        </Button>
       </div>
     </div>
   );
