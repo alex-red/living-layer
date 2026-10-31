@@ -1,5 +1,12 @@
-import { useMemo, useState, type PointerEvent } from 'react';
-import { cameraFromMarks, projectRoom, type Point, type RoomMarks } from '@livinglayer/domain';
+import { useMemo, useState, type PointerEvent, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
+import {
+  cameraFromMarks,
+  projectRoom,
+  type CameraCrop,
+  type Point,
+  type RoomMarks,
+} from '@livinglayer/domain';
 
 /** What a calibration needs from the person: the marks, and the room's size. */
 export interface CalibrationDraft {
@@ -17,16 +24,25 @@ const HANDLES = ['far corner', 'back wall', 'left wall'] as const;
  * as the frame shows it. When a wall's far end is in view, ticking it says
  * the handle is that end, which pins the lens down. While dragging, the
  * camera is fitted in the browser and the floor's tiles are drawn through it,
- * so a wrong mark shows as a floor grid that doesn't sit on the floor.
+ * so a wrong mark shows as a floor grid that doesn't sit on the floor. The
+ * frame's zoomed view is fitted as the server will fit it, so the grid and
+ * the check agree with what saving does. The size and buttons go in `panel`,
+ * outside the zoomable frame, so they never pan away or cover the marks.
  */
 export function RoomCalibrate({
   frame,
   initial,
   busy,
+  crop = null,
+  panel,
   onSave,
   onCancel,
 }: {
   frame: { width: number; height: number };
+  /** The camera's zoomed view the frame came through. */
+  crop?: CameraCrop | null;
+  /** Where the size and buttons go; over the frame when there is none. */
+  panel?: HTMLElement | null;
   initial: CalibrationDraft;
   busy: boolean;
   onSave: (draft: CalibrationDraft) => void;
@@ -64,7 +80,7 @@ export function RoomCalibrate({
   const fit = useMemo(() => {
     if (!(room.w >= 60 && room.d >= 60)) return null;
     const tiles = { w: room.w / 30, d: room.d / 30 };
-    const f = cameraFromMarks(marks, frame, tiles, heightCm ? { heightCm } : {});
+    const f = cameraFromMarks(marks, frame, tiles, { ...(heightCm ? { heightCm } : {}), crop });
     const lines: string[] = [];
     const draw = (a: { x: number; y: number }, b: { x: number; y: number }) => {
       const p = projectRoom(f.camera, { ...a, z: 0 });
@@ -74,7 +90,7 @@ export function RoomCalibrate({
     for (let x = 0; x <= tiles.w; x += 1) draw({ x, y: 0 }, { x, y: tiles.d });
     for (let y = 0; y <= tiles.d; y += 1) draw({ x: 0, y }, { x: tiles.w, y });
     return { ...f, path: lines.join('') };
-  }, [marks, room, heightCm, frame]);
+  }, [marks, room, heightCm, frame, crop]);
 
   const at = (e: PointerEvent<SVGSVGElement>) => {
     const b = e.currentTarget.getBoundingClientRect();
@@ -127,75 +143,80 @@ export function RoomCalibrate({
           />
         ))}
       </svg>
-      <span className="pin-tag pin-review calibrate-tag" aria-live="polite">
-        <span>
-          {fit
-            ? good
-              ? `The floor grid should sit on the floor. Camera about ${fit.heightCm} cm up, ${Math.round(fit.hfovDeg)}° wide.`
-              : `These marks don't fit a camera in the room's front corner (off by ${fit.error.toFixed(0)} px).`
-            : 'Give the room’s size inside its walls.'}
-        </span>
-        <label>
-          Width
-          <input
-            type="number"
-            min={60}
-            max={480}
-            value={room.w}
-            onChange={(e) => setRoom({ ...room, w: Number(e.target.value) })}
-          />
-          cm
-        </label>
-        <label>
-          Depth
-          <input
-            type="number"
-            min={60}
-            max={480}
-            value={room.d}
-            onChange={(e) => setRoom({ ...room, d: Number(e.target.value) })}
-          />
-          cm
-        </label>
-        <label>
-          Camera height
-          <input
-            type="number"
-            min={100}
-            max={400}
-            placeholder="240"
-            value={height}
-            onChange={(e) => setHeight(e.target.value)}
-          />
-          cm
-        </label>
-        <label>
-          <input
-            type="checkbox"
-            checked={ends.back}
-            onChange={(e) => setEnds({ ...ends, back: e.target.checked })}
-          />
-          Back wall handle is its far corner
-        </label>
-        <label>
-          <input
-            type="checkbox"
-            checked={ends.left}
-            onChange={(e) => setEnds({ ...ends, left: e.target.checked })}
-          />
-          Left wall handle is its far corner
-        </label>
-        <button
-          className="primary"
-          disabled={!good || busy}
-          onClick={() => onSave({ marks, room, ...(heightCm ? { heightCm } : {}) })}
+      {(panel ? (c: ReactNode) => createPortal(c, panel) : (c: ReactNode) => c)(
+        <span
+          className={panel ? 'calibrate-tag calibrate-panel' : 'pin-tag pin-review calibrate-tag'}
+          aria-live="polite"
         >
-          {busy ? 'Saving…' : 'Save calibration'}
-        </button>
-        <button className="secondary" onClick={onCancel}>
-          Cancel
-        </button>
-      </span>
+          <span>
+            {fit
+              ? good
+                ? `The floor grid should sit on the floor. Camera about ${fit.heightCm} cm up, ${Math.round(fit.hfovDeg)}° wide.`
+                : `These marks don't fit a camera in the room's front corner (off by ${fit.error.toFixed(0)} px).`
+              : 'Give the room’s size inside its walls.'}
+          </span>
+          <label>
+            Width
+            <input
+              type="number"
+              min={60}
+              max={480}
+              value={room.w}
+              onChange={(e) => setRoom({ ...room, w: Number(e.target.value) })}
+            />
+            cm
+          </label>
+          <label>
+            Depth
+            <input
+              type="number"
+              min={60}
+              max={480}
+              value={room.d}
+              onChange={(e) => setRoom({ ...room, d: Number(e.target.value) })}
+            />
+            cm
+          </label>
+          <label>
+            Camera height
+            <input
+              type="number"
+              min={100}
+              max={400}
+              placeholder="240"
+              value={height}
+              onChange={(e) => setHeight(e.target.value)}
+            />
+            cm
+          </label>
+          <label>
+            <input
+              type="checkbox"
+              checked={ends.back}
+              onChange={(e) => setEnds({ ...ends, back: e.target.checked })}
+            />
+            Back wall handle is its far corner
+          </label>
+          <label>
+            <input
+              type="checkbox"
+              checked={ends.left}
+              onChange={(e) => setEnds({ ...ends, left: e.target.checked })}
+            />
+            Left wall handle is its far corner
+          </label>
+          <button
+            className="primary"
+            disabled={!good || busy}
+            onClick={() => onSave({ marks, room, ...(heightCm ? { heightCm } : {}) })}
+          >
+            {busy ? 'Saving…' : 'Save calibration'}
+          </button>
+          <button className="secondary" onClick={onCancel}>
+            Cancel
+          </button>
+        </span>,
+      )}
     </>
   );
 }

@@ -1,4 +1,4 @@
-import { useRef, type CSSProperties } from 'react';
+import { useRef, useState, type CSSProperties } from 'react';
 import {
   CROP_MIN,
   DEMO_POSITIONS,
@@ -78,6 +78,8 @@ export function Canvas() {
   const lab = useLab();
   const boxStart = useRef<{ x: number; y: number } | null>(null);
   const zoomStart = useRef<{ x: number; y: number } | null>(null);
+  // The calibration's size and buttons, under the canvas rather than over the frame.
+  const [calibratePanel, setCalibratePanel] = useState<HTMLDivElement | null>(null);
   // A zoomed view inside the open one, as shares of the camera's whole frame: too small has too few pixels.
   const zoomRect = lab.zooming?.rect;
   const zoomOk =
@@ -575,6 +577,8 @@ export function Canvas() {
               <RoomCalibrate
                 frame={dimensions}
                 initial={lab.calibrating}
+                crop={lab.imageCrop.current}
+                panel={calibratePanel}
                 busy={lab.busy === 'calibrate'}
                 onSave={(draft) => void lab.saveCalibration(draft)}
                 onCancel={() => lab.setCalibrating(null)}
@@ -697,6 +701,7 @@ export function Canvas() {
           />
         )}
       </div>
+      {lab.calibrating && !camera && <div className="calibrate-slot" ref={setCalibratePanel} />}
       {!onboarding && (
         <div className="scene-bottom">
           <span>

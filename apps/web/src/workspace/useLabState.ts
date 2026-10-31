@@ -2401,6 +2401,7 @@ export function useLabState() {
     zooming,
     setZooming,
     openCrop,
+    imageCrop,
     cameraFrame,
     calibrateByHand,
     zoomable: zoomable(),
