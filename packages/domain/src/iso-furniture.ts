@@ -129,7 +129,7 @@ export const FURNITURE_SPECS = {
   desk: { heightCm: 72, topCm: 5, legCm: 5, insetCm: 5, railCm: 5, frontRail: false },
   table: { heightCm: 75, topCm: 5, legCm: 6, insetCm: 5, railCm: 5, frontRail: false },
   chair: {
-    heightCm: 95,
+    heightCm: 98,
     /** The width the parts below are drawn for; a wider box scales them. */
     footprintCm: 66,
     seatCm: 40,

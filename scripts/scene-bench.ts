@@ -85,6 +85,7 @@ for (const v of variants(args.flags.get('set')))
       const depthError = Math.abs(depth - s.truth.surface.d) / s.truth.surface.d;
       // Worst position error: furniture by its back-left corner, objects by their centre.
       let worst = 0;
+      let who = '';
       const origin = layout.origin;
       for (const t of layout.things) {
         const at = s.truth.at[t.id];
@@ -92,11 +93,13 @@ for (const v of variants(args.flags.get('set')))
         if (t.status === 'object' && t.foot) {
           const x = t.foot.at.x + t.foot.size.w / 2 - origin.x;
           const y = t.foot.at.y + t.foot.size.d / 2 - origin.y;
-          worst = Math.max(worst, Math.hypot(x - at.x, y - at.y));
+          const e = Math.hypot(x - at.x, y - at.y);
+          if (e > worst) [worst, who] = [e, t.id];
         } else if (t.group) {
           const b = groupBounds(layout.scene, t.group)!;
-          worst = Math.max(worst, Math.hypot(b.at.x - origin.x - at.x, b.at.y - origin.y - at.y));
-        } else worst = Infinity;
+          const e = Math.hypot(b.at.x - origin.x - at.x, b.at.y - origin.y - at.y);
+          if (e > worst) [worst, who] = [e, t.id];
+        } else [worst, who] = [Infinity, `${t.id} (unplaced)`];
       }
       rows.push({
         case: c.name,
@@ -119,6 +122,7 @@ for (const v of variants(args.flags.get('set')))
           },
         },
         notes: {
+          worst: who,
           camera: `${Math.round(layout.camera?.elevation ?? 0)}°${layout.camera?.focalGuessed ? '?' : ''}`,
           match: `${Math.round((layout.score ?? 0) * 100)}%`,
           ms: String(ms),
