@@ -8,7 +8,14 @@ import {
   type Fixture,
   type FixtureInput,
 } from './fixture.js';
-import { archetypeSchema, buildItem, defaultFit, type Archetype } from './iso-archetypes.js';
+import {
+  ARCHETYPES,
+  archetypeOf,
+  archetypeSchema,
+  buildItem,
+  defaultFit,
+  type Archetype,
+} from './iso-archetypes.js';
 import { ITEM_MATERIALS, hexColorSchema, type IsoItem } from './iso-item.js';
 import { ISO_PRESETS, isoSurface, pinFits } from './iso-presets.js';
 import {
@@ -252,6 +259,51 @@ export function placeholderModel(
 ): IsoItem {
   const fit = defaultFit(archetype, [color]);
   return buildItem(label, { ...fit, material });
+}
+
+/** Archetypes with a model of their own; anything else is drawn as a cube until it is modelled. */
+const OWN_MODEL = new Set<Archetype>([
+  'mug',
+  'cup',
+  'bottle',
+  'can',
+  'book',
+  'plant',
+  'lamp',
+  'device',
+]);
+/** Where a drafted thing's model came from. */
+export type DraftModelSource = 'library' | 'catalog' | 'cube';
+/**
+ * The model a thing drafted from a photo is drawn with until someone models
+ * it properly: a fixture saved with the same name, else its shape's own model
+ * from the catalogue, else a cube; in its colour, scaled to its size where it
+ * stands. Nothing is fitted to its outline.
+ */
+export function draftModel(
+  thing: { label: string; color: string; material: ScannedThing['material'] },
+  as: string,
+  library: Fixture[],
+): { item: IsoItem; source: DraftModelSource; fixtureId?: string } {
+  const archetype = (ARCHETYPES as readonly string[]).includes(as)
+    ? (as as Archetype)
+    : archetypeOf(thing.label);
+  const known = library
+    .map((f) => ({ f, score: libraryScore({ label: thing.label, archetype }, f) }))
+    .filter((x) => x.score >= 0.5)
+    .sort((a, b) => b.score - a.score)[0]?.f;
+  if (known)
+    return {
+      item: { label: known.model.label, parts: known.model.parts },
+      source: 'library',
+      fixtureId: known.id,
+    };
+  return OWN_MODEL.has(archetype)
+    ? {
+        item: placeholderModel(thing.label, archetype, thing.color, thing.material),
+        source: 'catalog',
+      }
+    : { item: placeholderModel(thing.label, 'box', thing.color, thing.material), source: 'cube' };
 }
 
 const inside = (poly: Point[], p: Point) => {

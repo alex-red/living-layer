@@ -33,6 +33,11 @@ import {
   type PlacementRule,
   isoSceneSchema,
   uniqueParts,
+  draftModel,
+  PHOTO_AS,
+  MAX_PHOTO_THINGS,
+  type PhotoThing,
+  type SavedItem,
   placementGate,
   pickTracked,
   zoneApplies,
@@ -787,7 +792,16 @@ export function deskRoutes(
     return reply.type('image/png').header('cache-control', 'no-cache').send(png);
   });
   app.post('/api/scene/from-photo/save', async (request) => {
-    const { mode, runId, scene, pin, track } = parseInput(
+    const tiles = z.number().finite();
+    const {
+      mode,
+      runId,
+      scene,
+      pin,
+      track,
+      as = {},
+      fixtures = [],
+    } = parseInput(
       z
         .object({
           mode: modeSchema,
@@ -795,6 +809,23 @@ export function deskRoutes(
           scene: isoSceneSchema,
           pin: surfacePinSchema.nullable(),
           track: z.array(z.string().min(1).max(24)).max(1 + MAX_OTHER_OBJECTS),
+          /** What the person changed things to be drawn as, by thing id. */
+          as: z.record(z.string().min(1).max(24), z.enum(PHOTO_AS)).optional(),
+          /** Things no template draws and nobody tracks, where the review laid them out. */
+          fixtures: z
+            .array(
+              z
+                .object({
+                  id: z.string().min(1).max(24),
+                  at: z.object({ x: tiles, y: tiles, z: tiles }).strict(),
+                  /** As it stands, turned. */
+                  size: z.object({ w: tiles, d: tiles, h: tiles }).strict(),
+                  turns: z.number().int().min(0).max(3).optional(),
+                })
+                .strict(),
+            )
+            .max(MAX_PHOTO_THINGS)
+            .optional(),
         })
         .strict(),
       request.body,
@@ -845,10 +876,88 @@ export function deskRoutes(
     memory.deskIllustration = null;
     store.saveMemory(memory);
     const label = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
-    const model = (thingId: string, previous: ReturnType<typeof modelTarget>) => {
-      const item = draft.items[thingId];
-      return item ? { ...item, ...uniqueParts(keepLocked(item, previous?.item)) } : null;
+    const now = new Date().toISOString();
+    // Chosen again with what the person changed it to, from the fixtures saved before this.
+    const library = memory.fixtures ?? [];
+    const chosen = (thing: PhotoThing) => draftModel(thing, as[thing.id] ?? thing.as, library);
+    const saved = (thing: PhotoThing): SavedItem => {
+      const c = chosen(thing);
+      return {
+        ...uniqueParts(c.item),
+        label: thing.label,
+        source: c.source === 'library' ? 'spark' : 'placeholder',
+        segmentRunId: draft.segmentRunId,
+        swatches: [{ hex: thing.color, share: 1 }],
+        updatedAt: now,
+        fit: null,
+      };
     };
+    const model = (thingId: string, previous: ReturnType<typeof modelTarget>) => {
+      const thing = draft.inventory.things.find((t) => t.id === thingId);
+      if (!thing) return null;
+      const item = saved(thing);
+      return { ...item, ...uniqueParts(keepLocked(item, previous?.item)) };
+    };
+    // What no template draws stays as a fixture, with its model and the crop Spark can model it from.
+    const claimed = new Set<string>();
+    const added: Fixture[] = [];
+    for (const f of fixtures) {
+      const thing = draft.inventory.things.find((t) => t.id === f.id);
+      if (!thing || track.includes(f.id))
+        throw new LabError(
+          'photo_object',
+          'Keep as fixtures only things from this draft that aren’t tracked.',
+        );
+      const c = { x: f.at.x + f.size.w / 2, y: f.at.y + f.size.d / 2 };
+      const surface =
+        f.at.z > 0.05
+          ? memory.scene.surfaces
+              .filter(
+                (x) =>
+                  Math.abs(x.z - f.at.z) < 0.1 &&
+                  c.x >= x.rect.x &&
+                  c.x <= x.rect.x + x.rect.w &&
+                  c.y >= x.rect.y &&
+                  c.y <= x.rect.y + x.rect.d,
+              )
+              .sort((a, b) => b.z - a.z)[0]
+          : undefined;
+      const where = { at: { x: f.at.x, y: f.at.y }, surfaceId: surface?.id ?? null };
+      // The same thing already in this room moves here, and keeps its model, size and switch.
+      const pick = chosen(thing);
+      const same = library.find(
+        (x) => x.id === pick.fixtureId && x.scene === 'custom' && !claimed.has(x.id),
+      );
+      if (same) {
+        claimed.add(same.id);
+        added.push({ ...same, ...where, updatedAt: now });
+        continue;
+      }
+      const fit = (v: number) => Math.min(8, Math.max(0.1, v));
+      // A fixture's size is before its turn.
+      const turns = (f.turns ?? 0) as 0 | 1 | 2 | 3;
+      const own = turns % 2 ? { w: f.size.d, d: f.size.w } : f.size;
+      const crop = draft.crops[thing.id];
+      added.push({
+        id: randomUUID(),
+        label: label(thing.label),
+        scene: 'custom',
+        ...where,
+        turns,
+        size: { w: fit(own.w), d: fit(own.d), h: fit(f.size.h) },
+        model: saved(thing),
+        reference: crop ? { runId, asset: crop } : null,
+        control: { kind: 'none' },
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
+    if (added.length) {
+      const moved = new Set(added.map((f) => f.id));
+      const rest = (memory.fixtures ?? []).filter((f) => !moved.has(f.id));
+      memory.fixtures = settleFixtures([...rest, ...added].slice(0, MAX_FIXTURES), memory.scene);
+      store.saveMemory(memory);
+    }
     const [main, ...rest] = picked;
     if (main) {
       const fresh = !memory.object;

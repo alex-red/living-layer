@@ -5,8 +5,8 @@
  * would, fits the camera to the room's floor marks as calibration would, lays
  * the room out, and prints how much room is left before each target
  * (ROOM_TARGETS): the worst position error of any thing in tiles, furniture
- * turned wrong, the worst furniture width or depth error, and the worst
- * furniture match. Flags are in scripts/lib/bench.ts.
+ * turned wrong, and the worst furniture width or depth error. Flags are in
+ * scripts/lib/bench.ts.
  *
  *   bun run bench:room
  *   bun run bench:room --set desk.legCm=4,6,8      sweep a measurement
@@ -33,7 +33,7 @@ for (const v of swept)
     withFurniture(v.overrides, () => {
       const scene = c.scene();
       const truthCamera = c.camera(scene);
-      const s = roomCase(scene, truthCamera);
+      const s = roomCase(scene, truthCamera, c.guess);
       // Calibrated from the room's marks, as a person would, not handed the true camera.
       const fit = cameraFromMarks(marksOf(truthCamera), truthCamera.frame, truthCamera.room);
       const calibration: RoomCalibration = {
@@ -59,7 +59,6 @@ for (const v of swept)
           },
           'wrong turns': { value: j.wrongTurns, target: 0, better: 'lower', digits: 0 },
           size: { value: j.size, target: ROOM_TARGETS.size, better: 'lower', unit: 'tiles' },
-          iou: { value: j.iou, target: ROOM_TARGETS.iou, better: 'higher' },
         },
         notes: { worst: j.who, ms: String(ms), things: String(s.inventory.things.length) },
       });

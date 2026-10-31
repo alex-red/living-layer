@@ -24,6 +24,10 @@ import {
   projectPoint,
   promptBox,
   sceneForSave,
+  fixturesForSave,
+  draftModel,
+  type Fixture,
+  type IsoScene,
   unprojectPoint,
   type DeskMemory,
   type EvidenceRun,
@@ -122,6 +126,9 @@ describe('photo masks', () => {
           role: 'object',
           on: 'nothing',
           box: { x1: 600, y1: 900, x2: 400, y2: 1000 },
+          sizeCm: { w: 10, d: 10, h: 10 },
+          color: '#ffffff',
+          material: 'matte' as const,
         },
       ],
     }).things;
@@ -162,31 +169,73 @@ describe('the camera behind a pin', () => {
 });
 
 describe('the saved scene', () => {
-  it('stands untracked objects with a template in the saved scene, and leaves tracked ones out', () => {
-    const desk = placeTemplate('desk', 'desk', 1, 1, 0);
-    const top = desk.surfaces[0]!.z;
-    const object = (id: 'mug' | 'bottle', x: number) => ({
+  it('leaves tracked things out of the room, and keeps what no template draws as fixtures', () => {
+    let room: IsoScene = {
+      kind: 'custom',
+      label: 'Room',
+      grid: { w: 8, d: 8 },
+      props: [],
+      surfaces: [],
+    };
+    for (const [id, x] of [
+      ['desk', 1],
+      ['bottle', 2],
+      ['book', 3],
+    ] as const) {
+      const built = placeTemplate(id, id, x, 1, 0);
+      room = {
+        ...room,
+        props: [...room.props, ...built.props],
+        surfaces: [...room.surfaces, ...built.surfaces],
+      };
+    }
+    const thing = (id: string, status: 'placed' | 'object') => ({
       id,
       label: id,
       as: id,
       role: 'object' as const,
       on: 'desk',
       box: { x1: 0, y1: 0, x2: 10, y2: 10 },
+      sizeCm: { w: 10, d: 10, h: 10 },
+      color: '#ffffff',
+      material: 'matte' as const,
       detectionId: id,
-      status: 'object' as const,
-      foot: { at: { x, y: 1.6, z: top }, size: { w: 0.3, d: 0.3, h: 0.4 } },
+      status,
+      ...(status === 'placed'
+        ? { group: id }
+        : { foot: { at: { x: 1.5, y: 1.6, z: 0 }, size: { w: 0.3, d: 0.3, h: 0.4 } } }),
     });
     const layout: PhotoLayout = {
-      scene: { kind: 'custom', label: 'Room', grid: { w: 8, d: 8 }, ...desk },
+      scene: room,
       pin: null,
       surfaceThing: null,
-      things: [object('mug', 1.5), object('bottle', 3)],
-      score: null,
+      things: [
+        thing('bottle', 'placed'),
+        thing('book', 'placed'),
+        thing('mug', 'object'),
+        thing('fan', 'object'),
+      ],
     };
-    const scene = sceneForSave(layout, ['mug']);
-    expect(scene.props.filter((p) => p.template === 'bottle')).toHaveLength(1);
-    expect(scene.props.find((p) => p.template === 'bottle')!.at.z).toBeCloseTo(top, 3);
+    const scene = sceneForSave(layout, ['bottle', 'mug']);
+    expect(scene.props.some((p) => p.group === 'bottle')).toBe(false);
+    expect(scene.props.some((p) => p.group === 'book')).toBe(true);
     expect(isoSceneSchema.safeParse(scene).success).toBe(true);
+    expect(fixturesForSave(layout, ['bottle', 'mug']).map((f) => f.id)).toEqual(['fan']);
+  });
+  it('draws what it knows from the catalogue and the rest as cubes, never fitted', () => {
+    const thing = {
+      label: 'tall bladeless tower fan',
+      color: '#dddddd',
+      material: 'matte' as const,
+    };
+    expect(draftModel(thing, 'generic', []).source).toBe('cube');
+    expect(draftModel({ ...thing, label: 'white mug' }, 'mug', []).source).toBe('catalog');
+    const saved = {
+      label: 'Tower fan',
+      model: { label: 'Tower fan', parts: [] },
+    } as unknown as Fixture;
+    const known = draftModel(thing, 'generic', [{ ...saved, id: 'f1' }]);
+    expect([known.source, known.fixtureId]).toEqual(['library', 'f1']);
   });
 });
 
@@ -252,15 +301,18 @@ describe('photo routes, offline', () => {
         Math.hypot(c.x - DEMO_SURFACE.corners[i]!.x, c.y - DEMO_SURFACE.corners[i]!.y),
       ).toBeLessThan(10),
     );
+    // The book and bottle are templates; the mug, which isn't, gets its shape's model.
     expect(layout.things.map((t) => [t.id, t.status])).toEqual([
       ['desk', 'placed'],
       ['mug', 'object'],
-      ['book', 'object'],
-      ['bottle', 'object'],
+      ['book', 'placed'],
+      ['bottle', 'placed'],
     ]);
     expect(Object.keys(items).sort()).toEqual(['book', 'bottle', 'mug']);
-    expect(items.mug!.fit!.archetype).toBe('mug');
-    expect(items.mug!.fit!.iou).toBeGreaterThan(0.8);
+    expect(run.output.modelFrom.mug).toBe('catalog');
+    expect(items.mug!.source).toBe('placeholder');
+    expect(items.mug!.fit).toBeNull();
+    expect(Object.keys(run.output.crops).sort()).toEqual(['book', 'bottle', 'mug']);
     expect(run.output.check?.note).toMatch(/^Demo/);
     expect(isoSceneSchema.safeParse(layout.scene).success).toBe(true);
     // The box-prompted masks are saved as a segmentation of their own.
@@ -273,7 +325,7 @@ describe('photo routes, offline', () => {
 
     const saved = await s.post('scene/from-photo/save', {
       runId: run.id,
-      scene: layout.scene,
+      scene: sceneForSave(layout, ['mug', 'bottle']),
       pin: layout.pin,
       track: ['mug', 'bottle'],
     });
@@ -283,7 +335,9 @@ describe('photo routes, offline', () => {
     expect(memory.surface?.scene).toBe('custom');
     expect(memory.object?.label).toBe('Cream mug');
     expect(memory.observation?.detectionId).toBe('2');
-    expect(memory.item?.fit?.archetype).toBe('mug');
+    expect(memory.item?.source).toBe('placeholder');
+    // The tracked bottle is drawn from its sightings, not as part of the room.
+    expect(memory.scene!.props.some((p) => p.template === 'bottle')).toBe(false);
     expect(memory.others?.map((o) => [o.label, o.concept, Boolean(o.item)])).toEqual([
       ['Sage bottle', 'sage bottle', true],
     ]);
@@ -354,6 +408,38 @@ describe('photo routes, offline', () => {
     expect(zoomed.json<EvidenceRun<PhotoDraft>>().output.calibration.calibratedAt).not.toBe(
       memory.camera!.calibratedAt,
     );
+    await s.app.close();
+  });
+  it('keeps what no template draws as a fixture with its crop, and moves it on the next draft', async () => {
+    const s = await setup();
+    const saveDraft = async () => {
+      const run = (await s.post('scene/from-photo')).json<EvidenceRun<PhotoDraft>>();
+      const { layout } = run.output;
+      const res = await s.post('scene/from-photo/save', {
+        runId: run.id,
+        scene: sceneForSave(layout, []),
+        pin: layout.pin,
+        track: [],
+        fixtures: fixturesForSave(layout, []).map(({ id, foot, turns }) => ({
+          id,
+          at: foot.at,
+          size: foot.size,
+          turns,
+        })),
+      });
+      expect(res.statusCode, res.body).toBe(200);
+      return { run, memory: res.json<DeskMemory>() };
+    };
+    const first = await saveDraft();
+    const mug = first.memory.fixtures!.find((f) => f.label === 'Cream mug')!;
+    expect(mug.scene).toBe('custom');
+    expect(mug.model.source).toBe('placeholder');
+    // On the desk's top, with the crop Spark can model it from.
+    expect(first.memory.scene!.surfaces.find((x) => x.id === mug.surfaceId)?.z).toBeGreaterThan(2);
+    expect(mug.reference).toEqual({ runId: first.run.id, asset: first.run.output.crops.mug! });
+    const second = await saveDraft();
+    const mugs = second.memory.fixtures!.filter((f) => f.label === 'Cream mug');
+    expect(mugs.map((f) => f.id)).toEqual([mug.id]);
     await s.app.close();
   });
   it('refuses a stale draft, an outside pin and objects SAM did not outline', async () => {
@@ -465,6 +551,9 @@ describe('photo routes, live with a mocked Meta API', () => {
         role: 'surface',
         on: 'floor',
         box: { x1: 0, y1: 0, x2: 1000, y2: 1000 },
+        sizeCm: { w: 140, d: 70, h: 74 },
+        color: '#b98a5a',
+        material: 'wood',
       },
       {
         id: 'mug',
@@ -473,6 +562,9 @@ describe('photo routes, live with a mocked Meta API', () => {
         role: 'object',
         on: 'desk',
         box: { x1: 360, y1: 270, x2: 640, y2: 730 },
+        sizeCm: { w: 9, d: 9, h: 10 },
+        color: '#efe6d2',
+        material: 'gloss',
       },
     ],
   };
@@ -559,9 +651,26 @@ describe('photo routes, live with a mocked Meta API', () => {
     expect(run.output.layout.pin).toBeNull();
     expect(run.output.check?.note).toBe('Close.');
     expect(run.assets.some((a) => a.endsWith('/scene-render.png'))).toBe(true);
-    expect(run.output.items.mug?.fit?.archetype).toBe('mug');
+    expect(run.output.modelFrom.mug).toBe('catalog');
+    expect(run.output.crops.mug).toMatch(/crop-mug.png$/);
     expect(run.usage?.totalTokens).toBe(240);
     expect(run.assets.some((a) => a.endsWith('/source.png'))).toBe(true);
+    await s.app.close();
+  });
+  it('goes on without Spark’s check when the check fails', async () => {
+    const s = await setup();
+    const answer = s.fetcher.getMockImplementation()!;
+    s.fetcher.mockImplementation(async (url, init) =>
+      String(init?.body).includes('"photo_check"')
+        ? new Response('{"error":{"message":"overloaded"}}', { status: 500 })
+        : answer(url, init),
+    );
+    const res = await s.post({ check: true });
+    expect(res.statusCode, res.body).toBe(200);
+    const run = res.json<EvidenceRun<PhotoDraft>>();
+    expect(run.output.check).toBeNull();
+    expect(run.output.assists.some((a) => a.startsWith('Spark check skipped'))).toBe(true);
+    expect(run.output.modelFrom.mug).toBe('catalog');
     await s.app.close();
   });
   it('sends Spark the photo and the drawing, and reads back what is missing', async () => {

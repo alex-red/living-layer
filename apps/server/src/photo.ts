@@ -3,7 +3,6 @@ import { createHash, randomUUID } from 'node:crypto';
 import sharp from 'sharp';
 import { z } from 'zod';
 import {
-  ARCHETYPES,
   DEMO_CALIBRATION,
   ISO_PRESETS,
   ISO_TILE_CM,
@@ -14,14 +13,13 @@ import {
   type IsoScene,
   type RoomEstimate,
   type RoomMarks,
-  archetypeOf,
   cleanInventory,
-  fitItem,
+  draftModel,
+  type DraftModelSource,
   demoSourceKey,
   DEMO_FRAME,
   calibrationOf,
   floorSolid,
-  elevationAt,
   layoutRoom,
   renderRoom,
   sceneSolids,
@@ -32,7 +30,6 @@ import {
   sparkCeiling,
   META_PRICES,
   uniqueParts,
-  type Archetype,
   type EvidenceRun,
   type Mode,
   type PhotoDraft,
@@ -41,6 +38,7 @@ import {
   type SavedItem,
   type Segmentation,
   type Usage,
+  type PhotoCheck,
 } from '@livinglayer/domain';
 import type { Config } from './config.js';
 import { LabError, parseInput } from './errors.js';
@@ -74,7 +72,7 @@ const draftSteps = (check: boolean) => [
   { id: 'outline', label: 'SAM outlines each thing' },
   { id: 'layout', label: 'Measure the room from the outlines' },
   ...(check ? [{ id: 'check', label: 'Spark compares the drafted room with the photo' }] : []),
-  { id: 'models', label: 'Fit a model to each object' },
+  { id: 'models', label: 'Choose a model for each thing' },
 ];
 /** The drafted room as the room's camera would see it: what Spark compares with the photo. */
 const renderLayout = (layout: PhotoLayout, calibration: RoomCalibration) =>
@@ -98,7 +96,6 @@ const photoDraftCeiling = (check: boolean) =>
   META_PRICES.samPerImage +
   (check ? sparkCeiling(SPARK_BUDGET.photoCheck, 2) + META_PRICES.samPerImage : 0);
 /** At most this many objects get a fitted model in one draft; the rest can be modelled later. */
-const MAX_FITTED = 8;
 export type { PhotoDraft };
 
 function addUsage(a: Usage | null, b: Usage | null | undefined): Usage | null {
@@ -110,7 +107,6 @@ function addUsage(a: Usage | null, b: Usage | null | undefined): Usage | null {
     totalTokens: a.totalTokens + b.totalTokens,
   };
 }
-const isArchetype = (as: string): as is Archetype => (ARCHETYPES as readonly string[]).includes(as);
 
 /**
  * A scene from one frame of the room's calibrated corner camera. Spark lists
@@ -256,6 +252,7 @@ export function photoRoutes(
 
     // 4. Spark looks at the drawing beside the photo.
     let check: PhotoDraft['check'] = null;
+    let checkFailed = '';
     if (withCheck) job.run('check');
     if (withCheck) {
       assets.push(store.asset(id, 'scene-render.png', drawn));
@@ -263,72 +260,83 @@ export function photoRoutes(
         .filter((t) => t.status === 'placed' || t.status === 'object')
         .map((t) => `${t.id} (${t.label}, ${t.as})`)
         .join('; ');
-      const result = image
-        ? await meta.photoCheck(
-            image.dataUrl,
-            `data:image/png;base64,${drawn.toString('base64')}`,
-            listing,
-            job.signal,
-          )
-        : { output: demoPhotoCheck, usage: null };
-      usage = addUsage(usage, result.usage);
-      const added: string[] = [];
-      let kept = false;
-      const missing = cleanInventory({
-        kind: inventory.kind,
-        things: [...inventory.things, ...result.output.missing],
-        summary: inventory.summary,
-      }).things.slice(inventory.things.length);
-      // Anything missing gets one more SAM call, only if today's spending limit has room.
-      if (image && missing.length && meta.canAfford(META_PRICES.samPerImage)) {
-        const more = missing
-          .map((t, i) => ({
-            thing: t.id,
-            id: prompts.length + i + 1,
-            box: promptBox(t, frame),
-          }))
-          .filter((p): p is typeof p & { box: NonNullable<typeof p.box> } => Boolean(p.box));
-        if (more.length) {
-          const extra = await meta.segmentBoxes(
-            image.dataUrl,
-            more,
-            frame.width,
-            frame.height,
-            job.signal,
-          );
-          const nextInventory = { ...inventory, things: [...inventory.things, ...missing] };
-          const nextSegmentation = {
-            ...segmentation,
-            detections: [...segmentation.detections, ...extra.output.detections],
-          };
-          const nextDetections = { ...detections };
-          for (const p of more)
-            if (extra.output.detections.some((d) => d.objectId === String(p.id))) {
-              nextDetections[p.thing] = String(p.id);
-              added.push(p.thing);
+      // The check only helps: when Spark fails at it, the draft goes on without it.
+      let result: { output: PhotoCheck; usage: Usage | null } | null = null;
+      try {
+        result = image
+          ? await meta.photoCheck(
+              image.dataUrl,
+              `data:image/png;base64,${drawn.toString('base64')}`,
+              listing,
+              job.signal,
+            )
+          : { output: demoPhotoCheck, usage: null };
+      } catch (e) {
+        // Stopped by the person: stop here, as any step does.
+        job.check();
+        checkFailed = e instanceof Error ? e.message : 'Spark’s check failed.';
+        assists.push(`Spark check skipped: ${checkFailed}`);
+      }
+      if (result) {
+        usage = addUsage(usage, result.usage);
+        const added: string[] = [];
+        let kept = false;
+        const missing = cleanInventory({
+          kind: inventory.kind,
+          things: [...inventory.things, ...result.output.missing],
+          summary: inventory.summary,
+        }).things.slice(inventory.things.length);
+        // Anything missing gets one more SAM call, only if today's spending limit has room.
+        if (image && missing.length && meta.canAfford(META_PRICES.samPerImage)) {
+          const more = missing
+            .map((t, i) => ({
+              thing: t.id,
+              id: prompts.length + i + 1,
+              box: promptBox(t, frame),
+            }))
+            .filter((p): p is typeof p & { box: NonNullable<typeof p.box> } => Boolean(p.box));
+          if (more.length) {
+            const extra = await meta.segmentBoxes(
+              image.dataUrl,
+              more,
+              frame.width,
+              frame.height,
+              job.signal,
+            );
+            const nextInventory = { ...inventory, things: [...inventory.things, ...missing] };
+            const nextSegmentation = {
+              ...segmentation,
+              detections: [...segmentation.detections, ...extra.output.detections],
+            };
+            const nextDetections = { ...detections };
+            for (const p of more)
+              if (extra.output.detections.some((d) => d.objectId === String(p.id))) {
+                nextDetections[p.thing] = String(p.id);
+                added.push(p.thing);
+              }
+            const next = lay({
+              inventory: nextInventory,
+              segmentation: nextSegmentation,
+              detections: nextDetections,
+            });
+            // Keep what SAM outlined and the room has room for.
+            kept = added.some((a) => next.things.find((t) => t.id === a)?.status !== 'unplaced');
+            if (kept) {
+              inventory = nextInventory;
+              segmentation = nextSegmentation;
+              Object.assign(detections, nextDetections);
+              layout = next;
+              // A new segment run holds every mask, so a sighting can point at any of them.
+              raw = `${raw}\n${extra.raw}`;
+              segmentRunId = saveSegment(mode, segmentation, photo, raw, live);
             }
-          const next = lay({
-            inventory: nextInventory,
-            segmentation: nextSegmentation,
-            detections: nextDetections,
-          });
-          // Keep the additions only if the scene still matches the photo as well.
-          kept = added.length > 0 && (next.score ?? 0) >= (layout.score ?? 0) - 0.02;
-          if (kept) {
-            inventory = nextInventory;
-            segmentation = nextSegmentation;
-            Object.assign(detections, nextDetections);
-            layout = next;
-            // A new segment run holds every mask, so a sighting can point at any of them.
-            raw = `${raw}\n${extra.raw}`;
-            segmentRunId = saveSegment(mode, segmentation, photo, raw, live);
           }
         }
+        check = { ...result.output, kept, added: kept ? added : [] };
+        assists.push(
+          `Spark check (${kept ? `added ${added.join(', ')}` : 'nothing added'}): ${result.output.note}`,
+        );
       }
-      check = { ...result.output, kept, added: kept ? added : [] };
-      assists.push(
-        `Spark check (${kept ? `added ${added.join(', ')}` : 'nothing added'}): ${result.output.note}`,
-      );
     }
     if (withCheck) {
       job.check();
@@ -336,71 +344,53 @@ export function photoRoutes(
         'check',
         check
           ? `${check.kept ? `Added ${check.added.join(', ')}. ` : 'Nothing added. '}${check.note}`
-          : 'Nothing to compare',
+          : checkFailed
+            ? `Skipped: ${checkFailed} The draft goes on without it.`
+            : 'Nothing to compare',
         check?.kept ? await renderLayout(layout, calibration) : undefined,
         PREVIEW,
       );
     }
 
-    // 5. A model for each object, fitted to its own mask.
+    // 5. A model for each thing a template doesn't draw, or that may be tracked: a
+    // saved fixture's, the catalogue's, or a cube; never fitted. Its crop is kept,
+    // so Spark can model it properly later.
     job.run('models');
     const items: Record<string, SavedItem> = {};
-    const objects = layout.things.filter((t) => t.status === 'object').slice(0, MAX_FITTED);
-    for (const t of objects) {
+    const modelFrom: Record<string, DraftModelSource> = {};
+    const crops: Record<string, string> = {};
+    const library = store.memory(mode).fixtures ?? [];
+    const modelled = layout.things.filter(
+      (t) => t.status === 'object' || (t.status === 'placed' && t.role === 'object'),
+    );
+    for (const t of modelled) {
+      const chosen = draftModel(t, t.as, library);
+      items[t.id] = {
+        ...uniqueParts(chosen.item),
+        label: t.label,
+        source: chosen.source === 'library' ? 'spark' : 'placeholder',
+        segmentRunId,
+        swatches: [{ hex: t.color, share: 1 }],
+        updatedAt: new Date().toISOString(),
+        fit: null,
+      };
+      modelFrom[t.id] = chosen.source;
       const detection = segmentation.detections.find((d) => d.objectId === t.detectionId);
       if (!detection) continue;
       try {
         const crop = await maskedCrop(photo, detection);
-        job.run('models', t.label);
-        await job.show('models', crop.png);
-        const archetype = isArchetype(t.as) ? t.as : archetypeOf(t.label);
-        const fitted = fitItem({
-          rgba: crop.rgba,
-          width: crop.width,
-          height: crop.height,
-          label: t.label,
-          archetype,
-          material: null,
-          // How far the room's camera looks down on it, where it stands.
-          elevation: t.foot
-            ? elevationAt(calibration.camera, {
-                x: t.foot.at.x + t.foot.size.w / 2,
-                y: t.foot.at.y + t.foot.size.d / 2,
-                z: t.foot.at.z,
-              })
-            : null,
-        });
-        const cropAsset = store.asset(id, `crop-${t.id}.png`, crop.png);
-        items[t.id] = {
-          ...uniqueParts(fitted.item),
-          label: t.label,
-          source: live ? 'sampled' : 'demo',
-          segmentRunId,
-          swatches: fitted.swatches,
-          updatedAt: new Date().toISOString(),
-          fit: {
-            archetype: fitted.archetype,
-            params: fitted.params,
-            iou: fitted.score.iou,
-            deltaE: fitted.score.deltaE,
-            elevation: fitted.elevation,
-            views: 1,
-            crop: cropAsset,
-            assists: ['Fitted from the photo draft'],
-          },
-        };
+        crops[t.id] = store.asset(id, `crop-${t.id}.png`, crop.png);
       } catch {
-        // A crop too small to fit stays without a model; it can be drafted later.
+        // Too small to crop: Spark can model it from a close photo instead.
       }
     }
-    if (objects.length)
-      assists.push(`Fitted ${Object.keys(items).length} object models locally, no model calls`);
     job.check();
+    const count = (k: DraftModelSource) => Object.values(modelFrom).filter((v) => v === k).length;
     await job.done(
       'models',
-      objects.length
-        ? `${Object.keys(items).length} of ${objects.length} objects modelled, no model calls`
-        : 'No objects to model',
+      modelled.length
+        ? `${count('catalog')} from the catalogue, ${count('library')} from saved fixtures, ${count('cube')} as cubes to model later; no model calls`
+        : 'Nothing to model',
     );
 
     const output: PhotoDraft = {
@@ -410,6 +400,8 @@ export function photoRoutes(
       detections,
       layout,
       items,
+      modelFrom,
+      crops,
       check,
       assists,
       calibration,

@@ -511,8 +511,9 @@ export class MetaAdapter {
   }
   /**
    * What is in a photo and roughly where: one entry per thing, each a
-   * template or an object archetype with a loose box. Spark gives no sizes,
-   * tiles or turns; SAM and the layout measure those.
+   * template or an object archetype with a loose box, its real size, colour
+   * and material. Spark gives no tiles or turns; the layout places each thing
+   * where SAM's outline of it meets the floor or what it stands on.
    */
   async photoInventory(imageDataUrl: string, signal?: AbortSignal) {
     return this.inventory(imageDataUrl, photoInventorySchema, [], signal);
@@ -553,8 +554,8 @@ export class MetaAdapter {
                 text: [
                   'List the furniture and objects in this photo so they can be drawn as a small isometric scene.',
                   photoCatalog(),
-                  'For each thing give: a short id (lowercase, like desk or mug-1); a short grounded label from what you see (no names, owners or brands); as, the closest template or object model; role: surface for what things stand on (a desk, a table, a cabinet top, a shelf), furniture for anything else that stands on the floor, object for small movable things; on, the id of what it stands on, or floor; and box, a loose box around it as x1, y1, x2, y2 from 0 to 1000 across and down the photo.',
-                  'Include the main surface if there is one. Use at most 16 things, only what is clearly visible, biggest first. Do not guess sizes or distances of the things. Summarise the scene in one short sentence.',
+                  'For each thing give: a short id (lowercase, like desk or mug-1); a short grounded label from what you see (no names, owners or brands); as, the closest template or object model; role: surface for what things stand on (a desk, a table, a cabinet top, a shelf), furniture for anything else that stands on the floor, object for small movable things; on, the id of what it stands on, or floor; box, a loose box around it as x1, y1, x2, y2 from 0 to 1000 across and down the photo; sizeCm, its real size in whole centimetres (w across its front, d from front to back, h its height), judged from things of known size (a desk is about 75 cm high, a mug about 10 cm); color, its main colour as lowercase #rrggbb; and material, what it is mostly made of.',
+                  'Include the main surface if there is one. Use at most 16 things, only what is clearly visible, biggest first. Summarise the scene in one short sentence.',
                   ...extra,
                 ].join('\n'),
               },

@@ -64,11 +64,48 @@ export const demoSceneDraft: SceneDraft = {
   summary: 'An office desk against a wall, with a lamp, a book, a bottle and a chair.',
 };
 /** The demo room's things a Spark inventory would list, by the render's ids. */
+// Sizes as the office draws them: a 160 × 80 cm desk, its book and bottle, and the mug.
 const DEMO_THINGS = [
-  { id: 'desk', label: 'desk top', as: 'desk', role: 'surface', on: 'floor' },
-  { id: 'mug', label: 'cream mug', as: 'mug', role: 'object', on: 'desk' },
-  { id: 'book', label: 'green book', as: 'book', role: 'object', on: 'desk' },
-  { id: 'bottle', label: 'sage bottle', as: 'bottle', role: 'object', on: 'desk' },
+  {
+    id: 'desk',
+    label: 'desk top',
+    as: 'desk',
+    role: 'surface',
+    on: 'floor',
+    sizeCm: { w: 160, d: 80, h: 72 },
+    color: '#b98a5a',
+    material: 'wood',
+  },
+  {
+    id: 'mug',
+    label: 'cream mug',
+    as: 'mug',
+    role: 'object',
+    on: 'desk',
+    sizeCm: { w: 9, d: 9, h: 10 },
+    color: '#efe6d2',
+    material: 'gloss',
+  },
+  {
+    id: 'book',
+    label: 'green book',
+    as: 'book',
+    role: 'object',
+    on: 'desk',
+    sizeCm: { w: 16, d: 23, h: 4 },
+    color: '#4f7a52',
+    material: 'matte',
+  },
+  {
+    id: 'bottle',
+    label: 'sage bottle',
+    as: 'bottle',
+    role: 'object',
+    on: 'desk',
+    sizeCm: { w: 8, d: 8, h: 26 },
+    color: '#9fb39a',
+    material: 'glass',
+  },
 ] as const;
 /** A thing's box in the demo frame, in thousandths, from its rendered pixels. */
 function demoBox(id: string) {

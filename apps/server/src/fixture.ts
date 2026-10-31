@@ -4,6 +4,9 @@ import { z } from 'zod';
 import {
   DEMO_REFERENCES,
   DEMO_SURFACE,
+  calibrationOf,
+  elevationAt,
+  fixtureBox,
   demoSourceKey,
   fixtureInFrame,
   mapScan,
@@ -761,7 +764,8 @@ export function fixtureRoutes(
   /**
    * Model a fixture in our own parts with Spark, starting from its current
    * model and the picture of it: its cut-out from the room's picture when it
-   * was lifted, else the crop its model was fitted to. Spark revises the parts
+   * was lifted, else the crop its model was fitted to, else the crop of it a
+   * room draft kept (seen from the room's camera). Spark revises the parts
    * against a render of the model (one call), then once more against a render
    * of its own draft (a second), and the draft whose silhouette matches the
    * picture better is kept, with any parts the person locked. Live only.
@@ -786,18 +790,33 @@ export function fixtureRoutes(
     const memory = store.memory(mode);
     const fixture = memory.fixtures?.find((f) => f.id === fixtureId);
     if (!fixture) throw new LabError('fixture_missing', 'That fixture is gone.', 404);
-    // The picture of it: its cut-out, or its own or a linked copy's, else its fitted crop.
+    // The picture of it: its cut-out, or its own or a linked copy's, else its fitted crop,
+    // else the room draft's crop, looked at from where the room's camera is.
     const group = new Set([
       fixture.id,
       ...linkedFixtures(memory.fixtures ?? [], fixture).map((f) => f.id),
     ]);
     const sprite = memory.illustration?.layers?.sprites.find((x) => group.has(x.fixtureId));
     const crop = fixture.model.fit?.crop;
+    const camera = calibrationOf(memory)?.camera;
+    const drafted = () => {
+      if (!fixture.reference || fixture.scene !== 'custom' || !memory.scene || !camera) return null;
+      const box = fixtureBox(fixture, memory.scene);
+      const centre = {
+        x: box.at.x + box.size.w / 2,
+        y: box.at.y + box.size.d / 2,
+        z: box.at.z,
+      };
+      return {
+        png: store.readAsset(fixture.reference.asset),
+        elevation: elevationAt(camera, centre),
+      };
+    };
     const pictured = sprite
       ? { png: store.readAsset(sprite.asset), elevation: ISO_ELEVATION }
       : crop
         ? { png: store.readAsset(crop), elevation: fixture.model.fit!.elevation }
-        : null;
+        : drafted();
     if (!pictured?.png)
       throw new LabError(
         'sculpt_picture',

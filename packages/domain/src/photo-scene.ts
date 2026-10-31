@@ -9,23 +9,16 @@ import {
   type Quad,
   type SurfacePin,
 } from './iso.js';
-import {
-  PROP_TEMPLATES,
-  TEMPLATE_IDS,
-  freshGroupId,
-  moveGroup,
-  placeTemplate,
-  settleGroup,
-  type TemplateId,
-} from './iso-templates.js';
+import { PROP_TEMPLATES, TEMPLATE_IDS, type TemplateId } from './iso-templates.js';
 import { ARCHETYPES, type Archetype } from './iso-archetypes.js';
-import type { SavedItem } from './iso-item.js';
+import { ITEM_MATERIALS, hexColorSchema, type SavedItem } from './iso-item.js';
 
 /**
  * What a scan of the room's camera frame shares: Spark lists what it sees
  * with a rough box for each thing and SAM outlines every box in one call;
  * `layoutRoom` (room-scan.ts) places them through the calibrated camera.
- * Spark never returns a size, a tile or a turn. Also here: masks as bits,
+ * Spark estimates each thing's real size, which a template or a placeholder
+ * is drawn at; it never returns a tile or a turn. Also here: masks as bits,
  * and the camera behind a pin, which fixtures and pictures on a pinned
  * surface go through.
  */
@@ -55,9 +48,20 @@ const photoThingSchema = z
     role: z.enum(['furniture', 'surface', 'object']),
     on: z.string().min(1).max(24),
     box: photoBoxSchema,
+    /** Its real size: across its front, front to back, and height. */
+    sizeCm: z
+      .object({
+        w: z.number().positive().max(600),
+        d: z.number().positive().max(600),
+        h: z.number().positive().max(400),
+      })
+      .strict(),
+    /** Its main colour, lowercase #rrggbb, and what it is mostly made of. */
+    color: hexColorSchema,
+    material: z.enum(ITEM_MATERIALS),
   })
   .strict();
-/** Spark's answer about a photo: what is there and roughly where, never how big. */
+/** Spark's answer about a photo: what is there, roughly where, and how big. */
 export const photoInventorySchema = z
   .object({
     kind: z.enum(['desk', 'office', 'fridge', 'room']),
@@ -411,9 +415,9 @@ export interface PlacedThing extends PhotoThing {
    */
   status: 'placed' | 'object' | 'not-found' | 'unplaced' | 'removed';
   group?: string;
+  /** Where an `object` stands, its size turned, and its turn. */
   foot?: IsoBox;
-  /** Overlap of its drawing with its mask, where other masks might hide it ignored. */
-  iou?: number | null;
+  turns?: number;
 }
 export interface PhotoLayout {
   scene: IsoScene;
@@ -421,8 +425,6 @@ export interface PhotoLayout {
   /** The thing whose top was pinned. */
   surfaceThing: string | null;
   things: PlacedThing[];
-  /** Mask-area weighted mean of every thing's match. */
-  score: number | null;
 }
 export interface PhotoEdit {
   as?: PhotoAs;
@@ -435,15 +437,6 @@ export interface LayoutInput {
   detections: Record<string, string>;
   edits?: Record<string, PhotoEdit>;
 }
-const isTemplate = (as: string): as is TemplateId => as in PROP_TEMPLATES;
-function addBuilt(scene: IsoScene, built: ReturnType<typeof placeTemplate>): IsoScene {
-  return {
-    ...scene,
-    props: [...scene.props, ...built.props],
-    surfaces: [...scene.surfaces, ...built.surfaces],
-  };
-}
-const capital = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 /** Whether a corner sits on the frame's edge: where the photo cuts a surface off. */
 function clippedQuad(corners: Quad, frame: Segmentation['frame']): boolean {
   const edge = 0.01 * Math.max(frame.width, frame.height);
@@ -466,8 +459,15 @@ export interface PhotoDraft {
   /** Thing id to SAM object id. */
   detections: Record<string, string>;
   layout: PhotoLayout;
-  /** Fitted models for the objects, by thing id. */
+  /**
+   * The model each thing a template doesn't draw (or that may be tracked) is
+   * drawn with, by thing id: a saved fixture's, the catalogue's, or a cube.
+   */
   items: Record<string, SavedItem>;
+  /** Where each of those models came from. */
+  modelFrom: Record<string, 'library' | 'catalog' | 'cube'>;
+  /** Each modelled thing's masked crop, as an evidence asset, for modelling it with Spark later. */
+  crops: Record<string, string>;
   check: (PhotoCheck & { kept: boolean; added: string[] }) | null;
   /** Each model call and what it changed, in order. */
   assists: string[];
@@ -483,27 +483,29 @@ export interface PhotoDraft {
 }
 
 /**
- * The scene to save: the layout's, plus a template for each object that
- * won't be tracked but has one (a book, a bottle), standing where its mask
- * stood. Tracked objects are drawn from their sightings instead.
+ * The scene to save: the layout's, without what will be tracked, which is
+ * drawn from its sightings instead.
  */
 export function sceneForSave(layout: PhotoLayout, tracked: string[]): IsoScene {
-  let scene = layout.scene;
-  for (const t of layout.things) {
-    if (t.status !== 'object' || !t.foot || tracked.includes(t.id) || !isTemplate(t.as)) continue;
-    const tpl = PROP_TEMPLATES[t.as];
-    const cx = t.foot.at.x + t.foot.size.w / 2;
-    const cy = t.foot.at.y + t.foot.size.d / 2;
-    const g = freshGroupId(scene, t.as);
-    scene = addBuilt(
-      scene,
-      placeTemplate(t.as, g, cx - tpl.size.w / 2, cy - tpl.size.d / 2, t.foot.at.z, {
-        label: capital(t.label),
-      }),
-    );
-    scene = settleGroup(moveGroup(scene, g, 0, 0), g);
-  }
-  return scene;
+  const gone = new Set(
+    layout.things.filter((t) => tracked.includes(t.id) && t.group).map((t) => t.group!),
+  );
+  const kept = layout.scene.props.filter((p) => !gone.has(p.group));
+  const ids = new Set(kept.map((p) => p.id));
+  return {
+    ...layout.scene,
+    props: kept,
+    surfaces: layout.scene.surfaces.filter((x) => ids.has(x.propId)),
+  };
+}
+/**
+ * What to save as fixtures: each thing no template draws and nobody tracks,
+ * standing where the layout put it, to be drawn with its model.
+ */
+export function fixturesForSave(layout: PhotoLayout, tracked: string[]) {
+  return layout.things
+    .filter((t) => t.status === 'object' && t.foot && !tracked.includes(t.id))
+    .map((t) => ({ id: t.id, as: t.as, foot: t.foot!, turns: t.turns ?? 0 }));
 }
 /** Bits as a detection, one rectangle per run of pixels, in the box's own pixels. */
 export function detectionFromBits(objectId: string, bits: Bits): Detection | null {

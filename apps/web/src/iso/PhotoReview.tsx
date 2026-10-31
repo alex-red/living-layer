@@ -3,9 +3,11 @@ import {
   ARCHETYPES,
   PROP_TEMPLATES,
   TEMPLATE_IDS,
-  itemHeight,
+  draftModel,
+  fixturesForSave,
   layoutRoom,
   sceneForSave,
+  type DraftModelSource,
   type DeskMemory,
   type EvidenceRun,
   type Mode,
@@ -26,17 +28,37 @@ const STATUS: Record<PlacedThing['status'], string> = {
   unplaced: 'outside the room',
   removed: 'removed',
 };
-const pct = (n: number | null | undefined) => (n == null ? '–' : `${Math.round(n * 100)}%`);
+const SOURCE: Record<DraftModelSource, string> = {
+  library: 'Saved fixture',
+  catalog: 'Catalogue',
+  cube: 'Cube for now',
+};
 
 /**
  * Review a scene drafted from a frame of the room's camera before anything is
  * saved. Left: the frame with SAM's outlines and the main surface as the
- * calibrated camera sees it. Right: the scene as drafted, with each object's
- * fitted model.
+ * calibrated camera sees it. Right: the scene as drafted. Each thing is a
+ * template from the catalogue, a saved fixture's model, its shape's model, or
+ * a cube of its size that Spark can model properly once it is saved.
  * Below: one row per thing, to change what it is drawn as, remove it, or
  * track it. The layout is pure code, so every change is laid out again here.
  */
-export function PhotoReview({
+export function PhotoReview(props: Parameters<typeof DraftReview>[0]) {
+  // A draft from before things had sizes and catalogue models can't be laid out again.
+  if (!props.run.output.modelFrom)
+    return (
+      <div className="photo-review">
+        <p className="iso-note" role="status">
+          This draft was made the old way, fitted to outlines. Discard it and draft the room again.
+        </p>
+        <div className="item-actions">
+          <Button onClick={props.onCancel}>Discard draft</Button>
+        </div>
+      </div>
+    );
+  return <DraftReview {...props} />;
+}
+function DraftReview({
   mode,
   run,
   photoUrl,
@@ -85,15 +107,26 @@ export function PhotoReview({
   const tracked = track.filter((id) =>
     layout.things.some((t) => t.id === id && t.detectionId && t.status !== 'removed'),
   );
+  // The model each thing no template draws is saved with, chosen again when its kind changes.
+  const models = useMemo(
+    () =>
+      new Map(
+        layout.things
+          .filter((t) => t.status === 'object')
+          .map((t) => [t.id, draftModel(t, t.as, memory?.fixtures ?? [])] as const),
+      ),
+    [layout, memory?.fixtures],
+  );
   const objects: IsoObject[] = layout.things
     .filter((t) => t.status === 'object' && t.foot)
-    .map((t) => {
-      const item = draft.items[t.id];
-      const box = item
-        ? { ...t.foot!, size: { ...t.foot!.size, h: itemHeight(item) * t.foot!.size.w } }
-        : t.foot!;
-      return { id: t.id, box, label: t.label, item, unsure: !tracked.includes(t.id) };
-    });
+    .map((t) => ({
+      id: t.id,
+      box: t.foot!,
+      label: t.label,
+      item: models.get(t.id)?.item,
+      unsure: !tracked.includes(t.id),
+    }));
+  const cubes = [...models.values()].filter((m) => m.source === 'cube').length;
   const byDetection = new Map(draft.segmentation.detections.map((d) => [d.objectId, d]));
 
   function edit(id: string, change: PhotoEdit) {
@@ -108,6 +141,15 @@ export function PhotoReview({
         scene: sceneForSave(layout, tracked),
         pin: layout.pin,
         track: tracked,
+        as: Object.fromEntries(
+          Object.entries(edits).flatMap(([id, e]) => (e.as ? [[id, e.as]] : [])),
+        ),
+        fixtures: fixturesForSave(layout, tracked).map(({ id, foot, turns }) => ({
+          id,
+          at: foot.at,
+          size: foot.size,
+          turns,
+        })),
       });
       onSaved(saved);
     } catch (e) {
@@ -162,7 +204,7 @@ export function PhotoReview({
           <tr>
             <th scope="col">Thing</th>
             <th scope="col">Drawn as</th>
-            <th scope="col">Match</th>
+            <th scope="col">Model</th>
             <th scope="col">Track</th>
             <th scope="col" aria-label="Remove" />
           </tr>
@@ -201,7 +243,13 @@ export function PhotoReview({
                     </optgroup>
                   </select>
                 </td>
-                <td>{pct(t.iou)}</td>
+                <td>
+                  {t.status === 'placed'
+                    ? SOURCE.catalog
+                    : t.status === 'object'
+                      ? SOURCE[models.get(t.id)!.source]
+                      : '–'}
+                </td>
                 <td>
                   {t.detectionId && t.status !== 'removed' && t.id !== layout.surfaceThing ? (
                     <Check
@@ -232,8 +280,11 @@ export function PhotoReview({
       </table>
       <p className="iso-note" role="status">
         {layout.pin
-          ? `The ${surfaceLabel} is pinned where the room’s camera sees it. Scene match ${pct(layout.score)}.`
-          : `Scene match ${pct(layout.score)}. No desk or table in view to pin.`}{' '}
+          ? `The ${surfaceLabel} is pinned where the room’s camera sees it.`
+          : 'No desk or table in view to pin.'}{' '}
+        {cubes
+          ? `${cubes} ${cubes === 1 ? 'thing is a cube' : 'things are cubes'} of ${cubes === 1 ? 'its' : 'their'} size: once saved, model ${cubes === 1 ? 'it' : 'each'} with Spark from its fixture.`
+          : ''}{' '}
         {tracked.length
           ? `The first ticked object becomes the main one${memory?.object ? ` (${memory.object.label})` : ''}.`
           : 'Tick the objects to track.'}
