@@ -10,7 +10,12 @@
  */
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { layoutRoom, type PhotoDraft, type RoomLayoutInput } from '@livinglayer/domain';
+import {
+  layoutRoom,
+  refineWalls,
+  type PhotoDraft,
+  type RoomLayoutInput,
+} from '@livinglayer/domain';
 import { roomsDir } from './evidence.js';
 import { placements, type Placement } from './placements.js';
 
@@ -71,8 +76,18 @@ export const roomFrame = (room: CapturedRoom) => {
   const file = join(room.dir, 'frame.png');
   return existsSync(file) ? readFileSync(file) : null;
 };
+/**
+ * Laid out with this tree's code, as the room's setup does: a wall whose
+ * marks the things against it disagree with is turned first, and the layout
+ * goes through that camera.
+ */
+export function layOutInput(input: RoomLayoutInput) {
+  const refined = refineWalls(input);
+  const calibration = refined?.calibration ?? input.calibration;
+  return { layout: layoutRoom({ ...input, calibration }), calibration, refined };
+}
 /** The room laid out with this tree's code. */
-export const layOut = (room: CapturedRoom) => layoutRoom(room.input);
+export const layOut = (room: CapturedRoom) => layOutInput(room.input);
 export function expectedOf(room: CapturedRoom): Record<string, Placement> | null {
   const file = join(room.dir, 'expected.json');
   return existsSync(file)
@@ -81,5 +96,8 @@ export function expectedOf(room: CapturedRoom): Record<string, Placement> | null
 }
 /** Keep how this tree lays the room out as what the bench expects from now on. */
 export function acceptRoom(room: CapturedRoom) {
-  writeFileSync(join(room.dir, 'expected.json'), JSON.stringify(placements(layOut(room)), null, 1));
+  writeFileSync(
+    join(room.dir, 'expected.json'),
+    JSON.stringify(placements(layOut(room).layout), null, 1),
+  );
 }

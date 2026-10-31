@@ -13,12 +13,12 @@
  */
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { draftModel, layoutRoom, type PhotoDraft } from '@livinglayer/domain';
+import { draftModel, type PhotoDraft, type RoomCamera } from '@livinglayer/domain';
 import { flag, has, parseArgs } from './lib/args.js';
 import { openEvidence } from './lib/evidence.js';
 import { isoPicture, layoutOverlay } from './lib/overlay.js';
 import { placementTable, placements } from './lib/placements.js';
-import { captureRoom, layoutInput } from './lib/rooms.js';
+import { captureRoom, layOutInput, layoutInput } from './lib/rooms.js';
 
 const args = parseArgs();
 const capture = args.positional[0] === 'capture';
@@ -49,14 +49,20 @@ console.log(
 if (!frame) console.log('No frame stored (a demo run): drawn over a blank canvas.');
 const stored = placements(draft.layout);
 const from = (id: string) => draft.modelFrom?.[id];
-const shown = async (layout: PhotoDraft['layout'], file: string) => {
-  writeFileSync(file, await layoutOverlay(layout, camera, frame));
+const shown = async (layout: PhotoDraft['layout'], file: string, through: RoomCamera = camera) => {
+  writeFileSync(file, await layoutOverlay(layout, through, frame));
   writeFileSync(file.replace(/\.png$/, '-iso.png'), await isoPicture(layout));
   return file;
 };
 
 if (has(args, 'relayout')) {
-  const layout = layoutRoom(layoutInput(draft));
+  const { layout, calibration, refined } = layOutInput(layoutInput(draft));
+  if (refined) {
+    const { room, position } = calibration.camera;
+    console.log(
+      `\nTurned the ${refined.wall} wall's marks ${refined.degrees}° to ${refined.witnesses.join(', ')}: the room ${Math.round((room.w - 0.2) * 30)} × ${Math.round((room.d - 0.2) * 30)} cm, the camera ${Math.round(position[2] * 30)} cm up, off by ${calibration.error.toFixed(1)} px`,
+    );
+  }
   console.log('\nLaid out again with this tree:\n');
   console.log(placementTable(placements(layout), stored));
   // The model each thing would get now, from the fixtures saved in that mode.
@@ -71,7 +77,7 @@ if (has(args, 'relayout')) {
   if (models.length) console.log(`\nModels: ${models.join(', ')}`);
   console.log(`\n${await shown(draft.layout, resolve(out, `draft-${short}.png`))}  as drafted`);
   console.log(
-    `${await shown(layout, resolve(out, `draft-${short}-relayout.png`))}  laid out again`,
+    `${await shown(layout, resolve(out, `draft-${short}-relayout.png`), calibration.camera)}  laid out again`,
   );
 } else {
   console.log(`\n${placementTable(stored)}`);

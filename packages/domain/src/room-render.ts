@@ -50,6 +50,19 @@ export function sceneSolids(scene: IsoScene): RoomSolid[] {
     })),
   );
 }
+/**
+ * Things a layout draws as their own models rather than templates, as boxes
+ * of their own colour where they stand: without them a picture of the room
+ * lacks its laptop and mugs, and whoever compares it with the photo finds
+ * them missing.
+ */
+export function thingSolids(
+  things: { id: string; foot?: IsoBox | null; color: string }[],
+): RoomSolid[] {
+  return things.flatMap((t) =>
+    t.foot ? [{ id: t.id, box: t.foot, shape: 'prism' as const, color: hexLab(t.color) }] : [],
+  );
+}
 /** The floor under a grid, as a solid with only a top. */
 export const floorSolid = (grid: IsoScene['grid']): RoomSolid => ({
   id: 'floor',

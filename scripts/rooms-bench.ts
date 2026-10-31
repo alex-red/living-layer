@@ -45,7 +45,7 @@ const rows: Row[] = [];
 const details: string[] = [];
 for (const room of rooms) {
   const start = performance.now();
-  const layout = layOut(room);
+  const { layout, calibration, refined } = layOut(room);
   const ms = Math.round(performance.now() - start);
   const now = placements(layout);
   const expected = expectedOf(room) ?? now;
@@ -79,10 +79,15 @@ for (const room of rooms) {
         digits: 0,
       },
     },
-    notes: { worst: worst.id, ms: String(ms), things: String(layout.things.length) },
+    notes: {
+      worst: worst.id,
+      ms: String(ms),
+      things: String(layout.things.length),
+      ...(refined ? { turned: `${refined.wall} wall ${refined.degrees}°` } : {}),
+    },
   });
   const file = resolve(out, `rooms-${room.name}.png`);
-  writeFileSync(file, await layoutOverlay(layout, room.input.calibration.camera, roomFrame(room)));
+  writeFileSync(file, await layoutOverlay(layout, calibration.camera, roomFrame(room)));
   writeFileSync(resolve(out, `rooms-${room.name}-iso.png`), await isoPicture(layout));
   if (
     changes.some(

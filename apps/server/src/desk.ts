@@ -870,6 +870,9 @@ export function deskRoutes(
       );
     // The room is drawn from its templates; nothing from the photo is pasted on.
     memory.scene = scene as IsoScene;
+    // Through the camera it was laid out through: newer when the draft turned a hidden wall.
+    if (memory.camera && draft.calibration.calibratedAt > memory.camera.calibratedAt)
+      memory.camera = { ...memory.camera, ...draft.calibration };
     if (memory.fixtures) memory.fixtures = settleFixtures(memory.fixtures, memory.scene);
     memory.surface = pin as SurfacePin | null;
     memory.scenePhoto =

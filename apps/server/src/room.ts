@@ -7,6 +7,7 @@ import {
   cameraCropSchema,
   cameraEdges,
   cameraFromMarks,
+  fitLimit,
   convexHull,
   demoSourceKey,
   isoSceneKindSchema,
@@ -139,7 +140,7 @@ export async function calibrateRoom(store: EvidenceStore, input: CalibrateInput)
     : { width: 960, height: 640 };
   const fit = fitRoom(input, size, memory);
   // Marks a few pixels off are a slip; tens of pixels mean they don't fit any corner camera.
-  if (fit.error > Math.hypot(size.width, size.height) / 60)
+  if (fit.error > fitLimit(size))
     throw new LabError(
       'calibrate_fit',
       `The marks don't fit a camera in the room's front corner (off by ${fit.error.toFixed(0)} px). Check the corner and the walls' floor lines, and the room's size.`,

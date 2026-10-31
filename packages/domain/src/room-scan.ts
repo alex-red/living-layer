@@ -228,7 +228,18 @@ function apart(plans: Plan[], walls: { x0: number; y0: number; x1: number; y1: n
     );
 }
 
-export function layoutRoom(input: RoomLayoutInput): PhotoLayout {
+/** How far a thing's planned footprint reached behind the back and left walls, in tiles (negative: in front). */
+export interface WallGap {
+  back: number;
+  left: number;
+}
+
+/**
+ * `behind`, when given, collects how far each thing whose size is known (not
+ * a desk, table, shelf or rug Spark sized, nor a chair) stood behind the walls
+ * before it was put in front of them: what `refineWalls` reads the walls from.
+ */
+export function layoutRoom(input: RoomLayoutInput, behind?: Map<string, WallGap>): PhotoLayout {
   const { inventory, segmentation, calibration } = input;
   const camera = calibration.camera;
   const frame = segmentation.frame;
@@ -402,6 +413,8 @@ export function layoutRoom(input: RoomLayoutInput): PhotoLayout {
           y1: surface.rect.y + surface.rect.d,
         }
       : walls;
+    if (template !== 'chair' && !(template && SIZED.has(template)))
+      behind?.set(t.id, { back: walls.y0 - y, left: walls.x0 - x });
     // Its back against the wall it nearly touches, and never through one or off its surface.
     if (!surface && template && !ROUND_TEMPLATES.has(template) && template !== 'chair') {
       if (turns === 0 && y - walls.y0 < FLUSH) y = walls.y0;

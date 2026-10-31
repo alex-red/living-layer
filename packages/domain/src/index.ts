@@ -775,3 +775,4 @@ export * from './room-camera.js';
 export * from './room-render.js';
 export * from './demo-room.js';
 export * from './room-scan.js';
+export * from './wall-refine.js';

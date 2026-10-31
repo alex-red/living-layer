@@ -21,8 +21,10 @@ import {
   calibrationOf,
   floorSolid,
   layoutRoom,
+  refineWalls,
   renderRoom,
   sceneSolids,
+  thingSolids,
   type LayoutInput,
   type RoomCalibration,
   modeSchema,
@@ -74,17 +76,37 @@ const draftSteps = (check: boolean) => [
   ...(check ? [{ id: 'check', label: 'Spark compares the drafted room with the photo' }] : []),
   { id: 'models', label: 'Choose a model for each thing' },
 ];
-/** The drafted room as the room's camera would see it: what Spark compares with the photo. */
+/**
+ * The drafted room as the room's camera would see it, with what is drawn as a
+ * model as well as the templates: what Spark compares with the photo.
+ */
 const renderLayout = (layout: PhotoLayout, calibration: RoomCalibration) =>
-  renderScene(layout.scene, calibration);
+  renderScene(layout.scene, calibration, layout.things);
 /** A scene drawn through the room's camera, as a PNG. */
-async function renderScene(scene: IsoScene, calibration: RoomCalibration) {
-  const picture = renderRoom(calibration.camera, [floorSolid(scene.grid), ...sceneSolids(scene)]);
+async function renderScene(
+  scene: IsoScene,
+  calibration: RoomCalibration,
+  things: PhotoLayout['things'] = [],
+) {
+  const picture = renderRoom(calibration.camera, [
+    floorSolid(scene.grid),
+    ...sceneSolids(scene),
+    ...thingSolids(things.filter((t) => t.status === 'object')),
+  ]);
   return sharp(Buffer.from(picture.rgba), {
     raw: { width: picture.width, height: picture.height, channels: 4 },
   })
     .png()
     .toBuffer();
+}
+type ThingBox = PhotoInventory['things'][number]['box'];
+/** How much two boxes in the frame share: their overlap over their union. */
+function boxOverlap(a: ThingBox, b: ThingBox) {
+  const w = Math.min(a.x2, b.x2) - Math.max(a.x1, b.x1);
+  const h = Math.min(a.y2, b.y2) - Math.max(a.y1, b.y1);
+  if (w <= 0 || h <= 0) return 0;
+  const area = (r: ThingBox) => (r.x2 - r.x1) * (r.y2 - r.y1);
+  return (w * h) / (area(a) + area(b) - w * h);
 }
 /** Why a frame can't be scanned without the room's camera. */
 export const NOT_CALIBRATED =
@@ -167,7 +189,7 @@ export function photoRoutes(
     frame,
     withCheck,
     inventory: listed,
-    calibration,
+    calibration: given,
     assists,
     assets,
     usage: spent,
@@ -188,6 +210,7 @@ export function photoRoutes(
     const live = mode === 'live';
     let inventory = listed;
     let usage = spent;
+    let calibration = given;
     const lay = (args: LayoutInput) => layoutRoom({ ...args, calibration });
     job.run('outline');
 
@@ -235,8 +258,17 @@ export function photoRoutes(
     );
     let segmentRunId = saveSegment(mode, segmentation, photo, image ? raw : null, live);
 
-    // 3. Measure the scene from the masks.
+    // 3. Measure the scene from the masks. A wall whose floor line was hidden is
+    // turned first to where the things standing against it say it is.
     job.run('layout');
+    const refined = refineWalls({ inventory, segmentation, detections, calibration });
+    if (refined) {
+      calibration = { ...refined.calibration, calibratedAt: new Date().toISOString() };
+      const { room, position } = calibration.camera;
+      assists.push(
+        `Turned the ${refined.wall === 'left' ? 'left' : 'right'} wall’s floor line ${Math.abs(refined.degrees)}° to the ${refined.witnesses.length} things standing behind it: the room is ${Math.round((room.w - 0.2) * ISO_TILE_CM)} × ${Math.round((room.d - 0.2) * ISO_TILE_CM)} cm, the camera ${Math.round(position[2] * ISO_TILE_CM)} cm up, off by ${calibration.error.toFixed(1)} px.`,
+      );
+    }
     let layout = lay({ inventory, segmentation, detections });
     assists.push(
       `Laid out through the calibrated room camera (fit ${calibration.error.toFixed(1)} px)`,
@@ -244,7 +276,7 @@ export function photoRoutes(
     const drawn = await renderLayout(layout, calibration);
     await job.done(
       'layout',
-      `${layout.things.filter((t) => t.status === 'placed').length} placed. ${assists.at(-1)}`,
+      `${layout.things.filter((t) => t.status === 'placed').length} placed. ${refined ? `${assists.at(-2)} ` : ''}${assists.at(-1)}`,
       drawn ?? undefined,
       PREVIEW,
     );
@@ -285,7 +317,12 @@ export function photoRoutes(
           kind: inventory.kind,
           things: [...inventory.things, ...result.output.missing],
           summary: inventory.summary,
-        }).things.slice(inventory.things.length);
+        })
+          .things.slice(inventory.things.length)
+          // Not what is listed already: the same kind of thing, its box over more than half of one listed.
+          .filter(
+            (m) => !inventory.things.some((t) => t.as === m.as && boxOverlap(t.box, m.box) > 0.5),
+          );
         // Anything missing gets one more SAM call, only if today's spending limit has room.
         if (image && missing.length && meta.canAfford(META_PRICES.samPerImage)) {
           const more = missing
@@ -732,6 +769,21 @@ export function photoRoutes(
           usage,
         });
         usage = result.usage;
+        // A wall the draft turned changes the room's size and the camera's height.
+        const drawn = result.output.calibration;
+        if (drawn !== calibration)
+          setup = {
+            ...setup,
+            floorCm: {
+              w: Math.round((drawn.camera.room.w - 0.2) * ISO_TILE_CM),
+              d: Math.round((drawn.camera.room.d - 0.2) * ISO_TILE_CM),
+            },
+            fit: {
+              ...setup.fit,
+              error: drawn.error,
+              heightCm: Math.round(drawn.camera.position[2] * ISO_TILE_CM),
+            },
+          };
         const output: PhotoDraft = {
           ...result.output,
           setup,

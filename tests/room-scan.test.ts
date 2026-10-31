@@ -23,6 +23,12 @@ import {
   roomCase,
   placeTemplate,
   cornerCamera,
+  renderRoom,
+  sceneSolids,
+  thingSolids,
+  refineWalls,
+  turnWall,
+  type TemplateId,
   resizeRoom,
   type IsoScene,
   type RoomCalibration,
@@ -95,6 +101,66 @@ describe('laying out a room from its calibrated camera', () => {
     // Its near end, which the camera sees, stays where it is.
     expect(Math.abs(desk.at.x + desk.size.w - (3.6 + 4))).toBeLessThan(0.15);
   });
+  it('turns a wall marked askew back to the things standing against it', () => {
+    // A desk along the back wall, four things on it against that wall.
+    let scene: IsoScene = {
+      kind: 'custom',
+      label: 'Study',
+      grid: { w: 12, d: 10 },
+      props: [],
+      surfaces: [],
+    };
+    const add = (id: TemplateId, g: string, x: number, y: number, z = 0) => {
+      const built = placeTemplate(id, g, x, y, z);
+      scene = {
+        ...scene,
+        props: [...scene.props, ...built.props],
+        surfaces: [...scene.surfaces, ...built.surfaces],
+      };
+    };
+    add('wall', 'wall-back', 0, 0);
+    add('wall', 'wall-left', 0, 0.2);
+    add('desk', 'desk', 2, 0.2);
+    const top = scene.surfaces.find((s) => s.propId === 'desk')!.z;
+    (['bottle', 'jar', 'carton', 'book'] as const).forEach((id, i) =>
+      add(id, id, 2.4 + i, 0.2, top),
+    );
+    const truth = cornerCamera(scene.grid);
+    const s = roomCase(scene, truth);
+    // Marked where the floor meets the walls' inner faces, as a person would.
+    const along = (to: (t: number) => { x: number; y: number }) =>
+      [1, 2, 3, 4, 5, 6].map((i) => projectRoom(truth, { ...to(i / 6), z: 0 })!);
+    const marks = {
+      corner: projectRoom(truth, { x: 0.2, y: 0.2, z: 0 })!,
+      back: along((t) => ({ x: 0.2 + t * 11.8, y: 0.2 })),
+      left: along((t) => ({ x: 0.2, y: 0.2 + t * 9.8 })),
+    };
+    const fit = cameraFromMarks(
+      marks,
+      truth.frame,
+      { w: 11.8, d: 9.8 },
+      { origin: { x: 0.2, y: 0.2 } },
+    );
+    const calibration: RoomCalibration = {
+      camera: fit.camera,
+      marks,
+      scene: 'custom',
+      error: fit.error,
+      calibratedAt: '',
+    };
+    // Marked true, nothing to turn.
+    expect(refineWalls({ ...s, calibration })).toBeNull();
+    // Marked 6° off, so the things seem to stand behind the wall: turned back, the room's width found again.
+    const askew = turnWall(calibration, 'back', 6)!;
+    expect(askew.camera.room.w).toBeGreaterThan(12.5);
+    const refined = refineWalls({ ...s, calibration: askew })!;
+    expect(refined).toMatchObject({ wall: 'back', degrees: -6 });
+    expect(refined.witnesses.sort()).toEqual(['book', 'bottle', 'carton', 'jar']);
+    // To the third of a tile `roomSizeFor` finds a wall's length to.
+    expect(Math.abs(refined.calibration.camera.room.w - 12)).toBeLessThan(0.2);
+    // Off the other way they only seem to stand out from it, which nothing says is wrong.
+    expect(refineWalls({ ...s, calibration: turnWall(calibration, 'back', -6)! })).toBeNull();
+  });
   it('builds a bookcase as tall as Spark says, with its top up there', () => {
     const c = ROOM_CASES[0]!;
     const scene = c.scene();
@@ -147,6 +213,15 @@ describe('laying out a room from its calibrated camera', () => {
       ),
     ).toBeLessThan(0.15);
     expect(mug.foot!.at.z).toBeCloseTo(2.4, 1);
+    // The room's picture, which Spark compares with the photo, shows it too, where it stands.
+    const picture = renderRoom(DEMO_CALIBRATION.camera, [
+      ...sceneSolids(layout.scene),
+      ...thingSolids(layout.things.filter((t) => t.status === 'object')),
+    ]);
+    const k = picture.names.indexOf('mug');
+    expect(k).toBeGreaterThanOrEqual(0);
+    const seen = picture.ids.filter((id) => id === k).length;
+    expect(seen).toBeGreaterThan(50);
     // The desk's top as the camera sees it is the pin.
     expect(layout.pin?.surfaceId).toBe(
       layout.scene.surfaces.find((x) => x.propId === desk.group)?.id,

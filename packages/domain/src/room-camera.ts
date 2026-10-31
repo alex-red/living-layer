@@ -370,6 +370,9 @@ export function cameraFromMarks(
   };
 }
 
+/** How far off, in pixels, marks may be from a camera's floor lines for the fit to be kept. */
+export const fitLimit = (frame: RoomCamera['frame']) => Math.hypot(frame.width, frame.height) / 60;
+
 /**
  * The length of one wall that best fits the marks, the other wall kept as
  * given. Marks pin the room's shape, not its size: a camera higher up sees a
