@@ -229,6 +229,12 @@ describe('the saved scene', () => {
       material: 'matte' as const,
     };
     expect(draftModel(thing, 'generic', []).source).toBe('cube');
+    // A tall thing called a device is no flat device.
+    const tall = { ...thing, sizeCm: { w: 28, d: 28, h: 102 } };
+    expect(draftModel(tall, 'device', []).source).toBe('cube');
+    expect(draftModel({ ...tall, sizeCm: { w: 10, d: 6, h: 3 } }, 'device', []).source).toBe(
+      'catalog',
+    );
     expect(draftModel({ ...thing, label: 'white mug' }, 'mug', []).source).toBe('catalog');
     const saved = {
       label: 'Tower fan',

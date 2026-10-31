@@ -44,6 +44,8 @@ export interface RoomLayoutInput extends Pick<
 const isTemplate = (as: string): as is TemplateId => as in PROP_TEMPLATES;
 /** Templates that come in many sizes, drawn at Spark's estimate within reason. */
 const SIZED = new Set<string>(['desk', 'table', 'shelf', 'cabinet', 'rug']);
+/** Of those, the ones whose height varies a lot too: a bookcase can be 80 or 200 cm tall. */
+const TALL = new Set<string>(['shelf', 'cabinet']);
 /** A thing whose back is within this many tiles of a wall is put flush against it. */
 const FLUSH = 0.5;
 /** Round things have no back to put to a wall. */
@@ -66,15 +68,18 @@ function standing(
   cy: number,
   z: number,
   turns: number,
-  size: { w: number; d: number } = PROP_TEMPLATES[id].size,
+  size: { w: number; d: number; h?: number } = PROP_TEMPLATES[id].size,
 ) {
   // Turned a quarter, its width runs along y: build it so that it ends up `size` as placed.
   const { w, d } = turns % 2 ? { w: size.d, d: size.w } : size;
+  const h = size.h;
   let scene: IsoScene = {
     kind: 'custom',
     label: 'probe',
     grid: { w: 64, d: 64 },
-    ...placeTemplate(id, g, 32 + cx - w / 2, 32 + cy - d / 2, z, { size: { w, d } }),
+    ...placeTemplate(id, g, 32 + cx - w / 2, 32 + cy - d / 2, z, {
+      size: { w, d, ...(h ? { h } : {}) },
+    }),
   };
   for (let k = 0; k < turns; k++) scene = rotateGroup(scene, g);
   const back = (x: number) => x - 32;
@@ -217,10 +222,11 @@ export function layoutRoom(input: RoomLayoutInput): PhotoLayout {
     const sized = (v: number, of: number) => Math.min(of * 1.6, Math.max(of * 0.6, v));
     const spark = { w: cm(t.sizeCm.w), d: cm(t.sizeCm.d) };
     const base = template ? PROP_TEMPLATES[template].size : spark;
-    const size =
+    const size: { w: number; d: number; h?: number } =
       template && SIZED.has(template)
         ? { w: sized(spark.w, base.w), d: sized(spark.d, base.d) }
         : { w: base.w, d: base.d };
+    if (template && TALL.has(template)) size.h = sized(cm(t.sizeCm.h), usualHeight(template));
     // Roughly where it is, to choose its turn: the near points' middle, half a depth back.
     const mid = {
       x:
@@ -242,7 +248,7 @@ export function layoutRoom(input: RoomLayoutInput): PhotoLayout {
       : template === 'chair'
         ? facing(mid, groups)
         : backToWall(mid, walls);
-    const turned = turns % 2 ? { w: size.d, d: size.w } : { ...size };
+    const turned = turns % 2 ? { ...size, w: size.d, d: size.w } : { ...size };
     // The camera is in the room's front corner, so it sees each footprint's
     // far-from-origin sides: they are where the near points reach furthest,
     // less how far in from them its parts touch down.
@@ -382,6 +388,11 @@ export function layoutRoom(input: RoomLayoutInput): PhotoLayout {
   };
 }
 
+/** How tall a template is built when nothing says otherwise. */
+function usualHeight(id: TemplateId) {
+  const { props } = placeTemplate(id, 'probe', 0, 0, 0);
+  return Math.max(...props.map((p) => p.at.z + p.size.h));
+}
 /** The turn that puts a thing's back to the wall nearest it. */
 function backToWall(
   at: { x: number; y: number },

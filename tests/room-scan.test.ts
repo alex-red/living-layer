@@ -46,6 +46,29 @@ describe('laying out a room from its calibrated camera', () => {
       expect(j.wrongTurns).toBe(0);
     });
 
+  it('builds a bookcase as tall as Spark says, with its top up there', () => {
+    const c = ROOM_CASES[0]!;
+    const scene = c.scene();
+    const truth = c.camera(scene);
+    const s = roomCase(scene, truth, { shelf: { h: 180 } });
+    const marks = marksOf(truth);
+    const fit = cameraFromMarks(marks, truth.frame, truth.room);
+    const layout = layoutRoom({
+      ...s,
+      calibration: {
+        camera: fit.camera,
+        marks,
+        scene: 'custom',
+        error: fit.error,
+        calibratedAt: '',
+      },
+    });
+    const shelf = layout.things.find((t) => t.id === 'shelf')!;
+    const box = groupBounds(layout.scene, shelf.group!)!;
+    expect(box.size.h * 30).toBeCloseTo(180, 0);
+    const top = layout.scene.surfaces.find((x) => x.propId === shelf.group)!;
+    expect(top.z * 30).toBeCloseTo(180, 0);
+  });
   it('lays out the demo room, the mug where it stands on the desk', async () => {
     const segmentation = await demoPhotoSegmentation();
     const detections = Object.fromEntries(

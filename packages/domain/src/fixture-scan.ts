@@ -281,7 +281,12 @@ export type DraftModelSource = 'library' | 'catalog' | 'cube';
  * stands. Nothing is fitted to its outline.
  */
 export function draftModel(
-  thing: { label: string; color: string; material: ScannedThing['material'] },
+  thing: {
+    label: string;
+    color: string;
+    material: ScannedThing['material'];
+    sizeCm?: { w: number; d: number; h: number };
+  },
   as: string,
   library: Fixture[],
 ): { item: IsoItem; source: DraftModelSource; fixtureId?: string } {
@@ -298,7 +303,9 @@ export function draftModel(
       source: 'library',
       fixtureId: known.id,
     };
-  return OWN_MODEL.has(archetype)
+  // A device is a flat thing (a mouse, a remote): anything taller than it is wide isn't one.
+  const flat = !thing.sizeCm || thing.sizeCm.h < Math.max(thing.sizeCm.w, thing.sizeCm.d);
+  return OWN_MODEL.has(archetype) && (archetype !== 'device' || flat)
     ? {
         item: placeholderModel(thing.label, archetype, thing.color, thing.material),
         source: 'catalog',

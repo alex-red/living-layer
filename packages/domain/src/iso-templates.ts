@@ -14,7 +14,14 @@ interface Template {
   size: { w: number; d: number };
   /** Sits on whatever surface is below it instead of the floor. */
   onTop: boolean;
-  build: (g: string, x: number, y: number, z: number, size: { w: number; d: number }) => Built;
+  /** `size.h`, when given, is how tall to build it instead of its usual height. */
+  build: (
+    g: string,
+    x: number,
+    y: number,
+    z: number,
+    size: { w: number; d: number; h?: number },
+  ) => Built;
 }
 
 const part = (
@@ -53,7 +60,8 @@ const surface = (
 const tall = (form: PropForm) => cm(furnitureSpec(form).heightCm);
 /**
  * One prop drawn as a furniture model, plus the surface on its top if it
- * has one. Sizes are real (see `cm`): a desk top stands at 72 cm.
+ * has one. Sizes are real (see `cm`): a desk top stands at 72 cm, unless
+ * it is built another height (a tall bookcase has more shelves).
  */
 function modelled(
   label: string,
@@ -61,8 +69,7 @@ function modelled(
   tone: IsoProp['tone'],
   top?: string,
 ): Template['build'] {
-  return (g, x, y, z, { w, d }) => {
-    const h = tall(form);
+  return (g, x, y, z, { w, d, h = tall(form) }) => {
     return {
       props: [prism(g, '', label, [x, y, z], [w, d, h], tone, { form })],
       surfaces: top ? [surface(g, 'top', top, g, { x, y, w, d }, z + h)] : [],
@@ -297,7 +304,11 @@ export function placeTemplate(
   x: number,
   y: number,
   z = 0,
-  options: { size?: { w: number; d: number }; label?: string; optional?: boolean } = {},
+  options: {
+    size?: { w: number; d: number; h?: number };
+    label?: string;
+    optional?: boolean;
+  } = {},
 ): Built {
   const t: Template = PROP_TEMPLATES[id];
   const built = t.build(g, x, y, z, options.size ?? t.size);
