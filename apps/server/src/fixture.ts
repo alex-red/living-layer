@@ -536,7 +536,9 @@ export function fixtureRoutes(
       )
         throw new LabError(
           'scan_frame',
-          `The pin was set on a ${pin.frame.width}×${pin.frame.height} frame, and this photo is ${image.width}×${image.height}. Scan a frame from the pinned camera, or pin the surface again on this photo.`,
+          imageDataUrl
+            ? `The pin was set on a ${pin.frame.width}×${pin.frame.height} frame, and this photo is ${image.width}×${image.height}. Scan a frame from the pinned camera, or pin the surface again on this photo.`
+            : `No photo was sent, and the room’s own photo is ${image.width}×${image.height}, while the pin was set on a ${pin.frame.width}×${pin.frame.height} frame. Start the pinned camera and scan what it shows, or pin the surface again on the room’s photo.`,
           409,
         );
       const tracked = [before.object?.label, ...(before.others ?? []).map((o) => o.label)].filter(

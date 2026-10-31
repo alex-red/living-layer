@@ -228,14 +228,14 @@ export function ScanFixtures({
   // A drafted room can be scanned from the photo it was drafted from.
   const roomPhoto =
     pin?.scene === 'custom' && Boolean(lab.memory?.scenePhoto || lab.memory?.illustration);
-  const blocked = (live && !lab.image && !roomPhoto) || !scene;
+  const blocked = (live && !lab.image && !lab.camera && !roomPhoto) || !scene;
   const inScene = (lab.memory?.fixtures ?? []).filter((f) => f.scene === scene);
   const placedByHand = inScene.some((f) => !f.scanned);
   return (
     <Details summary="Scan and map fixtures" open={open}>
       <p className="micro">
         {live
-          ? `Spark lists what stays put in ${lab.image ? 'the desk photo' : 'the room’s photo'}, SAM outlines each one, and each is placed through the pin where it touches down. A fixture you already have is reused; anything new is modelled from its outline.`
+          ? `Spark lists what stays put in ${lab.camera ? 'what the camera shows' : lab.image ? 'the desk photo' : 'the room’s photo'}, SAM outlines each one, and each is placed through the pin where it touches down. A fixture you already have is reused; anything new is modelled from its outline.`
           : 'Scans the illustrated desk with no model call. A fixture you already have is reused; anything new is modelled from its outline.'}
       </p>
       {scenes.length > 1 && (

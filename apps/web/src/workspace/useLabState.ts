@@ -1785,6 +1785,8 @@ export function useLabState() {
     replace: boolean,
   ): Promise<MappedThing[] | null> {
     if (busy) return null;
+    // What the camera shows now, which is the frame the pin was set on, not the last one captured.
+    const photo = frameNow();
     setBusy('scan');
     setError('');
     try {
@@ -1799,7 +1801,7 @@ export function useLabState() {
         (jobId, signal) =>
           api<{ run: EvidenceRun; mapped: MappedThing[]; memory: DeskMemory }>(
             'fixtures/scan',
-            { mode, scene, replace, jobId, ...(mode === 'live' ? { imageDataUrl: image } : {}) },
+            { mode, scene, replace, jobId, ...(mode === 'live' ? { imageDataUrl: photo } : {}) },
             { signal },
           ),
       );

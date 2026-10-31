@@ -1100,6 +1100,35 @@ describe('scanning live, with a mocked Meta API', () => {
     expect(res.json<Scanned>().memory.fixtures![0]).toMatchObject({ scene: 'custom' });
     expect(s.prompts).toEqual([expect.stringMatching(/^fixture_scan/), 'sam']);
   });
+  it('says the room’s photo is the wrong shape when it scans that and not a frame', async () => {
+    const s = await live();
+    await pin(s);
+    const memory = (await s.app.inject('/api/desk/live')).json<DeskMemory>();
+    const runId = crypto.randomUUID();
+    const dir = join(s.dataDir, 'evidence', runId);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, 'source.png'),
+      await sharp(readFileSync('apps/web/public/desk.svg')).resize(640, 480).png().toBuffer(),
+    );
+    const desk = placeTemplate('desk', 'desk', 1, 1);
+    await s.post('desk/restore', {
+      mode: 'live',
+      memory: {
+        ...memory,
+        scene: { kind: 'custom', label: 'Mine', grid: { w: 8, d: 8 }, ...desk },
+        scenePhoto: `${runId}/source.png`,
+        surface: { ...DEMO_SURFACE, scene: 'custom' },
+      },
+    });
+    const res = await s.post('fixtures/scan', { mode: 'live' });
+    expect(res.statusCode).toBe(409);
+    expect(res.json<{ error: { code: string; message: string } }>().error).toMatchObject({
+      code: 'scan_frame',
+      message: expect.stringMatching(/^No photo was sent, and the room’s own photo is 640×480/),
+    });
+    expect(s.prompts).toEqual([]);
+  });
   it('serves a drafted room’s photo at its pin’s size, and nothing for a preset', async () => {
     const s = await live();
     await pin(s);
