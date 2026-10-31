@@ -244,8 +244,8 @@ export function ScanFixtures({
     <Details summary="Scan and map fixtures" open={open}>
       <p className="micro">
         {live
-          ? `Spark lists what stays put in ${lab.camera ? 'what the camera shows' : lab.image ? 'the desk photo' : 'the room’s photo'}, SAM outlines each one, and each is placed through the pin where it touches down. A fixture you already have is reused; anything new is modelled from its outline.`
-          : 'Scans the demo office with no model call. A fixture you already have is reused; anything new is modelled from its outline.'}
+          ? `Spark lists what stays put in ${lab.camera ? 'what the camera shows' : lab.image ? 'the desk photo' : 'the room’s photo'} and SAM outlines each one. Known fixtures are reused; new ones are modelled.`
+          : 'Scans the demo office, no model calls. Known fixtures are reused; new ones are modelled.'}
       </p>
       {scenes.length > 1 && (
         <Segmented
@@ -275,9 +275,7 @@ export function ScanFixtures({
           Also move fixtures you placed by hand to where the scan finds them
         </Check>
       )}
-      <Cost>
-        One Spark call and one SAM call, refused up front if today’s limit can’t cover them.
-      </Cost>
+      <Cost>1 Spark and 1 SAM call, refused if today’s limit can’t cover them.</Cost>
       {(lab.memory?.dismissed?.length ?? 0) > 0 && (
         <p className="micro">
           Skipped as not fixtures:{' '}
@@ -408,7 +406,7 @@ export function NewFixturePanel() {
         title="Box it on the desk photo"
         status={
           mode === 'live'
-            ? 'Drag a box around the thing. Spark sees only what is around the box; SAM outlines it.'
+            ? 'Drag a box around the thing; Spark names it and SAM outlines it.'
             : 'Drag a box around the mug, the book or the bottle in the demo office.'
         }
         tone="seen"
@@ -434,7 +432,7 @@ export function NewFixturePanel() {
       <Panel
         tiny="ADD A FIXTURE"
         title="Start from a photo of the thing"
-        status="One thing, filling most of the frame, on a plain background. A mouse, a lamp, a wall switch."
+        status="One thing filling the frame, on a plain background: a mouse, a lamp, a switch."
         tone="seen"
       >
         <div className="fixture-drop" aria-disabled={!live}>
@@ -468,8 +466,8 @@ export function NewFixturePanel() {
           )}
           <p className="micro">
             {live
-              ? 'Spark names it and SAM outlines it: up to five billed calls, refused up front if today’s limit can’t cover them. Only this photo is sent.'
-              : 'Demo mode drafts from the bundled pictures below, with no model call. Switch to Live to use your own photo.'}
+              ? 'Spark names it and SAM outlines it: up to 5 billed calls. Only this photo is sent.'
+              : 'Demo drafts from the pictures below, no model calls. Switch to Live for your own.'}
           </p>
         </div>
         <Button
@@ -703,10 +701,7 @@ export function FixturePanel({ id }: { id: string }) {
       <FixtureCamera fixture={f} disabled={off || moving} />
       <p className="micro fixture-placed">
         {byScan ? (
-          <>
-            Placed by a scan: rescans move and refit it. Drag it on the picture, or move it, to keep
-            it where you put it.
-          </>
+          <>Placed by a scan: rescans move it. Drag or move it to keep it where you put it.</>
         ) : (
           <>
             Placed by you: scans leave it here.{' '}
@@ -730,8 +725,7 @@ export function FixturePanel({ id }: { id: string }) {
         <p className="micro">
           {f.room ? (
             <>
-              The room shows it where you put it here; the office desk shows it where its camera
-              does.{' '}
+              Placed by hand in the room; the office desk follows its camera.{' '}
               <Button
                 variant="text"
                 disabled={off || moving}
@@ -747,7 +741,7 @@ export function FixturePanel({ id }: { id: string }) {
               </Button>
             </>
           ) : (
-            'The room shows it where the desk’s camera puts it. Moving it here keeps a place of its own for the room, and leaves the office desk as it is.'
+            'Placed where the desk’s camera sees it. Moving it here gives the room its own place for it.'
           )}
         </p>
       )}
@@ -856,10 +850,7 @@ export function FixturePanel({ id }: { id: string }) {
             Not a fixture
           </Button>
         </div>
-        <p className="micro">
-          “Not a fixture” also tells scans to skip it, for something they keep finding that isn’t
-          one.
-        </p>
+        <p className="micro">“Not a fixture” also tells scans to skip it.</p>
       </Details>
     </Panel>
   );
@@ -892,7 +883,7 @@ function FixtureCamera({ fixture: f, disabled }: { fixture: Fixture; disabled: b
       <p className="micro">
         {f.track
           ? `Followed: ${TRACK_STATUS[f.track.status]} · seen ${ago(f.track.observation.observedAt, now)}${watched ? ' · the server is watching it' : ''}.`
-          : 'Not followed. Find it in the camera so its place follows it and it can decide rules.'}
+          : 'Not followed. Find it in the camera so it can follow and decide rules.'}
       </p>
       <div className="save-actions">
         <Button
@@ -949,7 +940,7 @@ export function LampPanel({ id }: { id: string }) {
       status={
         lamp.entity
           ? `Part of the ${sceneLabel.toLowerCase()} layout · ${lamp.entity} · ${on ? 'on' : 'off'}`
-          : 'Part of the layout, with no light configured to stand for.'
+          : 'Part of the layout, with no light set.'
       }
       tone={on ? 'warm' : 'idle'}
     >
@@ -1004,7 +995,7 @@ function SculptFixture({ fixture, disabled }: { fixture: Fixture; disabled: bool
       : !lab.metaReady
         ? 'Live calls aren’t available: set MODEL_API_KEY and META_LIVE_ENABLED, or raise today’s spend limit.'
         : !pictured
-          ? 'Lift the fixtures off the room’s picture first: the model is built from its cut-out.'
+          ? 'Lift the fixtures off the room’s picture first.'
           : null;
   return (
     <div className="sculpt-fixture">
@@ -1016,7 +1007,7 @@ function SculptFixture({ fixture, disabled }: { fixture: Fixture; disabled: bool
       </Button>
       <p className="micro">
         {why ??
-          `Spark rebuilds the ${fixture.label.toLowerCase()}’s model in parts you can edit, from its ${lifted ? 'cut-out on the room’s picture' : 'photo'}, starting from the model it has: two Spark calls, about $0.05 to $0.10, and a minute or two. Parts you locked stay.`}
+          `Spark rebuilds its model in editable parts from its ${lifted ? 'cut-out' : 'photo'}, keeping locked parts · 2 Spark calls, ~$0.05–0.10, a minute or two.`}
       </p>
     </div>
   );

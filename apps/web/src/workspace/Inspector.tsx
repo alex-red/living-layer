@@ -259,22 +259,22 @@ function PictureControls({ view = 'room' }: { view?: 'room' | 'desk' }) {
       </Button>
       <p className="micro">
         {view === 'desk' && mode === 'demo'
-          ? 'The demo has only its corner camera: draw the room as a picture instead.'
+          ? 'The demo has no desk camera: draw the room instead.'
           : !pinned
             ? 'Pin the desk first: the picture is tied to it.'
             : view === 'room' && !calibrated
-              ? 'Calibrate the room’s corner camera first: the picture redraws one of its frames.'
+              ? 'Calibrate the corner camera first.'
               : needPhoto
                 ? view === 'desk'
-                  ? 'Capture a close frame of the desk first; the picture is drawn from it.'
-                  : 'Add a frame from the room’s camera first; the picture is drawn from it.'
+                  ? 'Capture a close frame of the desk first.'
+                  : 'Add a frame from the room’s camera first.'
                 : mode === 'demo'
-                  ? 'Demo: draws the saved room through the demo camera, with no model calls.'
+                  ? 'Demo: no model calls.'
                   : view === 'desk'
                     ? otherSize
-                      ? `The desk picture was drawn from a ${drawnFrom!.width}×${drawnFrom!.height} frame, so only sightings in frames that size show on it. Redraw from this frame to match.`
-                      : `Muse Image redraws this close frame of the desk${memory?.illustration ? ' in the room picture’s style' : ''}, keeping its framing, so what the camera tracks lands on it: one image call, about $0.01.`
-                    : `Muse Image redraws ${memory?.scenePhoto || memory?.illustration ? 'the room’s photo' : 'the current frame'} as clean line art, keeping the corner camera’s framing, so the room’s camera places the mug and zones on it: one image call, about $0.01.`}
+                      ? `Drawn from a ${drawnFrom!.width}×${drawnFrom!.height} frame: redraw to match this one.`
+                      : `Redraws this frame${memory?.illustration ? ' in the room’s style' : ''}, keeping its framing · 1 image call, ~$0.01.`
+                    : `Redraws ${memory?.scenePhoto || memory?.illustration ? 'the room’s photo' : 'the current frame'} as line art, keeping the camera’s framing · 1 image call, ~$0.01.`}
       </p>
       {picture && mode === 'live' && (
         <>
@@ -284,8 +284,8 @@ function PictureControls({ view = 'room' }: { view?: 'room' | 'desk' }) {
               view === 'desk'
                 ? lab.camera
                   ? 'Redrawn from what the camera shows now.'
-                  : 'Redrawn from the frame on the stage. Start the camera to draw what it shows now.'
-                : 'The same photo comes back drawn much the same; say what should change.'
+                  : 'Redrawn from the frame on the stage.'
+                : 'Without a note, the photo redraws much the same.'
             }
           >
             <input
@@ -337,10 +337,10 @@ function LiftFixtures() {
         {!count
           ? 'Scan or add this room’s fixtures first.'
           : layers
-            ? `${layers.sprites.length} of ${count} fixtures are lifted: dragging one moves the thing itself. Lift again after adding fixtures.`
+            ? `${layers.sprites.length} of ${count} fixtures lifted. Lift again after adding more.`
             : mode === 'demo'
-              ? 'Cuts each fixture out of the picture and fills the gap it leaves, with no model calls.'
-              : 'Spark finds each fixture on the picture by name and SAM cuts it out, and Muse Image redraws the room with only its furniture as the base they stand on, so you can drag the things themselves. A fixture that can’t be outlined cleanly isn’t lifted. One Spark, one SAM and one image call, about $0.02.'}
+              ? 'Cuts each fixture out so you can drag it. No model calls.'
+              : 'Cuts each fixture out of the picture so you can drag it · Spark, SAM and 1 image call, ~$0.02.'}
       </p>
     </div>
   );
@@ -358,7 +358,7 @@ function RoomPanel() {
         room === 'custom'
           ? 'Your own room, drafted from a photo or built by hand.'
           : lab.isoPanel === 'scene' && lab.stageView !== 'photo'
-            ? 'Draft your office from a photo in the canvas: upload one, or capture a camera frame and use it. Review the draft, then save.'
+            ? 'Editing the layout in the canvas. Save it when it looks right.'
             : room === 'office'
               ? 'The demo office: an illustrated preset you can edit.'
               : 'A preset scene. Pin one of its surfaces to place objects.'
@@ -372,10 +372,6 @@ function RoomPanel() {
           Edit layout
         </Button>
       )}
-      <p className="micro">
-        Draft the room from a photo, start from a preset, or move, turn and add furniture. The
-        layout opens in the canvas.
-      </p>
       {room === 'custom' && <PictureControls />}
       {memory?.surface && pinScene(room) === memory.surface.scene && (
         <Button
@@ -425,8 +421,7 @@ function RoomPanel() {
       )}
       <Details summary="Ask Spark">
         <p className="micro">
-          Spark looks at the current photo and says which preset it shows and which props it can
-          see. It never invents positions.
+          Spark names the preset and props in the photo. It never places them.
         </p>
         <Button
           disabled={Boolean(busy) || lab.asking || room === 'custom' || (mode === 'live' && !image)}
@@ -475,10 +470,10 @@ function SurfacePanel({ id, closeView }: { id: string; closeView?: boolean }) {
         demoPin
           ? `The demo ${label} is pinned for you.`
           : row.pinned
-            ? `The ${label} is pinned on a ${memory!.surface!.frame.width}×${memory!.surface!.frame.height} frame. Objects on it show in the iso room.`
+            ? `Pinned on a ${memory!.surface!.frame.width}×${memory!.surface!.frame.height} frame.`
             : needPhoto
               ? `Add a close photo of the ${label}, then pin its four corners.`
-              : `Pin the ${label} to the photo, so objects on it show in the iso room.`
+              : `Pin the ${label} to place objects on it.`
       }
       tone={row.pinned ? 'ok' : 'seen'}
     >
@@ -510,8 +505,8 @@ function SurfacePanel({ id, closeView }: { id: string; closeView?: boolean }) {
       ) : null}
       {closeView && row.pinned && progress.view && (
         <p className="micro">
-          The {label} is shared with the {roomLabel(progress.room, memory).toLowerCase()}, so what
-          you place here shows there too.
+          Shared with the {roomLabel(progress.room, memory).toLowerCase()}: what you place here
+          shows there too.
         </p>
       )}
       {closeView && row.pinned && progress.view === 'custom-desk' && (
@@ -554,10 +549,10 @@ function SurfacePanel({ id, closeView }: { id: string; closeView?: boolean }) {
       </div>
       <p className="micro">
         {memory?.camera
-          ? `The room's camera is calibrated (${memory.camera.error.toFixed(1)} px)${memory.camera.moved ? ', but it has moved since: zones are paused until it is calibrated again' : ''}.`
+          ? `Camera calibrated (${memory.camera.error.toFixed(1)} px)${memory.camera.moved ? ', but it has moved: zones pause until you calibrate again' : ''}.`
           : mode === 'demo'
-            ? 'The demo camera is calibrated already. Calibrate it again to try the marks.'
-            : 'Mount one camera high in a corner of the room, then calibrate it: zones drawn in the room then apply to every frame it sends.'}
+            ? 'The demo camera is calibrated. Calibrate again to try the marks.'
+            : 'Mount a camera high in a corner, then calibrate it so room zones apply to its frames.'}
       </p>
       <div className="save-actions">
         {/* Secondary even uncalibrated: the pin or photo action above is this step's primary. */}
@@ -620,8 +615,8 @@ function AddPanel({
           : needPhoto
             ? 'Add a photo of the desk first: start the camera, or upload one.'
             : camera
-              ? 'Name what to look for. SAM outlines every match in what the camera shows now.'
-              : 'Name what to look for. SAM outlines every match in this frame.'
+              ? 'Name what to look for; SAM outlines every match the camera shows.'
+              : 'Name what to look for; SAM outlines every match in this frame.'
       }
       tone={needPhoto ? 'unsure' : 'seen'}
     >
@@ -668,9 +663,7 @@ function AddPanel({
       <MaskResults />
       {!preset && (
         <Details summary="Not sure what’s there?" open={!scene}>
-          <p className="micro">
-            Spark names up to three objects on the desk. They show in the outline as suggestions.
-          </p>
+          <p className="micro">Spark suggests up to three objects on the desk.</p>
           <Button disabled={!canVision} onClick={() => void lab.execute('discover')}>
             {busy === 'discover' ? 'Discovering…' : 'Discover objects'}
           </Button>
@@ -700,9 +693,7 @@ function AddPanel({
         </Details>
       )}
       <Details summary="Check for false matches">
-        <p className="micro">
-          Ask for something that isn’t there. A good result is no outline at all.
-        </p>
+        <p className="micro">Ask for something that isn’t there: a good result is no outline.</p>
         <Button
           variant="text"
           disabled={!canVision}
@@ -745,8 +736,8 @@ function WatchControl() {
         {watching && watch
           ? `${WATCH_STATE[watch.state]}${watch.camera ? ` ${watch.camera.name}` : ''} · ${stats}. ${watch.note}`
           : canWatch
-            ? `Follows the mug, objects and found fixtures with no tab open, and asks SAM only at a zone edge or when one is lost${mode === 'live' ? '' : ' (here, each move under the canvas is a frame)'}.`
-            : 'The server can watch a network camera that offers RTSP, such as one shared with scripts/share-camera.sh. This camera can be followed in the tab instead.'}
+            ? `Follows everything confirmed with no tab open, asking SAM only at zone edges${mode === 'live' ? '' : ' (here, each move is a frame)'}.`
+            : 'Needs an RTSP network camera (see scripts/share-camera.sh). Follow it in this tab instead.'}
       </p>
     </>
   );
@@ -821,7 +812,7 @@ function MugPanel() {
             {follow
               ? `${followStats.frames} local step${followStats.frames === 1 ? '' : 's'} · ${followStats.checks} SAM check${followStats.checks === 1 ? '' : 's'}${followView ? ` · match ${followView.track.score.toFixed(2)}` : ''}${localZone ? '' : ' · no zone to watch: save one and mark the camera fixed'}`
               : currentObservation
-                ? 'Follows the mug in this tab between SAM calls, while the tab is open. SAM confirms each zone crossing before the lamp can fire.'
+                ? 'Follows the mug in this tab; SAM confirms each zone crossing.'
                 : 'Track the mug in this frame first.'}
           </p>
         </>
@@ -904,8 +895,8 @@ function OtherPanel({ id }: { id: string }) {
       title={o.label}
       status={
         o.observation
-          ? `Seen ${ago(o.observation.observedAt, now)}. It is followed in outlines of “${o.concept}”.`
-          : `Remembered. It is followed in outlines of “${o.concept}”.`
+          ? `Seen ${ago(o.observation.observedAt, now)} · found as “${o.concept}”.`
+          : `Remembered · found as “${o.concept}”.`
       }
       tone="chosen"
       aside={o.observation && <Freshness observedAt={o.observation.observedAt} />}
@@ -1092,13 +1083,12 @@ function ZonePanel() {
       </Button>
       {mode === 'live' && !lampReady && (
         <p className="micro">
-          The lamp isn’t set up, so placement can’t be verified live. Set the HA_ variables and
-          HA_LIVE_ENABLED, or try the rule in Demo.
+          The lamp isn’t set up: set the HA_ variables and HA_LIVE_ENABLED, or try it in Demo.
         </p>
       )}
       {!currentObservation && memory.zone && (
         <p className="micro">
-          Track the mug in this frame first. A still photo doesn’t prove where it is now.
+          Track the mug in this frame first: a still photo doesn’t say where it is now.
         </p>
       )}
       {memory.lastDecision && (
@@ -1350,9 +1340,8 @@ function NewRulePanel() {
       </div>
       {!entities.length && (
         <p className="micro">
-          Set HA_ENTITY_ID (and HA_EXTRA_ENTITY_IDS for more lights, HA_SWITCH_ENTITY_IDS for
-          switches) to choose what a rule turns on. Without one, a rule only tells Home Assistant
-          through an entity you show there.
+          Set HA_ENTITY_ID (HA_EXTRA_ENTITY_IDS, HA_SWITCH_ENTITY_IDS for more) to choose what a
+          rule turns on. Without one, a rule only reports to Home Assistant.
         </p>
       )}
     </Panel>
