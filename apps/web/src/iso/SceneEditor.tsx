@@ -1,8 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   ISO_PRESETS,
-  PROP_TEMPLATES,
-  TEMPLATE_IDS,
   addTemplate,
   groupBounds,
   isoSceneSchema,
@@ -16,11 +14,11 @@ import {
   type IsoSceneKind,
   type Mode,
   type SceneDraft,
-  type TemplateId,
   type DeskMemory,
 } from '@livinglayer/domain';
 import { api, type AiFollow } from '../api';
 import { IsoScene } from './IsoScene';
+import { PropPickerPopover } from './PropPicker';
 import { PhotoReview, type PhotoRun } from './PhotoReview';
 import { demoFrameUrl } from '../workspace/demoFrame';
 
@@ -270,22 +268,6 @@ export function SceneEditor({
         </span>
       </div>
       <div className="scene-editor-body">
-        <div className="scene-palette" role="group" aria-label="Add a prop">
-          <span className="tiny">ADD</span>
-          {TEMPLATE_IDS.map((id: TemplateId) => (
-            <button
-              key={id}
-              className="secondary"
-              onClick={() => {
-                const next = addTemplate(draft, id);
-                setDraft(next.scene);
-                setSelected(next.group);
-              }}
-            >
-              + {PROP_TEMPLATES[id].label}
-            </button>
-          ))}
-        </div>
         <div className="scene-canvas">
           <IsoScene
             scene={draft}
@@ -300,6 +282,14 @@ export function SceneEditor({
         </div>
       </div>
       <div className="scene-selected">
+        <PropPickerPopover
+          scene={draft}
+          onAdd={(id) => {
+            const next = addTemplate(draft, id);
+            setDraft(next.scene);
+            setSelected(next.group);
+          }}
+        />
         {selected && bounds ? (
           <>
             <span className="tiny">

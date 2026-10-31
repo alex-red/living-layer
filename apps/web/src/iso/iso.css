@@ -562,21 +562,246 @@
 }
 .scene-editor-body {
   display: grid;
-  grid-template-columns: 140px 1fr;
+  grid-template-columns: 1fr;
   gap: 12px;
   flex: 1;
   min-height: 0;
 }
-.scene-palette {
+/* The prop picker: a shelf of cards, each the model as the room draws it. */
+.popover.prop-pop {
+  top: auto;
+  bottom: calc(100% + 6px);
+  left: 0;
+  right: auto;
+  width: min(372px, calc(100vw - 32px));
+  max-height: none;
+  overflow: visible;
+  padding: 10px;
+}
+.prop-pop .prop-picker-grid {
+  max-height: min(392px, 55vh);
+}
+.prop-picker {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  overflow-y: auto;
+  gap: 8px;
+  min-height: 0;
 }
-.scene-palette button {
-  min-height: 26px;
+.prop-picker-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+.prop-picker-count {
+  color: var(--text-3);
+}
+.prop-picker-search {
+  min-height: 28px;
   font-size: 12px;
+}
+.prop-picker-shelves {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-button);
+  background: var(--surface-1);
+}
+.prop-picker-shelves button {
+  flex: 1;
+  min-height: 22px;
+  padding: 0 4px;
+  border: 0;
+  border-radius: var(--r-chip);
+  background: transparent;
+  color: var(--text-3);
+  font: 500 10px/1 var(--mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  transition:
+    background var(--t-fast) var(--ease-out),
+    color var(--t-fast) var(--ease-out);
+}
+.prop-picker-shelves button:hover {
+  color: var(--text);
+}
+.prop-picker-shelves button.on {
+  background: var(--surface-3);
+  color: var(--seen);
+  box-shadow: var(--glass-edge);
+}
+.prop-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+  /* Cards clip their art, which would otherwise let the rows squeeze them. */
+  grid-auto-rows: max-content;
+  gap: 6px;
+  overflow-y: auto;
+  padding: 2px 4px 4px 2px;
+  align-content: start;
+  scrollbar-width: thin;
+}
+.prop-card {
+  --tint: var(--seen);
+  position: relative;
+  display: grid;
+  grid-template-rows: 64px auto auto;
+  gap: 2px;
+  padding: 8px 8px 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  background:
+    radial-gradient(
+      ellipse 70% 45% at 50% 62%,
+      color-mix(in srgb, var(--tint) 9%, transparent),
+      transparent 70%
+    ),
+    var(--surface-2);
+  color: var(--text);
   text-align: left;
+  overflow: hidden;
+  transition:
+    border-color var(--t-fast) var(--ease-out),
+    transform var(--t-base) var(--spring),
+    box-shadow var(--t-base) var(--ease-out);
+}
+.prop-card[data-shelf='tabletop'] {
+  --tint: var(--warm);
+}
+.prop-card[data-shelf='room'] {
+  --tint: var(--unsure);
+}
+.prop-card:hover,
+.prop-card:focus-visible {
+  border-color: color-mix(in srgb, var(--tint) 45%, transparent);
+  transform: translateY(-1px);
+  box-shadow:
+    0 6px 16px rgb(0 0 0 / 35%),
+    0 0 0 1px color-mix(in srgb, var(--tint) 18%, transparent);
+}
+.prop-card:active {
+  transform: translateY(0) scale(0.98);
+}
+.prop-card-art {
+  width: 100%;
+  height: 64px;
+  image-rendering: pixelated;
+  filter: drop-shadow(0 3px 2px rgb(0 0 0 / 45%));
+  transition: transform var(--t-base) var(--spring);
+}
+.prop-card-art.pending {
+  justify-self: center;
+  width: 44px;
+  height: 44px;
+  align-self: center;
+  border-radius: var(--r-card);
+  background: linear-gradient(
+      100deg,
+      var(--surface-3) 30%,
+      var(--line-strong) 50%,
+      var(--surface-3) 70%
+    )
+    0 0 / 300% 100%;
+  animation: prop-pending 1.2s linear infinite;
+  filter: none;
+}
+@keyframes prop-pending {
+  to {
+    background-position: -150% 0;
+  }
+}
+.prop-card:hover .prop-card-art {
+  transform: scale(1.08) translateY(-2px);
+}
+.prop-card-label {
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.prop-card-size {
+  color: var(--text-3);
+  font: 500 10px/12px var(--mono);
+  letter-spacing: 0.02em;
+}
+.prop-card-size::after {
+  content: ' cm';
+  opacity: 0.6;
+}
+.prop-card-count,
+.prop-card-tag {
+  position: absolute;
+  top: 5px;
+  font: 600 9px/14px var(--mono);
+  letter-spacing: 0.06em;
+  padding: 0 4px;
+  border-radius: var(--r-chip);
+}
+.prop-card-count {
+  right: 5px;
+  background: var(--seen-wash);
+  color: var(--seen);
+}
+.prop-card-tag {
+  left: 5px;
+  text-transform: uppercase;
+  background: var(--warm-wash);
+  color: var(--warm);
+}
+.prop-card-tag.warn {
+  background: var(--blocked-wash);
+  color: var(--blocked);
+}
+.prop-card-plus {
+  position: absolute;
+  right: 6px;
+  bottom: 4px;
+  color: var(--tint);
+  font: 600 16px/1 var(--mono);
+  opacity: 0;
+  transform: translateY(3px);
+  transition:
+    opacity var(--t-fast) var(--ease-out),
+    transform var(--t-fast) var(--ease-out);
+}
+.prop-card:hover .prop-card-plus,
+.prop-card:focus-visible .prop-card-plus {
+  opacity: 1;
+  transform: none;
+}
+.prop-card.added {
+  animation: prop-added var(--t-slow) var(--ease-out);
+}
+@keyframes prop-added {
+  0% {
+    box-shadow: 0 0 0 0 var(--ok-glow);
+    border-color: var(--ok);
+  }
+  100% {
+    box-shadow: 0 0 0 8px transparent;
+  }
+}
+.prop-picker-empty {
+  grid-column: 1 / -1;
+  margin: 8px 0;
+  color: var(--text-3);
+  font-size: 12px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .prop-card,
+  .prop-card-art,
+  .prop-card-plus {
+    transition: none;
+  }
+  .prop-card:hover,
+  .prop-card:hover .prop-card-art {
+    transform: none;
+  }
+  .prop-card.added,
+  .prop-card-art.pending {
+    animation: none;
+  }
 }
 .scene-canvas {
   min-height: 240px;
@@ -782,10 +1007,6 @@
   .rules-panel,
   .scene-editor-body {
     grid-template-columns: 1fr;
-  }
-  .scene-palette {
-    flex-direction: row;
-    flex-wrap: wrap;
   }
 }
 
