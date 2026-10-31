@@ -556,16 +556,64 @@
   align-items: center;
   gap: 8px;
 }
-.scene-editor-tools input[type='number'] {
+/* Fields as tall as the buttons beside them, in the app's type. */
+.scene-editor select,
+.scene-editor input[type='number'] {
+  min-height: 32px;
+  font: inherit;
+  font-size: 13px;
+}
+.scene-editor input[type='number'] {
   width: 56px;
-  min-height: 28px;
+}
+.scene-size {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-3);
+}
+.scene-history {
+  display: inline-flex;
+  gap: 4px;
+  margin-left: auto;
+}
+.scene-picked {
+  font-size: 13px;
+  font-weight: 600;
+}
+/* Ways to start over: a labelled group each, inside the fold. */
+.scene-start {
+  display: grid;
+  gap: 6px;
+}
+.scene-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.scene-more > summary {
+  width: fit-content;
+  color: var(--text-2);
+  font-size: 12px;
+  cursor: pointer;
+}
+.scene-more > summary:hover {
+  color: var(--text);
+}
+.scene-more[open] > summary {
+  margin-bottom: 6px;
+}
+.scene-editor .item-actions .scene-remove {
+  margin-left: auto;
 }
 .scene-editor-body {
   display: grid;
   grid-template-columns: 1fr;
   gap: 12px;
   flex: 1;
-  min-height: 0;
+  /* The room never gives way to the controls around it: the frame scrolls instead. */
+  min-height: 280px;
 }
 /* The prop picker: a shelf of cards, each the model as the room draws it. */
 .popover.prop-pop {
@@ -816,10 +864,6 @@
 }
 
 /* Scene from a photo */
-.photo-start {
-  padding-top: 8px;
-  border-top: 1px solid var(--line);
-}
 .photo-check,
 .photo-track {
   display: inline-flex;

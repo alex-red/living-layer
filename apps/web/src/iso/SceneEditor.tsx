@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   ISO_PRESETS,
+  ISO_TILE_CM,
   addTemplate,
   groupBounds,
   isoSceneSchema,
@@ -25,6 +26,7 @@ import { IsoScene } from './IsoScene';
 import { PropPickerPopover } from './PropPicker';
 import { PhotoReview, type PhotoRun } from './PhotoReview';
 import { demoFrameUrl } from '../workspace/demoFrame';
+import { Details } from '../workspace/panel';
 
 export type LayoutRun = EvidenceRun<{ draft: SceneDraft; scene: Scene }>;
 const EMPTY: Scene = {
@@ -44,7 +46,8 @@ const groupLabel = (scene: Scene, g: string) => {
   return props.find((p) => p.id === g)?.label ?? props[0]?.label ?? g;
 };
 
-type StartFrom = 'camera' | IsoSceneKind | 'empty';
+type Preset = IsoSceneKind | 'empty';
+type Running = 'setup' | 'spark' | 'upload' | 'frame';
 type Snapshot = { draft: Scene; turned: number };
 const HISTORY_LIMIT = 100;
 /** Edits under one key closer together than this are one undo step (a drag, typing a size). */
@@ -126,12 +129,13 @@ export function SceneEditor({
   const [draft, setDraft] = useState<Scene>(initial);
   const [selected, setSelected] = useState<string>();
   const [summary, setSummary] = useState('');
-  const [drafting, setDrafting] = useState(false);
+  // Which camera action is running, so only its button says so.
+  const [running, setRunning] = useState<Running>();
+  const drafting = Boolean(running);
   const [photo, setPhoto] = useState<{ run: PhotoRun; url: string } | null>(null);
   const [sparkCheck, setSparkCheck] = useState(true);
-  // The camera is the best place to start: chosen whenever there is a frame to set the room up from.
+  // Whether there is a frame to set the room up from: the camera is the best place to start.
   const canSetUp = mode === 'demo' || cameraLive || Boolean(image);
-  const [startFrom, setStartFrom] = useState<StartFrom>('camera');
   /** Quarter turns of the whole room since it was last loaded, to say what a turn means for the camera. */
   const [turned, setTurned] = useState(0);
   const file = useRef<HTMLInputElement>(null);
@@ -203,9 +207,9 @@ export function SceneEditor({
     setSummary('');
   }
   /** Spark lists what is in the frame, SAM outlines it, and each thing is placed through the room's camera. */
-  async function fromPhoto(url?: string) {
+  async function fromPhoto(url?: string, from: Running = 'frame') {
     if (mode === 'live' && !url) return;
-    setDrafting(true);
+    setRunning(from);
     try {
       const body = { mode, check: sparkCheck, ...(mode === 'live' ? { imageDataUrl: url } : {}) };
       const run = follow
@@ -226,7 +230,7 @@ export function SceneEditor({
     } catch (e) {
       onError(e instanceof Error ? e : 'The photo could not be drafted.');
     } finally {
-      setDrafting(false);
+      setRunning(undefined);
     }
   }
   /**
@@ -239,7 +243,7 @@ export function SceneEditor({
     const frame = mode === 'live' ? captureFrame?.() : undefined;
     const url = frame?.url;
     if (mode === 'live' && !url) return;
-    setDrafting(true);
+    setRunning('setup');
     try {
       const body = {
         mode,
@@ -269,7 +273,7 @@ export function SceneEditor({
         onCalibrateByHand(e.data as unknown as CalibrateByHand);
       else onError(e instanceof Error ? e : 'The room could not be set up.');
     } finally {
-      setDrafting(false);
+      setRunning(undefined);
     }
   }
   if (photo)
@@ -292,7 +296,7 @@ export function SceneEditor({
   async function askSpark() {
     const url = mode === 'live' ? (captureFrame?.().url ?? image) : undefined;
     if (mode === 'live' && !url) return;
-    setDrafting(true);
+    setRunning('spark');
     try {
       const run = await api<LayoutRun>('scene/draft', {
         mode,
@@ -305,186 +309,132 @@ export function SceneEditor({
     } catch (e) {
       onError(e instanceof Error ? e : 'Scene draft failed.');
     } finally {
-      setDrafting(false);
+      setRunning(undefined);
     }
   }
 
+  const presets: Preset[] = [...(Object.keys(ISO_PRESETS) as IsoSceneKind[]), 'empty'];
+  const metres = (tiles: number) => ((tiles * ISO_TILE_CM) / 100).toFixed(1);
+
   return (
     <div className="scene-editor">
-      <div className="scene-editor-tools">
-        <label className="iso-surface-pick">
-          <span className="tiny">START FROM</span>
-          <select
-            aria-label="Start from"
-            value={startFrom}
-            onChange={(e) => {
-              const from = e.target.value as StartFrom;
-              setStartFrom(from);
-              if (from === 'camera') void setUp();
-              else start(from);
-            }}
-          >
-            {canSetUp && (
-              <option value="camera">
-                {mode === 'demo' ? 'Demo camera' : cameraLive ? 'Current camera' : 'Current frame'}
-              </option>
-            )}
-            {(Object.keys(ISO_PRESETS) as IsoSceneKind[]).map((k) => (
-              <option key={k} value={k}>
-                {ISO_PRESETS[k].label} preset
-              </option>
-            ))}
-            <option value="empty">Empty floor</option>
-            {!canSetUp && startFrom === 'camera' && <option value="camera">Choose…</option>}
-          </select>
-        </label>
-        {(['w', 'd'] as const).map((k) => (
-          <label key={k} className="iso-surface-pick">
-            <span className="tiny">{k === 'w' ? 'WIDTH' : 'DEPTH'}</span>
-            <input
-              type="number"
-              min={2}
-              max={16}
-              value={draft.grid[k]}
-              aria-label={`Grid ${k === 'w' ? 'width' : 'depth'}`}
-              onChange={(e) => {
-                const v = Math.max(2, Math.min(16, Math.round(Number(e.target.value) || 2)));
-                edit((d) => ({ ...d, grid: { ...d.grid, [k]: v } }), `grid.${k}`);
-              }}
-            />
-          </label>
-        ))}
-        <button
-          className="secondary"
-          disabled={busy || drafting}
-          title="Turn the whole room a quarter clockwise, to face the way the camera sees it. The back and left walls stay put."
-          onClick={() => {
-            edit(rotateScene(draft));
-            setSelected(undefined);
-            setTurned((t) => (t + 1) % 4);
-          }}
-        >
-          ↻ Rotate scene
-        </button>
-        <button
-          className="secondary"
-          disabled={busy || drafting || !canSetUp}
-          onClick={() => void askSpark()}
-        >
-          {drafting ? 'Drafting…' : 'Draft with Spark'}
-        </button>
-      </div>
-      <div
-        className="scene-editor-tools photo-start"
-        role="group"
-        aria-label="Scene from the camera"
-      >
-        <span className="tiny">FROM THE CAMERA</span>
-        <button
-          className="primary"
-          disabled={busy || drafting || !canSetUp}
-          title="Spark sizes the room, SAM finds its walls, the camera is calibrated and the scene drafted through it, for you to review."
-          onClick={() => void setUp()}
-        >
-          {drafting ? 'Working…' : 'Set up from the camera'}
-        </button>
-        {mode === 'demo' ? (
-          <button
-            className="secondary"
-            disabled={busy || drafting}
-            onClick={() => void fromPhoto()}
-          >
-            Draft from the demo camera
-          </button>
-        ) : !memory?.camera ? (
-          <>
-            {onCalibrateHere && (
-              <button
-                className="secondary"
-                disabled={busy || drafting || !canSetUp}
-                title="Place the far corner and each wall’s floor line yourself on the current frame, with no model calls. Then draft through it."
-                onClick={onCalibrateHere}
-              >
-                Calibrate by hand
-              </button>
-            )}
-            {!canSetUp && (
-              <span className="tiny">
-                Capture a frame from the room’s corner camera to set it up.
-              </span>
-            )}
-          </>
-        ) : (
-          <>
+      {/* Replacing the layout comes first in a fresh room, folded away once the camera knows it. */}
+      <Details summary="Start a new layout" open={!memory?.camera}>
+        <p className="micro">
+          Replaces the layout below. Undo brings it back until you leave the editor.
+        </p>
+        <div className="scene-start" role="group" aria-label="From the camera">
+          <span className="tiny">FROM THE CAMERA</span>
+          <div className="scene-row">
             <button
               className="primary"
-              disabled={busy || drafting || !onUpload}
-              onClick={() => file.current?.click()}
-            >
-              {drafting ? 'Drafting…' : 'Upload a frame'}
-            </button>
-            <input
-              ref={file}
-              type="file"
-              accept="image/png,image/jpeg"
-              hidden
-              aria-label="Frame of the room's camera to draft a scene from"
-              onChange={async (e) => {
-                const chosen = e.target.files?.[0];
-                e.target.value = '';
-                const url = chosen && onUpload ? await onUpload(chosen) : undefined;
-                if (url) await fromPhoto(url);
-              }}
-            />
-            <button
-              className="secondary"
               disabled={busy || drafting || !canSetUp}
-              onClick={() => void fromPhoto(captureFrame?.().url ?? image)}
+              title="Spark sizes the room, SAM finds its walls, the camera is calibrated and the scene drafted through it, for you to review."
+              onClick={() => void setUp()}
             >
-              Use the current frame
+              {running === 'setup' ? 'Setting up…' : 'Set up from the camera'}
             </button>
-            {onCalibrateHere && (
+            {mode === 'demo' ? (
+              <button
+                className="secondary"
+                disabled={busy || drafting}
+                title="Draft through the demo camera, which is already calibrated."
+                onClick={() => void fromPhoto()}
+              >
+                {running === 'frame' ? 'Drafting…' : 'Use the demo frame'}
+              </button>
+            ) : (
+              memory?.camera && (
+                <>
+                  <button
+                    className="secondary"
+                    disabled={busy || drafting || !canSetUp}
+                    title="Draft through the calibrated camera from what it shows now."
+                    onClick={() => void fromPhoto(captureFrame?.().url ?? image)}
+                  >
+                    {running === 'frame' ? 'Drafting…' : 'Use the current frame'}
+                  </button>
+                  <button
+                    className="secondary"
+                    disabled={busy || drafting || !onUpload}
+                    title="Draft through the calibrated camera from a frame you saved."
+                    onClick={() => file.current?.click()}
+                  >
+                    {running === 'upload' ? 'Drafting…' : 'Upload a frame'}
+                  </button>
+                  <input
+                    ref={file}
+                    type="file"
+                    accept="image/png,image/jpeg"
+                    hidden
+                    aria-label="Frame of the room's camera to draft a scene from"
+                    onChange={async (e) => {
+                      const chosen = e.target.files?.[0];
+                      e.target.value = '';
+                      const url = chosen && onUpload ? await onUpload(chosen) : undefined;
+                      if (url) await fromPhoto(url, 'upload');
+                    }}
+                  />
+                </>
+              )
+            )}
+          </div>
+          <p className="micro">
+            {mode === 'demo'
+              ? 'Demo: no model calls.'
+              : !canSetUp
+                ? 'Start the camera or capture a frame first.'
+                : `${sparkCheck ? 3 : 2} billed calls: Spark lists, SAM outlines${sparkCheck ? ', Spark checks' : ''}.`}
+          </p>
+          <details className="scene-more">
+            <summary>More ways</summary>
+            <div className="scene-row">
+              {onCalibrateHere && mode !== 'demo' && (
+                <button
+                  className="secondary"
+                  disabled={busy || drafting || !canSetUp}
+                  title="Place the far corner and each wall’s floor line yourself on the current frame, with no model calls. Then draft through it."
+                  onClick={onCalibrateHere}
+                >
+                  {memory?.camera ? 'Calibrate again by hand' : 'Calibrate by hand'}
+                </button>
+              )}
               <button
                 className="secondary"
                 disabled={busy || drafting || !canSetUp}
-                title="Place the far corner and each wall’s floor line again on the current frame, with no model calls."
-                onClick={onCalibrateHere}
+                title="Spark alone lays out the room from the frame: one billed call, no camera."
+                onClick={() => void askSpark()}
               >
-                Calibrate again
+                {running === 'spark' ? 'Drafting…' : 'Spark only'}
               </button>
-            )}
-          </>
-        )}
-        <label className="photo-check">
-          <input
-            type="checkbox"
-            checked={sparkCheck}
-            onChange={(e) => setSparkCheck(e.target.checked)}
-          />
-          <span>Spark checks the drawing</span>
-        </label>
-        <span className="tiny">
-          {mode === 'demo'
-            ? 'Demo: no model calls.'
-            : `${sparkCheck ? 3 : 2} billed calls: Spark lists, SAM outlines${sparkCheck ? ', Spark checks' : ''}.`}
-        </span>
-      </div>
-      <div className="scene-editor-body">
-        <div className="scene-canvas">
-          <IsoScene
-            scene={draft}
-            litLights={new Set(lamp?.lightId ? [lamp.lightId] : [])}
-            editing={{
-              selected,
-              flagged,
-              onSelect: setSelected,
-              onMove: (g, dx, dy) =>
-                edit((d) => settleGroup(moveGroup(d, g, dx, dy), g), `move.${g}`),
-            }}
-          />
+              <label className="photo-check">
+                <input
+                  type="checkbox"
+                  checked={sparkCheck}
+                  onChange={(e) => setSparkCheck(e.target.checked)}
+                />
+                <span>Spark checks the draft</span>
+              </label>
+            </div>
+          </details>
         </div>
-      </div>
-      <div className="scene-selected">
+        <div className="scene-start" role="group" aria-label="From a preset">
+          <span className="tiny">FROM A PRESET</span>
+          <div className="scene-row">
+            {presets.map((k) => (
+              <button
+                key={k}
+                className="secondary"
+                disabled={busy || drafting}
+                onClick={() => start(k)}
+              >
+                {k === 'empty' ? 'Empty floor' : ISO_PRESETS[k].label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </Details>
+      <div className="scene-selected" role="toolbar" aria-label="Edit the layout">
         <PropPickerPopover
           scene={draft}
           onAdd={(id) => {
@@ -495,19 +445,19 @@ export function SceneEditor({
         />
         {selected && bounds ? (
           <>
-            <span className="tiny">
-              {groupLabel(draft, selected).toUpperCase()} · {bounds.at.x.toFixed(2)},{' '}
-              {bounds.at.y.toFixed(2)}
-              {bounds.at.z > 0 ? ` · ON ${bounds.at.z.toFixed(1)}` : ''}
-            </span>
+            <span className="scene-picked">{groupLabel(draft, selected)}</span>
             <button
               className="secondary"
+              disabled={busy || drafting}
+              title="Turn it a quarter clockwise."
               onClick={() => edit((d) => settleGroup(rotateGroup(d, selected), selected))}
             >
-              Turn
+              ↻ Turn
             </button>
             <button
               className="secondary"
+              disabled={busy || drafting}
+              title="Remove it (Delete)."
               onClick={() => {
                 edit((d) => removeGroup(d, selected));
                 setSelected(undefined);
@@ -543,10 +493,79 @@ export function SceneEditor({
             )}
           </>
         ) : (
-          <span className="tiny">
-            Pick a prop to move, turn or remove it. Drag to move, Delete to remove, ⌘Z to undo.
-          </span>
+          <span className="micro">Click a prop to turn or remove it. Drag it to move it.</span>
         )}
+        <span className="scene-history">
+          <button
+            className="secondary"
+            disabled={busy || drafting || !past.current.length}
+            title="Undo (⌘Z / Ctrl+Z)"
+            onClick={undo}
+          >
+            ↶ Undo
+          </button>
+          <button
+            className="secondary"
+            disabled={busy || drafting || !future.current.length}
+            title="Redo (⇧⌘Z / Ctrl+Y)"
+            onClick={redo}
+          >
+            ↷ Redo
+          </button>
+        </span>
+      </div>
+      <div className="scene-editor-body">
+        <div className="scene-canvas">
+          <IsoScene
+            scene={draft}
+            litLights={new Set(lamp?.lightId ? [lamp.lightId] : [])}
+            editing={{
+              selected,
+              flagged,
+              onSelect: setSelected,
+              onMove: (g, dx, dy) =>
+                edit((d) => settleGroup(moveGroup(d, g, dx, dy), g), `move.${g}`),
+            }}
+          />
+        </div>
+      </div>
+      <div className="scene-editor-tools" role="group" aria-label="The room">
+        <span className="iso-surface-pick" role="group" aria-label="Room size in tiles">
+          <span className="tiny">ROOM</span>
+          {(['w', 'd'] as const).map((k, i) => (
+            <span key={k} className="scene-size">
+              {i > 0 && <span aria-hidden="true">×</span>}
+              <input
+                type="number"
+                min={2}
+                max={16}
+                value={draft.grid[k]}
+                disabled={busy || drafting}
+                aria-label={`Grid ${k === 'w' ? 'width' : 'depth'}`}
+                title={k === 'w' ? 'Width in tiles' : 'Depth in tiles'}
+                onChange={(e) => {
+                  const v = Math.max(2, Math.min(16, Math.round(Number(e.target.value) || 2)));
+                  edit((d) => ({ ...d, grid: { ...d.grid, [k]: v } }), `grid.${k}`);
+                }}
+              />
+            </span>
+          ))}
+          <span className="micro">
+            tiles · {metres(draft.grid.w)} × {metres(draft.grid.d)} m
+          </span>
+        </span>
+        <button
+          className="secondary"
+          disabled={busy || drafting}
+          title="Turn the whole room a quarter clockwise, to face the way the camera sees it. The back and left walls stay put."
+          onClick={() => {
+            edit(rotateScene(draft));
+            setSelected(undefined);
+            setTurned((t) => (t + 1) % 4);
+          }}
+        >
+          ↻ Turn room
+        </button>
       </div>
       <p className="iso-note" role="status">
         {!check.success
@@ -561,35 +580,22 @@ export function SceneEditor({
                   ? `Spark: ${summary} Review it, then save.`
                   : saved && !showsSaved
                     ? `Saving replaces your custom scene${saved.label ? ` “${saved.label}”` : ''}. It shows up as Custom in the room view, ready to pin.`
-                    : 'Saved scenes show up as Custom in the room view, ready to pin.'}
+                    : dirty && past.current.length > 0
+                      ? 'Unsaved changes. Save to use this layout in the room view.'
+                      : 'Saved scenes show up as Custom in the room view, ready to pin.'}
       </p>
       <div className="item-actions">
         <button
           className="primary"
-          disabled={busy || !dirty || !check.success}
+          disabled={busy || drafting || !dirty || !check.success}
           onClick={() => onSave(draft)}
         >
           Save scene
         </button>
         <button
           className="secondary"
-          disabled={busy || !past.current.length}
-          title="Undo (⌘Z / Ctrl+Z)"
-          onClick={undo}
-        >
-          Undo
-        </button>
-        <button
-          className="secondary"
-          disabled={busy || !future.current.length}
-          title="Redo (⇧⌘Z / Ctrl+Y)"
-          onClick={redo}
-        >
-          Redo
-        </button>
-        <button
-          className="secondary"
-          disabled={busy || !dirty}
+          disabled={busy || drafting || !dirty}
+          title="Back to the saved scene. Undo brings your edits back."
           onClick={() => {
             setTurned(0);
             edit(initial());
@@ -598,7 +604,11 @@ export function SceneEditor({
           Revert
         </button>
         {saved && (
-          <button className="secondary" disabled={busy} onClick={() => onSave(null)}>
+          <button
+            className="text-button destructive scene-remove"
+            disabled={busy || drafting}
+            onClick={() => onSave(null)}
+          >
             Remove custom scene
           </button>
         )}
