@@ -128,7 +128,7 @@ function seeded(seed: number) {
  * proportions with `withFurniture`, without editing this file.
  */
 export const FURNITURE_SPECS = {
-  desk: { heightCm: 72, topCm: 6, legCm: 6, insetCm: 2, railCm: 0, frontRail: false },
+  desk: { heightCm: 72, topCm: 6, legCm: 6, insetCm: 5, railCm: 0, frontRail: false },
   table: { heightCm: 75, topCm: 5, legCm: 6, insetCm: 5, railCm: 5, frontRail: false },
   chair: {
     heightCm: 98,
