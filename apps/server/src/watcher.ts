@@ -44,6 +44,7 @@ import {
   type Segmentation,
   type UnitBox,
   type WatchCamera,
+  type CameraCrop,
   type WatchSubject,
   type WatchThing,
   type WatchKind,
@@ -120,6 +121,8 @@ export interface WatcherDeps {
   source?: (camera: WatchCamera | null) => FrameSource;
   /** The URL to read a camera from: a saved camera's is kept apart, with its credentials. Null when it's gone. */
   cameraUrl?: (camera: WatchCamera) => string | null;
+  /** The zoomed view a camera's frames are cut to, or null for the whole frame. */
+  cameraCrop?: (camera: WatchCamera) => CameraCrop | null;
   now?: () => number;
 }
 
@@ -451,7 +454,9 @@ export class Watcher {
     this.model ??= await this.deps.appearance();
     const source =
       this.deps.source?.(camera) ??
-      (this.deps.mode === 'demo' ? new DemoSource() : new FfmpegSource(url!));
+      (this.deps.mode === 'demo'
+        ? new DemoSource()
+        : new FfmpegSource(url!, 'ffmpeg', this.deps.cameraCrop?.(camera!) ?? null));
     this.source = source;
     // Each thing is followed from the photo SAM last saw it in: the camera is fixed.
     for (const seen of watchedThings(memory)) await this.seed(seen, memory);

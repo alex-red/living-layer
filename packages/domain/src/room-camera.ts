@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { pointSchema, type IsoVec, type Point } from './iso.js';
 import { cm } from './iso-furniture.js';
+import type { CameraCrop } from './camera.js';
 
 /**
  * The room's one camera: a pinhole camera mounted high in the room's front
@@ -242,13 +243,38 @@ export function cameraFromMarks(
     heightCm,
     insetCm = CORNER_DEFAULTS.insetCm,
     origin = { x: 0, y: 0 },
+    crop,
   }: {
     heightCm?: number;
     insetCm?: number;
     /** Where the room's inner floor corner is in the scene, inside its walls. */
     origin?: { x: number; y: number };
+    /** The camera's zoomed view, when the frame is that part of the camera's whole frame. */
+    crop?: CameraCrop | null;
   } = {},
 ): RoomFit {
+  if (crop) {
+    // Fit the whole lens, whose principal point is its frame's centre, then
+    // keep the crop of it: the same focal length, its principal point moved.
+    const full = { width: frame.width / crop.w, height: frame.height / crop.h };
+    const dx = crop.x * full.width;
+    const dy = crop.y * full.height;
+    const shift = (p: Point) => ({ x: p.x + dx, y: p.y + dy });
+    const fit = cameraFromMarks(
+      {
+        corner: shift(marks.corner),
+        back: marks.back.map(shift),
+        left: marks.left.map(shift),
+        ...(marks.backEnd !== undefined ? { backEnd: marks.backEnd && shift(marks.backEnd) } : {}),
+        ...(marks.leftEnd !== undefined ? { leftEnd: marks.leftEnd && shift(marks.leftEnd) } : {}),
+      },
+      full,
+      room,
+      { ...(heightCm ? { heightCm } : {}), insetCm, origin },
+    );
+    const camera = { ...fit.camera, cx: fit.camera.cx - dx, cy: fit.camera.cy - dy, frame };
+    return { ...fit, camera, hfovDeg: (2 * Math.atan(frame.width / 2 / camera.f) * 180) / Math.PI };
+  }
   const inset = cm(insetCm);
   const build = ([fov, yaw, pitch, roll, h]: number[]) => {
     const position: Vec3 = [room.w - inset, room.d - inset, h!];

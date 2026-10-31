@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 import QRCode from 'qrcode';
 import { z } from 'zod';
+import type { CameraCrop } from '@livinglayer/domain';
 import type { Config } from './config.js';
 import { LabError, parseInput } from './errors.js';
 import type { NetworkStream } from './streams.js';
@@ -53,6 +54,8 @@ export function phoneName(userAgent = '') {
 /** One pairing at a time: pairing again retires the last QR code. */
 export class RemoteCamera {
   private pairing: Pairing | null = null;
+  /** The phone's zoomed view, kept across pairings; the lab cuts the phone's frames to it. */
+  crop: CameraCrop | null = null;
 
   constructor(private now = () => Date.now()) {}
 
@@ -100,6 +103,7 @@ export class RemoteCamera {
         name: `${p.phone.name} camera`,
         host: p.phone.address || 'phone',
         whep: `/api/remote/${p.token}/whep`,
+        crop: this.crop,
         source: 'phone',
       },
     ];

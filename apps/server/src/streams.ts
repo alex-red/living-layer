@@ -1,7 +1,7 @@
 import { createSocket, type RemoteInfo } from 'node:dgram';
 import { networkInterfaces } from 'node:os';
 import type { FastifyInstance } from 'fastify';
-import type { CameraScene } from '@livinglayer/domain';
+import type { CameraCrop, CameraScene } from '@livinglayer/domain';
 import type { Config } from './config.js';
 
 /** What `scripts/share-camera.sh` advertises. */
@@ -17,6 +17,8 @@ export interface NetworkStream {
   rtsp?: string;
   /** The room a saved camera is assigned to. */
   scene?: CameraScene;
+  /** A saved camera's or the phone's zoomed view; its frames come already cut to it, except the phone's, which the tab cuts. */
+  crop?: CameraCrop | null;
   /** Where a tab gets a still from a camera only the server can read. */
   snapshot?: string;
   /** Where a tab gets a live MJPEG picture of a camera only the server can read. */

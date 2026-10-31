@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import type { CameraScene } from '@livinglayer/domain';
+import type { CameraCrop, CameraScene } from '@livinglayer/domain';
 import { api } from './api';
 
 /**
@@ -17,6 +17,11 @@ export interface NetworkStream {
   rtsp?: string;
   /** The room a saved camera is assigned to. */
   scene?: CameraScene;
+  /**
+   * Its zoomed view, kept on the server. A saved camera's preview and stills
+   * come already cut to it; a phone's WebRTC picture is cut here, by `cropStream`.
+   */
+  crop?: CameraCrop | null;
   snapshot?: string;
   /** An MJPEG stream of a saved camera, relayed by the server. */
   preview?: string;
@@ -165,6 +170,53 @@ export async function openMjpeg(
       close();
       onLost();
     };
+    return { media, close };
+  } catch (e) {
+    close();
+    throw e;
+  }
+}
+
+/**
+ * A stream cut to a zoomed view, drawn onto a canvas like `openMjpeg`, so the
+ * rest of the lab sees only that part, as if it were the camera's whole frame.
+ * Closing it closes the stream it was cut from.
+ */
+export async function cropStream(
+  opened: OpenedStream,
+  crop: CameraCrop,
+  fps = 15,
+): Promise<OpenedStream> {
+  const video = document.createElement('video');
+  video.muted = true;
+  video.playsInline = true;
+  video.srcObject = opened.media;
+  const canvas = document.createElement('canvas');
+  let timer = 0;
+  let media: MediaStream | null = null;
+  const close = () => {
+    window.clearInterval(timer);
+    video.srcObject = null;
+    media?.getTracks().forEach((t) => t.stop());
+    opened.close();
+  };
+  try {
+    await video.play();
+    const context = canvas.getContext('2d')!;
+    const draw = () => {
+      const w = video.videoWidth;
+      const h = video.videoHeight;
+      if (!w || !h) return;
+      // Even sides, as a camera's frames are; the size follows a phone turned on its side.
+      const width = Math.max(2, Math.round((w * crop.w) / 2) * 2);
+      const height = Math.max(2, Math.round((h * crop.h) / 2) * 2);
+      if (canvas.width !== width || canvas.height !== height)
+        Object.assign(canvas, { width, height });
+      context.drawImage(video, w * crop.x, h * crop.y, w * crop.w, h * crop.h, 0, 0, width, height);
+    };
+    draw();
+    media = canvas.captureStream(fps);
+    timer = window.setInterval(draw, 1000 / fps);
     return { media, close };
   } catch (e) {
     close();

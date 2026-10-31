@@ -1,5 +1,10 @@
 import sharp from 'sharp';
-import { DEMO_FRAME, type DemoPosition, type LumaFrame } from '@livinglayer/domain';
+import {
+  DEMO_FRAME,
+  type CameraCrop,
+  type DemoPosition,
+  type LumaFrame,
+} from '@livinglayer/domain';
 
 /** The watcher's grey frames are this wide; local matching runs on them. */
 export const LUMA_WIDTH = 320;
@@ -44,7 +49,14 @@ export class FfmpegSource implements FrameSource {
   constructor(
     private url: string,
     private ffmpeg = 'ffmpeg',
+    /** The camera's zoomed view: every frame read is cut to it first. */
+    private crop: CameraCrop | null = null,
   ) {}
+  /** The filter that cuts a frame to the crop, ahead of the rest. */
+  private cut() {
+    const c = this.crop;
+    return c ? `crop=iw*${c.w}:ih*${c.h}:iw*${c.x}:ih*${c.y},` : '';
+  }
   private input() {
     return /^rtsps?:\/\//.test(this.url)
       ? ['-rtsp_transport', 'tcp', '-i', this.url]
@@ -73,7 +85,8 @@ export class FfmpegSource implements FrameSource {
     clearTimeout(timer);
     const [width, height] = text.trim().split(',').map(Number);
     if (!width || !height) throw new Error('The camera stream could not be opened.');
-    return { width, height };
+    const c = this.crop;
+    return c ? { width: width * c.w, height: height * c.h } : { width, height };
   }
   async start(onFrame: (frame: LumaFrame) => void, onEnd: (error?: Error) => void) {
     this.stopped = false;
@@ -90,7 +103,7 @@ export class FfmpegSource implements FrameSource {
         ...this.input(),
         '-an',
         '-vf',
-        `fps=${LUMA_FPS},scale=${LUMA_WIDTH}:${h},format=gray`,
+        `${this.cut()}fps=${LUMA_FPS},scale=${LUMA_WIDTH}:${h},format=gray`,
         '-f',
         'rawvideo',
         'pipe:1',
@@ -139,7 +152,7 @@ export class FfmpegSource implements FrameSource {
         '-frames:v',
         '1',
         '-vf',
-        `scale='min(${SNAPSHOT_SIDE},iw)':-2`,
+        `${this.cut()}scale='min(${SNAPSHOT_SIDE},iw)':-2`,
         '-f',
         'image2pipe',
         '-c:v',
@@ -170,7 +183,7 @@ export class FfmpegSource implements FrameSource {
         ...this.input(),
         '-an',
         '-vf',
-        `fps=${fps},scale='min(${SNAPSHOT_SIDE},iw)':-2`,
+        `${this.cut()}fps=${fps},scale='min(${SNAPSHOT_SIDE},iw)':-2`,
         '-q:v',
         '5',
         '-f',

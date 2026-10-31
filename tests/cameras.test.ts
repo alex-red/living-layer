@@ -7,6 +7,7 @@ import {
   cameraForScene,
   cameraUrlProblem,
   redactCameraUrl,
+  type CameraCrop,
   type CameraView,
   type DeskMemory,
   type WatchCamera,
@@ -14,6 +15,7 @@ import {
 import { buildApp, watchersOf } from '../apps/server/src/app.js';
 import { parseConfig, type Fetcher } from '../apps/server/src/config.js';
 import type { FrameSource } from '../apps/server/src/frames.js';
+import { RemoteCamera } from '../apps/server/src/remote.js';
 import type { NetworkStream } from '../apps/server/src/streams.js';
 
 const dirs: string[] = [];
@@ -24,10 +26,16 @@ afterEach(() => {
 const URL_WITH_PASSWORD = 'rtsp://admin:hunter2@192.168.1.20:554/stream1';
 
 async function setup(
-  snapshot?: (url: string) => Promise<Buffer>,
-  preview?: (url: string) => { stream: ReadableStream<Uint8Array>; stop: () => void },
+  snapshot?: (url: string, crop: CameraCrop | null) => Promise<Buffer>,
+  preview?: (
+    url: string,
+    crop: CameraCrop | null,
+  ) => { stream: ReadableStream<Uint8Array>; stop: () => void },
+  {
+    dataDir = mkdtempSync(join(tmpdir(), 'livinglayer-cameras-')),
+    remote,
+  }: { dataDir?: string; remote?: RemoteCamera } = {},
 ) {
-  const dataDir = mkdtempSync(join(tmpdir(), 'livinglayer-cameras-'));
   dirs.push(dataDir);
   const opened: (WatchCamera | null)[] = [];
   const app = await buildApp(parseConfig({ DATA_DIR: dataDir }), {
@@ -35,6 +43,7 @@ async function setup(
     serveWeb: false,
     appearance: async () => null,
     browseCameras: async () => [],
+    ...(remote ? { remote } : {}),
     frames: (camera): FrameSource => {
       opened.push(camera);
       return {
@@ -45,8 +54,8 @@ async function setup(
     },
     ...(snapshot
       ? {
-          snapshots: (url: string) => ({
-            snapshot: async () => ({ png: await snapshot(url), width: 4, height: 4 }),
+          snapshots: (url: string, crop: CameraCrop | null) => ({
+            snapshot: async () => ({ png: await snapshot(url, crop), width: 4, height: 4 }),
           }),
         }
       : {}),
@@ -56,7 +65,7 @@ async function setup(
     app.inject({ method: 'POST', url: `/api/${path}`, payload });
   const add = async (body: object) =>
     (await post('cameras/save', body)).json<{ camera: CameraView }>().camera;
-  return { app, post, add, opened };
+  return { app, post, add, opened, dataDir };
 }
 
 describe('stream camera URLs', () => {
@@ -109,6 +118,7 @@ describe('saved cameras', () => {
       whep: '',
       rtsp: 'rtsp://admin:***@192.168.1.20:554/stream1',
       scene: 'office',
+      crop: null,
       snapshot: `/api/cameras/${camera.id}/snapshot`,
       preview: `/api/cameras/${camera.id}/stream`,
       source: 'saved',
@@ -207,6 +217,97 @@ describe('saved cameras', () => {
     expect((await s.app.inject('/api/cameras')).json<{ cameras: CameraView[] }>().cameras).toEqual(
       [],
     );
+  });
+});
+
+describe('a camera’s zoomed view', () => {
+  const crop = { x: 0.25, y: 0.1, w: 0.5, h: 0.6 };
+  const streamOf = async (s: Awaited<ReturnType<typeof setup>>, id: string) =>
+    (await s.app.inject('/api/streams'))
+      .json<{ streams: NetworkStream[] }>()
+      .streams.find((x) => x.id === id);
+
+  it('cuts every still and preview of a saved camera, and outlasts an edit and a restart', async () => {
+    const png = await sharp({ create: { width: 4, height: 4, channels: 3, background: '#888' } })
+      .png()
+      .toBuffer();
+    const stills: (CameraCrop | null)[] = [];
+    const previews: (CameraCrop | null)[] = [];
+    const preview = (_url: string, c: CameraCrop | null) => {
+      previews.push(c);
+      return { stream: new Response('--ffmpeg\r\n').body!, stop() {} };
+    };
+    const s = await setup(async (_url, c) => (stills.push(c), png), preview);
+    const camera = await s.add({ name: 'Cam', url: URL_WITH_PASSWORD, scene: 'office' });
+    const id = `cam:${camera.id}`;
+    const set = await s.post('streams/crop', { streamId: id, crop });
+    expect(set.statusCode, set.body).toBe(200);
+    expect((await streamOf(s, id))?.crop).toEqual(crop);
+    await s.app.inject(`/api/cameras/${camera.id}/snapshot`);
+    await s.app.inject(`/api/cameras/${camera.id}/stream`);
+    expect(stills).toEqual([crop]);
+    expect(previews).toEqual([crop]);
+    // Renaming it keeps its view; so does the server starting again.
+    expect((await s.add({ id: camera.id, name: 'Office cam', scene: 'office' })).crop).toEqual(
+      crop,
+    );
+    await s.app.close();
+    const again = await setup(async (_url, c) => (stills.push(c), png), preview, {
+      dataDir: s.dataDir,
+    });
+    expect((await streamOf(again, id))?.crop).toEqual(crop);
+    await again.app.inject(`/api/cameras/${camera.id}/snapshot`);
+    expect(stills.at(-1)).toEqual(crop);
+    // Back to the whole frame.
+    expect((await again.post('streams/crop', { streamId: id, crop: null })).statusCode).toBe(200);
+    expect((await streamOf(again, id))?.crop).toBeNull();
+  });
+
+  it('keeps the phone’s view across pairings and restarts', async () => {
+    const remote = new RemoteCamera();
+    const s = await setup(undefined, undefined, { remote });
+    const first = remote.pair();
+    void remote.next(first, { name: 'iPhone', address: '192.168.1.30' }, 50);
+    const phoneId = remote.streams()[0]!.id;
+    expect((await s.post('streams/crop', { streamId: phoneId, crop })).statusCode).toBe(200);
+    // A new QR code is a new stream id, the same phone on the same mount.
+    const second = remote.pair();
+    void remote.next(second, { name: 'iPhone', address: '192.168.1.30' }, 50);
+    expect(remote.streams()[0]).toMatchObject({ source: 'phone', crop });
+    expect((await streamOf(s, remote.streams()[0]!.id))?.crop).toEqual(crop);
+    remote.end();
+    await s.app.close();
+    const restarted = new RemoteCamera();
+    const again = await setup(undefined, undefined, { dataDir: s.dataDir, remote: restarted });
+    expect(restarted.crop).toEqual(crop);
+    await again.app.close();
+  });
+
+  it('starts watching again on the new view', async () => {
+    const s = await setup();
+    const camera = await s.add({ name: 'Cam', url: URL_WITH_PASSWORD, scene: 'office' });
+    const id = `cam:${camera.id}`;
+    expect((await s.post('watch', { mode: 'live', on: true, streamId: id })).statusCode).toBe(200);
+    await watchersOf(s.app).live.idle();
+    const opened = s.opened.length;
+    expect((await s.post('streams/crop', { streamId: id, crop })).statusCode).toBe(200);
+    await watchersOf(s.app).live.idle();
+    expect(s.opened.length).toBe(opened + 1);
+  });
+
+  it('refuses a view outside the frame, too small, or of a camera it can’t keep one for', async () => {
+    const s = await setup();
+    const camera = await s.add({ name: 'Cam', url: URL_WITH_PASSWORD, scene: null });
+    const id = `cam:${camera.id}`;
+    for (const bad of [
+      { x: 0.6, y: 0, w: 0.5, h: 0.5 },
+      { x: 0, y: 0, w: 0.05, h: 0.5 },
+    ])
+      expect((await s.post('streams/crop', { streamId: id, crop: bad })).statusCode).toBe(400);
+    const shared = await s.post('streams/crop', { streamId: 'rtsp://cam.local/live', crop });
+    expect(shared.statusCode).toBe(400);
+    expect(shared.json<{ error: { code: string } }>().error.code).toBe('crop_camera');
+    expect((await s.post('streams/crop', { streamId: 'cam:nope', crop })).statusCode).toBe(404);
   });
 });
 

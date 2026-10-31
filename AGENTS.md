@@ -23,6 +23,7 @@ What isn't obvious from the code. [CONTRIBUTING.md](CONTRIBUTING.md) has setup, 
 - There is no path without it: a scan, "Find the desk" and the room picture all go through the calibrated camera, and refuse (409 `not_calibrated`) until there is one or when a frame is another size. The demo is always calibrated.
 - `RoomCamera` is in the scene's own tiles, walls included: the floor's inner corner is at the walls' thickness (0.2 tiles in the presets), so pass `origin` to `cameraFromMarks` when a scene has walls.
 - The demo is the office rendered through `DEMO_CAMERA` (`demo-room.ts`): its frames, SAM masks, pin and the mug's close-up all come from that render. A demo mask is exactly what the frame shows, so test against `demoSegmentation`, not hand-written boxes.
+- A saved camera or the phone may keep a zoomed view (`crop`): its frames arrive already cut, so the calibrated `RoomCamera` is the crop's, with its principal point off centre. Never assume `cx`, `cy` is the frame's middle.
 - Across a room a mug is about 17 × 23 pixels. Anything that models or recognises one thing (the item fitter, the appearance layer) needs a close photo or a zoomed crop of it, not the whole frame.
 
 ## Look before and after

@@ -449,6 +449,35 @@ describe.skipIf(!hasFfmpeg)('reading a camera through ffmpeg', () => {
     expect(shot).toMatchObject({ width: 640, height: 360 });
     source.stop();
   });
+
+  it('cuts every frame to a camera’s zoomed view', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'livinglayer-frames-'));
+    dirs.push(dir);
+    const clip = join(dir, 'clip.mp4');
+    const made = Bun.spawnSync([
+      'ffmpeg',
+      '-nostdin',
+      '-loglevel',
+      'error',
+      '-f',
+      'lavfi',
+      '-i',
+      'testsrc2=size=640x360:rate=10',
+      '-t',
+      '1',
+      '-pix_fmt',
+      'yuv420p',
+      clip,
+    ]);
+    expect(made.exitCode).toBe(0);
+    const source = new FfmpegSource(clip, 'ffmpeg', { x: 0.25, y: 0.5, w: 0.5, h: 0.5 });
+    expect(await source.snapshot()).toMatchObject({ width: 320, height: 180 });
+    const frames: LumaFrame[] = [];
+    await new Promise<Error | undefined>((done) => void source.start((f) => frames.push(f), done));
+    // 320 × 180 is 16:9 still, so the grey frames keep the watcher's size.
+    expect(frames[0]).toMatchObject({ width: LUMA_WIDTH, height: 180 });
+    source.stop();
+  });
 });
 
 const modelDir = resolve('.data');

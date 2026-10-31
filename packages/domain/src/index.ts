@@ -3,6 +3,7 @@ import type { IsoScene, SurfacePin } from './iso.js';
 import type { SceneIllustration } from './illustration.js';
 import { DEMO_CAMERA, type DemoPosition } from './demo-room.js';
 import { marksOf, roomCameraSchema, roomMarksSchema } from './room-camera.js';
+import { cameraCropSchema } from './camera.js';
 import { pointSchema } from './iso.js';
 import type { SavedItem } from './iso-item.js';
 import { entityIdSchema, type Fixture } from './fixture.js';
@@ -300,6 +301,8 @@ export const roomCalibrationSchema = z
     /** Edges of the frame it was calibrated on, to tell whether the camera moved since. */
     reference: z.string().max(20_000).optional(),
     moved: z.boolean().optional(),
+    /** The camera's zoomed view it was calibrated through; none for the whole frame. */
+    crop: cameraCropSchema.nullable().optional(),
   })
   .strict();
 export type RoomCalibration = z.infer<typeof roomCalibrationSchema>;

@@ -4,6 +4,7 @@ import { z } from 'zod';
 import {
   ISO_PRESETS,
   META_PRICES,
+  cameraCropSchema,
   cameraEdges,
   cameraFromMarks,
   convexHull,
@@ -126,6 +127,8 @@ export function roomRoutes(
           room: roomCm,
           heightCm: z.number().min(100).max(400).optional(),
           scene: z.union([isoSceneKindSchema, z.literal('custom')]),
+          /** The zoomed view the frame was taken through, so the lens is fitted whole. */
+          crop: cameraCropSchema.nullable().optional(),
         })
         .strict(),
       request.body,
@@ -149,6 +152,7 @@ export function roomRoutes(
     const fit = cameraFromMarks(input.marks, size, room, {
       origin,
       ...(input.heightCm ? { heightCm: input.heightCm } : {}),
+      crop: live ? input.crop : null,
     });
     // Marks a few pixels off are a slip; tens of pixels mean they don't fit any corner camera.
     if (fit.error > Math.hypot(size.width, size.height) / 60)
@@ -164,6 +168,7 @@ export function roomRoutes(
       error: fit.error,
       calibratedAt: new Date().toISOString(),
       reference: cameraEdges(luma),
+      ...(live && input.crop ? { crop: input.crop } : {}),
     };
     const next: DeskMemory = { ...memory, camera: calibration, fixedCamera: true };
     // The room's desk or table, seen through the camera, is the pin things are placed by.

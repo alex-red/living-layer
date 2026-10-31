@@ -67,6 +67,26 @@ describe('room camera', () => {
     }
   });
 
+  it('fits the whole lens behind a zoomed view, its principal point off centre', () => {
+    const truth = cornerCamera(room);
+    const { width, height } = truth.frame;
+    // A tight crop around the far corner: far narrower than any lens the fit allows on its own.
+    const crop = { x: 0.3, y: 0.05, w: 0.4, h: 0.45 };
+    const zoomed: RoomCamera = {
+      ...truth,
+      cx: truth.cx - crop.x * width,
+      cy: truth.cy - crop.y * height,
+      frame: { width: width * crop.w, height: height * crop.h },
+    };
+    const marks = marksOf(zoomed);
+    expect(marks.back.length + marks.left.length).toBeGreaterThan(4);
+    const fit = cameraFromMarks(marks, zoomed.frame, room, { heightCm: 240, crop });
+    expect(fit.camera.frame).toEqual(zoomed.frame);
+    expect(fit.error).toBeLessThan(1);
+    expect(close(fit.camera, zoomed)).toBeLessThan(2);
+    expect(fit.hfovDeg).toBeLessThan(45);
+  });
+
   it('reads the marks off a floor mask, furniture and all', () => {
     const truth = cornerCamera(room);
     const { width, height } = truth.frame;

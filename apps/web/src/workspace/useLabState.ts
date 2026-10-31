@@ -29,6 +29,7 @@ import type {
   SavedItem,
   FixtureInput,
   WatchView,
+  CameraCrop,
 } from '@livinglayer/domain';
 import {
   DEMO_POSITIONS,
@@ -47,9 +48,16 @@ import {
   stepLocalTrack,
   toLuma,
   zoneApplies,
+  cropWithin,
 } from '@livinglayer/domain';
 import { api, ApiError } from '../api';
-import { openMjpeg, openStream, useNetworkStreams, type NetworkStream } from '../streams';
+import {
+  cropStream,
+  openMjpeg,
+  openStream,
+  useNetworkStreams,
+  type NetworkStream,
+} from '../streams';
 import { useExpose, useWatch } from '../watch';
 import { usd } from '../cost';
 import { takeHandoff } from '../handoff';
@@ -383,6 +391,8 @@ export function useLabState() {
   const [placing, setPlacing] = useState<FixturePlacing | null>(null);
   /** A box being drawn around a thing on the desk photo, to draft a fixture from. */
   const [boxing, setBoxing] = useState<{ rect: ZoneRect | null } | null>(null);
+  /** A zoomed view being drawn over the live camera, as shares of what it shows now. */
+  const [zooming, setZooming] = useState<{ rect: ZoneRect | null } | null>(null);
   const [guess, setGuess] = useState<SceneGuess | null>(null);
   const sceneLabel =
     workScene === 'custom'
@@ -444,6 +454,9 @@ export function useLabState() {
   const video = useRef<HTMLVideoElement>(null);
   const stream = useRef<MediaStream | null>(null);
   const closeNetwork = useRef<(() => void) | null>(null);
+  /** The zoomed view of the camera that is open, and of the one the current frame came from. */
+  const openCrop = useRef<CameraCrop | null>(null);
+  const imageCrop = useRef<CameraCrop | null>(null);
   const network = useNetworkStreams();
   /** '' for this device's camera, else the id of a network camera. */
   const [cameraSource, setCameraSource] = useState(boot.prefs.cameraSource);
@@ -672,6 +685,7 @@ export function useLabState() {
       if (ruleDraft) return setRuleDraft(null);
       if (placing) return setPlacing(null);
       if (boxing) return setBoxing(null);
+      if (zooming) return setZooming(null);
       if (isoPanel !== 'room') return setIsoPanel('room');
       if (choosingScene && workScene) return setChoosingScene(false);
       if (tool !== 'select') return setTool('select');
@@ -741,6 +755,7 @@ export function useLabState() {
     stream.current = null;
     closeNetwork.current?.();
     closeNetwork.current = null;
+    openCrop.current = null;
   }
   /** Close the camera but keep it wanted, so it opens again once it can (back in live mode, the stream back). */
   const dropCamera = () => {
@@ -748,6 +763,7 @@ export function useLabState() {
     cameraGeneration.current++;
     releaseStream();
     setCamera(false);
+    setZooming(null);
   };
   /** The person stopped the camera (or took a frame from it): it stays off, across reloads too. */
   const stopCamera = () => {
@@ -779,7 +795,14 @@ export function useLabState() {
     const scale = Math.min(1, 1280 / Math.max(width, height));
     return { width: Math.round(width * scale), height: Math.round(height * scale) };
   }
-  function captureCanvas(source: CanvasImageSource, width: number, height: number) {
+  /** Prepares a frame; `crop` is the zoomed view it came through, when it came from a camera. */
+  function captureCanvas(
+    source: CanvasImageSource,
+    width: number,
+    height: number,
+    crop: CameraCrop | null = null,
+  ) {
+    imageCrop.current = crop;
     const canvas = document.createElement('canvas');
     Object.assign(canvas, frameSize(width, height));
     const context = canvas.getContext('2d');
@@ -812,7 +835,10 @@ export function useLabState() {
     if (watching) void api('watch/demo', { position: next }).catch(() => {});
   }
   /** Prepare a chosen photo as the current frame; returns it, or nothing on failure. */
-  async function upload(chosen?: File): Promise<string | undefined> {
+  async function upload(
+    chosen?: File,
+    crop: CameraCrop | null = null,
+  ): Promise<string | undefined> {
     if (!chosen) return;
     const generation = ++imageGeneration.current;
     setError('');
@@ -823,7 +849,7 @@ export function useLabState() {
       const bitmap = await createImageBitmap(chosen, { imageOrientation: 'from-image' });
       try {
         if (mounted.current && generation === imageGeneration.current)
-          url = captureCanvas(bitmap, bitmap.width, bitmap.height);
+          url = captureCanvas(bitmap, bitmap.width, bitmap.height, crop);
       } finally {
         bitmap.close();
       }
@@ -851,7 +877,7 @@ export function useLabState() {
           );
         const blob = await response.blob();
         if (mounted.current && generation === cameraGeneration.current) {
-          await upload(new File([blob], 'camera.png', { type: 'image/png' }));
+          await upload(new File([blob], 'camera.png', { type: 'image/png' }), remote.crop ?? null);
           setMessage(`A frame from ${remote.name}. Grab another whenever the room changes.`);
         }
       } catch (e) {
@@ -872,9 +898,13 @@ export function useLabState() {
             : 'The camera stopped sending.',
         );
       };
+      const crop = remote?.crop ?? null;
       const opened = remote
         ? remote.whep
-          ? await openStream(remote.whep, lost)
+          ? // A saved camera's relay comes cut to its view already; a phone's picture is cut here.
+            remote.source === 'phone' && crop
+            ? await cropStream(await openStream(remote.whep, lost), crop)
+            : await openStream(remote.whep, lost)
           : await openMjpeg(remote.preview!, lost)
         : {
             media: await navigator.mediaDevices.getUserMedia({
@@ -890,6 +920,7 @@ export function useLabState() {
       }
       stream.current = opened.media;
       closeNetwork.current = opened.close ?? null;
+      openCrop.current = crop;
       // This device's camera ends its track when it is unplugged or taken by another app.
       if (!remote) opened.media.getVideoTracks()[0]?.addEventListener('ended', lost);
       setCamera(true);
@@ -1018,7 +1049,12 @@ export function useLabState() {
     try {
       let frame = mode === 'demo' ? sceneUrl(position) : image;
       if (mode === 'live' && camera && video.current?.videoWidth) {
-        frame = captureCanvas(video.current, video.current.videoWidth, video.current.videoHeight);
+        frame = captureCanvas(
+          video.current,
+          video.current.videoWidth,
+          video.current.videoHeight,
+          openCrop.current,
+        );
         if (!keepCamera) stopCamera();
       }
       const run = await api<EvidenceRun<Segmentation>>('segment', {
@@ -1230,7 +1266,12 @@ export function useLabState() {
   function frameNow(): string | undefined {
     if (mode === 'demo') return undefined;
     if (camera && video.current?.videoWidth)
-      return captureCanvas(video.current, video.current.videoWidth, video.current.videoHeight);
+      return captureCanvas(
+        video.current,
+        video.current.videoWidth,
+        video.current.videoHeight,
+        openCrop.current,
+      );
     return image;
   }
   /** Look for a fixture where it should stand in the camera's view; its outlines show for confirming. */
@@ -1612,7 +1653,7 @@ export function useLabState() {
         fit: { error: number; heightCm: number; hfovDeg: number };
       }>('room/calibrate', {
         mode,
-        ...(mode === 'live' ? { imageDataUrl: image } : {}),
+        ...(mode === 'live' ? { imageDataUrl: image, crop: imageCrop.current } : {}),
         ...draft,
         scene: scene === 'desk' ? 'office' : scene,
       });
@@ -1625,6 +1666,51 @@ export function useLabState() {
       );
     } catch (e) {
       setError(e instanceof Error ? e : 'Could not calibrate the camera.');
+    } finally {
+      setBusy('');
+    }
+  }
+  /** The camera that is open, when it can keep a zoomed view: a saved camera or the phone. */
+  const zoomable = () => {
+    const remote = network.streams.find((s) => s.id === cameraSource);
+    return camera && remote && (remote.source === 'saved' || remote.source === 'phone')
+      ? remote
+      : null;
+  };
+  function startZooming() {
+    setZooming({ rect: null });
+    if (stageView === 'iso') setStageView('split');
+    setMessage(
+      'Drag a box over the part of the camera’s view to keep. It opens on it from now on. Esc cancels.',
+    );
+  }
+  /**
+   * Keeps the open camera's zoomed view on the server, so it opens on it every
+   * time it connects, here or in any tab, and reopens it now. `rect` is a share
+   * of what the camera shows now, so zooming in again goes further in; null
+   * goes back to the whole frame.
+   */
+  async function saveZoom(rect: ZoneRect | null) {
+    const remote = zoomable();
+    setZooming(null);
+    if (!remote) return;
+    const crop = rect
+      ? cropWithin(openCrop.current, { x: rect.x, y: rect.y, w: rect.width, h: rect.height })
+      : null;
+    setBusy('zoom');
+    setError('');
+    try {
+      await api('streams/crop', { streamId: remote.id, crop });
+      await network.scan();
+      dropCamera();
+      await startCamera({ ...remote, crop });
+      const calibrated =
+        memory?.camera && JSON.stringify(memory.camera.crop ?? null) !== JSON.stringify(crop);
+      setMessage(
+        `${remote.name} ${crop ? `now opens zoomed to ${Math.round(crop.w * 100)}×${Math.round(crop.h * 100)}% of its view` : 'now opens on its whole view'}.${calibrated ? ' The room was calibrated through another view: calibrate it again.' : ''}`,
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e : 'Could not keep the camera’s view.');
     } finally {
       setBusy('');
     }
@@ -2274,6 +2360,12 @@ export function useLabState() {
     setPlacing,
     boxing,
     setBoxing,
+    zooming,
+    setZooming,
+    openCrop,
+    zoomable: zoomable(),
+    startZooming,
+    saveZoom,
     startBoxing,
     startPlacing,
     placeFixture,

@@ -3,11 +3,13 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import {
   CAMERA_LIMIT,
+  cameraCropSchema,
   cameraInputSchema,
   cameraView,
   savedIdOf,
   savedStreamId,
   redactCameraUrl,
+  type CameraCrop,
   type SavedCamera,
   type WatchCamera,
 } from '@livinglayer/domain';
@@ -17,11 +19,13 @@ import { FfmpegSource, type FrameSource } from './frames.js';
 import type { NetworkStream } from './streams.js';
 
 const KEY = 'cameras';
+const PHONE_CROP_KEY = 'phone-crop';
 
 /**
  * Cameras a person added by stream URL, kept in `settings` rather than desk
  * memory: they serve both modes' rooms, survive reset, and their URLs (which
- * may carry a password) never go back to the page.
+ * may carry a password) never go back to the page. The phone's zoomed view is
+ * kept here too: a pairing's id changes, the phone on its mount doesn't.
  */
 export class CameraRegistry {
   constructor(private store: EvidenceStore) {}
@@ -53,12 +57,29 @@ export class CameraRegistry {
       name: input.name,
       url,
       scene: input.scene,
+      crop: existing?.crop ?? null,
       createdAt: existing?.createdAt ?? new Date().toISOString(),
     };
     this.write(
       existing ? cameras.map((c) => (c.id === camera.id ? camera : c)) : [...cameras, camera],
     );
     return camera;
+  }
+  /** Keeps a camera's zoomed view, or the whole frame with null; false when the camera is gone. */
+  setCrop(id: string, crop: CameraCrop | null): boolean {
+    const cameras = this.list();
+    if (!cameras.some((c) => c.id === id)) return false;
+    this.write(cameras.map((c) => (c.id === id ? { ...c, crop } : c)));
+    return true;
+  }
+  phoneCrop(): CameraCrop | null {
+    const parsed = cameraCropSchema.safeParse(
+      JSON.parse(this.store.setting(PHONE_CROP_KEY) ?? 'null'),
+    );
+    return parsed.success ? parsed.data : null;
+  }
+  setPhoneCrop(crop: CameraCrop | null) {
+    this.store.setSetting(PHONE_CROP_KEY, JSON.stringify(crop));
   }
   remove(id: string): boolean {
     const cameras = this.list();
@@ -77,6 +98,7 @@ export class CameraRegistry {
         whep: '',
         rtsp: view.url,
         scene: c.scene,
+        crop: c.crop ?? null,
         snapshot: `/api/cameras/${c.id}/snapshot`,
         preview: `/api/cameras/${c.id}/stream`,
         source: 'saved',
@@ -88,6 +110,11 @@ export class CameraRegistry {
     const id = savedIdOf(camera.id);
     return id === null ? camera.url : (this.get(id)?.url ?? null);
   }
+  /** The zoomed view a watched camera's frames are cut to. */
+  cropOf(camera: WatchCamera): CameraCrop | null {
+    const id = savedIdOf(camera.id);
+    return id === null ? null : (this.get(id)?.crop ?? null);
+  }
   /** A camera to keep in desk memory as `watch`: shown there, so with the password hidden. */
   watchCamera(id: string): WatchCamera | null {
     const camera = this.get(id);
@@ -98,23 +125,30 @@ export class CameraRegistry {
 }
 
 /**
- * Adding, changing and removing saved cameras, and a still from one. Live
- * only in effect: the demo never opens a stream. `onRemoved` lets watching
- * stop when its camera goes.
+ * Adding, changing and removing saved cameras, a still from one, and a
+ * camera's zoomed view. Live only in effect: the demo never opens a stream.
+ * `onRemoved` lets watching stop when its camera goes, and `onCropped` lets
+ * it start again on the new view.
  */
 export function cameraRoutes(
   app: FastifyInstance,
   cameras: CameraRegistry,
   {
     onRemoved,
-    source = (url) => new FfmpegSource(url),
-    preview = (url) => new FfmpegSource(url).preview(),
+    onCropped = () => {},
+    source = (url, crop) => new FfmpegSource(url, 'ffmpeg', crop),
+    preview = (url, crop) => new FfmpegSource(url, 'ffmpeg', crop).preview(),
   }: {
     onRemoved: (streamId: string) => void;
+    /** A camera's zoomed view changed: saved camera stream ids, or `phone`. */
+    onCropped?: (streamId: string) => void;
     /** Frames for a stream URL; tests pass their own. */
-    source?: (url: string) => Pick<FrameSource, 'snapshot'>;
+    source?: (url: string, crop: CameraCrop | null) => Pick<FrameSource, 'snapshot'>;
     /** A stream URL as MJPEG; tests pass their own. */
-    preview?: (url: string) => { stream: ReadableStream<Uint8Array>; stop: () => void };
+    preview?: (
+      url: string,
+      crop: CameraCrop | null,
+    ) => { stream: ReadableStream<Uint8Array>; stop: () => void };
   },
 ) {
   const all = () => ({ cameras: cameras.list().map(cameraView) });
@@ -129,6 +163,29 @@ export function cameraRoutes(
     onRemoved(savedStreamId(id));
     return all();
   });
+  // A saved camera or the phone keeps its zoomed view, and every later connection opens on it.
+  app.post('/api/streams/crop', async (request) => {
+    const { streamId, crop } = parseInput(
+      z
+        .object({
+          streamId: z.string().min(1).max(200),
+          crop: cameraCropSchema.nullable(),
+        })
+        .strict(),
+      request.body,
+    );
+    const id = savedIdOf(streamId);
+    if (streamId.startsWith('phone:')) cameras.setPhoneCrop(crop);
+    else if (id === null)
+      throw new LabError(
+        'crop_camera',
+        'Only a saved camera or the phone keeps a zoomed view. Save this camera by its URL first.',
+      );
+    else if (!cameras.setCrop(id, crop))
+      throw new LabError('camera_missing', 'That camera is gone.', 404);
+    onCropped(id === null ? 'phone' : streamId);
+    return { crop };
+  });
   app.get('/api/cameras/:id/snapshot', async (request, reply) => {
     const { id } = parseInput(
       z.object({ id: z.string().regex(/^[a-z0-9-]{1,40}$/) }).strict(),
@@ -138,7 +195,7 @@ export function cameraRoutes(
     if (!camera) throw new LabError('camera_missing', 'That camera is gone.', 404);
     let png: Buffer;
     try {
-      ({ png } = await source(camera.url).snapshot());
+      ({ png } = await source(camera.url, camera.crop ?? null).snapshot());
     } catch {
       throw new LabError(
         'camera_unreachable',
@@ -156,7 +213,7 @@ export function cameraRoutes(
     );
     const camera = cameras.get(id);
     if (!camera) throw new LabError('camera_missing', 'That camera is gone.', 404);
-    const { stream, stop } = preview(camera.url);
+    const { stream, stop } = preview(camera.url, camera.crop ?? null);
     reply.hijack();
     reply.raw.writeHead(200, {
       'content-type': 'multipart/x-mixed-replace;boundary=ffmpeg',

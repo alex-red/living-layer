@@ -231,6 +231,7 @@ export async function buildApp(
   const remote = options.remote ?? new RemoteCamera();
   remoteRoutes(app, config, remote);
   const cameras = new CameraRegistry(store);
+  remote.crop = cameras.phoneCrop();
   const knownStreams = () => [...remote.streams(), ...cameras.streams()];
   streamRoutes(app, config, options.browseCameras, knownStreams);
   app.get('/api/runs', async () => store.list());
@@ -457,6 +458,7 @@ export async function buildApp(
     appearance: options.appearance ?? (() => (model ??= Appearance.load(config.dataDir))),
     ...(options.frames ? { source: options.frames } : {}),
     cameraUrl: (camera) => cameras.urlOf(camera),
+    cameraCrop: (camera) => cameras.cropOf(camera),
   });
   const watchers = {
     demo: new Watcher(watcherDeps('demo')),
@@ -479,6 +481,14 @@ export async function buildApp(
         memory.watch = { on: false, camera: null };
         store.saveMemory(memory);
         watchers[mode].stop();
+      }
+    },
+    // A new view is a new frame: watching it starts again, and the phone's next connection is cut to it.
+    onCropped: (streamId) => {
+      if (streamId === 'phone') remote.crop = cameras.phoneCrop();
+      for (const mode of ['demo', 'live'] as const) {
+        const memory = store.memory(mode);
+        if (memory.watch?.on && memory.watch.camera?.id === streamId) void watchers[mode].start();
       }
     },
     ...(options.snapshots ? { source: options.snapshots } : {}),

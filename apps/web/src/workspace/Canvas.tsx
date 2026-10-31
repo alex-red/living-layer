@@ -1,5 +1,6 @@
 import { useRef, type CSSProperties } from 'react';
 import {
+  CROP_MIN,
   DEMO_POSITIONS,
   ISO_PRESETS,
   isoSceneKindSchema,
@@ -76,6 +77,13 @@ function EditBanner() {
 export function Canvas() {
   const lab = useLab();
   const boxStart = useRef<{ x: number; y: number } | null>(null);
+  const zoomStart = useRef<{ x: number; y: number } | null>(null);
+  // A zoomed view inside the open one, as shares of the camera's whole frame: too small has too few pixels.
+  const zoomRect = lab.zooming?.rect;
+  const zoomOk =
+    zoomRect &&
+    zoomRect.width * (lab.zoomable?.crop?.w ?? 1) >= CROP_MIN &&
+    zoomRect.height * (lab.zoomable?.crop?.h ?? 1) >= CROP_MIN;
   // The Picture layer is offered once the room has a picture.
   const picture = Boolean(lab.memory?.illustration || lab.memory?.deskIllustration);
   const {
@@ -423,6 +431,46 @@ export function Canvas() {
                 )}
               </svg>
             )}
+            {lab.zooming && camera && (
+              <svg
+                className="zone-overlay drawing fixture-box"
+                viewBox="0 0 1000 1000"
+                preserveAspectRatio="none"
+                aria-label="Draw the camera’s zoomed view"
+                onPointerDown={(e) => {
+                  zoomStart.current = lab.zonePoint(e);
+                  e.currentTarget.setPointerCapture(e.pointerId);
+                }}
+                onPointerMove={(e) => {
+                  const a = zoomStart.current;
+                  if (!a) return;
+                  const p = lab.zonePoint(e);
+                  lab.setZooming({
+                    rect: {
+                      x: Math.min(a.x, p.x),
+                      y: Math.min(a.y, p.y),
+                      width: Math.abs(a.x - p.x),
+                      height: Math.abs(a.y - p.y),
+                    },
+                  });
+                }}
+                onPointerUp={() => {
+                  zoomStart.current = null;
+                }}
+                onPointerCancel={() => {
+                  zoomStart.current = null;
+                }}
+              >
+                {zoomRect && (
+                  <rect
+                    x={zoomRect.x * 1000}
+                    y={zoomRect.y * 1000}
+                    width={zoomRect.width * 1000}
+                    height={zoomRect.height * 1000}
+                  />
+                )}
+              </svg>
+            )}
             {focusBox && (
               <svg
                 className="focus-overlay"
@@ -677,7 +725,7 @@ export function Canvas() {
                     onClick={() => {
                       const v = lab.video.current;
                       if (v?.videoWidth) {
-                        lab.captureCanvas(v, v.videoWidth, v.videoHeight);
+                        lab.captureCanvas(v, v.videoWidth, v.videoHeight, lab.openCrop.current);
                         lab.stopCamera();
                       }
                     }}
@@ -685,6 +733,38 @@ export function Canvas() {
                     Capture frame
                   </button>
                   <button onClick={lab.stopCamera}>Stop camera</button>
+                  {lab.zoomable &&
+                    (lab.zooming ? (
+                      <>
+                        <button
+                          disabled={!zoomOk || Boolean(busy)}
+                          title={
+                            zoomRect && !zoomOk
+                              ? 'Too small: keep at least a tenth of the camera’s view each way.'
+                              : undefined
+                          }
+                          onClick={() => void lab.saveZoom(zoomRect ?? null)}
+                        >
+                          Keep this view
+                        </button>
+                        <button onClick={() => lab.setZooming(null)}>Cancel</button>
+                      </>
+                    ) : (
+                      <>
+                        <button
+                          disabled={Boolean(busy)}
+                          title="Draw the part of this camera’s view to keep. It opens on it every time it connects."
+                          onClick={lab.startZooming}
+                        >
+                          Zoom view
+                        </button>
+                        {lab.zoomable.crop && (
+                          <button disabled={Boolean(busy)} onClick={() => void lab.saveZoom(null)}>
+                            Whole view
+                          </button>
+                        )}
+                      </>
+                    ))}
                 </>
               ) : (
                 <>
@@ -754,6 +834,7 @@ export function Canvas() {
                         <option key={s.id} value={s.id}>
                           {s.name} · {s.host}
                           {s.scene ? ` · ${rooms.find((r) => r.value === s.scene)?.label}` : ''}
+                          {s.crop ? ' · zoomed' : ''}
                         </option>
                       ))}
                     </select>

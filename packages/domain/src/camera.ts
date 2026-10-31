@@ -5,6 +5,8 @@ import { ISO_SCENE_PARENT } from './iso-presets.js';
 /** Stream URLs the server opens with ffmpeg: RTSP, or an HTTP(S) stream such as MJPEG or HLS. */
 export const CAMERA_PROTOCOLS = ['rtsp:', 'rtsps:', 'http:', 'https:'] as const;
 export const CAMERA_LIMIT = 16;
+/** The smallest crop side, as a share of the frame: past this a stream's pixels are too few to work on. */
+export const CROP_MIN = 0.1;
 
 /** Why a stream URL can't be a camera, or null when it can. */
 export function cameraUrlProblem(value: string): string | null {
@@ -15,6 +17,36 @@ export function cameraUrlProblem(value: string): string | null {
   if (url.hash) return 'Leave the #fragment off the stream URL.';
   if (/[\s\0]/.test(value)) return 'The stream URL can’t contain spaces.';
   return null;
+}
+
+/**
+ * A camera's zoomed view: the part of its frame that is kept, as shares of the
+ * full frame. Everything downstream (preview, snapshots, the watcher, scans,
+ * calibration) sees only that part, as if it were the whole frame.
+ */
+export const cameraCropSchema = z
+  .object({
+    x: z.number().min(0).max(1),
+    y: z.number().min(0).max(1),
+    w: z.number().min(CROP_MIN).max(1),
+    h: z.number().min(CROP_MIN).max(1),
+  })
+  .strict()
+  .refine(
+    (c) => c.x + c.w <= 1 + 1e-6 && c.y + c.h <= 1 + 1e-6,
+    'The crop must stay inside the frame.',
+  );
+export type CameraCrop = z.infer<typeof cameraCropSchema>;
+
+/** A crop inside a crop, as shares of the full frame: zooming in on a view that is already zoomed. */
+export function cropWithin(outer: CameraCrop | null | undefined, inner: CameraCrop): CameraCrop {
+  if (!outer) return inner;
+  return {
+    x: outer.x + inner.x * outer.w,
+    y: outer.y + inner.y * outer.h,
+    w: inner.w * outer.w,
+    h: inner.h * outer.h,
+  };
 }
 
 export const cameraSceneSchema = z.union([isoSceneKindSchema, z.literal('custom')]).nullable();
@@ -46,6 +78,8 @@ export interface SavedCamera {
   url: string;
   /** The room it looks at, or null when it isn't assigned to one. */
   scene: CameraScene;
+  /** Its zoomed view, or none for the whole frame. */
+  crop?: CameraCrop | null;
   createdAt: string;
 }
 
@@ -57,6 +91,7 @@ export interface CameraView {
   host: string;
   hasPassword: boolean;
   scene: CameraScene;
+  crop: CameraCrop | null;
   createdAt: string;
 }
 
@@ -77,6 +112,7 @@ export function cameraView(camera: SavedCamera): CameraView {
     host: url?.host ?? '',
     hasPassword: Boolean(url?.password),
     scene: camera.scene,
+    crop: camera.crop ?? null,
     createdAt: camera.createdAt,
   };
 }
