@@ -370,6 +370,38 @@ export function cameraFromMarks(
   };
 }
 
+/**
+ * The length of one wall that best fits the marks, the other wall kept as
+ * given. Marks pin the room's shape, not its size: a camera higher up sees a
+ * bigger room the same way. So one wall has to be known, and this finds the
+ * other, to a third of a tile (10 cm), between 2 and 20 tiles.
+ */
+export function roomSizeFor(
+  marks: RoomMarks,
+  frame: RoomCamera['frame'],
+  room: RoomCamera['room'],
+  solve: 'w' | 'd',
+  options: Parameters<typeof cameraFromMarks>[3] = {},
+): { room: RoomCamera['room']; error: number } {
+  const at = (v: number) => {
+    const size = solve === 'w' ? { w: v, d: room.d } : { w: room.w, d: v };
+    return { room: size, error: cameraFromMarks(marks, frame, size, options).error };
+  };
+  let best = at(2);
+  for (let v = 3; v <= 20; v += 1) {
+    const here = at(v);
+    if (here.error < best.error) best = here;
+  }
+  const coarse = best.room[solve];
+  for (const step of [-2, -1, 1, 2]) {
+    const v = coarse + step / 3;
+    if (v < 2 || v > 20) continue;
+    const here = at(v);
+    if (here.error < best.error) best = here;
+  }
+  return best;
+}
+
 /** The room's marks as a camera would see them: the corner and points along both walls. */
 export function marksOf(c: RoomCamera, count = 6): RoomMarks {
   const inFrame = (p: Point | null): p is Point =>

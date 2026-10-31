@@ -12,6 +12,7 @@ import {
   newBits,
   fillRings,
   projectRoom,
+  roomSizeFor,
   unprojectRoom,
   type RoomCamera,
 } from '@livinglayer/domain';
@@ -66,6 +67,20 @@ describe('room camera', () => {
       expect(close(free.camera, truth)).toBeLessThan(3);
       expect(Math.abs(free.heightCm - heightCm)).toBeLessThan(5);
     }
+  });
+
+  it('finds the length of the wall nobody measured from the marks', () => {
+    const truth = cornerCamera(room, { heightCm: 240 });
+    const marks = marksOf(truth);
+    // The left wall typed as 6 tiles, not 8: the grid misses until it is put right.
+    expect(cameraFromMarks(marks, truth.frame, { w: 10, d: 6 }).error).toBeGreaterThan(3);
+    const depth = roomSizeFor(marks, truth.frame, { w: 10, d: 6 }, 'd');
+    expect(depth.room.w).toBe(10);
+    expect(Math.abs(depth.room.d - 8)).toBeLessThan(0.4);
+    expect(depth.error).toBeLessThan(1.5);
+    // Or keep the left wall and find the back one.
+    const width = roomSizeFor(marks, truth.frame, { w: 13, d: 8 }, 'w');
+    expect(Math.abs(width.room.w - 10)).toBeLessThan(0.4);
   });
 
   it('fits the whole lens behind a zoomed view, its principal point off centre', () => {

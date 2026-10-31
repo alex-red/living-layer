@@ -1,8 +1,9 @@
-import { useMemo, useState, type PointerEvent, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type PointerEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import {
   cameraFromMarks,
   projectRoom,
+  roomSizeFor,
   type CameraCrop,
   type Point,
   type RoomMarks,
@@ -17,6 +18,12 @@ export interface CalibrationDraft {
   heightCm?: number;
 }
 const HANDLES = ['far corner', 'back wall', 'left wall'] as const;
+/** A wall's length that fits the marks better, the other wall kept. */
+interface Suggestion {
+  wall: 'Back wall' | 'Left wall';
+  room: { w: number; d: number };
+  error: number;
+}
 
 /**
  * Calibrates the room's corner camera on its frame. Three handles: the far
@@ -92,6 +99,36 @@ export function RoomCalibrate({
     return { ...f, path: lines.join('') };
   }, [marks, room, heightCm, frame, crop]);
 
+  // Marks pin the room's shape, not its size: when the grid misses them, the
+  // shape is wrong, so say which length of either wall would fit, keeping the
+  // other. Searched once a drag ends, after the grid has drawn.
+  const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
+  const miss = Math.hypot(frame.width, frame.height) / 250;
+  useEffect(() => {
+    setSuggestions([]);
+    if (dragging !== null || !fit || fit.error < miss) return;
+    const timer = setTimeout(() => {
+      const tiles = { w: room.w / 30, d: room.d / 30 };
+      const options = { ...(heightCm ? { heightCm } : {}), crop };
+      setSuggestions(
+        (['d', 'w'] as const)
+          .map((solve) => {
+            const found = roomSizeFor(marks, frame, tiles, solve, options);
+            return {
+              wall: solve === 'w' ? ('Back wall' as const) : ('Left wall' as const),
+              room: { w: Math.round(found.room.w * 30), d: Math.round(found.room.d * 30) },
+              error: found.error,
+            };
+          })
+          // Only a clear gain, and not the size already there.
+          .filter((x) => x.error < fit.error * 0.7 && x.error < fit.error - 2)
+          .filter((x) => x.room.w !== room.w || x.room.d !== room.d)
+          .sort((a, b) => a.error - b.error),
+      );
+    }, 50);
+    return () => clearTimeout(timer);
+  }, [fit, dragging, marks, room, heightCm, crop, frame, miss]);
+
   const at = (e: PointerEvent<SVGSVGElement>) => {
     const b = e.currentTarget.getBoundingClientRect();
     return {
@@ -150,11 +187,23 @@ export function RoomCalibrate({
         >
           <span>
             {fit
-              ? good
-                ? `The floor grid should sit on the floor. Camera about ${fit.heightCm} cm up, ${Math.round(fit.hfovDeg)}° wide.`
-                : `These marks don't fit a camera in the room's front corner (off by ${fit.error.toFixed(0)} px).`
+              ? suggestions.length
+                ? `The grid misses the marks by ${fit.error.toFixed(0)} px: a room this shape can’t look like that from its front corner. Measure a wall, or try:`
+                : good
+                  ? `The floor grid should sit on the floor. Camera about ${fit.heightCm} cm up, ${Math.round(fit.hfovDeg)}° wide.`
+                  : `These marks don't fit a camera in the room's front corner (off by ${fit.error.toFixed(0)} px).`
               : 'Give the room’s size inside its walls.'}
           </span>
+          {suggestions.map((x) => (
+            <button
+              key={x.wall}
+              className="secondary"
+              title={`Keeps the ${x.wall === 'Back wall' ? 'left' : 'back'} wall as it is; the grid then misses by ${x.error.toFixed(1)} px.`}
+              onClick={() => setRoom(x.room)}
+            >
+              {x.wall} {x.wall === 'Back wall' ? x.room.w : x.room.d} cm · {x.error.toFixed(0)} px
+            </button>
+          ))}
           <label title="The back wall: the one running right from the far corner.">
             Back wall
             <input
