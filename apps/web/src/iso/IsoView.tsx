@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import {
   DEMO_SURFACE,
+  believableWidth,
   ISO_PRESETS,
   fixtureBox,
   closeViewShift,
@@ -72,9 +73,14 @@ function marker(
   placed: ReturnType<typeof projectBox>,
   item?: IsoItem | null,
 ): IsoObject {
-  const box = item
-    ? { ...placed.box, size: { ...placed.box.size, h: itemHeight(item) * placed.box.size.w } }
-    : placed.box;
+  const { at, size } = placed.box;
+  const archetype = item && 'fit' in item ? (item as SavedItem).fit?.archetype : null;
+  const w = believableWidth(size.w, label, archetype);
+  // Shrunk or grown about the same footprint centre.
+  const box = {
+    at: { x: at.x + (size.w - w) / 2, y: at.y + (size.d - w) / 2, z: at.z },
+    size: { w, d: w, h: item ? itemHeight(item) * w : size.h * (w / size.w) },
+  };
   return { id, box, item: item ?? undefined, label, unsure: !placed.onSurface };
 }
 

@@ -1,4 +1,5 @@
-import type { IsoProp, IsoScene, SurfacePin } from './iso.js';
+import type { IsoBox, IsoProp, IsoScene, SurfacePin } from './iso.js';
+import { propSolids } from './iso-furniture.js';
 import { pinCamera } from './photo-scene.js';
 
 /** An RGBA image, row by row. */
@@ -77,7 +78,7 @@ function sceneCamera(scene: IsoScene, pin: SurfacePin) {
 }
 
 /** Where a ray first meets a box, as distance along the camera's axis (the ray's z is 1). */
-function hitBox(o: Vec3, dir: Vec3, prop: IsoProp): number {
+function hitBox(o: Vec3, dir: Vec3, prop: IsoBox): number {
   let near = 0;
   let far = Infinity;
   const lo: Vec3 = [prop.at.x, prop.at.y, prop.at.z];
@@ -140,11 +141,13 @@ export function photoTextures(
   const dw = DEPTH_WIDTH;
   const dh = Math.round(frame.height * k);
   const depth = new Float32Array(dw * dh).fill(Infinity);
+  // A furniture model stands in front by its parts: the space under a desk is open.
+  const solids = scene.props.flatMap((p) => propSolids(p).map((s) => s.box));
   for (let py = 0; py < dh; py++)
     for (let px = 0; px < dw; px++) {
       const dir = ray((px + 0.5) / k, (py + 0.5) / k);
       let near = Infinity;
-      for (const p of scene.props) near = Math.min(near, hitBox(centre, dir, p));
+      for (const b of solids) near = Math.min(near, hitBox(centre, dir, b));
       depth[py * dw + px] = near;
     }
   const nearest = (x: number, y: number) => {
@@ -162,10 +165,13 @@ export function photoTextures(
     return best;
   };
 
+  const carries = new Set(scene.surfaces.map((s) => s.propId));
   for (const prop of scene.props) {
     const faces: Partial<Record<PropFace, Rgba>> = {};
+    // A model's box isn't its shape: only a top things stand on is a real face.
+    if (prop.form && !carries.has(prop.id)) continue;
     for (const face of PROP_FACES) {
-      if (prop.shape === 'cylinder' && face !== 'top') continue;
+      if ((prop.shape === 'cylinder' || prop.form) && face !== 'top') continue;
       const f = faceFrame(prop, face);
       const mid: Vec3 = [0, 1, 2].map((i) => f.origin[i]! + (f.u[i]! + f.v[i]!) / 2) as Vec3;
       const toward: Vec3 = [centre[0] - mid[0], centre[1] - mid[1], centre[2] - mid[2]];

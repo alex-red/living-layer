@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { IsoBox, IsoProp, IsoScene, IsoSurface } from './iso.js';
+import { cm, type PropForm } from './iso-furniture.js';
 
 /**
  * The prop palette: every preset, every scene a person builds and every
@@ -48,71 +49,53 @@ const surface = (
   z: number,
 ): IsoSurface => ({ id: `${g}:${id}`, label, propId, rect, z });
 
-/** A slab on four legs; its top is a surface. Desks and tables. */
-function legged(label: string, top: number, tone: IsoProp['tone'] = 'wood'): Template['build'] {
-  return (g, x, y, z, { w, d }) => {
-    const slab = 0.18;
-    const leg = 0.22;
-    const legs = [
-      [x + 0.15, y + 0.15],
-      [x + w - 0.15 - leg, y + 0.15],
-      [x + 0.15, y + d - 0.15 - leg],
-      [x + w - 0.15 - leg, y + d - 0.15 - leg],
-    ].map(([lx, ly], i) =>
-      prism(g, `leg-${i}`, `${label} leg`, [lx!, ly!, z], [leg, leg, top - slab], 'steel'),
-    );
-    return {
-      props: [...legs, prism(g, '', label, [x, y, z + top - slab], [w, d, slab], tone)],
-      surfaces: [
-        surface(
-          g,
-          'top',
-          label === 'Desk' ? 'Desktop' : `${label} top`,
-          g,
-          { x, y, w, d },
-          z + top,
-        ),
-      ],
-    };
-  };
+/**
+ * One prop drawn as a furniture model, plus the surface on its top if it
+ * has one. Sizes are real (see `cm`): a desk top stands at 72 cm.
+ */
+function modelled(
+  label: string,
+  form: PropForm,
+  tone: IsoProp['tone'],
+  h: number,
+  top?: string,
+): Template['build'] {
+  return (g, x, y, z, { w, d }) => ({
+    props: [prism(g, '', label, [x, y, z], [w, d, h], tone, { form })],
+    surfaces: top ? [surface(g, 'top', top, g, { x, y, w, d }, z + h)] : [],
+  });
 }
 
 export const PROP_TEMPLATES = {
-  desk: { label: 'Desk', size: { w: 4, d: 2.5 }, onTop: false, build: legged('Desk', 2.4) },
-  table: { label: 'Table', size: { w: 3, d: 3 }, onTop: false, build: legged('Table', 2) },
+  desk: {
+    label: 'Desk',
+    size: { w: 4, d: 2.5 },
+    onTop: false,
+    build: modelled('Desk', 'desk', 'wood', cm(72), 'Desktop'),
+  },
+  table: {
+    label: 'Table',
+    size: { w: 3, d: 3 },
+    onTop: false,
+    build: modelled('Table', 'table', 'wood', cm(75), 'Table top'),
+  },
   chair: {
     label: 'Chair',
-    size: { w: 1.3, d: 1.4 },
+    size: { w: cm(66), d: cm(66) },
     onTop: false,
-    build: (g, x, y, z) => ({
-      props: [
-        prism(g, 'post', 'Chair post', [x + 0.55, y + 0.55, z], [0.2, 0.2, 1.4], 'steel'),
-        prism(g, '', 'Chair seat', [x, y, z + 1.4], [1.3, 1.3, 0.22], 'fabric'),
-        prism(g, 'back', 'Chair back', [x, y + 1.15, z + 1.62], [1.3, 0.18, 1.5], 'fabric'),
-      ],
-      surfaces: [],
-    }),
+    build: modelled('Chair', 'chair', 'fabric', cm(95)),
   },
   shelf: {
     label: 'Bookshelf',
-    size: { w: 2.2, d: 1 },
+    size: { w: cm(80), d: cm(30) },
     onTop: false,
-    build: (g, x, y, z, { w, d }) => ({
-      props: [
-        prism(g, '', 'Bookshelf', [x, y, z], [w, d, 4.2], 'wood'),
-        prism(g, 'books', 'Books', [x + 0.2, y + 0.3, z + 2.5], [w - 0.6, d - 0.3, 0.7], 'book'),
-      ],
-      surfaces: [surface(g, 'top', 'Bookshelf top', g, { x, y, w, d }, z + 4.2)],
-    }),
+    build: modelled('Bookshelf', 'bookcase', 'wood', cm(120), 'Bookshelf top'),
   },
   cabinet: {
     label: 'Cabinet',
-    size: { w: 2, d: 1.2 },
+    size: { w: cm(60), d: cm(40) },
     onTop: false,
-    build: (g, x, y, z, { w, d }) => ({
-      props: [prism(g, '', 'Cabinet', [x, y, z], [w, d, 2.4], 'wood')],
-      surfaces: [surface(g, 'top', 'Cabinet top', g, { x, y, w, d }, z + 2.4)],
-    }),
+    build: modelled('Cabinet', 'cabinet', 'wood', cm(72), 'Cabinet top'),
   },
   // The fridge opens toward +y with its door swung out on the left, so its
   // shelves read like a photo taken into it: back at the top of the frame.
@@ -187,17 +170,29 @@ export const PROP_TEMPLATES = {
       };
     },
   },
+  // A floor plant: a 30 cm pot, the leaves above it.
   plant: {
     label: 'Plant',
-    size: { w: 1.2, d: 1.2 },
+    size: { w: cm(48), d: cm(48) },
     onTop: false,
-    build: (g, x, y, z) => ({
-      props: [
-        cylinder(g, 'pot', 'Plant pot', [x + 0.15, y + 0.15, z], [0.9, 0.9, 0.8], 'ceramic'),
-        cylinder(g, '', 'Plant', [x, y, z + 0.8], [1.2, 1.2, 1.4], 'plant'),
-      ],
-      surfaces: [],
-    }),
+    build: (g, x, y, z, { w, d }) => {
+      const pot = Math.min(w, d, cm(30));
+      return {
+        props: [
+          prism(
+            g,
+            'pot',
+            'Plant pot',
+            [x + (w - pot) / 2, y + (d - pot) / 2, z],
+            [pot, pot, cm(28)],
+            'ceramic',
+            { form: 'pot' },
+          ),
+          prism(g, '', 'Plant', [x, y, z + cm(28)], [w, d, cm(56)], 'plant', { form: 'foliage' }),
+        ],
+        surfaces: [],
+      };
+    },
   },
   rug: {
     label: 'Rug',
@@ -217,75 +212,69 @@ export const PROP_TEMPLATES = {
       surfaces: [],
     }),
   },
+  // A 16 cm base, a pole and a 20 cm shade that lights up.
   lamp: {
     label: 'Desk lamp',
-    size: { w: 0.7, d: 0.7 },
+    size: { w: cm(20), d: cm(20) },
     onTop: true,
-    build: (g, x, y, z) => ({
-      props: [
-        cylinder(g, 'base', 'Lamp base', [x + 0.05, y + 0.05, z], [0.6, 0.6, 0.12], 'steel'),
-        prism(g, 'pole', 'Lamp pole', [x + 0.31, y + 0.31, z + 0.12], [0.08, 0.08, 1.4], 'steel'),
-        cylinder(g, '', 'Desk lamp', [x, y, z + 1.52], [0.7, 0.7, 0.36], 'steel', { role: 'lamp' }),
-      ],
-      surfaces: [],
-    }),
+    build: (g, x, y, z, { w, d }) => {
+      const base = Math.min(w, d, cm(16));
+      const pole = cm(36);
+      return {
+        props: [
+          prism(
+            g,
+            'stand',
+            'Lamp stand',
+            [x + (w - base) / 2, y + (d - base) / 2, z],
+            [base, base, pole],
+            'steel',
+            { form: 'lamp-stand' },
+          ),
+          prism(g, '', 'Desk lamp', [x, y, z + pole], [w, d, cm(14)], 'steel', {
+            role: 'lamp',
+            form: 'lamp-shade',
+          }),
+        ],
+        surfaces: [],
+      };
+    },
   },
   monitor: {
     label: 'Monitor',
-    size: { w: 2.3, d: 0.5 },
+    size: { w: cm(61), d: cm(20) },
     onTop: true,
-    build: (g, x, y, z) => ({
-      props: [
-        prism(g, 'stand', 'Monitor stand', [x + 0.9, y + 0.05, z], [0.5, 0.4, 0.5], 'steel'),
-        prism(g, '', 'Monitor', [x, y, z + 0.5], [2.3, 0.14, 1.3], 'appliance'),
-      ],
-      surfaces: [],
-    }),
+    build: modelled('Monitor', 'monitor', 'appliance', cm(47)),
   },
   keyboard: {
     label: 'Keyboard',
-    size: { w: 1.8, d: 0.6 },
+    size: { w: cm(44), d: cm(14) },
     onTop: true,
-    build: (g, x, y, z) => ({
-      props: [prism(g, '', 'Keyboard', [x, y, z], [1.8, 0.6, 0.08], 'appliance')],
-      surfaces: [],
-    }),
+    build: modelled('Keyboard', 'keyboard', 'appliance', cm(3)),
   },
   book: {
     label: 'Book',
-    size: { w: 1.1, d: 1.4 },
+    size: { w: cm(16), d: cm(23) },
     onTop: true,
-    build: (g, x, y, z) => ({
-      props: [prism(g, '', 'Book', [x, y, z], [1.1, 1.4, 0.22], 'book')],
-      surfaces: [],
-    }),
+    build: modelled('Book', 'book', 'book', cm(3.5)),
   },
   bottle: {
     label: 'Bottle',
-    size: { w: 0.55, d: 0.55 },
+    size: { w: cm(7.5), d: cm(7.5) },
     onTop: true,
-    build: (g, x, y, z) => ({
-      props: [cylinder(g, '', 'Bottle', [x, y, z], [0.55, 0.55, 1.5], 'glass')],
-      surfaces: [],
-    }),
+    build: modelled('Bottle', 'bottle', 'glass', cm(26)),
   },
   jar: {
     label: 'Jar',
-    size: { w: 0.6, d: 0.6 },
+    size: { w: cm(10), d: cm(10) },
     onTop: true,
-    build: (g, x, y, z) => ({
-      props: [cylinder(g, '', 'Jar', [x, y, z], [0.6, 0.6, 0.65], 'ceramic')],
-      surfaces: [],
-    }),
+    build: modelled('Jar', 'jar', 'ceramic', cm(12)),
   },
   carton: {
     label: 'Carton',
-    size: { w: 0.5, d: 0.5 },
+    size: { w: cm(7), d: cm(7) },
     onTop: true,
-    build: (g, x, y, z) => ({
-      props: [prism(g, '', 'Carton', [x, y, z], [0.5, 0.5, 1.05], 'paper')],
-      surfaces: [],
-    }),
+    build: modelled('Carton', 'carton', 'paper', cm(24)),
   },
 } satisfies Record<string, Template>;
 export type TemplateId = keyof typeof PROP_TEMPLATES;
@@ -377,7 +366,12 @@ export function rotateGroup(scene: IsoScene, g: string): IsoScene {
     g,
     (p) => {
       const r = turn(p.at.x, p.at.y, p.size.w, p.size.d);
-      return { ...p, at: { ...p.at, x: r.x, y: r.y }, size: { ...p.size, w: r.w, d: r.d } };
+      return {
+        ...p,
+        at: { ...p.at, x: r.x, y: r.y },
+        size: { ...p.size, w: r.w, d: r.d },
+        ...(p.form ? { turns: ((p.turns ?? 0) + 1) % 4 } : {}),
+      };
     },
     (s) => {
       const r = turn(s.rect.x, s.rect.y, s.rect.w, s.rect.d);

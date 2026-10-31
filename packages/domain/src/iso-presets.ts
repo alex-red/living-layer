@@ -25,8 +25,8 @@ function compose(
 // (right) sit where the photo shows them.
 const deskScene = compose('desk', 'Office desk', { w: 8, d: 6 }, [
   ['desk', 'desk', 1, 1, 0, { size: { w: 6, d: 4 } }],
-  ['book', 'book', 1.55, 2.6, 2.4, { label: 'Green book', optional: true }],
-  ['bottle', 'bottle', 5.55, 2.55, 2.4, { label: 'Sage bottle', optional: true }],
+  ['book', 'book', 1.85, 2.9, 2.4, { label: 'Green book', optional: true }],
+  ['bottle', 'bottle', 5.7, 2.7, 2.4, { label: 'Sage bottle', optional: true }],
   ['lamp', 'lamp', 5.95, 1.2, 2.4],
 ]);
 
@@ -34,14 +34,14 @@ const officeScene = compose('office', 'Office', { w: 10, d: 8 }, [
   ['wall', 'wall-back', 0, 0, 0, { size: { w: 10, d: 0.2 }, label: 'Back wall' }],
   ['wall', 'wall-left', 0, 0.2, 0, { size: { w: 0.2, d: 7.8 }, label: 'Left wall' }],
   ['desk', 'desk', 1.2, 1.2, 0, { size: { w: 5, d: 3 } }],
-  ['monitor', 'monitor', 2.5, 1.5, 2.4, { optional: true }],
-  ['keyboard', 'keyboard', 2.7, 3.1, 2.4, { optional: true }],
-  ['book', 'book', 1.35, 1.6, 2.4, { label: 'Green book', optional: true }],
-  ['bottle', 'bottle', 5.4, 3.1, 2.4, { label: 'Sage bottle', optional: true }],
-  ['lamp', 'lamp', 5.25, 1.35, 2.4],
-  ['chair', 'chair', 3.1, 4.9, 0, { optional: true }],
-  ['shelf', 'shelf', 7.2, 0.2, 0, { optional: true }],
-  ['plant', 'plant', 0.35, 5.45, 0, { optional: true }],
+  ['monitor', 'monitor', 2.7, 1.45, 2.4, { optional: true }],
+  ['keyboard', 'keyboard', 2.97, 2.75, 2.4, { optional: true }],
+  ['book', 'book', 1.5, 1.55, 2.4, { label: 'Green book', optional: true }],
+  ['bottle', 'bottle', 5.6, 3.3, 2.4, { label: 'Sage bottle', optional: true }],
+  ['lamp', 'lamp', 5.3, 1.45, 2.4],
+  ['chair', 'chair', 2.6, 4.5, 0, { optional: true }],
+  ['shelf', 'shelf', 7.1, 0.2, 0, { optional: true }],
+  ['plant', 'plant', 0.35, 6.1, 0, { optional: true }],
 ]);
 
 const fridgeScene = compose('fridge', 'Fridge', { w: 7, d: 7 }, [

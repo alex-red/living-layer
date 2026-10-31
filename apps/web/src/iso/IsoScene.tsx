@@ -267,7 +267,7 @@ function FaceImage({ prop, face, href }: { prop: IsoProp; face: PropFace; href: 
 function PropSprite({ prop, lit }: { prop: IsoProp; lit: boolean }) {
   const className = `iso-prop tone-${prop.tone} ${prop.role === 'lamp' ? 'iso-lamp' : ''} ${lit ? 'lit' : ''}`;
   const texture = prop.texture;
-  if (texture && Object.keys(texture).length)
+  if (texture && Object.keys(texture).length && !prop.form)
     return (
       <g className={`${className} textured`}>
         <Solid box={prop} color={TONES[prop.tone]} shape={prop.shape} />
@@ -291,6 +291,8 @@ function PropSprite({ prop, lit }: { prop: IsoProp; lit: boolean }) {
         height={sprite.height}
         preserveAspectRatio="none"
       />
+      {/* A model keeps its own sides; only the top it carries takes the photo. */}
+      {texture?.top && <FaceImage prop={prop} face="top" href={texture.top} />}
       <Solid box={prop} color={TONES[prop.tone]} shape={prop.shape} className="iso-hit-shape" />
     </g>
   );

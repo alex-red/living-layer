@@ -27,6 +27,32 @@ export const ARCHETYPES = [
 ] as const;
 export const archetypeSchema = z.enum(ARCHETYPES);
 export type Archetype = z.infer<typeof archetypeSchema>;
+/** How wide each kind of object usually is, handle included, in centimetres. */
+export const ARCHETYPE_WIDTH_CM: Record<Archetype, number | null> = {
+  mug: 12,
+  cup: 9,
+  bottle: 7.5,
+  can: 6.6,
+  book: 16,
+  box: 20,
+  plant: 15,
+  lamp: 18,
+  device: 15,
+  generic: null,
+};
+/**
+ * A sighting's width in tiles, held near what that kind of object really
+ * measures: a camera's view of a small desk can make a mug look a hand
+ * wide. The kind comes from the fitted model, or else from the label.
+ */
+export function believableWidth(width: number, label: string, archetype?: Archetype | null) {
+  const kind =
+    archetype ?? ARCHETYPES.find((a) => new RegExp(`\\b${a}s?\\b`, 'i').test(label)) ?? null;
+  const cm = kind ? ARCHETYPE_WIDTH_CM[kind] : null;
+  if (!cm) return width;
+  const usual = cm / 30;
+  return Math.max(usual * 0.75, Math.min(usual * 1.35, width));
+}
 export interface Band {
   /** Shares of the body's height. */
   from: number;

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { Detection, Segmentation, ZoneRect } from './index.js';
+import { PROP_FORMS, type PropForm } from './iso-furniture.js';
 import { TEMPLATE_IDS, type TemplateId } from './iso-templates.js';
 
 /**
@@ -55,6 +56,10 @@ export interface IsoProp {
   optional?: boolean;
   /** Faces painted from the photo the scene was drafted from: evidence assets, or data URLs. */
   texture?: { top?: string; front?: string; side?: string };
+  /** The model drawn in the box (see iso-furniture); without one, a plain box. */
+  form?: PropForm;
+  /** Quarter turns clockwise from the model's own facing. */
+  turns?: number;
 }
 /** A flat, horizontal place objects can rest on, in tile space. */
 export interface IsoSurface {
@@ -260,6 +265,8 @@ const isoPropSchema = z
       .partial()
       .strict()
       .optional(),
+    form: z.enum(PROP_FORMS).optional(),
+    turns: z.number().int().min(0).max(3).optional(),
   })
   .strict();
 /**
@@ -443,3 +450,4 @@ export function zoneFromSurface(
 
 export * from './iso-presets.js';
 export * from './iso-templates.js';
+export * from './iso-furniture.js';

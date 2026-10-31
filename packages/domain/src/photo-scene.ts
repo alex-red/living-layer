@@ -25,6 +25,7 @@ import {
   type TemplateId,
 } from './iso-templates.js';
 import { ARCHETYPES, type Archetype } from './iso-archetypes.js';
+import { propSolids } from './iso-furniture.js';
 import type { SavedItem } from './iso-item.js';
 
 /**
@@ -999,7 +1000,10 @@ export function layoutPhoto(input: LayoutInput): PhotoLayout {
       // Only held objects get here without a foot.
       if (t.as === 'wall' || !at) continue;
       // A floor thing's foot is its front edge; a tabletop thing's is its middle.
-      const y = tpl.onTop ? at.y - tpl.size.d / 2 : at.y - tpl.size.d;
+      // A thing cut off by the frame's bottom reaches further forward than its
+      // mask shows, so it starts centred there and the refine brings it in.
+      const cut = d.box.y + d.box.height >= frame.height - 1;
+      const y = tpl.onTop || cut ? at.y - tpl.size.d / 2 : at.y - tpl.size.d;
       const g = placeAt(t, at.x - tpl.size.w / 2, y, tpl.onTop ? Z + top : 0);
       if (tpl.onTop) scene = settleGroup(scene, g);
     }
@@ -1242,13 +1246,7 @@ function refinePin(
     if (!cam) return 0;
     const top = topOf(template, cam.surface);
     const built = placeTemplate(template, 'pin', 0, 0, 0, { size: cam.surface });
-    silhouette(
-      cam,
-      { x: 0, y: 0, z: top },
-      built.props.map((p) => ({ box: p as IsoBox, shape: p.shape })),
-      sil,
-      scale,
-    );
+    silhouette(cam, { x: 0, y: 0, z: top }, built.props.flatMap(propSolids), sil, scale);
     return visibleIou(sil.data, mask.data, union);
   };
   let best = corners.map((p) => ({ ...p })) as Quad;
@@ -1302,7 +1300,7 @@ function scoreLayout(
     return visibleIou(sil.data, masks.get(id)!.data, union);
   };
   const groupBoxes = (scene: IsoScene, g: string) =>
-    scene.props.filter((p) => p.group === g).map((p) => ({ box: p as IsoBox, shape: p.shape }));
+    scene.props.filter((p) => p.group === g).flatMap(propSolids);
   let weighted = 0;
   let total = 0;
   for (const t of layout.things) {
@@ -1394,7 +1392,9 @@ export function flatView(
     (b.at.z - origin.z) * camera.up[2] +
     camera.t[2];
   const items: { box: IsoBox; shape: IsoProp['shape']; rgb: [number, number, number] }[] = [
-    ...layout.scene.props.map((p) => ({ box: p as IsoBox, shape: p.shape, rgb: FLAT[p.tone] })),
+    ...layout.scene.props
+      .flatMap(propSolids)
+      .map((s) => ({ box: s.box, shape: s.shape, rgb: FLAT[s.tone] })),
     ...layout.things
       .filter((t) => t.status === 'object' && t.foot)
       .map((t) => ({
@@ -1570,6 +1570,9 @@ export function syntheticPhoto(o: SyntheticPhotoOptions) {
           for (const z of [a[2], b[2]]) pts.push(cam.project([x, y, z]));
     return convexHull(pts);
   };
+  // A furniture model shows its parts (a desk's legs, a chair's base), not its box.
+  const solidsOf = (p: IsoProp): Point[][] =>
+    propSolids(p).map((s) => hullOf(toWorld({ ...p, ...s.box }), s.shape === 'cylinder'));
   const centreDepth = ([a, b]: [Vec3, Vec3]) =>
     cam.depth([(a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2]);
   const shapes: Shape[] = [];
@@ -1583,7 +1586,7 @@ export function syntheticPhoto(o: SyntheticPhotoOptions) {
     as: surface.as,
     role: 'surface',
     on: 'floor',
-    solids: desk.props.map((p) => hullOf(toWorld(p), p.shape === 'cylinder')),
+    solids: desk.props.flatMap(solidsOf),
     depth: Math.max(...desk.props.map((p) => centreDepth(toWorld(p)))),
   });
   for (const f of o.furniture ?? []) {
@@ -1595,7 +1598,7 @@ export function syntheticPhoto(o: SyntheticPhotoOptions) {
       as: f.as,
       role: 'furniture',
       on: 'floor',
-      solids: built.props.map((p) => hullOf(toWorld(p), p.shape === 'cylinder')),
+      solids: built.props.flatMap(solidsOf),
       depth: Math.min(...built.props.map((p) => centreDepth(toWorld(p)))),
     });
   }

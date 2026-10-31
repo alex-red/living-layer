@@ -2,6 +2,7 @@ import {
   hexLab,
   labHex,
   outlineLab,
+  propModel,
   rampLab,
   renderSprite,
   renderView,
@@ -11,6 +12,7 @@ import {
   type IsoTone,
   type ItemMaterial,
   type ItemPart,
+  type PropPart,
   type Sprite,
 } from '@livinglayer/domain';
 
@@ -102,10 +104,16 @@ const PROP_PALETTE = [
     }),
   ),
 ];
-/** Voxels per tile for props: one density for the whole room. */
+/** Voxels per tile for plain props: one density for the whole room. */
 const PROP_DENSITY = 16;
+/**
+ * Furniture models get finer voxels the smaller they are, so a keyboard's
+ * keys and a book's pages still show, up to about a pixel per voxel.
+ */
+const modelDensity = (size: IsoProp['size']) =>
+  Math.max(PROP_DENSITY, Math.min(64, 128 / Math.max(size.w, size.d, size.h)));
 const WARM = '#ffb866';
-/** A prop as one part in its own space, so a moved prop reuses its sprite. */
+/** A plain prop as one part in its own space, so a moved prop reuses its sprite. */
 function propPart(prop: IsoProp): ItemPart {
   const plant = prop.tone === 'plant' && prop.shape === 'cylinder';
   return {
@@ -127,18 +135,30 @@ function propPart(prop: IsoProp): ItemPart {
     material: TONE_MATERIAL[prop.tone] ?? 'matte',
   };
 }
+/** One part of a furniture model in the kernel's terms. */
+const modelPart = (p: PropPart, i: number): ItemPart => ({
+  id: `p${i}`,
+  taper: 1,
+  ...p,
+  color: TONES[p.tone],
+  material: p.material ?? TONE_MATERIAL[p.tone] ?? 'matte',
+});
 /** A scene prop drawn by the kernel, relative to its own corner `prop.at`. */
 export function propSprite(prop: IsoProp, lit: boolean): SpriteImage {
   const { w, d, h } = prop.size;
-  const key = `prop|${prop.shape}|${prop.tone}|${w}|${d}|${h}|${lit}`;
-  return cached(key, () =>
-    renderSprite(voxelize([propPart(prop)], { voxel: 1 / PROP_DENSITY }), {
+  const key = `prop|${prop.shape}|${prop.tone}|${prop.form ?? ''}|${prop.turns ?? 0}|${w}|${d}|${h}|${lit}`;
+  return cached(key, () => {
+    const model = propModel(prop);
+    const grid = model
+      ? voxelize(model.map(modelPart), { voxel: 1 / modelDensity(prop.size) })
+      : voxelize([propPart(prop)], { voxel: 1 / PROP_DENSITY });
+    return renderSprite(grid, {
       scale: 1,
       shadow: false,
       glow: lit ? WARM : null,
       palette: lit ? undefined : PROP_PALETTE,
-    }),
-  );
+    });
+  });
 }
 
 /**
