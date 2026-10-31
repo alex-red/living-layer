@@ -1129,7 +1129,7 @@ describe('scanning live, with a mocked Meta API', () => {
     });
     expect(s.prompts).toEqual([]);
   });
-  it('serves a drafted room’s photo at its pin’s size, and nothing for a preset', async () => {
+  it('serves a drafted room’s photo at its pin’s size, nothing for a preset, and refuses another camera’s shape', async () => {
     const s = await live();
     await pin(s);
     expect((await s.app.inject('/api/scene/photo?mode=live')).statusCode).toBe(404);
@@ -1139,7 +1139,7 @@ describe('scanning live, with a mocked Meta API', () => {
     mkdirSync(dir, { recursive: true });
     writeFileSync(
       join(dir, 'source.png'),
-      await sharp(readFileSync('apps/web/public/desk.svg')).resize(640, 480).png().toBuffer(),
+      await sharp(readFileSync('apps/web/public/desk.svg')).resize(480, 320).png().toBuffer(),
     );
     const desk = placeTemplate('desk', 'desk', 1, 1);
     await s.post('desk/restore', {
@@ -1155,6 +1155,14 @@ describe('scanning live, with a mocked Meta API', () => {
     expect(res.statusCode).toBe(200);
     const size = await sharp(res.rawPayload).metadata();
     expect([size.width, size.height]).toEqual([960, 640]);
+    // A 4:3 photo from a phone is not the pinned camera's 3:2 view: it isn't stretched to pass for it.
+    writeFileSync(
+      join(dir, 'source.png'),
+      await sharp(readFileSync('apps/web/public/desk.svg')).resize(640, 480).png().toBuffer(),
+    );
+    const other = await s.app.inject('/api/scene/photo?mode=live');
+    expect(other.statusCode).toBe(409);
+    expect(other.json<{ error: { code: string } }>().error.code).toBe('photo_shape');
   });
   it('needs a pin, and refuses before any call past today’s limit', async () => {
     const s = await live();

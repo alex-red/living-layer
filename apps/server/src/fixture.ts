@@ -1043,6 +1043,15 @@ export function fixtureRoutes(
     if (!bytes || !memory.surface)
       throw new LabError('photo_missing', 'This room has no photo of its own kept.', 404);
     const { width, height } = memory.surface.frame;
+    // A photo of another shape is from another camera: stretched, its desk would
+    // pass for the pinned camera's, and the pin would be dragged onto the wrong view.
+    const size = await sharp(bytes).metadata();
+    if (Math.abs(size.width! / size.height! - width / height) > 0.02 * (width / height))
+      throw new LabError(
+        'photo_shape',
+        `The room’s photo is ${size.width}×${size.height}, and the pin was set on ${width}×${height} frames from another camera. Start that camera to check the pin on what it shows.`,
+        409,
+      );
     const png = await sharp(bytes).resize(width, height, { fit: 'fill' }).png().toBuffer();
     return reply.type('image/png').header('cache-control', 'no-cache').send(png);
   });

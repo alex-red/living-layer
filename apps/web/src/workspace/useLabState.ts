@@ -784,11 +784,14 @@ export function useLabState() {
         : 'Add a desk photo. It stays local until you explicitly run a live probe.',
     );
   }
-  function captureCanvas(source: CanvasImageSource, width: number, height: number) {
+  /** The size a frame is prepared at: no side over 1280. */
+  function frameSize(width: number, height: number) {
     const scale = Math.min(1, 1280 / Math.max(width, height));
+    return { width: Math.round(width * scale), height: Math.round(height * scale) };
+  }
+  function captureCanvas(source: CanvasImageSource, width: number, height: number) {
     const canvas = document.createElement('canvas');
-    canvas.width = Math.round(width * scale);
-    canvas.height = Math.round(height * scale);
+    Object.assign(canvas, frameSize(width, height));
     const context = canvas.getContext('2d');
     if (!context) throw new Error('This browser cannot prepare the image.');
     context.drawImage(source, 0, 0, canvas.width, canvas.height);
@@ -1996,10 +1999,15 @@ export function useLabState() {
       )?.label ?? 'surface'
     ).toLowerCase();
     setError('');
-    // The corners are dragged on a still photo, not the live camera.
+    // The corners are dragged on a still photo, not the live camera: what it shows
+    // now, which is the pinned camera's frame when it is the pin's size.
+    let size = image ? dimensions : null;
+    if (camera && video.current?.videoWidth) {
+      frameNow();
+      size = frameSize(video.current.videoWidth, video.current.videoHeight);
+    }
     if (camera) stopCamera();
-    const fits =
-      image && dimensions.width === pin.frame.width && dimensions.height === pin.frame.height;
+    const fits = size && size.width === pin.frame.width && size.height === pin.frame.height;
     if (!fits) {
       if (pin.scene !== 'custom') {
         setError(
@@ -2009,7 +2017,11 @@ export function useLabState() {
       }
       try {
         const res = await fetch(`/api/scene/photo?mode=${mode}`);
-        if (!res.ok) throw new Error('This room has no photo of its own kept.');
+        if (!res.ok)
+          throw new Error(
+            (await res.json().catch(() => null))?.error?.message ??
+              'This room has no photo of its own kept.',
+          );
         const bitmap = await createImageBitmap(await res.blob());
         try {
           captureCanvas(bitmap, bitmap.width, bitmap.height);
