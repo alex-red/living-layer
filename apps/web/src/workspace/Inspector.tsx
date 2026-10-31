@@ -580,7 +580,7 @@ function AddPanel({
 }) {
   const lab = useLab();
   const { mode, image, camera, canVision, busy, status, concept, scene } = lab;
-  const needPhoto = mode === 'live' && !image;
+  const needPhoto = mode === 'live' && !image && !camera;
   return (
     <Panel
       tiny={preset ? 'SUGGESTED BY SPARK' : 'ADD AN OBJECT'}
@@ -589,15 +589,17 @@ function AddPanel({
         preset
           ? `${preset.appearance}. Find its outline, then confirm it.`
           : needPhoto
-            ? 'Add a photo of the desk first: upload one or capture a camera frame.'
-            : 'Name what to look for. SAM outlines every match in this frame.'
+            ? 'Add a photo of the desk first: start the camera, or upload one.'
+            : camera
+              ? 'Name what to look for. SAM outlines every match in what the camera shows now.'
+              : 'Name what to look for. SAM outlines every match in this frame.'
       }
       tone={needPhoto ? 'unsure' : 'seen'}
     >
       {preset ? (
         <button
           className="primary"
-          disabled={!canVision || camera}
+          disabled={!canVision}
           onClick={() => {
             lab.setConcept(preset.category);
             void lab.execute('segment', preset.category);
@@ -618,15 +620,14 @@ function AddPanel({
               maxLength={80}
               onChange={(e) => lab.setConcept(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === 'Enter' && canVision && concept.trim() && !camera)
-                  void lab.execute('segment');
+                if (e.key === 'Enter' && canVision && concept.trim()) void lab.execute('segment');
               }}
             />
             <span>↵ TO RUN</span>
           </div>
           <button
             className="primary"
-            disabled={!canVision || !concept.trim() || camera}
+            disabled={!canVision || !concept.trim()}
             onClick={() => void lab.execute('segment')}
           >
             {busy === 'segment' ? 'Decoding…' : 'Segment object'}
@@ -643,7 +644,7 @@ function AddPanel({
           </p>
           <button
             className="secondary"
-            disabled={!canVision || camera}
+            disabled={!canVision}
             onClick={() => void lab.execute('discover')}
           >
             {busy === 'discover' ? 'Discovering…' : 'Discover objects'}
@@ -679,7 +680,7 @@ function AddPanel({
         </p>
         <button
           className="text-button"
-          disabled={!canVision || camera}
+          disabled={!canVision}
           onClick={() => void lab.execute('segment', 'unicorn')}
         >
           Test absent target <span>↗</span>
@@ -869,7 +870,7 @@ function MugPanel() {
 
 function OtherPanel({ id }: { id: string }) {
   const lab = useLab();
-  const { memory, segmentation, segmentRunId, canVision, camera, now } = lab;
+  const { memory, segmentation, segmentRunId, canVision, now } = lab;
   const { call, off } = useCall();
   const o = memory?.others?.find((x) => x.id === id);
   if (!o) return <SetupPanel />;
@@ -906,7 +907,7 @@ function OtherPanel({ id }: { id: string }) {
       ) : (
         <button
           className="primary"
-          disabled={!canVision || camera}
+          disabled={!canVision}
           onClick={() => void lab.execute('segment', o.concept)}
         >
           Find it in this frame

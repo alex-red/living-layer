@@ -978,12 +978,14 @@ export function useLabState() {
     return cost === null ? '' : ` · ≈ ${usd(cost)}`;
   }
   async function execute(kind: 'text' | 'discover' | 'segment' | 'lamp', overrideConcept?: string) {
+    // A running camera is looked at as it is now, not as it was last captured.
+    const photo = ['discover', 'segment'].includes(kind) ? frameNow() : undefined;
     setBusy(kind);
     setError('');
     try {
       const run = await api<EvidenceRun>(kind, {
         mode,
-        ...(['discover', 'segment'].includes(kind) && image ? { imageDataUrl: image } : {}),
+        ...(photo ? { imageDataUrl: photo } : {}),
         ...(kind === 'segment' ? { concept: overrideConcept ?? concept } : {}),
         ...(kind === 'segment' && mode === 'demo' ? { demoPosition } : {}),
       });
@@ -1421,7 +1423,7 @@ export function useLabState() {
     }
   }
   const canVision =
-    Boolean(workScene) && !busy && (mode === 'demo' || (metaReady && Boolean(image)));
+    Boolean(workScene) && !busy && (mode === 'demo' || (metaReady && (Boolean(image) || camera)));
   const canTrack =
     Boolean(workScene) &&
     !busy &&
