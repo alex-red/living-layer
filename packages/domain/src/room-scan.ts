@@ -156,6 +156,78 @@ function nearPoints(camera: RoomCamera, mask: Bits, z: number) {
 const quantile = (vs: number[], q: number) =>
   [...vs].sort((a, b) => a - b)[Math.min(vs.length - 1, Math.floor(q * vs.length))]!;
 
+/** A thing's place before it is built: its corner nearest the origin, size once turned, and turn. */
+interface Plan {
+  t: PlacedThing;
+  template: TemplateId | null;
+  x: number;
+  y: number;
+  top: number;
+  turns: number;
+  turned: { w: number; d: number; h?: number };
+  /** How small it may shrink, for a surface whose size is an estimate; null when it can't. */
+  least: { w: number; d: number } | null;
+  /** How tall it stands. */
+  h: number;
+  /** Already built: others move out of its way, it doesn't. */
+  fixed?: boolean;
+}
+/** Under a desk or table: a chair, or a cabinet no taller than its top (drawers). */
+const tucked = (a: Plan, b: Plan) =>
+  (a.template === 'desk' || a.template === 'table') &&
+  (b.template === 'chair' || b.h <= a.h + 0.05);
+/**
+ * Pull overlapping floor pieces apart, each pair by the cheapest fix: a desk,
+ * table or shelf gives up the side facing the other (its size is only an
+ * estimate), or the other moves away, within the walls. Pieces that can do
+ * neither stay as they are. Moving costs more than shrinking: the side a
+ * piece shows the camera was seen, while its far side was only estimated.
+ */
+/** Shrinking a piece by all of one side costs as much as moving one a tile. */
+const SHRINK_COST = 2;
+const MOVE_COST = 2;
+function apart(plans: Plan[], walls: { x0: number; y0: number; x1: number; y1: number }) {
+  /** Ways to clear a of b: a shrinks away from b, or b moves out of a. */
+  const fixesFor = (a: Plan, b: Plan, ox: number, oy: number) => {
+    const fixes: { cost: number; apply: () => void }[] = [];
+    for (const axis of ['x', 'y'] as const) {
+      const side = axis === 'x' ? 'w' : 'd';
+      const overlap = axis === 'x' ? ox : oy;
+      const least = a.least?.[side];
+      if (!a.fixed && least !== undefined && a.turned[side] - overlap >= least) {
+        const bFirst = b[axis] + b.turned[side] / 2 < a[axis] + a.turned[side] / 2;
+        fixes.push({
+          // A share of that side: a long desk gives up length before depth.
+          cost: (overlap / a.turned[side]) * SHRINK_COST,
+          apply: () => {
+            a.turned[side] -= overlap;
+            if (bFirst) a[axis] += overlap;
+          },
+        });
+      }
+      const lo = axis === 'x' ? walls.x0 : walls.y0;
+      const hi = axis === 'x' ? walls.x1 : walls.y1;
+      for (const to of [a[axis] - b.turned[side], a[axis] + a.turned[side]])
+        if (!b.fixed && to >= lo - 1e-6 && to + b.turned[side] <= hi + 1e-6)
+          fixes.push({ cost: Math.abs(to - b[axis]) * MOVE_COST, apply: () => (b[axis] = to) });
+    }
+    return fixes;
+  };
+  for (let pass = 0; pass < 3; pass++)
+    plans.forEach((a, i) =>
+      plans.slice(i + 1).forEach((b) => {
+        if (tucked(a, b) || tucked(b, a)) return;
+        const ox = Math.min(a.x + a.turned.w, b.x + b.turned.w) - Math.max(a.x, b.x);
+        const oy = Math.min(a.y + a.turned.d, b.y + b.turned.d) - Math.max(a.y, b.y);
+        if (ox <= 0.02 || oy <= 0.02) return;
+        // Either way round, whichever is cheapest.
+        [...fixesFor(a, b, ox, oy), ...fixesFor(b, a, ox, oy)]
+          .sort((p, q) => p.cost - q.cost)[0]
+          ?.apply();
+      }),
+    );
+}
+
 export function layoutRoom(input: RoomLayoutInput): PhotoLayout {
   const { inventory, segmentation, calibration } = input;
   const camera = calibration.camera;
@@ -202,21 +274,16 @@ export function layoutRoom(input: RoomLayoutInput): PhotoLayout {
   };
   // The walls' inner faces: the back and left walls are 0.2 thick, the others the room's edge.
   const walls = { x0: 0.2, y0: 0.2, x1: room.w, y1: room.d };
-  // Surfaces first, then the rest of the floor, then what stands on them.
-  const rank = (t: PlacedThing) => (t.role === 'surface' ? 0 : t.role === 'furniture' ? 1 : 2);
-  const order = [...live].sort((a, b) => rank(a) - rank(b));
   const groups = new Map<string, { g: string; turns: number; x: number; y: number }>();
-  for (const t of order) {
+  /** Where a thing goes and how big it is, before anything is built; null when it can't be placed. */
+  const plan = (t: PlacedThing): Plan | null => {
     const below = t.on && t.on !== 'floor' ? groups.get(t.on) : undefined;
     const own = new Set(scene.props.filter((p) => p.group === below?.g).map((p) => p.id));
     const tops = scene.surfaces.filter((x) => own.has(x.propId));
     const surface = tops.sort((a, b) => b.z - a.z)[0];
     const top = surface?.z ?? 0;
     const points = nearPoints(camera, masks.get(t.id)!, top);
-    if (!points.length) {
-      t.status = 'unplaced';
-      continue;
-    }
+    if (!points.length) return null;
     const template = isTemplate(t.as) ? t.as : null;
     // Its own size, before turning: the template's, or Spark's for what comes in many sizes.
     const sized = (v: number, of: number) => Math.min(of * 1.6, Math.max(of * 0.6, v));
@@ -344,10 +411,25 @@ export function layoutRoom(input: RoomLayoutInput): PhotoLayout {
     }
     x = Math.min(Math.max(x, area.x0), Math.max(area.x0, area.x1 - turned.w));
     y = Math.min(Math.max(y, area.y0), Math.max(area.y0, area.y1 - turned.d));
-    if (x + turned.w < -0.5 || y + turned.d < -0.5 || x > room.w + 0.5 || y > room.d + 0.5) {
-      t.status = 'unplaced';
-      continue;
-    }
+    if (x + turned.w < -0.5 || y + turned.d < -0.5 || x > room.w + 0.5 || y > room.d + 0.5)
+      return null;
+    const least = { w: base.w * 0.6, d: base.d * 0.6 };
+    return {
+      t,
+      template,
+      x,
+      y,
+      top,
+      turns,
+      turned,
+      // A desk, table or shelf can give a little of its estimated size; nothing else can.
+      least:
+        !template || !SIZED.has(template) ? null : turns % 2 ? { w: least.d, d: least.w } : least,
+      h: turned.h ?? (template ? usualHeight(template) : cm(t.sizeCm.h)),
+    };
+  };
+  /** Stand a planned thing in the room: a template's props, or a model's box. */
+  const build = ({ t, template, x, y, top, turns, turned }: Plan) => {
     if (!template) {
       // Not in the catalogue: a model of Spark's size, standing there.
       t.status = 'object';
@@ -356,7 +438,7 @@ export function layoutRoom(input: RoomLayoutInput): PhotoLayout {
         at: { x, y, z: top },
         size: { w: turned.w, d: turned.d, h: cm(t.sizeCm.h) },
       };
-      continue;
+      return;
     }
     const g = freshGroupId(scene, template);
     const built = standing(template, g, x + turned.w / 2, y + turned.d / 2, top, turns, turned);
@@ -371,7 +453,33 @@ export function layoutRoom(input: RoomLayoutInput): PhotoLayout {
     if (top > 0) scene = settleGroup(scene, g);
     groups.set(t.id, { g, turns, x: x + turned.w / 2, y: y + turned.d / 2 });
     t.group = g;
-  }
+  };
+  const place = (t: PlacedThing, planned = plan(t)) => {
+    if (planned) build(planned);
+    else t.status = 'unplaced';
+  };
+  // The floor's furniture first, all of it planned before any is built, so two pieces
+  // never stand in each other (a box drawn inside another can't be put in order).
+  // Chairs come after, as they tuck under desks; then what stands on things.
+  const onFloor = (t: PlacedThing) => !t.on || t.on === 'floor';
+  const free = (t: PlacedThing) => t.as === 'chair' || t.as === 'rug';
+  const rank = (t: PlacedThing) => (t.role === 'surface' ? 0 : t.role === 'furniture' ? 1 : 2);
+  const order = [...live].sort((a, b) => rank(a) - rank(b));
+  const floor = order.filter((t) => onFloor(t) && !free(t));
+  const plans = floor.map((t) => ({ t, planned: plan(t) }));
+  apart(
+    plans.flatMap((x) => (x.planned ? [x.planned] : [])),
+    walls,
+  );
+  for (const { t, planned } of plans) place(t, planned);
+  // Chairs face the desks just built, and step out of anything else's way.
+  const built = plans.flatMap((x) => (x.planned ? [{ ...x.planned, fixed: true }] : []));
+  const chairs = order
+    .filter((t) => onFloor(t) && t.as === 'chair')
+    .map((t) => ({ t, planned: plan(t) }));
+  apart([...built, ...chairs.flatMap((x) => (x.planned ? [x.planned] : []))], walls);
+  for (const { t, planned } of chairs) place(t, planned);
+  for (const t of order) if (!floor.includes(t) && !chairs.some((c) => c.t === t)) place(t);
 
   // The biggest surface's top, as the camera sees it: the pin it implies.
   const main = things

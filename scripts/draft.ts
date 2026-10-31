@@ -16,7 +16,7 @@ import { resolve } from 'node:path';
 import { draftModel, layoutRoom, type PhotoDraft } from '@livinglayer/domain';
 import { flag, has, parseArgs } from './lib/args.js';
 import { openEvidence } from './lib/evidence.js';
-import { layoutOverlay } from './lib/overlay.js';
+import { isoPicture, layoutOverlay } from './lib/overlay.js';
 import { placementTable, placements } from './lib/placements.js';
 import { captureRoom, layoutInput } from './lib/rooms.js';
 
@@ -51,6 +51,7 @@ const stored = placements(draft.layout);
 const from = (id: string) => draft.modelFrom?.[id];
 const shown = async (layout: PhotoDraft['layout'], file: string) => {
   writeFileSync(file, await layoutOverlay(layout, camera, frame));
+  writeFileSync(file.replace(/\.png$/, '-iso.png'), await isoPicture(layout));
   return file;
 };
 

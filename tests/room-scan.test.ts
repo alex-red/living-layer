@@ -21,6 +21,9 @@ import {
   layoutRoom,
   marksOf,
   roomCase,
+  placeTemplate,
+  cornerCamera,
+  type IsoScene,
   type RoomCalibration,
 } from '@livinglayer/domain';
 import { demoPhotoInventory, demoPhotoSegmentation } from '../apps/server/src/demo.js';
@@ -46,6 +49,51 @@ describe('laying out a room from its calibrated camera', () => {
       expect(j.wrongTurns).toBe(0);
     });
 
+  it('stops a desk Spark guessed long at the bookcase beside it, and leaves the bookcase', () => {
+    // A bookcase in the back corner, a 120 cm desk to its right along the back wall.
+    let scene: IsoScene = {
+      kind: 'custom',
+      label: 'Study',
+      grid: { w: 12, d: 9 },
+      props: [],
+      surfaces: [],
+    };
+    for (const [id, g, x, y] of [
+      ['wall', 'wall-back', 0, 0],
+      ['shelf', 'shelf', 0.4, 0.2],
+      ['desk', 'desk', 3.6, 0.2],
+    ] as const) {
+      const built = placeTemplate(id, g, x, y, 0);
+      scene = {
+        ...scene,
+        props: [...scene.props, ...built.props],
+        surfaces: [...scene.surfaces, ...built.surfaces],
+      };
+    }
+    const truth = cornerCamera(scene.grid);
+    // Guessed at 230 cm, it would reach back into the bookcase.
+    const s = roomCase(scene, truth, { desk: { w: 230 } });
+    const marks = marksOf(truth);
+    const fit = cameraFromMarks(marks, truth.frame, truth.room);
+    const layout = layoutRoom({
+      ...s,
+      calibration: {
+        camera: fit.camera,
+        marks,
+        scene: 'custom',
+        error: fit.error,
+        calibratedAt: '',
+      },
+    });
+    const box = (id: string) =>
+      groupBounds(layout.scene, layout.things.find((t) => t.id === id)!.group!)!;
+    const desk = box('desk');
+    const shelf = box('shelf');
+    expect(desk.at.x).toBeGreaterThanOrEqual(shelf.at.x + shelf.size.w - 0.02);
+    expect(Math.abs(shelf.at.x - 0.4)).toBeLessThan(0.15);
+    // Its near end, which the camera sees, stays where it is.
+    expect(Math.abs(desk.at.x + desk.size.w - (3.6 + 4))).toBeLessThan(0.15);
+  });
   it('builds a bookcase as tall as Spark says, with its top up there', () => {
     const c = ROOM_CASES[0]!;
     const scene = c.scene();

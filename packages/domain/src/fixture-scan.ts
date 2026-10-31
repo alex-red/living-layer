@@ -272,13 +272,15 @@ const OWN_MODEL = new Set<Archetype>([
   'lamp',
   'device',
 ]);
+/** A thing nothing models yet is a grey glass box: plainly a stand-in, and what's behind it shows. */
+const CUBE = { color: '#9aa0a8', material: 'glass' } as const;
 /** Where a drafted thing's model came from. */
 export type DraftModelSource = 'library' | 'catalog' | 'cube';
 /**
  * The model a thing drafted from a photo is drawn with until someone models
  * it properly: a fixture saved with the same name, else its shape's own model
- * from the catalogue, else a cube; in its colour, scaled to its size where it
- * stands. Nothing is fitted to its outline.
+ * from the catalogue in its colour, else a grey glass cube; scaled to its size
+ * where it stands. Nothing is fitted to its outline.
  */
 export function draftModel(
   thing: {
@@ -310,7 +312,7 @@ export function draftModel(
         item: placeholderModel(thing.label, archetype, thing.color, thing.material),
         source: 'catalog',
       }
-    : { item: placeholderModel(thing.label, 'box', thing.color, thing.material), source: 'cube' };
+    : { item: placeholderModel(thing.label, 'box', CUBE.color, CUBE.material), source: 'cube' };
 }
 
 const inside = (poly: Point[], p: Point) => {

@@ -6,7 +6,7 @@
  * catches a change that moves real rooms, and the overlay shows whether the
  * move is better. Rooms are local only; with none captured it says how.
  *
- *   bun run bench:rooms                  → out/rooms-<name>.png for each room
+ *   bun run bench:rooms                  → out/rooms-<name>.png (over the frame) and -iso.png
  *   bun run bench:rooms --accept         keep this tree's layouts as expected
  *   bun run bench:rooms --accept office  only that room
  */
@@ -15,7 +15,7 @@ import { resolve } from 'node:path';
 import { flag, has, parseArgs } from './lib/args.js';
 import { report, type Row } from './lib/bench.js';
 import { roomsDir } from './lib/evidence.js';
-import { layoutOverlay } from './lib/overlay.js';
+import { isoPicture, layoutOverlay } from './lib/overlay.js';
 import { compare, placementTable, placements } from './lib/placements.js';
 import { acceptRoom, capturedRooms, expectedOf, layOut, roomFrame } from './lib/rooms.js';
 
@@ -83,6 +83,7 @@ for (const room of rooms) {
   });
   const file = resolve(out, `rooms-${room.name}.png`);
   writeFileSync(file, await layoutOverlay(layout, room.input.calibration.camera, roomFrame(room)));
+  writeFileSync(resolve(out, `rooms-${room.name}-iso.png`), await isoPicture(layout));
   if (
     changes.some(
       (c) => c.moved > TOLERANCE || c.resized > TOLERANCE || c.turned || c.status || c.only,

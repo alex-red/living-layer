@@ -7,15 +7,18 @@
  */
 import sharp from 'sharp';
 import {
+  depthOrder,
   floorSolid,
   projectRoom,
   renderRoom,
   sceneSolids,
   type IsoBox,
+  type IsoProp,
   type IsoScene,
   type RoomCamera,
   type RoomMarks,
 } from '@livinglayer/domain';
+import { drawProps } from './draw.js';
 
 export interface Overlay {
   camera: RoomCamera;
@@ -140,3 +143,36 @@ export const layoutOverlay = (
     scene: layout.scene,
     boxes: layout.things.flatMap((t) => (t.foot ? [{ label: t.id, box: t.foot }] : [])),
   });
+
+/**
+ * The layout in the iso view, drawn as the scene editor orders it, with each
+ * thing drawn as a model shown as a plain box: to see draw order and where
+ * things stand without the app.
+ */
+export async function isoPicture(layout: {
+  scene: IsoScene;
+  things: { id: string; foot?: IsoBox }[];
+}) {
+  const boxes: IsoProp[] = layout.things.flatMap((t) =>
+    t.foot
+      ? [
+          {
+            id: `box:${t.id}`,
+            group: `box:${t.id}`,
+            label: t.id,
+            shape: 'prism' as const,
+            at: t.foot.at,
+            size: t.foot.size,
+            tone: 'paper' as const,
+          },
+        ]
+      : [],
+  );
+  const picture = drawProps(depthOrder([...layout.scene.props, ...boxes]));
+  return sharp(Buffer.from(picture.rgba), {
+    raw: { width: picture.width, height: picture.height, channels: 4 },
+  })
+    .flatten({ background: '#14161c' })
+    .png()
+    .toBuffer();
+}
