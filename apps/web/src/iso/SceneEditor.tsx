@@ -10,6 +10,7 @@ import {
   removeGroup,
   rotateGroup,
   rotateScene,
+  resizeRoom,
   settleGroup,
   type EvidenceRun,
   type IsoScene as Scene,
@@ -409,7 +410,12 @@ export function SceneEditor({
             return (
               <>
                 <div className="scene-pop-row">
-                  <span className="tiny">SIZE</span>
+                  <span
+                    className="tiny"
+                    title="The room's size, walls included. Saving fits the room's camera to it again, from the corner you marked."
+                  >
+                    SIZE
+                  </span>
                   {(['w', 'd'] as const).map((k, i) => (
                     <span key={k} className="scene-size">
                       {i > 0 && <span aria-hidden="true">×</span>}
@@ -420,7 +426,7 @@ export function SceneEditor({
                         disabled={busy || drafting}
                         aria-label={`Grid ${k === 'w' ? 'width' : 'depth'} in tiles`}
                         onChange={(v) =>
-                          edit((d) => ({ ...d, grid: { ...d.grid, [k]: v } }), `grid.${k}`)
+                          edit((d) => resizeRoom(d, { ...d.grid, [k]: v }), `grid.${k}`)
                         }
                       />
                     </span>

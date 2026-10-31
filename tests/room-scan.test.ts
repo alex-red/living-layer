@@ -23,6 +23,7 @@ import {
   roomCase,
   placeTemplate,
   cornerCamera,
+  resizeRoom,
   type IsoScene,
   type RoomCalibration,
 } from '@livinglayer/domain';
@@ -216,6 +217,32 @@ describe('calibrating the room camera', () => {
     const forgotten = (await s.post('room/forget')).json<DeskMemory>();
     expect(forgotten.camera).toBeNull();
     expect(s.fetcher).not.toHaveBeenCalled();
+    await s.app.close();
+  });
+  it('fits the camera again, from the same marks, when the room is saved another size', async () => {
+    const s = await setup();
+    const office: IsoScene = { ...ISO_PRESETS.office, kind: 'custom' };
+    expect((await s.post('scene/save', { scene: office })).statusCode).toBe(200);
+    const { marks } = (await s.post('room/floor')).json<FloorMarks>();
+    const saved = await s.post('room/calibrate', {
+      marks,
+      room: { w: 294, d: 234 },
+      scene: 'custom',
+    });
+    expect(saved.statusCode, saved.body).toBe(200);
+    const before = saved.json<{ memory: DeskMemory }>().memory.camera!;
+    const bigger = resizeRoom(office, { w: 12, d: 9 });
+    const res = await s.post('scene/save', { scene: bigger });
+    expect(res.statusCode, res.body).toBe(200);
+    const after = res.json<DeskMemory>().camera!;
+    expect(after.marks).toEqual(before.marks);
+    expect(after.calibratedAt).not.toBe(before.calibratedAt);
+    expect(after.camera.room).toMatchObject({ w: 12, d: 9 });
+    // The marks no longer fit a room of that shape as well.
+    expect(after.error).toBeGreaterThan(before.error);
+    // Saved the same size again, the camera stays.
+    const again = (await s.post('scene/save', { scene: bigger })).json<DeskMemory>().camera!;
+    expect(again.calibratedAt).toBe(after.calibratedAt);
     await s.app.close();
   });
 });

@@ -62,6 +62,7 @@ import { LabError, parseInput, safeError } from './errors.js';
 import { keepLocked, rescore } from './item.js';
 import type { PhotoDraft } from './photo.js';
 import { noteControl } from './fixture.js';
+import { refitToScene } from './room.js';
 
 /** A zone drawn in the room must name a surface the room has. */
 function checkOnSurface(memory: DeskMemory, onSurface: ZoneOnSurface | undefined) {
@@ -761,14 +762,16 @@ export function deskRoutes(
       request.body,
     );
     available(mode);
-    const memory = store.memory(mode);
+    let memory = store.memory(mode);
     const before = memory.scene ?? null;
     memory.scene = scene as IsoScene | null;
+    // A room made another size takes its camera with it: fitted again to the same marks.
+    memory = refitToScene(memory, before);
     // What stands on a desk that was turned or moved goes with it, then settles into the scene.
     if (memory.fixtures)
       memory.fixtures = settleFixtures(
-        followSurfaces(memory.fixtures, before, memory.scene),
-        memory.scene,
+        followSurfaces(memory.fixtures, before, memory.scene ?? null),
+        memory.scene ?? null,
       );
     if (
       memory.surface?.scene === 'custom' &&

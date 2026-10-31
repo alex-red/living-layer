@@ -461,6 +461,36 @@ export function rotateGroup(scene: IsoScene, g: string): IsoScene {
 /** The room's own walls, which stay on its back and left whichever way it is turned. */
 const PERIMETER = ['wall-back', 'wall-left'];
 /**
+ * Make the room another size: its grid, with the back and left walls
+ * stretched to it. Everything else stays where it stands, moved in only as
+ * far as it must to stay inside the room (with what stands on it).
+ */
+export function resizeRoom(scene: IsoScene, grid: { w: number; d: number }): IsoScene {
+  const own = (g: string) => scene.props.some((p) => p.group === g);
+  const back = own('wall-back') ? (groupBounds(scene, 'wall-back')?.size.d ?? 0) : 0;
+  let next: IsoScene = {
+    ...scene,
+    grid,
+    props: scene.props.map((p) =>
+      p.group === 'wall-back'
+        ? { ...p, size: { ...p.size, w: grid.w } }
+        : p.group === 'wall-left'
+          ? { ...p, size: { ...p.size, d: grid.d - back } }
+          : p,
+    ),
+  };
+  for (const g of groupIds(next)) {
+    if (PERIMETER.includes(g)) continue;
+    const b = groupBounds(next, g);
+    if (!b || b.at.z > 0) continue;
+    const dx = Math.min(0, grid.w - (b.at.x + b.size.w));
+    const dy = Math.min(0, grid.d - (b.at.y + b.size.d));
+    if (dx || dy) next = moveGroup(next, g, Math.max(dx, -b.at.x), Math.max(dy, -b.at.y));
+  }
+  return next;
+}
+
+/**
  * Turn the whole room a quarter clockwise (seen from above), about its floor
  * inside the walls, so it can be made to face the way its camera sees it.
  * Everything in it turns, its grid's sides swap, and the back and left walls

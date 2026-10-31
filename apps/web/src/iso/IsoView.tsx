@@ -458,9 +458,14 @@ export function IsoView({
                       : (next.surfaces[0]?.id ?? ''),
                   );
                 }
+                // A room made another size had its camera fitted again: say how well.
+                const refit =
+                  m.camera && m.camera.calibratedAt !== memory?.camera?.calibratedAt
+                    ? ` The room's camera now fits your corner marks to ${m.camera.error.toFixed(1)} px${m.camera.error > Math.hypot(m.camera.camera.frame.width, m.camera.camera.frame.height) / 60 ? ': too far off, so check the size or mark the corner again' : ''}.`
+                    : '';
                 onMessage(
                   next
-                    ? 'Scene saved. Pin one of its surfaces to place objects in it.'
+                    ? `Scene saved.${refit || ' Pin one of its surfaces to place objects in it.'}`
                     : 'Custom scene removed.',
                 );
               })

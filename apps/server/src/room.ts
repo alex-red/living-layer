@@ -16,6 +16,8 @@ import {
   marksFromWalls,
   modeSchema,
   pinOf,
+  ISO_TILE_CM,
+  type IsoScene,
   roomMarksSchema,
   type CameraCrop,
   type DeskMemory,
@@ -166,6 +168,50 @@ export async function calibrateRoom(store: EvidenceStore, input: CalibrateInput)
     memory: store.memory(input.mode),
     fit: { error: fit.error, heightCm: fit.heightCm, hfovDeg: Math.round(fit.hfovDeg) },
   };
+}
+
+/**
+ * The room's scene changed size: its calibrated camera is fitted again to the
+ * same marks at the new size (the marks pin the room's shape, the scene its
+ * size), and the desk is pinned through it again. Unchanged otherwise.
+ */
+export function refitToScene(memory: DeskMemory, before: IsoScene | null): DeskMemory {
+  const calibration = memory.camera;
+  const scene = memory.scene;
+  if (!calibration || calibration.scene !== 'custom' || !scene || !before) return memory;
+  if (scene.grid.w === before.grid.w && scene.grid.d === before.grid.d) return memory;
+  const wall = (g: string) => scene.props.find((p) => p.group === g);
+  const inner = {
+    w: (scene.grid.w - (wall('wall-left')?.size.w ?? 0)) * ISO_TILE_CM,
+    d: (scene.grid.d - (wall('wall-back')?.size.d ?? 0)) * ISO_TILE_CM,
+  };
+  const { frame } = calibration.camera;
+  const fit = fitRoom(
+    {
+      mode: memory.mode,
+      marks: calibration.marks,
+      room: inner,
+      scene: 'custom',
+      crop: calibration.crop ?? null,
+    },
+    frame,
+    memory,
+  );
+  const next: DeskMemory = {
+    ...memory,
+    camera: {
+      ...calibration,
+      camera: fit.camera,
+      error: fit.error,
+      calibratedAt: new Date().toISOString(),
+    },
+  };
+  const pinned =
+    memory.surface?.scene === 'custom' &&
+    scene.surfaces.find((s) => s.id === memory.surface!.surfaceId);
+  const pin = pinned ? pinOf(fit.camera, pinned, frame) : null;
+  if (pin) next.surface = { ...pin, scene: 'custom' };
+  return next;
 }
 
 /** The camera behind the marks, in the scene's own tiles, walls and all. */

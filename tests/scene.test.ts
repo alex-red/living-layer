@@ -20,6 +20,7 @@ import {
   overlappingGroups,
   placeTemplate,
   removeGroup,
+  resizeRoom,
   rotateGroup,
   rotateScene,
   ridersOf,
@@ -154,6 +155,29 @@ describe('scene templates', () => {
       expect(p.size.w).toBeCloseTo(q.size.w);
       expect(p.turns ?? 0).toBe(q.turns ?? 0);
     });
+  });
+  it('resizes the room, its walls stretched and the furniture kept inside', () => {
+    const office = asCustom(ISO_PRESETS.office);
+    const small = resizeRoom(office, { w: 6, d: 6 });
+    expect(small.grid).toEqual({ w: 6, d: 6 });
+    expect(isoSceneSchema.safeParse(small).success).toBe(true);
+    expect(groupBounds(small, 'wall-back')!.size.w).toBe(6);
+    expect(groupBounds(small, 'wall-left')!.size.d).toBeCloseTo(5.8);
+    for (const g of ['desk', 'shelf', 'plant']) {
+      const b = groupBounds(small, g)!;
+      expect(b.at.x + b.size.w).toBeLessThanOrEqual(6 + 1e-9);
+      expect(b.at.y + b.size.d).toBeLessThanOrEqual(6 + 1e-9);
+    }
+    // The desk moved back in, and what stands on it went along.
+    const shift = groupBounds(small, 'desk')!.at.x - groupBounds(office, 'desk')!.at.x;
+    expect(shift).toBeLessThan(0);
+    for (const g of ridersOf(office, 'desk'))
+      expect(groupBounds(small, g)!.at.x - groupBounds(office, g)!.at.x).toBeCloseTo(shift);
+    // Made bigger, nothing moves.
+    const big = resizeRoom(office, { w: 14, d: 10 });
+    expect(groupBounds(big, 'wall-back')!.size.w).toBe(14);
+    expect(groupBounds(big, 'desk')).toEqual(groupBounds(office, 'desk'));
+    expect(groupBounds(big, 'shelf')).toEqual(groupBounds(office, 'shelf'));
   });
   it('settles tabletop things onto the surface under them, and back to the floor', () => {
     let scene = deskWithBook();
