@@ -19,7 +19,7 @@ import {
   type TemplateId,
   type DeskMemory,
 } from '@livinglayer/domain';
-import { api } from '../api';
+import { api, type AiFollow } from '../api';
 import { IsoScene } from './IsoScene';
 import { PhotoReview, type PhotoRun } from './PhotoReview';
 
@@ -59,6 +59,7 @@ export function SceneEditor({
   onUpload,
   onPhotoSaved,
   onError,
+  follow,
 }: {
   mode: Mode;
   /** The person's saved scene, if any. */
@@ -75,6 +76,8 @@ export function SceneEditor({
   onUpload?: (file: File) => Promise<string | undefined>;
   onPhotoSaved: (memory: DeskMemory) => void;
   onError: (error: string | Error) => void;
+  /** Follow a photo draft step by step in the AI dialog. */
+  follow?: AiFollow;
 }) {
   const [draft, setDraft] = useState<Scene>(saved ?? asCustom(base));
   const [selected, setSelected] = useState<string>();
@@ -103,11 +106,20 @@ export function SceneEditor({
     if (mode === 'live' && !url) return;
     setDrafting(true);
     try {
-      const run = await api<PhotoRun>('scene/from-photo', {
-        mode,
-        check: sparkCheck,
-        ...(mode === 'live' ? { imageDataUrl: url } : {}),
-      });
+      const body = { mode, check: sparkCheck, ...(mode === 'live' ? { imageDataUrl: url } : {}) };
+      const run = follow
+        ? await follow(
+            {
+              title: 'Drafting the room',
+              description:
+                mode === 'live'
+                  ? `Spark lists what is in the photo, SAM outlines it, and the room is measured from the outlines${sparkCheck ? ', then Spark compares the draft with the photo' : ''}.`
+                  : 'Demo: the illustrated desk, no model calls.',
+            },
+            (jobId, signal) => api<PhotoRun>('scene/from-photo', { ...body, jobId }, { signal }),
+          )
+        : await api<PhotoRun>('scene/from-photo', body);
+      if (!run) return;
       setPhoto({ run, url: mode === 'live' ? url! : '/desk.svg' });
       onDrafted(run);
     } catch (e) {

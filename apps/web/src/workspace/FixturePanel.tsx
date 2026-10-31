@@ -12,8 +12,6 @@ import {
   type DeskMemory,
   type EvidenceRun,
   type Fixture,
-  type Job,
-  type JobStep,
   type FixtureControl,
   type FixtureDraft,
   type FixtureInput,
@@ -254,24 +252,16 @@ export function ScanFixtures({
         disabled={off || blocked}
         title={blocked ? (scene ? 'Add a desk photo first.' : 'Pin a surface first.') : undefined}
         onClick={() =>
-          void call<{ run: EvidenceRun; mapped: MappedThing[]; memory: DeskMemory }>(
-            'fixtures/scan',
-            { scene, replace, ...(live ? { imageDataUrl: lab.image } : {}) },
-            (r) => {
-              lab.setMemory(r.memory);
-              lab.setSelected(r.run);
-              setMapped(r.mapped);
-              const added = r.mapped.filter((m) => m.fixture).length;
-              lab.setMessage(
-                r.mapped.length
-                  ? `Scanned ${r.mapped.length} thing${r.mapped.length === 1 ? '' : 's'}; added ${added}.`
-                  : 'The scan found nothing that stays put.',
-              );
-            },
-          )
+          void lab.scanFixtures(scene!, replace).then((m) => {
+            if (m) setMapped(m);
+          })
         }
       >
-        {off ? 'Scanning…' : inScene.some((f) => f.scanned) ? 'Scan again' : 'Scan and map'}
+        {lab.busy === 'scan'
+          ? 'Scanning…'
+          : inScene.some((f) => f.scanned)
+            ? 'Scan again'
+            : 'Scan and map'}
       </button>
       {placedByHand && (
         <label className="photo-check">
@@ -1075,89 +1065,6 @@ function SculptFixture({ fixture, disabled }: { fixture: Fixture; disabled: bool
         {why ??
           `Spark rebuilds the ${fixture.label.toLowerCase()}’s model in parts you can edit, from its ${lifted ? 'cut-out on the room’s picture' : 'photo'}, starting from the model it has: two Spark calls, about $0.05 to $0.10, and a minute or two. Parts you locked stay.`}
       </p>
-      {lab.sculpting?.fixtureId === fixture.id && (
-        <SculptSteps
-          job={lab.sculpting.job}
-          running={busy === 'sculpt'}
-          now={lab.now}
-          onClose={() => lab.setSculpting(null)}
-        />
-      )}
-    </div>
-  );
-}
-
-/**
- * Where modelling with AI has got to: each step with what it found, how long
- * it has taken, and a picture of what it made, so a minute-long call can be
- * followed rather than waited on.
- */
-function SculptSteps({
-  job,
-  running,
-  now,
-  onClose,
-}: {
-  job: Job | null;
-  running: boolean;
-  now: number;
-  onClose: () => void;
-}) {
-  const seconds = (s: JobStep) => {
-    if (!s.startedAt) return null;
-    const end = s.endedAt ? Date.parse(s.endedAt) : now;
-    return Math.max(0, Math.round((end - Date.parse(s.startedAt)) / 1000));
-  };
-  const total = job ? Math.max(0, Math.round((now - Date.parse(job.createdAt)) / 1000)) : 0;
-  const failed = job?.steps.some((s) => s.state === 'failed');
-  return (
-    <div className={`sculpt-steps ${failed ? 'failed' : ''}`} role="status" aria-live="polite">
-      <div className="sculpt-steps-head">
-        <span className="tiny">
-          {running
-            ? `MODELLING · ${total}s`
-            : failed
-              ? 'MODELLING FAILED'
-              : job?.done
-                ? 'MODELLED'
-                : 'MODELLING'}
-        </span>
-        {!running && (
-          <button className="text-button" onClick={onClose}>
-            Hide
-          </button>
-        )}
-      </div>
-      {!job ? (
-        <p className="micro">Starting…</p>
-      ) : (
-        <ol>
-          {job.steps.map((s) => {
-            const t = seconds(s);
-            return (
-              <li key={s.id} className={s.state}>
-                <span className="sculpt-mark" aria-hidden="true">
-                  {s.state === 'done'
-                    ? '✓'
-                    : s.state === 'failed'
-                      ? '✕'
-                      : s.state === 'running'
-                        ? ''
-                        : '·'}
-                </span>
-                <span className="sculpt-text">
-                  <strong>
-                    {s.label}
-                    {t !== null && (s.state === 'running' || t > 0) && <small> {t}s</small>}
-                  </strong>
-                  {s.detail && <small>{s.detail}</small>}
-                </span>
-                {s.image && <img src={s.image} alt="" />}
-              </li>
-            );
-          })}
-        </ol>
-      )}
     </div>
   );
 }

@@ -49,3 +49,13 @@ export async function api<T>(
     throw error;
   }
 }
+
+/**
+ * Run an AI call that reports its steps under a job id, followed in the AI
+ * dialog until it ends, where it can be stopped. Resolves to its answer, or
+ * null when it was stopped.
+ */
+export type AiFollow = <T>(
+  task: { title: string; description?: string },
+  call: (jobId: string, signal: AbortSignal) => Promise<T>,
+) => Promise<T | null>;

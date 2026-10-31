@@ -96,6 +96,7 @@ export const BUSY: Record<string, string> = {
   track: 'Tracking the mug',
   autopin: 'Finding the desk',
   illustrate: 'Drawing the room',
+  scan: 'Scanning and mapping',
   camera: 'Updating the camera setting',
   undo: 'Undoing',
   redo: 'Redoing',
@@ -1775,6 +1776,53 @@ export function useLabState() {
     }
   }
   /**
+   * Scan a view's photo and map what stays put into a scene (one Spark and one
+   * SAM call, live), step by step in the AI dialog, where it can be stopped.
+   * Resolves to what each thing became, or null when it failed or was stopped.
+   */
+  async function scanFixtures(
+    scene: IsoSceneKind | 'custom',
+    replace: boolean,
+  ): Promise<MappedThing[] | null> {
+    if (busy) return null;
+    setBusy('scan');
+    setError('');
+    try {
+      const result = await followAi(
+        {
+          title: 'Scanning and mapping',
+          description:
+            mode === 'live'
+              ? 'Spark lists what stays put, SAM outlines each one, and each is placed through the pin. One Spark and one SAM call.'
+              : 'Demo: the illustrated desk, no model calls.',
+        },
+        (jobId, signal) =>
+          api<{ run: EvidenceRun; mapped: MappedThing[]; memory: DeskMemory }>(
+            'fixtures/scan',
+            { mode, scene, replace, jobId, ...(mode === 'live' ? { imageDataUrl: image } : {}) },
+            { signal },
+          ),
+      );
+      if (!result) return null;
+      setMemory(result.memory);
+      setSelected(result.run);
+      const added = result.mapped.filter((m) => m.fixture).length;
+      setMessage(
+        result.mapped.length
+          ? `Scanned ${result.mapped.length} thing${result.mapped.length === 1 ? '' : 's'}; added ${added}${costNote(result.run)}.`
+          : 'The scan found nothing that stays put.',
+      );
+      void refresh().catch(() => {});
+      return result.mapped;
+    } catch (e) {
+      setError(e instanceof Error ? e : 'The scan failed.');
+      return null;
+    } finally {
+      // A stop has already freed the lab for the next call.
+      if (!aiRun.current) setBusy((b) => (b === 'scan' ? '' : b));
+    }
+  }
+  /**
    * Lift the room's fixtures off its picture, so dragging one moves the thing
    * itself (one SAM call and one image call, live), or put them back.
    */
@@ -1789,12 +1837,23 @@ export function useLabState() {
         setMessage('The fixtures are back in the picture.');
         return;
       }
-      const result = await api<{
-        run: EvidenceRun;
-        memory: DeskMemory;
-        lifted: number;
-        skipped: string[];
-      }>('scene/separate', { mode });
+      const result = await followAi(
+        {
+          title: 'Lifting the fixtures',
+          description:
+            mode === 'live'
+              ? 'Spark finds each fixture on the picture, SAM outlines it, and Muse Image redraws the room without them. About $0.02.'
+              : 'Demo: cut out where the layout puts them, no model calls.',
+        },
+        (jobId, signal) =>
+          api<{
+            run: EvidenceRun;
+            memory: DeskMemory;
+            lifted: number;
+            skipped: string[];
+          }>('scene/separate', { mode, jobId }, { signal }),
+      );
+      if (!result) return;
       setMemory(result.memory);
       setSelected(result.run);
       setShowPicture(true);
@@ -1809,39 +1868,36 @@ export function useLabState() {
     } catch (e) {
       setError(e instanceof Error ? e : 'The fixtures could not be lifted off the picture.');
     } finally {
-      setBusy('');
+      // A stop has already freed the lab for the next call.
+      if (!aiRun.current) setBusy((b) => (b === 'separate' ? '' : b));
     }
   }
   /**
-   * Modelling a fixture with AI, step by step: the job's steps as the server
-   * reports them while the call runs, kept after it ends until another starts.
+   * Rebuild a fixture's model with Spark from the picture of it (two Spark
+   * calls, live), step by step in the AI dialog where it can be stopped, then
+   * open it to edit.
    */
-  const [sculpting, setSculpting] = useState<{ fixtureId: string; job: Job | null } | null>(null);
-  /** Rebuild a fixture's model with Spark from the picture of it, then open it to edit. */
   async function sculptFixture(id: string) {
     if (busy) return;
     const f = memory?.fixtures?.find((x) => x.id === id);
     if (!f) return;
-    const jobId = crypto.randomUUID();
     setBusy('sculpt');
     setError('');
-    setSculpting({ fixtureId: id, job: null });
-    // Poll the job while the request is open; each answer replaces the last.
-    let open = true;
-    const follow = async () => {
-      while (open) {
-        await new Promise((r) => setTimeout(r, 700));
-        const job = await api<Job>(`jobs/${jobId}`).catch(() => null);
-        if (job && open) setSculpting({ fixtureId: id, job });
-      }
-    };
-    void follow();
     try {
-      const result = await api<{ run: EvidenceRun; memory: DeskMemory }>('fixtures/sculpt', {
-        mode,
-        fixtureId: id,
-        jobId,
-      });
+      const result = await followAi(
+        {
+          title: `Modelling the ${f.label.toLowerCase()}`,
+          description:
+            'Spark rebuilds its model in parts from its picture, then checks its own draft. Two Spark calls, about $0.05 to $0.10.',
+        },
+        (jobId, signal) =>
+          api<{ run: EvidenceRun; memory: DeskMemory }>(
+            'fixtures/sculpt',
+            { mode, fixtureId: id, jobId },
+            { signal },
+          ),
+      );
+      if (!result) return;
       setMemory(result.memory);
       setSelected(result.run);
       const out = result.run.output as { parts: number; note: string };
@@ -1853,12 +1909,8 @@ export function useLabState() {
     } catch (e) {
       setError(e instanceof Error ? e : 'The fixture could not be modelled.');
     } finally {
-      open = false;
-      // The last word on every step, success or not.
-      // Refused before it began (no picture, the spend limit), there are no steps to show.
-      const job = await api<Job>(`jobs/${jobId}`).catch(() => null);
-      setSculpting(job ? { fixtureId: id, job } : null);
-      setBusy('');
+      // A stop has already freed the lab for the next call.
+      if (!aiRun.current) setBusy((b) => (b === 'sculpt' ? '' : b));
     }
   }
   /** Show the room a fixture goes in, and wait for a click there to put it down. */
@@ -2134,8 +2186,8 @@ export function useLabState() {
     setFixtureLook,
     separate,
     sculptFixture,
-    sculpting,
-    setSculpting,
+    scanFixtures,
+    followAi,
     aiTask,
     setAiTask,
     aiHistory,

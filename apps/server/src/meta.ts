@@ -127,10 +127,14 @@ export class MetaAdapter {
     images: number,
     body: OpenAI.Responses.ResponseCreateParamsNonStreaming & { max_output_tokens: number },
     timeout = this.config.timeoutMs,
+    signal?: AbortSignal,
   ) {
     const settle = this.reserve(sparkCeiling(body.max_output_tokens, images));
     try {
-      const response = await this.client.responses.create(body, { timeout });
+      const response = await this.client.responses.create(body, {
+        timeout,
+        ...(signal ? { signal } : {}),
+      });
       settle(sparkCost(usageOf(response.usage)));
       return response;
     } catch (e) {
@@ -334,37 +338,42 @@ export class MetaAdapter {
    * its shape, colour, a loose box and its usual size. The objects the camera
    * follows are named so they are left out.
    */
-  async fixtureScan(imageDataUrl: string, tracked: string[]) {
-    const response = await this.spark(1, {
-      model: this.config.sparkModel,
-      store: false,
-      max_output_tokens: SPARK_BUDGET.fixtureScan,
-      input: [
-        {
-          role: 'user',
-          content: [
-            {
-              type: 'input_text',
-              text: [
-                'This photo shows part of a room someone is modelling. List the fixtures in it: things that stay put and could be placed in a model of the room, like a lamp, a monitor, a keyboard, a mouse, a speaker, a plant, a wall switch or a fan.',
-                `Leave out furniture (desks, tables, chairs, shelves), walls and floors${tracked.length ? `, and these objects, which are followed separately: ${tracked.join(', ')}` : ''}.`,
-                `For each give: a short grounded label (no names, owners or brands); the archetype that best describes its shape (${ARCHETYPES.join(', ')}; generic only when none fits); its main material (${ITEM_MATERIALS.join(', ')}); control: light for a lamp, bulb or light strip, switch for anything else that turns on and off, none for everything else; its main colour as lowercase #rrggbb; box, a loose box around it as x1, y1, x2, y2 from 0 to 1000 across and down the photo; and sizeCm, its usual real width, depth and height in centimetres.`,
-                `Use at most ${MAX_SCAN_THINGS} things, only what is clearly visible, biggest first. Return an empty list if there are none.`,
-              ].join('\n'),
-            },
-            { type: 'input_image', image_url: imageDataUrl, detail: 'auto' },
-          ],
-        },
-      ],
-      text: {
-        format: {
-          type: 'json_schema',
-          name: 'fixture_scan',
-          strict: true,
-          schema: z.toJSONSchema(fixtureScanSchema),
+  async fixtureScan(imageDataUrl: string, tracked: string[], signal?: AbortSignal) {
+    const response = await this.spark(
+      1,
+      {
+        model: this.config.sparkModel,
+        store: false,
+        max_output_tokens: SPARK_BUDGET.fixtureScan,
+        input: [
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'input_text',
+                text: [
+                  'This photo shows part of a room someone is modelling. List the fixtures in it: things that stay put and could be placed in a model of the room, like a lamp, a monitor, a keyboard, a mouse, a speaker, a plant, a wall switch or a fan.',
+                  `Leave out furniture (desks, tables, chairs, shelves), walls and floors${tracked.length ? `, and these objects, which are followed separately: ${tracked.join(', ')}` : ''}.`,
+                  `For each give: a short grounded label (no names, owners or brands); the archetype that best describes its shape (${ARCHETYPES.join(', ')}; generic only when none fits); its main material (${ITEM_MATERIALS.join(', ')}); control: light for a lamp, bulb or light strip, switch for anything else that turns on and off, none for everything else; its main colour as lowercase #rrggbb; box, a loose box around it as x1, y1, x2, y2 from 0 to 1000 across and down the photo; and sizeCm, its usual real width, depth and height in centimetres.`,
+                  `Use at most ${MAX_SCAN_THINGS} things, only what is clearly visible, biggest first. Return an empty list if there are none.`,
+                ].join('\n'),
+              },
+              { type: 'input_image', image_url: imageDataUrl, detail: 'auto' },
+            ],
+          },
+        ],
+        text: {
+          format: {
+            type: 'json_schema',
+            name: 'fixture_scan',
+            strict: true,
+            schema: z.toJSONSchema(fixtureScanSchema),
+          },
         },
       },
-    });
+      this.config.timeoutMs,
+      signal,
+    );
     return this.parsed(response, fixtureScanSchema, 'fixture scan', SPARK_BUDGET.fixtureScan);
   }
   /**
@@ -372,7 +381,13 @@ export class MetaAdapter {
    * render of the model it starts from, and that model's parts as JSON in;
    * the parts revised to match out.
    */
-  async sculpt(pictureDataUrl: string, renderDataUrl: string, prompt: string, parts: string) {
+  async sculpt(
+    pictureDataUrl: string,
+    renderDataUrl: string,
+    prompt: string,
+    parts: string,
+    signal?: AbortSignal,
+  ) {
     const response = await this.spark(
       2,
       {
@@ -400,6 +415,7 @@ export class MetaAdapter {
       },
       // Writing out a whole model takes Spark well past the usual timeout.
       Math.max(this.config.timeoutMs, SCULPT_TIMEOUT_MS),
+      signal,
     );
     return this.parsed(response, sculptSchema, 'model', SPARK_BUDGET.sculpt);
   }
@@ -411,39 +427,45 @@ export class MetaAdapter {
   async pictureFind(
     pictureDataUrl: string,
     things: { label: string; near: { x1: number; y1: number; x2: number; y2: number } }[],
+    signal?: AbortSignal,
   ) {
-    const response = await this.spark(1, {
-      model: this.config.sparkModel,
-      store: false,
-      max_output_tokens: SPARK_BUDGET.pictureFind,
-      input: [
-        {
-          role: 'user',
-          content: [
-            {
-              type: 'input_text',
-              text: [
-                'This is an isometric illustration of a room. Find each of these things drawn in it. Each is numbered, with a box from 0 to 1000 across and down the picture where the room’s layout expects it; it may be drawn somewhat away from there, and what is drawn is what counts.',
-                ...things.map(
-                  (t, i) =>
-                    `${i + 1}. ${t.label} (expected near ${t.near.x1}, ${t.near.y1}, ${t.near.x2}, ${t.near.y2})`,
-                ),
-                'For each number give: seen, whether it is clearly drawn; and box, a tight box around just that thing as x1, y1, x2, y2 from 0 to 1000. When two look alike, take the one nearer its expected box. When it is not drawn, set seen false and give its expected box.',
-              ].join('\n'),
-            },
-            { type: 'input_image', image_url: pictureDataUrl, detail: 'auto' },
-          ],
-        },
-      ],
-      text: {
-        format: {
-          type: 'json_schema',
-          name: 'picture_find',
-          strict: true,
-          schema: z.toJSONSchema(pictureFindSchema),
+    const response = await this.spark(
+      1,
+      {
+        model: this.config.sparkModel,
+        store: false,
+        max_output_tokens: SPARK_BUDGET.pictureFind,
+        input: [
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'input_text',
+                text: [
+                  'This is an isometric illustration of a room. Find each of these things drawn in it. Each is numbered, with a box from 0 to 1000 across and down the picture where the room’s layout expects it; it may be drawn somewhat away from there, and what is drawn is what counts.',
+                  ...things.map(
+                    (t, i) =>
+                      `${i + 1}. ${t.label} (expected near ${t.near.x1}, ${t.near.y1}, ${t.near.x2}, ${t.near.y2})`,
+                  ),
+                  'For each number give: seen, whether it is clearly drawn; and box, a tight box around just that thing as x1, y1, x2, y2 from 0 to 1000. When two look alike, take the one nearer its expected box. When it is not drawn, set seen false and give its expected box.',
+                ].join('\n'),
+              },
+              { type: 'input_image', image_url: pictureDataUrl, detail: 'auto' },
+            ],
+          },
+        ],
+        text: {
+          format: {
+            type: 'json_schema',
+            name: 'picture_find',
+            strict: true,
+            schema: z.toJSONSchema(pictureFindSchema),
+          },
         },
       },
-    });
+      this.config.timeoutMs,
+      signal,
+    );
     return this.parsed(response, pictureFindSchema, 'picture find', SPARK_BUDGET.pictureFind);
   }
   /**
@@ -491,37 +513,42 @@ export class MetaAdapter {
    * template or an object archetype with a loose box. Spark gives no sizes,
    * tiles or turns; SAM and the layout measure those.
    */
-  async photoInventory(imageDataUrl: string) {
-    const response = await this.spark(1, {
-      model: this.config.sparkModel,
-      store: false,
-      max_output_tokens: SPARK_BUDGET.photoInventory,
-      input: [
-        {
-          role: 'user',
-          content: [
-            {
-              type: 'input_text',
-              text: [
-                'List the furniture and objects in this photo so they can be drawn as a small isometric scene.',
-                photoCatalog(),
-                'For each thing give: a short id (lowercase, like desk or mug-1); a short grounded label from what you see (no names, owners or brands); as, the closest template or object model; role: surface for what things stand on (a desk, a table, a cabinet top, a shelf), furniture for anything else that stands on the floor, object for small movable things; on, the id of what it stands on, or floor; and box, a loose box around it as x1, y1, x2, y2 from 0 to 1000 across and down the photo.',
-                'Include the main surface if there is one. Use at most 16 things, only what is clearly visible, biggest first. Do not guess sizes or distances. Summarise the scene in one short sentence.',
-              ].join('\n'),
-            },
-            { type: 'input_image', image_url: imageDataUrl, detail: 'auto' },
-          ],
-        },
-      ],
-      text: {
-        format: {
-          type: 'json_schema',
-          name: 'photo_inventory',
-          strict: true,
-          schema: z.toJSONSchema(photoInventorySchema),
+  async photoInventory(imageDataUrl: string, signal?: AbortSignal) {
+    const response = await this.spark(
+      1,
+      {
+        model: this.config.sparkModel,
+        store: false,
+        max_output_tokens: SPARK_BUDGET.photoInventory,
+        input: [
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'input_text',
+                text: [
+                  'List the furniture and objects in this photo so they can be drawn as a small isometric scene.',
+                  photoCatalog(),
+                  'For each thing give: a short id (lowercase, like desk or mug-1); a short grounded label from what you see (no names, owners or brands); as, the closest template or object model; role: surface for what things stand on (a desk, a table, a cabinet top, a shelf), furniture for anything else that stands on the floor, object for small movable things; on, the id of what it stands on, or floor; and box, a loose box around it as x1, y1, x2, y2 from 0 to 1000 across and down the photo.',
+                  'Include the main surface if there is one. Use at most 16 things, only what is clearly visible, biggest first. Do not guess sizes or distances. Summarise the scene in one short sentence.',
+                ].join('\n'),
+              },
+              { type: 'input_image', image_url: imageDataUrl, detail: 'auto' },
+            ],
+          },
+        ],
+        text: {
+          format: {
+            type: 'json_schema',
+            name: 'photo_inventory',
+            strict: true,
+            schema: z.toJSONSchema(photoInventorySchema),
+          },
         },
       },
-    });
+      this.config.timeoutMs,
+      signal,
+    );
     return this.parsed(
       response,
       photoInventorySchema,
@@ -534,38 +561,48 @@ export class MetaAdapter {
    * camera, and names what is missing or should not be there. The layout
    * keeps an addition only when SAM can outline it.
    */
-  async photoCheck(imageDataUrl: string, renderDataUrl: string, listing: string) {
-    const response = await this.spark(2, {
-      model: this.config.sparkModel,
-      store: false,
-      max_output_tokens: SPARK_BUDGET.photoCheck,
-      input: [
-        {
-          role: 'user',
-          content: [
-            {
-              type: 'input_text',
-              text: [
-                'The first image is a photo; the second is a simple scene drawn from the same camera in flat colours.',
-                `The scene has: ${listing}.`,
-                photoCatalog(),
-                'In missing, list up to four clearly visible things the scene lacks, in the same form (id, label, as, role, on, box from 0 to 1000). In extra, give the ids of things in the scene that are not in the photo. Explain the main difference in one short sentence.',
-              ].join('\n'),
-            },
-            { type: 'input_image', image_url: imageDataUrl, detail: 'auto' },
-            { type: 'input_image', image_url: renderDataUrl, detail: 'auto' },
-          ],
-        },
-      ],
-      text: {
-        format: {
-          type: 'json_schema',
-          name: 'photo_check',
-          strict: true,
-          schema: z.toJSONSchema(photoCheckSchema),
+  async photoCheck(
+    imageDataUrl: string,
+    renderDataUrl: string,
+    listing: string,
+    signal?: AbortSignal,
+  ) {
+    const response = await this.spark(
+      2,
+      {
+        model: this.config.sparkModel,
+        store: false,
+        max_output_tokens: SPARK_BUDGET.photoCheck,
+        input: [
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'input_text',
+                text: [
+                  'The first image is a photo; the second is a simple scene drawn from the same camera in flat colours.',
+                  `The scene has: ${listing}.`,
+                  photoCatalog(),
+                  'In missing, list up to four clearly visible things the scene lacks, in the same form (id, label, as, role, on, box from 0 to 1000). In extra, give the ids of things in the scene that are not in the photo. Explain the main difference in one short sentence.',
+                ].join('\n'),
+              },
+              { type: 'input_image', image_url: imageDataUrl, detail: 'auto' },
+              { type: 'input_image', image_url: renderDataUrl, detail: 'auto' },
+            ],
+          },
+        ],
+        text: {
+          format: {
+            type: 'json_schema',
+            name: 'photo_check',
+            strict: true,
+            schema: z.toJSONSchema(photoCheckSchema),
+          },
         },
       },
-    });
+      this.config.timeoutMs,
+      signal,
+    );
     return this.parsed(response, photoCheckSchema, 'photo check', SPARK_BUDGET.photoCheck);
   }
   /**
@@ -642,6 +679,7 @@ export class MetaAdapter {
     boxes: { id: number; box: PromptBox }[],
     width: number,
     height: number,
+    signal?: AbortSignal,
   ) {
     const prompt = buildObjectPrompt({
       size: { width, height },
@@ -650,6 +688,7 @@ export class MetaAdapter {
     return this.segment(imageDataUrl, prompt, width, height, {
       concept: 'photo scene',
       maxMasks: 16,
+      ...(signal ? { signal } : {}),
     });
   }
   /**

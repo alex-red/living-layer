@@ -44,7 +44,8 @@ import {
   outlineFits,
 } from './layers.js';
 import { roomPhotoBytes } from './fixture.js';
-import { jobs, stoppedError, type JobTracker } from './jobs.js';
+import { following, jobs } from './jobs.js';
+import { listedPreview, outlinedPreview } from './scan-preview.js';
 import { SPARK_BUDGET, type MetaAdapter } from './meta.js';
 import type { EvidenceStore } from './store.js';
 
@@ -76,6 +77,13 @@ const DESK_STEPS = [
   { id: 'save', label: 'Save the desk picture' },
 ];
 const PREVIEW = 640;
+const LIFT_STEPS = [
+  { id: 'find', label: 'Spark finds each fixture on the picture' },
+  { id: 'outline', label: 'SAM outlines each one' },
+  { id: 'cut', label: 'Cut each one out' },
+  { id: 'base', label: 'Muse Image redraws the room without them' },
+  { id: 'save', label: 'Save the layers' },
+];
 /** The picture with the desk top found on it outlined, for the page to show. */
 async function withDesk(png: Buffer, desk: Quad, frame: { width: number; height: number }) {
   const points = desk.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
@@ -85,18 +93,6 @@ async function withDesk(png: Buffer, desk: Quad, frame: { width: number; height:
     .composite([{ input: Buffer.from(svg) }])
     .png()
     .toBuffer();
-}
-/** Run a job's steps; a stop ends it with a plain message, a failure shows on the step that failed. */
-async function following<T>(job: JobTracker, steps: () => Promise<T>): Promise<T> {
-  try {
-    const result = await steps();
-    job.check();
-    return result;
-  } catch (error) {
-    if (job.stopped) throw stoppedError();
-    job.fail(error instanceof Error ? error.message : 'Drawing failed.');
-    throw error;
-  }
 }
 const areaOf = (d: Detection) =>
   (d.mask.foregroundPixels * d.box.width * d.box.height) / (d.mask.width * d.mask.height);
@@ -347,7 +343,16 @@ export function illustrationRoutes(
    * the demo fills the places they leave from around them instead.
    */
   app.post('/api/scene/separate', async (request) => {
-    const { mode } = parseInput(z.object({ mode: modeSchema }).strict(), request.body);
+    const { mode, jobId } = parseInput(
+      z
+        .object({
+          mode: modeSchema,
+          /** The page's id for following the steps as they go. */
+          jobId: z.string().uuid().optional(),
+        })
+        .strict(),
+      request.body,
+    );
     const live = mode === 'live';
     const memory = store.memory(mode);
     const picture = memory.illustration;
@@ -392,141 +397,201 @@ export function illustrationRoutes(
     const { width, height } = picture.frame;
     // The models read the picture on the black it was drawn on.
     const dataUrl = await onBlack(png);
+    const shown = await sharp(png).flatten({ background: '#0a0c12' }).png().toBuffer();
+    const frame = { width, height };
+    const labels = wanted.map((w) => w.f.label);
+    const job = jobs.start(jobId, LIFT_STEPS, { title: 'Lifting the fixtures', mode });
+    return following(job, async () => {
+      job.run('find', live ? undefined : 'Demo: where the layout puts each one, no model call');
 
-    // 1. Where each fixture is drawn. Live, Spark finds it by name, near where the layout
-    // expects it; in the demo, the layout's box is taken as it is.
-    let finder: EvidenceRun<PictureFind> | null = null;
-    let where: ({ x: number; y: number; width: number; height: number } | null)[] = wanted.map(
-      (w) => w.box,
-    );
-    if (live) {
-      const k = (v: number, of: number) => Math.round(Math.min(1000, Math.max(0, (v / of) * 1000)));
-      finder = (await run('fixture', mode, async () =>
-        meta.pictureFind(
-          dataUrl,
-          wanted.map((w) => ({
-            label: w.f.label,
-            near: {
-              x1: k(w.box.x, width),
-              y1: k(w.box.y, height),
-              x2: k(w.box.x + w.box.width, width),
-              y2: k(w.box.y + w.box.height, height),
-            },
-          })),
-        ),
-      )) as EvidenceRun<PictureFind>;
-      const answers = finder.output.found;
-      where = wanted.map((_, i) => {
-        const a = answers.find((x) => x.index === i + 1);
-        if (!a?.seen || a.box.x2 <= a.box.x1 || a.box.y2 <= a.box.y1) return null;
-        return {
-          x: (a.box.x1 / 1000) * width,
-          y: (a.box.y1 / 1000) * height,
-          width: ((a.box.x2 - a.box.x1) / 1000) * width,
-          height: ((a.box.y2 - a.box.y1) / 1000) * height,
-        };
-      });
-    }
-
-    // 2. Each one's outline: SAM inside where it was found (live), or its box's silhouette in
-    // the demo. An outline that doesn't fit what was found isn't lifted.
-    let segment: EvidenceRun<Segmentation> | null = null;
-    let outlines: (Detection | null)[] = wanted.map((w) => hullDetection(w.corners, w.f.id));
-    if (live) {
-      const asked = where.flatMap((b, i) => (b ? [{ i, b }] : []));
-      outlines = wanted.map(() => null);
-      if (asked.length) {
-        // A little room around Spark's box, so SAM sees the thing's whole edge.
-        const pad = (b: { x: number; y: number; width: number; height: number }) => {
-          const p = 0.06 * Math.max(b.width, b.height);
-          return {
-            left: Math.max(0, Math.floor(b.x - p)),
-            top: Math.max(0, Math.floor(b.y - p)),
-            right: Math.min(width, Math.ceil(b.x + b.width + p)),
-            bottom: Math.min(height, Math.ceil(b.y + b.height + p)),
-          };
-        };
-        segment = (await run('segment', mode, async (id) => {
-          const result = await meta.segmentBoxes(
+      // 1. Where each fixture is drawn. Live, Spark finds it by name, near where the layout
+      // expects it; in the demo, the layout's box is taken as it is.
+      let finder: EvidenceRun<PictureFind> | null = null;
+      let where: ({ x: number; y: number; width: number; height: number } | null)[] = wanted.map(
+        (w) => w.box,
+      );
+      if (live) {
+        const k = (v: number, of: number) =>
+          Math.round(Math.min(1000, Math.max(0, (v / of) * 1000)));
+        finder = (await run('fixture', mode, async (id) => {
+          job.link(id);
+          return meta.pictureFind(
             dataUrl,
-            asked.map(({ i, b }) => ({ id: i + 1, box: pad(b) })),
-            width,
-            height,
+            wanted.map((w) => ({
+              label: w.f.label,
+              near: {
+                x1: k(w.box.x, width),
+                y1: k(w.box.y, height),
+                x2: k(w.box.x + w.box.width, width),
+                y2: k(w.box.y + w.box.height, height),
+              },
+            })),
+            job.signal,
           );
-          return { ...result, assets: [store.asset(id, 'sam-output.txt', result.raw)] };
-        })) as EvidenceRun<Segmentation>;
-        const detections = segment.output.detections ?? [];
-        for (const { i, b } of asked) {
-          const best = [...detections.filter((d) => d.objectId === String(i + 1))].sort(
-            (x, y) => y.mask.foregroundPixels - x.mask.foregroundPixels,
-          )[0];
-          outlines[i] = best && outlineFits(best, b) ? best : null;
-        }
-      }
-    }
-    const skipped = wanted.filter((_, i) => !outlines[i]).map((w) => w.f.label);
-
-    // 3. The sprites, and the base they are drawn over.
-    const sprites: PictureSprite[] = [];
-    const lifted: Detection[] = [];
-    const drawn = await run('illustration', mode, async (id) => {
-      const assets: string[] = [];
-      for (const [i, w] of wanted.entries()) {
-        const outline = outlines[i];
-        if (!outline) continue;
-        const cut = await cutSprite(png, outline).catch(() => null);
-        if (!cut) continue;
-        const asset = store.asset(id, `sprite-${i + 1}.png`, cut.png);
-        assets.push(asset);
-        lifted.push(outline);
-        sprites.push({
-          fixtureId: w.f.id,
-          asset,
-          box: { x: cut.left, y: cut.top, width: cut.width, height: cut.height },
-          anchor: w.anchor,
-          size: w.size,
+        })) as EvidenceRun<PictureFind>;
+        const answers = finder.output.found;
+        where = wanted.map((_, i) => {
+          const a = answers.find((x) => x.index === i + 1);
+          if (!a?.seen || a.box.x2 <= a.box.x1 || a.box.y2 <= a.box.y1) return null;
+          return {
+            x: (a.box.x1 / 1000) * width,
+            y: (a.box.y1 / 1000) * height,
+            width: ((a.box.x2 - a.box.x1) / 1000) * width,
+            height: ((a.box.y2 - a.box.y1) / 1000) * height,
+          };
         });
       }
-      if (!sprites.length)
-        throw new LabError(
-          'separate_none',
-          'None of the fixtures could be outlined cleanly on the picture, so nothing was lifted.',
+
+      job.check();
+      const thousandths = (b: { x: number; y: number; width: number; height: number }) => ({
+        x1: (b.x / width) * 1000,
+        y1: (b.y / height) * 1000,
+        x2: ((b.x + b.width) / width) * 1000,
+        y2: ((b.y + b.height) / height) * 1000,
+      });
+      const found = where.filter(Boolean).length;
+      await job.done(
+        'find',
+        `${found} of ${wanted.length} found on the picture`,
+        await listedPreview(
+          shown,
+          frame,
+          wanted.flatMap((w, i) => {
+            const b = where[i];
+            return b ? [{ label: w.f.label, box: thousandths(b) }] : [];
+          }),
+        ),
+        PREVIEW,
+      );
+      job.run('outline', live ? undefined : 'Demo: each box’s silhouette, no model call');
+      // 2. Each one's outline: SAM inside where it was found (live), or its box's silhouette in
+      // the demo. An outline that doesn't fit what was found isn't lifted.
+      let segment: EvidenceRun<Segmentation> | null = null;
+      let outlines: (Detection | null)[] = wanted.map((w) => hullDetection(w.corners, w.f.id));
+      if (live) {
+        const asked = where.flatMap((b, i) => (b ? [{ i, b }] : []));
+        outlines = wanted.map(() => null);
+        if (asked.length) {
+          // A little room around Spark's box, so SAM sees the thing's whole edge.
+          const pad = (b: { x: number; y: number; width: number; height: number }) => {
+            const p = 0.06 * Math.max(b.width, b.height);
+            return {
+              left: Math.max(0, Math.floor(b.x - p)),
+              top: Math.max(0, Math.floor(b.y - p)),
+              right: Math.min(width, Math.ceil(b.x + b.width + p)),
+              bottom: Math.min(height, Math.ceil(b.y + b.height + p)),
+            };
+          };
+          segment = (await run('segment', mode, async (id) => {
+            job.link(id);
+            const result = await meta.segmentBoxes(
+              dataUrl,
+              asked.map(({ i, b }) => ({ id: i + 1, box: pad(b) })),
+              width,
+              height,
+              job.signal,
+            );
+            return { ...result, assets: [store.asset(id, 'sam-output.txt', result.raw)] };
+          })) as EvidenceRun<Segmentation>;
+          const detections = segment.output.detections ?? [];
+          for (const { i, b } of asked) {
+            const best = [...detections.filter((d) => d.objectId === String(i + 1))].sort(
+              (x, y) => y.mask.foregroundPixels - x.mask.foregroundPixels,
+            )[0];
+            outlines[i] = best && outlineFits(best, b) ? best : null;
+          }
+        }
+      }
+      const skipped = wanted.filter((_, i) => !outlines[i]).map((w) => w.f.label);
+      job.check();
+      await job.done(
+        'outline',
+        `${wanted.length - skipped.length} of ${wanted.length} outlined cleanly${skipped.length ? `; skipped ${skipped.join(', ')}` : ''}`,
+        await outlinedPreview(shown, frame, labels, outlines),
+        PREVIEW,
+      );
+
+      // 3. The sprites, and the base they are drawn over.
+      const sprites: PictureSprite[] = [];
+      const lifted: Detection[] = [];
+      const drawn = await run('illustration', mode, async (id) => {
+        job.link(id);
+        job.run('cut');
+        const assets: string[] = [];
+        for (const [i, w] of wanted.entries()) {
+          const outline = outlines[i];
+          if (!outline) continue;
+          const cut = await cutSprite(png, outline).catch(() => null);
+          if (!cut) continue;
+          job.run('cut', w.f.label);
+          await job.show('cut', cut.png);
+          const asset = store.asset(id, `sprite-${i + 1}.png`, cut.png);
+          assets.push(asset);
+          lifted.push(outline);
+          sprites.push({
+            fixtureId: w.f.id,
+            asset,
+            box: { x: cut.left, y: cut.top, width: cut.width, height: cut.height },
+            anchor: w.anchor,
+            size: w.size,
+          });
+        }
+        if (!sprites.length)
+          throw new LabError(
+            'separate_none',
+            'None of the fixtures could be outlined cleanly on the picture, so nothing was lifted.',
+          );
+        await job.done('cut', `${sprites.length} cut out`);
+        job.check();
+        // Live, the base is the picture redrawn with only its furniture: one whole drawing, so
+        // nothing is patched. The demo has no model, so it fills the places from around them.
+        job.run('base', live ? undefined : 'Demo: filled from around them, no model call');
+        const result = live
+          ? await meta.illustrate(
+              [dataUrl],
+              basePrompt(wanted.map((w) => w.f.label)),
+              `${width}x${height}`,
+              job.signal,
+            )
+          : null;
+        const base = result
+          ? await keyBackground(
+              await sharp(result.output).resize(width, height, { fit: 'fill' }).png().toBuffer(),
+            )
+          : await fillLocally(png, await liftedMask(lifted, width, height), width, height);
+        const asset = store.asset(id, 'base.png', base);
+        job.check();
+        await job.done(
+          'base',
+          live ? 'Only the furniture, the fixtures left out' : 'The places they leave, filled',
+          await sharp(base).flatten({ background: '#0a0c12' }).png().toBuffer(),
+          PREVIEW,
         );
-      // Live, the base is the picture redrawn with only its furniture: one whole drawing, so
-      // nothing is patched. The demo has no model, so it fills the places from around them.
-      const result = live
-        ? await meta.illustrate(
-            [dataUrl],
-            basePrompt(wanted.map((w) => w.f.label)),
-            `${width}x${height}`,
-          )
-        : null;
-      const base = result
-        ? await keyBackground(
-            await sharp(result.output).resize(width, height, { fit: 'fill' }).png().toBuffer(),
-          )
-        : await fillLocally(png, await liftedMask(lifted, width, height), width, height);
-      const asset = store.asset(id, 'base.png', base);
+        return {
+          ...(result ?? { model: 'demo', requestId: null, usage: null }),
+          output: { base: asset, sprites: sprites.length, skipped },
+          assets: [asset, ...assets],
+        };
+      });
+      const layers = {
+        base: (drawn.output as { base: string }).base,
+        sprites,
+        createdAt: new Date().toISOString(),
+      };
+      job.check();
+      job.run('save');
+      store.saveMemory({ ...store.memory(mode), illustration: { ...picture, layers } });
+      await job.done('save', 'Drag a fixture on the picture to move it');
+      job.finish();
       return {
-        ...(result ?? { model: 'demo', requestId: null, usage: null }),
-        output: { base: asset, sprites: sprites.length, skipped },
-        assets: [asset, ...assets],
+        memory: store.memory(mode),
+        run: drawn,
+        finder,
+        segment,
+        lifted: sprites.length,
+        skipped,
       };
     });
-    const layers = {
-      base: (drawn.output as { base: string }).base,
-      sprites,
-      createdAt: new Date().toISOString(),
-    };
-    store.saveMemory({ ...store.memory(mode), illustration: { ...picture, layers } });
-    return {
-      memory: store.memory(mode),
-      run: drawn,
-      finder,
-      segment,
-      lifted: sprites.length,
-      skipped,
-    };
   });
   /** Put the fixtures back into the picture: it is shown whole again. */
   app.post('/api/scene/separate/undo', async (request) => {

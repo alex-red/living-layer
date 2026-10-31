@@ -29,7 +29,7 @@ import {
   type SurfacePin,
   type ZoneRect,
 } from '@livinglayer/domain';
-import { api } from '../api';
+import { api, type AiFollow } from '../api';
 import { ZoomPan } from '../ZoomPan';
 import type { BaseRect } from './BaseHandles';
 import type { Tool } from '../workspace/ToolStrip';
@@ -118,6 +118,7 @@ export function IsoView({
   onRun,
   onMemory,
   onUpload,
+  follow,
   onMessage,
   onError,
 }: {
@@ -177,6 +178,8 @@ export function IsoView({
   onMemory: (memory: DeskMemory) => void;
   /** Prepare a chosen photo as the current frame, and return it. */
   onUpload?: (file: File) => Promise<string | undefined>;
+  /** Follow long AI calls step by step in the AI dialog. */
+  follow?: AiFollow;
   onMessage: (message: string) => void;
   onError: (error: string | Error) => void;
 }) {
@@ -397,6 +400,7 @@ export function IsoView({
             memory={memory}
             onDrafted={onRun}
             onUpload={onUpload}
+            {...(follow ? { follow } : {})}
             onPhotoSaved={(m) => {
               onMemory(m);
               onKind('custom');

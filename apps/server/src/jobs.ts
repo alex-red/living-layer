@@ -158,6 +158,19 @@ export class JobTracker {
   }
 }
 
+/** Run a job's steps; a stop ends it with a plain message, a failure shows on the step that failed. */
+export async function following<T>(job: JobTracker, steps: () => Promise<T>): Promise<T> {
+  try {
+    const result = await steps();
+    job.check();
+    return result;
+  } catch (error) {
+    if (job.stopped) throw stoppedError();
+    job.fail(error instanceof Error ? error.message : 'It failed.');
+    throw error;
+  }
+}
+
 /** The error a stopped job's request ends with. */
 export function stoppedError() {
   return new LabError('stopped', 'Stopped. Nothing was saved.', 409);

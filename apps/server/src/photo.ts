@@ -20,6 +20,7 @@ import {
   type Mode,
   type PhotoDraft,
   type PhotoInventory,
+  type PhotoLayout,
   type SavedItem,
   type Segmentation,
   type Usage,
@@ -31,6 +32,31 @@ import { maskedCrop, validateImage } from './images.js';
 import { demoPhoto, type Runner } from './item.js';
 import { SPARK_BUDGET, type MetaAdapter } from './meta.js';
 import type { EvidenceStore } from './store.js';
+import { following, jobs } from './jobs.js';
+import { listedPreview, outlinedPreview } from './scan-preview.js';
+
+/** How wide a step's picture is kept, so it reads in the dialog. */
+const PREVIEW = 640;
+/** A photo draft's steps, as the page follows them; Spark's check only when asked for. */
+const draftSteps = (check: boolean) => [
+  { id: 'photo', label: 'Send the photo' },
+  { id: 'list', label: 'Spark lists what is in the room' },
+  { id: 'outline', label: 'SAM outlines each thing' },
+  { id: 'layout', label: 'Measure the room from the outlines' },
+  ...(check ? [{ id: 'check', label: 'Spark compares the drafted room with the photo' }] : []),
+  { id: 'models', label: 'Fit a model to each object' },
+];
+/** The drafted room drawn from the photo's camera, or null when it has none. */
+async function renderLayout(layout: PhotoLayout, frame: { width: number }) {
+  const view = layout.camera ? flatView(layout, Math.min(960, frame.width)) : null;
+  return view
+    ? sharp(Buffer.from(view.rgba), {
+        raw: { width: view.width, height: view.height, channels: 4 },
+      })
+        .png()
+        .toBuffer()
+    : null;
+}
 
 /** The most a live photo draft can cost: the inventory and SAM, then the check and SAM again. */
 const photoDraftCeiling = (check: boolean) =>
@@ -103,6 +129,8 @@ export function photoRoutes(
           mode: modeSchema,
           imageDataUrl: z.string().max(7_000_000).optional(),
           check: z.boolean().optional(),
+          /** The page's id for following the steps as they go. */
+          jobId: z.string().uuid().optional(),
         })
         .strict(),
       request.body,
@@ -118,195 +146,274 @@ export function photoRoutes(
         `A photo draft could cost up to $${photoDraftCeiling(Boolean(input.check)).toFixed(3)}, which would pass today's Meta spending limit. Raise the limit in Setup, or wait for the next UTC day.`,
         429,
       );
-    return run('photo', mode, async (id) => {
-      const assists: string[] = [];
-      let usage: Usage | null = null;
-      let model: string | undefined;
-      let requestId: string | null = null;
-      const image = live ? await validateImage(input.imageDataUrl) : null;
-      const photo = image ? image.bytes : await demoPhoto();
-      const frame = image
-        ? { width: image.width, height: image.height }
-        : { width: 960, height: 640 };
-      const assets = image ? [store.asset(id, 'source.png', image.bytes)] : [];
+    const job = jobs.start(input.jobId, draftSteps(Boolean(input.check)), {
+      title: 'Drafting the room',
+      mode,
+    });
+    return following(job, async () => {
+      const drafted = await run('photo', mode, async (id) => {
+        job.link(id);
+        job.run('photo');
+        const assists: string[] = [];
+        let usage: Usage | null = null;
+        let model: string | undefined;
+        let requestId: string | null = null;
+        const image = live ? await validateImage(input.imageDataUrl) : null;
+        const photo = image ? image.bytes : await demoPhoto();
+        const frame = image
+          ? { width: image.width, height: image.height }
+          : { width: 960, height: 640 };
+        const assets = image ? [store.asset(id, 'source.png', image.bytes)] : [];
+        await job.done(
+          'photo',
+          image ? `${image.width} × ${image.height}` : 'Demo: the illustrated desk, no model calls',
+          photo,
+          PREVIEW,
+        );
+        job.check();
 
-      // 1. What is there, roughly where.
-      let inventory: PhotoInventory;
-      if (image) {
-        const result = await meta.photoInventory(image.dataUrl);
-        inventory = cleanInventory(result.output);
-        usage = addUsage(usage, result.usage);
-        model = result.model;
-        requestId = result.requestId;
-      } else inventory = cleanInventory(demoPhotoInventory);
-      assists.push(`Spark: ${inventory.things.length} things. ${inventory.summary}`);
-
-      // 2. One SAM call outlines every box.
-      const prompts = inventory.things
-        .map((t, i) => ({ thing: t.id, id: i + 1, box: promptBox(t, frame) }))
-        .filter((p): p is typeof p & { box: NonNullable<typeof p.box> } => Boolean(p.box));
-      let segmentation: Segmentation;
-      let raw: string;
-      if (image) {
-        const result = await meta.segmentBoxes(image.dataUrl, prompts, frame.width, frame.height);
-        // SAM bills per image through its own segment run, not by tokens here.
-        segmentation = result.output;
-        raw = result.raw;
-      } else {
-        segmentation = await demoPhotoSegmentation();
-        raw = 'Synthetic box-prompted segmentation of the illustrated desk.';
-      }
-      const detections: Record<string, string> = {};
-      for (const p of prompts)
-        if (segmentation.detections.some((d) => d.objectId === String(p.id)))
-          detections[p.thing] = String(p.id);
-      assists.push(
-        `SAM: ${Object.keys(detections).length} of ${inventory.things.length} outlined in one call`,
-      );
-      let segmentRunId = saveSegment(mode, segmentation, photo, image ? raw : null, live);
-
-      // 3. Measure the scene from the masks.
-      let layout = layoutPhoto({ inventory, segmentation, detections, refine: true });
-      assists.push(
-        layout.pin
-          ? `Pinned the ${layout.things.find((t) => t.id === layout.surfaceThing)?.label} from its mask (camera ${Math.round(layout.camera!.elevation)}° up)`
-          : 'No surface to pin: things are spread by where they are in the photo',
-      );
-
-      // 4. Spark looks at the drawing beside the photo.
-      let check: PhotoDraft['check'] = null;
-      if (input.check && layout.camera) {
-        const view = flatView(layout, Math.min(960, frame.width));
-        if (view) {
-          const png = await sharp(Buffer.from(view.rgba), {
-            raw: { width: view.width, height: view.height, channels: 4 },
-          })
-            .png()
-            .toBuffer();
-          assets.push(store.asset(id, 'scene-render.png', png));
-          const listing = layout.things
-            .filter((t) => t.status === 'placed' || t.status === 'object')
-            .map((t) => `${t.id} (${t.label}, ${t.as})`)
-            .join('; ');
-          const result = image
-            ? await meta.photoCheck(
-                image.dataUrl,
-                `data:image/png;base64,${png.toString('base64')}`,
-                listing,
-              )
-            : { output: demoPhotoCheck, usage: null };
+        // 1. What is there, roughly where.
+        job.run('list');
+        let inventory: PhotoInventory;
+        if (image) {
+          const result = await meta.photoInventory(image.dataUrl, job.signal);
+          inventory = cleanInventory(result.output);
           usage = addUsage(usage, result.usage);
-          const added: string[] = [];
-          let kept = false;
-          const missing = cleanInventory({
-            kind: inventory.kind,
-            things: [...inventory.things, ...result.output.missing],
-            summary: inventory.summary,
-          }).things.slice(inventory.things.length);
-          // Anything missing gets one more SAM call, only if today's spending limit has room.
-          if (image && missing.length && meta.canAfford(META_PRICES.samPerImage)) {
-            const more = missing
-              .map((t, i) => ({
-                thing: t.id,
-                id: prompts.length + i + 1,
-                box: promptBox(t, frame),
-              }))
-              .filter((p): p is typeof p & { box: NonNullable<typeof p.box> } => Boolean(p.box));
-            if (more.length) {
-              const extra = await meta.segmentBoxes(image.dataUrl, more, frame.width, frame.height);
-              const nextInventory = { ...inventory, things: [...inventory.things, ...missing] };
-              const nextSegmentation = {
-                ...segmentation,
-                detections: [...segmentation.detections, ...extra.output.detections],
-              };
-              const nextDetections = { ...detections };
-              for (const p of more)
-                if (extra.output.detections.some((d) => d.objectId === String(p.id))) {
-                  nextDetections[p.thing] = String(p.id);
-                  added.push(p.thing);
+          model = result.model;
+          requestId = result.requestId;
+        } else inventory = cleanInventory(demoPhotoInventory);
+        assists.push(`Spark: ${inventory.things.length} things. ${inventory.summary}`);
+        job.check();
+        await job.done(
+          'list',
+          `${inventory.things.length} things. ${inventory.summary}`,
+          await listedPreview(photo, frame, inventory.things),
+          PREVIEW,
+        );
+        job.run('outline');
+
+        // 2. One SAM call outlines every box.
+        const prompts = inventory.things
+          .map((t, i) => ({ thing: t.id, id: i + 1, box: promptBox(t, frame) }))
+          .filter((p): p is typeof p & { box: NonNullable<typeof p.box> } => Boolean(p.box));
+        let segmentation: Segmentation;
+        let raw: string;
+        if (image) {
+          const result = await meta.segmentBoxes(
+            image.dataUrl,
+            prompts,
+            frame.width,
+            frame.height,
+            job.signal,
+          );
+          // SAM bills per image through its own segment run, not by tokens here.
+          segmentation = result.output;
+          raw = result.raw;
+        } else {
+          segmentation = await demoPhotoSegmentation();
+          raw = 'Synthetic box-prompted segmentation of the illustrated desk.';
+        }
+        const detections: Record<string, string> = {};
+        for (const p of prompts)
+          if (segmentation.detections.some((d) => d.objectId === String(p.id)))
+            detections[p.thing] = String(p.id);
+        assists.push(
+          `SAM: ${Object.keys(detections).length} of ${inventory.things.length} outlined in one call`,
+        );
+        job.check();
+        await job.done(
+          'outline',
+          `${Object.keys(detections).length} of ${inventory.things.length} outlined`,
+          await outlinedPreview(
+            photo,
+            frame,
+            prompts.map((p) => inventory.things.find((t) => t.id === p.thing)?.label ?? ''),
+            prompts.map(
+              (p) => segmentation.detections.find((d) => d.objectId === String(p.id)) ?? null,
+            ),
+          ),
+          PREVIEW,
+        );
+        let segmentRunId = saveSegment(mode, segmentation, photo, image ? raw : null, live);
+
+        // 3. Measure the scene from the masks.
+        job.run('layout');
+        let layout = layoutPhoto({ inventory, segmentation, detections, refine: true });
+        assists.push(
+          layout.pin
+            ? `Pinned the ${layout.things.find((t) => t.id === layout.surfaceThing)?.label} from its mask (camera ${Math.round(layout.camera!.elevation)}° up)`
+            : 'No surface to pin: things are spread by where they are in the photo',
+        );
+        const drawn = await renderLayout(layout, frame);
+        await job.done(
+          'layout',
+          `${layout.things.filter((t) => t.status === 'placed').length} placed. ${assists.at(-1)}`,
+          drawn ?? undefined,
+          PREVIEW,
+        );
+        job.check();
+
+        // 4. Spark looks at the drawing beside the photo.
+        let check: PhotoDraft['check'] = null;
+        if (input.check) job.run('check');
+        if (input.check && layout.camera) {
+          const png = drawn;
+          if (png) {
+            assets.push(store.asset(id, 'scene-render.png', png));
+            const listing = layout.things
+              .filter((t) => t.status === 'placed' || t.status === 'object')
+              .map((t) => `${t.id} (${t.label}, ${t.as})`)
+              .join('; ');
+            const result = image
+              ? await meta.photoCheck(
+                  image.dataUrl,
+                  `data:image/png;base64,${png.toString('base64')}`,
+                  listing,
+                  job.signal,
+                )
+              : { output: demoPhotoCheck, usage: null };
+            usage = addUsage(usage, result.usage);
+            const added: string[] = [];
+            let kept = false;
+            const missing = cleanInventory({
+              kind: inventory.kind,
+              things: [...inventory.things, ...result.output.missing],
+              summary: inventory.summary,
+            }).things.slice(inventory.things.length);
+            // Anything missing gets one more SAM call, only if today's spending limit has room.
+            if (image && missing.length && meta.canAfford(META_PRICES.samPerImage)) {
+              const more = missing
+                .map((t, i) => ({
+                  thing: t.id,
+                  id: prompts.length + i + 1,
+                  box: promptBox(t, frame),
+                }))
+                .filter((p): p is typeof p & { box: NonNullable<typeof p.box> } => Boolean(p.box));
+              if (more.length) {
+                const extra = await meta.segmentBoxes(
+                  image.dataUrl,
+                  more,
+                  frame.width,
+                  frame.height,
+                  job.signal,
+                );
+                const nextInventory = { ...inventory, things: [...inventory.things, ...missing] };
+                const nextSegmentation = {
+                  ...segmentation,
+                  detections: [...segmentation.detections, ...extra.output.detections],
+                };
+                const nextDetections = { ...detections };
+                for (const p of more)
+                  if (extra.output.detections.some((d) => d.objectId === String(p.id))) {
+                    nextDetections[p.thing] = String(p.id);
+                    added.push(p.thing);
+                  }
+                const next = layoutPhoto({
+                  inventory: nextInventory,
+                  segmentation: nextSegmentation,
+                  detections: nextDetections,
+                  refine: true,
+                });
+                // Keep the additions only if the scene still matches the photo as well.
+                kept = added.length > 0 && (next.score ?? 0) >= (layout.score ?? 0) - 0.02;
+                if (kept) {
+                  inventory = nextInventory;
+                  segmentation = nextSegmentation;
+                  Object.assign(detections, nextDetections);
+                  layout = next;
+                  // A new segment run holds every mask, so a sighting can point at any of them.
+                  raw = `${raw}\n${extra.raw}`;
+                  segmentRunId = saveSegment(mode, segmentation, photo, raw, live);
                 }
-              const next = layoutPhoto({
-                inventory: nextInventory,
-                segmentation: nextSegmentation,
-                detections: nextDetections,
-                refine: true,
-              });
-              // Keep the additions only if the scene still matches the photo as well.
-              kept = added.length > 0 && (next.score ?? 0) >= (layout.score ?? 0) - 0.02;
-              if (kept) {
-                inventory = nextInventory;
-                segmentation = nextSegmentation;
-                Object.assign(detections, nextDetections);
-                layout = next;
-                // A new segment run holds every mask, so a sighting can point at any of them.
-                raw = `${raw}\n${extra.raw}`;
-                segmentRunId = saveSegment(mode, segmentation, photo, raw, live);
               }
             }
+            check = { ...result.output, kept, added: kept ? added : [] };
+            assists.push(
+              `Spark check (${kept ? `added ${added.join(', ')}` : 'nothing added'}): ${result.output.note}`,
+            );
           }
-          check = { ...result.output, kept, added: kept ? added : [] };
-          assists.push(
-            `Spark check (${kept ? `added ${added.join(', ')}` : 'nothing added'}): ${result.output.note}`,
+        }
+        if (input.check) {
+          job.check();
+          await job.done(
+            'check',
+            check
+              ? `${check.kept ? `Added ${check.added.join(', ')}. ` : 'Nothing added. '}${check.note}`
+              : 'No drawing to compare: the room has no pinned surface',
+            check?.kept ? ((await renderLayout(layout, frame)) ?? undefined) : undefined,
+            PREVIEW,
           );
         }
-      }
 
-      // 5. A model for each object, fitted to its own mask.
-      const items: Record<string, SavedItem> = {};
-      const objects = layout.things.filter((t) => t.status === 'object').slice(0, MAX_FITTED);
-      for (const t of objects) {
-        const detection = segmentation.detections.find((d) => d.objectId === t.detectionId);
-        if (!detection) continue;
-        try {
-          const crop = await maskedCrop(photo, detection);
-          const archetype = isArchetype(t.as) ? t.as : archetypeOf(t.label);
-          const fitted = fitItem({
-            rgba: crop.rgba,
-            width: crop.width,
-            height: crop.height,
-            label: t.label,
-            archetype,
-            material: null,
-            // The illustration has no real camera; a photo's comes from the pin.
-            elevation: live ? (layout.camera?.elevation ?? null) : null,
-          });
-          const cropAsset = store.asset(id, `crop-${t.id}.png`, crop.png);
-          items[t.id] = {
-            ...uniqueParts(fitted.item),
-            label: t.label,
-            source: live ? 'sampled' : 'demo',
-            segmentRunId,
-            swatches: fitted.swatches,
-            updatedAt: new Date().toISOString(),
-            fit: {
-              archetype: fitted.archetype,
-              params: fitted.params,
-              iou: fitted.score.iou,
-              deltaE: fitted.score.deltaE,
-              elevation: fitted.elevation,
-              views: 1,
-              crop: cropAsset,
-              assists: ['Fitted from the photo draft'],
-            },
-          };
-        } catch {
-          // A crop too small to fit stays without a model; it can be drafted later.
+        // 5. A model for each object, fitted to its own mask.
+        job.run('models');
+        const items: Record<string, SavedItem> = {};
+        const objects = layout.things.filter((t) => t.status === 'object').slice(0, MAX_FITTED);
+        for (const t of objects) {
+          const detection = segmentation.detections.find((d) => d.objectId === t.detectionId);
+          if (!detection) continue;
+          try {
+            const crop = await maskedCrop(photo, detection);
+            job.run('models', t.label);
+            await job.show('models', crop.png);
+            const archetype = isArchetype(t.as) ? t.as : archetypeOf(t.label);
+            const fitted = fitItem({
+              rgba: crop.rgba,
+              width: crop.width,
+              height: crop.height,
+              label: t.label,
+              archetype,
+              material: null,
+              // The illustration has no real camera; a photo's comes from the pin.
+              elevation: live ? (layout.camera?.elevation ?? null) : null,
+            });
+            const cropAsset = store.asset(id, `crop-${t.id}.png`, crop.png);
+            items[t.id] = {
+              ...uniqueParts(fitted.item),
+              label: t.label,
+              source: live ? 'sampled' : 'demo',
+              segmentRunId,
+              swatches: fitted.swatches,
+              updatedAt: new Date().toISOString(),
+              fit: {
+                archetype: fitted.archetype,
+                params: fitted.params,
+                iou: fitted.score.iou,
+                deltaE: fitted.score.deltaE,
+                elevation: fitted.elevation,
+                views: 1,
+                crop: cropAsset,
+                assists: ['Fitted from the photo draft'],
+              },
+            };
+          } catch {
+            // A crop too small to fit stays without a model; it can be drafted later.
+          }
         }
-      }
-      if (objects.length)
-        assists.push(`Fitted ${Object.keys(items).length} object models locally, no model calls`);
+        if (objects.length)
+          assists.push(`Fitted ${Object.keys(items).length} object models locally, no model calls`);
+        job.check();
+        await job.done(
+          'models',
+          objects.length
+            ? `${Object.keys(items).length} of ${objects.length} objects modelled, no model calls`
+            : 'No objects to model',
+        );
 
-      const output: PhotoDraft = {
-        inventory,
-        segmentRunId,
-        segmentation,
-        detections,
-        layout,
-        items,
-        check,
-        assists,
-      };
-      return { output, assets, usage, model, requestId };
+        const output: PhotoDraft = {
+          inventory,
+          segmentRunId,
+          segmentation,
+          detections,
+          layout,
+          items,
+          check,
+          assists,
+        };
+        return { output, assets, usage, model, requestId };
+      });
+      job.finish();
+      return drafted;
     });
   });
 }

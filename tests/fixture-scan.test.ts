@@ -458,6 +458,31 @@ async function setup(env: Record<string, string> = {}, fetcher: Fetcher = mock<F
 type Scanned = { run: EvidenceRun; mapped: MappedThing[]; memory: DeskMemory };
 
 describe('scanning the demo desk', () => {
+  it('reports each step with a picture while the page follows it, and keeps it to review', async () => {
+    const s = await setup();
+    const jobId = crypto.randomUUID();
+    const res = await s.post('fixtures/scan', { jobId });
+    expect(res.statusCode, res.body).toBe(200);
+    const job = (await s.app.inject(`/api/jobs/${jobId}`)).json<Job>();
+    expect(job).toMatchObject({ title: 'Scanning and mapping', mode: 'demo', outcome: 'done' });
+    expect(job.steps.map((x) => [x.id, x.state])).toEqual([
+      ['photo', 'done'],
+      ['list', 'done'],
+      ['outline', 'done'],
+      ['model', 'done'],
+      ['map', 'done'],
+      ['save', 'done'],
+    ]);
+    for (const id of ['photo', 'list', 'outline', 'map'])
+      expect(job.steps.find((x) => x.id === id)!.image).toMatch(/^data:image\/webp;base64,/);
+    expect(job.steps.find((x) => x.id === 'list')!.detail).toBe(
+      '2 things: green book, sage bottle',
+    );
+    expect(job.steps.find((x) => x.id === 'map')!.detail).toBe('2 added');
+    expect(job.runIds).toEqual([res.json<Scanned>().run.id]);
+    const history = (await s.app.inject('/api/jobs')).json<Job[]>();
+    expect(history.map((j) => j.id)).toContain(jobId);
+  });
   it('adds what stays put with models fitted to their outlines, then finds it there', async () => {
     const s = await setup();
     const first = await s.post('fixtures/scan');
@@ -682,9 +707,17 @@ describe('scanning the demo desk', () => {
       fixture: { ...rest, model: { label: model.label, parts: model.parts } },
     });
     expect(saved.statusCode, saved.body).toBe(200);
-    const res = await s.post('scene/separate');
+    const jobId = crypto.randomUUID();
+    const res = await s.post('scene/separate', { jobId });
     expect(res.statusCode, res.body).toBe(200);
     const out = res.json<{ memory: DeskMemory; lifted: number; run: EvidenceRun }>();
+    // Followed step by step, with pictures of what was found and cut.
+    const job = (await s.app.inject(`/api/jobs/${jobId}`)).json<Job>();
+    expect(job).toMatchObject({ title: 'Lifting the fixtures', outcome: 'done' });
+    expect(job.steps.every((x) => x.state === 'done')).toBe(true);
+    for (const id of ['find', 'outline', 'base'])
+      expect(job.steps.find((x) => x.id === id)!.image).toBeTruthy();
+    expect(job.runIds).toContain(out.run.id);
     const picture = out.memory.illustration!;
     const fixtures = out.memory.fixtures!.filter((f) => f.scene === 'custom');
     expect(out.lifted).toBeGreaterThan(0);

@@ -632,6 +632,7 @@ export function Canvas() {
               if (m.scene && lab.isoPanel === 'scene') lab.select({ kind: 'room' });
             }}
             onUpload={lab.upload}
+            follow={lab.followAi}
             onMessage={(text) => {
               lab.setMessage(text);
               void lab.refresh();

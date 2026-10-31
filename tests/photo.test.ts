@@ -33,6 +33,7 @@ import {
   unprojectPoint,
   type DeskMemory,
   type EvidenceRun,
+  type Job,
   type PhotoInventory,
   type Point,
   type Quad,
@@ -409,10 +410,24 @@ describe('photo routes, offline', () => {
   });
   it('drafts the illustrated desk, then saves the scene, the pin and the ticked objects with their models', async () => {
     const s = await setup();
-    const drafted = await s.post('scene/from-photo', { check: true });
+    const jobId = crypto.randomUUID();
+    const drafted = await s.post('scene/from-photo', { check: true, jobId });
     expect(drafted.statusCode, drafted.body).toBe(200);
     const run = drafted.json<EvidenceRun<PhotoDraft>>();
     expect(run.kind).toBe('photo');
+    // Followed step by step, Spark's check among them since it was asked for.
+    const job = (await s.app.inject(`/api/jobs/${jobId}`)).json<Job>();
+    expect(job).toMatchObject({ title: 'Drafting the room', outcome: 'done', runIds: [run.id] });
+    expect(job.steps.map((x) => [x.id, x.state])).toEqual([
+      ['photo', 'done'],
+      ['list', 'done'],
+      ['outline', 'done'],
+      ['layout', 'done'],
+      ['check', 'done'],
+      ['models', 'done'],
+    ]);
+    for (const id of ['photo', 'list', 'outline', 'layout'])
+      expect(job.steps.find((x) => x.id === id)!.image).toBeTruthy();
     const { layout, items } = run.output;
     // The illustration is all desktop, so the pin is the frame itself.
     expect(layout.pin!.corners).toEqual([

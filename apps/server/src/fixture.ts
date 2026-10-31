@@ -49,7 +49,8 @@ import {
   type Usage,
 } from '@livinglayer/domain';
 import { LabError, parseInput } from './errors.js';
-import { jobs } from './jobs.js';
+import { following, jobs } from './jobs.js';
+import { listedPreview, outlinedPreview, placedPreview } from './scan-preview.js';
 import sharp from 'sharp';
 import {
   demoDeskThing,
@@ -85,6 +86,31 @@ const SCULPT_STEPS = [
   { id: 'keep', label: 'Keep the better draft' },
   { id: 'save', label: 'Save it' },
 ];
+/** A scan's steps, as the page follows them. */
+const SCAN_STEPS = [
+  { id: 'photo', label: 'Send the photo' },
+  { id: 'list', label: 'Spark lists what stays put' },
+  { id: 'outline', label: 'SAM outlines each one' },
+  { id: 'model', label: 'Fit a model to each outline' },
+  { id: 'map', label: 'Place them through the pin' },
+  { id: 'save', label: 'Save the fixtures' },
+];
+/** How wide a scan step's picture is kept, so it reads in the dialog. */
+const SCAN_PREVIEW = 640;
+/** What a scan did, in a line: moved, added and skipped. */
+function mappedSummary(mapped: MappedThing[]): string {
+  const moved = mapped.filter((m) => m.moveTo).length;
+  const added = mapped.filter((m) => m.fixture).length;
+  const kept = mapped.filter((m) => m.match === 'existing' && !m.moveTo).length;
+  const skipped = mapped.length - moved - added - kept;
+  const parts = [
+    added && `${added} added`,
+    moved && `${moved} moved`,
+    kept && `${kept} left where you put ${kept === 1 ? 'it' : 'them'}`,
+    skipped && `${skipped} skipped`,
+  ].filter(Boolean);
+  return parts.length ? parts.join(', ') : 'Nothing to place';
+}
 const sumUsage = (a: Usage | null, b: Usage | null | undefined): Usage | null =>
   !b
     ? a
@@ -161,13 +187,14 @@ async function outlinedThings(
   dataUrl: string | null,
   runId: string,
   assets: string[],
+  signal?: AbortSignal,
 ): Promise<(Detection | null)[]> {
   const boxes = scan.things.map((t) => promptBox(t, frame));
   let detections: Detection[];
   if (dataUrl) {
     const prompts = boxes.flatMap((box, i) => (box ? [{ id: i + 1, box }] : []));
     if (!prompts.length) return scan.things.map(() => null);
-    const outlined = await meta.segmentBoxes(dataUrl, prompts, frame.width, frame.height);
+    const outlined = await meta.segmentBoxes(dataUrl, prompts, frame.width, frame.height, signal);
     assets.push(store.asset(runId, 'sam-output.txt', outlined.raw));
     detections = outlined.output.detections;
     return boxes.map((_, i) => pickLargest(detections.filter((d) => d.objectId === String(i + 1))));
@@ -454,7 +481,7 @@ export function fixtureRoutes(
    * illustrated desk, which fills the frame, with no model call.
    */
   app.post('/api/fixtures/scan', async (request) => {
-    const { mode, imageDataUrl, scene, replace } = parseInput(
+    const { mode, imageDataUrl, scene, replace, jobId } = parseInput(
       z
         .object({
           mode: modeSchema,
@@ -463,6 +490,8 @@ export function fixtureRoutes(
           scene: z.union([isoSceneKindSchema, z.literal('custom')]).optional(),
           /** Move fixtures placed by hand too, to where the scan finds them. */
           replace: z.boolean().optional(),
+          /** The page's id for following the steps as they go. */
+          jobId: z.string().uuid().optional(),
         })
         .strict(),
       request.body,
@@ -492,174 +521,238 @@ export function fixtureRoutes(
         `A scan could cost up to $${ceiling.toFixed(3)}, which would pass today's Meta spending limit. Raise the limit in Setup, or wait for the next UTC day.`,
         429,
       );
-    const image = live
-      ? await validateImage(imageDataUrl ?? (await roomPhoto(before, store)))
-      : null;
-    // Things are mapped through the pin by where they are in the frame, so the
-    // photo must be the shape of the one the pin was set on.
-    if (
-      image &&
-      Math.abs(image.width / image.height - pin.frame.width / pin.frame.height) >
-        0.02 * (pin.frame.width / pin.frame.height)
-    )
-      throw new LabError(
-        'scan_frame',
-        `The pin was set on a ${pin.frame.width}×${pin.frame.height} frame, and this photo is ${image.width}×${image.height}. Scan a frame from the pinned camera, or pin the surface again on this photo.`,
-        409,
+    const job = jobs.start(jobId, SCAN_STEPS, { title: 'Scanning and mapping', mode });
+    return following(job, async () => {
+      job.run('photo');
+      const image = live
+        ? await validateImage(imageDataUrl ?? (await roomPhoto(before, store)))
+        : null;
+      // Things are mapped through the pin by where they are in the frame, so the
+      // photo must be the shape of the one the pin was set on.
+      if (
+        image &&
+        Math.abs(image.width / image.height - pin.frame.width / pin.frame.height) >
+          0.02 * (pin.frame.width / pin.frame.height)
+      )
+        throw new LabError(
+          'scan_frame',
+          `The pin was set on a ${pin.frame.width}×${pin.frame.height} frame, and this photo is ${image.width}×${image.height}. Scan a frame from the pinned camera, or pin the surface again on this photo.`,
+          409,
+        );
+      const tracked = [before.object?.label, ...(before.others ?? []).map((o) => o.label)].filter(
+        (l): l is string => Boolean(l),
       );
-    const tracked = [before.object?.label, ...(before.others ?? []).map((o) => o.label)].filter(
-      (l): l is string => Boolean(l),
-    );
-    // What each fitted model was fitted to, by its place in the scan.
-    const fits: ({ fit: ItemFitRecord; swatches: Swatch[] } | undefined)[] = [];
-    const event = await run('fixture', mode, async (id) => {
-      const result = image
-        ? await meta.fixtureScan(image.dataUrl, tracked)
-        : { output: demoFixtureScan, model: 'demo', requestId: null, usage: null };
-      const scan: FixtureScan = result.output;
-      const assets = image ? [store.asset(id, 'source.png', image.bytes)] : [];
-      // 2. SAM outlines every thing from Spark's box, in one call.
       const png = image ? image.bytes : await demoPhoto();
       const frame = image
         ? { width: image.width, height: image.height }
         : { width: 960, height: 640 };
-      const outlined = await outlinedThings(
-        { meta, store },
-        scan,
-        frame,
-        image?.dataUrl ?? null,
-        id,
-        assets,
+      await job.done(
+        'photo',
+        image ? `${image.width} × ${image.height}` : 'Demo: the illustrated desk, no model calls',
+        png,
+        SCAN_PREVIEW,
       );
-      // 3. Each outline is modelled by the fitter, with no further calls.
-      const memory = store.memory(mode);
-      const outlines: (Outline | null)[] = [];
-      const models: (IsoItem | null)[] = [];
-      for (const [i, thing] of scan.things.entries()) {
-        const detection = outlined[i];
-        outlines.push(detection ? outlineOf(detection, frame) : null);
-        if (!detection) {
-          models.push(null);
-          continue;
+      job.check();
+      // What each fitted model was fitted to, by its place in the scan.
+      const fits: ({ fit: ItemFitRecord; swatches: Swatch[] } | undefined)[] = [];
+      const event = await run('fixture', mode, async (id) => {
+        job.link(id);
+        // 1. Spark lists what stays put, each with a loose box.
+        job.run('list');
+        const result = image
+          ? await meta.fixtureScan(image.dataUrl, tracked, job.signal)
+          : { output: demoFixtureScan, model: 'demo', requestId: null, usage: null };
+        job.check();
+        const scan: FixtureScan = result.output;
+        await job.done(
+          'list',
+          scan.things.length
+            ? `${scan.things.length} thing${scan.things.length === 1 ? '' : 's'}: ${scan.things.map((t) => t.label).join(', ')}`
+            : 'Nothing that stays put',
+          await listedPreview(png, frame, scan.things),
+          SCAN_PREVIEW,
+        );
+        const assets = image ? [store.asset(id, 'source.png', image.bytes)] : [];
+        // 2. SAM outlines every thing from Spark's box, in one call.
+        job.run('outline');
+        const outlined = await outlinedThings(
+          { meta, store },
+          scan,
+          frame,
+          image?.dataUrl ?? null,
+          id,
+          assets,
+          job.signal,
+        );
+        job.check();
+        await job.done(
+          'outline',
+          `${outlined.filter(Boolean).length} of ${scan.things.length} outlined`,
+          await outlinedPreview(
+            png,
+            frame,
+            scan.things.map((t) => t.label),
+            outlined,
+          ),
+          SCAN_PREVIEW,
+        );
+        // 3. Each outline is modelled by the fitter, with no further calls.
+        job.run('model');
+        const memory = store.memory(mode);
+        const outlines: (Outline | null)[] = [];
+        const models: (IsoItem | null)[] = [];
+        for (const [i, thing] of scan.things.entries()) {
+          const detection = outlined[i];
+          outlines.push(detection ? outlineOf(detection, frame) : null);
+          if (!detection) {
+            models.push(null);
+            continue;
+          }
+          const crop = await maskedCrop(png, detection);
+          const cropAsset = store.asset(id, `item-crop-${i + 1}.png`, crop.png);
+          assets.push(cropAsset);
+          const label = thing.label.charAt(0).toUpperCase() + thing.label.slice(1);
+          job.run('model', `${label} (${i + 1} of ${scan.things.length})`);
+          await job.show('model', crop.png);
+          job.check();
+          const drafted = await draftModel(meta, store, id, {
+            crop,
+            cropUrl: `data:image/png;base64,${crop.png.toString('base64')}`,
+            label,
+            archetype: thing.archetype,
+            material: thing.material,
+            elevation: pinElevation(memory, mode),
+            live: false,
+            knownHeight: thing.sizeCm.h / Math.max(thing.sizeCm.w, thing.sizeCm.d),
+          });
+          models.push(drafted.item);
+          fits[i] = {
+            fit: {
+              archetype: drafted.fitted.archetype,
+              params: drafted.params,
+              iou: drafted.score.iou,
+              deltaE: drafted.score.deltaE,
+              elevation: drafted.fitted.elevation,
+              views: 1,
+              crop: cropAsset,
+              assists: [
+                `Scan: ${thing.archetype}, ${thing.material}, outlined by SAM`,
+                ...drafted.assists,
+              ],
+            },
+            swatches: drafted.fitted.swatches,
+          };
         }
-        const crop = await maskedCrop(png, detection);
-        const cropAsset = store.asset(id, `item-crop-${i + 1}.png`, crop.png);
-        assets.push(cropAsset);
-        const label = thing.label.charAt(0).toUpperCase() + thing.label.slice(1);
-        const drafted = await draftModel(meta, store, id, {
-          crop,
-          cropUrl: `data:image/png;base64,${crop.png.toString('base64')}`,
-          label,
-          archetype: thing.archetype,
-          material: thing.material,
-          elevation: pinElevation(memory, mode),
-          live: false,
-          knownHeight: thing.sizeCm.h / Math.max(thing.sizeCm.w, thing.sizeCm.d),
+        const fitted = models.filter(Boolean).length;
+        await job.done(
+          'model',
+          fitted
+            ? `${fitted} model${fitted === 1 ? '' : 's'} fitted to their outlines`
+            : 'No outlines to fit',
+        );
+        // 4. Each is mapped through the pin onto the scene.
+        job.run('map');
+        const library = memory.fixtures ?? [];
+        const mapped = mapScan({
+          scan,
+          pin,
+          scene: target,
+          custom: memory.scene ?? null,
+          library,
+          room: MAX_FIXTURES - library.length,
+          entities: entities(mode),
+          outlines,
+          models,
+          dismissed: memory.dismissed ?? [],
+          replace: Boolean(replace),
         });
-        models.push(drafted.item);
-        fits[i] = {
-          fit: {
-            archetype: drafted.fitted.archetype,
-            params: drafted.params,
-            iou: drafted.score.iou,
-            deltaE: drafted.score.deltaE,
-            elevation: drafted.fitted.elevation,
-            views: 1,
-            crop: cropAsset,
-            assists: [
-              `Scan: ${thing.archetype}, ${thing.material}, outlined by SAM`,
-              ...drafted.assists,
-            ],
-          },
-          swatches: drafted.fitted.swatches,
-        };
-      }
-      const library = memory.fixtures ?? [];
-      const mapped = mapScan({
-        scan,
-        pin,
-        scene: target,
-        custom: memory.scene ?? null,
-        library,
-        room: MAX_FIXTURES - library.length,
-        entities: entities(mode),
-        outlines,
-        models,
-        dismissed: memory.dismissed ?? [],
-        replace: Boolean(replace),
+        await job.done(
+          'map',
+          mappedSummary(mapped),
+          await placedPreview(png, frame, mapped),
+          SCAN_PREVIEW,
+        );
+        return { ...result, output: { scan, mapped }, assets };
       });
-      return { ...result, output: { scan, mapped }, assets };
-    });
-    const { mapped } = event.output as { scan: FixtureScan; mapped: MappedThing[] };
-    // Read again: the scan took a while, and the memory may have changed meanwhile.
-    const memory = store.memory(mode);
-    const library = memory.fixtures ?? [];
-    const now = new Date().toISOString();
-    // A link joins the other scene's group, named after its first fixture.
-    const linkWith = (m: MappedThing) => {
-      const other = m.linkTo ? library.find((f) => f.id === m.linkTo) : undefined;
-      if (!other) return undefined;
-      other.link = fixtureGroup(other);
-      return other.link;
-    };
-    for (const m of mapped) {
-      const here = m.match === 'existing' ? library.find((f) => f.id === m.fixtureId) : undefined;
-      // The scan placed it again, so it stays the scan's to place.
-      if (here && m.moveTo)
-        Object.assign(here, m.moveTo, {
-          scanned: true,
-          ...(m.seen ? { seen: m.seen } : {}),
-          updatedAt: now,
-        });
-      const fit = fits[mapped.indexOf(m)];
-      if (here && m.remodel && fit)
-        here.model = {
-          ...uniqueParts(m.remodel),
-          source: 'sampled',
-          segmentRunId: null,
-          swatches: fit.swatches,
-          updatedAt: now,
-          fit: fit.fit,
-        };
-      const link = here && linkWith(m);
-      if (here && link) {
-        for (const f of linkedFixtures(library, here)) f.link = link;
-        here.link = link;
+      // Stopped while the last step ran: nothing is saved.
+      job.check();
+      job.run('save');
+      const { mapped } = event.output as { scan: FixtureScan; mapped: MappedThing[] };
+      // Read again: the scan took a while, and the memory may have changed meanwhile.
+      const memory = store.memory(mode);
+      const library = memory.fixtures ?? [];
+      const now = new Date().toISOString();
+      // A link joins the other scene's group, named after its first fixture.
+      const linkWith = (m: MappedThing) => {
+        const other = m.linkTo ? library.find((f) => f.id === m.linkTo) : undefined;
+        if (!other) return undefined;
+        other.link = fixtureGroup(other);
+        return other.link;
+      };
+      for (const m of mapped) {
+        const here = m.match === 'existing' ? library.find((f) => f.id === m.fixtureId) : undefined;
+        // The scan placed it again, so it stays the scan's to place.
+        if (here && m.moveTo)
+          Object.assign(here, m.moveTo, {
+            scanned: true,
+            ...(m.seen ? { seen: m.seen } : {}),
+            updatedAt: now,
+          });
+        const fit = fits[mapped.indexOf(m)];
+        if (here && m.remodel && fit)
+          here.model = {
+            ...uniqueParts(m.remodel),
+            source: 'sampled',
+            segmentRunId: null,
+            swatches: fit.swatches,
+            updatedAt: now,
+            fit: fit.fit,
+          };
+        const link = here && linkWith(m);
+        if (here && link) {
+          for (const f of linkedFixtures(library, here)) f.link = link;
+          here.link = link;
+        }
       }
-    }
-    const added: Fixture[] = mapped.flatMap((m, i) => {
-      if (!m.fixture) return [];
-      const link = linkWith(m);
-      const fit = m.match === 'fitted' ? fits[i] : undefined;
-      const known = m.match === 'library' ? library.find((f) => f.id === m.fixtureId) : undefined;
-      const { model, ...rest } = m.fixture;
-      return [
-        {
-          ...rest,
-          id: randomUUID(),
-          model: known
-            ? { ...known.model, ...uniqueParts(model), updatedAt: now }
-            : {
-                ...uniqueParts(model),
-                source: fit ? 'sampled' : 'placeholder',
-                segmentRunId: null,
-                swatches: fit?.swatches ?? [],
-                updatedAt: now,
-                fit: fit?.fit ?? null,
-              },
-          state: null,
-          ...(link ? { link } : {}),
-          scanned: true,
-          ...(m.seen ? { seen: m.seen } : {}),
-          createdAt: now,
-          updatedAt: now,
-        },
-      ];
+      const added: Fixture[] = mapped.flatMap((m, i) => {
+        if (!m.fixture) return [];
+        const link = linkWith(m);
+        const fit = m.match === 'fitted' ? fits[i] : undefined;
+        const known = m.match === 'library' ? library.find((f) => f.id === m.fixtureId) : undefined;
+        const { model, ...rest } = m.fixture;
+        return [
+          {
+            ...rest,
+            id: randomUUID(),
+            model: known
+              ? { ...known.model, ...uniqueParts(model), updatedAt: now }
+              : {
+                  ...uniqueParts(model),
+                  source: fit ? 'sampled' : 'placeholder',
+                  segmentRunId: null,
+                  swatches: fit?.swatches ?? [],
+                  updatedAt: now,
+                  fit: fit?.fit ?? null,
+                },
+            state: null,
+            ...(link ? { link } : {}),
+            scanned: true,
+            ...(m.seen ? { seen: m.seen } : {}),
+            createdAt: now,
+            updatedAt: now,
+          },
+        ];
+      });
+      // A fixture saved meanwhile may have taken a place the scan counted on.
+      memory.fixtures = [...library, ...added].slice(0, MAX_FIXTURES);
+      store.saveMemory(memory);
+      await job.done(
+        'save',
+        `${memory.fixtures.length} fixture${memory.fixtures.length === 1 ? '' : 's'} in the lab`,
+      );
+      job.finish();
+      return { run: event, mapped, memory };
     });
-    // A fixture saved meanwhile may have taken a place the scan counted on.
-    memory.fixtures = [...library, ...added].slice(0, MAX_FIXTURES);
-    store.saveMemory(memory);
-    return { run: event, mapped, memory };
   });
   /**
    * Model a fixture in our own parts with Spark, starting from its current
@@ -760,7 +853,9 @@ export function fixtureRoutes(
           await shown(render),
           round === 1 ? sculptPrompt(fixture.label, size) : sculptCheckPrompt(fixture.label),
           JSON.stringify(toSculpt(from)),
+          job.signal,
         );
+        job.check();
         usage = sumUsage(usage, answer.usage);
         model = answer.model;
         requestId = answer.requestId;
@@ -813,37 +908,34 @@ export function fixtureRoutes(
         assets,
       };
     };
-    const event = await run('fixture', mode, async (id) => {
-      try {
-        return await sculptSteps(id);
-      } catch (error) {
-        // The step that was running shows what went wrong; the run records it too.
-        job.fail(error instanceof Error ? error.message : 'Modelling failed.');
-        throw error;
-      }
+    // A failure shows on the step that was running; the run records it too.
+    return following(job, async () => {
+      const event = await run('fixture', mode, (id) => sculptSteps(id));
+      // Stopped while the last step ran: nothing is saved.
+      job.check();
+      const out = event.output as { item: IsoItem };
+      const now = new Date().toISOString();
+      const saved: SavedItem = {
+        ...out.item,
+        source: 'spark',
+        segmentRunId: null,
+        swatches: fixture.model.swatches,
+        updatedAt: now,
+        fit: null,
+      };
+      // The same thing in its other scenes takes the same model.
+      const fresh = store.memory(mode);
+      fresh.fixtures = (fresh.fixtures ?? []).map((f) =>
+        group.has(f.id) ? { ...f, model: saved, updatedAt: now } : f,
+      );
+      store.saveMemory(fresh);
+      await job.done(
+        'save',
+        `Saved${group.size > 1 ? ` here and in ${group.size - 1} linked view${group.size > 2 ? 's' : ''}` : ''}`,
+      );
+      job.finish();
+      return { memory: fresh, run: event };
     });
-    const out = event.output as { item: IsoItem };
-    const now = new Date().toISOString();
-    const saved: SavedItem = {
-      ...out.item,
-      source: 'spark',
-      segmentRunId: null,
-      swatches: fixture.model.swatches,
-      updatedAt: now,
-      fit: null,
-    };
-    // The same thing in its other scenes takes the same model.
-    const fresh = store.memory(mode);
-    fresh.fixtures = (fresh.fixtures ?? []).map((f) =>
-      group.has(f.id) ? { ...f, model: saved, updatedAt: now } : f,
-    );
-    store.saveMemory(fresh);
-    await job.done(
-      'save',
-      `Saved${group.size > 1 ? ` here and in ${group.size - 1} linked view${group.size > 2 ? 's' : ''}` : ''}`,
-    );
-    job.finish();
-    return { memory: fresh, run: event };
   });
   /** Where a long job the page follows has got to. */
   app.get('/api/jobs/:id', async (request) => {
