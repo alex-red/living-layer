@@ -8,6 +8,7 @@
  *
  *   bun run bench:at HEAD                  room bench at HEAD, then this tree against it
  *   bun run bench:at main fit              the fit bench
+ *   bun run bench:at HEAD rooms            the captured real rooms (local, see draft.ts)
  *   bun run bench:at HEAD~3 room --set desk.topCm=4,5
  *                                          extra flags go to this tree's run
  *
@@ -21,7 +22,10 @@ import { join, resolve } from 'node:path';
 
 const root = resolve(import.meta.dir, '..');
 const [ref = 'HEAD', bench = 'room', ...rest] = process.argv.slice(2);
-if (!['fit', 'room'].includes(bench)) throw new Error(`Bench is "room" or "fit", not "${bench}"`);
+if (!['fit', 'room', 'rooms'].includes(bench))
+  throw new Error(`Bench is "room", "rooms" or "fit", not "${bench}"`);
+// Captured rooms are local, in this checkout's data folder: the other commit reads them here.
+process.env.ROOMS_DIR ??= join(resolve(root, process.env.DATA_DIR ?? '.data'), 'rooms');
 const script = `scripts/${bench}-bench.ts`;
 const run = (cmd: string, args: string[], cwd: string, quiet = false) => {
   const r = spawnSync(cmd, args, { cwd, stdio: quiet ? 'pipe' : 'inherit', encoding: 'utf8' });

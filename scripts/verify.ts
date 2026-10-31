@@ -63,6 +63,16 @@ const steps: Step[] = [
     look: (out) => /← below target$/m.test(out),
   },
   {
+    name: 'rooms bench',
+    cmd: ['bun', 'scripts/rooms-bench.ts'],
+    gate: false,
+    read: (out) =>
+      /No captured rooms/.test(out)
+        ? 'none captured'
+        : `${count(out, /← below target$/gm)} rooms moved`,
+    look: (out) => /← below target$/m.test(out),
+  },
+  {
     name: 'colour audit',
     cmd: ['bun', 'scripts/prop-sheet.ts', '--turns', '0', '--audit'],
     gate: false,
