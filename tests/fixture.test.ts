@@ -438,11 +438,9 @@ describe('fixture routes', () => {
 describe('drafting a fixture from a reference picture', () => {
   type Drafted = { run: EvidenceRun; draft: FixtureDraft };
   it('sizes a fixture by the scene’s own desk', () => {
-    expect(tileCm('desk')).toBe(20);
-    expect(tileCm('office')).toBe(24);
-    expect(tileCm('fridge')).toBe(25);
-    expect(sizeInTiles({ w: 6.5, d: 11.5, h: 4 }, 'desk')).toEqual({ w: 0.33, d: 0.57, h: 0.2 });
-    expect(sizeInTiles({ w: 1, d: 900, h: 4 }, 'desk')).toMatchObject({ w: 0.1, d: 8 });
+    expect(tileCm()).toBe(30);
+    expect(sizeInTiles({ w: 6.5, d: 11.5, h: 4 })).toEqual({ w: 0.22, d: 0.38, h: 0.13 });
+    expect(sizeInTiles({ w: 1, d: 900, h: 4 })).toMatchObject({ w: 0.1, d: 8 });
   });
   it('drafts the demo mouse offline, then saves it with its fit', async () => {
     const s = await setup();
@@ -453,7 +451,7 @@ describe('drafting a fixture from a reference picture', () => {
     expect(draft).toMatchObject({
       label: 'Computer mouse',
       suggested: 'none',
-      size: { w: 0.33, d: 0.57, h: 0.2 },
+      size: { w: 0.22, d: 0.38, h: 0.13 },
       reference: { runId: run.id, asset: `${run.id}/reference.png` },
       model: { source: 'demo' },
     });
@@ -617,7 +615,7 @@ describe('drafting a fixture live, with a mocked Meta API', () => {
       label: 'my lamp',
       suggested: 'light',
       model: { source: 'spark' },
-      size: { w: 0.75, d: 0.75, h: 2 },
+      size: { w: 0.5, d: 0.5, h: 1.33 },
     });
     expect(draft.model.fit!.assists[0]).toMatch(/^Spark: box, matte/);
     expect(run.assets).toContain(`${run.id}/sam-output.txt`);

@@ -455,7 +455,7 @@ export function fixtureRoutes(
             ],
           },
         },
-        size: sizeInTiles(cls.sizeCm, scene, custom),
+        size: sizeInTiles(cls.sizeCm),
         reference: { runId: id, asset: referenceAsset },
       };
       return {

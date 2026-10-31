@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { ISO_PRESETS, isoSurface } from './iso-presets.js';
 import { ITEM_MATERIALS, isoItemSchema, type SavedItem } from './iso-item.js';
 import { archetypeSchema, type Archetype } from './iso-archetypes.js';
+import { ISO_TILE_CM } from './iso-furniture.js';
 import { isoSceneKindSchema, type IsoBox, type IsoScene, type IsoSceneKind } from './iso.js';
 import type { DeskObservation } from './index.js';
 
@@ -294,20 +295,11 @@ export interface FixtureDraft {
   reference: NonNullable<FixtureInput['reference']>;
 }
 
-/** A desk is about 120 cm wide; scenes without one get a tile of 25 cm. */
-const DESK_CM = 120;
-/** Centimetres per tile in a scene, from its desk when it has one. */
-export function tileCm(kind: IsoSceneKind | 'custom', custom?: IsoScene | null): number {
-  const desk = sceneOf(kind, custom)?.surfaces.find((s) => s.id.split(':')[0]?.startsWith('desk'));
-  return desk ? DESK_CM / Math.max(desk.rect.w, desk.rect.d) : 25;
-}
-/** A real size in tiles of one scene, within what a fixture may be. */
-export function sizeInTiles(
-  cm: FixtureClass['sizeCm'],
-  kind: IsoSceneKind | 'custom',
-  custom?: IsoScene | null,
-): FixtureInput['size'] {
-  const per = tileCm(kind, custom);
+/** Centimetres per tile: every scene is built at real size, so one scale fits all. */
+export const tileCm = () => ISO_TILE_CM;
+/** A real size in tiles, within what a fixture may be. */
+export function sizeInTiles(cm: FixtureClass['sizeCm']): FixtureInput['size'] {
+  const per = tileCm();
   const tiles = (v: number) => Math.round(Math.min(8, Math.max(0.1, v / per)) * 100) / 100;
   return { w: tiles(cm.w), d: tiles(cm.d), h: tiles(cm.h) };
 }

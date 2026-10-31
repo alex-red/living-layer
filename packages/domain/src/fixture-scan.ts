@@ -5,7 +5,6 @@ import {
   fixtureGroup,
   fixtureProblem,
   sizeInTiles,
-  tileCm,
   type Fixture,
   type FixtureInput,
 } from './fixture.js';
@@ -651,17 +650,12 @@ export function mapScan({
     if (same) present.add(fixtureGroup(same));
     let base: Omit<FixtureInput, 'at' | 'surfaceId'>;
     if (known) {
-      const k = tileCm(known.scene, custom) / tileCm(scene, custom);
       const entity = known.control.kind === 'none' ? null : known.control.entityId;
       base = {
         label: known.label,
         scene,
         turns: known.turns,
-        size: {
-          w: round(known.size.w * k),
-          d: round(known.size.d * k),
-          h: round(known.size.h * k),
-        },
+        size: { ...known.size },
         model: { label: known.model.label, parts: known.model.parts },
         reference: known.reference,
         control: entity && entities.includes(entity) ? known.control : { kind: 'none' },
@@ -671,7 +665,7 @@ export function mapScan({
         label,
         scene,
         turns: 0,
-        size: sizeInTiles(thing.sizeCm, scene, custom),
+        size: sizeInTiles(thing.sizeCm),
         model: fitted ?? placeholderModel(label, thing.archetype, thing.color, thing.material),
         reference: null,
         control: { kind: 'none' },
@@ -704,7 +698,6 @@ export function mapScan({
         };
   });
 }
-const round = (n: number) => Math.round(Math.min(8, Math.max(0.1, n)) * 100) / 100;
 
 /**
  * Where a fixture should show in frames of the pinned camera, in frame

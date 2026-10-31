@@ -510,9 +510,7 @@ export function NewFixturePanel() {
 
   const { draft: d } = draft;
   const fit = d.model.fit;
-  // A draft is sized for the scene it was made for; another scene has another scale.
-  const k = target ? tileCm(draft.scene, lab.memory?.scene) / tileCm(target, lab.memory?.scene) : 1;
-  const size = { w: d.size.w * k, d: d.size.d * k, h: d.size.h * k };
+  const size = d.size;
   const ready = Boolean(label.trim() && target && (kind === 'none' || entity));
   return (
     <Panel
@@ -848,8 +846,8 @@ export function FixturePanel({ id }: { id: string }) {
           ))}
         </div>
         <p className="micro">
-          In tiles of this scene, about {Math.round(tileCm(f.scene, memory?.scene))} cm each. The
-          model is scaled to fit, centred where it stands.
+          In tiles of this scene, about {tileCm()} cm each. The model is scaled to fit, centred
+          where it stands.
         </p>
         <button
           className="secondary"

@@ -128,8 +128,8 @@ describe('mapping a scan through the pin', () => {
     expect(reused).toMatchObject({ match: 'library', fixtureId: elsewhere.id });
     expect(reused!.fixture!.model.parts).toEqual(elsewhere.model.parts);
     expect(reused!.fixture!.control).toEqual(elsewhere.control);
-    // Another scene has another scale.
-    expect(reused!.fixture!.size.w).not.toBe(elsewhere.size.w);
+    // Every scene is at real size, so it keeps its size.
+    expect(reused!.fixture!.size).toEqual(elsewhere.size);
   });
   it('drops a reused fixture’s light when it is no longer configured, and stops when full', () => {
     const elsewhere = fixture({
@@ -397,7 +397,7 @@ describe('placing what SAM outlined', () => {
     ['a flat pad', { w: 20, d: 30, h: 1 }],
     ['a tall speaker', { w: 12, d: 12, h: 30 }],
   ])('stands %s where it really is, from its whole outline', (_, sizeCm) => {
-    const size = sizeInTiles(sizeCm, 'desk');
+    const size = sizeInTiles(sizeCm);
     const truth = { x: top.x + top.w * 0.6, y: top.y + top.d * 0.4 };
     const outline = outlined(truth, size);
     const [placed] = mapScan({
@@ -418,7 +418,7 @@ describe('placing what SAM outlined', () => {
     expect(again.at.y).toBeCloseTo(placed!.fixture!.at.y, 5);
   });
   it('moves fixtures placed by hand only when asked to', () => {
-    const size = sizeInTiles({ w: 20, d: 30, h: 1 }, 'desk');
+    const size = sizeInTiles({ w: 20, d: 30, h: 1 });
     const byHand = fixture({
       label: 'Thing',
       scene: 'desk',
