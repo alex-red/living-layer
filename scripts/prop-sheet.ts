@@ -10,6 +10,13 @@
  *   bun run sheet --room office           a whole preset → out/room-office.png
  *   bun run sheet --only chair --set chair.heightCm=90,104
  *                                         one sheet per variant, side by side
+ *   bun run sheet --fit 320               each picture scaled to fit 320 px, so a jar
+ *                                         reads as well as a bookcase (instead of --zoom)
+ *   bun run sheet --only chair --zoom 8 --focus 0.2,0.6,0.8,1
+ *                                         keep only that part (shares of the sheet)
+ *   bun run sheet --room office --against office
+ *                                         the room beside design/reference/office.json's picture
+ *   bun run sheet --audit                 also list stray colours per template (see lib/audit.ts)
  */
 import { mkdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -26,11 +33,20 @@ import {
   type IsoSceneKind,
   type TemplateId,
 } from '@livinglayer/domain';
-import { flag, parseArgs, variants } from './lib/args.js';
+import { flag, has, parseArgs, variants } from './lib/args.js';
+import { auditProps, printAudit, type Audit } from './lib/audit.js';
 import { drawProps, type Picture } from './lib/draw.js';
+import { besideReference, cropShare, parseShare } from './lib/image.js';
 
 const args = parseArgs();
 const zoom = Math.max(1, Math.round(Number(flag(args, 'zoom') ?? 3)));
+const fit = flag(args, 'fit') ? Number(flag(args, 'fit')) : null;
+/** A picture's own zoom: the sheet's, or the most that fits `--fit`. */
+const zoomOf = (p: Picture) =>
+  fit ? Math.max(1, Math.floor(fit / Math.max(p.width, p.height))) : zoom;
+const focus = flag(args, 'focus') ? parseShare(flag(args, 'focus')!) : null;
+const against = flag(args, 'against');
+const audit = has(args, 'audit');
 const turns = flag(args, 'turns') === '0' ? [0] : [0, 1, 2, 3];
 const only = flag(args, 'only')?.split(',') as TemplateId[] | undefined;
 for (const id of only ?? []) if (!TEMPLATE_IDS.includes(id)) throw new Error(`No template "${id}"`);
@@ -45,8 +61,8 @@ const label = (text: string, width: number) =>
 /** Pictures in a grid of rows, each row with a caption, on the room's floor colour. */
 async function sheet(rows: { caption: string; cells: Picture[] }[], file: string) {
   const gap = 12;
-  const cellW = Math.max(...rows.flatMap((r) => r.cells.map((c) => c.width))) * zoom;
-  const heights = rows.map((r) => Math.max(...r.cells.map((c) => c.height)) * zoom + 22);
+  const cellW = Math.max(...rows.flatMap((r) => r.cells.map((c) => c.width * zoomOf(c))));
+  const heights = rows.map((r) => Math.max(...r.cells.map((c) => c.height * zoomOf(c))) + 22);
   const cols = Math.max(...rows.map((r) => r.cells.length));
   const width = cols * (cellW + gap) + gap;
   const height = heights.reduce((a, b) => a + b + gap, gap);
@@ -58,17 +74,20 @@ async function sheet(rows: { caption: string; cells: Picture[] }[], file: string
       const input = await sharp(Buffer.from(cell.rgba.buffer), {
         raw: { width: cell.width, height: cell.height, channels: 4 },
       })
-        .resize(cell.width * zoom, cell.height * zoom, { kernel: 'nearest' })
+        .resize(cell.width * zoomOf(cell), cell.height * zoomOf(cell), { kernel: 'nearest' })
         .png()
         .toBuffer();
       layers.push({ input, left: gap + j * (cellW + gap), top: y + 22 });
     }
     y += heights[i]! + gap;
   }
-  await sharp({ create: { width, height, channels: 4, background: '#0d0f16' } })
+  let png: Buffer = await sharp({ create: { width, height, channels: 4, background: '#0d0f16' } })
     .composite(layers)
     .png()
-    .toFile(file);
+    .toBuffer();
+  if (against) png = await besideReference(png, against);
+  if (focus) png = await cropShare(png, focus);
+  await sharp(png).toFile(file);
   console.log(`→ ${file}`);
 }
 
@@ -85,6 +104,7 @@ if (room) {
   await sheet(rows, join(outDir, `room-${room}.png`));
 } else {
   const rows: { caption: string; cells: Picture[] }[] = [];
+  const audits: Audit[] = [];
   console.log('template      variant                       parts  ms');
   for (const id of only ?? TEMPLATE_IDS)
     for (const v of runs)
@@ -105,6 +125,8 @@ if (room) {
         const parts = cells[0]?.parts ?? 0;
         console.log(`${id.padEnd(13)} ${v.label.padEnd(29)} ${String(parts).padEnd(6)} ${ms}`);
         rows.push({ caption: `${id} · ${v.label}`, cells });
+        if (audit) audits.push(auditProps(`${id} · ${v.label}`, scene.props as IsoProp[]));
       });
+  if (audit) printAudit(audits);
   await sheet(rows, join(outDir, only?.length === 1 ? `prop-${only[0]}.png` : 'prop-sheet.png'));
 }

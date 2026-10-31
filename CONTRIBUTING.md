@@ -37,6 +37,7 @@ bun run sheet                 # every furniture template, all four turns, as out
 bun run bench:scene           # how well a scene is laid out from synthetic photos
 bun run bench:fit             # how well item models fit their crops
 bun run bench:at main scene   # the scene bench on main, then your tree against it
+bun run verify                # all of the above that matters, plus format, types and tests, in one summary
 ```
 
 Each bench shows how much room every case has left before its target. `--set desk.topCm=3,4,5` tries other furniture measurements without editing code. If you change how something looks on purpose, update its golden picture with `UPDATE_GOLDEN=1 bun test tests/model.test.ts tests/furniture.test.ts`, and check the new PNGs before committing them. [AGENTS.md](AGENTS.md) has more on when to run which.

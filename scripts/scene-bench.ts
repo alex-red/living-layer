@@ -27,7 +27,8 @@ import { demoPhotoInventory, demoPhotoSegmentation } from '../apps/server/src/de
 
 const args = parseArgs();
 const rows: Row[] = [];
-for (const v of variants(args.flags.get('set')))
+const swept = variants(args.flags.get('set'));
+for (const v of swept)
   for (const c of SCENE_CASES)
     withFurniture(v.overrides, () => {
       const s = syntheticPhoto(c.options);
@@ -89,7 +90,7 @@ for (const v of variants(args.flags.get('set')))
         },
       });
     });
-const code = report(rows, args, 'scene');
+const code = report(rows, args, 'scene', swept);
 {
   const segmentation = await demoPhotoSegmentation();
   const detections = { desk: '1', mug: '2', book: '3', bottle: '4' };

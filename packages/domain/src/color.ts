@@ -79,6 +79,24 @@ export function rampLab(base: Lab, level: number): Lab {
       return [L * 0.6, a - 0.008 + a * 0.15, b - 0.036 + b * 0.15];
   }
 }
+/**
+ * The colour whose ramp step `level` is `target`: the inverse of `rampLab`,
+ * for matching a picture. A lit top in a reference is step 3, a face lit
+ * side-on step 2, a face turned away step 0.
+ */
+export function unrampLab(target: Lab, level: number): Lab {
+  const [L, a, b] = target;
+  switch (level) {
+    case 3:
+      return [(L - 0.03) / 1.08, a - 0.002, b - 0.012];
+    case 2:
+      return target;
+    case 1:
+      return [L / 0.8, (a + 0.004) / 1.08, (b + 0.018) / 1.08];
+    default:
+      return [L / 0.6, (a + 0.008) / 1.15, (b + 0.036) / 1.15];
+  }
+}
 /** The darker, cooler line drawn around a colour where it meets the background. */
 export function outlineLab([L, a, b]: Lab): Lab {
   return [L * 0.42, a * 1.1 - 0.006, b * 1.1 - 0.03];

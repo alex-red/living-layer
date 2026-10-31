@@ -39,13 +39,15 @@ export const has = (a: Args, name: string) => a.flags.has(name);
 export interface Variant {
   label: string;
   overrides: FurnitureOverrides;
+  /** The swept values, by `form.key`, for reading a sweep axis by axis. */
+  values: Record<string, number | boolean>;
 }
 /**
  * Every combination of the `--set form.key=v1,v2` values, checked against
  * FURNITURE_SPECS so a typo fails loudly instead of measuring nothing.
  */
 export function variants(sets: string[] = []): Variant[] {
-  let out: Variant[] = [{ label: 'as built', overrides: {} }];
+  let out: Variant[] = [{ label: 'as built', overrides: {}, values: {} }];
   for (const set of sets) {
     const m = /^([a-z-]+)\.([A-Za-z]+)=(.+)$/.exec(set);
     if (!m) throw new Error(`--set ${set}: expected form.key=value[,value…]`);
@@ -70,6 +72,7 @@ export function variants(sets: string[] = []): Variant[] {
       values.map((value) => ({
         label: `${base.label === 'as built' ? '' : `${base.label} `}${form}.${key}=${value}`,
         overrides: { ...base.overrides, [form]: { ...base.overrides[form], [key]: value } },
+        values: { ...base.values, [`${form}.${key}`]: value },
       })),
     );
   }

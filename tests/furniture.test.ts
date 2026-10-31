@@ -2,17 +2,22 @@ import { describe, expect, it } from 'bun:test';
 import {
   FURNITURE_SPECS,
   ISO_PRESETS,
+  PROP_TONES,
   TEMPLATE_IDS,
   believableWidth,
   cm,
+  deltaE,
   depthOrder,
   groupBounds,
+  hexLab,
   isoSceneSchema,
   overlappingGroups,
   placeTemplate,
   propModel,
   propSolids,
+  rampLab,
   rotateGroup,
+  unrampLab,
   withFurniture,
   type IsoScene,
 } from '../packages/domain/src/index.js';
@@ -130,5 +135,16 @@ describe('measurement overrides', () => {
     // Rails under the top (back, sides, and the front when asked for) only when they have a size.
     expect(parts({ desk: { railCm: 5 } })).toBe(parts() + 3);
     expect(parts({ desk: { railCm: 5, frontRail: true } })).toBe(parts() + 4);
+  });
+});
+
+describe('matching a reference', () => {
+  it('finds the tone that draws a given face, through the ramp and back', () => {
+    for (const hex of Object.values(PROP_TONES))
+      for (const level of [0, 1, 2, 3]) {
+        const face = rampLab(hexLab(hex), level);
+        const base = unrampLab(face, level);
+        expect(deltaE(base, hexLab(hex))).toBeLessThan(0.5);
+      }
   });
 });

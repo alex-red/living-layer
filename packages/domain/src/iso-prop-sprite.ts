@@ -40,19 +40,18 @@ const TONE_MATERIAL: Partial<Record<IsoTone, ItemMaterial>> = {
   ceramic: 'gloss',
   screen: 'gloss',
 };
+/** Every colour a tone can be drawn in: its four ramp steps and its outline. */
+export const TONE_PALETTE = Object.fromEntries(
+  Object.entries(PROP_TONES).map(([tone, hex]) => {
+    const lab = hexLab(hex);
+    return [tone, [0, 1, 2, 3].map((l) => labHex(rampLab(lab, l))).concat(labHex(outlineLab(lab)))];
+  }),
+) as Record<IsoTone, string[]>;
 /**
- * The room's palette: four ramp steps and an outline for every tone. Props
- * snap to it, so the room keeps the house style while items keep the
- * colours of the photo they came from.
+ * The room's palette: every tone's colours. Props snap to it, so the room
+ * keeps the house style while items keep the colours of the photo they came from.
  */
-const PROP_PALETTE = [
-  ...new Set(
-    Object.values(PROP_TONES).flatMap((hex) => {
-      const lab = hexLab(hex);
-      return [0, 1, 2, 3].map((l) => labHex(rampLab(lab, l))).concat(labHex(outlineLab(lab)));
-    }),
-  ),
-];
+const PROP_PALETTE = [...new Set(Object.values(TONE_PALETTE).flat())];
 /** Voxels per tile for plain props: one density for the whole room. */
 const PROP_DENSITY = 16;
 /**

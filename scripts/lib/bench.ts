@@ -12,7 +12,7 @@
  */
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { flag, type Args } from './args.js';
+import { flag, type Args, type Variant } from './args.js';
 
 export interface Metric {
   value: number;
@@ -45,7 +45,7 @@ const show = (m: Metric, v = m.value) => {
 const key = (r: Pick<Row, 'case' | 'variant'>) => `${r.case}|${r.variant}`;
 
 /** Print the rows, write or compare a baseline, and return the exit code. */
-export function report(rows: Row[], args: Args, title = 'bench'): number {
+export function report(rows: Row[], args: Args, title = 'bench', swept: Variant[] = []): number {
   const names = [...new Set(rows.flatMap((r) => Object.keys(r.metrics)))];
   const notes = [...new Set(rows.flatMap((r) => Object.keys(r.notes ?? {})))];
   const variants = new Set(rows.map((r) => r.variant)).size > 1;
@@ -104,6 +104,8 @@ export function report(rows: Row[], args: Args, title = 'bench'): number {
     }
   }
 
+  if (swept.length > 1) stability(rows, swept);
+
   const json = flag(args, 'json');
   if (json) {
     mkdirSync(dirname(json), { recursive: true });
@@ -141,4 +143,40 @@ export function report(rows: Row[], args: Args, title = 'bench'): number {
     console.log('(margin moved: + is more room, − is less)');
   }
   return misses || regressions ? 1 : 0;
+}
+
+/**
+ * A sweep read one measurement at a time: a value passes when every
+ * variant with it meets its targets (known gaps aside). A value that passes
+ * while a neighbour misses sits in a narrow pocket: a change elsewhere can
+ * tip it over, so it isn't a safe choice even though the table is green.
+ */
+function stability(rows: Row[], swept: Variant[]) {
+  const passed = new Map(
+    swept.map((v) => [
+      v.label,
+      rows.filter((r) => r.variant === v.label && !r.knownGap).every(meets),
+    ]),
+  );
+  const keys = [...new Set(swept.flatMap((v) => Object.keys(v.values)))];
+  if (!keys.length) return;
+  console.log('\nstability: ✓ every variant with this value passes, ✗ some miss');
+  for (const key of keys) {
+    const values = [...new Set(swept.map((v) => v.values[key]!))].sort((a, b) =>
+      typeof a === 'number' && typeof b === 'number' ? a - b : String(a).localeCompare(String(b)),
+    );
+    const ok = values.map((value) =>
+      swept.filter((v) => v.values[key] === value).every((v) => passed.get(v.label)),
+    );
+    const narrow = values.filter(
+      (_, i) => ok[i] && values.length > 2 && (ok[i - 1] === false || ok[i + 1] === false),
+    );
+    console.log(
+      `  ${key.padEnd(22)} ${values.map((v, i) => `${v} ${ok[i] ? '✓' : '✗'}`).join('  ')}${
+        narrow.length
+          ? `\n  ${''.padEnd(22)} ← ${narrow.join(', ')} pass${narrow.length > 1 ? '' : 'es'} beside a miss: a narrow pocket, not a safe choice`
+          : ''
+      }`,
+    );
+  }
 }
