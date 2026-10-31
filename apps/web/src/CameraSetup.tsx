@@ -37,6 +37,8 @@ export function CameraSetup({
   const [draft, setDraft] = useState<Draft | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  /** The camera whose Remove was pressed once, waiting for the second press. */
+  const [removing, setRemoving] = useState<string | null>(null);
   /** The camera whose still is shown, and a counter so a second check fetches a new one. */
   const [preview, setPreview] = useState<{ id: string; n: number; failed?: boolean } | null>(null);
 
@@ -69,7 +71,7 @@ export function CameraSetup({
   }
 
   async function remove(camera: CameraView) {
-    if (!window.confirm(`Remove ${camera.name}? Watching stops if it uses this camera.`)) return;
+    setRemoving(null);
     setBusy(true);
     setError('');
     try {
@@ -138,9 +140,18 @@ export function CameraSetup({
                 >
                   Edit
                 </button>
-                <button disabled={busy} onClick={() => void remove(c)}>
-                  Remove
-                </button>
+                {removing === c.id ? (
+                  <>
+                    <button disabled={busy} onClick={() => void remove(c)}>
+                      Yes, remove (watching stops if it uses it)
+                    </button>
+                    <button onClick={() => setRemoving(null)}>Keep</button>
+                  </>
+                ) : (
+                  <button disabled={busy} onClick={() => setRemoving(c.id)}>
+                    Remove
+                  </button>
+                )}
               </div>
             </li>
           ))}

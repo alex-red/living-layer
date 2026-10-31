@@ -692,13 +692,8 @@ export function useLabState() {
     if (action === 'scene' && !busy && !pinning) setChoosingScene(true);
     if (action === 'select' || action === 'scale' || action === 'hand') setTool(action);
   });
+  /** Clear both desks and this browser's save; the menu asks first, as embedded browsers block confirm(). */
   async function resetToDemo() {
-    if (
-      !window.confirm(
-        'Reset everything to the demo? Both desks, your scene, pins, rules and models are cleared, and this browser’s save is replaced. The evidence log is kept. Export a save first to keep a copy.',
-      )
-    )
-      return;
     clearSession();
     await applySave(
       { app: 'livinglayer', version: 1, savedAt: new Date().toISOString(), prefs: {}, desks: {} },

@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Glyph } from '../Glyph';
 import { estimateLabel, usd } from '../cost';
 import { SHORTCUTS } from '../shortcuts';
@@ -175,6 +176,7 @@ function Readiness() {
 function MoreMenu({ close }: { close: () => void }) {
   const lab = useLab();
   const { undo, redo, mode, busy } = lab;
+  const [resetting, setResetting] = useState(false);
   return (
     <section className="saves" aria-label="Saves">
       <span className="tiny">SAVED IN THIS BROWSER</span>
@@ -233,16 +235,33 @@ function MoreMenu({ close }: { close: () => void }) {
         </a>
       </div>
       <span className="tiny">START OVER</span>
-      <button
-        className="danger"
-        disabled={Boolean(busy)}
-        onClick={() => {
-          close();
-          void lab.resetToDemo();
-        }}
-      >
-        Reset everything to demo
-      </button>
+      {resetting ? (
+        <>
+          <p className="micro unsure">
+            Both desks, your scene, pins, rules and models are cleared, and this browser’s save is
+            replaced. The evidence log is kept. Export a save first to keep a copy.
+          </p>
+          <div className="save-actions">
+            <button
+              className="danger"
+              disabled={Boolean(busy)}
+              onClick={() => {
+                close();
+                void lab.resetToDemo();
+              }}
+            >
+              Yes, reset everything
+            </button>
+            <button className="secondary" onClick={() => setResetting(false)}>
+              Keep my work
+            </button>
+          </div>
+        </>
+      ) : (
+        <button className="danger" disabled={Boolean(busy)} onClick={() => setResetting(true)}>
+          Reset everything to demo
+        </button>
+      )}
     </section>
   );
 }
