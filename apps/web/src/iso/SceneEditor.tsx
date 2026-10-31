@@ -65,7 +65,7 @@ export function SceneEditor({
   mode: Mode;
   /** The person's saved scene, if any. */
   saved: Scene | null | undefined;
-  /** What the room view shows now, to start from. */
+  /** What the room view shows now, to start from: a preset, or the saved scene itself. */
   base: Scene;
   image?: string;
   lights: string[];
@@ -80,7 +80,10 @@ export function SceneEditor({
   /** Follow a photo draft step by step in the AI dialog. */
   follow?: AiFollow;
 }) {
-  const [draft, setDraft] = useState<Scene>(saved ?? asCustom(base));
+  // The room the view shows, not whatever was saved last: editing the office starts from the office.
+  const showsSaved = Boolean(saved) && base === saved;
+  const initial = () => (showsSaved ? saved! : asCustom(base));
+  const [draft, setDraft] = useState<Scene>(initial);
   const [selected, setSelected] = useState<string>();
   const [summary, setSummary] = useState('');
   const [drafting, setDrafting] = useState(false);
@@ -88,8 +91,8 @@ export function SceneEditor({
   const [sparkCheck, setSparkCheck] = useState(true);
   const file = useRef<HTMLInputElement>(null);
   useEffect(() => {
-    if (saved) setDraft(saved);
-  }, [saved]);
+    if (showsSaved) setDraft(saved!);
+  }, [saved, showsSaved]);
   const flagged = overlappingGroups(draft);
   const check = isoSceneSchema.safeParse(draft);
   const dirty = JSON.stringify(draft) !== JSON.stringify(saved ?? null);
@@ -357,7 +360,9 @@ export function SceneEditor({
             ? `${flagged.size} props cut into each other and may draw out of order. Move them apart.`
             : summary
               ? `Spark: ${summary} Review it, then save.`
-              : 'Saved scenes show up as Custom in the room view, ready to pin.'}
+              : saved && !showsSaved
+                ? `Saving replaces your custom scene${saved.label ? ` “${saved.label}”` : ''}. It shows up as Custom in the room view, ready to pin.`
+                : 'Saved scenes show up as Custom in the room view, ready to pin.'}
       </p>
       <div className="item-actions">
         <button
@@ -367,11 +372,7 @@ export function SceneEditor({
         >
           Save scene
         </button>
-        <button
-          className="secondary"
-          disabled={busy || !dirty}
-          onClick={() => setDraft(saved ?? asCustom(base))}
-        >
+        <button className="secondary" disabled={busy || !dirty} onClick={() => setDraft(initial())}>
           Revert
         </button>
         {saved && (
