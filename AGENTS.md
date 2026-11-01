@@ -30,23 +30,25 @@ What isn't obvious from the code. [CONTRIBUTING.md](CONTRIBUTING.md) has setup, 
 
 These run in seconds and need no server. Their output goes to `out/` (ignored).
 
-| When you change…                        | Run                                                        | What it tells you                                                                  |
-| --------------------------------------- | ---------------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| a furniture model or template           | `bun run sheet` (`--only chair --zoom 6`, `--room office`) | every template at every turn as one PNG you can open; time per model               |
-| templates, `room-scan.ts`, the renderer | `bun run bench:room`                                       | position, turn and size margins for rooms scanned by their corner camera           |
-| the room, its camera or the demo        | `bun run room` (`--labels`, `--hfov 80 --height 270`)      | the room as its corner camera sees it, the demo's frame, as a PNG                  |
-| the item fitter or kernel               | `bun run bench:fit`                                        | IoU and ΔE margins per crop                                                        |
-| any of the above                        | `bun run bench:at HEAD room`                               | the same bench at a commit, then this tree against it, with regressions flagged    |
-| a measurement you're unsure of          | `bun run bench:room --set desk.topCm=3,4,5`                | every combination, a per-variant summary, and which values sit in a narrow pocket  |
-| a colour, material or tone              | `bun run sheet --turns 0 --audit`                          | specks: pixels much lighter than a prop's own tones (a metal highlight gone cream) |
-| tones, to match a picture               | `bun run ref office`                                       | each named region's colours and the tone that draws them; checks the boxes too     |
-| the room's overall look                 | `bun run sheet --room office --against office`             | the room beside the reference picture                                              |
-| the room draft (layout, models)         | `bun run draft <run> --relayout`                           | a stored draft laid out again with this tree, what moved, both over its frame      |
-| the same, on real rooms                 | `bun run bench:rooms` (`--accept` to keep a change)        | captured real rooms against their accepted layouts; overlays in `out/`             |
-| a calibration                           | `bun run calib --grid`                                     | the saved fit, room sizes the marks fit, marks and grid over a frame               |
-| what a live run did, or why it failed   | `bun run runs [<run>]`                                     | the run log; one run's steps, assists and pictures saved to `out/runs/`            |
+| When you change…                        | Run                                                        | What it tells you                                                                   |
+| --------------------------------------- | ---------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| a furniture model or template           | `bun run sheet` (`--only chair --zoom 6`, `--room office`) | every template at every turn as one PNG you can open; time per model                |
+| templates, `room-scan.ts`, the renderer | `bun run bench:room`                                       | position, turn and size margins for rooms scanned by their corner camera            |
+| the room, its camera or the demo        | `bun run room` (`--labels`, `--hfov 80 --height 270`)      | the room as its corner camera sees it, the demo's frame, as a PNG                   |
+| the item fitter or kernel               | `bun run bench:fit`                                        | IoU and ΔE margins per crop                                                         |
+| any of the above                        | `bun run bench:at HEAD room`                               | the same bench at a commit, then this tree against it, with regressions flagged     |
+| a measurement you're unsure of          | `bun run bench:room --set desk.topCm=3,4,5`                | every combination, a per-variant summary, and which values sit in a narrow pocket   |
+| a colour, material or tone              | `bun run sheet --turns 0 --audit`                          | specks: pixels much lighter than a prop's own tones (a metal highlight gone cream)  |
+| tones, to match a picture               | `bun run ref office`                                       | each named region's colours and the tone that draws them; checks the boxes too      |
+| the room's overall look                 | `bun run sheet --room office --against office`             | the room beside the reference picture                                               |
+| the room draft (layout, models)         | `bun run draft <run> --relayout`                           | a stored draft laid out again with this tree, what moved, both over its frame       |
+| the same, on real rooms                 | `bun run bench:rooms` (`--accept` to keep a change)        | captured real rooms against their accepted layouts, and marked points; overlays     |
+| SAM, or anything before the layout      | `bun scripts/experiments/evaluate.ts <run>`                | each cached experiment's masks laid out and scored against the room's marked points |
+| a calibration                           | `bun run calib --grid`                                     | the saved fit, room sizes the marks fit, marks and grid over a frame                |
+| what a live run did, or why it failed   | `bun run runs [<run>]`                                     | the run log; one run's steps, assists and pictures saved to `out/runs/`             |
 
 - A live draft costs money and finds problems late. Try a change on stored drafts first (`bun run draft <run> --relayout`, `bun run bench:rooms`, both offline); run live only to capture a new frame, then `bun run draft capture <run> --name <room>`. Captured rooms stay local (`.data/rooms/`, ignored): they are photos of a real home.
+- An accepted layout is only a snapshot. A captured room's `truth.json` marks by hand where things touch down in its frame (`scripts/lib/truth.ts`), and the rooms bench scores against it. Judge a placement change by that, not by mask measures: in `docs/plans/sam-experiments.md` masks changed a lot and placement didn't. Mark only what the frame shows, and look at the overlay first, since a point can mark another thing than the one Spark's id names.
 - Unit tests don't cover every bench case. Run the bench before and after; a case that met its targets and no longer does is a regression even if `bun test` passes.
 - A bench's own targets (`ROOM_TARGETS`, `FIT_TARGETS`) are shared with the tests; known gaps are listed in the bench with a reason.
 - Golden sprites: `tests/golden/` (archetypes) and `tests/golden/props/` (templates). Accept a deliberate new look with `UPDATE_GOLDEN=1 bun test tests/model.test.ts tests/furniture.test.ts`, and look at the PNGs before committing them.

@@ -6,21 +6,30 @@
  * catches a change that moves real rooms, and the overlay shows whether the
  * move is better. Rooms are local only; with none captured it says how.
  *
+ * A room with points marked by hand where things touch down (`truth.json`,
+ * scripts/lib/truth.ts) is also measured against them: the median distance
+ * in pixels from where the layout draws each, against MARKED, and the points
+ * over its overlay (green marked, red drawn). That one is the truth.
+ *
  *   bun run bench:rooms                  → out/rooms-<name>.png (over the frame) and -iso.png
  *   bun run bench:rooms --accept         keep this tree's layouts as expected
  *   bun run bench:rooms --accept office  only that room
  */
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import sharp from 'sharp';
 import { flag, has, parseArgs } from './lib/args.js';
 import { report, type Row } from './lib/bench.js';
 import { roomsDir } from './lib/evidence.js';
 import { isoPicture, layoutOverlay } from './lib/overlay.js';
 import { compare, placementTable, placements } from './lib/placements.js';
 import { acceptRoom, capturedRooms, expectedOf, layOut, roomFrame } from './lib/rooms.js';
+import { errorLine, placementError, truthIn, truthSvg } from './lib/truth.js';
 
 /** How far anything may move or grow before a change counts, in tiles. */
 const TOLERANCE = 0.15;
+/** The median marked point may be this far from where the layout draws it, in pixels: a hand's mark is good to about 10. */
+const MARKED = 15;
 const args = parseArgs();
 const rooms = capturedRooms();
 if (!rooms.length) {
@@ -56,6 +65,10 @@ for (const room of rooms) {
       ? c
       : a,
   );
+  const truth = truthIn(room.dir);
+  const errors = truth ? placementError(layout, calibration.camera, truth) : null;
+  const marked = errors ? errorLine(errors) : null;
+  const furthest = errors?.reduce((a, e) => (e.error > a.error ? e : a));
   rows.push({
     case: room.name,
     variant: 'as built',
@@ -78,16 +91,29 @@ for (const room of rooms) {
         better: 'lower',
         digits: 0,
       },
+      ...(marked
+        ? { marked: { value: marked.median, target: MARKED, better: 'lower' as const, digits: 0 } }
+        : {}),
     },
     notes: {
       worst: worst.id,
       ms: String(ms),
       things: String(layout.things.length),
-      ...(refined ? { turned: `${refined.wall} wall ${refined.degrees}°` } : {}),
+      ...(refined ? { wall: `${refined.wall} turned ${refined.degrees}°` } : {}),
+      ...(furthest ? { furthest: `${furthest.thing} ${Math.round(furthest.error)} px` } : {}),
     },
   });
   const file = resolve(out, `rooms-${room.name}.png`);
-  writeFileSync(file, await layoutOverlay(layout, calibration.camera, roomFrame(room)));
+  const drawn = await layoutOverlay(layout, calibration.camera, roomFrame(room));
+  writeFileSync(
+    file,
+    errors
+      ? await sharp(drawn)
+          .composite([{ input: truthSvg(errors, calibration.camera.frame) }])
+          .png()
+          .toBuffer()
+      : drawn,
+  );
   writeFileSync(resolve(out, `rooms-${room.name}-iso.png`), await isoPicture(layout));
   if (
     changes.some(
