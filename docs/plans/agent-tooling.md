@@ -41,6 +41,8 @@ _Done when:_ the mixed-commit case from 88d2033 can't happen through it. AGENTS.
 
 ### B. The browser suite as a normal check (blocks 2, 3, 9)
 
+_Status: B1–B4 done, and B5's `followAi` warning (`scripts/browser.ts`, `scripts/trace.ts` with `scripts/lib/trace.ts`, `tests/browser/helpers.ts`, `verify --browser`, `scripts/lib/browser.ts` for the last pass). `bun run browser` picks free ports, so two sessions can run it at once; the last pass is kept in `out/browser/last-pass.json`. Still open from B5: `send` and `save` in `useBrush` telling the person when nothing came back._
+
 **B1. `bun run browser [--at <ref>] [-g <pattern>]`.** Builds and runs Playwright in a worktree (A1). Its own build means a half-edited checkout can't leak in, and its data folder starts empty (now in the config). Prints the run's summary like verify does.
 _Done when:_ it gives 11/11 on `main`, run from a checkout with unrelated edits.
 

@@ -14,12 +14,14 @@
  */
 import { spawnSync } from 'node:child_process';
 import { existsSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
+import { browserOut } from './lib/browser.js';
 import { git, repoRoot as root, snapshotPatch, withWorktree } from './lib/worktree.js';
 
 /** Where the hook finds the paths this commit names. */
 const listFile = () =>
-  join(root, git(['rev-parse', '--git-path', 'livinglayer-commit-paths']).out.trim());
+  // Relative in the main checkout, absolute in a linked worktree.
+  resolve(root, git(['rev-parse', '--git-path', 'livinglayer-commit-paths']).out.trim());
 /** Conventional Commits summaries stay under about 60 characters; past this, refuse. */
 const SUMMARY_MAX = 72;
 
@@ -79,7 +81,11 @@ else {
     const r = spawnSync('bun', ['scripts/verify.ts'], {
       cwd: dir,
       stdio: 'inherit',
-      env: { ...process.env, ROOMS_DIR: process.env.ROOMS_DIR ?? join(root, '.data', 'rooms') },
+      env: {
+        ...process.env,
+        ROOMS_DIR: process.env.ROOMS_DIR ?? join(root, '.data', 'rooms'),
+        BROWSER_OUT: browserOut(root),
+      },
     });
     return r.status ?? 1;
   });

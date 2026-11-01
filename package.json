@@ -26,6 +26,8 @@
     "test:watch": "bun test --watch",
     "test:browser": "playwright test",
     "test:browser:strict": "BROWSER_STRICT=1 playwright test",
+    "browser": "bun scripts/browser.ts",
+    "trace": "bun scripts/trace.ts",
     "bench": "bun scripts/room-bench.ts; bun scripts/fit-bench.ts",
     "bench:room": "bun scripts/room-bench.ts",
     "bench:fit": "bun scripts/fit-bench.ts",
