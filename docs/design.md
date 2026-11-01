@@ -213,7 +213,7 @@ Still to do:
 - On mobile, the inspector as a sheet that slides up from the bottom. It currently sits inline under the canvas, with its main action sticky at the bottom.
 - A browser test that checks reduced motion turns the animations off.
 
-The demo image `desk.svg` stays byte-for-byte as it is, because its geometry matches the synthetic mask exactly. It sits inside the frame at true colour, so there's no need to change it.
+The demo frame is rendered directly from the isometric office through `DEMO_CAMERA` in `demo-room.ts`. Its perspective frames, desktop pin, and synthetic SAM masks are generated from the room renderer, so the demo frame and synthetic masks match by construction.
 
 ## Open decisions
 

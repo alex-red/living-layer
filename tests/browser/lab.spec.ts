@@ -435,3 +435,56 @@ test('the AI brush turns the office desk into an Alex desk, follows up, and puts
   await expect(page.locator('.feedback')).toContainText('Put IKEA Alex desk in the room');
   await expect(panel).toHaveCount(0);
 });
+
+test('saves an exposed Home Assistant entity, inspects demo publish log, and checks a report-only rule', async ({
+  page,
+}) => {
+  await freshDesk(page);
+  await page.goto('/');
+  await chooseScene(page);
+  await addObject(page);
+  await page.getByRole('button', { name: 'Segment object', exact: true }).click();
+  await page.getByRole('button', { name: 'Confirm mug mask #7', exact: true }).click();
+  await expect(page.locator('.feedback')).toContainText('Mug identity manually confirmed');
+
+  await outline(page, 'Show in Home Assistant').click();
+  await expect(page.getByRole('heading', { name: 'Show in Home Assistant' })).toBeVisible();
+  await page.getByRole('button', { name: /^Watching On/ }).click();
+  await expect(page.getByLabel('Entity name')).toHaveValue('Watching');
+  await expect(page.getByLabel('Entity key')).toHaveValue('watching');
+  await page
+    .locator('.save-actions')
+    .getByRole('button', { name: 'Show in Home Assistant', exact: true })
+    .click();
+  await expect(page.locator('.feedback')).toContainText('Saved binary_sensor.ll_watching');
+  await expect(outline(page, 'Watching')).toBeVisible();
+
+  await expect(page.getByRole('heading', { name: 'Watching' })).toBeVisible();
+  await expect(page.locator('.rule-sentence')).toContainText('binary_sensor.ll_watching');
+  await page.getByText('What it would publish').click();
+  await expect(page.locator('.expose-log')).toContainText(
+    'homeassistant/binary_sensor/ll_watching/config',
+  );
+  await expect(page.locator('.expose-log')).toContainText('livinglayer/watching/state');
+  await page.getByText('Topics', { exact: true }).click();
+  await expect(page.locator('.ws-inspector')).toContainText('livinglayer/watching/state');
+
+  await page.getByRole('button', { name: 'Iso', exact: true }).click();
+  await outline(page, 'Add rule').click();
+  await page.getByLabel('Rule light').selectOption({ label: 'nothing: tell Home Assistant only' });
+  await page.getByLabel('Rule name').fill('Desk report');
+  const hit = (await page.locator('.iso-hit').boundingBox())!;
+  await page.mouse.move(hit.x + hit.width / 2, hit.y + hit.height * 0.3);
+  await page.mouse.down();
+  await page.mouse.move(hit.x + hit.width / 2, hit.y + hit.height * 0.7, { steps: 8 });
+  await page.mouse.up();
+  await page.getByRole('button', { name: 'Save rule', exact: true }).click();
+  await expect(page.locator('.feedback')).toContainText('Saved "Desk report"');
+
+  await expect(outline(page, 'Desk report')).toContainText('Home Assistant only');
+  await expect(page.locator('.rule-sentence')).toContainText('tell Home Assistant only.');
+  await page.getByRole('button', { name: 'Check rules', exact: true }).click();
+  await expect(page.locator('.feedback')).toContainText('Desk report: inside');
+  await expect(page.locator('.feedback')).not.toContainText('light');
+  await expect(page.locator('[data-prop="lamp"] .iso-lamp.lit')).toHaveCount(0);
+});
