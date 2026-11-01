@@ -125,7 +125,7 @@ export function useBrush({
             mode === 'live'
               ? last
                 ? 'Spark reads your follow-up; the model is checked through the room’s camera again.'
-                : 'Spark reads your request, SAM outlines your selection, and a named product is looked up. Up to about $0.18.'
+                : 'Spark reads your request, SAM outlines your selection, and a named product is looked up. Up to about $0.25.'
               : 'Demo: read, looked up in the bundled catalog and checked through the demo camera, with no model calls.',
         },
         (jobId, signal) =>

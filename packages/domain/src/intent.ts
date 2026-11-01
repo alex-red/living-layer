@@ -145,7 +145,7 @@ function readOp(o: SparkIntentOp, ctx: IntentContext, creating: boolean): Intent
     case 'remove_part':
       return recipeOp({ op: 'remove_part', parts: selector });
     case 'rename':
-      return o.label ? { op: 'rename', label: o.label } : 'A new name was missing.';
+      return o.label ? { op: 'rename', label: nameOf(o.label) } : 'A new name was missing.';
     case 'add_part': {
       if (!o.part) return 'The part to add was missing.';
       const { role, color, ...rest } = o.part;
@@ -163,7 +163,7 @@ function readOp(o: SparkIntentOp, ctx: IntentContext, creating: boolean): Intent
     case 'create':
       return {
         op: 'create',
-        label: o.label ?? ctx.target?.label ?? 'New fixture',
+        label: o.label ? nameOf(o.label) : (ctx.target?.label ?? 'New fixture'),
         form: o.form,
         as: o.as,
       };
@@ -189,6 +189,9 @@ function readOp(o: SparkIntentOp, ctx: IntentContext, creating: boolean): Intent
   }
 }
 
+/** A name as a label: "the standing desk" is the standing desk's name without its article. */
+const nameOf = (label: string) => label.trim().replace(/^(the|a|an)\s+(?=\S)/i, '');
+
 /**
  * Spark's answer as typed ops. Ops that can't be done are left out and
  * their reasons returned; a clarify stands alone, since the rest waits on
@@ -213,9 +216,10 @@ export function readIntent(
   const creates = ops.some((o) => o.op === 'create' || o.op === 'rebase');
   return {
     ops,
-    product: raw.product,
-    // Nothing to look up unless a model is being made from a named product.
-    needs: creates || raw.product ? raw.needs : [],
+    // Nothing to look up unless a model is being made: a product named in an
+    // edit ("make the Alex green") only says what it is.
+    product: creates ? raw.product : null,
+    needs: creates ? raw.needs : [],
     targetDisagrees: raw.targetDisagrees,
     dropped,
   };

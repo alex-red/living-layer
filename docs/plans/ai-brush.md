@@ -200,7 +200,7 @@ In the demo, the selected desk is the office's 160 × 80 cm desk, not an Alex: a
 - **Kept with the run:** `frame.png`, `outline.png` (the selection's outline as a black and white mask), `crop.png`, SAM's raw answer live. The run's usage adds up every Spark call; the spend ledger has each call and search as it was billed.
 - **A question back** (`clarify`) ends the request after reading it: `question` is set, the other steps say they wait for the answer, and the answer is sent as a follow-up.
 - **Follow-ups** name the run before (`previous`) and may leave out the shape: they reuse its frame, outline, target, place, facts and model, and cost one reading. "Make the drawers green" changes the model and keeps its check (a colour isn't a shape); "it is 160 cm wide" checks again, and Spark never refines a model away from a size the person asked for.
-- **Cost.** The worst case (reading with the crop, SAM, a lookup with five searches, two refinements: `assistCeiling`, about $0.18) is refused up front when today's limit can't cover it, before any call.
+- **Cost.** The worst case (reading with the crop, SAM, a lookup with five searches, two refinements: `assistCeiling`, about $0.25) is refused up front when today's limit can't cover it, before any call.
 - **Replay** (`bun run assist <run>`, `scripts/assist-replay.ts`): a stored request run again with this tree, offline, through the same `finishDraft` the route uses (steps 4–6), with the stored frame, outline, reading and facts (`--catalog` looks the product up in the catalog again). Prints the size, parts and IoU then and now, and keeps the new model in `out/` for `bun run sheet --recipe`. Spark's refinements aren't replayed.
 
 ## 8. The brush (web)

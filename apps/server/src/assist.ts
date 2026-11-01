@@ -207,6 +207,7 @@ export function assistRoutes(
         job.run('select');
         let outline: Bits;
         let resolved: Resolved;
+        let samMissed: string | null = null;
         const crop = await around(png, selectionBox(shape, room.frame));
         if (last && !input.shape) {
           outline =
@@ -219,27 +220,37 @@ export function assistRoutes(
             ambiguous: last.ambiguous,
           };
         } else {
+          // The request points at what the panel showed: the selection through the room.
+          resolved = room.resolve(selectionMask(shape, room.frame));
+          const t = resolved.target;
+          const drawn =
+            t && t.kind !== 'object'
+              ? roomMask(room.picture, t.kind === 'fixture' ? `fixture:${t.id}` : t.id)
+              : null;
           if (live) {
-            outline = await samOutline(png, shape, room.frame, id);
-            resolved = room.resolve(outline);
-          } else {
-            // The demo points at what the panel showed, then outlines what its frame draws there.
-            resolved = room.resolve(selectionMask(shape, room.frame));
-            const t = resolved.target;
-            outline = demoOutline(
-              shape,
-              room.frame,
-              t && t.kind !== 'object'
-                ? roomMask(room.picture, t.kind === 'fixture' ? `fixture:${t.id}` : t.id)
-                : null,
-            );
-          }
+            // SAM outlines what stands out in the box, which can be what stands on the thing
+            // (a keyboard on a desk): kept only when it is of the same thing, else the room's
+            // drawing of it, inside the selection.
+            const sam = await samOutline(png, shape, room.frame, id);
+            const of = room.resolve(sam).target;
+            if (!drawn || (of?.kind === t!.kind && of.id === t!.id)) outline = sam;
+            else {
+              const inside = selectionMask(shape, room.frame);
+              for (let i = 0; i < drawn.data.length; i++)
+                drawn.data[i] = drawn.data[i]! & inside.data[i]!;
+              outline = drawn;
+              samMissed = of?.label ?? 'nothing the room has';
+            }
+          } else
+            // The demo outlines what its fixed frame draws there.
+            outline = demoOutline(shape, room.frame, drawn);
         }
         assets.push(store.asset(id, 'outline.png', await maskPng(outline)));
         assets.push(store.asset(id, 'crop.png', crop));
         await job.done(
           'select',
-          resolved.target ? resolved.target.label : 'Something the room doesn’t have yet',
+          (resolved.target ? resolved.target.label : 'Something the room doesn’t have yet') +
+            (samMissed ? ` (SAM outlined ${samMissed}; outlined from the room instead)` : ''),
           crop,
         );
         job.check();
@@ -552,11 +563,30 @@ export async function finishDraft(
     const check = (r: FixtureRecipe) => checkRecipe(room.camera, room.scene, r, place, outline);
     // Only a new model is refined, and never away from a size the person asked for.
     const refine = create && !edits.some((o) => o.op === 'resize') ? refiner : null;
-    const { best, history } = await refineRecipe(recipe, check, refine);
+    // A refinement that fails (a timeout, an overloaded model) keeps the best model so far; a stop still stops.
+    let failed: string | null = null;
+    const { best, history } = await refineRecipe(
+      recipe,
+      check,
+      refine &&
+        (async (r, c) => {
+          try {
+            return await refine(r, c);
+          } catch (e) {
+            steps.check();
+            failed = e instanceof Error ? e.message : 'It failed.';
+            return [];
+          }
+        }),
+    );
     draft.recipe = best.recipe;
     draft.check = best.check;
     draft.rounds = history.slice(1).map((h: BuildRound) => h.ops);
-    await steps.done('check', best.check.report);
+    await steps.done(
+      'check',
+      best.check.report +
+        (failed ? ` Spark’s refinement failed, so it is as built: ${failed}` : ''),
+    );
   } else await steps.done('check', draft.place ? 'Unchanged' : 'Nowhere in the room to check it');
   return draft;
 }

@@ -74,16 +74,17 @@ export const INTENT_CASES: IntentCase[] = [
     ops: [{ op: 'resize', sizeCm: { w: 140 } }],
   },
   {
-    name: 'metal legs',
-    sentence: 'the legs are metal',
+    // The Alex stands on a side panel and its drawer unit, with no legs to name.
+    name: 'metal side panel',
+    sentence: 'the side panel is metal',
     ctx: fixture,
-    ops: [{ op: 'rematerial', material: 'metal' }],
+    ops: [{ op: 'rematerial', parts: { roles: ['panel'] }, material: 'metal' }],
   },
   {
     name: 'rename',
     sentence: 'call it the standing desk',
     ctx: fixture,
-    ops: [{ op: 'rename', label: 'the standing desk' }],
+    ops: [{ op: 'rename', label: 'standing desk' }],
   },
   {
     name: 'a light',

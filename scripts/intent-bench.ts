@@ -59,7 +59,9 @@ for (const c of INTENT_CASES) {
         ? intent.product === null
         : c.product.every((w) => intent.product?.toLowerCase().includes(w))));
   if (!ok) misses++;
-  console.log(`${ok ? '✓' : '✗'} ${c.name.padEnd(26)} ${intent.ops.map(short).join(' · ')}`);
+  console.log(
+    `${ok ? '✓' : '✗'} ${c.name.padEnd(26)} ${intent.ops.map(short).join(' · ')}${intent.product ? ` · product “${intent.product}”` : ''}`,
+  );
   if (!ok)
     console.log(
       `  wanted ${c.ops.map((o) => o.op).join(' · ')}${c.product ? `, product ${c.product.join(' ')}` : ''}`,

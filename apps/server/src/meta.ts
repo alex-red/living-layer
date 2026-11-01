@@ -64,6 +64,8 @@ const usageOf = (u?: ProviderUsage | null): Usage | null =>
  */
 /** How long Spark may take to write out a model. */
 const SCULPT_TIMEOUT_MS = 150_000;
+/** How long Spark may take to refine a brush's model against its photo: about as long as a sculpt. */
+const REFINE_TIMEOUT_MS = 150_000;
 export const SPARK_BUDGET = {
   discover: 8192,
   classify: 8192,
@@ -78,7 +80,8 @@ export const SPARK_BUDGET = {
   photoCheck: 12288,
   productLookup: 8192,
   intent: 8192,
-  refine: 8192,
+  // Spark reasons over the photo and the model's parts first: 8192 ran out before it answered.
+  refine: 16384,
 } as const;
 /** Search queries a product lookup reserves for: the model decides how many it makes. */
 export const SEARCH_CEILING = 5;
@@ -385,7 +388,8 @@ export class MetaAdapter {
           },
         },
       },
-      this.config.timeoutMs,
+      // Comparing the model with the photo takes Spark past the usual timeout.
+      Math.max(this.config.timeoutMs, REFINE_TIMEOUT_MS),
       signal,
     );
     return this.parsed(response, sparkIntentSchema, 'model check', SPARK_BUDGET.refine);

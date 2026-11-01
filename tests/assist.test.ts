@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, mock } from 'bun:test';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { buildApp } from '../apps/server/src/app.js';
@@ -198,9 +198,9 @@ describe('saving a draft into the room', () => {
 });
 
 describe('the AI brush live, against a mocked Meta API', () => {
-  async function samEmpty() {
+  async function samEmpty(wire = '') {
     const events = [];
-    for await (const event of syntheticStream(''))
+    for await (const event of syntheticStream(wire))
       events.push(
         event.type === 'response.completed'
           ? { ...event, response: { id: 'resp_sam', model: 'sam-3.1', status: 'completed' } }
@@ -243,17 +243,25 @@ describe('the AI brush live, against a mocked Meta API', () => {
     question: null,
   };
 
-  async function live(env: Record<string, string> = {}) {
+  async function live(
+    env: Record<string, string> = {},
+    { samWire = '', refineFails = false }: { samWire?: string; refineFails?: boolean } = {},
+  ) {
     const asked: string[] = [];
     const fetcher = mock<Fetcher>().mockImplementation(async (_url, init) => {
       const body = JSON.parse(String(init?.body));
       if (body.model === 'sam-3.1') {
         asked.push('sam');
-        return samEmpty();
+        return samEmpty(samWire);
       }
       const name = body.text.format.name as string;
       asked.push(name);
       if (name === 'edit_intent') return spark(demoIntent(HEADLINE));
+      if (name === 'recipe_refine' && refineFails)
+        return new Response(JSON.stringify({ error: { message: 'overloaded' } }), {
+          status: 400,
+          headers: { 'content-type': 'application/json' },
+        });
       if (name === 'recipe_refine')
         return spark({
           ops: [{ ...empty, op: 'resize', sizeCm: { w: 150, d: null, h: null } }],
@@ -274,7 +282,12 @@ describe('the AI brush live, against a mocked Meta API', () => {
     });
     expect(restored.statusCode, restored.body).toBe(200);
     const imageDataUrl = `data:image/png;base64,${(await demoPng()).toString('base64')}`;
-    return { ...s, asked, imageDataUrl };
+    /** What a job's step said when it finished. */
+    const step = async (jobId: string, id: string) =>
+      (await s.app.inject({ method: 'GET', url: `/api/jobs/${jobId}` }))
+        .json<{ steps: { id: string; detail?: string }[] }>()
+        .steps.find((x) => x.id === id)?.detail;
+    return { ...s, asked, imageDataUrl, step };
   }
 
   it('reads with Spark, outlines with SAM, finds the product in the catalog, and refines', async () => {
@@ -292,6 +305,37 @@ describe('the AI brush live, against a mocked Meta API', () => {
     expect(s.asked.filter((a) => a === 'recipe_refine').length).toBeGreaterThan(0);
     expect(run.output.facts?.origin.size).toBe('catalog');
     expect(run.usage?.inputTokens).toBeGreaterThan(0);
+  });
+
+  it('keeps to what the panel showed when SAM outlines something else', async () => {
+    const shape = await around('desk');
+    // SAM answers with a recorded mug mask, which falls on nothing the demo room draws there.
+    const mug = JSON.parse(readFileSync('testdata/sam-mug.json', 'utf8')) as { wire: string };
+    const s = await live({}, { samWire: mug.wire });
+    const jobId = crypto.randomUUID();
+    const res = await s.assist(
+      { shape, prompt: HEADLINE, imageDataUrl: s.imageDataUrl, jobId },
+      'live',
+    );
+    expect(res.statusCode, res.body).toBe(200);
+    const run = res.json<EvidenceRun<AssistDraft>>();
+    expect(run.output.target).toMatchObject({ kind: 'prop', id: 'desk' });
+    expect(run.output.recipe?.label).toContain('Alex');
+    expect(await s.step(jobId, 'select')).toContain('SAM outlined nothing the room has');
+  });
+
+  it('keeps the model as built when a refinement fails', async () => {
+    const s = await live({}, { refineFails: true });
+    const jobId = crypto.randomUUID();
+    const res = await s.assist(
+      { shape: await around('desk'), prompt: HEADLINE, imageDataUrl: s.imageDataUrl, jobId },
+      'live',
+    );
+    expect(res.statusCode, res.body).toBe(200);
+    const run = res.json<EvidenceRun<AssistDraft>>();
+    expect(run.output.recipe).not.toBeNull();
+    expect(run.output.rounds).toEqual([]);
+    expect(await s.step(jobId, 'check')).toContain('refinement failed');
   });
 
   it('refuses a frame of another size, and a request today’s limit can’t cover', async () => {
