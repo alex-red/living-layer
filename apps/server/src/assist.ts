@@ -222,28 +222,15 @@ export function assistRoutes(
         } else {
           // The request points at what the panel showed: the selection through the room.
           resolved = room.resolve(selectionMask(shape, room.frame));
-          const t = resolved.target;
-          const drawn =
-            t && t.kind !== 'object'
-              ? roomMask(room.picture, t.kind === 'fixture' ? `fixture:${t.id}` : t.id)
-              : null;
-          if (live) {
-            // SAM outlines what stands out in the box, which can be what stands on the thing
-            // (a keyboard on a desk): kept only when it is of the same thing, else the room's
-            // drawing of it, inside the selection.
-            const sam = await samOutline(png, shape, room.frame, id);
-            const of = room.resolve(sam).target;
-            if (!drawn || (of?.kind === t!.kind && of.id === t!.id)) outline = sam;
-            else {
-              const inside = selectionMask(shape, room.frame);
-              for (let i = 0; i < drawn.data.length; i++)
-                drawn.data[i] = drawn.data[i]! & inside.data[i]!;
-              outline = drawn;
-              samMissed = of?.label ?? 'nothing the room has';
-            }
-          } else
-            // The demo outlines what its fixed frame draws there.
-            outline = demoOutline(shape, room.frame, drawn);
+          if (live)
+            ({ outline, samMissed } = keepOutline(
+              room,
+              shape,
+              resolved.target,
+              await samOutline(png, shape, room.frame, id),
+            ));
+          // The demo outlines what its fixed frame draws there.
+          else outline = demoOutline(shape, room.frame, drawnOf(room, resolved.target));
         }
         assets.push(store.asset(id, 'outline.png', await maskPng(outline)));
         assets.push(store.asset(id, 'crop.png', crop));
@@ -442,11 +429,50 @@ export function assistRoutes(
       frame.height,
     );
     store.asset(runId, 'sam-output.txt', outlined.raw);
-    const found = [...outlined.output.detections].sort(
-      (a, c) => c.mask.foregroundPixels - a.mask.foregroundPixels,
-    )[0];
-    return (found && clipMask(found, shape, frame)) ?? selectionMask(shape, frame);
+    return samMask(outlined.output, shape, frame);
   }
+}
+
+/** SAM's largest outline for a box prompt, cut to the selection; the selection itself when SAM found none. */
+export function samMask(
+  sam: Pick<Segmentation, 'detections'>,
+  shape: SelectionShape,
+  frame: Segmentation['frame'],
+): Bits {
+  const found = [...sam.detections].sort(
+    (a, c) => c.mask.foregroundPixels - a.mask.foregroundPixels,
+  )[0];
+  return (found && clipMask(found, shape, frame)) ?? selectionMask(shape, frame);
+}
+/** How the room's camera draws a target (a prop's group or a fixture); null for a tracked object or nothing. */
+export function drawnOf(
+  room: Pick<ReturnType<typeof selectionRoom>, 'picture'>,
+  t: Resolved['target'],
+): Bits | null {
+  return t && t.kind !== 'object'
+    ? roomMask(room.picture, t.kind === 'fixture' ? `fixture:${t.id}` : t.id)
+    : null;
+}
+/**
+ * The outline a live request works on. SAM outlines what stands out in the
+ * box, which can be what stands on the thing (a keyboard on a desk): its
+ * outline is kept only when the room reads it as the same target, else the
+ * room's drawing of the target inside the selection is used, and `samMissed`
+ * says what SAM outlined instead.
+ */
+export function keepOutline(
+  room: Pick<ReturnType<typeof selectionRoom>, 'picture' | 'frame' | 'resolve'>,
+  shape: SelectionShape,
+  target: Resolved['target'],
+  sam: Bits,
+): { outline: Bits; samMissed: string | null } {
+  const drawn = drawnOf(room, target);
+  const of = room.resolve(sam).target;
+  if (!drawn || (of?.kind === target!.kind && of.id === target!.id))
+    return { outline: sam, samMissed: null };
+  const inside = selectionMask(shape, room.frame);
+  for (let i = 0; i < drawn.data.length; i++) drawn.data[i] = drawn.data[i]! & inside.data[i]!;
+  return { outline: drawn, samMissed: of?.label ?? 'nothing the room has' };
 }
 
 /** How a draft's steps are reported: the job live, the console in a replay. */
