@@ -56,7 +56,7 @@ export function useBrush({
   mode,
   frameNow,
   followAi,
-  closeAiTask,
+  closeAiTaskSoon,
   setMemory,
   showOwnScene,
   setMessage,
@@ -68,7 +68,8 @@ export function useBrush({
     task: Pick<AiTask, 'title' | 'description'>,
     call: (jobId: string, signal: AbortSignal) => Promise<T>,
   ) => Promise<T | null>;
-  closeAiTask: () => void;
+  /** Hide the AI dialog after a moment, unless another request starts first. */
+  closeAiTaskSoon: (ms: number) => void;
   setMemory: (memory: DeskMemory) => void;
   /** Show the room's own scene, which the model was saved into. */
   showOwnScene: () => void;
@@ -155,7 +156,7 @@ export function useBrush({
             : 'Read your request; there was no model to change.',
       );
       // The steps are worth a glance; the review is beside the frame.
-      setTimeout(closeAiTask, 1200);
+      closeAiTaskSoon(1200);
     } catch (e) {
       setError(e instanceof Error ? e : 'The AI brush failed.');
     } finally {

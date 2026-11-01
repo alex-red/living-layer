@@ -444,6 +444,8 @@ test('the AI brush turns the office desk into an Alex desk, follows up, and puts
   await expect(panel.getByText('IKEA Alex desk', { exact: true })).toBeVisible();
   await expect(panel.getByText(/Matches the camera \d+%/)).toBeVisible();
   await expect(panel.getByRole('img', { name: /as it would be drawn in the room/ })).toBeVisible();
+  // The request's steps show in a modal dialog, which closes itself a moment after.
+  await expect(page.getByRole('dialog', { name: /AI brush/ })).toHaveCount(0);
   // A follow-up keeps the selection and the model.
   await panel.getByLabel('What to do with the selection').fill('Make the drawers green');
   await page.keyboard.press('Enter');

@@ -1937,11 +1937,16 @@ export function useLabState() {
     clearTimeout(aiClose.current);
     setAiTask(null);
   }
+  /** Hide the dialog of a clean finish after a moment to look at it; the next action cancels this. */
+  function closeAiTaskSoon(ms: number) {
+    clearTimeout(aiClose.current);
+    aiClose.current = setTimeout(() => setAiTask(null), ms);
+  }
   const brush = useBrush({
     mode,
     frameNow,
     followAi,
-    closeAiTask,
+    closeAiTaskSoon,
     setMemory,
     showOwnScene: () => setWorkScene('custom'),
     setMessage,
@@ -2062,7 +2067,7 @@ export function useLabState() {
       // A stop has already freed the lab for the next call.
       if (!aiRun.current) setBusy((b) => (b === 'illustrate' ? '' : b));
       // A clean finish closes itself after a moment to look at it.
-      if (ok) aiClose.current = setTimeout(() => setAiTask(null), 2200);
+      if (ok) closeAiTaskSoon(2200);
     }
   }
   /**
