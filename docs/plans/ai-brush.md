@@ -171,14 +171,18 @@ Researchers, in order of trust:
 
 ## 6. Building and checking
 
-`apps/server/src/recipe-build.ts`.
+`packages/domain/src/recipe-build.ts` and `apps/server/src/build.ts` (built). All local but the refiner.
 
-1. **Draft.** With a `base`, start from that form at the facts' size and ask Spark only for the differences as ops (`add_part`, `remove_part`), with the parts list from the facts. Without one, ask Spark for parts directly, limited to the recipe schema and a part budget.
-2. **Colour.** Cluster the masked crop (and the product photo when there is one) in OKLab, as `fitItem` does, and map clusters to parts by where each part falls in the camera's view of the recipe.
-3. **Check.** Render the recipe through the room camera (`room-render.ts`) and compare its silhouette with the selection's mask (IoU) and its colours (ΔE), the measures `bench:fit` already uses. Optionally one Spark render check (exists in the item draft). Below target, one more round of ops with the mismatch described, at most two rounds.
-4. **Review.** Photo vs model, the sources, each change as a line ("drawer unit: W × D × H cm, from the product page"), and the choice of fixture or furniture. Nothing is saved until the person saves it.
+1. **Start from a form** (`recipeFromForm`). A built-in form's model is copied into a recipe once, in centimetres, each part named by a role guessed from its shape (`guessRole`: a thin slab at the top is the top, a narrow post from the floor a leg, a thin slab lower down a shelf, a thin full-height board a panel, else body). The desk becomes `leg-1`…`leg-4` and `top`, and draws exactly as the form did.
+2. **Shape it by the facts** (`assembleRecipe`), with recipe ops, locally. A drawer unit the facts name replaces the legs on the right (its width from the facts, else 28% of the desk, 30 to 45% bounds) with its drawers on the front (the facts' count, else three); a side panel replaces the legs on the left. The product's size, else the form's usual one. Colour: the photo's (`photoColor`, the largest OKLab cluster of the outline's pixels), else the product's first; its finish (a material that isn't metal) on everything that isn't metal. From the bundled catalog's facts this gives the same Alex desk as the hand-written recipe. No model call: Spark only refines.
+3. **Size it from the camera** when the room has no group there (`photoBox`). The box standing on the floor, inside the room, whose silhouette best matches the outline's convex hull (the hull, so a desk's open underside counts as the box's): a coordinate search from a small box where the outline meets the floor, at a quarter of the frame's size, in about 25 ms. On the demo: the desk 154 × 71 × 75 cm (truly 160 × 80 × 72), the bookshelf 80 × 30 × 120 (exact). A chair partly hidden by the desk comes out short (66 cm tall for 98), and a thing on another thing (the lamp on the desk) gets no box. This is the camera's estimate `sizeDisagreement` checks a lookup against.
+4. **Check it** (`checkRecipe`). The scene with the recipe standing where the selected group stood (`placeOfGroup`: same middle, same turn; that group left out) is drawn through the room camera, labelled per pixel, so what stands in front hides it as in the photo. Its pixels against the outline give IoU, the share of the outline missed, the share drawn outside it, and a plain report of where ("Most of the outline it misses is on its right."). The demo desk drawn from the desk form scores 0.99 against its own outline. Colour isn't scored: the room is drawn in the house palette, not the photo's colours.
+5. **Refine it** (`refineRecipe`). Below `RECIPE_TARGET` (IoU 0.75), a refiner suggests ops from the check's report, the check runs again, at most twice, and the best round is kept, so a refinement that made it worse never comes back. Live, the refiner is Spark (`MetaAdapter.refineRecipe`, `sparkRefiner`): one call per round in the request's own schema, keeping only recipe ops. Tested against a mocked API only.
+6. **Review** (step 8). Photo vs model, the sources, each change as a line ("drawer unit: W × D × H cm, from the product page"), any size the camera disagrees with, and the choice of fixture or furniture. Nothing is saved until the person saves it.
 
-An edit (`recolor`, `resize`, …) skips 1, applies its op, and reruns the check only when geometry changed.
+An edit (`recolor`, `resize`, …) skips 1–3, applies its op, and reruns the check only when geometry changed.
+
+In the demo, the selected desk is the office's 160 × 80 cm desk, not an Alex: an Alex assembled from the catalog scores 0.55 against it, which is what the review should show (and a refiner resizing it to the desk improves it). The demo tells that story honestly rather than pretending the room's desk is an Alex.
 
 ## 7. Orchestration and cost
 
@@ -204,7 +208,7 @@ Each step lands with tests and leaves the app working.
 3. ~~**Selection and target.** `selection.ts`, `clipMask`, `resolveSelection` against `demoSegmentation`.~~ Done, with `POST /api/select/resolve`. Freezing the frame and SAM's outline moved to the assist route (step 7), where the frame is stored as that run's asset.
 4. ~~**Facts.** `Researcher` interface, the catalog researcher and the demo's bundled products. Spike: web and image search on the Meta API, its cost and output, written up here.~~ Done: `facts.ts`, `research.ts`, `MetaAdapter.lookupProduct`, `apps/server/catalog/ikea-alex-desk.json`, `tests/research.test.ts`, and the spike above. Not yet called live.
 5. ~~**Intent.** `editIntentSchema`, `MetaAdapter.intent`, demo answers; a small bench of sentences → expected ops (`bun run bench:intent`).~~ Done: `intent.ts`, `demo-intent.ts`, `MetaAdapter.intent`, `tests/intent.test.ts`, `bench:intent` (12/12 offline; live not yet run).
-6. **Build and check.** `recipe-build.ts`, scoring through the room camera; extend `bench:fit` with recipe cases.
+6. ~~**Build and check.** `recipe-build.ts`, scoring through the room camera; extend `bench:fit` with recipe cases.~~ Done: `recipe-build.ts`, `build.ts`, `MetaAdapter.refineRecipe`, `tests/recipe-build.test.ts`. The cases are tests on the demo room, not `bench:fit` cases: the fit bench scores items against crops, a different measure.
 7. **Route and job.** `/api/assist`, replay script, cost reservation.
 8. **Brush, prompt and review** in the web, a browser test on the demo desk.
 9. `docs/architecture.md` section; "As built" here.

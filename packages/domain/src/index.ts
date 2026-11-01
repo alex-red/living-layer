@@ -765,6 +765,7 @@ export * from './recipe-ops.js';
 export * from './selection.js';
 export * from './facts.js';
 export * from './intent.js';
+export * from './recipe-build.js';
 export * from './color.js';
 export * from './iso-voxel.js';
 export * from './iso-prop-sprite.js';

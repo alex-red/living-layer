@@ -31,6 +31,8 @@ import {
   opCatalog,
   PROP_FORMS,
   type IntentContext,
+  type FixtureRecipe,
+  type RecipeCheck,
   type FactNeed,
   type FactSource,
   type ProductFacts,
@@ -76,6 +78,7 @@ export const SPARK_BUDGET = {
   photoCheck: 12288,
   productLookup: 8192,
   intent: 8192,
+  refine: 8192,
 } as const;
 /** Search queries a product lookup reserves for: the model decides how many it makes. */
 const SEARCH_CEILING = 5;
@@ -321,6 +324,71 @@ export class MetaAdapter {
       signal,
     );
     return this.parsed(response, sparkIntentSchema, 'request', SPARK_BUDGET.intent);
+  }
+  /**
+   * Ops that bring a model closer to what the camera sees: the model's
+   * parts, how its drawing missed the selection's outline (`check.report`),
+   * and the crop when there is one. Answered in the request's own schema;
+   * the caller keeps only recipe ops.
+   */
+  async refineRecipe(
+    recipe: FixtureRecipe,
+    check: RecipeCheck,
+    cropDataUrl?: string,
+    signal?: AbortSignal,
+  ) {
+    const ctx: IntentContext = {
+      target: { kind: 'fixture', id: 'draft', label: recipe.label },
+      recipe,
+      entities: [],
+    };
+    const response = await this.spark(
+      cropDataUrl ? 1 : 0,
+      {
+        model: this.config.sparkModel,
+        store: false,
+        max_output_tokens: SPARK_BUDGET.refine,
+        input: [
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'input_text',
+                text: [
+                  'A model of a piece of furniture was drawn through the room camera and compared with the outline of the real thing in its picture.',
+                  describeContext(ctx),
+                  check.report,
+                  'Suggest at most four ops that bring the model closer to the real thing: resize the model or its parts, add or remove parts. Only these ops:',
+                  opCatalog(),
+                  'Fill only the fields an op needs and leave the others null or empty. Sizes are in centimetres, parts measured from the back-left-bottom corner, facing the room. If nothing would help, answer one clarify op.',
+                  'product: null. needs: empty. targetDisagrees: null.',
+                ].join('\n'),
+              },
+              ...(cropDataUrl
+                ? [
+                    {
+                      type: 'input_image' as const,
+                      image_url: cropDataUrl,
+                      detail: 'auto' as const,
+                    },
+                  ]
+                : []),
+            ],
+          },
+        ],
+        text: {
+          format: {
+            type: 'json_schema',
+            name: 'recipe_refine',
+            strict: true,
+            schema: z.toJSONSchema(sparkIntentSchema),
+          },
+        },
+      },
+      this.config.timeoutMs,
+      signal,
+    );
+    return this.parsed(response, sparkIntentSchema, 'model check', SPARK_BUDGET.refine);
   }
   async text(): Promise<ProviderResult<{ text: string }>> {
     const response = await this.spark(0, {
