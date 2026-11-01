@@ -3,7 +3,7 @@ import { placeRecipe, type FixtureRecipe, type SelectionShape } from '@livinglay
 import { propSprite } from '../iso/sprites';
 import { typing } from '../shortcuts';
 import { Button, IconButton } from '../ui/controls';
-import { CLOSE_SHARE, type Brush, type BrushStroke, type Share } from './useBrush';
+import { CLOSE_SHARE, inSentence, type Brush, type BrushStroke, type Share } from './useBrush';
 
 /** Points of a shape or a stroke on the 0–1000 overlay. */
 const pts = (points: Share[]) => points.map((p) => `${p.x * 1000},${p.y * 1000}`).join(' ');
@@ -145,6 +145,8 @@ export function BrushPanel({ brush, busy }: { brush: Brush; busy: boolean }) {
   const target = d?.target ?? resolved?.target ?? null;
   const runnerUp = resolved?.ambiguous ? resolved.candidates[1]?.target : null;
   const recipe = d?.recipe ?? null;
+  // A model to edit: the draft's, or one the selected thing already has.
+  const editing = Boolean(recipe) || Boolean(!d && resolved?.hasModel);
   const submit = (text = prompt) => {
     if (!text.trim()) return;
     void brush.send(text);
@@ -165,7 +167,7 @@ export function BrushPanel({ brush, busy }: { brush: Brush; busy: boolean }) {
         ) : target ? (
           <>
             <strong>{target.label}</strong> <small>{target.kind}</small>
-            {runnerUp && <small> · or the {runnerUp.label.toLowerCase()}?</small>}
+            {runnerUp && <small> · or the {inSentence(runnerUp.label)}?</small>}
           </>
         ) : (
           <>Something the room doesn’t have yet</>
@@ -267,7 +269,7 @@ export function BrushPanel({ brush, busy }: { brush: Brush; busy: boolean }) {
           placeholder={
             d?.question
               ? 'Your answer'
-              : recipe
+              : editing
                 ? 'Change it: “make the top oak”, “it is 75 cm tall”'
                 : 'Say what to do: “It’s an IKEA Alex desk, make it its own furniture”'
           }
@@ -291,7 +293,7 @@ export function BrushPanel({ brush, busy }: { brush: Brush; busy: boolean }) {
       </form>
       {!d?.question && (
         <div className="brush-suggest">
-          {(recipe ? SUGGEST_EDIT : SUGGEST_NEW).map((s) => (
+          {(editing ? SUGGEST_EDIT : SUGGEST_NEW).map((s) => (
             <Button
               key={s}
               size="sm"

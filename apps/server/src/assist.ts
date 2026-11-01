@@ -23,6 +23,7 @@ import {
   placeOfGroup,
   RECIPE_OPS,
   readIntent,
+  resolveSelection,
   refineRecipe,
   roomMask,
   selectionBox,
@@ -165,7 +166,10 @@ export function assistRoutes(
         `This request could cost up to $${assistCeiling().toFixed(3)}, which would pass today's Meta spending limit. Raise the limit in Setup, or wait for the next UTC day.`,
         429,
       );
-    const job = jobs.start(input.jobId, STEPS, { title: 'Working on your selection', mode });
+    const job = jobs.start(input.jobId, STEPS, {
+      title: 'Working on your selection',
+      mode,
+    });
     return following(job, async () => {
       const done = await run('assist', mode, async (id) => {
         job.link(id);
@@ -215,11 +219,21 @@ export function assistRoutes(
             ambiguous: last.ambiguous,
           };
         } else {
-          const first = room.resolve(selectionMask(shape, room.frame));
-          outline = live
-            ? await samOutline(png, shape, room.frame, id)
-            : demoOutline(shape, room.frame, first.target?.id ?? null);
-          resolved = room.resolve(outline);
+          if (live) {
+            outline = await samOutline(png, shape, room.frame, id);
+            resolved = room.resolve(outline);
+          } else {
+            // The demo points at what the panel showed, then outlines what its frame draws there.
+            resolved = room.resolve(selectionMask(shape, room.frame));
+            const t = resolved.target;
+            outline = demoOutline(
+              shape,
+              room.frame,
+              t && t.kind !== 'object'
+                ? roomMask(room.picture, t.kind === 'fixture' ? `fixture:${t.id}` : t.id)
+                : null,
+            );
+          }
         }
         assets.push(store.asset(id, 'outline.png', await maskPng(outline)));
         assets.push(store.asset(id, 'crop.png', crop));
@@ -339,8 +353,12 @@ export function assistRoutes(
       memory = adoptPreset(memory, calibration.scene);
     }
     const before = memory.scene!;
-    const g = freshRecipeGroup(before, draft.recipe.label);
     const replaced = draft.place.replaces;
+    // An edited model keeps its group id, so what refers to it still does; anything else gets one from its name.
+    const g =
+      replaced && before.props.some((p) => p.group === replaced && p.recipe)
+        ? replaced
+        : freshRecipeGroup(before, draft.recipe.label);
     const scene = sceneWithRecipe(before, draft.recipe, draft.place, g);
     const checked = isoSceneSchema.safeParse(scene);
     if (!checked.success)
@@ -359,15 +377,29 @@ export function assistRoutes(
       );
     const onTop = <T extends { onSurface?: ZoneOnSurface }>(z: T): T =>
       z.onSurface?.scene === 'custom'
-        ? { ...z, onSurface: { ...z.onSurface, surfaceId: moved(z.onSurface.surfaceId) } }
+        ? {
+            ...z,
+            onSurface: {
+              ...z.onSurface,
+              surfaceId: moved(z.onSurface.surfaceId),
+            },
+          }
         : z;
     if (memory.zone) memory.zone = onTop(memory.zone);
     if (memory.rules) memory.rules = memory.rules.map((r) => ({ ...r, zone: onTop(r.zone) }));
-    if (memory.surface?.scene === 'custom') {
-      const id = moved(memory.surface.surfaceId);
-      const surface = memory.scene.surfaces.find((x) => x.id === id);
-      const camera = calibrationOf(memory)!.camera;
-      const pin = surface ? pinOf(camera, surface, camera.frame) : null;
+    // The pin follows its surface; with none (the demo's is built in, not kept), a
+    // replaced desk's new top is pinned through the camera, as auto-pin would.
+    const camera = calibrationOf(memory)!.camera;
+    const pinned =
+      memory.surface?.scene === 'custom'
+        ? memory.scene.surfaces.find((x) => x.id === moved(memory.surface!.surfaceId))
+        : !memory.surface &&
+            replaced &&
+            before.surfaces.some((x) => x.id.startsWith(`${replaced}:`))
+          ? top
+          : undefined;
+    if (pinned !== undefined) {
+      const pin = pinned ? pinOf(camera, pinned, camera.frame) : null;
       memory.surface = pin ? { ...pin, scene: 'custom' } : null;
     }
     store.saveMemory(memory);
@@ -389,7 +421,12 @@ export function assistRoutes(
     const b = selectionBox(shape, frame);
     const outlined = await meta.segmentBoxes(
       dataUrl(png),
-      [{ id: 1, box: { left: b.left, top: b.top, right: b.right, bottom: b.bottom } }],
+      [
+        {
+          id: 1,
+          box: { left: b.left, top: b.top, right: b.right, bottom: b.bottom },
+        },
+      ],
       frame.width,
       frame.height,
     );
@@ -483,7 +520,10 @@ export async function finishDraft(
       'cabinet';
     recipe = assembleRecipe(
       form,
-      { ...draft.facts!, ...(create.op === 'create' ? { name: create.label } : {}) },
+      {
+        ...draft.facts!,
+        ...(create.op === 'create' ? { name: create.label } : {}),
+      },
       color,
     );
   }
@@ -534,21 +574,27 @@ function freshRecipeGroup(scene: IsoScene, label: string): string {
   for (let n = 2; taken.has(g); n++) g = `${base}-${n}`;
   return g;
 }
-/** The demo's outline: what the render shows of the target inside the selection, else the selection. */
-function demoOutline(
-  shape: SelectionShape,
-  frame: Segmentation['frame'],
-  target: string | null,
-): Bits {
+/**
+ * The demo's stand-in for SAM: what the demo frame shows inside the
+ * selection, read off its own labelled render, else the selection. Read from
+ * the frame, not by the room's ids: once a model is saved, the room has
+ * things the fixed demo frame doesn't show, and the frame is what SAM would
+ * outline. Given where the room has the target (`near`), it is the thing the
+ * frame draws most of there; otherwise the thing it shows most of, mostly inside.
+ */
+function demoOutline(shape: SelectionShape, frame: Segmentation['frame'], near: Bits | null): Bits {
   const inside = selectionMask(shape, frame);
-  if (!target) return inside;
-  const shown = roomMask(demoFrame(), target);
-  let any = false;
-  for (let i = 0; i < shown.data.length; i++) {
-    shown.data[i] = shown.data[i]! & inside.data[i]!;
-    any ||= shown.data[i] === 1;
-  }
-  return any ? shown : inside;
+  const picture = demoFrame();
+  if (near)
+    for (let i = 0; i < near.data.length; i++) near.data[i] = near.data[i]! & inside.data[i]!;
+  const there = near?.data.some(Boolean)
+    ? resolveSelection(near, picture, new Map()).candidates.toSorted((a, b) => b.fills - a.fills)[0]
+    : null;
+  const shown = there?.target ?? resolveSelection(inside, picture, new Map()).target;
+  if (!shown) return inside;
+  const mask = roomMask(picture, shown.id);
+  for (let i = 0; i < mask.data.length; i++) mask.data[i] = mask.data[i]! & inside.data[i]!;
+  return mask;
 }
 export async function rgbaOf(png: Buffer) {
   return sharp(png).ensureAlpha().raw().toBuffer({ resolveWithObject: true });

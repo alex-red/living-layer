@@ -55,13 +55,23 @@ export function selectionRoom(memory: DeskMemory) {
     calibration.camera,
     scene,
     // Each where the room's own view puts it, as the room picture does.
-    fixtures.map((f) => ({ id: f.id, box: fixtureBox(inRoomView(f), memory.scene) })),
+    fixtures.map((f) => ({
+      id: f.id,
+      box: fixtureBox(inRoomView(f), memory.scene),
+    })),
   );
   const labels = groupLabels(scene);
   for (const f of fixtures) labels.set(`fixture:${f.id}`, f.label);
   const resolve = (mask: Bits) =>
     resolveSelection(mask, picture, labels, trackedObjects(memory, frame));
-  return { calibration, camera: calibration.camera, scene, frame, picture, resolve };
+  return {
+    calibration,
+    camera: calibration.camera,
+    scene,
+    frame,
+    picture,
+    resolve,
+  };
 }
 
 /**
@@ -79,10 +89,13 @@ export function selectRoutes(app: FastifyInstance, { store }: { store: EvidenceS
     );
     const room = selectionRoom(store.memory(input.mode));
     const resolved = room.resolve(selectionMask(input.shape, room.frame));
+    const target = resolved.target;
     return {
       ...resolved,
       candidates: resolved.candidates.slice(0, MAX_CANDIDATES),
       frame: room.frame,
+      hasModel:
+        target?.kind === 'prop' && room.scene.props.some((p) => p.group === target.id && p.recipe),
     };
   });
 }

@@ -153,12 +153,24 @@ describe('saving a draft into the room', () => {
     const monitor = scene.props.find((p) => p.group === 'monitor')!;
     expect(monitor.at.z).toBeCloseTo(cm(76), 2);
     // The next brush on it finds a model to edit.
-    const next = (await s.assist({ shape, prompt: 'make the drawers green' })).json<
+    const edit = (await s.assist({ shape, prompt: 'make the drawers green' })).json<
       EvidenceRun<AssistDraft>
-    >().output;
+    >();
+    const next = edit.output;
     expect(next.target).toMatchObject({ kind: 'prop', id: group });
     expect(next.question).toBeNull();
     expect(next.recipe!.parts.find((p) => p.name === 'drawer-1')!.color).toBe('#3f8f4a');
+    // Saving the edit keeps the model's id, and its top stays the pinned surface.
+    const again = await s.app.inject({
+      method: 'POST',
+      url: '/api/assist/save',
+      payload: { mode: 'demo', runId: edit.id },
+    });
+    expect(again.statusCode, again.body).toBe(200);
+    const saved = again.json<{ memory: DeskMemory; group: string }>();
+    expect(saved.group).toBe(group);
+    expect(saved.memory.surface?.scene).toBe('custom');
+    expect(saved.memory.surface?.surfaceId.startsWith(`${group}:`)).toBe(true);
   });
 
   it('never overwrites a scene of the person’s own on a preset-calibrated room', async () => {

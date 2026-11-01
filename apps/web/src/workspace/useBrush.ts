@@ -20,6 +20,9 @@ export type BrushStroke =
   | { kind: 'rect'; a: Share; b: Share }
   | { kind: 'polygon'; points: Share[] };
 
+/** A name mid-sentence: "Desk" becomes "desk", but "IKEA Alex desk" keeps its capitals. */
+export const inSentence = (name: string) =>
+  name.slice(1) === name.slice(1).toLowerCase() ? name[0]!.toLowerCase() + name.slice(1) : name;
 /** A click this close to the first point closes the polygon. */
 export const CLOSE_SHARE = 0.015;
 const milli = (v: number) => Math.round(Math.min(1, Math.max(0, v)) * 1000);
@@ -27,7 +30,10 @@ const milli = (v: number) => Math.round(Math.min(1, Math.max(0, v)) * 1000);
 export function shapeOf(stroke: BrushStroke): SelectionShape | null {
   if (stroke.kind === 'polygon')
     return stroke.points.length >= 3
-      ? { kind: 'polygon', points: stroke.points.map((p) => ({ x: milli(p.x), y: milli(p.y) })) }
+      ? {
+          kind: 'polygon',
+          points: stroke.points.map((p) => ({ x: milli(p.x), y: milli(p.y) })),
+        }
       : null;
   const box = {
     x1: milli(Math.min(stroke.a.x, stroke.b.x)),
@@ -52,6 +58,7 @@ export function useBrush({
   followAi,
   closeAiTask,
   setMemory,
+  showOwnScene,
   setMessage,
   setError,
 }: {
@@ -63,6 +70,8 @@ export function useBrush({
   ) => Promise<T | null>;
   closeAiTask: () => void;
   setMemory: (memory: DeskMemory) => void;
+  /** Show the room's own scene, which the model was saved into. */
+  showOwnScene: () => void;
   setMessage: (message: string) => void;
   setError: (error: string | Error) => void;
 }) {
@@ -127,7 +136,10 @@ export function useBrush({
               jobId,
               ...(last
                 ? { previous: last.id }
-                : { shape, ...(mode === 'live' && held ? { imageDataUrl: held } : {}) }),
+                : {
+                    shape,
+                    ...(mode === 'live' && held ? { imageDataUrl: held } : {}),
+                  }),
             },
             { signal },
           ),
@@ -160,8 +172,10 @@ export function useBrush({
         runId: last.id,
       });
       setMemory(memory);
+      // A preset room became the person's own scene to take it: show that one.
+      showOwnScene();
       setMessage(
-        `Put ${last.output.recipe.label} in the room${last.output.place?.replaces ? `, in place of the ${last.output.target?.label.toLowerCase() ?? 'old one'}` : ''}. The Iso view shows it.`,
+        `Put ${last.output.recipe.label} in the room${last.output.place?.replaces ? `, in place of the ${inSentence(last.output.target?.label ?? 'old one')}` : ''}. The Iso view shows it.`,
       );
       clear();
     } catch (e) {

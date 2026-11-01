@@ -14,6 +14,8 @@ import type { Resolved, SelectionShape } from './selection.js';
 /** `POST /api/select/resolve`: what a selection points at, read against this frame. */
 export interface SelectResolve extends Resolved {
   frame: Segmentation['frame'];
+  /** The target already has a model to edit (a saved recipe), so edits make sense from the start. */
+  hasModel: boolean;
 }
 
 /** `POST /api/assist`: an `assist` run's output, a draft for the person to review. */
@@ -31,7 +33,10 @@ export interface AssistDraft {
   question: string | null;
   facts: MergedFacts | null;
   /** The camera's own estimate of the thing, when it stands on the floor. */
-  photo: { sizeCm: { w: number; d: number; h: number } | null; color: string | null };
+  photo: {
+    sizeCm: { w: number; d: number; h: number } | null;
+    color: string | null;
+  };
   /** Axes where the facts and the camera disagree by more than a quarter. */
   disagreement: ReturnType<typeof sizeDisagreement>;
   recipe: FixtureRecipe | null;

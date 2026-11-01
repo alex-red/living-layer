@@ -1943,6 +1943,7 @@ export function useLabState() {
     followAi,
     closeAiTask,
     setMemory,
+    showOwnScene: () => setWorkScene('custom'),
     setMessage,
     setError,
   });
