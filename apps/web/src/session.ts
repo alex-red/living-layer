@@ -31,7 +31,7 @@ export interface Prefs {
   /** Whether the activity drawer is open. */
   drawer: boolean;
   /** What a drag on the canvas does. */
-  tool: 'select' | 'scale' | 'hand';
+  tool: 'select' | 'scale' | 'hand' | 'brush';
   /** The iso canvas: the room, or the layout or a model open in its editor. */
   isoPanel: 'room' | 'scene' | 'item';
   /** The object whose model is open; '' for the mug. */

@@ -1,5 +1,8 @@
-/** What a drag on the canvas does: select and move fixtures, stretch one's base, or pan. */
-export type Tool = 'select' | 'scale' | 'hand';
+/**
+ * What a drag on the canvas does: select and move fixtures, stretch one's
+ * base, pan, or select part of the picture for the AI brush.
+ */
+export type Tool = 'select' | 'scale' | 'hand' | 'brush';
 
 const TOOLS: { id: Tool; label: string; key: string; hint: string; icon: string }[] = [
   {
@@ -15,6 +18,13 @@ const TOOLS: { id: Tool; label: string; key: string; hint: string; icon: string 
     key: 'S',
     hint: 'Drag the handles on the selected fixture’s base to stretch it',
     icon: 'M4 9V4h5M20 15v5h-5M4 4l7 7M20 20l-7-7',
+  },
+  {
+    id: 'brush',
+    label: 'AI brush',
+    key: 'B',
+    hint: 'Drag a box, or click points around a thing, then say what to do with it',
+    icon: 'M14 4l6 6-9 9H5v-6zM12 6l6 6M4 21h7',
   },
   {
     id: 'hand',

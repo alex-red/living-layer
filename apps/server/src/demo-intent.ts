@@ -107,7 +107,7 @@ export function demoIntent(sentence: string): SparkIntent {
     /\b(its own|a new|new)\s+(fixture|furniture|model|thing)\b|\bturn (this|it) into\b/.test(text);
   // "It's an IKEA Alex desk": a product, unless it names an entity.
   // "its an" too, as people type it.
-  const named = text.match(/\b(?:it's|its|it is|this is)\s+an?\s+([a-z0-9 \-]+?)\s*(?:[.,;!]|$)/);
+  const named = text.match(/\b(?:it's|its|it is|this is)\s+an?\s+([a-z0-9 \-]+?)\s*(?:[.,;:!]|$)/);
   if (named && !entity && !/\b(light|switch|fixture)\b/.test(named[1]!))
     product = sentence
       .slice(named.index! + named[0].indexOf(named[1]!))

@@ -2,7 +2,16 @@ import type { FastifyInstance } from 'fastify';
 import sharp from 'sharp';
 import { z } from 'zod';
 import {
+  adoptPreset,
   applyRecipeOps,
+  calibrationOf,
+  ISO_PRESETS,
+  isoSceneSchema,
+  pinOf,
+  sceneWithRecipe,
+  settleFixtures,
+  type IsoScene,
+  type ZoneOnSurface,
   assembleRecipe,
   checkRecipe,
   clipMask,
@@ -24,26 +33,24 @@ import {
   demoFrame,
   type Bits,
   type BuildRound,
-  type EditIntent,
   type FixtureRecipe,
   type IntentContext,
-  type MergedFacts,
   type Mode,
   type ProductFacts,
   type PropForm,
-  type RecipeCheck,
   type RecipeOp,
-  type RecipePlace,
   type Refiner,
   type Resolved,
   type Segmentation,
   type SelectionShape,
   type Usage,
+  type AssistDraft,
 } from '@livinglayer/domain';
 import { sparkRefiner } from './build.js';
 import { demoPng } from './demo.js';
 import { demoIntent } from './demo-intent.js';
 import { LabError, parseInput } from './errors.js';
+import { NOT_CALIBRATED } from './photo.js';
 import { around } from './fixture.js';
 import { validateImage } from './images.js';
 import type { Runner } from './item.js';
@@ -69,30 +76,6 @@ const STEPS = [
   { id: 'build', label: 'Build the model' },
   { id: 'check', label: 'Check it against the camera' },
 ];
-
-export interface AssistDraft {
-  shape: SelectionShape;
-  prompt: string;
-  /** The run this one followed, when it was a follow-up. */
-  previous: string | null;
-  frame: Segmentation['frame'];
-  target: Resolved['target'];
-  candidates: Resolved['candidates'];
-  ambiguous: boolean;
-  intent: EditIntent & { dropped: string[] };
-  /** Set when the request needs answering before anything is done. */
-  question: string | null;
-  facts: MergedFacts | null;
-  /** The camera's own estimate of the thing, when it stands on the floor. */
-  photo: { sizeCm: { w: number; d: number; h: number } | null; color: string | null };
-  /** Axes where the facts and the camera disagree by more than a quarter. */
-  disagreement: ReturnType<typeof sizeDisagreement>;
-  recipe: FixtureRecipe | null;
-  place: RecipePlace | null;
-  check: RecipeCheck | null;
-  /** Refinement rounds after the first check, and the ops each applied. */
-  rounds: RecipeOp[][];
-}
 
 /** The most one request can cost live: reading it, SAM, a lookup with searches, two refinements. */
 export const assistCeiling = () =>
@@ -323,6 +306,79 @@ export function assistRoutes(
     });
   });
 
+  /**
+   * Put a reviewed draft's model in the room as furniture: in place of the
+   * group it was checked against, or standing where the camera found it.
+   * A preset room becomes the person's own scene first (`adoptPreset`); a
+   * room calibrated on a preset while another scene of theirs exists is
+   * refused rather than overwritten. What stood on the replaced thing (the
+   * monitor, the pin, fixtures, zones) moves onto the new model's top. Live,
+   * a looked-up product is kept in the catalog with its model.
+   */
+  app.post('/api/assist/save', async (request) => {
+    const { mode, runId } = parseInput(
+      z.object({ mode: modeSchema, runId: z.uuid() }).strict(),
+      request.body,
+    );
+    const done = store.getRun(runId);
+    if (!done || done.kind !== 'assist' || done.mode !== mode || done.status !== 'completed')
+      throw new LabError('assist_previous', 'That request isn’t one of this mode’s.', 404);
+    const draft = done.output as AssistDraft;
+    if (!draft.recipe || !draft.place)
+      throw new LabError('assist_nothing', 'That request has no model to put in the room.', 409);
+    let memory = store.memory(mode);
+    const calibration = calibrationOf(memory);
+    if (!calibration) throw new LabError('not_calibrated', NOT_CALIBRATED, 409);
+    if (calibration.scene !== 'custom') {
+      if (memory.scene)
+        throw new LabError(
+          'assist_scene',
+          `The room’s camera is calibrated on the ${ISO_PRESETS[calibration.scene].label} preset, and you have a scene of your own. Calibrate the camera on your scene first.`,
+          409,
+        );
+      memory = adoptPreset(memory, calibration.scene);
+    }
+    const before = memory.scene!;
+    const g = freshRecipeGroup(before, draft.recipe.label);
+    const replaced = draft.place.replaces;
+    const scene = sceneWithRecipe(before, draft.recipe, draft.place, g);
+    const checked = isoSceneSchema.safeParse(scene);
+    if (!checked.success)
+      throw new LabError('assist_place', 'The model doesn’t fit in the room there.', 422);
+    // Whatever was on the replaced thing's top is now on the new model's.
+    const top = scene.surfaces.find((x) => x.propId === g) ?? null;
+    const moved = (surfaceId: string) =>
+      replaced && top && surfaceId.startsWith(`${replaced}:`) ? top.id : surfaceId;
+    memory.scene = checked.data as IsoScene;
+    if (memory.fixtures)
+      memory.fixtures = settleFixtures(
+        memory.fixtures.map((f) =>
+          f.scene === 'custom' && f.surfaceId ? { ...f, surfaceId: moved(f.surfaceId) } : f,
+        ),
+        memory.scene,
+      );
+    const onTop = <T extends { onSurface?: ZoneOnSurface }>(z: T): T =>
+      z.onSurface?.scene === 'custom'
+        ? { ...z, onSurface: { ...z.onSurface, surfaceId: moved(z.onSurface.surfaceId) } }
+        : z;
+    if (memory.zone) memory.zone = onTop(memory.zone);
+    if (memory.rules) memory.rules = memory.rules.map((r) => ({ ...r, zone: onTop(r.zone) }));
+    if (memory.surface?.scene === 'custom') {
+      const id = moved(memory.surface.surfaceId);
+      const surface = memory.scene.surfaces.find((x) => x.id === id);
+      const camera = calibrationOf(memory)!.camera;
+      const pin = surface ? pinOf(camera, surface, camera.frame) : null;
+      memory.surface = pin ? { ...pin, scene: 'custom' } : null;
+    }
+    store.saveMemory(memory);
+    if (mode === 'live' && draft.facts && draft.intent.product)
+      new Catalog([productsDir, BUNDLED_CATALOG]).save(
+        { ...draft.facts, query: draft.intent.product },
+        draft.recipe,
+      );
+    return { memory, group: g };
+  });
+
   /** SAM's outline of the boxed thing, cut to the selection; the selection itself when SAM finds none. */
   async function samOutline(
     png: Buffer,
@@ -465,6 +521,19 @@ export async function finishDraft(
   return draft;
 }
 
+/** A group id for a saved model, from its name, not yet in the scene: `ikea-alex-desk`, `-2`… */
+function freshRecipeGroup(scene: IsoScene, label: string): string {
+  const base =
+    label
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '')
+      .slice(0, 24) || 'model';
+  const taken = new Set(scene.props.map((p) => p.group));
+  let g = base;
+  for (let n = 2; taken.has(g); n++) g = `${base}-${n}`;
+  return g;
+}
 /** The demo's outline: what the render shows of the target inside the selection, else the selection. */
 function demoOutline(
   shape: SelectionShape,

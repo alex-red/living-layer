@@ -419,3 +419,36 @@ test('a fixture is drafted from the demo mouse, placed on the office desk and se
   await expect(page.locator('[data-fixture]')).toHaveCount(1);
   await expect(page.getByRole('button', { name: 'Move' })).toBeVisible();
 });
+
+test('the AI brush turns the office desk into an Alex desk, follows up, and puts it in the room', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await chooseScene(page);
+  await page.getByRole('button', { name: /^AI brush/ }).click();
+  const overlay = page.getByLabel('AI brush: drag a box, or click points around a thing');
+  await expect(overlay).toBeVisible();
+  // A box around the desk, in shares of the demo frame (where its outline is).
+  const box = (await overlay.boundingBox())!;
+  const at = (x: number, y: number) => [box.x + box.width * x, box.y + box.height * y] as const;
+  await page.mouse.move(...at(0.37, 0.21));
+  await page.mouse.down();
+  await page.mouse.move(...at(0.55, 0.45), { steps: 4 });
+  await page.mouse.move(...at(0.71, 0.66), { steps: 4 });
+  await page.mouse.up();
+  const panel = page.getByRole('complementary', { name: 'AI brush' });
+  await expect(panel.locator('.brush-target')).toContainText('Desk');
+  await panel
+    .getByRole('button', { name: 'It’s an IKEA Alex desk: make it its own furniture' })
+    .click();
+  await expect(panel.getByText('IKEA Alex desk', { exact: true })).toBeVisible();
+  await expect(panel.getByText(/Matches the camera \d+%/)).toBeVisible();
+  await expect(panel.getByRole('img', { name: /as it would be drawn in the room/ })).toBeVisible();
+  // A follow-up keeps the selection and the model.
+  await panel.getByLabel('What to do with the selection').fill('Make the drawers green');
+  await page.keyboard.press('Enter');
+  await expect(panel.locator('.brush-history li')).toHaveCount(1);
+  await panel.getByRole('button', { name: 'Put in the room' }).click();
+  await expect(page.locator('.feedback')).toContainText('Put IKEA Alex desk in the room');
+  await expect(panel).toHaveCount(0);
+});

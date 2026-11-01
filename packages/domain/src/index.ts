@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import type { IsoScene, SurfacePin } from './iso.js';
+import type { IsoScene, IsoSceneKind, SurfacePin } from './iso.js';
+import { ISO_PRESETS } from './iso-presets.js';
 import type { SceneIllustration } from './illustration.js';
 import { DEMO_CAMERA, type DemoPosition } from './demo-room.js';
 import { marksOf, roomCameraSchema, roomMarksSchema } from './room-camera.js';
@@ -556,6 +557,32 @@ export const ruleInputSchema = z
   })
   .strict()
   .refine((r) => r.entityId || !r.fixtureId, { message: 'A fixture needs its entity.' });
+/**
+ * The room a preset was, adopted as the person's own scene: a copy of the
+ * preset as `memory.scene`, and everything that named the preset (its
+ * calibration, the pin, zones drawn on its surfaces, fixtures standing in
+ * it) naming `custom` instead. Surface ids stay the same, so nothing moves.
+ * For changing a preset room the way a person's own can be changed.
+ */
+export function adoptPreset(memory: DeskMemory, kind: IsoSceneKind): DeskMemory {
+  const preset = ISO_PRESETS[kind];
+  const own = <T extends { scene: string }>(x: T): T =>
+    x.scene === kind ? { ...x, scene: 'custom' } : x;
+  const onSurface = <T extends { onSurface?: ZoneOnSurface }>(x: T): T =>
+    x.onSurface ? { ...x, onSurface: own(x.onSurface) } : x;
+  const calibration = calibrationOf(memory);
+  return {
+    ...memory,
+    scene: { ...preset, kind: 'custom' },
+    ...(calibration ? { camera: own(calibration) } : {}),
+    surface: memory.surface ? own(memory.surface) : memory.surface,
+    zone: memory.zone ? onSurface(memory.zone) : memory.zone,
+    ...(memory.rules
+      ? { rules: memory.rules.map((r) => ({ ...r, zone: onSurface(r.zone) })) }
+      : {}),
+    ...(memory.fixtures ? { fixtures: memory.fixtures.map(own) } : {}),
+  };
+}
 /** The observation and name of the mug or another remembered object, by id. */
 export function objectById(
   memory: DeskMemory,
@@ -769,6 +796,7 @@ export * from './selection.js';
 export * from './facts.js';
 export * from './intent.js';
 export * from './recipe-build.js';
+export * from './assist.js';
 export * from './color.js';
 export * from './iso-voxel.js';
 export * from './iso-prop-sprite.js';

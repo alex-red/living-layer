@@ -5,7 +5,6 @@ import { join } from 'node:path';
 import { buildApp } from '../apps/server/src/app.js';
 import { parseConfig } from '../apps/server/src/config.js';
 import { demoSegmentation } from '../apps/server/src/demo.js';
-import type { SelectResolve } from '../apps/server/src/select.js';
 import {
   clipMask,
   DEMO_CAMERA,
@@ -22,6 +21,7 @@ import {
   cm,
   type Detection,
   type SelectionShape,
+  type SelectResolve,
 } from '../packages/domain/src/index.js';
 
 /**

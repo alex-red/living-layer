@@ -51,6 +51,7 @@ import {
   cropWithin,
 } from '@livinglayer/domain';
 import { api, ApiError } from '../api';
+import { useBrush } from './useBrush';
 import {
   cropStream,
   openMjpeg,
@@ -367,6 +368,11 @@ export function useLabState() {
   const [stageView, setStageView] = useState<StageView>(boot.prefs.stageView);
   // What a drag on the canvas does.
   const [tool, setTool] = useState<Tool>(boot.prefs.tool);
+  /** Choose a canvas tool; the AI brush draws on the camera's picture, so it shows it. */
+  function chooseTool(next: Tool) {
+    setTool(next);
+    if (next === 'brush') setStageView('photo');
+  }
   // Scene first: nothing runs until the person says which scene they are in.
   const [workScene, setWorkScene] = useState<WorkScene | null>(boot.prefs.workScene);
   const [choosingScene, setChoosingScene] = useState(false);
@@ -702,6 +708,7 @@ export function useLabState() {
       if (zooming) return setZooming(null);
       if (isoPanel !== 'room') return setIsoPanel('room');
       if (choosingScene && workScene) return setChoosingScene(false);
+      if (brush.escape()) return;
       if (tool !== 'select') return setTool('select');
       return false;
     }
@@ -720,6 +727,7 @@ export function useLabState() {
     }
     if (action === 'scene' && !busy && !pinning) setChoosingScene(true);
     if (action === 'select' || action === 'scale' || action === 'hand') setTool(action);
+    if (action === 'brush') chooseTool('brush');
   });
   /** Clear both desks and this browser's save; the menu asks first, as embedded browsers block confirm(). */
   async function resetToDemo() {
@@ -1929,6 +1937,15 @@ export function useLabState() {
     clearTimeout(aiClose.current);
     setAiTask(null);
   }
+  const brush = useBrush({
+    mode,
+    frameNow,
+    followAi,
+    closeAiTask,
+    setMemory,
+    setMessage,
+    setError,
+  });
   /**
    * Run an AI call that reports its steps under a job id, followed in the
    * dialog until it ends. Resolves to its answer, or null when it was stopped.
@@ -2465,7 +2482,8 @@ export function useLabState() {
     choosingScene,
     setChoosingScene,
     tool,
-    setTool,
+    setTool: chooseTool,
+    brush,
     fixtureLook,
     setFixtureLook,
     separate,

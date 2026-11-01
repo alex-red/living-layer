@@ -12,7 +12,7 @@ import {
   selectionMask,
   selectionShapeSchema,
   type DeskMemory,
-  type Resolved,
+  type SelectResolve,
   type Segmentation,
   type Bits,
 } from '@livinglayer/domain';
@@ -22,11 +22,6 @@ import type { EvidenceStore } from './store.js';
 
 /** The most candidates a resolve sends back: the review only shows a few. */
 const MAX_CANDIDATES = 5;
-
-export interface SelectResolve extends Resolved {
-  /** The calibrated camera's frame the selection was read against. */
-  frame: Segmentation['frame'];
-}
 
 /** Tracked objects with a sighting on frames of this size, by their last box. */
 function trackedObjects(memory: DeskMemory, frame: Segmentation['frame']) {

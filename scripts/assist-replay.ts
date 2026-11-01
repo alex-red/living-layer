@@ -10,8 +10,8 @@
  */
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import type { DeskMemory, FixtureRecipe, ProductFacts } from '@livinglayer/domain';
-import { finishDraft, pngMask, rgbaOf, type AssistDraft } from '../apps/server/src/assist.js';
+import type { AssistDraft, DeskMemory, FixtureRecipe, ProductFacts } from '@livinglayer/domain';
+import { finishDraft, pngMask, rgbaOf } from '../apps/server/src/assist.js';
 import { BUNDLED_CATALOG, Catalog, type Researcher } from '../apps/server/src/research.js';
 import { selectionRoom } from '../apps/server/src/select.js';
 import { has, parseArgs } from './lib/args.js';

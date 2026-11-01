@@ -27,6 +27,7 @@ import { useLab } from './LabContext';
 import { DeskStep, Onboarding } from './Onboarding';
 import { Popover } from './Popover';
 import { ToolStrip } from './ToolStrip';
+import { BrushOverlay, BrushPanel } from './Brush';
 import { demoFrameUrl } from './demoFrame';
 
 /** Which layer placed a watched thing's box last, as its tag says it. */
@@ -155,6 +156,17 @@ export function Canvas() {
   const chosenStream = lab.network.streams.find((s) => s.id === lab.cameraSource);
   // The hand gives way to anything being drawn, pinned or placed.
   const hand = lab.tool === 'hand' && !drawing && !pinning && !lab.placing && !lab.boxing;
+  // The AI brush draws on the camera's picture, read through the room's calibrated camera.
+  const brushable = mode === 'demo' || Boolean(calibration);
+  const brushing =
+    lab.tool === 'brush' &&
+    brushable &&
+    !showIso &&
+    !drawing &&
+    !pinning &&
+    !lab.boxing &&
+    !lab.calibrating &&
+    (camera || mode === 'demo' || Boolean(image));
   // The tracking layer replaces the follow and watch boxes on the camera with ones fitted to the video.
   const tracked = camera && lab.tracking;
   // A running camera is live; its rate is what reaches the page, so a fallback to MJPEG shows.
@@ -258,6 +270,9 @@ export function Canvas() {
             tool={lab.tool}
             onTool={lab.setTool}
             disabled={{
+              brush: brushable
+                ? undefined
+                : 'Calibrate the room’s camera first: the brush reads what you select through it',
               scale: !showIso
                 ? 'Switch to the Iso view to scale a fixture'
                 : lab.isoPanel !== 'room'
@@ -271,7 +286,9 @@ export function Canvas() {
                 ? 'Select a fixture, then drag the handles on its base.'
                 : lab.tool === 'hand'
                   ? 'Drag to pan. Scroll to zoom.'
-                  : undefined
+                  : lab.tool === 'brush' && brushing && !lab.brush.shape
+                    ? 'Drag a box, or click points and press Enter. Esc clears.'
+                    : undefined
             }
           />
           {showIso && picture && lab.showPicture && roomFixtures && (
@@ -494,6 +511,14 @@ export function Canvas() {
                 )}
               </svg>
             )}
+            {brushing && lab.brush.held && camera && (
+              <img
+                className="brush-held"
+                src={lab.brush.held}
+                alt="The frame held for the AI brush"
+              />
+            )}
+            {brushing && <BrushOverlay brush={lab.brush} point={lab.zonePoint} />}
             {focusBox && (
               <svg
                 className="focus-overlay"
@@ -641,6 +666,7 @@ export function Canvas() {
             {dimensions.width} × {dimensions.height} <span>FRAME 00</span>
           </span>
         </div>
+        {brushing && <BrushPanel brush={lab.brush} busy={Boolean(busy)} />}
         {showIso && workScene && (
           <IsoView
             mode={mode}

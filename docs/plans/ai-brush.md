@@ -1,6 +1,6 @@
 # Plan: the AI brush
 
-Status: proposed. Builds on [fixtures.md](fixtures.md), [iso-models.md](iso-models.md) and [corner-camera.md](corner-camera.md).
+Status: built, see [As built](#as-built); live calls tested against a mocked API only. Builds on [fixtures.md](fixtures.md), [iso-models.md](iso-models.md) and [corner-camera.md](corner-camera.md).
 
 ## Goal
 
@@ -205,11 +205,13 @@ In the demo, the selected desk is the office's 160 × 80 cm desk, not an Alex: a
 
 ## 8. The brush (web)
 
-Last, once the server side works from scripts.
+`apps/web/src/workspace/useBrush.ts` and `Brush.tsx` (built), and `POST /api/assist/save`.
 
-- A **Select** tool in `ToolStrip` over the camera view (live stream or still): drag for a rectangle, click points for a polygon (close by clicking the first point or Enter, Backspace removes the last), Esc cancels. Drawn in thousandths over the frame, so zoom and pan (`ZoomPan`) don't change it.
-- On release: the frame freezes behind the selection, SAM's outline and the resolved target show at once ("Desk · 92% of your selection"), and a prompt box opens beside it with suggestions for that target (_Make it its own fixture · Change its colour · Set its size_).
-- Sending opens `AiTaskDialog` with the steps, then the review. Follow-ups are typed in the same dialog.
+- **The tool.** **AI brush** (`B`) in the tool strip, over the camera's picture: drag for a box; click points for a polygon, closed by clicking the first point, a double-click or Enter, with Backspace taking the last point back; Esc clears. Choosing it shows the photo view. It is disabled until the room's camera is calibrated (the demo always is). Shapes are kept in shares of the frame, so zooming and panning don't change them.
+- **On release** the selection is resolved (`/api/select/resolve`, free) and the panel opens beside the frame with what it is ("Desk · prop", or "or the chair?" when ambiguous). Live, the camera's frame is held when the selection is finished and shown over the video, so the request is about what was drawn on.
+- **The panel** has the prompt (Enter sends) and suggestions for the target (_Make it its own fixture_, or for a model _Make it green · Make the drawers white · It is 140 cm wide_). Sending follows the job in `AiTaskDialog`, which closes itself a moment after it ends; the review is in the panel: the model drawn by the room's own kernel, its size and parts, how it matches the camera and where it missed, any size the camera disagrees with, where its facts came from (links for the web), anything left out of the request and why, or the question back. Follow-ups are typed in the same panel and list the requests before them.
+- **Put in the room** (`POST /api/assist/save`) adds the model as furniture, in place of the group it was checked against: a preset room first becomes the person's own scene (`adoptPreset`: the copy, its calibration, pin, zones and fixtures naming `custom`), and is refused if they already have another scene of their own. What stood on the replaced thing settles onto the new top, fixtures and zones on its surface move to the new one, and the pin is found again through the camera. Live, a looked-up product is kept in `DATA_DIR/products` with its model. **Discard** drops the draft; nothing was saved.
+- **Not built:** saving as a fixture (a fixture's model is an `IsoItem`, not a recipe), and showing SAM's outline on the frame.
 
 ## Build order
 
@@ -222,8 +224,8 @@ Each step lands with tests and leaves the app working.
 5. ~~**Intent.** `editIntentSchema`, `MetaAdapter.intent`, demo answers; a small bench of sentences → expected ops (`bun run bench:intent`).~~ Done: `intent.ts`, `demo-intent.ts`, `MetaAdapter.intent`, `tests/intent.test.ts`, `bench:intent` (12/12 offline; live not yet run).
 6. ~~**Build and check.** `recipe-build.ts`, scoring through the room camera; extend `bench:fit` with recipe cases.~~ Done: `recipe-build.ts`, `build.ts`, `MetaAdapter.refineRecipe`, `tests/recipe-build.test.ts`. The cases are tests on the demo room, not `bench:fit` cases: the fit bench scores items against crops, a different measure.
 7. ~~**Route and job.** `/api/assist`, replay script, cost reservation.~~ Done: `assist.ts` (`finishDraft` shared with the replay), `select.ts`'s `selectionRoom`, the `assist` run kind, `scripts/assist-replay.ts`, `tests/assist.test.ts` (demo, follow-ups, questions back, live against a mocked API, refusals). Saving a draft to the room comes with the review (step 8).
-8. **Brush, prompt and review** in the web, a browser test on the demo desk.
-9. `docs/architecture.md` section; "As built" here.
+8. ~~**Brush, prompt and review** in the web, a browser test on the demo desk.~~ Done: `useBrush`, `Brush.tsx`, the tool and `B`, `POST /api/assist/save` with `adoptPreset`, and the browser test (written, not yet run).
+9. ~~`docs/architecture.md` section; "As built" here.~~ Done.
 
 Steps 1–3 need no model calls and can run in parallel with 4.
 
@@ -238,3 +240,21 @@ Steps 1–3 need no model calls and can run in parallel with 4.
 - **Polygon prompts.** Does SAM take point or polygon prompts, or only boxes? If only boxes, a polygon is a box plus a clip, as above.
 - **Agent loop.** Keep the fixed pipeline, or let Spark choose tools once they exist? Recommended: fixed pipeline first; the tool contracts make the switch cheap later.
 - **Recipes beside forms.** Should built-in forms (desk, chair) eventually become recipes too, so one format covers everything? Not needed for this feature.
+
+## As built
+
+Built in the order above, as one piece of work, with these differences:
+
+- **A recipe is kept on its prop** (`IsoProp.recipe`), not by id in desk memory, so `propModel` needs nothing but the prop. Starting from a form is a one-time copy of its parts (`recipeFromForm`), not a live `base`.
+- **Two layers of ops**: recipe ops change a model; intent ops make one, change a fixture or ask back. Spark answers in one flat schema for both.
+- **Facts come from Spark's own web search**, with sources read from its citations. No product images: Spark has no image search.
+- **Building is local**: `assembleRecipe` shapes a form by the facts, and Spark only refines. Colour is taken from the photo, not scored.
+- **Selections are resolved by two scores** (how much of a thing is covered, how much of the selection it fills), not by IoU: a desk fills only a third of its own bounding box.
+- **Saving is as furniture only.**
+
+Not built, or not yet known:
+
+- **Live has not been run against the real API**: reading a request, the product lookup (whether `web_search` and a strict schema work in one call, and how long it takes), and refining. `bun run bench:intent --live` is the first check.
+- **The browser test** for the brush is written but hasn't been run.
+- Fixtures from a recipe; SAM's outline shown on the frame; product photos from the web.
+- `photoBox` sizes only things on the floor seen whole: a chair behind a desk comes out short, and something on a desk gets no box.

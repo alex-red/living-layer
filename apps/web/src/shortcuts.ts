@@ -12,6 +12,7 @@ export type ShortcutAction =
   | 'select'
   | 'scale'
   | 'hand'
+  | 'brush'
   | 'escape'
   | 'help';
 
@@ -31,7 +32,8 @@ export const SHORTCUTS: { action: ShortcutAction; keys: string; label: string }[
   { action: 'select', keys: 'V', label: 'Select and move fixtures' },
   { action: 'scale', keys: 'S', label: 'Scale a fixture’s base' },
   { action: 'hand', keys: 'H', label: 'Pan the view' },
-  { action: 'escape', keys: 'Esc', label: 'Cancel a pin, a zone or the scene picker' },
+  { action: 'brush', keys: 'B', label: 'AI brush: select a thing and say what to do' },
+  { action: 'escape', keys: 'Esc', label: 'Cancel a pin, a zone, a selection or the scene picker' },
   { action: 'help', keys: '?', label: 'Show these shortcuts' },
 ];
 
@@ -72,6 +74,7 @@ export function shortcutFor(e: KeyboardEvent): ShortcutAction | null {
     v: 'select',
     s: 'scale',
     h: 'hand',
+    b: 'brush',
   };
   return plain[key] ?? null;
 }

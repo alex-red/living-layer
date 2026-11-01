@@ -106,6 +106,16 @@ The lamp only ever fires on a SAM observation. The local box is a reason to look
 
 Amber stays reserved for lamps: an iso lamp warms only once an action on its light is confirmed.
 
+## The AI brush
+
+([plan](plans/ai-brush.md)) A person selects part of the camera's picture (a box or a polygon) and says what to do with it: _"It's an IKEA Alex desk, make it its own furniture"_, _"make the drawers green"_. The result is a draft to review; nothing changes in the room until it is put there.
+
+- **Recipes.** A model as data (`packages/domain/src/recipe.ts`): named parts in real centimetres, each with a role (top, leg, drawer, panel…), drawn by `propModel` and seen by `propSolids` like any built-in form. Edits are a closed set of ops over part selectors (`recipe-ops.ts`).
+- **Selections** (`selection.ts`, `POST /api/select/resolve`) are read through the calibrated camera: the room drawn labelled per pixel, each thing scored by how much of it the selection covers and how much of the selection it fills.
+- **A request** (`POST /api/assist`, run kind `assist`, `apps/server/src/assist.ts`) holds the frame, outlines the selection (SAM's box prompt cut to the shape), reads the sentence into ops (Spark, `intent.ts`; the demo's own reader offline), looks up a named product (`research.ts`: saved products, the bundled catalog, Spark's web search, the camera's own box fit), builds the model from a form (`recipe-build.ts`), and checks it by drawing the room with it in place through the camera. Spark refines a new model at most twice; never one whose size the person gave. Follow-ups name the run before and cost one reading. The worst case, about $0.18, is refused up front against the day's limit.
+- **Saving** (`POST /api/assist/save`) puts the model in the room as furniture in place of what was selected; a preset room becomes the person's own scene first (`adoptPreset`).
+- **Offline:** `bun run assist <run>` replays a stored request with the current tree; `bun run bench:intent` reads sample requests.
+
 ## Home Assistant entities
 
 ([plan](plans/mqtt.md)) Rules act _on_ Home Assistant over REST. In the other direction, Living Layer publishes entities of its own over MQTT discovery, which appear in Home Assistant under one _Living Layer_ device, for automations and dashboards there. Nothing is published until someone adds one in the lab's outline (_Home Assistant_ section).

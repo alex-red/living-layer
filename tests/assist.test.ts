@@ -3,14 +3,17 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { buildApp } from '../apps/server/src/app.js';
-import type { AssistDraft } from '../apps/server/src/assist.js';
 import { parseConfig, type Fetcher } from '../apps/server/src/config.js';
 import { demoIntent } from '../apps/server/src/demo-intent.js';
 import { demoPng, demoSegmentation } from '../apps/server/src/demo.js';
 import { syntheticStream } from '../apps/server/src/sam.js';
 import {
+  cm,
   DEMO_CALIBRATION,
   DEMO_FRAME,
+  ISO_PRESETS,
+  type AssistDraft,
+  type DeskMemory,
   type EvidenceRun,
   type SelectionShape,
 } from '../packages/domain/src/index.js';
@@ -125,6 +128,60 @@ describe('the AI brush in the demo', () => {
     const res = await s.assist({ previous: crypto.randomUUID(), prompt: 'make it green' });
     expect(res.statusCode).toBe(404);
     expect((await s.assist({ prompt: 'make it green' })).statusCode).toBe(400);
+  });
+});
+
+describe('saving a draft into the room', () => {
+  it('puts the Alex in place of the desk, makes the preset room its own, and edits it next time', async () => {
+    const s = await setup();
+    const shape = await around('desk');
+    const first = (await s.assist({ shape, prompt: HEADLINE })).json<EvidenceRun<AssistDraft>>();
+    const res = await s.app.inject({
+      method: 'POST',
+      url: '/api/assist/save',
+      payload: { mode: 'demo', runId: first.id },
+    });
+    expect(res.statusCode, res.body).toBe(200);
+    const { memory, group } = res.json<{ memory: DeskMemory; group: string }>();
+    expect(group).toBe('ikea-alex-office-desk');
+    expect(memory.camera?.scene).toBe('custom');
+    const scene = memory.scene!;
+    expect(scene.props.some((p) => p.group === 'desk')).toBe(false);
+    const alex = scene.props.find((p) => p.group === group)!;
+    expect(alex.recipe?.parts.some((p) => p.name === 'drawer-unit')).toBe(true);
+    // The monitor stood on the 72 cm desk; it now stands on the Alex's 76 cm top.
+    const monitor = scene.props.find((p) => p.group === 'monitor')!;
+    expect(monitor.at.z).toBeCloseTo(cm(76), 2);
+    // The next brush on it finds a model to edit.
+    const next = (await s.assist({ shape, prompt: 'make the drawers green' })).json<
+      EvidenceRun<AssistDraft>
+    >().output;
+    expect(next.target).toMatchObject({ kind: 'prop', id: group });
+    expect(next.question).toBeNull();
+    expect(next.recipe!.parts.find((p) => p.name === 'drawer-1')!.color).toBe('#3f8f4a');
+  });
+
+  it('never overwrites a scene of the person’s own on a preset-calibrated room', async () => {
+    const s = await setup();
+    const first = (await s.assist({ shape: await around('desk'), prompt: HEADLINE })).json<
+      EvidenceRun<AssistDraft>
+    >();
+    const restored = await s.app.inject({
+      method: 'POST',
+      url: '/api/desk/restore',
+      payload: {
+        mode: 'demo',
+        memory: { mode: 'demo', object: null, scene: { ...ISO_PRESETS.desk, kind: 'custom' } },
+      },
+    });
+    expect(restored.statusCode, restored.body).toBe(200);
+    const res = await s.app.inject({
+      method: 'POST',
+      url: '/api/assist/save',
+      payload: { mode: 'demo', runId: first.id },
+    });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error.code).toBe('assist_scene');
   });
 });
 
