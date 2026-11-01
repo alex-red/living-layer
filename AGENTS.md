@@ -10,7 +10,8 @@ What isn't obvious from the code. [CONTRIBUTING.md](CONTRIBUTING.md) has setup, 
 - Commit summaries stay under about 60 characters (Conventional Commits); put the detail in the body.
 - Types are checked by `tsrs` against TypeScript 7.1 (`bun run typecheck`). Bun's own `bun check` is quicker but passes errors 7.1 reports, so it doesn't stand in for it.
 - `bun run verify` checks format, types, tests, the benches and the colour audit in about a minute, as one summary; `bun run commit` runs it for you.
-- Before merging another session's branch, run `bun run verify --at <merge> --against main`. When you brief a side session, ask it to work from the latest `main` and check `bun run bench:at main room` before it reports, since `main` may have moved.
+- Format with `bun run format` or `bunx oxfmt <files>`, never Prettier.
+- Before merging another session's branch, run `bun run verify --at <merge> --against main`. When you brief a side session, ask it to work in a worktree from the latest `main` and check `bun run bench:at main room` before it reports, since `main` may have moved.
 
 ## The isometric room
 
@@ -53,6 +54,9 @@ These run in seconds and need no server. Their output goes to `out/` (ignored).
 | SAM, or anything before the layout      | `bun scripts/experiments/evaluate.ts <run>`                               | each cached experiment's masks laid out and scored against the room's marked points                      |
 | a calibration                           | `bun run calib --grid`                                                    | the saved fit, room sizes the marks fit, marks and grid over a frame                                     |
 | what a live run did, or why it failed   | `bun run runs [<run>]`                                                    | the run log; one run's steps, assists and pictures saved to `out/runs/`                                  |
+| model calls or their limits             | `bun run runs --calls` (`--days 7`)                                       | count, p50/max latency and output tokens against each call's limits, and failures by cause               |
+| browser tests or web code               | `bun run browser` (`--at <ref>`, `-g <pattern>`)                          | Playwright in a clean worktree on free ports, with failure traces                                        |
+| a browser test that failed              | `bun run trace [<test>]`                                                  | a failed browser test's steps, `/api` calls, console errors, open dialogs and locator region             |
 
 - A live draft costs money and finds problems late. Try a change on stored drafts first (`bun run draft <run> --relayout`, `bun run bench:rooms`, both offline); run live only to capture a new frame, then `bun run draft capture <run> --name <room>`. Captured rooms stay local (`.data/rooms/`, ignored): they are photos of a real home.
 - An accepted layout is only a snapshot. A captured room's `truth.json` marks by hand where things touch down in its frame (`scripts/lib/truth.ts`), and the rooms bench scores against it. Judge a placement change by that, not by mask measures: in `docs/plans/sam-experiments.md` masks changed a lot and placement didn't. Mark only what the frame shows, and look at the overlay first, since a point can mark another thing than the one Spark's id names.

@@ -12,10 +12,56 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { basename, resolve } from 'node:path';
 import { runCost, type EvidenceRun, type Mode, type RunKind } from '@livinglayer/domain';
-import { flag, parseArgs } from './lib/args.js';
+import { flag, has, parseArgs } from './lib/args.js';
+import { loadCalls, summarizeCalls } from './lib/calls.js';
 import { openEvidence } from './lib/evidence.js';
 
 const args = parseArgs();
+
+if (has(args, 'calls')) {
+  const days = Number(flag(args, 'days') ?? 7);
+  const calls = loadCalls();
+  const summary = summarizeCalls(calls, days);
+  console.log(`Model calls (last ${days} day${days === 1 ? '' : 's'}):\n`);
+  if (summary.length === 0) {
+    console.log('  No model calls found.');
+  } else {
+    const fmtTime = (ms: number) => (ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${ms}ms`);
+    const fmtPct = (share: number) => `${Math.round(share * 100)}%`;
+    const fmtNum = (n: number | null) => (n == null ? '—' : n.toLocaleString('en'));
+
+    for (const s of summary) {
+      const flagGlyph = s.flagged ? '!' : '✓';
+      const kindCol = s.kind.padEnd(16);
+      const countCol = `${s.count} call${s.count === 1 ? '' : 's'}`.padStart(9);
+      const latCol =
+        `lat ${fmtTime(s.p50LatencyMs)} / ${fmtTime(s.maxLatencyMs)} (${fmtPct(s.timeoutShare)})`.padEnd(
+          28,
+        );
+      const tokCol =
+        s.tokenLimit == null || s.maxOutputTokens == null
+          ? '—'.padEnd(25)
+          : `tokens ${fmtNum(s.p50OutputTokens)} / ${fmtNum(s.maxOutputTokens)} (${fmtPct(s.tokenShare)})`.padEnd(
+              25,
+            );
+      const failList = Object.entries(s.failures)
+        .map(([c, n]) => (n > 1 ? `${c} ×${n}` : c))
+        .join(', ');
+      const failCol = (failList ? `fail: ${failList}` : '').padEnd(30);
+      let note = '';
+      if (s.overrunKinds.length > 0) {
+        note = `← overrun: ${s.overrunKinds.join(', ')}`;
+      } else if (s.flagged) {
+        note = '← >80% of limit';
+      }
+      console.log(
+        `  ${flagGlyph} ${kindCol}  ${countCol}  ${latCol}  ${tokCol}  ${failCol}  ${note}`.trimEnd(),
+      );
+    }
+  }
+  process.exit(0);
+}
+
 const store = openEvidence();
 const when = (iso: string) => iso.replace('T', ' ').slice(0, 19);
 const cost = (r: EvidenceRun) => {

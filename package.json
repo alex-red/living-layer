@@ -21,7 +21,7 @@
     "dev": "bun run --filter './apps/*' dev",
     "build": "bun run typecheck && bun run --filter @livinglayer/web build",
     "start": "bun apps/server/src/index.ts",
-    "typecheck": "tsrs --noEmit --fast",
+    "typecheck": "bun scripts/typecheck.ts",
     "test": "bun test",
     "test:watch": "bun test --watch",
     "test:browser": "playwright test",

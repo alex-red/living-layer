@@ -145,7 +145,10 @@ export function useBrush({
             { signal },
           ),
       );
-      if (!run) return;
+      if (!run) {
+        setMessage('The AI brush request was stopped before it finished.');
+        return;
+      }
       setRuns((r) => [...r, run]);
       const d = run.output;
       setMessage(
@@ -168,10 +171,14 @@ export function useBrush({
     if (!last?.output.recipe || working) return;
     setWorking('save');
     try {
-      const { memory } = await api<{ memory: DeskMemory; group: string }>('assist/save', {
+      const { memory } = await api<{ memory?: DeskMemory; group: string }>('assist/save', {
         mode,
         runId: last.id,
       });
+      if (!memory) {
+        setError('The model couldn’t be put in the room.');
+        return;
+      }
       setMemory(memory);
       // A preset room became the person's own scene to take it: show that one.
       showOwnScene();

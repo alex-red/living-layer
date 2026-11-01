@@ -2,15 +2,19 @@ import { describe, expect, it } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
+  assembleRecipe,
   cm,
+  defaultSize,
   depthOrder,
   fixtureRecipeSchema,
   hexLab,
   isoSceneSchema,
   placeRecipe,
+  PROP_FORMS,
   propModel,
   propSolids,
   propSpriteKey,
+  recipeFromForm,
   renderPropSprite,
   rotateGroup,
   type FixtureRecipe,
@@ -136,5 +140,31 @@ describe('recipes', () => {
 
   it('draws the Alex desk as before', async () => {
     await expectGolden('props/recipe-alex-desk', drawProps(depthOrder(scene().props)));
+  });
+
+  it('builds a valid recipe for every form in PROP_FORMS', () => {
+    const alexFacts = {
+      query: 'alex desk',
+      name: 'Alex Desk',
+      sources: [],
+      parts: [
+        { name: 'drawer unit', role: 'body' as const },
+        { name: 'drawers', role: 'drawer' as const, count: 5 },
+        { name: 'side panel', role: 'panel' as const },
+      ],
+    };
+    for (const form of PROP_FORMS) {
+      const plain = recipeFromForm(form, defaultSize(form), form);
+      expect(plain.parts.length).toBeGreaterThan(0);
+      expect(plain.parts.length).toBeLessThanOrEqual(48);
+
+      const empty = assembleRecipe(form, { query: form, name: form, sources: [] });
+      expect(empty.parts.length).toBeGreaterThan(0);
+      expect(empty.parts.length).toBeLessThanOrEqual(48);
+
+      const alex = assembleRecipe(form, alexFacts);
+      expect(alex.parts.length).toBeGreaterThan(0);
+      expect(alex.parts.length).toBeLessThanOrEqual(48);
+    }
   });
 });

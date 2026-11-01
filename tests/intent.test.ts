@@ -14,7 +14,48 @@ import {
   sparkIntentSchema,
   type SparkIntent,
 } from '../packages/domain/src/index.js';
-import { ALEX, INTENT_CASES } from '../scripts/lib/intent-cases.js';
+import {
+  ALEX,
+  INTENT_CASES,
+  checkIntentCase,
+  type IntentCase,
+} from '../scripts/lib/intent-cases.js';
+
+describe('checkIntentCase', () => {
+  it('passes for every case in INTENT_CASES', () => {
+    for (const c of INTENT_CASES) expect(checkIntentCase(c)).toEqual([]);
+  });
+
+  it('catches a case asking for legs on ALEX', () => {
+    const invalidCase: IntentCase = {
+      name: 'metal legs',
+      sentence: 'the legs are metal',
+      ctx: {
+        target: { kind: 'fixture', id: 'f1', label: 'IKEA Alex desk' },
+        recipe: ALEX,
+        entities: [],
+      },
+      ops: [{ op: 'rematerial', parts: { roles: ['leg' as any] }, material: 'metal' }],
+    };
+    const problems = checkIntentCase(invalidCase);
+    expect(problems.length).toBe(1);
+    expect(problems[0]).toBe(
+      'op rematerial selector {"roles":["leg"]} matches no part of recipe "IKEA Alex desk"',
+    );
+  });
+
+  it('catches a selector when context has no recipe', () => {
+    const invalidCase: IntentCase = {
+      name: 'recolor without recipe',
+      sentence: 'make it green',
+      ctx: { target: null, recipe: null, entities: [] },
+      ops: [{ op: 'recolor', parts: { roles: ['drawer' as any] } }],
+    };
+    const problems = checkIntentCase(invalidCase);
+    expect(problems.length).toBe(1);
+    expect(problems[0]).toBe('op recolor selector {"roles":["drawer"]} has no recipe in context');
+  });
+});
 
 describe('reading a request (the demo reader)', () => {
   for (const c of INTENT_CASES)
@@ -27,6 +68,7 @@ describe('reading a request (the demo reader)', () => {
       c.ops.forEach((o, i) => expect(intent.ops[i]).toMatchObject(o));
       if (c.product === null) expect(intent.product).toBeNull();
       for (const w of c.product ?? []) expect(intent.product?.toLowerCase()).toContain(w);
+      if (c.needs !== undefined) expect(intent.needs).toEqual(c.needs);
     });
 
   it('finds the product it names in the catalog, with what to look up', () => {

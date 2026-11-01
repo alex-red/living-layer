@@ -14,6 +14,7 @@ import { convexHull, fillRings, newBits, type Bits } from './photo-scene.js';
 import { applyRecipeOps, type RecipeOp } from './recipe-ops.js';
 import {
   fixtureRecipeSchema,
+  MAX_RECIPE_PARTS,
   type FixtureRecipe,
   type RecipePart,
   type RecipeRole,
@@ -32,6 +33,13 @@ import { floorSolid, renderRoom, sceneSolids } from './room-render.js';
  */
 
 const toCm = (tiles: number) => Math.round(tiles * ISO_TILE_CM * 100) / 100;
+
+function clampAxis(at: number, sz: number, max: number): { at: number; size: number } {
+  const a = Math.max(0, Math.min(Math.round((max - 0.1) * 100) / 100, Math.round(at * 100) / 100));
+  const s = Math.max(0.1, Math.min(Math.round(sz * 100) / 100, Math.round((max - a) * 100) / 100));
+  const size = a + s > max ? Math.max(0.1, Math.floor((max - a) * 100) / 100) : s;
+  return { at: a, size };
+}
 
 /**
  * What a part of a built-in model is, from its shape alone: a thin slab at
@@ -62,40 +70,64 @@ export function recipeFromForm(
   sizeCm: { w: number; d: number; h?: number },
   label: string,
 ): FixtureRecipe {
+  const modelH = sizeCm.h ?? furnitureSpec(form).heightCm;
   const size = {
     w: cm(sizeCm.w),
     d: cm(sizeCm.d),
-    h: cm(sizeCm.h ?? furnitureSpec(form).heightCm),
+    h: cm(modelH),
   };
-  const parts = propModel({ form, size, turns: 0 })!;
-  const count = new Map<RecipeRole, number>();
-  const recipeParts: RecipePart[] = parts
-    .filter((p) => p.shape !== 'tube' || p.path)
-    .map((p) => {
-      const role = guessRole(p, size);
-      const n = (count.get(role) ?? 0) + 1;
-      count.set(role, n);
-      return {
-        name: `${role}-${n}`,
-        role,
-        shape: p.shape,
-        atCm: { x: toCm(p.at.x), y: toCm(p.at.y), z: toCm(p.at.z) },
-        sizeCm: { w: toCm(p.size.w), d: toCm(p.size.d), h: toCm(p.size.h) },
-        tone: p.tone,
-        ...(p.material ? { material: p.material } : {}),
-        ...(p.shape === 'rbox' && p.radius !== undefined ? { radius: Math.min(1, p.radius) } : {}),
-        ...(p.profile ? { profile: p.profile } : {}),
-        ...(p.wall !== undefined ? { wall: p.wall } : {}),
-        ...(p.path ? { path: p.path, tubeCm: Math.max(0.1, toCm(p.radius ?? cm(1))) } : {}),
-        ...(p.rough !== undefined ? { rough: p.rough } : {}),
-      };
+  const maxCm = { w: sizeCm.w, d: sizeCm.d, h: toCm(size.h) };
+  const rawParts = propModel({ form, size, turns: 0 })!;
+  const filtered = rawParts.filter((p) => p.shape !== 'tube' || p.path);
+  const withRoles = filtered.map((p, i) => ({
+    part: p,
+    role: guessRole(p, size),
+    index: i,
+  }));
+  let kept = withRoles;
+  if (withRoles.length > MAX_RECIPE_PARTS) {
+    const structural = withRoles.filter((x) => x.role !== 'body');
+    const bodies = withRoles.filter((x) => x.role === 'body');
+    const maxBodies = Math.max(0, MAX_RECIPE_PARTS - structural.length);
+    const sortedBodies = bodies.slice().sort((a, b) => {
+      const va = a.part.size.w * a.part.size.d * a.part.size.h;
+      const vb = b.part.size.w * b.part.size.d * b.part.size.h;
+      return vb - va;
     });
+    const keptBodyIndices = new Set(sortedBodies.slice(0, maxBodies).map((x) => x.index));
+    kept = withRoles.filter((x) => x.role !== 'body' || keptBodyIndices.has(x.index));
+    if (kept.length > MAX_RECIPE_PARTS) {
+      kept = kept.slice(0, MAX_RECIPE_PARTS);
+    }
+  }
+  const count = new Map<RecipeRole, number>();
+  const recipeParts: RecipePart[] = kept.map(({ part: p, role }) => {
+    const n = (count.get(role) ?? 0) + 1;
+    count.set(role, n);
+    const cx = clampAxis(toCm(p.at.x), toCm(p.size.w), maxCm.w);
+    const cy = clampAxis(toCm(p.at.y), toCm(p.size.d), maxCm.d);
+    const cz = clampAxis(toCm(p.at.z), toCm(p.size.h), maxCm.h);
+    return {
+      name: `${role}-${n}`,
+      role,
+      shape: p.shape,
+      atCm: { x: cx.at, y: cy.at, z: cz.at },
+      sizeCm: { w: cx.size, d: cy.size, h: cz.size },
+      tone: p.tone,
+      ...(p.material ? { material: p.material } : {}),
+      ...(p.shape === 'rbox' && p.radius !== undefined ? { radius: Math.min(1, p.radius) } : {}),
+      ...(p.profile ? { profile: p.profile } : {}),
+      ...(p.wall !== undefined ? { wall: p.wall } : {}),
+      ...(p.path ? { path: p.path, tubeCm: Math.max(0.1, toCm(p.radius ?? cm(1))) } : {}),
+      ...(p.rough !== undefined ? { rough: p.rough } : {}),
+    };
+  });
   // A top keeps its plain name when there is one, so surfaces and edits can find it.
   for (const p of recipeParts) if (p.name === 'top-1' && count.get('top') === 1) p.name = 'top';
   const tops = recipeParts.filter((p) => p.role === 'top');
   return fixtureRecipeSchema.parse({
     label,
-    sizeCm: { w: sizeCm.w, d: sizeCm.d, h: toCm(size.h) },
+    sizeCm: maxCm,
     parts: recipeParts,
     ...(tops.length === 1 ? { surfaces: [{ part: tops[0]!.name, label: 'Top' }] } : {}),
   });
@@ -136,9 +168,16 @@ export function assembleRecipe(
     );
   const ops: RecipeOp[] = [];
   const tone = top?.tone ?? 'wood';
-  if (unit || (drawers && form !== 'cabinet')) {
+  const addDrawers = (unit || (drawers && form !== 'cabinet')) && under >= 10 && W >= 32 && D >= 10;
+  if (addDrawers) {
     const legs = legsOn('right');
     if (legs.length) ops.push({ op: 'remove_part', parts: { names: legs.map((p) => p.name) } });
+  }
+  if (panel && under > 0) {
+    const legs = legsOn('left');
+    if (legs.length) ops.push({ op: 'remove_part', parts: { names: legs.map((p) => p.name) } });
+  }
+  if (addDrawers) {
     const uw = Math.min(W * 0.45, Math.max(30, unit?.sizeCm?.w ?? W * 0.28));
     const ud = Math.min(D, unit?.sizeCm?.d ?? D - 2);
     ops.push({
@@ -156,23 +195,23 @@ export function assembleRecipe(
     const n = Math.max(1, Math.min(6, drawers?.count ?? 3));
     const gap = 0.5;
     const each = (under - 2.5 - gap * n) / n;
-    for (let i = 0; i < n; i++)
-      ops.push({
-        op: 'add_part',
-        part: {
-          name: `drawer-${i + 1}`,
-          role: 'drawer',
-          shape: 'rbox',
-          atCm: { x: W - uw + 1, y: Math.min(ud, D - 2), z: under - (i + 1) * (each + gap) },
-          sizeCm: { w: uw - 2, d: Math.min(2, D - Math.min(ud, D - 2)), h: each },
-          tone,
-          radius: 0.1,
-        },
-      });
+    if (each > 0) {
+      for (let i = 0; i < n; i++)
+        ops.push({
+          op: 'add_part',
+          part: {
+            name: `drawer-${i + 1}`,
+            role: 'drawer',
+            shape: 'rbox',
+            atCm: { x: W - uw + 1, y: Math.min(ud, D - 2), z: under - (i + 1) * (each + gap) },
+            sizeCm: { w: uw - 2, d: Math.min(2, D - Math.min(ud, D - 2)), h: each },
+            tone,
+            radius: 0.1,
+          },
+        });
+    }
   }
-  if (panel) {
-    const legs = legsOn('left');
-    if (legs.length) ops.push({ op: 'remove_part', parts: { names: legs.map((p) => p.name) } });
+  if (panel && under > 0) {
     ops.push({
       op: 'add_part',
       part: {
@@ -192,6 +231,24 @@ export function assembleRecipe(
   const material = facts.materials?.find((m) => m !== 'metal');
   if (material)
     ops.push({ op: 'rematerial', parts: { except: { materials: ['metal'] } }, material });
+
+  const addedCount = ops.filter((o) => o.op === 'add_part').length;
+  const removedNames = new Set(
+    ops.filter((o) => o.op === 'remove_part').flatMap((o) => o.parts.names ?? []),
+  );
+  const excess = recipe.parts.length - removedNames.size + addedCount - MAX_RECIPE_PARTS;
+  if (excess > 0) {
+    const bodyParts = recipe.parts
+      .filter((p) => p.role === 'body' && !removedNames.has(p.name))
+      .sort((a, b) => {
+        const va = a.sizeCm.w * a.sizeCm.d * a.sizeCm.h;
+        const vb = b.sizeCm.w * b.sizeCm.d * b.sizeCm.h;
+        return va - vb;
+      });
+    const trim = new Set(bodyParts.slice(0, excess).map((p) => p.name));
+    recipe = { ...recipe, parts: recipe.parts.filter((p) => !trim.has(p.name)) };
+  }
+
   if (ops.length) {
     const done = applyRecipeOps(recipe, ops);
     if (done.ok) recipe = done.recipe;
@@ -199,7 +256,7 @@ export function assembleRecipe(
   return fixtureRecipeSchema.parse({ ...recipe, sources: facts.sources.slice(0, 8) });
 }
 /** A form's footprint in cm when nothing says how big the product is: its template's. */
-function defaultSize(form: PropForm): { w: number; d: number } {
+export function defaultSize(form: PropForm): { w: number; d: number } {
   const DEFAULTS: Partial<Record<PropForm, { w: number; d: number }>> = {
     desk: { w: 120, d: 75 },
     table: { w: 90, d: 90 },

@@ -6,7 +6,14 @@
  */
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { fixtureRecipeSchema, type IntentContext, type IntentOp } from '@livinglayer/domain';
+import {
+  fixtureRecipeSchema,
+  selectParts,
+  type FactNeed,
+  type IntentContext,
+  type IntentOp,
+  type PartSelector,
+} from '@livinglayer/domain';
 
 export const ALEX = fixtureRecipeSchema.parse(
   JSON.parse(
@@ -32,6 +39,38 @@ export interface IntentCase {
   ops: (Partial<IntentOp> & Pick<IntentOp, 'op'>)[];
   /** Words the product named must contain, or null for none. */
   product?: string[] | null;
+  /** Expected fact needs, if judged. */
+  needs?: FactNeed[];
+}
+
+function hasSelector(s: PartSelector | undefined): boolean {
+  if (!s) return false;
+  return Boolean(
+    (s.names && s.names.length > 0) ||
+    (s.roles && s.roles.length > 0) ||
+    (s.materials && s.materials.length > 0) ||
+    s.except,
+  );
+}
+
+/** Checks each case against its context offline: selectors must match parts of the context's recipe. */
+export function checkIntentCase(c: IntentCase): string[] {
+  const problems: string[] = [];
+  for (const o of c.ops) {
+    const parts = (o as { parts?: PartSelector }).parts;
+    if (!hasSelector(parts) || !parts) continue;
+    if (!c.ctx.recipe) {
+      problems.push(`op ${o.op} selector ${JSON.stringify(parts)} has no recipe in context`);
+    } else {
+      const matched = selectParts(c.ctx.recipe, parts);
+      if (matched.length === 0) {
+        problems.push(
+          `op ${o.op} selector ${JSON.stringify(parts)} matches no part of recipe "${c.ctx.recipe.label}"`,
+        );
+      }
+    }
+  }
+  return problems;
 }
 export const INTENT_CASES: IntentCase[] = [
   {
@@ -40,6 +79,7 @@ export const INTENT_CASES: IntentCase[] = [
     ctx: desk,
     ops: [{ op: 'create', form: 'desk' }],
     product: ['ikea', 'alex'],
+    needs: ['size', 'parts', 'colors'],
   },
   {
     name: 'own fixture, then green',

@@ -41,7 +41,7 @@ _Done when:_ the mixed-commit case from 88d2033 can't happen through it. AGENTS.
 
 ### B. The browser suite as a normal check (blocks 2, 3, 9)
 
-_Status: B1–B4 done, and B5's `followAi` warning (`scripts/browser.ts`, `scripts/trace.ts` with `scripts/lib/trace.ts`, `tests/browser/helpers.ts`, `verify --browser`, `scripts/lib/browser.ts` for the last pass). `bun run browser` picks free ports, so two sessions can run it at once; the last pass is kept in `out/browser/last-pass.json`. Still open from B5: `send` and `save` in `useBrush` telling the person when nothing came back._
+_Status: B1–B4 done, and B5's `followAi` warning (`scripts/browser.ts`, `scripts/trace.ts` with `scripts/lib/trace.ts`, `tests/browser/helpers.ts`, `verify --browser`, `scripts/lib/browser.ts` for the last pass). `bun run browser` picks free ports, so two sessions can run it at once; the last pass is kept in `out/browser/last-pass.json`. B5's send and save guards in useBrush are also in._
 
 **B1. `bun run browser [--at <ref>] [-g <pattern>]`.** Builds and runs Playwright in a worktree (A1). Its own build means a half-edited checkout can't leak in, and its data folder starts empty (now in the config). Prints the run's summary like verify does.
 _Done when:_ it gives 11/11 on `main`, run from a checkout with unrelated edits.
@@ -60,7 +60,7 @@ _Done when:_ the brush spec and the photo-draft spec use them.
 
 _Status: C1–C5 done (`scripts/lib/brush.ts`, `bun run brush`, `tests/brush.test.ts`, `bun run bench:brush`, `POST /api/desk/demo/reset` and `bun run reset demo`). The route's SAM keep-or-replace step is `keepOutline` in `assist.ts`, shared with the bench. `around` boxes a group's drawing through the room's camera; a negative `pad` boxes only its middle. The bench runs on rooms with marked points (only `office-d` so far), from SAM answers kept in its `brush-sam.json` (one `--live` capture, 18 cases, $0.045). What they found:_
 
-- _Building a model fails for the bookcase, keyboard and chair forms (`assembleRecipe`: over 48 parts, or `body-2` outside the recipe's size), and the route reports that as a Meta `upstream_failure`. It fails live too, on the office's drawer unit (`shelf-2`). `bun run brush --around shelf "make it its own furniture"` shows it offline. C3's tests use a request that reads but doesn't build, so they test targets alone._
+- _Building a model fails for the bookcase, keyboard and chair forms (`assembleRecipe`: over 48 parts, or `body-2` outside the recipe's size), and the route reports that as a Meta `upstream_failure`. It fails live too, on the office's drawer unit (`shelf-2`). `bun run brush --around shelf "make it its own furniture"` shows it offline. C3's tests use a request that reads but doesn't build, so they test targets alone. `recipeFromForm` and `assembleRecipe` in `recipe-build.ts` now clamp parts to the recipe box and cap decorative body parts to `MAX_RECIPE_PARTS`._
 - _On `office-d`, SAM's outline for Spark's desk box covers only 45% of the room's drawing of the desk, under `MIN_COVERED`, so `keepOutline` reads it as nothing and uses the drawing (a known gap in the bench). A box on the middle of a desk, chair or bottle names nothing in the panel, by the same 60% rule._
 
 **C1. A brush harness, `scripts/lib/brush.ts`.** `runBrush({ mode, select, prompt, follow?, save? })`. `select` is `{ box }`, `{ polygon }` or `{ around: '<group>' }`; `around` boxes a group's drawing through the room's camera, with padding. Demo mode runs in process (`buildApp`, temporary `DATA_DIR`, `app.inject`). Live mode posts to the running server with a camera snapshot. It returns the resolve answer, the run, its job's steps, and pictures: the frame with the selection, the outline, and the model drawn in place through the camera.
@@ -76,6 +76,8 @@ _Done when:_ `tests/assist.test.ts` uses its selection helpers instead of its ow
 
 ### D. Model-call limits and the intent bench (blocks 6, 7)
 
+_Status: D1–D3 done (`SPARK_CALLS` and `CALL_LIMITS` in `apps/server/src/meta.ts`, `meta_calls` in `apps/server/src/store.ts`, `scripts/lib/calls.ts` and `bun run runs --calls`, `tests/calls.test.ts`, and `scripts/intent-bench.ts` with `checkIntentCase`, `--only`, `--repeat` and prompt-hash caching). Running `bun run runs --calls` against `.data/livinglayer.sqlite` flags `refine` (3 timeouts and the 8,192-token overrun), `photoCheck`, `fixtureScan` and `fixtureClass`._
+
 **D1. Use per call kind.** `bun run runs --calls [--days 7]`: for each Spark and SAM call kind, the count, p50 and max latency, p50 and max output tokens, failures by cause, and the share of its timeout and token limit used. A kind that has used more than 80% of either is flagged. It reads the ledger the server already writes. This needs each call's kind and latency stored if they aren't already.
 _Done when:_ the refinement's timeout and token overruns from this session show up flagged.
 
@@ -90,6 +92,8 @@ _Done when:_ the refinement's timeout and token overruns from this session show 
 - Cache live answers (by prompt hash) so a rerun after a change to `readIntent` costs nothing.
 
 ### E. Small ergonomics (block 10)
+
+_Status: E done (`scripts/typecheck.ts`, `AGENTS.md`)._
 
 - `bun run typecheck` prints `types clean` and the time on success.
 - AGENTS.md says to format with `bun run format` or `bunx oxfmt <files>`, and never Prettier.

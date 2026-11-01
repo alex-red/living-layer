@@ -14,6 +14,16 @@ import {
 
 type Payload = { payload: string };
 
+export interface MetaCallRecord {
+  kind: string;
+  createdAt: string;
+  durationMs: number;
+  outputTokens: number | null;
+  maxOutputTokens: number | null;
+  timeoutMs: number;
+  cause: string | null;
+}
+
 export class EvidenceStore {
   private db: Database;
   constructor(private dir: string) {
@@ -26,7 +36,8 @@ export class EvidenceStore {
       CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS desk_memory (mode TEXT PRIMARY KEY, payload TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS placement_claims (segment_id TEXT PRIMARY KEY, created_at TEXT NOT NULL);
-      CREATE TABLE IF NOT EXISTS jobs (id TEXT PRIMARY KEY, created_at TEXT NOT NULL, payload TEXT NOT NULL);`);
+      CREATE TABLE IF NOT EXISTS jobs (id TEXT PRIMARY KEY, created_at TEXT NOT NULL, payload TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS meta_calls (id INTEGER PRIMARY KEY AUTOINCREMENT, created_at TEXT NOT NULL, payload TEXT NOT NULL);`);
     this.renameDemoMode();
   }
   /**
@@ -115,6 +126,18 @@ export class EvidenceStore {
       .query<Payload, []>('SELECT payload FROM jobs ORDER BY created_at DESC LIMIT 200')
       .all()
       .map((row) => JSON.parse(row.payload) as Job);
+  }
+  recordCall(call: MetaCallRecord): void {
+    this.db.run('INSERT INTO meta_calls (created_at, payload) VALUES (?, ?)', [
+      call.createdAt,
+      JSON.stringify(call),
+    ]);
+  }
+  listCalls(): MetaCallRecord[] {
+    return this.db
+      .query<Payload, []>('SELECT payload FROM meta_calls ORDER BY id ASC')
+      .all()
+      .map((row) => JSON.parse(row.payload) as MetaCallRecord);
   }
   usedToday(): number {
     const row = this.db
