@@ -34,7 +34,7 @@ export async function decodeSegmentation(
   }
   const masks = recordsOfKind(result.records, 'mask');
   if (masks.length > maxMasks)
-    throw new LabError('mask_limit', 'SAM returned too many masks for this desk probe.', 502);
+    throw new LabError('mask_limit', 'SAM returned too many masks for this frame.', 502);
   // A box without a mask is not a verified segmentation or a successful no-match.
   if (recordsOfKind(result.records, 'box').length !== masks.length) {
     throw new LabError('missing_mask', 'SAM returned boxes without a usable mask.', 502);

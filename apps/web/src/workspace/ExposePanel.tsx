@@ -608,8 +608,8 @@ export function EntityPanel({ id }: { id: string }) {
       )}
       {(e.kind === 'switch' || e.kind === 'button') && (
         <p className="micro">
-          Home Assistant can {e.kind === 'switch' ? 'flip' : 'press'} this; it does what the lab’s
-          own {e.kind === 'switch' ? 'watching switch' : 'Check rules'} does. Live only.
+          Home Assistant can {e.kind === 'switch' ? 'flip' : 'press'} this; it does what the
+          workspace’s own {e.kind === 'switch' ? 'watching switch' : 'Check rules'} does. Live only.
         </p>
       )}
       <BrokerNote />

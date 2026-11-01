@@ -182,8 +182,7 @@ export class RemoteCamera {
   answer(token: string, id: string, sdp: string) {
     const p = this.find(token);
     const deliver = p.answers.get(id);
-    if (!deliver)
-      throw new LabError('remote_stale', 'The lab stopped waiting for this answer.', 410);
+    if (!deliver) throw new LabError('remote_stale', 'Stopped waiting for this answer.', 410);
     p.answers.delete(id);
     deliver(sdp);
   }

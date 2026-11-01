@@ -1,9 +1,9 @@
 #!/bin/sh
 # Share this device's webcam (built-in or USB) on the local network for the
-# LivingLayer camera labs. One H.264 encode feeds both outputs:
-#   WebRTC (WHEP)  http://<this-ip>:8889/cam/whep   what the labs play, ~100 ms latency
+# Living Layer workspace and camera playground. One H.264 encode feeds both outputs:
+#   WebRTC (WHEP)  http://<this-ip>:8889/cam/whep   what Living Layer plays, ~100 ms latency
 #   RTSP           rtsp://<this-ip>:8554/cam        for VLC, ffplay, Home Assistant, ...
-# The stream is advertised over mDNS as _livinglayer-cam._tcp, so the labs list it
+# The stream is advertised over mDNS as _livinglayer-cam._tcp, so both list it
 # without any setup. Needs ffmpeg and mediamtx (https://github.com/bluenviron/mediamtx),
 # and offers to install whatever is missing: ffmpeg (and on Linux avahi and v4l-utils)
 # through the package manager, mediamtx through Homebrew or as the checksum-verified

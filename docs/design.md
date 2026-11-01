@@ -162,7 +162,7 @@ Only one primary or physical button is visible per step. Icon-only actions are `
 
 **Zone.** A `--chosen` outline at 1.5 px with a 10% fill and a mono label `ZN-01`. While you're drawing it, the outline is dashed, with live W×H percentages shown at the corner.
 
-**Probe steps.** Numbered cards (`01`–`04`). Steps you can't do yet are dimmed, with a one-line reason ("Confirm a mug first"). The step you're on gets a 2 px left rule in its signal colour.
+**Outline rows.** The scene outline doubles as the checklist: each row has a status glyph (`✓` done, `●` current, `◌` needs something). A row you can't use yet is dimmed, with a one-line reason ("Set up the office first").
 
 **Evidence log.** A tape of mono rows: time, kind, mode, status glyph, and duration. New rows slide in from the top. The inspector opens as a thick-glass sheet from the right on desktop and from the bottom on mobile.
 
@@ -197,15 +197,15 @@ The mood is "lo-fi cyberpunk". The look must not be Cyberpunk 2077's. This is a 
 
 ## Implementation status
 
-The desk lab and the camera playground both use Quiet Neon. Tokens live in `apps/web/src/tokens.css`, and Inter and JetBrains Mono are self-hosted through `@fontsource-variable`. In place:
+The workspace and the camera playground both use Quiet Neon. Tokens live in `apps/web/src/tokens.css`, and Inter and JetBrains Mono are self-hosted through `@fontsource-variable`. In place:
 
 - The void background, ambient light, grain, and the glass top bar, outline and inspector.
 - Frame and detection brackets, the scan-line sweep, cyan masks that turn magenta once confirmed, and the dashed-to-solid zone.
 - The status capsule (it replaces the old feedback bar), the segmented mode switch, and the `LIVE` tag.
 - The lamp ignition and ambient warm-up. A virtual lamp warms the room at half strength and shows a `VIRTUAL` tag, which settles the open decision below.
-- The evidence log with status glyphs, filters and summary stats; the inspector as a sticky side panel that can repeat a probe or put its result back on the scene; and the checklist rings.
+- The evidence log with status glyphs, filters and summary stats; the inspector as a sticky side panel that can repeat a call or put its result back on the scene; and the checklist rings.
 - A session strip under the page title with the models, the Meta call budget, spend, lamp state and live proof.
-- Frames move from the camera playground to the desk lab through session storage, never through the server.
+- Frames move from the camera playground to the workspace through session storage, never through the server.
 - Reduced-motion, reduced-transparency and high-contrast fallbacks.
 
 Still to do:

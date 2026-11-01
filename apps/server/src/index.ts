@@ -40,12 +40,12 @@ try {
       if ((error as { code?: string }).code !== 'EADDRINUSE' || tries >= 20) throw error;
       await Bun.sleep(500);
     }
-  console.log(`LivingLayer desk lab: http://127.0.0.1:${config.port}`);
+  console.log(`Living Layer: http://127.0.0.1:${config.port}`);
 } catch {
   // A server that can't listen (another holds the port) stops its watchers too.
   await app?.close().catch(() => {});
   console.error(
-    'LivingLayer could not start. Check .env against .env.example, the port, and the local data directory. Configuration values were not logged.',
+    'Living Layer could not start. Check .env against .env.example, the port, and the local data directory. Configuration values were not logged.',
   );
   process.exitCode = 1;
 }

@@ -54,7 +54,7 @@ describe('remote phone camera', () => {
     const token = remote.pair();
     await expect(remote.connect(token, OFFER)).rejects.toMatchObject({ code: 'remote_absent' });
     expect(() => remote.next(old, phone)).toThrow('pairing has ended');
-    expect(() => remote.answer(token, 'nope', 'v=0')).toThrow('stopped waiting');
+    expect(() => remote.answer(token, 'nope', 'v=0')).toThrow('Stopped waiting');
   });
 
   it('retires a code nobody scanned, and a phone that went away', async () => {

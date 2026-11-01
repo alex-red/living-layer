@@ -1,7 +1,7 @@
 /**
- * Moves one frame from the camera playground to the desk lab. The image stays
- * in this browser tab's session storage; nothing is uploaded until the lab
- * runs a live probe on it.
+ * Moves one frame from the camera playground to the workspace. The image stays
+ * in this browser tab's session storage; nothing is uploaded until a live step
+ * runs on it.
  */
 const KEY = 'livinglayer:handoff';
 

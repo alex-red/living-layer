@@ -89,8 +89,8 @@ export function PhonePairing({ onUse }: { onUse: (stream: NetworkStream) => void
           <ol className="phone-pairing-steps">
             <li>Scan the code with the phone's camera. It must be on the same Wi-Fi.</li>
             <li>
-              The phone warns that the connection isn't private: the lab signs its own certificate.
-              Choose to continue to the page.
+              The phone warns that the connection isn't private: Living Layer signs its own
+              certificate. Choose to continue to the page.
             </li>
             <li>Allow camera access. This panel moves on once the phone is sharing.</li>
           </ol>

@@ -128,7 +128,7 @@ export function DeskStep() {
           ? 'Capture a frame once it is fixed in place.'
           : image
             ? 'Calibrate it on this frame: SAM outlines the floor and walls (two billed calls), then drag the far corner and each wall’s floor line into place and give the room’s size. The desk is pinned where the camera sees it.'
-            : 'Use the camera, or upload a frame from it. It stays where it is from now on: everything the lab watches is placed through it.'}
+            : 'Use the camera, or upload a frame from it. It stays where it is from now on: everything Living Layer watches is placed through it.'}
       </p>
       <div className="save-actions">
         {image && !camera ? (

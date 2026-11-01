@@ -1,7 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import sharp from 'sharp';
 
-/** The lab opens on a choice of room; the demo office is seen by its corner camera. */
+/** The workspace opens on a choice of room; the demo office is seen by its corner camera. */
 async function chooseScene(page: Page, name = 'Use the demo office') {
   await page
     .getByRole('group', { name: 'Choose a scene' })
@@ -32,8 +32,8 @@ test('demo desk completes discovery, mask, absent target, lamp and export withou
     return route.continue();
   });
   await page.goto('/');
-  await expect(page.getByRole('heading', { name: 'Desk lab' })).toBeVisible();
-  // Scene first: the lab opens on the choice of room, and nothing runs until one is chosen.
+  await expect(page.getByRole('heading', { name: 'Living Layer' })).toBeVisible();
+  // Scene first: the workspace opens on the choice of room, and nothing runs until one is chosen.
   await expect(page.getByRole('group', { name: 'Choose a scene' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Discover objects', exact: true })).toHaveCount(0);
   await chooseScene(page);
@@ -53,7 +53,7 @@ test('demo desk completes discovery, mask, absent target, lamp and export withou
   await expect(page.locator('.mask-overlay path')).toHaveCount(0);
   await readiness(page);
   await page.getByRole('button', { name: 'Simulate lamp action', exact: true }).click();
-  await expect(page.locator('.feedback')).toContainText('Demo lamp probe saved');
+  await expect(page.locator('.feedback')).toContainText('Demo lamp run saved');
   await expect(page.locator('.readiness h3')).toHaveText('0 / 4');
   await page.keyboard.press('Escape');
   const download = page.waitForEvent('download');
@@ -63,7 +63,7 @@ test('demo desk completes discovery, mask, absent target, lamp and export withou
   expect(external).toEqual([]);
 });
 
-test('live probes stay disabled without setup; uploads prepare locally and camera denial has a fallback', async ({
+test('live steps stay disabled without setup; uploads prepare locally and camera denial has a fallback', async ({
   page,
 }) => {
   await page.goto('/');

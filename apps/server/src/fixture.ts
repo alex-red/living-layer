@@ -755,7 +755,7 @@ export function fixtureRoutes(
       store.saveMemory(memory);
       await job.done(
         'save',
-        `${memory.fixtures.length} fixture${memory.fixtures.length === 1 ? '' : 's'} in the lab`,
+        `${memory.fixtures.length} fixture${memory.fixtures.length === 1 ? '' : 's'} in the workspace`,
       );
       job.finish();
       return { run: event, mapped, memory };
@@ -997,7 +997,7 @@ export function fixtureRoutes(
     )
       throw new LabError(
         'fixture_reference',
-        'The reference photo is not one of the lab’s runs.',
+        'The reference photo is not one of the saved runs.',
         400,
       );
     const now = new Date().toISOString();

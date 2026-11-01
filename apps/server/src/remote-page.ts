@@ -11,7 +11,7 @@ export function phonePage(nonce: string, paired: boolean) {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="dark">
-<title>LivingLayer camera</title>
+<title>Living Layer camera</title>
 <style nonce="${nonce}">
   :root { --void: #0a0c12; --surface: #181c28; --line: rgb(170 185 255 / 18%); --text: #ece9f2;
     --text-2: #a9aec2; --seen: #6fd3e0; --ok: #86d9aa; --blocked: #f27c83;
@@ -37,9 +37,9 @@ export function phonePage(nonce: string, paired: boolean) {
 </style>
 </head>
 <body>
-<header><span class="dot"></span><b>LivingLayer camera</b></header>
+<header><span class="dot"></span><b>Living Layer camera</b></header>
 <div class="frame"><video id="video" autoplay playsinline muted></video></div>
-<p id="status" role="status">${paired ? 'Opening the camera…' : 'This pairing has ended. Scan the new QR code in the lab.'}</p>
+<p id="status" role="status">${paired ? 'Opening the camera…' : 'This pairing has ended. Scan the new QR code in Living Layer.'}</p>
 <div class="row">
   <button id="start" hidden>Share camera</button>
   <button id="flip" disabled>Switch camera</button>
@@ -55,7 +55,7 @@ export function phonePage(nonce: string, paired: boolean) {
     status.textContent = text;
     document.body.className = tone + (facing === 'user' ? ' front' : '');
   };
-  const idle = () => show(pc ? 'Streaming to the lab.' : 'Paired. Start the camera in the lab, with this phone as its source.');
+  const idle = () => show(pc ? 'Streaming to Living Layer.' : 'Paired. Start the camera in Living Layer, with this phone as its source.');
 
   async function keepAwake() {
     try { wake = await navigator.wakeLock?.request('screen'); } catch { /* Not offered here; the phone may dim. */ }
@@ -86,8 +86,8 @@ export function phonePage(nonce: string, paired: boolean) {
     const peer = (pc = new RTCPeerConnection());
     peer.addEventListener('connectionstatechange', () => {
       if (pc !== peer) return;
-      if (peer.connectionState === 'connected') show('Streaming to the lab.', 'live');
-      if (peer.connectionState === 'failed') { hangUp(); show('The connection to the lab dropped. Start the camera in the lab again.', 'bad'); }
+      if (peer.connectionState === 'connected') show('Streaming to Living Layer.', 'live');
+      if (peer.connectionState === 'failed') { hangUp(); show('The connection to Living Layer dropped. Start the camera there again.', 'bad'); }
     });
     await peer.setRemoteDescription({ type: 'offer', sdp: offer.sdp });
     // Takes the receive-only transceiver the lab offered, so the answer is send-only.
@@ -98,7 +98,7 @@ export function phonePage(nonce: string, paired: boolean) {
       peer.addEventListener('icegatheringstatechange', () => peer.iceGatheringState === 'complete' && resolve());
       setTimeout(resolve, 1500);
     });
-    show('Connecting to the lab…');
+    show('Connecting to Living Layer…');
     const sent = await fetch(base + '/answer', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -113,7 +113,7 @@ export function phonePage(nonce: string, paired: boolean) {
       try {
         response = await fetch(base + '/next', { cache: 'no-store' });
       } catch {
-        show('Lost the lab. Is it still running on the same network? Retrying…', 'bad');
+        show('Lost Living Layer. Is it still running on the same network? Retrying…', 'bad');
         await sleep(2000);
         continue;
       }
@@ -123,7 +123,7 @@ export function phonePage(nonce: string, paired: boolean) {
         stream?.getTracks().forEach((t) => t.stop());
         wake?.release().catch(() => {});
         flip.disabled = true;
-        show('This pairing has ended. Scan the new QR code in the lab.', 'bad');
+        show('This pairing has ended. Scan the new QR code in Living Layer.', 'bad');
         return;
       }
       if (response.status === 204) { if (!pc) idle(); continue; }
@@ -131,7 +131,7 @@ export function phonePage(nonce: string, paired: boolean) {
       const event = await response.json();
       if (event.type === 'hangup') { hangUp(); idle(); }
       if (event.type === 'offer')
-        answer(event).catch(() => { hangUp(); show('Could not connect to the lab. Start the camera there again.', 'bad'); });
+        answer(event).catch(() => { hangUp(); show('Could not connect to Living Layer. Start the camera there again.', 'bad'); });
     }
   }
 

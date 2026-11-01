@@ -240,3 +240,4 @@ The open decisions above went with the proposals: the office can't be skipped in
 - **Layers.** A Layers menu over the canvas switches masks, the mug's trail and saved zones, on the photo and in the room. A zone being drawn always shows.
 - **Phones.** The outline is a sheet that slides up from a button under the status capsule, and closes when you pick a row or press Escape.
 - **Tests.** `tests/browser/lab.spec.ts` is updated for the new controls but hasn't been run against this build yet.
+- **Naming.** It is still called "Desk lab" in places. Renaming that to Living Layer is planned in [naming.md](naming.md).

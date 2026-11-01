@@ -69,7 +69,11 @@ export class CameraRegistry {
     if (cameras.some((c) => c.url === url && c.id !== existing?.id))
       throw new LabError('camera_duplicate', 'That stream is already a camera.', 409);
     if (!existing && cameras.length >= CAMERA_LIMIT)
-      throw new LabError('camera_limit', `The lab keeps at most ${CAMERA_LIMIT} cameras.`, 409);
+      throw new LabError(
+        'camera_limit',
+        `Living Layer keeps at most ${CAMERA_LIMIT} cameras.`,
+        409,
+      );
     const camera: SavedCamera = {
       id: existing?.id ?? randomUUID().slice(0, 8),
       name: input.name,

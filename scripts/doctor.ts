@@ -3,7 +3,7 @@ import { loadConfig } from '../apps/server/src/config.js';
 import { APPEARANCE_MODEL, appearanceModelPath } from '../apps/server/src/appearance.js';
 try {
   const config = loadConfig();
-  console.log('LivingLayer readiness (no network requests)');
+  console.log('Living Layer readiness (no network requests)');
   console.log(`Bun ${Bun.version}; data directory: ${config.dataDir}`);
   console.log(
     `Meta key: ${config.modelApiKey ? 'present' : 'missing'}; live enabled: ${config.metaEnabled}`,

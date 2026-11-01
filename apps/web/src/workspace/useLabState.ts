@@ -757,7 +757,7 @@ export function useLabState() {
       frame.onload = () => {
         if (!mounted.current) return;
         captureCanvas(frame, frame.naturalWidth, frame.naturalHeight);
-        setMessage('Frame from the camera playground, prepared locally. Run a live probe on it.');
+        setMessage('Frame from the camera playground, prepared locally. Run a live step on it.');
       };
       frame.src = handedOff;
     }
@@ -809,7 +809,7 @@ export function useLabState() {
     setMessage(
       next === 'demo'
         ? 'Demo selected: the office from its corner camera, with no model calls and a virtual lamp.'
-        : 'Add a desk photo. It stays local until you explicitly run a live probe.',
+        : 'Add a desk photo. It stays local until you run a live step.',
     );
   }
   /** The size a frame is prepared at: no side over 1280. */
@@ -838,7 +838,7 @@ export function useLabState() {
     setSegmentRunId(undefined);
     setDrawing(false);
     setMessage(
-      'Photo prepared locally. Live probes send this image to Meta only when you press a probe button.',
+      'Photo prepared locally. Live steps send this image to Meta only when you press one.',
     );
     return url;
   }
@@ -1058,11 +1058,11 @@ export function useLabState() {
       setMessage(
         kind === 'segment' && run.status === 'no_match'
           ? 'No match. The previous mask has been cleared.'
-          : `${mode === 'demo' ? 'Demo' : 'Live'} ${kind} probe saved · ${run.durationMs} ms${costNote(run)}.`,
+          : `${mode === 'demo' ? 'Demo' : 'Live'} ${kind} run saved ·${run.durationMs} ms${costNote(run)}.`,
       );
       await refresh();
     } catch (e) {
-      setError(e instanceof Error ? e : 'Probe failed.');
+      setError(e instanceof Error ? e : 'Call failed.');
       if (kind === 'segment') setSegmentation(undefined);
       void refresh().catch(() => {});
     } finally {
@@ -2399,7 +2399,8 @@ export function useLabState() {
   }
   /** Why a saved probe can't be repeated right now, or null if it can. */
   function rerunBlock(run: EvidenceRun): string | null {
-    if (!isProbe(run.kind)) return 'Only probes can be repeated. Use the inspector for desk steps.';
+    if (!isProbe(run.kind))
+      return 'Only model and lamp calls can be repeated. Use the inspector for scene steps.';
     if (run.mode !== mode) return `Switch to ${run.mode} mode to repeat this run.`;
     if (busy) return 'Wait for the current call to finish.';
     if (camera) return 'Capture or stop the camera first.';

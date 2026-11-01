@@ -1,4 +1,4 @@
-/* Desk lab in the Quiet Neon style. Tokens live in tokens.css; the reasoning
+/* Living Layer in the Quiet Neon style. Tokens live in tokens.css; the reasoning
    behind them is in docs/design.md. */
 
 * {
@@ -1368,15 +1368,11 @@ p {
   gap: 8px;
   min-width: 0;
 }
-.page-title {
+.brand-heading {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding-left: 12px;
-  border-left: 1px solid var(--line-strong);
-  font: 600 13px/18px var(--ui);
-  color: var(--text-2);
-  white-space: nowrap;
+  font: inherit;
 }
 @media (max-width: 1279px) {
   .topbar-links .playground-link {
@@ -1401,7 +1397,7 @@ p {
     max-width: none;
     border-radius: var(--r-card);
   }
-  .page-title {
+  .brand-heading .live-tag {
     display: none;
   }
   .stage-fit {

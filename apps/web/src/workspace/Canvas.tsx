@@ -349,7 +349,7 @@ export function Canvas() {
                 <Glyph type="camera" />
                 <h3>Your desk, in context.</h3>
                 <p>Upload a photo or start the camera below.</p>
-                <small>Prepared locally · sent only on an explicit live probe</small>
+                <small>Prepared locally · sent only when you run a live step</small>
               </div>
             )}
             {!camera && segmentation && lab.showTrail && trail.length > 1 && (

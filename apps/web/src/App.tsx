@@ -10,7 +10,7 @@ import { useLabState } from './workspace/useLabState';
 import './workspace/workspace.css';
 
 /**
- * The desk lab: an outline of the scene, the canvas, and an inspector for
+ * The workspace: an outline of the scene, the canvas, and an inspector for
  * whatever is selected, with every run in a drawer below. All state lives in
  * `useLabState`; the panes read it through `LabContext`.
  */

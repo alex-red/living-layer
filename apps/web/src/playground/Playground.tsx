@@ -250,7 +250,9 @@ export function Playground() {
   }
   function openInLab(k: Shot) {
     if (!sendToLab(k.url))
-      setDetectError('This browser blocked session storage, so the frame cannot move to the lab.');
+      setDetectError(
+        'This browser blocked session storage, so the frame cannot move to the workspace.',
+      );
   }
 
   /**
@@ -407,7 +409,7 @@ export function Playground() {
           ? {
               tone: 'ok',
               glyph: '✓',
-              text: `${subject.name} is inside. In the lab, this would turn on the lamp.`,
+              text: `${subject.name} is inside. In the workspace, this would turn on the lamp.`,
             }
           : {
               tone: 'idle',
@@ -469,7 +471,7 @@ export function Playground() {
           {status.text}
         </div>
         <a className="pg-back" href="/">
-          Desk lab <Glyph type="arrow" />
+          Workspace <Glyph type="arrow" />
         </a>
       </header>
 
@@ -859,7 +861,7 @@ export function Playground() {
                   </p>
                   <div>
                     <Button variant="ghost" onClick={() => openInLab(shot)}>
-                      Open in desk lab
+                      Open in workspace
                     </Button>
                     <Button onClick={leaveReview}>
                       {shot.source === 'file' || kept.some((k) => k.id === shot.id)
@@ -924,7 +926,7 @@ export function Playground() {
                       </span>
                     </span>
                     <Button variant="ghost" size="sm" onClick={() => openInLab(k)}>
-                      Open in desk lab
+                      Open in workspace
                     </Button>
                   </li>
                 ))}
@@ -932,7 +934,7 @@ export function Playground() {
             ) : (
               <p className="pg-placeholder">
                 Frames you keep show up here. Open one again to re-detect or test the zone, or send
-                it to the desk lab to run the full placement check. They're gone when you close the
+                it to the workspace to run the full placement check. They're gone when you close the
                 tab.
               </p>
             )}

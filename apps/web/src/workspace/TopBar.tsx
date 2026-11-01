@@ -310,14 +310,14 @@ export function TopBar() {
   return (
     <header className="topbar">
       <div className="topbar-id">
-        <a className="brand" href="/" aria-label="Living Layer home">
-          <span className="brand-icon">
-            <Glyph />
-          </span>
-          <span className="brand-name">Living Layer</span>
-        </a>
-        <h1 className="page-title">
-          Desk lab{mode === 'live' && <span className="live-tag">LIVE</span>}
+        <h1 className="brand-heading">
+          <a className="brand" href="/" aria-label="Living Layer home">
+            <span className="brand-icon">
+              <Glyph />
+            </span>
+            <span className="brand-name">Living Layer</span>
+          </a>
+          {mode === 'live' && <span className="live-tag">LIVE</span>}
         </h1>
         {crumbs.length > 0 && (
           <nav className="crumbs" aria-label="You are here">

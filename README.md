@@ -2,9 +2,9 @@
 
 Living Layer gives everyday objects a memory so your smart home can react to them. Point a camera at a desk, confirm which blob is your mug, draw a zone, and the lamp turns on when the mug is inside it. Each decision is saved with the reason behind it, so you can check what happened afterwards.
 
-It's an early local lab, not a product. One desk, one mug, one lamp.
+It runs on your own machine. One corner camera, calibrated to the room, places what it sees in the room's isometric twin. It tracks several objects and fixtures, lets you change the room with the AI brush, keeps watching from the server with no tab open, and shows up in Home Assistant as entities of its own.
 
-![The desk lab: the scene outline, the photo beside its isometric twin, and the mug's inspector](docs/media/workspace.png)
+![The workspace: the scene outline, the photo beside its isometric twin, and the mug's inspector](docs/media/workspace.png)
 
 ## How it works
 
@@ -55,7 +55,7 @@ Copy `.env.example` to `.env` and fill in what you need. Restart the server afte
 | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
 | `MODEL_API_KEY`                          | Meta API key. Stays on the server and is never sent to the browser.                                                       |
 | `META_LIVE_ENABLED`                      | Set to `true` to allow live Meta calls.                                                                                   |
-| `META_DAILY_SPEND_LIMIT_USD`             | Daily cap on Meta spend in USD (default 10). Changeable from the lab's spend pill.                                        |
+| `META_DAILY_SPEND_LIMIT_USD`             | Daily cap on Meta spend in USD (default 10). Changeable from the spend pill.                                              |
 | `HA_URL`, `HA_TOKEN`, `HA_ENTITY_ID`     | Home Assistant origin, a long-lived token, and one `light.*` entity.                                                      |
 | `HA_EXTRA_ENTITY_IDS`                    | Optional. More `light.*` entities that extra placement rules may switch, comma-separated.                                 |
 | `HA_SWITCH_ENTITY_IDS`                   | Optional. `switch.*` entities that fixtures and rules may turn on and off, comma-separated.                               |
@@ -70,7 +70,7 @@ Copy `.env.example` to `.env` and fill in what you need. Restart the server afte
 
 Then switch to **Live** mode and go through the same steps with your own camera: mount it high in a corner of the room, looking across at the far corner, and **Calibrate the camera** on one of its frames (SAM outlines the floor and walls; you drag three marks and give the room’s size). Every scan, pin and picture then goes through that camera. Photos are only sent to Meta when you press a button that says it calls a model. The spend pill in the top bar shows today's spend against the limit.
 
-You can also run the probes from the command line:
+You can also run the smoke checks from the command line:
 
 ```sh
 bun run doctor                                     # checks config, makes no network calls
@@ -87,13 +87,13 @@ Any Mac or Linux machine (a Raspberry Pi with a USB webcam works) can share its 
 scripts/share-camera.sh                            # --list, --device, --size, --fps, --name; see --help
 ```
 
-It needs `ffmpeg` and [MediaMTX](https://github.com/bluenviron/mediamtx), and offers to install whichever is missing (`--yes` skips the question): ffmpeg through your package manager, MediaMTX through Homebrew or as the checksum-verified release binary in `~/.local/bin`. The camera is encoded once to H.264 (VideoToolbox on macOS, passed through untouched on Linux when the camera already outputs H.264) and served as WebRTC (WHEP, what the labs play, around 100 ms of latency) and RTSP. It is advertised over mDNS, so it shows up as a camera source in the desk lab and the playground; **Find network cameras** rescans.
+It needs `ffmpeg` and [MediaMTX](https://github.com/bluenviron/mediamtx), and offers to install whichever is missing (`--yes` skips the question): ffmpeg through your package manager, MediaMTX through Homebrew or as the checksum-verified release binary in `~/.local/bin`. The camera is encoded once to H.264 (VideoToolbox on macOS, passed through untouched on Linux when the camera already outputs H.264) and served as WebRTC (WHEP, what Living Layer plays, around 100 ms of latency) and RTSP. It is advertised over mDNS, so it shows up as a camera source in the workspace and the playground; **Find network cameras** rescans.
 
 Its RTSP output is what lets the server watch it with no tab open: choose it as the camera, then **Watch on the server** on the mug. The server reads it with ffmpeg at 10 grey frames a second and takes a full picture only when SAM or the feature model needs one. `bun run fetch-model` downloads that feature model (DINOv3 ViT-S/16, about 22 MB, checksum-verified) into `DATA_DIR`; without it a lost thing goes straight to SAM. A phone camera streams to the tab only, so it can be followed in the tab but not watched by the server.
 
 ### A phone as the camera
 
-**Phone** next to **Camera** in the live desk lab (or **Use a phone as the camera** in the playground) shows a QR code. Scan it with a phone on the same Wi-Fi, accept the certificate warning once, and allow camera access; the panel then offers **Use the phone camera**. The phone streams its back camera to the lab over WebRTC, peer to peer; the lab server only relays the two SDPs (`apps/server/src/remote.ts`). Phone browsers only share the camera over HTTPS, so the phone page is served on its own port with a certificate made in `DATA_DIR` by `openssl` (or `REMOTE_CAMERA_CERT`); that port opens with the first pairing and serves nothing but the page and its signalling, behind a random token. A new code retires the old one, and a code nobody scans stops working after 15 minutes.
+**Phone** next to **Camera** in the live workspace (or **Use a phone as the camera** in the playground) shows a QR code. Scan it with a phone on the same Wi-Fi, accept the certificate warning once, and allow camera access; the panel then offers **Use the phone camera**. The phone streams its back camera to the lab over WebRTC, peer to peer; the lab server only relays the two SDPs (`apps/server/src/remote.ts`). Phone browsers only share the camera over HTTPS, so the phone page is served on its own port with a certificate made in `DATA_DIR` by `openssl` (or `REMOTE_CAMERA_CERT`); that port opens with the first pairing and serves nothing but the page and its signalling, behind a random token. A new code retires the old one, and a code nobody scans stops working after 15 minutes.
 
 ## Development
 
