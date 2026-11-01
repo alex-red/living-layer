@@ -15,6 +15,7 @@ import { TrackingOverlay } from '../TrackingOverlay';
 import { PhonePairing } from '../PhonePairing';
 import { CameraSetup, type RoomOption } from '../CameraSetup';
 import { ZoomPan } from '../ZoomPan';
+import { useFrameRate } from '../useFrameRate';
 import { ErrorCard } from '../ProviderUi';
 import { IsoView } from '../iso/IsoView';
 import { SurfacePin } from '../iso/SurfacePin';
@@ -156,12 +157,20 @@ export function Canvas() {
   const hand = lab.tool === 'hand' && !drawing && !pinning && !lab.placing && !lab.boxing;
   // The tracking layer replaces the follow and watch boxes on the camera with ones fitted to the video.
   const tracked = camera && lab.tracking;
+  // A running camera is live; its rate is what reaches the page, so a fallback to MJPEG shows.
+  const fps = useFrameRate(lab.video, camera);
   return (
     <section className="ws-canvas" aria-label="Scene and segmentation">
       <div className="scene-toolbar">
         <span>
           <span className={`dot ${mode === 'live' ? 'live' : ''}`} />
-          {mode === 'demo' ? 'DEMO DESK' : image ? 'LOCAL DESK PHOTO' : 'AWAITING DESK PHOTO'}
+          {mode === 'demo'
+            ? 'DEMO DESK'
+            : camera
+              ? `LIVE · ${(chosenStream?.name ?? 'This device').toUpperCase()}`
+              : image
+                ? 'LOCAL DESK PHOTO'
+                : 'AWAITING DESK PHOTO'}
         </span>
         <Popover
           label="Layers"
@@ -621,6 +630,13 @@ export function Canvas() {
           <span className="frame-tick tr" aria-hidden="true" />
           <span className="frame-tick bl" aria-hidden="true" />
           <span className="frame-tick br" aria-hidden="true" />
+          {camera && (
+            <span className="frame-live" aria-hidden="true">
+              <span className="privacy-dot" />
+              LIVE
+              <span>{fps === null ? '– FPS' : `${fps} FPS`}</span>
+            </span>
+          )}
           <span className="frame-label">
             {dimensions.width} × {dimensions.height} <span>FRAME 00</span>
           </span>

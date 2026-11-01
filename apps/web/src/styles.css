@@ -508,6 +508,33 @@ p {
   margin-left: 8px;
   color: var(--text-3);
 }
+/* A running camera: what plays is live, at the rate its frames reach the page. */
+.frame-live {
+  position: absolute;
+  z-index: 3;
+  top: 14px;
+  left: 40px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  border-radius: 2px;
+  font: 500 11px/14px var(--mono);
+  letter-spacing: 0.08em;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  background: var(--glass-thin);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  pointer-events: none;
+}
+.frame-live .privacy-dot {
+  animation: breathe 1.4s ease-in-out infinite;
+}
+.frame-live span:last-child {
+  margin-left: 2px;
+  color: var(--text-2);
+}
 
 /* Detections: cyan is what the model saw, magenta is what you confirmed. */
 .mask-overlay,
