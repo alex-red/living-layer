@@ -479,19 +479,27 @@ export async function buildApp(
     },
   });
   /**
-   * Watching is on by default: a live desk that never chose watches the one saved
-   * camera the server can read. Following is local and cheap; SAM is only asked at a
-   * settled zone crossing or a loss nothing local fixes. Off once turned off.
+   * Watching is on by default. When the server starts, the live desk watches the camera
+   * it watched before, or else the one saved camera the server can read: turning it off
+   * lasts until the next start. A camera saved on a desk that never chose is watched at
+   * once. Following is local and cheap; SAM is only asked at a settled zone crossing or
+   * a loss nothing local fixes.
    */
-  const watchByDefault = async () => {
+  const watchByDefault = async (starting: boolean) => {
     const memory = store.memory('live');
+    if (memory.watch?.on || (!starting && memory.watch !== undefined)) return;
+    const kept = memory.watch?.camera;
     const readable = cameras.list().filter((c) => /^rtsps?:\/\//.test(c.url));
-    if (memory.watch !== undefined || readable.length !== 1) return;
-    const camera = cameras.watchCamera(readable[0]!.id);
+    const camera =
+      kept && cameras.urlOf(kept)
+        ? kept
+        : readable.length === 1
+          ? cameras.watchCamera(readable[0]!.id)
+          : null;
     if (camera) await setWatching(store, watchers.live, true, camera).catch(() => {});
   };
   cameraRoutes(app, cameras, {
-    onSaved: () => void watchByDefault(),
+    onSaved: () => void watchByDefault(false),
     // Watching a camera that was just removed stops; choosing another starts it again.
     onRemoved: (streamId) => {
       for (const mode of ['demo', 'live'] as const) {
@@ -554,7 +562,7 @@ export async function buildApp(
       await cameras.startRelay();
       if (store.memory('live').watch?.on) void watchers.live.start();
     }
-    await watchByDefault();
+    await watchByDefault(true);
   });
   app.addHook('onClose', async () => {
     clearInterval(tick);

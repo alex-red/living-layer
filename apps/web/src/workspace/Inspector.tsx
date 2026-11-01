@@ -728,9 +728,13 @@ function WatchControl() {
       <Button
         disabled={!watching && !canWatch}
         onClick={() => void lab.toggleWatch()}
-        title="The server follows every confirmed thing in the camera and checks zone crossings with SAM, with or without this tab"
+        title={
+          watching
+            ? 'Pause watching until the server starts again: it watches by default'
+            : 'The server follows every confirmed thing in the camera and checks zone crossings with SAM, with or without this tab'
+        }
       >
-        {watching ? 'Stop watching' : 'Watch on the server'}
+        {watching ? 'Pause watching' : 'Watch on the server'}
       </Button>
       <p className="micro">
         {watching && watch

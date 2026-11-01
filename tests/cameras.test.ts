@@ -481,7 +481,19 @@ describe('watching by default', () => {
     expect(s.opened.at(-1)?.id).toBe(`cam:${camera.id}`);
   });
 
-  it('keeps watching off once it was turned off, and skips a camera it can’t read', async () => {
+  it('watches again when the server starts, after it was turned off', async () => {
+    const s = await setup();
+    const camera = await s.add({ name: 'Office cam', url: URL_WITH_PASSWORD, scene: 'office' });
+    expect((await s.post('watch', { mode: 'live', on: false })).statusCode).toBe(200);
+    expect(await watchOf(s)).toMatchObject({ on: false });
+    await s.app.close();
+    const again = await setup(undefined, undefined, { dataDir: s.dataDir });
+    await again.app.listen({ host: '127.0.0.1', port: 0 });
+    expect(await watchOf(again)).toMatchObject({ on: true, camera: { id: `cam:${camera.id}` } });
+    await again.app.close();
+  });
+
+  it('keeps a pause until the next start, and skips a camera it can’t read', async () => {
     const off = await setup();
     expect((await off.post('watch', { mode: 'live', on: false })).statusCode).toBe(200);
     await off.add({ name: 'Cam', url: URL_WITH_PASSWORD, scene: null });
