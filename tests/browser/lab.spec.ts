@@ -73,8 +73,8 @@ test('live probes stay disabled without setup; uploads prepare locally and camer
   await expect(chooser).toContainText('Live calls aren’t available');
   await chooseScene(page);
   await page.getByRole('button', { name: 'Live', exact: true }).click();
-  // Live, the office desk still needs a close photo before anything is pinned.
-  await expect(page.getByRole('note', { name: 'Set up the office desk' })).toBeVisible();
+  // Live, the office's corner camera has to be calibrated before anything is placed.
+  await expect(page.getByRole('note', { name: "Calibrate the room's camera" })).toBeVisible();
   await addObject(page);
   await expect(page.getByRole('button', { name: 'Discover objects', exact: true })).toBeDisabled();
   await readiness(page);
@@ -230,7 +230,10 @@ test('draws the remembered mug in the isometric desk and follows it to a new fra
   await expect(page.locator('.item-fit')).toContainText('MATCH');
   await page.getByRole('button', { name: 'Photo vs model', exact: true }).click();
   await expect(page.getByAltText("The model's silhouette from the photo's camera")).toBeVisible();
-  await page.getByRole('button', { name: 'Model', exact: true }).last().click();
+  await page
+    .getByRole('group', { name: 'Preview' })
+    .getByRole('button', { name: 'Model', exact: true })
+    .click();
   await page.getByRole('button', { name: 'Colour #3c554a' }).click();
   await page.getByRole('button', { name: 'Save model', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Save model', exact: true })).toBeDisabled();
@@ -251,17 +254,18 @@ test('finds the office desk’s corners from the photo, lets one be dragged, and
   await freshDesk(page);
   await page.goto('/');
   await chooseScene(page);
-  await outline(page, 'Office desk').click();
-  // The demo desk comes pinned; finding it again measures the corners from SAM's outline.
+  // The room's camera sees the desktop: the demo desk comes pinned, and finding it again
+  // measures the corners from SAM's outline.
+  await outline(page, 'Desktop').click();
   await page.getByRole('button', { name: 'Find it again', exact: true }).click();
   await expect(page.locator('.feedback')).toContainText('Found the desktop');
   const corners = page.getByRole('slider', { name: /corner$/ });
   await expect(corners).toHaveCount(4);
   const front = page.getByRole('slider', { name: 'front right corner' });
   const before = await front.getAttribute('aria-valuetext');
-  // The corner sits on the photo's bottom-right edge; press just inside it.
-  const photo = (await page.locator('.pin-overlay').boundingBox())!;
-  const [cx, cy] = [photo.x + photo.width - 4, photo.y + photo.height - 4];
+  // Press on the corner where the camera sees it, and drag it up and left.
+  const handle = (await front.boundingBox())!;
+  const [cx, cy] = [handle.x + handle.width / 2, handle.y + handle.height / 2];
   await page.mouse.move(cx, cy);
   await page.mouse.down();
   await page.mouse.move(cx - 30, cy - 30, { steps: 4 });
@@ -334,12 +338,19 @@ test('drafts a scene from the demo camera, reviews the pin and objects, and save
   await page.goto('/');
   // The second way in: draft the room from a frame of its camera, here the demo camera's.
   await chooseScene(page, 'Draft from the demo photo');
-  await page.getByRole('button', { name: 'Draft from the demo camera', exact: true }).click();
+  await page.getByRole('button', { name: 'Layout', exact: true }).click();
+  await page.getByRole('button', { name: 'Demo frame', exact: true }).click();
   const rows = page.locator('.photo-things tbody tr');
   // The draft fits a model per object and renders the check, which takes a few seconds on CI.
   await expect(rows).toHaveCount(4, { timeout: 20_000 });
+  // The draft's steps stay in a dialog until it is dismissed.
+  const steps = page.getByRole('dialog', { name: 'Drafting the room' });
+  await steps.getByRole('button', { name: 'Done', exact: true }).click();
+  await expect(steps).toHaveCount(0);
   await expect(rows.first()).toContainText('pinned surface');
-  await expect(page.locator('.photo-review .iso-note')).toContainText('Scene match');
+  await expect(page.locator('.photo-review .iso-note')).toContainText(
+    'The desk top is pinned where the room’s camera sees it',
+  );
   // With nothing remembered yet, the mug is offered as the main object.
   const mug = rows.filter({ hasText: 'cream mug' });
   await expect(mug.getByRole('checkbox')).toBeChecked();
@@ -389,8 +400,9 @@ test('saves the session as you go, undoes a desk edit, and resets to the demo', 
   const download = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Export save', exact: true }).click();
   expect((await download).suggestedFilename()).toMatch(/^livinglayer-save-.*\.json$/);
-  page.once('dialog', (d) => void d.accept());
+  // The menu asks first, in place: embedded browsers block confirm().
   await page.getByRole('button', { name: 'Reset everything to demo', exact: true }).click();
+  await page.getByRole('button', { name: 'Yes, reset everything', exact: true }).click();
   await expect(page.locator('.feedback')).toContainText('Reset to the demo');
   await expect(page.getByRole('group', { name: 'Choose a scene' })).toBeVisible();
 });

@@ -230,6 +230,8 @@ describe('scene templates', () => {
     ).toBe(false);
     const scene = buildScene(demoSceneDraft);
     expect(isoSceneSchema.safeParse(scene).success).toBe(true);
+    // The editor warns over Spark's summary when props cut into each other.
+    expect([...overlappingGroups(scene)]).toEqual([]);
     expect(groupBounds(scene, 'book')!.at.z).toBeCloseTo(2.4);
     expect(groupBounds(scene, 'lamp')!.at.z).toBeCloseTo(2.4);
     const order = depthOrder(scene.props).map((p) => p.id);

@@ -16,7 +16,8 @@ export default defineConfig({
     trace: 'retain-on-failure',
   },
   webServer: {
-    command: 'bun run start',
+    // Every run starts from empty data: what one run saves (a placed fixture, say) breaks the next.
+    command: 'rm -rf .data/browser-tests && bun run start',
     url: 'http://127.0.0.1:43432/api/status',
     reuseExistingServer: false,
     env: {
