@@ -474,6 +474,7 @@ export function useLabState() {
   const [cameraWanted, setCameraWanted] = useState(boot.prefs.cameraOn);
   /** Reopens tried since the camera last opened; they stop after a few failures. */
   const [reopenTries, setReopenTries] = useState(0);
+  /** The tracking layer: it follows the live camera, so turning it on opens the camera. */
   const [tracking, setTracking] = useState(boot.prefs.tracking);
   const file = useRef<HTMLInputElement>(null);
   const imageGeneration = useRef(0);
@@ -964,9 +965,11 @@ export function useLabState() {
     }
   }, [camera]);
   // A camera that was on and wasn't stopped by the person opens again: after a reload,
-  // back in live mode, or once a dropped stream can be reached. A few tries, further apart each time.
+  // back in live mode, after calibrating or pinning, or once a dropped stream can be reached.
+  // A few tries, further apart each time.
   useEffect(() => {
-    if (mode !== 'live' || !cameraWanted || camera || cameraPending || busy || pinning) return;
+    if (mode !== 'live' || !cameraWanted || camera || cameraPending || busy) return;
+    if (pinning || calibrating) return;
     // After the camera list, which can change the room's camera, has loaded.
     if (!deskReady || !network.loaded || reopenTries >= REOPEN_TRIES) return;
     const remote = cameraSource ? network.streams.find((s) => s.id === cameraSource) : undefined;
@@ -999,12 +1002,20 @@ export function useLabState() {
     cameraPending,
     busy,
     pinning,
+    calibrating,
     deskReady,
     reopenTries,
     cameraSource,
     network.loaded,
     network.streams,
   ]);
+  /** Turns the tracking layer on or off; on, it opens the live camera rather than track a still. */
+  function changeTracking(on: boolean) {
+    setTracking(on);
+    if (!on || mode !== 'live' || camera || pinning || calibrating) return;
+    setReopenTries(0);
+    void startCamera();
+  }
   function costNote(run: EvidenceRun) {
     const cost = runCost(run);
     return cost === null ? '' : ` · ≈ ${usd(cost)}`;
@@ -1067,7 +1078,8 @@ export function useLabState() {
           video.current.videoHeight,
           openCrop.current,
         );
-        if (!keepCamera) stopCamera();
+        // With the tracking layer on, the camera stays open: tracking follows the live feed.
+        if (!keepCamera && !tracking) stopCamera();
       }
       const run = await api<EvidenceRun<Segmentation>>('segment', {
         mode,
@@ -1713,7 +1725,7 @@ export function useLabState() {
       }));
     const back = found.marks?.back.length ? found.marks.back : towards(1);
     const left = found.marks?.left.length ? found.marks.left : towards(-1);
-    if (camera) stopCamera();
+    if (camera) (tracking ? dropCamera : stopCamera)();
     setCalibrating({
       marks: { corner, back, left, backEnd: null, leftEnd: null },
       room: found.room,
@@ -2247,7 +2259,7 @@ export function useLabState() {
       frameNow();
       size = frameSize(video.current.videoWidth, video.current.videoHeight);
     }
-    if (camera) stopCamera();
+    if (camera) (tracking ? dropCamera : stopCamera)();
     const fits = size && size.width === pin.frame.width && size.height === pin.frame.height;
     if (!fits) {
       if (pin.scene !== 'custom') {
@@ -2429,7 +2441,7 @@ export function useLabState() {
     showCorner,
     setShowCorner,
     tracking,
-    setTracking,
+    setTracking: changeTracking,
     stageView,
     setStageView,
     workScene,
