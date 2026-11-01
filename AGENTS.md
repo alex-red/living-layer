@@ -5,11 +5,12 @@ What isn't obvious from the code. [CONTRIBUTING.md](CONTRIBUTING.md) has setup, 
 ## Ground rules
 
 - Don't start the dev server or run a build unless asked. If one is already running, use it to look.
-- Stage files by explicit path, never `git add -A`: other sessions may leave files in this checkout.
+- Commit with `bun run commit -m "…" -- <files>`: it verifies just those files on HEAD in a clean worktree and commits only them, since other sessions edit and stage in this checkout. The pre-commit hook refuses plain `git commit`; `COMMIT_ANY=1` is for a merge's conflicts, after checking what is staged.
+- When a check fails for no reason you can see, run `git status --short`: another session's half-done edit may be on disk. `bun run verify --at staged` or `--at <ref>` judges a snapshot in a clean worktree.
 - Commit summaries stay under about 60 characters (Conventional Commits); put the detail in the body.
 - Types are checked by `tsrs` against TypeScript 7.1 (`bun run typecheck`). Bun's own `bun check` is quicker but passes errors 7.1 reports, so it doesn't stand in for it.
-- Run `bun run verify` before committing: format, types, tests, the benches and the colour audit in about a minute, as one summary.
-- Before merging another session's branch, run `bun run verify --against main` on the merge. When you brief a side session, ask it to work from the latest `main` and check `bun run bench:at main room` before it reports, since `main` may have moved.
+- `bun run verify` checks format, types, tests, the benches and the colour audit in about a minute, as one summary; `bun run commit` runs it for you.
+- Before merging another session's branch, run `bun run verify --at <merge> --against main`. When you brief a side session, ask it to work from the latest `main` and check `bun run bench:at main room` before it reports, since `main` may have moved.
 
 ## The isometric room
 

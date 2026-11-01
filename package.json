@@ -42,6 +42,7 @@
     "ref": "bun scripts/ref-match.ts",
     "ci": "bun run format:check && bun run typecheck && bun run test && bun run build",
     "verify": "bun scripts/verify.ts",
+    "commit": "bun scripts/commit.ts",
     "prepare": "git config core.hooksPath .githooks || true",
     "doctor": "bun scripts/doctor.ts",
     "fetch-model": "bun scripts/fetch-model.ts",

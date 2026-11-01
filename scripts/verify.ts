@@ -6,15 +6,39 @@
  *
  *   bun run verify
  *   bun run verify --against main     also the room bench at main, and what moved
+ *   bun run verify --at staged        HEAD and what is staged, in a clean worktree
+ *   bun run verify --at <ref>         a commit (a merge, say) in a clean worktree
  *
- * Run it before committing, and on any merge of another branch.
+ * Run it before committing, and on any merge of another branch. Other
+ * sessions may be editing this checkout: `--at` judges exactly the snapshot,
+ * whatever else is on disk (`lib/worktree.ts`).
  */
 import { spawnSync } from 'node:child_process';
-import { resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 import { flag, parseArgs } from './lib/args.js';
+import { snapshotOf, withWorktree } from './lib/worktree.js';
 
 const root = resolve(import.meta.dir, '..');
-const against = flag(parseArgs(), 'against');
+const args = parseArgs();
+const against = flag(args, 'against');
+const at = flag(args, 'at');
+if (at) {
+  // The same verify, run inside the snapshot; captured rooms stay in this checkout's data folder.
+  const rest = process.argv.slice(2).filter((a, i, all) => a !== '--at' && all[i - 1] !== '--at');
+  const status = await withWorktree(snapshotOf(at), (dir) => {
+    const r = spawnSync(
+      'bun',
+      ['scripts/verify.ts', ...rest.filter((a) => !a.startsWith('--at='))],
+      {
+        cwd: dir,
+        stdio: 'inherit',
+        env: { ...process.env, ROOMS_DIR: process.env.ROOMS_DIR ?? join(root, '.data', 'rooms') },
+      },
+    );
+    return r.status ?? 1;
+  });
+  process.exit(status);
+}
 interface Step {
   name: string;
   cmd: string[];

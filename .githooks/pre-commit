@@ -1,0 +1,18 @@
+#!/bin/sh
+# This checkout is shared by several sessions, so a commit names its files: `bun run commit -m …
+# -- <paths>` checks them in a clean worktree and commits only those. This refuses any other
+# commit, and any staged file the commit didn't name (another session's work waiting in the
+# index). For a commit by hand (concluding a merge, say): COMMIT_ANY=1 git commit …
+[ "$COMMIT_ANY" = 1 ] && exit 0
+list=$(git rev-parse --git-path livinglayer-commit-paths)
+if [ ! -f "$list" ]; then
+  echo "Commit with: bun run commit -m '<summary>' -- <paths>" >&2
+  echo "(by hand, knowing what is staged: COMMIT_ANY=1 git commit …)" >&2
+  exit 1
+fi
+extra=$(git diff --cached --name-only --no-renames | grep -vxF -f "$list")
+if [ -n "$extra" ]; then
+  echo "Staged, but not named in this commit:" >&2
+  echo "$extra" | sed 's/^/  /' >&2
+  exit 1
+fi

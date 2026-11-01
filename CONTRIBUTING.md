@@ -42,9 +42,15 @@ bun run draft <run> --relayout  # a stored room draft laid out again with your t
 bun run calib --grid          # the room's calibration: fit, the room sizes its marks fit, a grid over a frame
 bun run runs [<run>]          # the run log, or one run's steps and pictures in out/runs/
 bun run verify                # all of the above that matters, plus format, types and tests, in one summary
+bun run verify --at staged    # the same on HEAD and what is staged, in a clean worktree (--at <ref> for a commit)
+bun run commit -m "fix: …" -- <files>  # verify those files on HEAD in a clean worktree, then commit just them
 ```
 
 Each bench shows how much room every case has left before its target. `--set desk.topCm=3,4,5` tries other furniture measurements without editing code. If you change how something looks on purpose, update its golden picture with `UPDATE_GOLDEN=1 bun test tests/model.test.ts tests/furniture.test.ts`, and check the new PNGs before committing them. [AGENTS.md](AGENTS.md) has more on when to run which.
+
+## Committing
+
+Commit with `bun run commit -m "<summary>" [-m "<body>"] -- <files>`. The checkout may be shared with other sessions, so it names its files: it runs `verify` on HEAD with only those files as they are now, in a clean worktree, then commits just them and leaves anything else staged alone. The pre-commit hook refuses other commits. To commit by hand (concluding a merge with conflicts, say), check what is staged and use `COMMIT_ANY=1 git commit …`. `--skip-verify` is for changes verify can't judge, such as docs.
 
 ## Commit messages
 
