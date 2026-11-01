@@ -1078,8 +1078,8 @@ export function useLabState() {
           video.current.videoHeight,
           openCrop.current,
         );
-        // With the tracking layer on, the camera stays open: tracking follows the live feed.
-        if (!keepCamera && !tracking) stopCamera();
+        // Tracking or watching, the camera stays open: both follow the live feed.
+        if (!keepCamera && !tracking && !watching) stopCamera();
       }
       const run = await api<EvidenceRun<Segmentation>>('segment', {
         mode,
@@ -1265,6 +1265,16 @@ export function useLabState() {
       setError(e instanceof Error ? e : 'Could not change watching.');
     }
   }
+  // Watching shows the camera the server watches, live: once when watching starts or the
+  // page loads with it on. A camera the person stops afterwards stays off.
+  const watchedId = mode === 'live' && watching ? watch?.camera?.id : undefined;
+  useEffect(() => {
+    if (!watchedId) return;
+    if (camera && cameraSource !== watchedId) dropCamera();
+    setCameraSource(watchedId);
+    setCameraWanted(true);
+    setReopenTries(0);
+  }, [watchedId]);
   // What the watcher's SAM checks changed (sightings, verdicts, a lamp) shows once it lands.
   const seenChecks = useRef(0);
   useEffect(() => {
@@ -1725,7 +1735,7 @@ export function useLabState() {
       }));
     const back = found.marks?.back.length ? found.marks.back : towards(1);
     const left = found.marks?.left.length ? found.marks.left : towards(-1);
-    if (camera) (tracking ? dropCamera : stopCamera)();
+    if (camera) (tracking || watching ? dropCamera : stopCamera)();
     setCalibrating({
       marks: { corner, back, left, backEnd: null, leftEnd: null },
       room: found.room,
@@ -2259,7 +2269,7 @@ export function useLabState() {
       frameNow();
       size = frameSize(video.current.videoWidth, video.current.videoHeight);
     }
-    if (camera) (tracking ? dropCamera : stopCamera)();
+    if (camera) (tracking || watching ? dropCamera : stopCamera)();
     const fits = size && size.width === pin.frame.width && size.height === pin.frame.height;
     if (!fits) {
       if (pin.scene !== 'custom') {
