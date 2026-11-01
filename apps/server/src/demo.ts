@@ -59,7 +59,7 @@ export const demoSceneDraft: SceneDraft = {
     { template: 'chair', x: 2.2, y: 3.9, turns: 0 },
     { template: 'shelf', x: 7, y: 0.2, turns: 0 },
     { template: 'plant', x: 7.8, y: 5.6, turns: 0 },
-    { template: 'rug', x: 3, y: 5.2, turns: 0 },
+    { template: 'rug', x: 4.5, y: 5.2, turns: 0 },
   ],
   summary: 'An office desk against a wall, with a lamp, a book, a bottle and a chair.',
 };

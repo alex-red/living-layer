@@ -407,8 +407,9 @@
   flex-direction: column;
   gap: 4px;
 }
+/* Never shorter than its frame: centred in less, the frame spills over the Preview toggle. */
 .item-photo {
-  flex: 1;
+  flex: 1 0 auto;
   display: flex;
   align-items: center;
   justify-content: center;
