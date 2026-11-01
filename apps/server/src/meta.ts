@@ -81,7 +81,7 @@ export const SPARK_BUDGET = {
   refine: 8192,
 } as const;
 /** Search queries a product lookup reserves for: the model decides how many it makes. */
-const SEARCH_CEILING = 5;
+export const SEARCH_CEILING = 5;
 /** Searching and reading pages takes far longer than an answer from a photo. */
 const LOOKUP_TIMEOUT_MS = 90_000;
 /**

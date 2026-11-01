@@ -14,6 +14,7 @@ import {
   type DeskMemory,
   type Resolved,
   type Segmentation,
+  type Bits,
 } from '@livinglayer/domain';
 import { LabError, parseInput } from './errors.js';
 import { NOT_CALIBRATED } from './photo.js';
@@ -43,6 +44,32 @@ function trackedObjects(memory: DeskMemory, frame: Segmentation['frame']) {
 }
 
 /**
+ * The room as the calibrated camera sees it, ready to resolve selections
+ * against: its scene, its picture labelled per pixel (fixtures included),
+ * the names of what is in it, and the tracked objects' last boxes. Refuses
+ * with 409 `not_calibrated` when there is no camera to read through.
+ */
+export function selectionRoom(memory: DeskMemory) {
+  const calibration = calibrationOf(memory);
+  if (!calibration) throw new LabError('not_calibrated', NOT_CALIBRATED, 409);
+  const scene = calibration.scene === 'custom' ? memory.scene : ISO_PRESETS[calibration.scene];
+  if (!scene) throw new LabError('not_calibrated', NOT_CALIBRATED, 409);
+  const frame = { ...calibration.camera.frame };
+  const fixtures = (memory.fixtures ?? []).filter((f) => f.scene === calibration.scene);
+  const picture = roomLabels(
+    calibration.camera,
+    scene,
+    // Each where the room's own view puts it, as the room picture does.
+    fixtures.map((f) => ({ id: f.id, box: fixtureBox(inRoomView(f), memory.scene) })),
+  );
+  const labels = groupLabels(scene);
+  for (const f of fixtures) labels.set(`fixture:${f.id}`, f.label);
+  const resolve = (mask: Bits) =>
+    resolveSelection(mask, picture, labels, trackedObjects(memory, frame));
+  return { calibration, camera: calibration.camera, scene, frame, picture, resolve };
+}
+
+/**
  * What a selection on the camera's picture points at
  * ([plan](../../../docs/plans/ai-brush.md#1-selection)): a template group of
  * the room, a fixture or a tracked object, or nothing the room has yet. Read
@@ -55,27 +82,12 @@ export function selectRoutes(app: FastifyInstance, { store }: { store: EvidenceS
       z.object({ mode: modeSchema, shape: selectionShapeSchema }).strict(),
       request.body,
     );
-    const memory = store.memory(input.mode);
-    const calibration = calibrationOf(memory);
-    if (!calibration) throw new LabError('not_calibrated', NOT_CALIBRATED, 409);
-    const scene = calibration.scene === 'custom' ? memory.scene : ISO_PRESETS[calibration.scene];
-    if (!scene) throw new LabError('not_calibrated', NOT_CALIBRATED, 409);
-    const frame = { ...calibration.camera.frame };
-    const fixtures = (memory.fixtures ?? []).filter((f) => f.scene === calibration.scene);
-    const picture = roomLabels(
-      calibration.camera,
-      scene,
-      // Each where the room's own view puts it, as the room picture does.
-      fixtures.map((f) => ({ id: f.id, box: fixtureBox(inRoomView(f), memory.scene) })),
-    );
-    const labels = groupLabels(scene);
-    for (const f of fixtures) labels.set(`fixture:${f.id}`, f.label);
-    const resolved = resolveSelection(
-      selectionMask(input.shape, frame),
-      picture,
-      labels,
-      trackedObjects(memory, frame),
-    );
-    return { ...resolved, candidates: resolved.candidates.slice(0, MAX_CANDIDATES), frame };
+    const room = selectionRoom(store.memory(input.mode));
+    const resolved = room.resolve(selectionMask(input.shape, room.frame));
+    return {
+      ...resolved,
+      candidates: resolved.candidates.slice(0, MAX_CANDIDATES),
+      frame: room.frame,
+    };
   });
 }

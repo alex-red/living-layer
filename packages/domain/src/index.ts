@@ -81,6 +81,7 @@ export type RunKind =
   | 'illustration'
   | 'item'
   | 'fixture'
+  | 'assist'
   | 'lamp'
   | 'observation'
   | 'zone'
@@ -219,7 +220,9 @@ export function runCost(run: Pick<EvidenceRun, 'kind' | 'mode' | 'usage'>): numb
   if (run.kind === 'segment') return META_PRICES.samPerImage;
   if (run.kind === 'illustration') return META_PRICES.imagePerImage;
   if (
-    !['text', 'discover', 'scene', 'layout', 'item', 'photo', 'fixture'].includes(run.kind) ||
+    !['text', 'discover', 'scene', 'layout', 'item', 'photo', 'fixture', 'assist'].includes(
+      run.kind,
+    ) ||
     !run.usage
   )
     return null;

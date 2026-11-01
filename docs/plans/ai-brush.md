@@ -186,10 +186,22 @@ In the demo, the selected desk is the office's 160 × 80 cm desk, not an Alex: a
 
 ## 7. Orchestration and cost
 
-`POST /api/assist` (run kind `assist`, `apps/server/src/assist.ts`): `{ mode, selection, prompt, jobId }`. Steps: _Freezing the frame · Finding what you selected · Reading your request · Looking it up · Building the model · Checking it against the camera_. Each step is a tool call recorded with its inputs and outputs, so `bun run runs <run>` shows what it did and why, and a stored run can be replayed offline (`bun run assist <run> --replay`) the way drafts are relaid.
+`POST /api/assist` (run kind `assist`, `apps/server/src/assist.ts`, built): `{ mode, prompt, shape?, imageDataUrl?, previous?, jobId? }` → an `assist` run whose output is the draft (`AssistDraft`). Nothing is saved to the room; the review (step 8) saves.
 
-- The worst-case cost (parse + research + draft + two checks) is reserved before the first call, against the per-day limit, as `scene/from-photo` does.
-- A follow-up sentence in the same dialog (_"now make it green"_) reuses the selection, target and facts, and costs one parse.
+| Step                          | Demo                                            | Live                                                                                                            |
+| ----------------------------- | ----------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| Hold the frame                | the demo camera's frame                         | the page's frame (a camera snapshot), refused (409 `not_calibrated`) if not the calibrated size                 |
+| Find what you selected        | the render's pixels of the target, in the shape | SAM's box prompt from the shape's bounding box, cut to the shape (`clipMask`); the shape when SAM finds nothing |
+| Read your request             | `demoIntent`                                    | `MetaAdapter.intent`, with the crop                                                                             |
+| Look it up (a new model only) | the bundled catalog, then the camera            | `DATA_DIR/products`, the bundled catalog, the web when a product is named, then the camera                      |
+| Build the model               | `assembleRecipe`, then the request's edits      | the same                                                                                                        |
+| Check it against the camera   | `checkRecipe`, no refiner                       | `checkRecipe`, refined by Spark only for a new model with no size asked for                                     |
+
+- **Kept with the run:** `frame.png`, `outline.png` (the selection's outline as a black and white mask), `crop.png`, SAM's raw answer live. The run's usage adds up every Spark call; the spend ledger has each call and search as it was billed.
+- **A question back** (`clarify`) ends the request after reading it: `question` is set, the other steps say they wait for the answer, and the answer is sent as a follow-up.
+- **Follow-ups** name the run before (`previous`) and may leave out the shape: they reuse its frame, outline, target, place, facts and model, and cost one reading. "Make the drawers green" changes the model and keeps its check (a colour isn't a shape); "it is 160 cm wide" checks again, and Spark never refines a model away from a size the person asked for.
+- **Cost.** The worst case (reading with the crop, SAM, a lookup with five searches, two refinements: `assistCeiling`, about $0.18) is refused up front when today's limit can't cover it, before any call.
+- **Replay** (`bun run assist <run>`, `scripts/assist-replay.ts`): a stored request run again with this tree, offline, through the same `finishDraft` the route uses (steps 4–6), with the stored frame, outline, reading and facts (`--catalog` looks the product up in the catalog again). Prints the size, parts and IoU then and now, and keeps the new model in `out/` for `bun run sheet --recipe`. Spark's refinements aren't replayed.
 
 ## 8. The brush (web)
 
@@ -209,7 +221,7 @@ Each step lands with tests and leaves the app working.
 4. ~~**Facts.** `Researcher` interface, the catalog researcher and the demo's bundled products. Spike: web and image search on the Meta API, its cost and output, written up here.~~ Done: `facts.ts`, `research.ts`, `MetaAdapter.lookupProduct`, `apps/server/catalog/ikea-alex-desk.json`, `tests/research.test.ts`, and the spike above. Not yet called live.
 5. ~~**Intent.** `editIntentSchema`, `MetaAdapter.intent`, demo answers; a small bench of sentences → expected ops (`bun run bench:intent`).~~ Done: `intent.ts`, `demo-intent.ts`, `MetaAdapter.intent`, `tests/intent.test.ts`, `bench:intent` (12/12 offline; live not yet run).
 6. ~~**Build and check.** `recipe-build.ts`, scoring through the room camera; extend `bench:fit` with recipe cases.~~ Done: `recipe-build.ts`, `build.ts`, `MetaAdapter.refineRecipe`, `tests/recipe-build.test.ts`. The cases are tests on the demo room, not `bench:fit` cases: the fit bench scores items against crops, a different measure.
-7. **Route and job.** `/api/assist`, replay script, cost reservation.
+7. ~~**Route and job.** `/api/assist`, replay script, cost reservation.~~ Done: `assist.ts` (`finishDraft` shared with the replay), `select.ts`'s `selectionRoom`, the `assist` run kind, `scripts/assist-replay.ts`, `tests/assist.test.ts` (demo, follow-ups, questions back, live against a mocked API, refusals). Saving a draft to the room comes with the review (step 8).
 8. **Brush, prompt and review** in the web, a browser test on the demo desk.
 9. `docs/architecture.md` section; "As built" here.
 

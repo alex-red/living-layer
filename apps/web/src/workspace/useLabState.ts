@@ -237,6 +237,7 @@ export const RUN_KINDS: RunKind[] = [
   'illustration',
   'item',
   'fixture',
+  'assist',
   'lamp',
   'observation',
   'zone',

@@ -135,7 +135,7 @@ const fixtureDraftCeiling = () =>
   sparkCeiling(SPARK_BUDGET.itemCheck, 2);
 
 /** The part of a photo around a box, with a margin, for Spark and for review. */
-async function around(
+export async function around(
   png: Buffer,
   box: { left: number; top: number; right: number; bottom: number },
 ): Promise<Buffer> {

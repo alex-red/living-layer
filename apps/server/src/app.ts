@@ -1,7 +1,7 @@
 import Fastify from 'fastify';
 import staticFiles from '@fastify/static';
 import { existsSync, readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import {
@@ -37,6 +37,7 @@ import { itemRoutes } from './item.js';
 import { photoRoutes } from './photo.js';
 import { pinRoutes } from './pin.js';
 import { selectRoutes } from './select.js';
+import { assistRoutes } from './assist.js';
 import { roomRoutes } from './room.js';
 import { illustrationRoutes } from './illustration.js';
 import { jobRoutes, jobs } from './jobs.js';
@@ -391,6 +392,7 @@ export async function buildApp(
   photoRoutes(app, { store, meta, run, config });
   pinRoutes(app, { store });
   selectRoutes(app, { store });
+  assistRoutes(app, { store, meta, run, entities, productsDir: join(config.dataDir, 'products') });
   roomRoutes(app, { store, meta, run });
   illustrationRoutes(app, { store, meta, run });
   /** One SAM segmentation, recorded and billed as a run: the lab's button, or the watcher. */
