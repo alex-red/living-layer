@@ -912,12 +912,17 @@ export function useLabState() {
         );
       };
       const crop = remote?.crop ?? null;
+      // WebRTC comes whole and is cut to the zoomed view here; the server's MJPEG comes cut.
+      // A saved camera falls back to that MJPEG when its relay can't be played.
+      const webrtc = async (whep: string) => {
+        const media = await openStream(whep, lost);
+        return crop ? cropStream(media, crop) : media;
+      };
       const opened = remote
         ? remote.whep
-          ? // A saved camera's relay comes cut to its view already; a phone's picture is cut here.
-            remote.source === 'phone' && crop
-            ? await cropStream(await openStream(remote.whep, lost), crop)
-            : await openStream(remote.whep, lost)
+          ? remote.preview
+            ? await webrtc(remote.whep).catch(() => openMjpeg(remote.preview!, lost))
+            : await webrtc(remote.whep)
           : await openMjpeg(remote.preview!, lost)
         : {
             media: await navigator.mediaDevices.getUserMedia({

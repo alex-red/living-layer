@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, mock } from 'bun:test';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import sharp from 'sharp';
@@ -10,11 +10,13 @@ import {
   type CameraCrop,
   type CameraView,
   type DeskMemory,
+  type SavedCamera,
   type WatchCamera,
 } from '@livinglayer/domain';
 import { buildApp, watchersOf } from '../apps/server/src/app.js';
 import { parseConfig, type Fetcher } from '../apps/server/src/config.js';
 import type { FrameSource } from '../apps/server/src/frames.js';
+import { CameraRelay, type Relay } from '../apps/server/src/relay.js';
 import { RemoteCamera } from '../apps/server/src/remote.js';
 import type { NetworkStream } from '../apps/server/src/streams.js';
 
@@ -34,7 +36,8 @@ async function setup(
   {
     dataDir = mkdtempSync(join(tmpdir(), 'livinglayer-cameras-')),
     remote,
-  }: { dataDir?: string; remote?: RemoteCamera } = {},
+    relay,
+  }: { dataDir?: string; remote?: RemoteCamera; relay?: Relay } = {},
 ) {
   dirs.push(dataDir);
   const opened: (WatchCamera | null)[] = [];
@@ -44,6 +47,7 @@ async function setup(
     appearance: async () => null,
     browseCameras: async () => [],
     ...(remote ? { remote } : {}),
+    ...(relay ? { relay } : {}),
     frames: (camera): FrameSource => {
       opened.push(camera);
       return {
@@ -329,5 +333,137 @@ describe('the camera registry', () => {
     cameras.remove(saved.id);
     expect(cameras.urlOf(watch)).toBeNull();
     store.close();
+  });
+});
+
+/** A relay that runs while `on`, with its WHEP on `whep`; records what it was asked to relay. */
+function fakeRelay(whep = 'http://127.0.0.1:1') {
+  const relay = {
+    on: true,
+    synced: [] as string[][],
+    async sync(cameras: SavedCamera[]) {
+      relay.synced.push(cameras.map((c) => c.id));
+    },
+    whepFor: (c: SavedCamera) => (relay.on ? `${whep}/cam-${c.id}/whep` : null),
+    rtspFor: (c: SavedCamera) => (relay.on ? `rtsp://127.0.0.1:2/cam-${c.id}` : null),
+    stop() {},
+  };
+  return relay;
+}
+
+describe('camera relay', () => {
+  it('lists a saved camera with the lab’s WHEP only while the relay runs', async () => {
+    const relay = fakeRelay();
+    const s = await setup(undefined, undefined, { relay });
+    const camera = await s.add({ name: 'Cam', url: URL_WITH_PASSWORD, scene: null });
+    expect(relay.synced.at(-1)).toEqual([camera.id]);
+    const whepOf = async () =>
+      (await s.app.inject('/api/streams'))
+        .json<{ streams: NetworkStream[] }>()
+        .streams.find((x) => x.id === `cam:${camera.id}`)?.whep;
+    expect(await whepOf()).toBe(`/api/cameras/${camera.id}/whep`);
+    relay.on = false;
+    expect(await whepOf()).toBe('');
+    const refused = await s.app.inject({
+      method: 'POST',
+      url: `/api/cameras/${camera.id}/whep`,
+      headers: { 'content-type': 'application/sdp' },
+      payload: 'v=0',
+    });
+    expect(refused.statusCode).toBe(409);
+  });
+
+  it('forwards a WHEP offer and closes the session through the lab', async () => {
+    const seen: string[] = [];
+    const server = Bun.serve({
+      port: 0,
+      hostname: '127.0.0.1',
+      async fetch(request) {
+        const url = new URL(request.url);
+        seen.push(`${request.method} ${url.pathname} ${await request.text()}`);
+        return request.method === 'POST'
+          ? new Response('v=0 answer', {
+              status: 201,
+              headers: { 'content-type': 'application/sdp', location: `${url.pathname}/abc-123` },
+            })
+          : new Response(null, { status: 200 });
+      },
+    });
+    try {
+      const s = await setup(undefined, undefined, {
+        relay: fakeRelay(`http://127.0.0.1:${server.port}`),
+      });
+      const camera = await s.add({ name: 'Cam', url: URL_WITH_PASSWORD, scene: null });
+      const answer = await s.app.inject({
+        method: 'POST',
+        url: `/api/cameras/${camera.id}/whep`,
+        headers: { 'content-type': 'application/sdp' },
+        payload: 'v=0 offer',
+      });
+      expect(answer.statusCode).toBe(201);
+      expect(answer.body).toBe('v=0 answer');
+      expect(answer.headers.location).toBe(`/api/cameras/${camera.id}/whep/abc-123`);
+      const closed = await s.app.inject({
+        method: 'DELETE',
+        url: `/api/cameras/${camera.id}/whep/abc-123`,
+      });
+      expect(closed.statusCode).toBe(200);
+      expect(seen).toEqual([
+        `POST /cam-${camera.id}/whep v=0 offer`,
+        `DELETE /cam-${camera.id}/whep/abc-123 `,
+      ]);
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  it('reads stills, previews and the watcher through the relay, the camera when it stops', async () => {
+    const urls: string[] = [];
+    const png = await sharp({ create: { width: 4, height: 4, channels: 3, background: '#888' } })
+      .png()
+      .toBuffer();
+    const relay = fakeRelay();
+    const s = await setup(
+      async (url) => (urls.push(url), png),
+      (url) => (urls.push(url), { stream: new Response('--ffmpeg\r\n').body!, stop() {} }),
+      { relay },
+    );
+    const camera = await s.add({ name: 'Cam', url: URL_WITH_PASSWORD, scene: null });
+    await s.app.inject(`/api/cameras/${camera.id}/snapshot`);
+    await s.app.inject(`/api/cameras/${camera.id}/stream`);
+    const relayed = `rtsp://127.0.0.1:2/cam-${camera.id}`;
+    expect(urls).toEqual([relayed, relayed]);
+    relay.on = false;
+    await s.app.inject(`/api/cameras/${camera.id}/snapshot`);
+    expect(urls.at(-1)).toBe(URL_WITH_PASSWORD);
+  });
+
+  it('writes a loopback-only config that only its owner can read', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'livinglayer-relay-'));
+    dirs.push(dir);
+    // `true` exits at once: the relay writes its file and is then not running.
+    const relay = new CameraRelay(dir, Bun.which('true')!, 47733);
+    const saved = (id: string, url: string): SavedCamera => ({
+      id,
+      name: id,
+      url,
+      scene: null,
+      crop: null,
+      createdAt: '2026-10-31T00:00:00.000Z',
+    });
+    const rtsp = saved('aa11', URL_WITH_PASSWORD);
+    await relay.sync([rtsp, saved('bb22', 'http://192.168.1.5:8080/video.mjpg')]);
+    const file = join(dir, 'relay', 'mediamtx.yml');
+    const text = readFileSync(file, 'utf8');
+    expect(statSync(file).mode & 0o777).toBe(0o600);
+    expect(text).toContain(`source: "${URL_WITH_PASSWORD}"`);
+    expect(text).not.toContain('bb22');
+    for (const line of ['rtspAddress: 127.0.0.1:47734', 'webrtcAddress: 127.0.0.1:47733'])
+      expect(text).toContain(line);
+    expect(relay.whepFor(rtsp)).toBeNull();
+    expect(CameraRelay.find(dir, 'off', 43433)).toBeNull();
+    expect(() =>
+      parseConfig({ CAMERA_RELAY_PORT: '43430', REMOTE_CAMERA_PORT: '43432' }),
+    ).toThrow();
   });
 });

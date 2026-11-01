@@ -180,6 +180,8 @@ export async function openMjpeg(
 /**
  * A stream cut to a zoomed view, drawn onto a canvas like `openMjpeg`, so the
  * rest of the lab sees only that part, as if it were the camera's whole frame.
+ * Each decoded frame is drawn as it arrives, so the cut keeps the camera's
+ * frame rate; `fps` paces it only where a browser can't say when one arrives.
  * Closing it closes the stream it was cut from.
  */
 export async function cropStream(
@@ -193,9 +195,12 @@ export async function cropStream(
   video.srcObject = opened.media;
   const canvas = document.createElement('canvas');
   let timer = 0;
+  let frameCallback = 0;
   let media: MediaStream | null = null;
   const close = () => {
     window.clearInterval(timer);
+    if (frameCallback) video.cancelVideoFrameCallback(frameCallback);
+    frameCallback = 0;
     video.srcObject = null;
     media?.getTracks().forEach((t) => t.stop());
     opened.close();
@@ -215,8 +220,24 @@ export async function cropStream(
       context.drawImage(video, w * crop.x, h * crop.y, w * crop.w, h * crop.h, 0, 0, width, height);
     };
     draw();
-    media = canvas.captureStream(fps);
-    timer = window.setInterval(draw, 1000 / fps);
+    if ('requestVideoFrameCallback' in video) {
+      // No rate: the canvas's stream takes a frame whenever it is drawn.
+      media = canvas.captureStream();
+      let drawnAt = performance.now();
+      const next = () => {
+        draw();
+        drawnAt = performance.now();
+        frameCallback = video.requestVideoFrameCallback(next);
+      };
+      frameCallback = video.requestVideoFrameCallback(next);
+      // A browser may hold back frame callbacks for a video outside the page: draw anyway.
+      timer = window.setInterval(() => {
+        if (performance.now() - drawnAt > 2000 / fps) draw();
+      }, 1000 / fps);
+    } else {
+      media = canvas.captureStream(fps);
+      timer = window.setInterval(draw, 1000 / fps);
+    }
     return { media, close };
   } catch (e) {
     close();

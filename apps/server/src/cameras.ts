@@ -16,6 +16,7 @@ import {
 import type { EvidenceStore } from './store.js';
 import { LabError, parseInput } from './errors.js';
 import { FfmpegSource, type FrameSource } from './frames.js';
+import type { Relay } from './relay.js';
 import type { NetworkStream } from './streams.js';
 
 const KEY = 'cameras';
@@ -28,7 +29,11 @@ const PHONE_CROP_KEY = 'phone-crop';
  * kept here too: a pairing's id changes, the phone on its mount doesn't.
  */
 export class CameraRegistry {
-  constructor(private store: EvidenceStore) {}
+  constructor(
+    private store: EvidenceStore,
+    /** Relays saved RTSP cameras as WebRTC and RTSP, when mediamtx is there. */
+    private relay: Relay | null = null,
+  ) {}
   list(): SavedCamera[] {
     try {
       return JSON.parse(this.store.setting(KEY) ?? '[]') as SavedCamera[];
@@ -41,6 +46,19 @@ export class CameraRegistry {
   }
   private write(cameras: SavedCamera[]) {
     this.store.setSetting(KEY, JSON.stringify(cameras));
+    void this.relay?.sync(cameras);
+  }
+  /** Starts relaying the saved cameras; the app calls it once it is ready. */
+  startRelay() {
+    return this.relay?.sync(this.list());
+  }
+  /** What ffmpeg reads for a saved camera: the relay while it runs, else the camera itself. */
+  readUrl(camera: SavedCamera) {
+    return this.relay?.rtspFor(camera) ?? camera.url;
+  }
+  /** The relay's WHEP endpoint for a saved camera, while it runs. */
+  whepOf(camera: SavedCamera) {
+    return this.relay?.whepFor(camera) ?? null;
   }
   save(input: z.infer<typeof cameraInputSchema>): SavedCamera {
     const cameras = this.list();
@@ -87,7 +105,10 @@ export class CameraRegistry {
     this.write(cameras.filter((c) => c.id !== id));
     return true;
   }
-  /** Saved cameras in the stream list. Only the server reads them, so there's no WHEP. */
+  /**
+   * Saved cameras in the stream list. A tab plays one through the relay's WHEP,
+   * forwarded by the lab; without the relay, only as the server's MJPEG preview.
+   */
   streams(): NetworkStream[] {
     return this.list().map((c) => {
       const view = cameraView(c);
@@ -95,7 +116,7 @@ export class CameraRegistry {
         id: savedStreamId(c.id),
         name: c.name,
         host: view.host,
-        whep: '',
+        whep: this.whepOf(c) ? `/api/cameras/${c.id}/whep` : '',
         rtsp: view.url,
         scene: c.scene,
         crop: c.crop ?? null,
@@ -108,7 +129,8 @@ export class CameraRegistry {
   /** What the watcher reads: a saved camera's real URL, null once it's removed; anything else as kept. */
   urlOf(camera: WatchCamera): string | null {
     const id = savedIdOf(camera.id);
-    return id === null ? camera.url : (this.get(id)?.url ?? null);
+    const saved = id === null ? null : this.get(id);
+    return id === null ? camera.url : saved && this.readUrl(saved);
   }
   /** The zoomed view a watched camera's frames are cut to. */
   cropOf(camera: WatchCamera): CameraCrop | null {
@@ -195,7 +217,7 @@ export function cameraRoutes(
     if (!camera) throw new LabError('camera_missing', 'That camera is gone.', 404);
     let png: Buffer;
     try {
-      ({ png } = await source(camera.url, camera.crop ?? null).snapshot());
+      ({ png } = await source(cameras.readUrl(camera), camera.crop ?? null).snapshot());
     } catch {
       throw new LabError(
         'camera_unreachable',
@@ -205,6 +227,53 @@ export function cameraRoutes(
     }
     return reply.header('content-type', 'image/png').header('cache-control', 'no-store').send(png);
   });
+  // A tab plays a saved camera through the relay: its WHEP offer goes there, and the
+  // session it gets back is closed through here too, since the lab is all the tab can reach.
+  if (!app.hasContentTypeParser('application/sdp'))
+    app.addContentTypeParser('application/sdp', { parseAs: 'string' }, (_request, body, done) =>
+      done(null, body),
+    );
+  const relayed = (params: unknown) => {
+    const { id } = parseInput(
+      z.object({ id: z.string().regex(/^[a-z0-9-]{1,40}$/) }).strict(),
+      params,
+    );
+    const camera = cameras.get(id);
+    if (!camera) throw new LabError('camera_missing', 'That camera is gone.', 404);
+    const whep = cameras.whepOf(camera);
+    if (!whep)
+      throw new LabError('relay_off', `${camera.name} isn’t relayed; use its preview.`, 409);
+    return { id, whep };
+  };
+  app.post('/api/cameras/:id/whep', async (request, reply) => {
+    const { id, whep } = relayed(request.params);
+    const offer = z.string().min(1).max(60_000).safeParse(request.body);
+    if (!offer.success) throw new LabError('whep_offer', 'Send an SDP offer.');
+    let answer: Response;
+    try {
+      answer = await fetch(whep, {
+        method: 'POST',
+        headers: { 'content-type': 'application/sdp' },
+        body: offer.data,
+        signal: AbortSignal.timeout(20_000),
+      });
+    } catch {
+      throw new LabError('relay_unreachable', 'The camera relay did not answer.', 502);
+    }
+    const session = answer.headers.get('location')?.match(/\/whep\/([\w-]{1,80})$/)?.[1];
+    if (session) reply.header('location', `/api/cameras/${id}/whep/${session}`);
+    return reply
+      .status(answer.status)
+      .header('content-type', answer.headers.get('content-type') ?? 'application/sdp')
+      .send(await answer.text());
+  });
+  app.delete('/api/cameras/:id/whep/:session', async (request, reply) => {
+    const { session, ...params } = request.params as { session: string; id: string };
+    const { whep } = relayed(params);
+    if (!/^[\w-]{1,80}$/.test(session)) throw new LabError('whep_session', 'No such session.');
+    await fetch(`${whep}/${session}`, { method: 'DELETE' }).catch(() => {});
+    return reply.status(200).send();
+  });
   // The camera as a live picture for a tab, for as long as the tab reads it.
   app.get('/api/cameras/:id/stream', async (request, reply) => {
     const { id } = parseInput(
@@ -213,7 +282,7 @@ export function cameraRoutes(
     );
     const camera = cameras.get(id);
     if (!camera) throw new LabError('camera_missing', 'That camera is gone.', 404);
-    const { stream, stop } = preview(camera.url, camera.crop ?? null);
+    const { stream, stop } = preview(cameras.readUrl(camera), camera.crop ?? null);
     reply.hijack();
     reply.raw.writeHead(200, {
       'content-type': 'multipart/x-mixed-replace;boundary=ffmpeg',

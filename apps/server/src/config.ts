@@ -32,6 +32,10 @@ const schema = z.object({
   HA_LIVE_ENABLED: flag,
   /** Network camera WHEP URLs, comma-separated, for networks where mDNS discovery is blocked. */
   CAMERA_STREAMS: z.string().default(''),
+  /** mediamtx, which relays saved RTSP cameras to the tab as WebRTC; `off` for the MJPEG preview. */
+  CAMERA_RELAY: z.string().default('mediamtx'),
+  /** The relay's WHEP port, loopback only; RTSP and WebRTC media (UDP) take the next two. */
+  CAMERA_RELAY_PORT: z.coerce.number().int().min(1024).max(65533).default(43433),
   /** HTTPS port the phone opens to act as a remote camera; only listens once a phone is paired. */
   REMOTE_CAMERA_PORT: z.coerce.number().int().min(1024).max(65535).default(43432),
   /** Address the pairing QR code points at, when the detected LAN address is wrong. */
@@ -80,6 +84,7 @@ export interface Config {
   haSwitches: string[];
   haEnabled: boolean;
   cameraStreams: string[];
+  cameraRelay: { binary: string; port: number };
   remoteCamera: { port: number; host: string; cert: string; key: string };
   mqtt: {
     url: string;
@@ -186,6 +191,9 @@ export function parseConfig(env: NodeJS.ProcessEnv, cwd = process.cwd()): Config
     );
   if (value.REMOTE_CAMERA_PORT === value.PORT)
     throw new Error('REMOTE_CAMERA_PORT must differ from PORT.');
+  const relayPorts = [0, 1, 2].map((k) => value.CAMERA_RELAY_PORT + k);
+  if (relayPorts.some((p) => p === value.PORT || p === value.REMOTE_CAMERA_PORT))
+    throw new Error('CAMERA_RELAY_PORT and the two ports after it must differ from the others.');
   return {
     port: value.PORT,
     dataDir: resolve(cwd, value.DATA_DIR),
@@ -203,6 +211,7 @@ export function parseConfig(env: NodeJS.ProcessEnv, cwd = process.cwd()): Config
     haSwitches: [...new Set(switches)],
     haEnabled: value.HA_LIVE_ENABLED,
     cameraStreams,
+    cameraRelay: { binary: value.CAMERA_RELAY, port: value.CAMERA_RELAY_PORT },
     remoteCamera: {
       port: value.REMOTE_CAMERA_PORT,
       host: value.REMOTE_CAMERA_HOST,

@@ -41,6 +41,7 @@ import { illustrationRoutes } from './illustration.js';
 import { jobRoutes, jobs } from './jobs.js';
 import { listStreams, streamRoutes, type NetworkStream } from './streams.js';
 import { CameraRegistry, cameraRoutes } from './cameras.js';
+import type { Relay } from './relay.js';
 import { Watcher, setWatching, watchRoutes, type WatcherDeps } from './watcher.js';
 import { Appearance } from './appearance.js';
 import { DemoSource } from './frames.js';
@@ -78,6 +79,8 @@ export async function buildApp(
     snapshots?: Parameters<typeof cameraRoutes>[2]['source'];
     /** Live MJPEG from saved cameras; tests pass their own. */
     previews?: Parameters<typeof cameraRoutes>[2]['preview'];
+    /** Relays saved cameras as WebRTC; the server passes one when mediamtx is installed. */
+    relay?: Relay | null;
   } = {},
 ) {
   const app = Fastify({ logger: false, bodyLimit: 7_100_000, requestTimeout: 130000 });
@@ -231,7 +234,7 @@ export async function buildApp(
   });
   const remote = options.remote ?? new RemoteCamera();
   remoteRoutes(app, config, remote);
-  const cameras = new CameraRegistry(store);
+  const cameras = new CameraRegistry(store, options.relay ?? null);
   remote.crop = cameras.phoneCrop();
   const knownStreams = () => [...remote.streams(), ...cameras.streams()];
   streamRoutes(app, config, options.browseCameras, knownStreams);
@@ -529,10 +532,18 @@ export async function buildApp(
       if (store.memory(mode).watch?.on) void watchers[mode].start();
     link?.start();
   });
+  // The relay only once this server holds its port: one that fails to listen must not
+  // take the relay from the one that does. Live watching then reads through it.
+  app.addHook('onListen', async () => {
+    if (!options.relay) return;
+    await cameras.startRelay();
+    if (store.memory('live').watch?.on) void watchers.live.start();
+  });
   app.addHook('onClose', async () => {
     clearInterval(tick);
     watchers.demo.stop();
     watchers.live.stop();
+    options.relay?.stop();
     await link?.stop();
   });
   const dist = resolve(PROJECT_ROOT, 'apps/web/dist');
