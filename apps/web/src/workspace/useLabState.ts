@@ -1967,6 +1967,15 @@ export function useLabState() {
     clearTimeout(aiClose.current);
     setAiTask({ ...task, jobId, job: null, status: 'running', open: true, startedAt: Date.now() });
     const current = () => mounted.current && generation === aiGeneration.current;
+    /** In development, say why a result goes nowhere: a newer task started, or this one was stopped. */
+    const dropped = (what: string) => {
+      if (!import.meta.env.DEV || !mounted.current) return;
+      const why =
+        aiRun.current && aiRun.current.jobId !== jobId
+          ? 'a newer AI task started'
+          : 'it was stopped';
+      console.warn(`AI task "${task.title}" (${jobId.slice(0, 8)}): ${what} dropped, ${why}`);
+    };
     let following = true;
     const poll = async () => {
       while (following && current()) {
@@ -1978,9 +1987,14 @@ export function useLabState() {
     void poll();
     try {
       const result = await call(jobId, abort.signal);
-      return current() ? result : null;
+      if (current()) return result;
+      dropped('its result');
+      return null;
     } catch (e) {
-      if (!current()) return null;
+      if (!current()) {
+        dropped(`its failure (${e instanceof Error ? e.message : String(e)})`);
+        return null;
+      }
       updateAiTask(jobId, {
         status: 'failed',
         error: e instanceof Error ? e.message : 'It failed.',

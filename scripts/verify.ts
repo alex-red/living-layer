@@ -8,6 +8,10 @@
  *   bun run verify --against main     also the room bench at main, and what moved
  *   bun run verify --at staged        HEAD and what is staged, in a clean worktree
  *   bun run verify --at <ref>         a commit (a merge, say) in a clean worktree
+ *   bun run verify --browser          also the browser suite (a build and Playwright, a minute or two)
+ *
+ * The browser suite only reports. Without `--browser`, verify warns when
+ * `apps/web` or `tests/browser` changed since it last passed (`bun run browser`).
  *
  * Run it before committing, and on any merge of another branch. Other
  * sessions may be editing this checkout: `--at` judges exactly the snapshot,
@@ -15,13 +19,15 @@
  */
 import { spawnSync } from 'node:child_process';
 import { join, resolve } from 'node:path';
-import { flag, parseArgs } from './lib/args.js';
+import { flag, has, parseArgs } from './lib/args.js';
+import { browserOut, changedSinceSuitePassed, describePass } from './lib/browser.js';
 import { snapshotOf, withWorktree } from './lib/worktree.js';
 
 const root = resolve(import.meta.dir, '..');
 const args = parseArgs();
 const against = flag(args, 'against');
 const at = flag(args, 'at');
+const browser = has(args, 'browser');
 if (at) {
   // The same verify, run inside the snapshot; captured rooms stay in this checkout's data folder.
   const rest = process.argv.slice(2).filter((a, i, all) => a !== '--at' && all[i - 1] !== '--at');
@@ -32,7 +38,12 @@ if (at) {
       {
         cwd: dir,
         stdio: 'inherit',
-        env: { ...process.env, ROOMS_DIR: process.env.ROOMS_DIR ?? join(root, '.data', 'rooms') },
+        env: {
+          ...process.env,
+          ROOMS_DIR: process.env.ROOMS_DIR ?? join(root, '.data', 'rooms'),
+          // A pass of the browser suite there counts here.
+          BROWSER_OUT: browserOut(root),
+        },
       },
     );
     return r.status ?? 1;
@@ -103,6 +114,21 @@ const steps: Step[] = [
     read: (out) => `${count(out, /← specks: look/g)} templates with specks`,
     look: (out) => /← specks: look/.test(out),
   },
+  ...(browser
+    ? [
+        {
+          // In place: verify already judges this tree as it is (in `--at`, the clean worktree).
+          name: 'browser',
+          cmd: ['bun', 'scripts/browser.ts', '--here'],
+          gate: false,
+          read: (out: string) => {
+            const [, mark, passed] = /([✓✗]) browser\s+(\d+\/\d+ passed)/.exec(out) ?? [];
+            return !passed ? 'did not run' : mark === '✓' ? passed : `${passed}, see failures`;
+          },
+          look: (out: string) => !/✓ browser/.test(out),
+        },
+      ]
+    : []),
   ...(against
     ? [
         {
@@ -132,7 +158,19 @@ for (const step of steps) {
   lines.push(
     `${(look ? (step.gate ? '✗' : '!') : '✓').padEnd(2)} ${step.name.padEnd(16)} ${step.read(out, ok).padEnd(34)} ${s}s`,
   );
-  if (look) lines.push(`   └ run \`${step.cmd.join(' ')}\` to see it`);
+  if (look)
+    lines.push(
+      `   └ run \`${step.name === 'browser' ? 'bun run trace' : step.cmd.join(' ')}\` to see it`,
+    );
+}
+if (!browser) {
+  // The browser suite isn't run here, so say when what it covers has moved since it passed.
+  const stale = changedSinceSuitePassed(root);
+  if (stale)
+    lines.push(
+      `${'!'.padEnd(2)} ${'browser'.padEnd(16)} ${(stale.pass ? `${stale.changed.join(', ')} changed since it passed (${describePass(stale.pass)})` : 'not passed in this checkout yet').padEnd(34)}`,
+      '   └ run `bun run browser` (or `verify --browser`)',
+    );
 }
 console.log(`\n${lines.join('\n')}`);
 console.log('\n✗ fails the run · ! reported, not failing (benches and audit) · ✓ fine');

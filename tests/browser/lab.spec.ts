@@ -1,31 +1,16 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect } from '@playwright/test';
 import sharp from 'sharp';
-
-/** The workspace opens on a choice of room; the demo office is seen by its corner camera. */
-async function chooseScene(page: Page, name = 'Use the demo office') {
-  await page
-    .getByRole('group', { name: 'Choose a scene' })
-    .getByRole('button', { name, exact: true })
-    .click();
-}
-/** A row of the scene outline. */
-const outline = (page: Page, name: string) =>
-  page
-    .getByRole('complementary', { name: 'Scene outline' })
-    .getByRole('button', { name, exact: true });
-/** Open the inspector's Add an object panel. */
-const addObject = (page: Page) => outline(page, 'Add object').click();
-const readiness = (page: Page) =>
-  page.getByRole('button', { name: 'Readiness and spending' }).click();
+import { addObject, chooseScene, freshDesk, outline, readiness, waitForAiTask } from './helpers';
 
 test('demo desk completes discovery, mask, absent target, lamp and export without external requests', async ({
   page,
+  baseURL,
 }) => {
   const errors: string[] = [];
   const external: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
   await page.route('**/*', (route) => {
-    if (!route.request().url().startsWith('http://127.0.0.1:43432')) {
+    if (!route.request().url().startsWith(baseURL!)) {
       external.push(route.request().url());
       return route.abort();
     }
@@ -179,21 +164,6 @@ test('remembers a mug, draws a zone, verifies one virtual action, and retains ev
   await page.screenshot({ path: '.data/screenshots/placement-mobile.png', fullPage: true });
 });
 
-/**
- * The browser tests share one data directory across runs, so start the iso
- * tests from a desk with no object, model, rules, custom scene or pin.
- */
-async function freshDesk(page: Page) {
-  for (const [path, data] of [
-    ['desk/reset', {}],
-    ['scene/save', { scene: null }],
-    ['desk/surface', { pin: null }],
-  ] as const)
-    expect(
-      (await page.request.post(`/api/${path}`, { data: { mode: 'demo', ...data } })).ok(),
-    ).toBe(true);
-}
-
 test('draws the remembered mug in the isometric desk and follows it to a new frame', async ({
   page,
 }) => {
@@ -340,13 +310,11 @@ test('drafts a scene from the demo camera, reviews the pin and objects, and save
   await chooseScene(page, 'Draft from the demo photo');
   await page.getByRole('button', { name: 'Layout', exact: true }).click();
   await page.getByRole('button', { name: 'Demo frame', exact: true }).click();
-  const rows = page.locator('.photo-things tbody tr');
   // The draft fits a model per object and renders the check, which takes a few seconds on CI.
-  await expect(rows).toHaveCount(4, { timeout: 20_000 });
-  // The draft's steps stay in a dialog until it is dismissed.
-  const steps = page.getByRole('dialog', { name: 'Drafting the room' });
-  await steps.getByRole('button', { name: 'Done', exact: true }).click();
-  await expect(steps).toHaveCount(0);
+  // Its steps stay in a dialog until it is dismissed.
+  await waitForAiTask(page, 'Drafting the room');
+  const rows = page.locator('.photo-things tbody tr');
+  await expect(rows).toHaveCount(4);
   await expect(rows.first()).toContainText('pinned surface');
   await expect(page.locator('.photo-review .iso-note')).toContainText(
     'The desk top is pinned where the room’s camera sees it',
@@ -453,14 +421,15 @@ test('the AI brush turns the office desk into an Alex desk, follows up, and puts
   await panel
     .getByRole('button', { name: 'It’s an IKEA Alex desk: make it its own furniture' })
     .click();
+  // The request's steps show in a modal dialog, which closes itself a moment after.
+  await waitForAiTask(page, 'AI brush');
   await expect(panel.getByText('IKEA Alex desk', { exact: true })).toBeVisible();
   await expect(panel.getByText(/Matches the camera \d+%/)).toBeVisible();
   await expect(panel.getByRole('img', { name: /as it would be drawn in the room/ })).toBeVisible();
-  // The request's steps show in a modal dialog, which closes itself a moment after.
-  await expect(page.getByRole('dialog', { name: /AI brush/ })).toHaveCount(0);
   // A follow-up keeps the selection and the model.
   await panel.getByLabel('What to do with the selection').fill('Make the drawers green');
   await page.keyboard.press('Enter');
+  await waitForAiTask(page, 'AI brush');
   await expect(panel.locator('.brush-history li')).toHaveCount(1);
   await panel.getByRole('button', { name: 'Put in the room' }).click();
   await expect(page.locator('.feedback')).toContainText('Put IKEA Alex desk in the room');
