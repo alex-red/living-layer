@@ -26,6 +26,11 @@ import {
   factSourceSchema,
   factsFromLookup,
   productLookupSchema,
+  sparkIntentSchema,
+  describeContext,
+  opCatalog,
+  PROP_FORMS,
+  type IntentContext,
   type FactNeed,
   type FactSource,
   type ProductFacts,
@@ -70,6 +75,7 @@ export const SPARK_BUDGET = {
   photoInventory: 16384,
   photoCheck: 12288,
   productLookup: 8192,
+  intent: 8192,
 } as const;
 /** Search queries a product lookup reserves for: the model decides how many it makes. */
 const SEARCH_CEILING = 5;
@@ -256,6 +262,65 @@ export class MetaAdapter {
       ...parsed,
       output: { facts: factsFromLookup(query, parsed.output, citedSources(response)), searches },
     };
+  }
+  /**
+   * What a sentence typed beside a selection asks for, as ops from the
+   * closed list (`opCatalog`), with the selection's crop when there is one.
+   * Spark only reads the request; `readIntent` decides what can be done.
+   */
+  async intent(sentence: string, ctx: IntentContext, cropDataUrl?: string, signal?: AbortSignal) {
+    const response = await this.spark(
+      cropDataUrl ? 1 : 0,
+      {
+        model: this.config.sparkModel,
+        store: false,
+        max_output_tokens: SPARK_BUDGET.intent,
+        input: [
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'input_text',
+                text: [
+                  'A person selected part of their room camera’s picture and typed a request about it. Read the request as a short list of ops (at most four), in the order to do them.',
+                  `The request: ${JSON.stringify(sentence)}`,
+                  describeContext(ctx),
+                  'The ops you may use:',
+                  opCatalog(),
+                  'Fill only the fields an op needs and leave the others null or empty. parts picks parts of the model by names, roles and materials it has (empty lists for no filter), minus exceptNames and exceptRoles; parts null means the whole model.',
+                  'color is a hex value (#rrggbb) for the colour asked for. sizeCm is in centimetres; leave axes not mentioned null.',
+                  `form is one of: ${PROP_FORMS.join(', ')}.`,
+                  'product: the product named, with its brand, model and kind (“IKEA Alex desk”), or null.',
+                  'needs: what must be looked up to build it: size, parts, colors, materials. Empty unless the request makes a model.',
+                  'targetDisagrees: if the crop clearly shows something other than the selection named above, what it shows; else null.',
+                  'If the request is unclear, or asks for anything the ops can’t do, answer one clarify op with a short question.',
+                ].join('\n'),
+              },
+              ...(cropDataUrl
+                ? [
+                    {
+                      type: 'input_image' as const,
+                      image_url: cropDataUrl,
+                      detail: 'auto' as const,
+                    },
+                  ]
+                : []),
+            ],
+          },
+        ],
+        text: {
+          format: {
+            type: 'json_schema',
+            name: 'edit_intent',
+            strict: true,
+            schema: z.toJSONSchema(sparkIntentSchema),
+          },
+        },
+      },
+      this.config.timeoutMs,
+      signal,
+    );
+    return this.parsed(response, sparkIntentSchema, 'request', SPARK_BUDGET.intent);
   }
   async text(): Promise<ProviderResult<{ text: string }>> {
     const response = await this.spark(0, {

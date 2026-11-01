@@ -36,6 +36,7 @@ These run in seconds and need no server. Their output goes to `out/` (ignored).
 | templates, `room-scan.ts`, the renderer | `bun run bench:room`                                       | position, turn and size margins for rooms scanned by their corner camera            |
 | the room, its camera or the demo        | `bun run room` (`--labels`, `--hfov 80 --height 270`)      | the room as its corner camera sees it, the demo's frame, as a PNG                   |
 | the item fitter or kernel               | `bun run bench:fit`                                        | IoU and ΔE margins per crop                                                         |
+| how a typed request is read             | `bun run bench:intent` (`--live` asks Spark, billed)       | each sample request's ops against those wanted                                      |
 | the watcher or the local tracker        | `bun run bench:track` (`capture` records a clip first)     | cost per layer and per thing, and SAM asks, on the watched camera's own frames      |
 | any of the above                        | `bun run bench:at HEAD room`                               | the same bench at a commit, then this tree against it, with regressions flagged     |
 | a measurement you're unsure of          | `bun run bench:room --set desk.topCm=3,4,5`                | every combination, a per-variant summary, and which values sit in a narrow pocket   |

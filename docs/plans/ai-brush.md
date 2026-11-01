@@ -117,13 +117,14 @@ New abilities are a new op with its schema, apply function and tests. The parser
 
 ## 4. Intent: what the sentence asks for
 
-`MetaAdapter.intent()` in `apps/server/src/meta.ts`, one Spark call with a strict JSON schema (`editIntentSchema`, a discriminated union of the ops above, up to four in a list).
+`packages/domain/src/intent.ts`, `MetaAdapter.intent` and `apps/server/src/demo-intent.ts` (built).
 
-Input: the sentence, the selection's crop (with a margin, like `around()`), the resolved target and its recipe summary (part names, roles, colours), the configured entities. Output: ops, plus what is missing (`needs: ['dimensions', 'parts', 'colors']`) and a product query when a brand or model is named (`"IKEA Alex desk"`).
-
+- **One Spark call** with a strict JSON schema, `sparkIntentSchema`: up to four ops in order, the product named (`"IKEA Alex desk"`) or null, what to look up (`needs`: size, parts, colors, materials) and `targetDisagrees`. No Spark schema in the lab uses unions, so each op is **flat**: an `op` name and every field (parts, color, material, sizeCm, part, label, form, as, control, question), null or empty where it doesn't apply.
+- **The prompt is built from the registries**: `describeContext` gives the target, its recipe's parts (names, roles, sizes, colours) and the configured entities; `opCatalog` lists every recipe op's and intent op's line. A new op shows up in the prompt by itself.
+- **`readIntent` decides what can be done**, not Spark. It turns the flat ops into typed ones (recipe ops through `recipeOpSchema`, the part to add through `recipePartSchema`), and leaves out with a reason anything it can't do: an edit with no model to edit, an entity that isn't configured, a control on something that isn't a fixture, an op missing what it needs. Edits after a `create` in the same request apply to the new model. A `clarify` stands alone, since the rest waits on its answer, and when nothing is doable the reasons become the question. `needs` is kept only when a model is being made.
 - The target comes from `resolveSelection`, not from Spark. Spark may say the selection is something else (`targetDisagrees`), which the review shows rather than acting on.
-- Ambiguous asks return `clarify` with one question; the dialog shows it and the person's answer reruns the parse with it.
-- Demo mode: fixed answers for a few sentences, so the flow runs offline.
+- **Demo mode** reads with `demoIntent`, hand-written patterns for what the demo shows (its own fixture from a product, colours by name or hex with parts and "but not", materials, sizes in mm, cm or m, rename, a light or switch), answering in Spark's shape so it goes through `readIntent` too. Anything else is a question back.
+- **`bun run bench:intent`** reads the cases in `scripts/lib/intent-cases.ts` (shared with `tests/intent.test.ts`) and prints each one's ops against those wanted; `--live` asks Spark instead, one billed call per case, spend kept in a throwaway store. Offline: 12/12. Live: not yet run.
 
 ## 5. Gathering facts
 
@@ -202,7 +203,7 @@ Each step lands with tests and leaves the app working.
 2. ~~**Ops.** `recipe-ops.ts` with every recipe op above as a pure function, tested on the Alex recipe.~~ Done: `RECIPE_OPS`, `selectParts`, `applyRecipeOps`, `tests/recipe-ops.test.ts`. Intent ops come with the parser (step 5).
 3. ~~**Selection and target.** `selection.ts`, `clipMask`, `resolveSelection` against `demoSegmentation`.~~ Done, with `POST /api/select/resolve`. Freezing the frame and SAM's outline moved to the assist route (step 7), where the frame is stored as that run's asset.
 4. ~~**Facts.** `Researcher` interface, the catalog researcher and the demo's bundled products. Spike: web and image search on the Meta API, its cost and output, written up here.~~ Done: `facts.ts`, `research.ts`, `MetaAdapter.lookupProduct`, `apps/server/catalog/ikea-alex-desk.json`, `tests/research.test.ts`, and the spike above. Not yet called live.
-5. **Intent.** `editIntentSchema`, `MetaAdapter.intent`, demo answers; a small bench of sentences → expected ops (`bun run bench:intent`).
+5. ~~**Intent.** `editIntentSchema`, `MetaAdapter.intent`, demo answers; a small bench of sentences → expected ops (`bun run bench:intent`).~~ Done: `intent.ts`, `demo-intent.ts`, `MetaAdapter.intent`, `tests/intent.test.ts`, `bench:intent` (12/12 offline; live not yet run).
 6. **Build and check.** `recipe-build.ts`, scoring through the room camera; extend `bench:fit` with recipe cases.
 7. **Route and job.** `/api/assist`, replay script, cost reservation.
 8. **Brush, prompt and review** in the web, a browser test on the demo desk.
