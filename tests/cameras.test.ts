@@ -467,3 +467,28 @@ describe('camera relay', () => {
     ).toThrow();
   });
 });
+
+describe('watching by default', () => {
+  const watchOf = async (s: Awaited<ReturnType<typeof setup>>) => {
+    await watchersOf(s.app).live.idle();
+    return (await s.app.inject('/api/desk/live')).json<DeskMemory>().watch;
+  };
+
+  it('watches the one camera the server can read on a desk that never chose', async () => {
+    const s = await setup();
+    const camera = await s.add({ name: 'Office cam', url: URL_WITH_PASSWORD, scene: 'office' });
+    expect(await watchOf(s)).toMatchObject({ on: true, camera: { id: `cam:${camera.id}` } });
+    expect(s.opened.at(-1)?.id).toBe(`cam:${camera.id}`);
+  });
+
+  it('keeps watching off once it was turned off, and skips a camera it can’t read', async () => {
+    const off = await setup();
+    expect((await off.post('watch', { mode: 'live', on: false })).statusCode).toBe(200);
+    await off.add({ name: 'Cam', url: URL_WITH_PASSWORD, scene: null });
+    expect(await watchOf(off)).toEqual({ on: false, camera: null });
+
+    const web = await setup();
+    await web.add({ name: 'Web', url: 'http://192.168.1.5:8080/video.mjpg', scene: null });
+    expect(await watchOf(web)).toBeUndefined();
+  });
+});

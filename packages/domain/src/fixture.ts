@@ -243,7 +243,8 @@ export function followSurfaces(
     if (!was || !now) return f;
     const turnsOf = (scene: IsoScene, propId: string) =>
       scene.props.find((p) => p.id === propId)?.turns ?? 0;
-    const formed = after.props.find((p) => p.id === now.propId)?.form;
+    const prop = after.props.find((p) => p.id === now.propId);
+    const formed = prop?.form ?? prop?.recipe;
     const k = formed
       ? (((turnsOf(after, now.propId) - turnsOf(before, was.propId)) % 4) + 4) % 4
       : Math.abs(was.rect.w - now.rect.d) < 1e-6 &&

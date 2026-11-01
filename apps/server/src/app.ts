@@ -36,6 +36,7 @@ import { deskRoutes } from './desk.js';
 import { itemRoutes } from './item.js';
 import { photoRoutes } from './photo.js';
 import { pinRoutes } from './pin.js';
+import { selectRoutes } from './select.js';
 import { roomRoutes } from './room.js';
 import { illustrationRoutes } from './illustration.js';
 import { jobRoutes, jobs } from './jobs.js';
@@ -389,6 +390,7 @@ export async function buildApp(
   itemRoutes(app, { store, meta, run });
   photoRoutes(app, { store, meta, run, config });
   pinRoutes(app, { store });
+  selectRoutes(app, { store });
   roomRoutes(app, { store, meta, run });
   illustrationRoutes(app, { store, meta, run });
   /** One SAM segmentation, recorded and billed as a run: the lab's button, or the watcher. */
@@ -476,7 +478,20 @@ export async function buildApp(
       return id === null ? null : cameras.watchCamera(id);
     },
   });
+  /**
+   * Watching is on by default: a live desk that never chose watches the one saved
+   * camera the server can read. Following is local and cheap; SAM is only asked at a
+   * settled zone crossing or a loss nothing local fixes. Off once turned off.
+   */
+  const watchByDefault = async () => {
+    const memory = store.memory('live');
+    const readable = cameras.list().filter((c) => /^rtsps?:\/\//.test(c.url));
+    if (memory.watch !== undefined || readable.length !== 1) return;
+    const camera = cameras.watchCamera(readable[0]!.id);
+    if (camera) await setWatching(store, watchers.live, true, camera).catch(() => {});
+  };
   cameraRoutes(app, cameras, {
+    onSaved: () => void watchByDefault(),
     // Watching a camera that was just removed stops; choosing another starts it again.
     onRemoved: (streamId) => {
       for (const mode of ['demo', 'live'] as const) {
@@ -535,9 +550,11 @@ export async function buildApp(
   // The relay only once this server holds its port: one that fails to listen must not
   // take the relay from the one that does. Live watching then reads through it.
   app.addHook('onListen', async () => {
-    if (!options.relay) return;
-    await cameras.startRelay();
-    if (store.memory('live').watch?.on) void watchers.live.start();
+    if (options.relay) {
+      await cameras.startRelay();
+      if (store.memory('live').watch?.on) void watchers.live.start();
+    }
+    await watchByDefault();
   });
   app.addHook('onClose', async () => {
     clearInterval(tick);

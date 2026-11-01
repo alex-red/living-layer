@@ -267,7 +267,7 @@ function FaceImage({ prop, face, href }: { prop: IsoProp; face: PropFace; href: 
 function PropSprite({ prop, lit }: { prop: IsoProp; lit: boolean }) {
   const className = `iso-prop tone-${prop.tone} ${prop.role === 'lamp' ? 'iso-lamp' : ''} ${lit ? 'lit' : ''}`;
   const texture = prop.texture;
-  if (texture && Object.keys(texture).length && !prop.form)
+  if (texture && Object.keys(texture).length && !prop.form && !prop.recipe)
     return (
       <g className={`${className} textured`}>
         <Solid box={prop} color={TONES[prop.tone]} shape={prop.shape} />

@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { Detection, Segmentation, ZoneRect } from './index.js';
-import { PROP_FORMS, type PropForm } from './iso-furniture.js';
+import { ISO_TONES, PROP_FORMS, type PropForm } from './iso-furniture.js';
+import { fixtureRecipeSchema, type FixtureRecipe } from './recipe.js';
 import { TEMPLATE_IDS, type TemplateId } from './iso-templates.js';
 
 /**
@@ -60,6 +61,8 @@ export interface IsoProp {
   texture?: { top?: string; front?: string; side?: string };
   /** The model drawn in the box (see iso-furniture); without one, a plain box. */
   form?: PropForm;
+  /** A model as data instead of a form (see recipe.ts); drawn in place of `form`. */
+  recipe?: FixtureRecipe;
   /** Quarter turns clockwise from the model's own facing. */
   turns?: number;
 }
@@ -243,21 +246,7 @@ const isoPropSchema = z
         h: z.number().min(0.01).max(8),
       })
       .strict(),
-    tone: z.enum([
-      'floor',
-      'wall',
-      'wood',
-      'steel',
-      'fabric',
-      'paper',
-      'book',
-      'glass',
-      'appliance',
-      'plant',
-      'ceramic',
-      'screen',
-      'soil',
-    ]),
+    tone: z.enum(ISO_TONES),
     group: z.string().min(1).max(32),
     template: z.enum(TEMPLATE_IDS).optional(),
     role: z.literal('lamp').optional(),
@@ -270,6 +259,7 @@ const isoPropSchema = z
       .strict()
       .optional(),
     form: z.enum(PROP_FORMS).optional(),
+    recipe: fixtureRecipeSchema.optional(),
     turns: z.number().int().min(0).max(3).optional(),
   })
   .strict();

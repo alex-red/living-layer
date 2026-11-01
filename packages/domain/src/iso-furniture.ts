@@ -1,5 +1,6 @@
 import type { IsoBox, IsoProp, IsoSize, IsoTone, IsoVec } from './iso.js';
 import type { ItemMaterial } from './iso-item.js';
+import type { FixtureRecipe } from './recipe.js';
 
 /**
  * Furniture models: what a prop looks like inside its box. A prop stays a
@@ -15,6 +16,23 @@ import type { ItemMaterial } from './iso-item.js';
 export const ISO_TILE_CM = 30;
 /** Centimetres in tiles. */
 export const cm = (n: number) => n / ISO_TILE_CM;
+
+/** Every tone a prop or a model's part can take (see `PROP_TONES` for their colours). */
+export const ISO_TONES = [
+  'floor',
+  'wall',
+  'wood',
+  'steel',
+  'fabric',
+  'paper',
+  'book',
+  'glass',
+  'appliance',
+  'plant',
+  'ceramic',
+  'screen',
+  'soil',
+] as const satisfies readonly IsoTone[];
 
 export const PROP_FORMS = [
   'desk',
@@ -41,6 +59,8 @@ export interface PropPart {
   at: IsoVec;
   size: IsoSize;
   tone: IsoTone;
+  /** A colour of its own (a recipe's part); otherwise the tone's. */
+  color?: string;
   material?: ItemMaterial;
   /** Lathe: (radius, height) as shares of the box, bottom to top. */
   profile?: { r: number; z: number }[];
@@ -653,6 +673,30 @@ const BUILDS: { [F in PropForm]: Build<F> } = {
   ],
 };
 
+/**
+ * A recipe's parts in a `w × d × h` box, in tiles: each part scaled by how
+ * much the box differs from the recipe's own size, so a desk drawn wider
+ * keeps its drawer unit at the same share of it.
+ */
+export function recipeModel(recipe: FixtureRecipe, w: number, d: number, h: number): PropPart[] {
+  const sx = w / cm(recipe.sizeCm.w);
+  const sy = d / cm(recipe.sizeCm.d);
+  const sz = h / cm(recipe.sizeCm.h);
+  return recipe.parts.map((p) => ({
+    shape: p.shape,
+    at: { x: cm(p.atCm.x) * sx, y: cm(p.atCm.y) * sy, z: cm(p.atCm.z) * sz },
+    size: { w: cm(p.sizeCm.w) * sx, d: cm(p.sizeCm.d) * sy, h: cm(p.sizeCm.h) * sz },
+    tone: p.tone,
+    ...(p.color ? { color: p.color } : {}),
+    ...(p.material ? { material: p.material } : {}),
+    ...(p.shape === 'rbox' ? { radius: p.radius ?? 0.08 } : {}),
+    ...(p.shape === 'tube' ? { radius: cm(p.tubeCm!) * Math.min(sx, sy, sz) } : {}),
+    ...(p.profile ? { profile: p.profile } : {}),
+    ...(p.wall !== undefined ? { wall: p.wall } : {}),
+    ...(p.path ? { path: p.path } : {}),
+    ...(p.rough !== undefined ? { rough: p.rough } : {}),
+  }));
+}
 /** A part turned a quarter clockwise (seen from above) in a `w × d` frame. */
 function turnPart(p: PropPart, d: number): PropPart {
   return {
@@ -664,16 +708,20 @@ function turnPart(p: PropPart, d: number): PropPart {
 }
 /** The model a prop is drawn with, relative to its corner, or null for a plain box. */
 export function propModel(
-  prop: Pick<IsoProp, 'form' | 'size' | 'turns'>,
+  prop: Pick<IsoProp, 'form' | 'recipe' | 'size' | 'turns'>,
   outline = false,
 ): PropPart[] | null {
-  if (!prop.form) return null;
+  if (!prop.form && !prop.recipe) return null;
   const turns = (((prop.turns ?? 0) % 4) + 4) % 4;
   // Build in the unturned frame, then turn it into the prop's box.
   let w = turns % 2 ? prop.size.d : prop.size.w;
   let d = turns % 2 ? prop.size.w : prop.size.d;
-  const build = BUILDS[prop.form] as Build<PropForm>;
-  let parts = build(w, d, prop.size.h, { outline, spec: furnitureSpec(prop.form) });
+  let parts = prop.recipe
+    ? recipeModel(prop.recipe, w, d, prop.size.h)
+    : (BUILDS[prop.form!] as Build<PropForm>)(w, d, prop.size.h, {
+        outline,
+        spec: furnitureSpec(prop.form!),
+      });
   for (let i = 0; i < turns; i++) {
     parts = parts.map((p) => turnPart(p, d));
     [w, d] = [d, w];

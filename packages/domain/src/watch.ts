@@ -1,7 +1,8 @@
 /**
  * Always-on watching: what the server's watcher decides for each followed
- * thing on each frame. A thing's region that didn't change costs nothing; a
- * changed one is matched locally (`stepLocalTrack`); a thing the local match
+ * thing on each frame. A thing whose region didn't change keeps its box and
+ * costs microseconds, with a full match once a second in case it crept; a
+ * changed one is matched locally (`stepLocalTrack`), a few milliseconds; a thing the local match
  * has lost is looked for by appearance before SAM is asked; and SAM is asked
  * only to confirm a zone crossing or to find a thing nothing else can. Pure
  * code, so the tests drive it with made-up frames and clocks.
@@ -67,6 +68,13 @@ export const WATCH = {
   recoveredSteps: 30,
   /** Re-anchors that find nothing before the thing is marked missing. */
   maxMisses: 3,
+  /**
+   * A thing that is following and whose region is still keeps its box without
+   * a match, except every this many frames (once a second at 10 a second), so
+   * one that creeps too slowly to count as motion is still caught. The match
+   * is a thousand times the cost of the motion check.
+   */
+  recheckSteps: 10,
 };
 
 export function watchThing(subject: WatchSubject, track: LocalTrack, now: number): WatchThing {
@@ -84,6 +92,7 @@ export function watchThing(subject: WatchSubject, track: LocalTrack, now: number
   };
 }
 
+const WHOLE: UnitBox = { x: 0, y: 0, width: 1, height: 1 };
 const inZone = (b: UnitBox, zone: UnitBox) =>
   b.x >= zone.x &&
   b.y >= zone.y &&
@@ -121,10 +130,36 @@ export function watchStep(
       refind: false,
     };
   }
-  const step = stepLocalTrack(thing.track, frame, null, {
-    lostSteps: WATCH.lostSteps,
-    quietSteps,
-  });
+  const motion = frameMotion(thing.track.previous, frame, around(thing.track.box));
+  const stillSteps = motion > LOCAL_TRACK.motionShare ? 0 : thing.track.stillSteps + 1;
+  const quiet =
+    thing.status === 'following' &&
+    !thing.track.lostSteps &&
+    stillSteps > 0 &&
+    stillSteps % WATCH.recheckSteps !== 0;
+  // Lost, and already searching the whole frame: an unchanged frame can't show it anywhere.
+  // Fewer changed pixels than a quarter of the thing is unchanged; a share of the whole
+  // frame would miss a mug put back, which covers about 0.2% of it.
+  const { width: tw, height: th } = thing.track.template;
+  const searchedAll = thing.track.lostSteps >= WATCH.lostSteps;
+  const unchanged =
+    searchedAll &&
+    frameMotion(thing.track.previous, frame, WHOLE) * frame.width * frame.height < (tw * th) / 4;
+  const lostSteps = thing.track.lostSteps + 1;
+  const step = quiet
+    ? {
+        track: { ...thing.track, previous: frame, motion, stillSteps },
+        verdict: 'follow' as const,
+      }
+    : unchanged
+      ? {
+          track: { ...thing.track, previous: frame, motion, stillSteps, lostSteps },
+          verdict:
+            lostSteps >= WATCH.lostSteps && stillSteps >= quietSteps
+              ? ('reanchor' as const)
+              : ('follow' as const),
+        }
+      : stepLocalTrack(thing.track, frame, null, { lostSteps: WATCH.lostSteps, quietSteps });
   const track = step.track;
   const settled = track.stillSteps >= quietSteps;
   if (track.lostSteps) {

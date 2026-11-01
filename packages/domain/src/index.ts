@@ -181,6 +181,8 @@ export const META_PRICES = {
   samPerImage: 0.0025,
   /** Muse Image bills per image returned, whatever the reasoning or tools. */
   imagePerImage: 0.01,
+  /** Spark's `web_search` tool, per query it makes, on top of its tokens. */
+  webSearchPerQuery: 0.0025,
 } as const;
 /**
  * Spark usage to assume before any live run exists. Meta doesn't publish how
@@ -758,6 +760,10 @@ export * from './watch.js';
 export * from './appearance.js';
 export * from './iso.js';
 export * from './iso-item.js';
+export * from './recipe.js';
+export * from './recipe-ops.js';
+export * from './selection.js';
+export * from './facts.js';
 export * from './color.js';
 export * from './iso-voxel.js';
 export * from './iso-prop-sprite.js';

@@ -114,6 +114,21 @@ Not built or not verified:
 - `Find in camera` and confirming a fixture's outline in the lab UI were not tried by hand; the routes are tested.
 - Live `fixtures/find` is untested against the real Meta API (one `segmentBoxes` call, like the other box prompts).
 
+## Measured
+
+`bun run bench:track` on 30 s of the office camera (a still desk, 320 × 240 grey at 10 a second), on this Mac, before and after making layer 0 a real gate:
+
+| Per thing, per frame                         | Cost                                  |
+| -------------------------------------------- | ------------------------------------- |
+| Layer 0, motion around it                    | 0.003 ms                              |
+| Layer 1, template match                      | 3–4 ms; 9–19 ms while lost (wider)    |
+| Watcher step, 1 / 5 / 10 / 17 things, before | 3.7 / 24 / 46 / 88 ms (88% of a core) |
+| The same, after                              | 0.34 / 1.5 / 2.9 / 5.6 ms (6%)        |
+
+As first built, every followed thing was matched on every frame whether or not anything moved there, and a lost thing searched the whole frame on every frame until SAM had missed it three times (14 s or more). Now a following thing whose region is still keeps its box, with a full match once a second (`WATCH.recheckSteps`) in case it crept; and a lost thing already searching the whole frame isn't searched again while fewer pixels changed than a quarter of its size. The decisions are the same: the same asks and refinds over the clip.
+
+Per loss, not per frame: a full picture took 2.15 s as a second ffmpeg run over RTSP and takes about 30 ms from the running process's kept still; the feature model takes 24 ms to learn a prototype and about 500 ms to look again at 896 px. Decoding the 2304 × 1296 camera itself is the one fixed cost: 19% of a core in software, 8% with VideoToolbox, the same with the kept still.
+
 ## Open decisions
 
 - **Phones.** A paired phone streams peer to peer to the lab tab; the server only carries the SDP, so it never sees the frames. To be watched without a tab, the phone would publish (WHIP) to a mediamtx the lab runs, and the watcher would read that. Until then, a phone camera is tab-only.

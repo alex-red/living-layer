@@ -16,13 +16,13 @@ const seen = (objectId: string, width = 1280, height = 720): DeskObservation => 
 });
 
 describe('camera prefs', () => {
-  it('keep the camera off and the tracking layer hidden by default', () => {
-    expect(prefsOf(undefined)).toMatchObject({ cameraOn: false, tracking: false });
+  it('keep the camera off and the tracking layer shown by default', () => {
+    expect(prefsOf(undefined)).toMatchObject({ cameraOn: false, tracking: true });
   });
   it('keep saved camera choices and drop the wrong kind', () => {
-    expect(prefsOf({ cameraOn: true, tracking: true })).toMatchObject({
+    expect(prefsOf({ cameraOn: true, tracking: false })).toMatchObject({
       cameraOn: true,
-      tracking: true,
+      tracking: false,
     });
     expect(prefsOf({ cameraOn: 'yes' as never })).toMatchObject({ cameraOn: false });
   });

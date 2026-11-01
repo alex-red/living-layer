@@ -31,6 +31,7 @@
     "bench:fit": "bun scripts/fit-bench.ts",
     "bench:rooms": "bun scripts/rooms-bench.ts",
     "bench:at": "bun scripts/bench-at.ts",
+    "bench:track": "bun scripts/track-bench.ts",
     "room": "bun scripts/room-view.ts",
     "draft": "bun scripts/draft.ts",
     "calib": "bun scripts/calib.ts",

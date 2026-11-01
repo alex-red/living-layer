@@ -93,6 +93,26 @@ describe('watching one thing', () => {
     expect(r.thing.status).toBe('following');
     expect(r.thing.layer).toBe('sam');
   });
+  it('keeps a still thing’s box without matching, and matches it again once a second', () => {
+    // Moved with no motion seen around it: as a thing creeping too slowly to count would.
+    const moved = scene(36, 40);
+    let thing: WatchThing = { ...start(), track: { ...start().track, previous: moved } };
+    for (let i = 1; i < WATCH.recheckSteps; i++) {
+      thing = watchStep(thing, moved, 10_000 + i * 100).thing;
+      expect(thing.track.box.x).toBeCloseTo(30 / W, 3);
+      expect(thing.track.stillSteps).toBe(i);
+    }
+    thing = watchStep(thing, moved, 11_000).thing;
+    expect(thing.track.box.x).toBeCloseTo(36 / W, 3);
+    expect(thing.status).toBe('following');
+  });
+  it('doesn’t search an unchanged frame for a lost thing again, and finds it when it is put back', () => {
+    const lost = run(start(), Array(12).fill(scene(null)));
+    expect(lost.thing.track.lostSteps).toBe(12);
+    const back = watchStep(lost.thing, scene(70, 30), 20_000).thing;
+    expect(back.track.lostSteps).toBe(0);
+    expect(back.track.box.x).toBeCloseTo(70 / W, 3);
+  });
   it('asks SAM to confirm a crossing only once the thing has settled on the other side', () => {
     const r = run(start(), Array(12).fill(scene(110, 40)));
     expect(r.asks.filter(Boolean)).toEqual(['confirm']);
@@ -445,9 +465,13 @@ describe.skipIf(!hasFfmpeg)('reading a camera through ffmpeg', () => {
     expect((await ended)?.message).toBe('The camera stream ended.');
     expect(frames.length).toBeGreaterThanOrEqual(18);
     expect(frames[0]).toMatchObject({ width: LUMA_WIDTH, height: 180 });
+    // The same process kept a full picture, so a snapshot is a file read, not a new ffmpeg.
+    const kept = (source as unknown as { stillPath: string }).stillPath;
+    expect(existsSync(kept)).toBe(true);
     const shot = await source.snapshot();
     expect(shot).toMatchObject({ width: 640, height: 360 });
     source.stop();
+    expect(existsSync(kept)).toBe(false);
   });
 
   it('cuts every frame to a camera’s zoomed view', async () => {

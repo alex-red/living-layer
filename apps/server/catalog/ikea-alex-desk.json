@@ -1,0 +1,23 @@
+{
+  "facts": {
+    "query": "IKEA Alex desk",
+    "name": "IKEA ALEX desk",
+    "sizeCm": { "w": 131, "d": 60, "h": 76 },
+    "parts": [
+      { "name": "Desktop", "role": "top" },
+      { "name": "Side panel", "role": "panel" },
+      { "name": "Drawer unit", "role": "body" },
+      { "name": "Drawer", "role": "drawer", "count": 3 }
+    ],
+    "colors": [{ "name": "White", "hex": "#e8e6e1" }],
+    "materials": ["matte"],
+    "sources": [
+      {
+        "kind": "person",
+        "title": "Hand-entered for the demo: the listed 131 × 60 × 76 cm; parts not checked"
+      }
+    ],
+    "confidence": 0.6
+  },
+  "aliases": ["Alex desk", "IKEA Alex office desk"]
+}

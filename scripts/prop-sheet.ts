@@ -17,14 +17,18 @@
  *   bun run sheet --room office --against office
  *                                         the room beside design/reference/office.json's picture
  *   bun run sheet --audit                 also list stray colours per template (see lib/audit.ts)
+ *   bun run sheet --recipe testdata/recipes/alex-desk.json
+ *                                         recipes (comma-separated files) instead of templates
  */
-import { mkdirSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { mkdirSync, readFileSync } from 'node:fs';
+import { basename, join, resolve } from 'node:path';
 import sharp, { type OverlayOptions } from 'sharp';
 import {
   ISO_PRESETS,
   TEMPLATE_IDS,
   depthOrder,
+  fixtureRecipeSchema,
+  placeRecipe,
   placeTemplate,
   rotateGroup,
   withFurniture,
@@ -51,6 +55,19 @@ const turns = flag(args, 'turns') === '0' ? [0] : [0, 1, 2, 3];
 const only = flag(args, 'only')?.split(',') as TemplateId[] | undefined;
 for (const id of only ?? []) if (!TEMPLATE_IDS.includes(id)) throw new Error(`No template "${id}"`);
 const room = flag(args, 'room') as IsoSceneKind | undefined;
+/** What each row draws: a template, or a recipe read from a file. */
+const recipes = flag(args, 'recipe')
+  ?.split(',')
+  .map((file) => ({
+    name: basename(file, '.json'),
+    recipe: fixtureRecipeSchema.parse(JSON.parse(readFileSync(resolve(file), 'utf8'))),
+  }));
+const things = recipes
+  ? recipes.map((r) => ({ name: r.name, place: (g: string) => placeRecipe(r.recipe, g, 4, 4) }))
+  : (only ?? TEMPLATE_IDS).map((id) => ({
+      name: id,
+      place: (g: string) => placeTemplate(id, g, 4, 4, 0),
+    }));
 const outDir = resolve(import.meta.dir, '..', 'out');
 mkdirSync(outDir, { recursive: true });
 
@@ -106,16 +123,11 @@ if (room) {
   const rows: { caption: string; cells: Picture[] }[] = [];
   const audits: Audit[] = [];
   console.log('template      variant                       parts  ms');
-  for (const id of only ?? TEMPLATE_IDS)
+  for (const { name: id, place } of things)
     for (const v of runs)
       withFurniture(v.overrides, () => {
         const start = performance.now();
-        let scene: IsoScene = {
-          kind: 'custom',
-          label: id,
-          grid: { w: 16, d: 16 },
-          ...placeTemplate(id, id, 4, 4, 0),
-        };
+        let scene: IsoScene = { kind: 'custom', label: id, grid: { w: 16, d: 16 }, ...place(id) };
         const cells: Picture[] = [];
         for (let t = 0; t < 4; t++) {
           if (turns.includes(t)) cells.push(drawProps(depthOrder(scene.props as IsoProp[])));
@@ -128,5 +140,6 @@ if (room) {
         if (audit) audits.push(auditProps(`${id} · ${v.label}`, scene.props as IsoProp[]));
       });
   if (audit) printAudit(audits);
-  await sheet(rows, join(outDir, only?.length === 1 ? `prop-${only[0]}.png` : 'prop-sheet.png'));
+  const one = things.length === 1 ? things[0]!.name : null;
+  await sheet(rows, join(outDir, one && (only || recipes) ? `prop-${one}.png` : 'prop-sheet.png'));
 }

@@ -2,6 +2,7 @@ import { hexLab, labHex, outlineLab, rampLab } from './color.js';
 import type { IsoProp, IsoTone } from './iso.js';
 import { propModel, type PropPart } from './iso-furniture.js';
 import type { ItemMaterial, ItemPart } from './iso-item.js';
+import { recipeKey } from './recipe.js';
 import { renderSprite, voxelize, type Sprite } from './iso-voxel.js';
 
 /**
@@ -40,12 +41,14 @@ const TONE_MATERIAL: Partial<Record<IsoTone, ItemMaterial>> = {
   ceramic: 'gloss',
   screen: 'gloss',
 };
+/** Every colour a base colour can be drawn in: its four ramp steps and its outline. */
+const rampOf = (hex: string) => {
+  const lab = hexLab(hex);
+  return [0, 1, 2, 3].map((l) => labHex(rampLab(lab, l))).concat(labHex(outlineLab(lab)));
+};
 /** Every colour a tone can be drawn in: its four ramp steps and its outline. */
 export const TONE_PALETTE = Object.fromEntries(
-  Object.entries(PROP_TONES).map(([tone, hex]) => {
-    const lab = hexLab(hex);
-    return [tone, [0, 1, 2, 3].map((l) => labHex(rampLab(lab, l))).concat(labHex(outlineLab(lab)))];
-  }),
+  Object.entries(PROP_TONES).map(([tone, hex]) => [tone, rampOf(hex)]),
 ) as Record<IsoTone, string[]>;
 /**
  * The room's palette: every tone's colours. Props snap to it, so the room
@@ -88,13 +91,22 @@ const modelPart = (p: PropPart, i: number): ItemPart => ({
   id: `p${i}`,
   taper: 1,
   ...p,
-  color: PROP_TONES[p.tone],
+  color: p.color ?? PROP_TONES[p.tone],
   material: p.material ?? TONE_MATERIAL[p.tone] ?? 'matte',
 });
 /** What a prop's sprite depends on, for caching it. */
 export function propSpriteKey(prop: IsoProp, lit: boolean): string {
   const { w, d, h } = prop.size;
-  return `prop|${prop.shape}|${prop.tone}|${prop.form ?? ''}|${prop.turns ?? 0}|${w}|${d}|${h}|${lit}`;
+  const form = prop.recipe ? `recipe:${recipeKey(prop.recipe)}` : (prop.form ?? '');
+  return `prop|${prop.shape}|${prop.tone}|${form}|${prop.turns ?? 0}|${w}|${d}|${h}|${lit}`;
+}
+/**
+ * The room's palette, plus the ramp of any colour a model's parts bring
+ * of their own (a recipe painted green), so those keep their colour.
+ */
+function paletteOf(model: PropPart[] | null): string[] {
+  const own = [...new Set(model?.flatMap((p) => (p.color ? [p.color] : [])) ?? [])];
+  return own.length ? [...PROP_PALETTE, ...own.flatMap(rampOf)] : PROP_PALETTE;
 }
 /** A scene prop drawn by the kernel, relative to its own corner `prop.at`. */
 export function renderPropSprite(prop: IsoProp, lit: boolean): Sprite {
@@ -106,6 +118,6 @@ export function renderPropSprite(prop: IsoProp, lit: boolean): Sprite {
     scale: 1,
     shadow: false,
     glow: lit ? WARM : null,
-    palette: lit ? undefined : PROP_PALETTE,
+    palette: lit ? undefined : paletteOf(model),
   });
 }

@@ -17,3 +17,5 @@ The parser is governed by the [SAM license](../licenses/meta-sam-LICENSE.txt). N
 `apps/web/public/mouse.svg` (from above) and `lamp.svg` (from a little above, so its rims show as ellipses) are original code-drawn illustrations too, the demo's reference pictures for drafting fixtures. Each mask is read from the SVG's own `<name>-body` polygon at runtime (`demoReference` in `apps/server/src/demo.ts`), and `demoFixtureClass` is hand-written.
 
 The photo draft's demo data (`demoPhotoInventory` and `demoPhotoSegmentation` in `apps/server/src/demo.ts`) is hand-authored as well. Its desktop, book and bottle masks are polygons copied from `desk.svg`'s own shapes and handed over as already-decoded detections, not SAM wire text. The mug reuses the synthetic mask above under the id its box prompt would have. No codec was used to make them.
+
+`recipes/alex-desk.json` is a hand-written model recipe for tests and the sheet, not a product specification: its outer size is the desk's listed 131 × 60 × 76 cm, and its parts (side panel, drawer unit, three drawers) are estimated, not checked against the product.

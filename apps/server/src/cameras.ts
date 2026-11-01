@@ -158,12 +158,15 @@ export function cameraRoutes(
   {
     onRemoved,
     onCropped = () => {},
+    onSaved = () => {},
     source = (url, crop) => new FfmpegSource(url, 'ffmpeg', crop),
     preview = (url, crop) => new FfmpegSource(url, 'ffmpeg', crop).preview(),
   }: {
     onRemoved: (streamId: string) => void;
     /** A camera's zoomed view changed: saved camera stream ids, or `phone`. */
     onCropped?: (streamId: string) => void;
+    /** A camera was added or changed. */
+    onSaved?: () => void;
     /** Frames for a stream URL; tests pass their own. */
     source?: (url: string, crop: CameraCrop | null) => Pick<FrameSource, 'snapshot'>;
     /** A stream URL as MJPEG; tests pass their own. */
@@ -177,7 +180,9 @@ export function cameraRoutes(
   app.get('/api/cameras', async () => all());
   app.post('/api/cameras/save', async (request) => {
     const input = parseInput(cameraInputSchema, request.body);
-    return { camera: cameraView(cameras.save(input)), ...all() };
+    const camera = cameraView(cameras.save(input));
+    onSaved();
+    return { camera, ...all() };
   });
   app.post('/api/cameras/delete', async (request) => {
     const { id } = parseInput(z.object({ id: z.string().min(1).max(40) }).strict(), request.body);

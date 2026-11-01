@@ -22,6 +22,13 @@ import {
   sparkCeiling,
   sparkCost,
   META_PRICES,
+  RECIPE_ROLES,
+  factSourceSchema,
+  factsFromLookup,
+  productLookupSchema,
+  type FactNeed,
+  type FactSource,
+  type ProductFacts,
   type Usage,
   type Segmentation,
 } from '@livinglayer/domain';
@@ -62,7 +69,45 @@ export const SPARK_BUDGET = {
   itemCheck: 4096,
   photoInventory: 16384,
   photoCheck: 12288,
+  productLookup: 8192,
 } as const;
+/** Search queries a product lookup reserves for: the model decides how many it makes. */
+const SEARCH_CEILING = 5;
+/** Searching and reading pages takes far longer than an answer from a photo. */
+const LOOKUP_TIMEOUT_MS = 90_000;
+/**
+ * The pages a search answer cites, then the other results it read, as
+ * sources: titles trimmed, only http(s) URLs, no repeats, at most eight.
+ */
+export function citedSources(response: OpenAI.Responses.Response): FactSource[] {
+  const found: { title?: string | null; url?: string | null }[] = [];
+  for (const item of response.output) {
+    if (item.type !== 'message') continue;
+    for (const c of item.content)
+      if (c.type === 'output_text')
+        for (const a of c.annotations) if (a.type === 'url_citation') found.push(a);
+  }
+  for (const item of response.output) {
+    const results = (item as { type: string; results?: unknown }).results;
+    if (item.type === 'web_search_call' && Array.isArray(results))
+      found.push(...(results as { title?: string; url?: string }[]));
+  }
+  const sources: FactSource[] = [];
+  for (const f of found) {
+    const source = factSourceSchema.safeParse({
+      kind: 'web',
+      title: (f.title?.trim() || f.url || '').slice(0, 120),
+      url: f.url,
+    });
+    if (
+      source.success &&
+      /^https?:\/\//.test(source.data.url ?? '') &&
+      !sources.some((s) => s.url === source.data.url)
+    )
+      sources.push(source.data);
+  }
+  return sources.slice(0, 8);
+}
 /** The first few schema problems, as paths and messages, for the error shown. */
 function issues(error: z.ZodError): string {
   return error.issues
@@ -142,6 +187,75 @@ export class MetaAdapter {
       settle(0);
       throw e;
     }
+  }
+  /**
+   * Look a product up on the web: Spark with its `web_search` tool, asked
+   * for the product's size, parts, colours and materials as JSON. Sources
+   * are read from the search's citations and results, never from the
+   * model's text. Each search query is billed on top of the tokens, so the
+   * call reserves for up to `SEARCH_CEILING` of them.
+   */
+  async lookupProduct(
+    query: string,
+    need: readonly FactNeed[],
+    signal?: AbortSignal,
+  ): Promise<ProviderResult<{ facts: ProductFacts | null; searches: number }>> {
+    const searchCost = META_PRICES.webSearchPerQuery;
+    const settle = this.reserve(
+      sparkCeiling(SPARK_BUDGET.productLookup, 0) + SEARCH_CEILING * searchCost,
+    );
+    let response: OpenAI.Responses.Response & { _request_id?: string | null };
+    try {
+      response = await this.client.responses.create(
+        {
+          model: this.config.sparkModel,
+          store: false,
+          max_output_tokens: SPARK_BUDGET.productLookup,
+          tools: [{ type: 'web_search' }],
+          include: ['web_search_call.results'] as OpenAI.Responses.ResponseIncludable[],
+          input: [
+            'Look this product up on the web, preferring the maker’s own product page: ' +
+              JSON.stringify(query) +
+              '.',
+            `What is needed: ${need.join(', ')}.`,
+            'found: false when you can’t find this exact product.',
+            'name: its full product name as the maker gives it.',
+            'sizeCm: its overall width, depth and height in centimetres, as listed.',
+            `parts: its visible parts (a desktop, a drawer unit, legs, a shelf), each with a role from: ${RECIPE_ROLES.join(', ')}; its size in cm when listed; how many.`,
+            'colors: the colour it was bought in, if the request says, else its usual one, as a hex value.',
+            `materials: from ${ITEM_MATERIALS.join(', ')}.`,
+            'confidence: how sure you are that these are facts of this exact product, 0 to 1.',
+          ].join('\n'),
+          text: {
+            format: {
+              type: 'json_schema',
+              name: 'product_lookup',
+              strict: true,
+              schema: z.toJSONSchema(productLookupSchema),
+            },
+          },
+        },
+        {
+          timeout: Math.max(this.config.timeoutMs, LOOKUP_TIMEOUT_MS),
+          ...(signal ? { signal } : {}),
+        },
+      );
+    } catch (e) {
+      settle(0);
+      throw e;
+    }
+    const searches = response.output.filter((o) => o.type === 'web_search_call').length;
+    settle(sparkCost(usageOf(response.usage)) + searches * searchCost);
+    const parsed = this.parsed(
+      response,
+      productLookupSchema,
+      'product lookup',
+      SPARK_BUDGET.productLookup,
+    );
+    return {
+      ...parsed,
+      output: { facts: factsFromLookup(query, parsed.output, citedSources(response)), searches },
+    };
   }
   async text(): Promise<ProviderResult<{ text: string }>> {
     const response = await this.spark(0, {

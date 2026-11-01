@@ -68,7 +68,7 @@ export const DEFAULT_PREFS: Prefs = {
   demoPosition: 'centre',
   cameraSource: '',
   cameraOn: false,
-  tracking: false,
+  tracking: true,
   drawer: false,
   tool: 'select',
   isoPanel: 'room',

@@ -1,0 +1,75 @@
+{
+  "label": "IKEA Alex desk",
+  "sizeCm": { "w": 131, "d": 60, "h": 76 },
+  "parts": [
+    {
+      "name": "top",
+      "role": "top",
+      "shape": "rbox",
+      "atCm": { "x": 0, "y": 0, "z": 73.5 },
+      "sizeCm": { "w": 131, "d": 60, "h": 2.5 },
+      "tone": "paper",
+      "radius": 0.2
+    },
+    {
+      "name": "panel-left",
+      "role": "panel",
+      "shape": "rbox",
+      "atCm": { "x": 0, "y": 0, "z": 0 },
+      "sizeCm": { "w": 2.5, "d": 60, "h": 73.5 },
+      "tone": "paper",
+      "radius": 0.2
+    },
+    {
+      "name": "back-rail",
+      "role": "rail",
+      "shape": "rbox",
+      "atCm": { "x": 2.5, "y": 0, "z": 61.5 },
+      "sizeCm": { "w": 92.5, "d": 2, "h": 12 },
+      "tone": "paper"
+    },
+    {
+      "name": "drawer-unit",
+      "role": "body",
+      "shape": "rbox",
+      "atCm": { "x": 95, "y": 0, "z": 0 },
+      "sizeCm": { "w": 36, "d": 58, "h": 73.5 },
+      "tone": "paper",
+      "radius": 0.04
+    },
+    {
+      "name": "drawer-1",
+      "role": "drawer",
+      "shape": "rbox",
+      "atCm": { "x": 96, "y": 58, "z": 49.5 },
+      "sizeCm": { "w": 34, "d": 2, "h": 23 },
+      "tone": "paper",
+      "radius": 0.1
+    },
+    {
+      "name": "drawer-2",
+      "role": "drawer",
+      "shape": "rbox",
+      "atCm": { "x": 96, "y": 58, "z": 26 },
+      "sizeCm": { "w": 34, "d": 2, "h": 23 },
+      "tone": "paper",
+      "radius": 0.1
+    },
+    {
+      "name": "drawer-3",
+      "role": "drawer",
+      "shape": "rbox",
+      "atCm": { "x": 96, "y": 58, "z": 2.5 },
+      "sizeCm": { "w": 34, "d": 2, "h": 23 },
+      "tone": "paper",
+      "radius": 0.1
+    }
+  ],
+  "surfaces": [{ "part": "top", "label": "Desktop" }],
+  "sources": [
+    {
+      "kind": "person",
+      "title": "Hand-estimated from the listed 131 × 60 × 76 cm; parts not checked against the product"
+    }
+  ]
+}

@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { IsoBox, IsoProp, IsoScene, IsoSurface } from './iso.js';
-import { cm, furnitureSpec, type PropForm } from './iso-furniture.js';
+import { cm, furnitureSpec, recipeModel, type PropForm } from './iso-furniture.js';
+import type { FixtureRecipe } from './recipe.js';
 
 /**
  * The prop palette: every preset, every scene a person builds and every
@@ -323,6 +324,38 @@ export function placeTemplate(
   };
 }
 
+/**
+ * Place a recipe as group `g`: one prop drawn from it, at the recipe's own
+ * size unless given another, with a surface on each part it names. Its
+ * back-left corner is at (x, y), at height z.
+ */
+export function placeRecipe(
+  recipe: FixtureRecipe,
+  g: string,
+  x: number,
+  y: number,
+  z = 0,
+  size: { w: number; d: number; h: number } = {
+    w: cm(recipe.sizeCm.w),
+    d: cm(recipe.sizeCm.d),
+    h: cm(recipe.sizeCm.h),
+  },
+): Built {
+  // The tone most of the model is, for anything that draws the prop as a plain box.
+  const area = new Map<IsoProp['tone'], number>();
+  for (const p of recipe.parts)
+    area.set(p.tone, (area.get(p.tone) ?? 0) + p.sizeCm.w * p.sizeCm.d * p.sizeCm.h);
+  const tone = [...area].sort((a, b) => b[1] - a[1])[0]![0];
+  const prop = prism(g, '', recipe.label, [x, y, z], [size.w, size.d, size.h], tone, { recipe });
+  const parts = recipeModel(recipe, size.w, size.d, size.h);
+  const surfaces = (recipe.surfaces ?? []).map((s) => {
+    const q = parts[recipe.parts.findIndex((p) => p.name === s.part)]!;
+    const rect = { x: x + q.at.x, y: y + q.at.y, w: q.size.w, d: q.size.d };
+    return surface(g, s.part, s.label, g, rect, z + q.at.z + q.size.h);
+  });
+  return { props: [prop], surfaces };
+}
+
 const EPS = 1e-6;
 const groupProps = (scene: IsoScene, g: string) => scene.props.filter((p) => p.group === g);
 export function groupIds(scene: IsoScene): string[] {
@@ -436,7 +469,7 @@ export function rotateGroup(scene: IsoScene, g: string): IsoScene {
           ...p,
           at: { ...p.at, x: r.x, y: r.y },
           size: { ...p.size, w: r.w, d: r.d },
-          ...(p.form ? { turns: ((p.turns ?? 0) + 1) % 4 } : {}),
+          ...(p.form || p.recipe ? { turns: ((p.turns ?? 0) + 1) % 4 } : {}),
         };
       },
       (s) => {
@@ -521,7 +554,7 @@ export function rotateScene(scene: IsoScene): IsoScene {
         ...p,
         at: { ...p.at, x: r.x, y: r.y },
         size: { ...p.size, w: r.w, d: r.d },
-        ...(p.form ? { turns: ((p.turns ?? 0) + 1) % 4 } : {}),
+        ...(p.form || p.recipe ? { turns: ((p.turns ?? 0) + 1) % 4 } : {}),
       };
     }),
     surfaces: scene.surfaces.map((s) => {
