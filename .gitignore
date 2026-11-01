@@ -19,3 +19,6 @@ hackathon/
 
 # Script output (contact sheets, bench results)
 out/
+
+# Demo video script, kept local
+docs/demo-video.md
