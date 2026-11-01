@@ -12,7 +12,7 @@
   "engines": {
     "bun": ">=1.4.0"
   },
-  "packageManager": "bun@1.4.3",
+  "packageManager": "bun@1.4.4",
   "workspaces": [
     "apps/*",
     "packages/*"
@@ -21,7 +21,7 @@
     "dev": "bun run --filter './apps/*' dev",
     "build": "bun run typecheck && bun run --filter @livinglayer/web build",
     "start": "bun apps/server/src/index.ts",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsrs --noEmit --fast",
     "test": "bun test",
     "test:watch": "bun test --watch",
     "test:browser": "playwright test",
@@ -40,14 +40,14 @@
     "runs": "bun scripts/runs.ts",
     "sheet": "bun scripts/prop-sheet.ts",
     "ref": "bun scripts/ref-match.ts",
-    "check": "bun run format:check && bun run typecheck && bun run test && bun run build",
+    "ci": "bun run format:check && bun run typecheck && bun run test && bun run build",
     "verify": "bun scripts/verify.ts",
     "prepare": "git config core.hooksPath .githooks || true",
     "doctor": "bun scripts/doctor.ts",
     "fetch-model": "bun scripts/fetch-model.ts",
     "smoke": "bun scripts/smoke.ts",
-    "format": "prettier --write \"apps/**/*.{ts,tsx,css,html,svg,json}\" \"packages/**/*.{ts,json}\" \"scripts/**/*.ts\" \"tests/**/*.ts\" \"*.{ts,json}\"",
-    "format:check": "prettier --check \"apps/**/*.{ts,tsx,css,html,svg,json}\" \"packages/**/*.{ts,json}\" \"scripts/**/*.ts\" \"tests/**/*.ts\" \"*.{ts,json}\""
+    "format": "oxfmt \"apps/**/*.{ts,tsx,css,html,svg,json}\" \"packages/**/*.{ts,json}\" \"scripts/**/*.ts\" \"tests/**/*.ts\" \"*.{ts,json}\"",
+    "format:check": "oxfmt --check \"apps/**/*.{ts,tsx,css,html,svg,json}\" \"packages/**/*.{ts,json}\" \"scripts/**/*.ts\" \"tests/**/*.ts\" \"*.{ts,json}\""
   },
   "dependencies": {
     "@fastify/static": "10.1.7",
@@ -71,13 +71,11 @@
     "@types/qrcode": "1.5.5",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
-    "@vitejs/plugin-react": "^5.0.4",
+    "@vitejs/plugin-react": "6.1.2",
     "@webgpu/types": "0.1.74",
-    "prettier": "3.9.10",
-    "typescript": "^5.9.3",
-    "vite": "^7.1.12"
-  },
-  "overrides": {
-    "esbuild": "^0.28.1"
+    "oxfmt": "0.75.0",
+    "tsrs": "0.20.1-ts7.1.0-beta",
+    "typescript": "7.1.0-beta",
+    "vite": "8.3.5"
   }
 }

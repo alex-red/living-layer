@@ -17,7 +17,8 @@ export interface Share {
 }
 /** What is being drawn: a box being dragged, or a polygon's points so far. */
 export type BrushStroke =
-  { kind: 'rect'; a: Share; b: Share } | { kind: 'polygon'; points: Share[] };
+  | { kind: 'rect'; a: Share; b: Share }
+  | { kind: 'polygon'; points: Share[] };
 
 /** A click this close to the first point closes the polygon. */
 export const CLOSE_SHARE = 0.015;

@@ -7,6 +7,7 @@ What isn't obvious from the code. [CONTRIBUTING.md](CONTRIBUTING.md) has setup, 
 - Don't start the dev server or run a build unless asked. If one is already running, use it to look.
 - Stage files by explicit path, never `git add -A`: other sessions may leave files in this checkout.
 - Commit summaries stay under about 60 characters (Conventional Commits); put the detail in the body.
+- Types are checked by `tsrs` against TypeScript 7.1 (`bun run typecheck`). Bun's own `bun check` is quicker but passes errors 7.1 reports, so it doesn't stand in for it.
 - Run `bun run verify` before committing: format, types, tests, the benches and the colour audit in about a minute, as one summary.
 - Before merging another session's branch, run `bun run verify --against main` on the merge. When you brief a side session, ask it to work from the latest `main` and check `bun run bench:at main room` before it reports, since `main` may have moved.
 

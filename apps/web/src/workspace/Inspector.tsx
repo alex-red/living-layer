@@ -47,10 +47,7 @@ function Freshness({ observedAt }: { observedAt: string }) {
     </svg>
   );
 }
-const verdictSummary = (
-  memory: DeskMemory | undefined,
-  events: EvidenceRun<PlacementDecision>[],
-) =>
+const verdictSummary = (memory: DeskMemory | undefined, events: EvidenceRun<PlacementDecision>[]) =>
   events.length
     ? events
         .map((e) => {

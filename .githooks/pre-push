@@ -1,5 +1,5 @@
 #!/bin/sh
 # Run what CI runs before anything leaves this machine; `git push --no-verify` skips it.
 set -e
-bun run check
+bun run ci
 bun run test:browser:strict

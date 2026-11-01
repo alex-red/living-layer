@@ -34,7 +34,11 @@ export function openEvidence(dir = dataDir()): Evidence {
     throw new Error(`No lab data at ${file}: run the app once, or set DATA_DIR.`);
   const db = new Database(file, { readonly: true });
   const parse = <T>(rows: { payload: string }[]) => rows.map((r) => JSON.parse(r.payload) as T);
-  const runs: Evidence['runs'] = ({ kind, mode, limit = 20 } = {}) =>
+  const runs: Evidence['runs'] = ({
+    kind,
+    mode,
+    limit = 20,
+  }: Parameters<Evidence['runs']>[0] = {}) =>
     parse<EvidenceRun>(
       db
         .query<{ payload: string }, [string | null, string | null, number]>(

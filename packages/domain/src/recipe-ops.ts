@@ -89,7 +89,8 @@ export type RecipeOpKind = RecipeOp['op'];
 
 /** What an op did, for the review: the recipe after it, and the parts it touched. */
 export type OpResult =
-  { ok: true; recipe: FixtureRecipe; changed: string[] } | { ok: false; reason: string };
+  | { ok: true; recipe: FixtureRecipe; changed: string[] }
+  | { ok: false; reason: string };
 
 const fail = (reason: string): OpResult => ({ ok: false, reason });
 /** Parts picked, or a reason the selector found none. */

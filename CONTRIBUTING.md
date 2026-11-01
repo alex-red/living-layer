@@ -14,11 +14,11 @@ You don't need any API keys. Demo mode covers the whole workflow offline.
 ## Before you open a PR
 
 ```sh
-bun run check
+bun run ci
 bun run test:browser   # if you touched the UI
 ```
 
-`check` runs Prettier, `tsc`, `bun test`, and the web build. CI runs the same commands. The browser tests run Playwright on Node 24 (see `.nvmrc`).
+`ci` runs oxfmt, `tsrs` (TypeScript 7.1), `bun test`, and the web build. CI runs the same commands. The browser tests run Playwright on Node 24 (see `.nvmrc`).
 
 A few conventions:
 
