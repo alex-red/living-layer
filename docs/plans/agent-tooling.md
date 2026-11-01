@@ -56,6 +56,11 @@ _Done when:_ the brush spec and the photo-draft spec use them.
 
 ### C. Brush tooling (blocks 4, 5, 8)
 
+_Status: C1–C5 done (`scripts/lib/brush.ts`, `bun run brush`, `tests/brush.test.ts`, `bun run bench:brush`, `POST /api/desk/demo/reset` and `bun run reset demo`). The route's SAM keep-or-replace step is `keepOutline` in `assist.ts`, shared with the bench. `around` boxes a group's drawing through the room's camera; a negative `pad` boxes only its middle. The bench runs on rooms with marked points (only `office-d` so far), from SAM answers kept in its `brush-sam.json` (one `--live` capture, 18 cases, $0.045). What they found:_
+
+- _Building a model fails for the bookcase, keyboard and chair forms (`assembleRecipe`: over 48 parts, or `body-2` outside the recipe's size), and the route reports that as a Meta `upstream_failure`. It fails live too, on the office's drawer unit (`shelf-2`). `bun run brush --around shelf "make it its own furniture"` shows it offline. C3's tests use a request that reads but doesn't build, so they test targets alone._
+- _On `office-d`, SAM's outline for Spark's desk box covers only 45% of the room's drawing of the desk, under `MIN_COVERED`, so `keepOutline` reads it as nothing and uses the drawing (a known gap in the bench). A box on the middle of a desk, chair or bottle names nothing in the panel, by the same 60% rule._
+
 **C1. A brush harness, `scripts/lib/brush.ts`.** `runBrush({ mode, select, prompt, follow?, save? })`. `select` is `{ box }`, `{ polygon }` or `{ around: '<group>' }`; `around` boxes a group's drawing through the room's camera, with padding. Demo mode runs in process (`buildApp`, temporary `DATA_DIR`, `app.inject`). Live mode posts to the running server with a camera snapshot. It returns the resolve answer, the run, its job's steps, and pictures: the frame with the selection, the outline, and the model drawn in place through the camera.
 _Done when:_ `tests/assist.test.ts` uses its selection helpers instead of its own `around`.
 

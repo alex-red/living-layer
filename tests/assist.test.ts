@@ -5,18 +5,18 @@ import { join } from 'node:path';
 import { buildApp } from '../apps/server/src/app.js';
 import { parseConfig, type Fetcher } from '../apps/server/src/config.js';
 import { demoIntent } from '../apps/server/src/demo-intent.js';
-import { demoPng, demoSegmentation } from '../apps/server/src/demo.js';
+import { demoPng } from '../apps/server/src/demo.js';
 import { syntheticStream } from '../apps/server/src/sam.js';
 import {
   cm,
   DEMO_CALIBRATION,
-  DEMO_FRAME,
   ISO_PRESETS,
   type AssistDraft,
   type DeskMemory,
   type EvidenceRun,
   type SelectionShape,
 } from '../packages/domain/src/index.js';
+import { demoRoom, shapeOf } from '../scripts/lib/brush.js';
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -33,21 +33,8 @@ async function setup(env: Record<string, string> = {}, fetcher?: Fetcher) {
     app.inject({ method: 'POST', url: '/api/assist', payload: { mode, ...body } });
   return { app, assist, dataDir };
 }
-/** A rectangle around what the demo's SAM outlines for `concept`, a little larger. */
-async function around(concept: string): Promise<SelectionShape> {
-  const d = (await demoSegmentation(concept)).output.detections[0]!;
-  const t = (v: number, of: number) => Math.round(Math.min(1000, Math.max(0, (v / of) * 1000)));
-  const g = 0.1;
-  return {
-    kind: 'rect',
-    box: {
-      x1: t(d.box.x - d.box.width * g, DEMO_FRAME.width),
-      y1: t(d.box.y - d.box.height * g, DEMO_FRAME.height),
-      x2: t(d.box.x + d.box.width * (1 + g), DEMO_FRAME.width),
-      y2: t(d.box.y + d.box.height * (1 + g), DEMO_FRAME.height),
-    },
-  };
-}
+/** A rectangle around how the demo room's camera draws a group, a little larger. */
+const around = (group: string): SelectionShape => shapeOf({ around: group }, demoRoom());
 const HEADLINE =
   'Turn this into its own office desk furniture/fixture - its an Ikea Alex Office Desk';
 
@@ -55,7 +42,7 @@ describe('the AI brush in the demo', () => {
   it('turns the selected desk into an Alex desk from the catalog, checked through the camera', async () => {
     const s = await setup();
     const jobId = crypto.randomUUID();
-    const res = await s.assist({ shape: await around('desk'), prompt: HEADLINE, jobId });
+    const res = await s.assist({ shape: around('desk'), prompt: HEADLINE, jobId });
     expect(res.statusCode, res.body).toBe(200);
     const run = res.json<EvidenceRun<AssistDraft>>();
     expect(run.kind).toBe('assist');
@@ -88,7 +75,7 @@ describe('the AI brush in the demo', () => {
 
   it('follows up on the same selection and model: one reading, nothing looked up again', async () => {
     const s = await setup();
-    const first = (await s.assist({ shape: await around('desk'), prompt: HEADLINE })).json<
+    const first = (await s.assist({ shape: around('desk'), prompt: HEADLINE })).json<
       EvidenceRun<AssistDraft>
     >();
     const res = await s.assist({ previous: first.id, prompt: 'Make the drawers green' });
@@ -111,7 +98,7 @@ describe('the AI brush in the demo', () => {
 
   it('asks back when the request is unclear, or there is nothing to edit yet', async () => {
     const s = await setup();
-    const shape = await around('desk');
+    const shape = around('desk');
     const odd = (await s.assist({ shape, prompt: "what's the weather" })).json<
       EvidenceRun<AssistDraft>
     >().output;
@@ -134,7 +121,7 @@ describe('the AI brush in the demo', () => {
 describe('saving a draft into the room', () => {
   it('puts the Alex in place of the desk, makes the preset room its own, and edits it next time', async () => {
     const s = await setup();
-    const shape = await around('desk');
+    const shape = around('desk');
     const first = (await s.assist({ shape, prompt: HEADLINE })).json<EvidenceRun<AssistDraft>>();
     const res = await s.app.inject({
       method: 'POST',
@@ -175,7 +162,7 @@ describe('saving a draft into the room', () => {
 
   it('never overwrites a scene of the person’s own on a preset-calibrated room', async () => {
     const s = await setup();
-    const first = (await s.assist({ shape: await around('desk'), prompt: HEADLINE })).json<
+    const first = (await s.assist({ shape: around('desk'), prompt: HEADLINE })).json<
       EvidenceRun<AssistDraft>
     >();
     const restored = await s.app.inject({
@@ -293,7 +280,7 @@ describe('the AI brush live, against a mocked Meta API', () => {
   it('reads with Spark, outlines with SAM, finds the product in the catalog, and refines', async () => {
     const s = await live();
     const res = await s.assist(
-      { shape: await around('desk'), prompt: HEADLINE, imageDataUrl: s.imageDataUrl },
+      { shape: around('desk'), prompt: HEADLINE, imageDataUrl: s.imageDataUrl },
       'live',
     );
     expect(res.statusCode, res.body).toBe(200);
@@ -308,7 +295,7 @@ describe('the AI brush live, against a mocked Meta API', () => {
   });
 
   it('keeps to what the panel showed when SAM outlines something else', async () => {
-    const shape = await around('desk');
+    const shape = around('desk');
     // SAM answers with a recorded mug mask, which falls on nothing the demo room draws there.
     const mug = JSON.parse(readFileSync('testdata/sam-mug.json', 'utf8')) as { wire: string };
     const s = await live({}, { samWire: mug.wire });
@@ -328,7 +315,7 @@ describe('the AI brush live, against a mocked Meta API', () => {
     const s = await live({}, { refineFails: true });
     const jobId = crypto.randomUUID();
     const res = await s.assist(
-      { shape: await around('desk'), prompt: HEADLINE, imageDataUrl: s.imageDataUrl, jobId },
+      { shape: around('desk'), prompt: HEADLINE, imageDataUrl: s.imageDataUrl, jobId },
       'live',
     );
     expect(res.statusCode, res.body).toBe(200);
@@ -341,7 +328,7 @@ describe('the AI brush live, against a mocked Meta API', () => {
   it('refuses a frame of another size, and a request today’s limit can’t cover', async () => {
     const s = await live({ META_DAILY_SPEND_LIMIT_USD: '0.01' });
     const res = await s.assist(
-      { shape: await around('desk'), prompt: HEADLINE, imageDataUrl: s.imageDataUrl },
+      { shape: around('desk'), prompt: HEADLINE, imageDataUrl: s.imageDataUrl },
       'live',
     );
     expect(res.statusCode).toBe(429);
@@ -357,7 +344,7 @@ describe('the AI brush live, against a mocked Meta API', () => {
         .toBuffer()
     ).toString('base64')}`;
     const wrong = await t.assist(
-      { shape: await around('desk'), prompt: HEADLINE, imageDataUrl: small },
+      { shape: around('desk'), prompt: HEADLINE, imageDataUrl: small },
       'live',
     );
     expect(wrong.statusCode).toBe(409);

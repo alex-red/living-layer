@@ -7,12 +7,28 @@
  */
 import { Database } from 'bun:sqlite';
 import { existsSync, readFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import type { DeskMemory, EvidenceRun, Job, Mode, RunKind } from '@livinglayer/domain';
 
 const root = resolve(import.meta.dir, '../..');
-/** Where the lab keeps its data: DATA_DIR from .env, as the server reads it. */
-export const dataDir = () => resolve(root, process.env.DATA_DIR ?? '.data');
+/** The main checkout, when this is a worktree of it: where the running server keeps its data. */
+function mainCheckout(): string | null {
+  const git = Bun.spawnSync(['git', 'rev-parse', '--git-common-dir'], { cwd: root });
+  const common = git.success ? resolve(root, git.stdout.toString().trim()) : null;
+  return common ? dirname(common) : null;
+}
+/**
+ * Where the lab keeps its data: DATA_DIR from .env, as the server reads it.
+ * In a worktree with no data of its own, the main checkout's, which the
+ * running server uses (opened read-only here).
+ */
+export function dataDir() {
+  if (process.env.DATA_DIR) return resolve(root, process.env.DATA_DIR);
+  const own = resolve(root, '.data');
+  if (existsSync(own)) return own;
+  const main = mainCheckout();
+  return main && existsSync(join(main, '.data')) ? join(main, '.data') : own;
+}
 /** Captured rooms for the rooms bench: local only, under the ignored data folder. */
 export const roomsDir = () => process.env.ROOMS_DIR ?? join(dataDir(), 'rooms');
 

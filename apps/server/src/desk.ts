@@ -1096,6 +1096,22 @@ export function deskRoutes(
     return memory;
   });
   /**
+   * Put the demo's memory back to the preset, as a fresh data folder has it:
+   * no scene, pin, fixtures or saved models of its own. For probes against
+   * the dev server (`bun run reset demo`); live memory is never touched.
+   */
+  app.post('/api/desk/demo/reset', async () => {
+    const memory: DeskMemory = {
+      mode: 'demo',
+      object: null,
+      observation: null,
+      zone: null,
+      lastDecision: null,
+    };
+    store.saveMemory(memory);
+    return store.memory('demo');
+  });
+  /**
    * Put back a whole desk memory: an imported save, an undo or redo, or the
    * empty demo desk. The pin and the scene are checked like any other save;
    * the rest is the lab's own output coming back. Evidence is untouched.

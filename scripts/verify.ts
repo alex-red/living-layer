@@ -97,6 +97,16 @@ const steps: Step[] = [
     look: (out) => /← below target$/m.test(out),
   },
   {
+    name: 'brush bench',
+    cmd: ['bun', 'scripts/brush-bench.ts'],
+    gate: false,
+    read: (out) =>
+      /has marked points/.test(out)
+        ? 'no marked rooms'
+        : `${count(out, /← below target$/gm)} misses, ${count(out, /\(known gap\)/g)} known gaps`,
+    look: (out) => /← below target$/m.test(out),
+  },
+  {
     name: 'colour audit',
     cmd: ['bun', 'scripts/prop-sheet.ts', '--turns', '0', '--audit'],
     gate: false,
