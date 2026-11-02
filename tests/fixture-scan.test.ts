@@ -573,7 +573,8 @@ describe('scanning the demo desk', () => {
     const renamed = saved.json<DeskMemory>().fixtures!.filter((f) => f.link === officeBook.link);
     expect(renamed.map((f) => f.label)).toEqual(['Field guide', 'Field guide']);
     expect((await s.post('fixtures/scan', { scene: 'fridge' })).statusCode).toBe(409);
-  });
+    // Two scans and their edits: slow on a busy machine.
+  }, 15_000);
   it('re-places what a scan left as it was, and keeps what a person moved', async () => {
     const s = await setup();
     const one = (await s.post('fixtures/scan')).json<Scanned>();

@@ -109,12 +109,13 @@ const rectBox = (s: Extract<BrushStroke, { kind: 'rect' }>) => ({
   y2: Math.max(s.a.y, s.b.y) * 1000,
 });
 
-/** A recipe drawn by the room's own kernel, for the review. */
-function RecipePreview({ recipe }: { recipe: FixtureRecipe }) {
-  const sprite = useMemo(
-    () => propSprite(placeRecipe(recipe, 'preview', 0, 0).props[0]!, false),
-    [recipe],
-  );
+/** A recipe drawn by the room's own kernel, turned `turns` quarters clockwise. */
+function RecipeImage({ recipe, turns = 0 }: { recipe: FixtureRecipe; turns?: number }) {
+  const sprite = useMemo(() => {
+    const p = placeRecipe(recipe, 'preview', 0, 0).props[0]!;
+    const size = turns % 2 ? { ...p.size, w: p.size.d, d: p.size.w } : p.size;
+    return propSprite({ ...p, size, turns }, false);
+  }, [recipe, turns]);
   return (
     <img
       className="brush-preview"
@@ -126,11 +127,95 @@ function RecipePreview({ recipe }: { recipe: FixtureRecipe }) {
   );
 }
 
-const SUGGEST_NEW = [
-  'Make it its own fixture',
-  'It’s an IKEA Alex desk: make it its own furniture',
-];
-const SUGGEST_EDIT = ['Make it green', 'Make the drawers white', 'It is 140 cm wide'];
+/** The review's model: a click opens it large, to turn and look at each side. */
+function RecipePreview({ recipe }: { recipe: FixtureRecipe }) {
+  const [open, setOpen] = useState(false);
+  const [turns, setTurns] = useState(0);
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        setOpen(false);
+      }
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [open]);
+  const { w, d, h } = recipe.sizeCm;
+  return (
+    <>
+      <button
+        type="button"
+        className="brush-preview-open"
+        title="Open it large"
+        onClick={() => setOpen(true)}
+      >
+        <RecipeImage recipe={recipe} />
+      </button>
+      {open && (
+        <div className="keys-backdrop" onClick={() => setOpen(false)}>
+          <div
+            className="keys-dialog recipe-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-label={`${recipe.label}, the drafted model`}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="keys-head">
+              <h3>{recipe.label}</h3>
+              <IconButton label="Close" onClick={() => setOpen(false)}>
+                ×
+              </IconButton>
+            </div>
+            <div className="recipe-dialog-model">
+              <RecipeImage recipe={recipe} turns={turns} />
+            </div>
+            <div className="recipe-dialog-row">
+              <IconButton framed label="Turn it back" onClick={() => setTurns((t) => (t + 3) % 4)}>
+                ↺
+              </IconButton>
+              <span className="micro">
+                {w} × {d} × {h} cm · {recipe.parts.length} parts
+              </span>
+              <IconButton framed label="Turn it" onClick={() => setTurns((t) => (t + 1) % 4)}>
+                ↻
+              </IconButton>
+            </div>
+            <p className="micro">{recipe.parts.map((p) => p.name).join(' · ')}</p>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+/** Requests to start from, about what is selected: its name, else “it”. */
+function suggestions(
+  editing: boolean,
+  label: string | null,
+  recipe: FixtureRecipe | null,
+): string[] {
+  const it = label ? `the ${inSentence(label)}` : 'it';
+  if (!editing) return [`Make ${it} its own fixture`, `Model ${it} as its own furniture`];
+  // Its own parts, when there is a draft to name them; the largest first.
+  const parts = [...(recipe?.parts ?? [])]
+    .sort((a, b) => b.sizeCm.w * b.sizeCm.d * b.sizeCm.h - a.sizeCm.w * a.sizeCm.d * a.sizeCm.h)
+    // A part's name as words: “shelf-1” is a shelf.
+    .map((p) =>
+      p.name
+        .toLowerCase()
+        .replace(/[-_ ]*\d+$/, '')
+        .replace(/[-_]+/g, ' ')
+        .trim(),
+    )
+    .filter(Boolean)
+    .filter((n, i, all) => all.indexOf(n) === i)
+    .slice(0, 2);
+  return parts.length
+    ? parts.map((n, i) => `Make the ${n} ${i ? 'black' : 'white'}`)
+    : ['Make it white', 'Make it black'];
+}
 
 /**
  * Beside the frame while something is selected: what it is, a box to say
@@ -270,8 +355,8 @@ export function BrushPanel({ brush, busy }: { brush: Brush; busy: boolean }) {
             d?.question
               ? 'Your answer'
               : editing
-                ? 'Change it: “make the top oak”, “it is 75 cm tall”'
-                : 'Say what to do: “It’s an IKEA Alex desk, make it its own furniture”'
+                ? `Change it: say a colour, a size or a part${recipe ? `, like “it is ${Math.round(recipe.sizeCm.h)} cm tall”` : ''}`
+                : `Say what ${target ? `the ${inSentence(target.label)}` : 'it'} is (its maker and model) or what to do`
           }
           onChange={(e) => setPrompt(e.target.value)}
           onKeyDown={(e) => {
@@ -293,7 +378,7 @@ export function BrushPanel({ brush, busy }: { brush: Brush; busy: boolean }) {
       </form>
       {!d?.question && (
         <div className="brush-suggest">
-          {(editing ? SUGGEST_EDIT : SUGGEST_NEW).map((s) => (
+          {suggestions(editing, target?.label ?? null, recipe).map((s) => (
             <Button
               key={s}
               size="sm"

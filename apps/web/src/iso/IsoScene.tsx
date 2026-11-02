@@ -397,7 +397,7 @@ export function IsoScene({
         ? { ...f, box: { ...f.box, at: moving.to.at } }
         : f,
   );
-  const movable = Boolean(onMoveFixture) && !editing && !drawing && !placing;
+  const movable = Boolean(onMoveFixture) && !drawing && !placing;
   const floor: IsoVec[] = [
     { x: 0, y: 0, z: 0 },
     { x: scene.grid.w, y: 0, z: 0 },
@@ -603,7 +603,7 @@ export function IsoScene({
           <FixtureMarker
             key={`fixture-${item.fixture.id}`}
             fixture={item.fixture}
-            onSelect={editing || drawing || placing ? undefined : onFixture}
+            onSelect={drawing || placing ? undefined : onFixture}
             onGrab={
               movable
                 ? (e) => {
@@ -625,7 +625,7 @@ export function IsoScene({
                 : undefined
             }
             onMenu={
-              onFixtureMenu && !editing && !drawing && !placing
+              onFixtureMenu && !drawing && !placing
                 ? (e) => {
                     e.preventDefault();
                     onFixtureMenu(item.fixture.id, { x: e.clientX, y: e.clientY });

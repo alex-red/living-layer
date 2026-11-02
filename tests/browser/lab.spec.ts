@@ -496,6 +496,36 @@ test('the layout editor zooms like the room, and picks a prop for the AI brush',
   await expect(page.getByRole('button', { name: 'Edit with AI', exact: true })).toBeDisabled();
 });
 
+test('the layout editor shows the room’s fixtures, to hide or move without leaving it', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await chooseScene(page);
+  await outline(page, 'Add fixture').click();
+  await page.getByRole('button', { name: /Computer mouse/ }).click();
+  await page.getByLabel('Room').selectOption({ label: 'Office' });
+  await page.getByRole('button', { name: 'Place it' }).click();
+  await page.getByLabel('Place the computer mouse').click();
+  await expect(outline(page, 'Computer mouse')).toBeVisible();
+  await outline(page, 'Office').click();
+  await page.getByRole('button', { name: 'Edit layout', exact: true }).click();
+  const fixtures = page.getByRole('list', { name: 'Fixtures in the room' });
+  await expect(fixtures).toContainText('Computer mouse');
+  const marker = page.locator('.scene-canvas [data-fixture]');
+  await expect(marker).toHaveCount(1);
+  await fixtures.getByRole('checkbox', { name: 'Show Computer mouse' }).uncheck();
+  await expect(marker).toHaveCount(0);
+  await fixtures.getByRole('checkbox', { name: 'Show Computer mouse' }).check();
+  // Dragged here, it is saved where it is dropped, and the editor stays open.
+  const base = (await marker.locator('.iso-hit-shape').boundingBox())!;
+  await page.mouse.move(base.x + base.width / 2, base.y + base.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(base.x + base.width / 2 - 40, base.y + base.height / 2 + 20, { steps: 8 });
+  await page.mouse.up();
+  await expect(page.locator('.feedback')).toContainText('Moved the computer mouse');
+  await expect(page.locator('.scene-editor')).toBeVisible();
+});
+
 test('the AI brush turns the office desk into an Alex desk, follows up, and puts it in the room', async ({
   page,
 }) => {
@@ -514,14 +544,26 @@ test('the AI brush turns the office desk into an Alex desk, follows up, and puts
   await page.mouse.up();
   const panel = page.getByRole('complementary', { name: 'AI brush' });
   await expect(panel.locator('.brush-target')).toContainText('Desk');
+  // Its suggestions name what was picked, not a product.
+  await expect(
+    panel.getByRole('button', { name: 'Make the desk its own fixture', exact: true }),
+  ).toBeVisible();
   await panel
-    .getByRole('button', { name: 'It’s an IKEA Alex desk: make it its own furniture' })
-    .click();
+    .getByLabel('What to do with the selection')
+    .fill('It’s an IKEA Alex desk: make it its own furniture');
+  await page.keyboard.press('Enter');
   // The request's steps show in a modal dialog, which closes itself a moment after.
   await waitForAiTask(page, 'AI brush');
   await expect(panel.getByText('IKEA Alex desk', { exact: true })).toBeVisible();
   await expect(panel.getByText(/Matches the camera \d+%/)).toBeVisible();
   await expect(panel.getByRole('img', { name: /as it would be drawn in the room/ })).toBeVisible();
+  // A click opens the model large, to turn; Esc closes it and keeps the selection.
+  await panel.getByRole('button', { name: /as it would be drawn in the room/ }).click();
+  const large = page.getByRole('dialog', { name: /the drafted model/ });
+  await large.getByRole('button', { name: 'Turn it', exact: true }).click();
+  await page.keyboard.press('Escape');
+  await expect(large).toHaveCount(0);
+  await expect(panel).toBeVisible();
   // A follow-up keeps the selection and the model.
   await panel.getByLabel('What to do with the selection').fill('Make the drawers green');
   await page.keyboard.press('Enter');

@@ -693,7 +693,8 @@ export function Canvas() {
             onFixtureMenu={(id, at) => setFixtureMenu({ id, at })}
             onMoveFixture={(id, to) => {
               const label = memory?.fixtures?.find((f) => f.id === id)?.label ?? 'fixture';
-              lab.select({ kind: 'fixture', id });
+              // Selecting it would close the layout editor, where it can be moved too.
+              if (lab.isoPanel !== 'scene') lab.select({ kind: 'fixture', id });
               void lab.updateFixture(
                 id,
                 { centre: { x: to.x, y: to.y }, surfaceId: to.surfaceId },

@@ -468,6 +468,9 @@ export function IsoView({
             onMessage={onMessage}
             hand={hand}
             brushTool={tool === 'brush'}
+            fixtures={fixtures}
+            {...(onMoveFixture && tool === 'select' ? { onMoveFixture } : {})}
+            {...(onFixtureMenu ? { onFixtureMenu } : {})}
             {...(onAiEdit ? { onAiEdit } : {})}
             {...(onCalibrateByHand ? { onCalibrateByHand } : {})}
             {...(onCalibrateHere ? { onCalibrateHere } : {})}

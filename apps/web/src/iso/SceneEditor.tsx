@@ -25,7 +25,7 @@ import {
 import { api, type AiFollow } from '../api';
 import { ApiError } from '../activity';
 import { ZoomPan } from '../ZoomPan';
-import { IsoScene } from './IsoScene';
+import { IsoScene, type IsoFixture } from './IsoScene';
 import { PropPickerPopover } from './PropPicker';
 import { PhotoReview, type PhotoRun } from './PhotoReview';
 import { demoFrameUrl } from '../workspace/demoFrame';
@@ -97,6 +97,9 @@ export function SceneEditor({
   hand = false,
   brushTool = false,
   onAiEdit,
+  fixtures = [],
+  onMoveFixture,
+  onFixtureMenu,
 }: {
   mode: Mode;
   /** The person's saved scene, if any. */
@@ -138,6 +141,10 @@ export function SceneEditor({
   brushTool?: boolean;
   /** Pick a prop of the saved room for the AI brush. */
   onAiEdit?: (scene: Scene, group: string) => void;
+  /** The room's fixtures, drawn where they stand; saved as they move, apart from the layout. */
+  fixtures?: IsoFixture[];
+  onMoveFixture?: (id: string, to: { x: number; y: number; surfaceId: string | null }) => void;
+  onFixtureMenu?: (id: string, at: { x: number; y: number }) => void;
 }) {
   // The room the view shows, not whatever was saved last: editing the office starts from the office.
   const showsSaved = Boolean(saved) && base === saved;
@@ -435,12 +442,41 @@ export function SceneEditor({
               </li>
             ))}
           </ul>
+          {fixtures.length > 0 && (
+            <>
+              <div className="scene-layers-head">
+                <span
+                  className="tiny"
+                  title="Things found or placed in the room. Drag one to move it; right-click for more. They move apart from the layout, saved as you drop them."
+                >
+                  FIXTURES · {fixtures.length}
+                </span>
+              </div>
+              <ul aria-label="Fixtures in the room">
+                {fixtures.map((f) => (
+                  <li key={f.id} className={hidden.has(`fixture:${f.id}`) ? 'hidden' : ''}>
+                    <input
+                      type="checkbox"
+                      checked={!hidden.has(`fixture:${f.id}`)}
+                      aria-label={`Show ${f.label}`}
+                      title={hidden.has(`fixture:${f.id}`) ? 'Show it' : 'Hide it while editing'}
+                      onChange={(e) => hide([`fixture:${f.id}`], !e.target.checked)}
+                    />
+                    <span className="scene-layer-name">{f.label}</span>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
         </div>
         <div className="scene-canvas">
           <ZoomPan className="iso-zoom" hand={hand} store="scene-editor" resetKey={room}>
             <IsoScene
               scene={draft}
               hidden={hidden}
+              fixtures={fixtures.filter((f) => !hidden.has(`fixture:${f.id}`))}
+              {...(onMoveFixture ? { onMoveFixture } : {})}
+              {...(onFixtureMenu ? { onFixtureMenu } : {})}
               litLights={new Set(lamp?.lightId ? [lamp.lightId] : [])}
               editing={{
                 selected,

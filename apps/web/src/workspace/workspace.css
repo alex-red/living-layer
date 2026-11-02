@@ -1442,3 +1442,38 @@
   outline: none;
   border-color: var(--chosen);
 }
+
+/* The brush's drafted model: a button that opens it large, to turn and look at. */
+.brush-preview-open {
+  flex: none;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: none;
+  cursor: zoom-in;
+}
+.brush-preview-open:hover,
+.brush-preview-open:focus-visible {
+  border-color: var(--line-strong);
+}
+.recipe-dialog {
+  width: min(520px, 100%);
+}
+.recipe-dialog-model {
+  display: grid;
+  place-items: center;
+  min-height: 280px;
+  border-radius: 4px;
+  background: var(--surface-2);
+}
+.recipe-dialog-model .brush-preview {
+  max-width: 100%;
+  max-height: 60vh;
+  width: auto;
+  height: min(360px, 60vh);
+}
+.recipe-dialog-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
