@@ -525,6 +525,25 @@ describe('drafting a fixture from a reference picture', () => {
     expect(mouse.model.fit).toMatchObject({ crop: draft.model.fit!.crop, archetype: 'device' });
     expect(mouse.model.fit!.iou).toBeCloseTo(draft.model.fit!.iou, 5);
   });
+  it('takes the real size of a saved product its name matches', async () => {
+    const s = await setup();
+    const { draft } = (
+      await s.post('fixtures/draft', {
+        scene: 'office',
+        reference: 'mouse',
+        label: 'IKEA Alex desk',
+      })
+    ).json<Drafted>();
+    expect(draft.product).toBe('IKEA ALEX desk');
+    // 131 × 60 × 76 cm, laid along the drafted thing's own longer side (its depth).
+    expect(draft.size).toEqual({ w: 60 / 30, d: 131 / 30, h: 76 / 30 });
+    expect(draft.model.fit!.assists.at(-1)).toMatch(/^Sized as the IKEA ALEX desk/);
+    const plain = (
+      await s.post('fixtures/draft', { scene: 'office', reference: 'mouse' })
+    ).json<Drafted>();
+    expect(plain.draft.product).toBeUndefined();
+    expect(plain.draft.size).toEqual({ w: 0.22, d: 0.38, h: 0.13 });
+  });
   it('takes a name, and only bundled pictures in demo mode', async () => {
     const s = await setup();
     const named = (

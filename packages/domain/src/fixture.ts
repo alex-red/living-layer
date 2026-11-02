@@ -552,6 +552,8 @@ export interface FixtureDraft {
   model: SavedItem;
   /** Its size in the scene it was drafted for, in tiles. */
   size: FixtureInput['size'];
+  /** The saved product it was matched to, whose real size it took ("IKEA Alex desk"). */
+  product?: string;
   reference: FixtureInput['reference'];
   state?: string | null;
   states?: Record<string, FixtureState>;

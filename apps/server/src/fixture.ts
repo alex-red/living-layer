@@ -519,6 +519,15 @@ export function fixtureRoutes(
           ],
         },
       };
+      // A saved product it names (what the person typed, or what Spark read on it) has
+      // its real size; the catalog only, so this costs nothing.
+      const usual = sizeInTiles(cls.sizeCm);
+      const known = new Catalog([productsDir, BUNDLED_CATALOG]).find(
+        [input.label, cls.label, cls.description].filter(Boolean).join(' '),
+      );
+      const real = known && productSize(known.facts, usual);
+      const product = real ? (known.facts.name ?? known.facts.query) : null;
+      if (product) savedModel.fit!.assists.push(`Sized as the ${product}, from saved products`);
       const seeded = defaultFixtureStates({
         label,
         archetype: drafted.fitted.archetype,
@@ -531,7 +540,8 @@ export function fixtureRoutes(
         suggested: cls.control,
         description: cls.description,
         model: savedModel,
-        size: sizeInTiles(cls.sizeCm),
+        size: real ?? usual,
+        ...(product ? { product } : {}),
         reference: { runId: id, asset: referenceAsset },
         ...(seeded.state ? { state: seeded.state } : {}),
         ...(seeded.states ? { states: seeded.states } : {}),

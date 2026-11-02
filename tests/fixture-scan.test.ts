@@ -27,6 +27,8 @@ import {
   scenePointInPicture,
   placeholderModel,
   cameraFromPin,
+  cameraScale,
+  pinCamera,
   convexHull,
   detectionFromBits,
   fillRings,
@@ -155,6 +157,35 @@ describe('mapping a scan through the pin', () => {
     });
     expect(map([elsewhere])[0]!.fixture!.control).toEqual({ kind: 'none' });
     expect(map([], 0)[0]).toMatchObject({ fixture: null, note: 'No room for more fixtures.' });
+  });
+});
+
+describe('sizing a scanned thing by the camera', () => {
+  // A box standing in the middle of the office desk, as the demo camera draws it.
+  const pinned = isoSurface('office', ROOM_SURFACE.surfaceId, null)!;
+  const camera = pinCamera(ROOM_SURFACE.corners, ROOM_SURFACE.frame, pinned.rect.w, pinned.rect.d)!;
+  const centre = { x: pinned.rect.x + pinned.rect.w / 2, y: pinned.rect.y + pinned.rect.d / 2 };
+  const outlineOf = (s: { w: number; d: number; h: number }) => {
+    const ps: Point[] = [];
+    for (const dx of [-s.w / 2, s.w / 2])
+      for (const dy of [-s.d / 2, s.d / 2])
+        for (const dz of [0, s.h])
+          ps.push(projectPoint(camera, pinned.rect.w / 2 + dx, pinned.rect.d / 2 + dy, dz)!);
+    return convexHull(ps);
+  };
+  const usual = { w: 0.3, d: 0.3, h: 0.4 };
+  const found = { centre, surfaceId: pinned.id };
+  it('reads how much bigger it is than Spark’s usual size from its outline', () => {
+    const seen = outlineOf({ w: 0.45, d: 0.45, h: 0.6 });
+    expect(cameraScale(ROOM_SURFACE, 'office', null, found, usual, seen)).toBeCloseTo(1.5, 1);
+    expect(cameraScale(ROOM_SURFACE, 'office', null, found, usual, outlineOf(usual))).toBeCloseTo(
+      1,
+      2,
+    );
+  });
+  it('says nothing past half or double, where the outline is likelier wrong', () => {
+    const huge = outlineOf({ w: 0.9, d: 0.9, h: 1.2 });
+    expect(cameraScale(ROOM_SURFACE, 'office', null, found, usual, huge)).toBeNull();
   });
 });
 

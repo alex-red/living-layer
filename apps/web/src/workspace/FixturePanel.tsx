@@ -621,6 +621,7 @@ export function NewFixturePanel() {
         <p className="micro">
           Outline match {Math.round(fit.iou * 100)}% · {d.model.parts.length} part
           {d.model.parts.length === 1 ? '' : 's'} · drawn as a {d.archetype}
+          {d.product ? ` · sized as the ${d.product}` : ''}
         </p>
       )}
       <Field label="Name">

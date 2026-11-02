@@ -567,6 +567,48 @@ const bodyOf = (o: Outline, pin: SurfacePin, height: number) =>
       }
     : undefined;
 
+/** How far the camera may rescale Spark's usual size: past this, the outline is likelier wrong. */
+const SCALE_RANGE = { min: 0.5, max: 2 } as const;
+/**
+ * How much bigger or smaller a thing is than Spark's usual size for it,
+ * read through the pin's camera: a box of that size, standing where the
+ * scan found it, is projected into the frame, and its width there is set
+ * against the outline's. Spark's size keeps the proportions and the camera
+ * gives the scale. Null when the camera can't say (no camera, an outline
+ * too thin, a box it can't project) or the two disagree past SCALE_RANGE.
+ */
+export function cameraScale(
+  pin: SurfacePin,
+  scene: IsoSceneKind | 'custom',
+  custom: IsoScene | null,
+  found: { centre: Point; surfaceId: string | null },
+  size: { w: number; d: number; h: number },
+  outline: Point[],
+): number | null {
+  const pinned = isoSurface(scene, pin.surfaceId, custom);
+  if (!pinned || outline.length < 3) return null;
+  const camera = pinCamera(pin.corners, pin.frame, pinned.rect.w, pinned.rect.d);
+  if (!camera) return null;
+  const standsOn = found.surfaceId ? isoSurface(scene, found.surfaceId, custom) : null;
+  const z = (standsOn?.z ?? 0) - pinned.z;
+  const x = found.centre.x - pinned.rect.x;
+  const y = found.centre.y - pinned.rect.y;
+  const corners: Point[] = [];
+  for (const dx of [-size.w / 2, size.w / 2])
+    for (const dy of [-size.d / 2, size.d / 2])
+      for (const dz of [0, size.h]) {
+        const p = projectPoint(camera, x + dx, y + dy, z + dz);
+        if (!p) return null;
+        corners.push(p);
+      }
+  const span = (ps: Point[]) => Math.max(...ps.map((p) => p.x)) - Math.min(...ps.map((p) => p.x));
+  const drawn = span(corners);
+  const seen = span(outline);
+  if (drawn < 2 || seen < 2) return null;
+  const k = seen / drawn;
+  return k >= SCALE_RANGE.min && k <= SCALE_RANGE.max ? k : null;
+}
+
 /**
  * Where a fixture a scan placed stands under a new pin: from where the scan
  * saw it touch down, as the scan would have placed it. Null when it wasn't
@@ -722,16 +764,22 @@ export function mapScan({
         reference: known.reference,
         control: entity && entities.includes(entity) ? known.control : { kind: 'none' },
       };
-    } else
+    } else {
+      // Spark's usual size, scaled to what the camera sees of it where it stands.
+      const usual = sizeInTiles(thing.sizeCm);
+      const first = whereFor(usual.h);
+      const hull = bodyOf(share, pin, usual.h)?.points;
+      const k = first?.middle && hull ? cameraScale(pin, scene, custom, first, usual, hull) : null;
       base = {
         label,
         scene,
         turns: 0,
-        size: sizeInTiles(thing.sizeCm),
+        size: k ? { w: usual.w * k, d: usual.d * k, h: usual.h * k } : usual,
         model: fitted ?? placeholderModel(label, thing.archetype, thing.color, thing.material),
         reference: null,
         control: { kind: 'none' },
       };
+    }
     const where = whereFor(base.size.h);
     if (!where)
       return { label, match: 'placeholder', fixture: null, note: 'The pin’s surface is gone.' };
