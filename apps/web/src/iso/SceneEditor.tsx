@@ -164,8 +164,14 @@ export function SceneEditor({
   /** Quarter turns of the whole room since it was last loaded, to say what a turn means for the camera. */
   const [turned, setTurned] = useState(0);
   const file = useRef<HTMLInputElement>(null);
+  // The saved scene as the editor last took it. A save from elsewhere (the live camera's own
+  // updates come every few seconds) is taken only while the draft has no edits of its own.
+  const taken = useRef(saved);
   useEffect(() => {
-    if (showsSaved) setDraft(saved!);
+    if (!showsSaved) return;
+    const before = taken.current;
+    taken.current = saved;
+    setDraft((d) => (JSON.stringify(d) === JSON.stringify(before ?? null) ? saved! : d));
   }, [saved, showsSaved]);
 
   // Undo and redo: the draft (and its turns) before each edit. A drag or a typed

@@ -13,6 +13,7 @@ import {
   fitGroup,
   fitKept,
   groupBounds,
+  groupInFrame,
   moveGroup,
   placeOfGroup,
   renderRoom,
@@ -99,6 +100,25 @@ describe('fitting a thing to its outline through the room camera', () => {
 const dirs: string[] = [];
 afterEach(() => {
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+});
+
+describe('where a prop falls in the frame', () => {
+  it('is a box of whole pixels inside the frame, as SAM takes it', () => {
+    const { width, height } = DEMO_CAMERA.frame;
+    for (const g of ['desk', 'chair', 'shelf'])
+      for (const grow of [0, 0.25, 3]) {
+        const box = groupInFrame(DEMO_CAMERA, DEMO_ROOM, g, grow);
+        if (!box) continue;
+        for (const v of [box.left, box.top, box.right, box.bottom])
+          expect(Number.isInteger(v)).toBe(true);
+        expect(box.left).toBeGreaterThanOrEqual(0);
+        expect(box.top).toBeGreaterThanOrEqual(0);
+        expect(box.right).toBeLessThanOrEqual(width);
+        expect(box.bottom).toBeLessThanOrEqual(height);
+        expect(box.left).toBeLessThan(box.right);
+      }
+    expect(groupInFrame(DEMO_CAMERA, DEMO_ROOM, 'desk')).not.toBeNull();
+  });
 });
 
 describe('POST /api/scene/fit', () => {

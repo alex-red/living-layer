@@ -136,9 +136,10 @@ export interface SceneFit {
 }
 
 /**
- * Where a group's box falls in the camera's frame, in pixels: the box of its
- * eight corners' drawing, grown by `grow` of its size each way and cut to the
- * frame. Null when the camera doesn't see all of it, or it is under 4 pixels.
+ * Where a group's box falls in the camera's frame, in whole pixels (as SAM's
+ * box prompts take them): the box of its eight corners' drawing, grown by
+ * `grow` of its size each way, rounded outwards and cut to the frame. Null
+ * when the camera doesn't see all of it, or it is under 4 pixels.
  */
 export function groupInFrame(
   camera: RoomCamera,
@@ -166,10 +167,10 @@ export function groupInFrame(
   const [x0, x1, y0, y1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
   const { width, height } = camera.frame;
   const box = {
-    left: Math.max(0, x0 - (x1 - x0) * grow),
-    top: Math.max(0, y0 - (y1 - y0) * grow),
-    right: Math.min(width, x1 + (x1 - x0) * grow),
-    bottom: Math.min(height, y1 + (y1 - y0) * grow),
+    left: Math.max(0, Math.floor(x0 - (x1 - x0) * grow)),
+    top: Math.max(0, Math.floor(y0 - (y1 - y0) * grow)),
+    right: Math.min(width, Math.ceil(x1 + (x1 - x0) * grow)),
+    bottom: Math.min(height, Math.ceil(y1 + (y1 - y0) * grow)),
   };
   return box.right - box.left < 4 || box.bottom - box.top < 4 ? null : box;
 }
