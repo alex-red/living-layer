@@ -17,15 +17,16 @@ import { Button, Check } from '../ui/controls';
 import { useLab } from './LabContext';
 import { Details, Panel, useCall, type Tone } from './panel';
 
-/** Ready-made entities: what each is for, and how it starts. */
-const PRESETS: {
+/** A ready-made entity: what it is for, and how it starts. */
+interface Preset {
   id: string;
   label: string;
   hint: string;
   needsZone?: boolean;
   needsThing?: boolean;
   make: (memory: DeskMemory, zone: string, thing: string) => Omit<ExposedInput, 'key'>;
-}[] = [
+}
+const PRESETS: Preset[] = [
   {
     id: 'presence',
     label: 'Presence',
@@ -256,36 +257,47 @@ function EntityEditor({
     setDraft(next);
     if (!keyEdited && patch.name !== undefined) setKey(keyFromName(patch.name));
   };
-  if (!draft)
+  if (!draft) {
+    const why = (p: Preset) =>
+      p.needsZone && !zones.length ? 'zone' : p.needsThing && !list.length ? 'thing' : null;
+    const preset = (p: Preset) => (
+      <Button
+        key={p.id}
+        className="expose-preset"
+        disabled={Boolean(why(p))}
+        onClick={() => {
+          const made = p.make(memory, firstZone, firstThing);
+          setDraft(made);
+          setKey(keyFromName(made.name));
+        }}
+      >
+        <strong>{p.label}</strong>
+        <small>{p.hint}</small>
+      </Button>
+    );
+    const later = (reason: 'zone' | 'thing') => PRESETS.filter((p) => why(p) === reason);
     return (
       <div className="expose-presets">
-        {PRESETS.map((p) => {
-          const blocked = (p.needsZone && !zones.length) || (p.needsThing && !list.length);
-          return (
-            <Button
-              key={p.id}
-              className="expose-preset"
-              disabled={blocked}
-              title={
-                blocked
-                  ? p.needsZone
-                    ? 'Draw a zone first.'
-                    : 'Remember an object first.'
-                  : undefined
-              }
-              onClick={() => {
-                const made = p.make(memory, firstZone, firstThing);
-                setDraft(made);
-                setKey(keyFromName(made.name));
-              }}
-            >
-              <strong>{p.label}</strong>
-              <small>{p.hint}</small>
-            </Button>
-          );
-        })}
+        {PRESETS.filter((p) => !why(p)).map(preset)}
+        {later('thing').length > 0 && (
+          <>
+            <p className="micro expose-later">
+              After you remember an object (under Objects in the outline):
+            </p>
+            {later('thing').map(preset)}
+          </>
+        )}
+        {later('zone').length > 0 && (
+          <>
+            <p className="micro expose-later">
+              After you draw a zone (Add rule, under Rules in the outline):
+            </p>
+            {later('zone').map(preset)}
+          </>
+        )}
       </div>
     );
+  }
   const s = draft.source;
   const kinds = SOURCE_KINDS[s.kind];
   const input = { ...draft, key, ...(entity ? { id: entity.id } : {}) } as ExposedInput;
@@ -545,17 +557,70 @@ function BrokerNote() {
   );
 }
 
+const MQTT_SNIPPET = `MQTT_URL=mqtt://homeassistant.local:1883
+MQTT_USERNAME=livinglayer
+MQTT_PASSWORD=its-password
+MQTT_LIVE_ENABLED=true`;
+
+/**
+ * Live, with no broker set up: how entities reach Home Assistant, and the
+ * `.env` lines that connect it. Picking entities still works meanwhile.
+ */
+function MqttSetup() {
+  const lab = useLab();
+  return (
+    <div className="expose-setup" role="note">
+      <strong>Not publishing yet: connect MQTT first</strong>
+      <p className="micro">
+        Living Layer sends these to Home Assistant over MQTT, the way Zigbee2MQTT devices appear.
+        You can pick them now; they show up once it’s connected.
+      </p>
+      <ol className="devices-steps">
+        <li>
+          In Home Assistant, add the Mosquitto broker (Settings → Add-ons) and the MQTT integration
+          it suggests.
+        </li>
+        <li>
+          Put these in <code>.env</code>, with a Home Assistant user’s name and password (the add-on
+          accepts them), then restart the server:
+          <pre className="devices-snippet">{MQTT_SNIPPET}</pre>
+          <Button
+            variant="text"
+            onClick={() =>
+              void navigator.clipboard
+                ?.writeText(MQTT_SNIPPET)
+                .then(() => lab.setMessage('Copied the .env lines.'))
+                .catch(() => {})
+            }
+          >
+            Copy
+          </Button>
+        </li>
+      </ol>
+    </div>
+  );
+}
+
 export function NewEntityPanel() {
   const lab = useLab();
+  const unset = lab.mode === 'live' && !(lab.status?.mqtt.configured && lab.status.mqtt.enabled);
   return (
     <Panel
       tiny="HOME ASSISTANT"
       title="Show in Home Assistant"
-      status="Pick what it shows. It appears in Home Assistant under the Living Layer device."
+      status="Pick one. It appears in Home Assistant under the Living Layer device."
       tone="seen"
     >
+      <p className="micro">
+        Gives Home Assistant what Living Layer sees, for its automations and dashboards. To let
+        Living Layer switch your lights instead,{' '}
+        <Button variant="text" onClick={() => lab.select({ kind: 'devices' })}>
+          pick devices it can switch →
+        </Button>
+      </p>
+      {unset && <MqttSetup />}
       <EntityEditor onSaved={(id) => lab.select({ kind: 'entity', id })} />
-      <BrokerNote />
+      {!unset && <BrokerNote />}
     </Panel>
   );
 }

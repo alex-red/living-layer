@@ -1372,16 +1372,38 @@
   display: grid;
   gap: 6px;
 }
-.expose-preset {
+/* Two classes, to win over the shared button's centred, unwrapped row. */
+.secondary.expose-preset {
   display: grid;
-  gap: 2px;
+  grid-template-columns: minmax(0, 1fr);
+  justify-items: start;
+  gap: 3px;
   width: 100%;
+  min-width: 0;
+  padding: 8px 10px;
   text-align: left;
+  white-space: normal;
+  line-height: 1.3;
 }
 .expose-preset small {
   color: var(--text-3);
   font-weight: 400;
   line-height: 16px;
+}
+.secondary.expose-preset:disabled {
+  opacity: 0.55;
+}
+.expose-later {
+  margin: 8px 0 0;
+}
+.expose-setup {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 10px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  background: var(--surface-2);
 }
 .expose-zones {
   display: grid;
