@@ -159,13 +159,17 @@ export interface LabStatus {
   lamp: Readiness & { lights: string[]; switches: string[] };
   /**
    * Home Assistant, for switching: `connected` once `.env` has its URL and a
-   * token, `enabled` once switching is allowed. `fromEnv` are the devices
+   * token or someone signed in from the lab, `enabled` unless switching is off. `fromEnv` are the devices
    * `.env` names, `chosen` the ones ticked in the lab, `overMqtt` the
    * `MQTT_DEVICES` (switched without Home Assistant).
    */
   ha: {
     connected: boolean;
     url: string;
+    /** How it's connected: `.env`'s token, a sign-in from the lab, or not at all. */
+    via: 'env' | 'login' | null;
+    /** The Home Assistant user signed in from the lab. */
+    user: string;
     enabled: boolean;
     fromEnv: string[];
     chosen: string[];

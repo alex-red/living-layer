@@ -31,7 +31,7 @@ import { type Config, type Fetcher, PROJECT_ROOT } from './config.js';
 import { EvidenceStore } from './store.js';
 import { MetaAdapter, type ProviderResult } from './meta.js';
 import { ControlAdapter } from './control.js';
-import { chosenEntities, haRoutes } from './ha.js';
+import { chosenEntities, haConnection, haRoutes, type OpenSocket } from './ha.js';
 import { fixtureRoutes } from './fixture.js';
 import { LabError, parseInput, safeError } from './errors.js';
 import { validateImage } from './images.js';
@@ -80,6 +80,8 @@ export async function buildApp(
     frames?: WatcherDeps['source'];
     /** The feature model; tests pass null to leave it out. */
     appearance?: () => Promise<Appearance | null>;
+    /** Home Assistant's websocket, for signing in; tests pass their own. */
+    haSocket?: OpenSocket;
     /** The MQTT client; tests pass their own. */
     mqttConnect?: MqttConnect;
     /** Stills from saved cameras; tests pass their own. */
@@ -95,10 +97,10 @@ export async function buildApp(
   const app = Fastify({ logger: false, bodyLimit: 7_100_000, requestTimeout: 130000 });
   const store = new EvidenceStore(config.dataDir);
   const meta = new MetaAdapter(config, store, options.fetcher);
-  const lamp = new ControlAdapter(config, options.fetcher, undefined, () => [
-    ...haLights(),
-    ...haSwitches(),
-  ]);
+  const lamp = new ControlAdapter(config, options.fetcher, undefined, {
+    allowed: () => [...haLights(), ...haSwitches()],
+    connection: () => haConnection(config, store),
+  });
   app.addHook('onClose', async () => store.close());
   // MQTT: one install id names our device and entities in Home Assistant across restarts.
   let installId = store.setting('install_id');
@@ -134,6 +136,8 @@ export async function buildApp(
   const mqttSwitches = config.mqtt.devices
     .filter((d) => d.entityId.startsWith('switch.'))
     .map((d) => d.entityId);
+  /** Where Home Assistant is: `.env`'s URL and token, else the lab's sign-in. */
+  const ha = () => haConnection(config, store);
   // Home Assistant's: `.env`'s first, then the ones ticked in the lab, kept in `settings`.
   const haChosen = () => chosenEntities(store).filter((e) => !mqttControl.has(e));
   function haLights() {
@@ -220,8 +224,10 @@ export async function buildApp(
         note: lampNote(),
       },
       ha: {
-        connected: Boolean(config.haUrl && config.haToken),
-        url: config.haUrl,
+        connected: Boolean(ha().url),
+        url: ha().url,
+        via: ha().via,
+        user: ha().user,
         enabled: config.haEnabled,
         fromEnv: [...config.haLights, ...config.haSwitches],
         chosen: haChosen(),
@@ -244,10 +250,11 @@ export async function buildApp(
   function lampNote() {
     const count = liveLights().length + liveSwitches().length;
     const devices = `${count} device${count === 1 ? '' : 's'}`;
-    if (link && config.mqtt.devices.length && !(config.haUrl && config.haToken))
+    const connected = Boolean(ha().url);
+    if (link && config.mqtt.devices.length && !connected)
       return `${devices} over MQTT; switched only when a rule or a button asks.`;
-    if (!config.haUrl || !config.haToken)
-      return 'Not connected: add HA_URL and HA_TOKEN to .env. Open Home Assistant in the outline for the steps.';
+    if (!connected)
+      return 'Not connected: sign in under Home Assistant → Devices it can switch, in the outline.';
     if (!count)
       return 'Connected. Pick the devices it may switch under Home Assistant in the outline.';
     if (!config.haEnabled)
@@ -262,7 +269,14 @@ export async function buildApp(
     if (target && mqttControl.has(target)) return mqttControl.act(target, action);
     return action === 'on' ? lamp.turnOn(target) : lamp.turnOff(target);
   };
-  haRoutes(app, { store, lamp, fixed: () => [...config.haLights, ...config.haSwitches] });
+  haRoutes(app, {
+    config,
+    store,
+    lamp,
+    fixed: () => [...config.haLights, ...config.haSwitches],
+    fetcher: options.fetcher,
+    openSocket: options.haSocket,
+  });
   const tracking = deskRoutes(
     app,
     store,

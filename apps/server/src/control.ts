@@ -15,7 +15,12 @@ export interface HaEntity {
   state: string;
 }
 const NOT_CONNECTED =
-  'Home Assistant isn’t connected: set HA_URL and HA_TOKEN in .env and restart the server. The Home Assistant panel in the lab shows how.';
+  'Home Assistant isn’t connected: sign in under Home Assistant → Devices it can switch, in the lab’s outline.';
+/** Where Home Assistant is and the token to call it with; empty strings when it isn't. */
+export interface HaConnection {
+  url: string;
+  token: string;
+}
 /**
  * Home Assistant lights and switches. Every action is one explicit request,
  * then a short poll of the entity's state; nothing is retried.
@@ -25,34 +30,47 @@ export class ControlAdapter {
     private config: Config,
     private fetcher: Fetcher = fetch,
     private sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)),
-    /** What may be switched: `.env`'s lights and switches, unless the server adds the lab's. */
-    private allowed: () => string[] = () => [...config.haLights, ...config.haSwitches],
-  ) {}
+    {
+      allowed = () => [...config.haLights, ...config.haSwitches],
+      connection = () => ({ url: config.haUrl, token: config.haToken }),
+    }: {
+      /** What may be switched: `.env`'s lights and switches, unless the server adds the lab's. */
+      allowed?: () => string[];
+      /** `.env`'s URL and token, unless the server has a sign-in from the lab. */
+      connection?: () => HaConnection;
+    } = {},
+  ) {
+    this.allowed = allowed;
+    this.connection = connection;
+  }
+  private allowed: () => string[];
+  private connection: () => HaConnection;
   /**
    * Everything Home Assistant has that turns on and off (lights, switches,
    * fans, helper toggles), read from its states. Only reads; switches nothing.
    */
   async entities(): Promise<HaEntity[]> {
     const c = this.config;
-    if (!c.haUrl || !c.haToken) throw new LabError('ha_not_connected', NOT_CONNECTED, 409);
+    const { url, token } = this.connection();
+    if (!url || !token) throw new LabError('ha_not_connected', NOT_CONNECTED, 409);
     let response: Response;
     try {
-      response = await this.fetcher(`${c.haUrl}/api/states`, {
+      response = await this.fetcher(`${url}/api/states`, {
         signal: AbortSignal.timeout(c.timeoutMs),
         redirect: 'error',
-        headers: { Authorization: `Bearer ${c.haToken}` },
+        headers: { Authorization: `Bearer ${token}` },
       });
     } catch {
       throw new LabError(
         'ha_unreachable',
-        `Home Assistant didn’t answer at ${c.haUrl}. Check HA_URL: open it in a browser on this machine, and use the same address (with its port, usually :8123).`,
+        `Home Assistant didn’t answer at ${url}. Open that address in a browser on this machine; use the one that works, with its port (usually :8123).`,
         502,
       );
     }
     if (response.status === 401 || response.status === 403)
       throw new LabError(
         'ha_token',
-        'Home Assistant refused the token. Make a new long-lived access token (your profile in Home Assistant → Security) and put it in HA_TOKEN.',
+        'Home Assistant refused the token: it may have been revoked. Sign in again in the Home Assistant panel.',
         502,
       );
     if (!response.ok)
@@ -96,7 +114,8 @@ export class ControlAdapter {
   }
   private async act(entity: string, action: 'on' | 'off'): Promise<LampResult> {
     const c = this.config;
-    if (!c.haUrl || !c.haToken) throw new LabError('lamp_not_ready', NOT_CONNECTED, 409);
+    const { url, token } = this.connection();
+    if (!url || !token) throw new LabError('lamp_not_ready', NOT_CONNECTED, 409);
     if (!c.haEnabled)
       throw new LabError(
         'lamp_not_ready',
@@ -119,11 +138,11 @@ export class ControlAdapter {
     const thing = domain === 'light' ? 'lamp' : domain === 'fan' ? 'fan' : 'switch';
     const signal = AbortSignal.timeout(c.timeoutMs);
     const request = async (path: string, body?: unknown) => {
-      const response = await this.fetcher(`${c.haUrl}/api/${path}`, {
+      const response = await this.fetcher(`${url}/api/${path}`, {
         method: body ? 'POST' : 'GET',
         signal,
         redirect: 'error',
-        headers: { Authorization: `Bearer ${c.haToken}`, 'Content-Type': 'application/json' },
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         ...(body ? { body: JSON.stringify(body) } : {}),
       });
       if (!response.ok)

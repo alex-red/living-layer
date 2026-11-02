@@ -208,6 +208,9 @@ export class EvidenceStore {
       .get(key);
     return row ? row.value : null;
   }
+  deleteSetting(key: string): void {
+    this.db.run('DELETE FROM settings WHERE key = ?', [key]);
+  }
   setSetting(key: string, value: string): void {
     this.db.run(
       'INSERT INTO settings VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value',

@@ -1293,6 +1293,13 @@
   content: '✓ ';
   color: var(--ok);
 }
+.devices-login {
+  display: grid;
+  gap: 8px;
+}
+.devices-login input {
+  width: 100%;
+}
 .devices-snippet {
   margin: 6px 0 2px;
   padding: 8px;

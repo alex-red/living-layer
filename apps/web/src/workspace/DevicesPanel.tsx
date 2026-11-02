@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { EvidenceRun, LampResult } from '@livinglayer/domain';
 import { api } from '../api';
-import { Button, Check } from '../ui/controls';
+import { Button, Check, Field } from '../ui/controls';
 import { useLab } from './LabContext';
 import { Details, Panel, useCall, type Tone } from './panel';
 
@@ -24,7 +24,7 @@ const ENV_SNIPPET = `HA_URL=http://homeassistant.local:8123
 HA_TOKEN=paste-the-long-lived-token-here`;
 
 /**
- * Home Assistant, for switching: connect it (in `.env`), tick the few devices
+ * Home Assistant, for switching: sign in (or `.env`), tick the few devices
  * Living Layer may switch, try each one, then use them in rules and fixtures.
  */
 export function DevicesPanel() {
@@ -55,7 +55,7 @@ export function DevicesPanel() {
   const [summary, tone]: [string, Tone] = !live
     ? ['Demo: these virtual devices stand in for yours. Switch to Live to use your own.', 'seen']
     : !ha?.connected && !ha?.overMqtt.length
-      ? ['Not connected yet: two lines in .env, below.', 'unsure']
+      ? ['Not connected yet: sign in below.', 'unsure']
       : !ready.length
         ? ['Connected. Tick the devices it may switch.', 'unsure']
         : ha?.connected && !ha.enabled && !ha.overMqtt.length
@@ -104,51 +104,164 @@ export function DevicesPanel() {
   );
 }
 
-/** Step one: the URL and token in `.env`, and switching allowed. */
+/**
+ * Step one: sign in to Home Assistant (the server trades the password for a
+ * token of its own and keeps only that), or `.env`'s URL and token.
+ */
 function ConnectStep() {
   const lab = useLab();
   const ha = lab.status?.ha;
+  const { call, off } = useCall();
+  const [url, setUrl] = useState('http://homeassistant.local:8123');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [code, setCode] = useState('');
+  const [mfa, setMfa] = useState<{ flowId: string; message: string } | null>(null);
   const done = Boolean(ha?.connected && ha.enabled);
+  function submit() {
+    void call<{ kind: 'done'; user: string } | { kind: 'code'; flowId: string; message: string }>(
+      'ha/login',
+      { url, username, password, ...(mfa ? { flowId: mfa.flowId, code } : {}) },
+      (r) => {
+        if (r.kind === 'code') {
+          setMfa({ flowId: r.flowId, message: r.message });
+          setCode('');
+          return;
+        }
+        setMfa(null);
+        setPassword('');
+        lab.setMessage(`Signed in to Home Assistant as ${r.user}. Now tick the devices.`);
+      },
+    );
+  }
   return (
     <Details summary="1 · Connect" open={!done}>
-      <ul className="devices-checks">
-        <li className={ha?.connected ? 'ok' : ''}>
-          {ha?.connected ? `Address and token set (${ha.url}).` : 'HA_URL and HA_TOKEN not set.'}
-        </li>
-        <li className={ha?.enabled ? 'ok' : ''}>
-          {ha?.enabled
-            ? 'Switching allowed.'
-            : 'Switching off: HA_LIVE_ENABLED=false is in .env; remove it to switch.'}
-        </li>
-      </ul>
-      {!done && (
-        <ol className="devices-steps">
-          <li>
-            In Home Assistant, open your profile (your name, bottom left) → Security → Long-lived
-            access tokens → Create token, and copy it.
-          </li>
-          <li>
-            Add these to <code>.env</code> in the project folder, with your Home Assistant’s address
-            (the one you open in a browser, with its port):
-            <pre className="devices-snippet">{ENV_SNIPPET}</pre>
+      {ha?.via === 'login' ? (
+        <>
+          <ul className="devices-checks">
+            <li className="ok">
+              Signed in as {ha.user} at {ha.url}.
+            </li>
+          </ul>
+          <p className="micro">
+            Living Layer keeps a token of its own, not the password. Home Assistant lists it under
+            that user’s profile → Security as “Living Layer …”; delete it there to cut it off.
+          </p>
+          <div className="save-actions">
             <Button
-              variant="text"
+              disabled={off}
               onClick={() =>
-                void navigator.clipboard
-                  ?.writeText(ENV_SNIPPET)
-                  .then(() => lab.setMessage('Copied the .env lines.'))
-                  .catch(() => {})
+                void call('ha/logout', {}, () =>
+                  lab.setMessage(
+                    'Signed out. Delete the token in Home Assistant too, to revoke it.',
+                  ),
+                )
               }
             >
-              Copy
+              Sign out
             </Button>
-          </li>
-          <li>Restart the server, then come back here.</li>
-        </ol>
+          </div>
+        </>
+      ) : ha?.via === 'env' ? (
+        <ul className="devices-checks">
+          <li className="ok">Connected through HA_URL and HA_TOKEN in .env ({ha.url}).</li>
+        </ul>
+      ) : (
+        <form
+          className="devices-login"
+          onSubmit={(e) => {
+            e.preventDefault();
+            submit();
+          }}
+        >
+          <p className="micro">
+            Sign in as a Home Assistant user, as you would in its app. A user of its own for Living
+            Layer is best (Settings → People → Add person, allowed to log in, an administrator so it
+            can see every device).
+          </p>
+          <Field label="Address" hint="As you open it in a browser, with its port.">
+            <input
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              disabled={Boolean(mfa)}
+              inputMode="url"
+              autoComplete="url"
+            />
+          </Field>
+          {mfa ? (
+            <Field label="Two-factor code" hint={mfa.message}>
+              <input
+                value={code}
+                onChange={(e) => setCode(e.target.value)}
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                autoFocus
+              />
+            </Field>
+          ) : (
+            <>
+              <Field label="Username">
+                <input
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  autoComplete="username"
+                />
+              </Field>
+              <Field label="Password">
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  autoComplete="current-password"
+                />
+              </Field>
+            </>
+          )}
+          <div className="save-actions">
+            <Button
+              variant="primary"
+              type="submit"
+              disabled={off || !url.trim() || (mfa ? !code.trim() : !username.trim() || !password)}
+            >
+              {off ? 'Signing in…' : mfa ? 'Check code' : 'Sign in'}
+            </Button>
+            {mfa && (
+              <Button variant="text" type="button" onClick={() => setMfa(null)}>
+                Start again
+              </Button>
+            )}
+          </div>
+          <p className="micro">
+            The password goes to Home Assistant once and isn’t kept; the token stays on this
+            machine, never in the browser.
+          </p>
+        </form>
       )}
-      <p className="micro">
-        The token stays in <code>.env</code> on this machine; the browser never sees it.
-      </p>
+      {ha?.connected && !ha.enabled && (
+        <ul className="devices-checks">
+          <li>Switching off: HA_LIVE_ENABLED=false is in .env; remove it to switch.</li>
+        </ul>
+      )}
+      {!ha?.connected && (
+        <Details summary="Or a token in .env">
+          <p className="micro">
+            Make a long-lived token in Home Assistant (your profile → Security → Long-lived access
+            tokens), put these in <code>.env</code> and restart the server:
+          </p>
+          <pre className="devices-snippet">{ENV_SNIPPET}</pre>
+          <Button
+            variant="text"
+            onClick={() =>
+              void navigator.clipboard
+                ?.writeText(ENV_SNIPPET)
+                .then(() => lab.setMessage('Copied the .env lines.'))
+                .catch(() => {})
+            }
+          >
+            Copy
+          </Button>
+        </Details>
+      )}
     </Details>
   );
 }

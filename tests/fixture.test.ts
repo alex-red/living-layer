@@ -7,10 +7,12 @@ import { buildApp } from '../apps/server/src/app.js';
 import { parseConfig, type Fetcher } from '../apps/server/src/config.js';
 import { EvidenceStore } from '../apps/server/src/store.js';
 import { ControlAdapter } from '../apps/server/src/control.js';
+import type { OpenSocket } from '../apps/server/src/ha.js';
 import { syntheticStream } from '../apps/server/src/sam.js';
 import { latheSplat, mugSplat } from './lib/splat.js';
 import { demoPhotoInventory, demoPhotoSegmentation } from '../apps/server/src/demo.js';
 import {
+  type LabStatus,
   STARTER_TEMPLATES,
   archetypeOf,
   defaultFixtureStates,
@@ -407,6 +409,118 @@ describe('Home Assistant devices chosen in the lab', () => {
       ha: { fromEnv: string[]; chosen: string[] };
     }>();
     expect(ha).toMatchObject({ fromEnv: ['light.desk'], chosen: ['input_boolean.focus'] });
+  });
+});
+
+describe('signing in to Home Assistant from the lab', () => {
+  /**
+   * Home Assistant's sign-in: `pw` the password it takes, `mfa` a code it asks
+   * for after it, and the websocket that hands out the long-lived token.
+   */
+  const fakeLogin = ({ pw = 'secret', mfa = '' } = {}) => {
+    const calls: { path: string; body: string; auth: string | null }[] = [];
+    const fetcher: Fetcher = async (input, init) => {
+      const path = new URL(String(input)).pathname;
+      const body = String(init?.body ?? '');
+      calls.push({ path, body, auth: new Headers(init?.headers).get('Authorization') });
+      if (path === '/auth/login_flow') return Response.json({ flow_id: 'f1', type: 'form' });
+      if (path === '/auth/login_flow/f1') {
+        const sent = JSON.parse(body);
+        if ('code' in sent)
+          return Response.json(
+            sent.code === mfa
+              ? { type: 'create_entry', result: 'auth-code' }
+              : { type: 'form', step_id: 'mfa', errors: { base: 'invalid_code' } },
+          );
+        if (sent.password !== pw)
+          return Response.json({ type: 'form', step_id: 'init', errors: { base: 'invalid_auth' } });
+        return Response.json(
+          mfa ? { type: 'form', step_id: 'mfa' } : { type: 'create_entry', result: 'auth-code' },
+        );
+      }
+      if (path === '/auth/token')
+        return Response.json({ access_token: 'short', refresh_token: 'r1', expires_in: 1800 });
+      if (path === '/auth/revoke') return new Response('');
+      if (path === '/api/states') return Response.json([{ entity_id: 'light.desk', state: 'off' }]);
+      return new Response('', { status: 404 });
+    };
+    const sockets: { url: string; sent: unknown[] }[] = [];
+    const openSocket: OpenSocket = (url) => {
+      const record = { url, sent: [] as unknown[] };
+      sockets.push(record);
+      let listener: (e: { data: unknown }) => void = () => {};
+      const reply = (m: object) => queueMicrotask(() => listener({ data: JSON.stringify(m) }));
+      reply({ type: 'auth_required' });
+      return {
+        send(data) {
+          const m = JSON.parse(data);
+          record.sent.push(m);
+          if (m.type === 'auth')
+            reply({ type: m.access_token === 'short' ? 'auth_ok' : 'auth_invalid' });
+          else reply({ id: m.id, type: 'result', success: true, result: 'long-lived' });
+        },
+        close() {},
+        addEventListener(type: string, l: (e: { data: unknown }) => void) {
+          if (type === 'message') listener = l;
+        },
+      } as ReturnType<OpenSocket>;
+    };
+    return { fetcher, openSocket, calls, sockets };
+  };
+  async function signInSetup(ha = fakeLogin(), env: Record<string, string> = {}) {
+    const dataDir = mkdtempSync(join(tmpdir(), 'livinglayer-ha-'));
+    dirs.push(dataDir);
+    const app = await buildApp(parseConfig({ DATA_DIR: dataDir, ...env }), {
+      fetcher: ha.fetcher,
+      haSocket: ha.openSocket,
+      serveWeb: false,
+    });
+    const post = (path: string, body: object = {}) =>
+      app.inject({ method: 'POST', url: `/api/${path}`, payload: { mode: 'live', ...body } });
+    const status = async () => (await app.inject('/api/status')).json<LabStatus>();
+    return { app, post, status, ha };
+  }
+  const login = { url: 'http://ha.local:8123/', username: 'livinglayer', password: 'secret' };
+
+  it('trades the password for a long-lived token and keeps only that', async () => {
+    const s = await signInSetup();
+    const r = await s.post('ha/login', login);
+    expect(r.json()).toEqual({ kind: 'done', url: 'http://ha.local:8123', user: 'livinglayer' });
+    expect(s.ha.sockets[0]!.url).toBe('ws://ha.local:8123/api/websocket');
+    expect(s.ha.sockets[0]!.sent[1]).toMatchObject({ type: 'auth/long_lived_access_token' });
+    expect(s.ha.calls.find((c) => c.path === '/auth/revoke')?.body).toBe('token=r1');
+    expect((await s.status()).ha).toMatchObject({
+      connected: true,
+      via: 'login',
+      user: 'livinglayer',
+      url: 'http://ha.local:8123',
+    });
+    expect(JSON.stringify(await s.status())).not.toContain('long-lived');
+    await s.app.inject('/api/ha/entities');
+    expect(s.ha.calls.at(-1)).toMatchObject({ path: '/api/states', auth: 'Bearer long-lived' });
+    await s.post('ha/logout');
+    expect((await s.status()).ha).toMatchObject({ connected: false, via: null });
+  });
+  it('asks for a two-factor code, then finishes with it', async () => {
+    const s = await signInSetup(fakeLogin({ mfa: '123456' }));
+    const first = (await s.post('ha/login', login)).json();
+    expect(first).toMatchObject({ kind: 'code', flowId: 'f1' });
+    const wrong = (await s.post('ha/login', { ...login, flowId: 'f1', code: '000000' })).json();
+    expect(wrong.message).toMatch(/didn’t work/);
+    const right = (await s.post('ha/login', { ...login, flowId: 'f1', code: '123456' })).json();
+    expect(right.kind).toBe('done');
+  });
+  it('says so when the password is wrong, and keeps nothing', async () => {
+    const s = await signInSetup();
+    const r = await s.post('ha/login', { ...login, password: 'nope' });
+    expect(r.statusCode).toBe(401);
+    expect(r.json().error.message).toMatch(/username and password/);
+    expect((await s.status()).ha.connected).toBe(false);
+  });
+  it('leaves .env’s token in charge', async () => {
+    const s = await signInSetup(fakeLogin(), { HA_URL: 'http://ha.local:8123', HA_TOKEN: 't' });
+    expect((await s.post('ha/login', login)).statusCode).toBe(409);
+    expect((await s.status()).ha).toMatchObject({ via: 'env', connected: true });
   });
 });
 
