@@ -9,7 +9,7 @@ import {
   type Quad,
   type SurfacePin,
 } from './iso.js';
-import { PROP_TEMPLATES, TEMPLATE_IDS, type TemplateId } from './iso-templates.js';
+import { PROP_TEMPLATES, TEMPLATE_IDS, groupBounds, type TemplateId } from './iso-templates.js';
 import { ARCHETYPES, type Archetype } from './iso-archetypes.js';
 import { ITEM_MATERIALS, hexColorSchema, type SavedItem } from './iso-item.js';
 
@@ -435,6 +435,46 @@ export interface PhotoLayout {
   /** The thing whose top was pinned. */
   surfaceThing: string | null;
   things: PlacedThing[];
+}
+/**
+ * Where a room layout put each thing, in a form that compares across code
+ * changes: its middle, footprint and turn in tiles, and its status. The
+ * draft tool prints these, and the rooms bench keeps them as snapshots.
+ */
+export interface Placement {
+  status: string;
+  /** What it is drawn as: a template or an object model. */
+  as: string;
+  /** Its middle on the floor or on what it stands on, in tiles. */
+  x: number;
+  y: number;
+  z: number;
+  /** Its footprint once turned, and its height, in tiles. */
+  w: number;
+  d: number;
+  h: number;
+  turns: number;
+}
+export function placements(layout: PhotoLayout): Record<string, Placement> {
+  const out: Record<string, Placement> = {};
+  for (const t of layout.things) {
+    const box = t.group ? groupBounds(layout.scene, t.group) : (t.foot ?? null);
+    const turns = t.group
+      ? (layout.scene.props.find((p) => p.group === t.group && p.id === t.group)?.turns ?? 0)
+      : (t.turns ?? 0);
+    out[t.id] = {
+      status: t.status,
+      as: t.as,
+      x: box ? box.at.x + box.size.w / 2 : NaN,
+      y: box ? box.at.y + box.size.d / 2 : NaN,
+      z: box?.at.z ?? NaN,
+      w: box?.size.w ?? NaN,
+      d: box?.size.d ?? NaN,
+      h: box?.size.h ?? NaN,
+      turns,
+    };
+  }
+  return out;
 }
 export interface PhotoEdit {
   as?: PhotoAs;

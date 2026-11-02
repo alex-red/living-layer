@@ -329,6 +329,9 @@ test('drafts a scene from the demo camera, reviews the pin and objects, and save
   const rows = page.locator('.photo-things tbody tr');
   await expect(rows).toHaveCount(4);
   await expect(rows.first()).toContainText('pinned surface');
+  // The layout hooks and "Lay out again" are for development only.
+  expect(await page.evaluate(() => '__livinglayer' in window)).toBe(false);
+  await expect(page.getByRole('button', { name: 'Lay out again' })).toHaveCount(0);
   await expect(page.locator('.photo-review .iso-note')).toContainText(
     'The desk top is pinned where the room’s camera sees it',
   );
