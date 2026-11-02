@@ -70,7 +70,7 @@ Later the same day, the first two ideas below were done:
 Across the four views SAM 3D's shapes agree within 0.18 (target 0.2); the fitter's are 0.68 apart. The real size is a typical mug's, an estimate until the mug is measured.
 
 - **Outline overlap can't be the judge.** Against each crop's outline the splat's right shape scores 0.60–0.84, where the fitter's own scores 0.83–0.95: the fitter bends its shape to the outline (a taller mug seen from lower looks the same), and searching the elevation again doesn't close the gap. So the app keeps SAM 3D's shape unless it falls under 0.55, which catches a reconstruction of something else.
-- **In the app:** **Refine its shape with SAM 3D** on a turned fixture fitted to a photo (`POST /api/fixtures/refine3d`, `apps/server/src/sam3d.ts`), local or on fal by `.env`. It runs as a background job the page follows, since it outlasts a request; the model it replaces is kept to pick back. See [image-to-fixture.md](../image-to-fixture.md).
+- **In the app:** **Refine its shape with SAM 3D** on a turned fixture fitted to a photo (`POST /api/fixtures/refine3d`, `apps/server/src/sam3d.ts`), local or on fal by `.env`, and off unless `SAM3D_ENABLED=true`. It runs as a background job the page follows, since it outlasts a request; the model it replaces is kept to pick back. See [image-to-fixture.md](../image-to-fixture.md).
 
 ## If it goes further
 

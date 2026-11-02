@@ -904,6 +904,16 @@ describe('refining a fixture with SAM 3D', () => {
     const after = (await s.app.inject('/api/desk/demo')).json<DeskMemory>().fixtures!.at(-1)!;
     expect(after.model).toEqual(lamp.model);
   });
+  it('is off unless SAM3D_ENABLED, whatever else is set', () => {
+    expect(parseConfig({ SAM3D_MLX_WEIGHTS: '/weights', FAL_KEY: 'k' }).sam3d).toBeNull();
+    expect(
+      parseConfig({ SAM3D_ENABLED: 'true', SAM3D_MLX_WEIGHTS: '/weights' }).sam3d,
+    ).toMatchObject({ kind: 'local', weights: '/weights' });
+    expect(parseConfig({ SAM3D_ENABLED: 'true', FAL_KEY: 'k' }).sam3d).toEqual({
+      kind: 'fal',
+      key: 'k',
+    });
+  });
   it('refuses when SAM 3D isn’t set up, or for a shape it can’t refine yet', async () => {
     const off = await withSam3d(null);
     const lamp = await placed(off, 'lamp');

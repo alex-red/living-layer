@@ -1218,7 +1218,8 @@ function EarlierDrafts({ fixture, disabled }: { fixture: Fixture; disabled: bool
   const drafts = fixture.drafts ?? [];
   if (!drafts.length || fixture.state) return null;
   const match = (m: Fixture['model']) =>
-    m.fit ? ` · ${Math.round(m.fit.iou * 100)}% outline match` : '';
+    // Each against its own photo: a far crop and a close one aren't the same test.
+    m.fit ? ` · ${Math.round(m.fit.iou * 100)}% match to its own photo` : '';
   return (
     <Details summary={`Earlier drafts (${drafts.length})`}>
       <ul className="fixture-drafts">
@@ -1253,8 +1254,9 @@ function EarlierDrafts({ fixture, disabled }: { fixture: Fixture; disabled: bool
         ))}
       </ul>
       <p className="micro">
-        Outline match is against one photo only: a model can match it and still be the wrong shape,
-        so trust your eye. What you pick is noted, to learn which modeller suits what.
+        Each match is to the photo that draft was made from, so they don’t compare; and a model can
+        match one photo and still be the wrong shape. Trust your eye. What you pick is noted, to
+        learn which modeller suits what.
       </p>
     </Details>
   );

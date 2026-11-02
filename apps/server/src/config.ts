@@ -25,8 +25,9 @@ const schema = z.object({
   /**
    * SAM 3D Objects, for refining a fixture's shape (experimental): on this
    * machine through mlx-spatial (its weights folder and its command), else
-   * fal.ai's host with FAL_KEY. Neither set, it is off.
+   * fal.ai's host with FAL_KEY. Off unless SAM3D_ENABLED is true, whatever is set.
    */
+  SAM3D_ENABLED: flag,
   SAM3D_MLX_WEIGHTS: z.string().default(''),
   SAM3D_MLX_BIN: z.string().default('mlx-spatial-sam3d'),
   FAL_KEY: z.string().default(''),
@@ -214,11 +215,13 @@ export function parseConfig(env: NodeJS.ProcessEnv, cwd = process.cwd()): Config
     metaEnabled: value.META_LIVE_ENABLED,
     spendLimitUsd: value.META_DAILY_SPEND_LIMIT_USD,
     timeoutMs: value.META_TIMEOUT_MS,
-    sam3d: value.SAM3D_MLX_WEIGHTS
-      ? { kind: 'local', weights: value.SAM3D_MLX_WEIGHTS, bin: value.SAM3D_MLX_BIN }
-      : value.FAL_KEY
-        ? { kind: 'fal', key: value.FAL_KEY }
-        : null,
+    sam3d: !value.SAM3D_ENABLED
+      ? null
+      : value.SAM3D_MLX_WEIGHTS
+        ? { kind: 'local', weights: value.SAM3D_MLX_WEIGHTS, bin: value.SAM3D_MLX_BIN }
+        : value.FAL_KEY
+          ? { kind: 'fal', key: value.FAL_KEY }
+          : null,
     haUrl: value.HA_URL.replace(/\/$/, ''),
     haToken: value.HA_TOKEN,
     haEntity: value.HA_ENTITY_ID,

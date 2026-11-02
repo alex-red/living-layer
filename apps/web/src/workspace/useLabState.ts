@@ -305,6 +305,14 @@ export function runDetail(run: EvidenceRun): string {
         const added = mapped.filter((m) => m.fixture).length;
         return `scan · ${mapped.length} found · ${added} added${mapped.length ? `: ${mapped.map((m) => m.label).join(', ')}` : ''}`;
       }
+      if (run.output && typeof run.output === 'object' && 'views' in run.output) {
+        const o = run.output as unknown as { model: { label: string }; views: number; iou: number };
+        return `${o.model.label} · another photo, ${o.views} views fused · ${Math.round(o.iou * 100)}% outline match`;
+      }
+      if (run.output && typeof run.output === 'object' && 'shaped' in run.output) {
+        const o = run.output as unknown as { item: { label: string }; kept: boolean; iou: number };
+        return `${o.item.label} · SAM 3D shape ${o.kept ? 'kept' : 'not kept'} · ${Math.round(o.iou * 100)}% outline match`;
+      }
       const f = run.output as FixtureDraft;
       if (!f?.model) return '';
       return `${f.label} · ${f.model.parts.length} parts · looks like ${f.suggested === 'none' ? 'just a thing' : `a ${f.suggested}`}`;
@@ -2287,7 +2295,7 @@ export function useLabState() {
       if (!job) return;
       await refresh();
       setMessage(
-        `SAM 3D: ${job.steps.find((s) => s.id === 'check')?.detail ?? 'done'}. Undo puts the old shape back.`,
+        `SAM 3D: ${job.steps.find((s) => s.id === 'check')?.detail ?? 'done'}. The old shape is under Earlier drafts.`,
       );
     } catch (e) {
       setError(e instanceof Error ? e : 'SAM 3D could not refine it.');

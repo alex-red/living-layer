@@ -1344,7 +1344,7 @@ export function fixtureRoutes(
     if (!sam3d)
       throw new LabError(
         'sam3d_off',
-        'SAM 3D isn’t set up: set SAM3D_MLX_WEIGHTS (on this machine) or FAL_KEY (fal.ai).',
+        'SAM 3D is off: set SAM3D_ENABLED=true, with SAM3D_MLX_WEIGHTS (on this machine) or FAL_KEY (fal.ai).',
         409,
       );
     const memory = store.memory(mode);
