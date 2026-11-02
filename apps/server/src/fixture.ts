@@ -57,6 +57,8 @@ import {
   type LampResult,
   type Mode,
   type Segmentation,
+  type MergedFacts,
+  type ProductFacts,
   type Usage,
 } from '@livinglayer/domain';
 import { LabError, parseInput } from './errors.js';
@@ -81,7 +83,8 @@ import {
   viewPng,
   type Runner,
 } from './item.js';
-import { SPARK_BUDGET, type MetaAdapter } from './meta.js';
+import { SEARCH_CEILING, SPARK_BUDGET, type MetaAdapter } from './meta.js';
+import { BUNDLED_CATALOG, Catalog, research, type Researcher } from './research.js';
 import type { EvidenceStore } from './store.js';
 
 /** The room picture is drawn in 2:1 isometric, so a level square shows half as deep as it is wide. */
@@ -259,12 +262,15 @@ export function fixtureRoutes(
     run,
     control,
     entities,
+    productsDir,
   }: {
     store: EvidenceStore;
     meta: MetaAdapter;
     run: Runner;
     control: Control;
     entities: (mode: Mode) => string[];
+    /** Where looked-up products are kept, as the AI brush keeps them. */
+    productsDir: string;
   },
 ) {
   /**
@@ -791,13 +797,15 @@ export function fixtureRoutes(
    * picture better is kept, with any parts the person locked. Live only.
    */
   app.post('/api/fixtures/sculpt', async (request) => {
-    const { mode, fixtureId, jobId } = parseInput(
+    const { mode, fixtureId, jobId, note } = parseInput(
       z
         .object({
           mode: modeSchema,
           fixtureId: z.string().uuid(),
           /** The page's id for following the steps as they go. */
           jobId: z.string().uuid().optional(),
+          /** What the person says it is or wants of it: "it's a Dyson bladeless fan". */
+          note: z.string().trim().min(1).max(300).optional(),
         })
         .strict(),
       request.body,
@@ -849,7 +857,13 @@ export function fixtureRoutes(
         `There is no picture of the ${fixture.label.toLowerCase()} to model it from. Lift the fixtures off the room’s picture, or draft it from a photo.`,
         409,
       );
-    const ceiling = 2 * sparkCeiling(SPARK_BUDGET.sculpt, 2);
+    // A note is looked up as a product first: the catalog, then the web.
+    const ceiling =
+      2 * sparkCeiling(SPARK_BUDGET.sculpt, 2) +
+      (note
+        ? sparkCeiling(SPARK_BUDGET.productLookup, 0) +
+          SEARCH_CEILING * META_PRICES.webSearchPerQuery
+        : 0);
     if (!meta.canAfford(ceiling))
       throw new LabError(
         'spend_limit',
@@ -859,15 +873,19 @@ export function fixtureRoutes(
     const png = pictured.png;
     const { elevation } = pictured;
     const input = await cropInput(png, fixture.label);
+    const greyscale = await isGreyscale(png);
     const shown = async (b: Buffer) =>
       `data:image/png;base64,${(await sharp(b).flatten({ background: SCULPT_BACKDROP }).png().toBuffer()).toString('base64')}`;
-    const longest = Math.max(activeSize.w, activeSize.d);
-    const size = {
-      w: activeSize.w / longest,
-      d: activeSize.d / longest,
-      h: activeSize.h / longest,
+    // Its proportions: the fixture's, until a lookup gives the product's own.
+    const proportions = (s: { w: number; d: number; h: number }) => {
+      const longest = Math.max(s.w, s.d);
+      return { w: s.w / longest, d: s.d / longest, h: s.h / longest };
     };
-    const job = jobs.start(jobId, SCULPT_STEPS, {
+    let size = proportions(activeSize);
+    const steps = note
+      ? [SCULPT_STEPS[0]!, { id: 'lookup', label: 'Look it up' }, ...SCULPT_STEPS.slice(1)]
+      : SCULPT_STEPS;
+    const job = jobs.start(jobId, steps, {
       title: `Modelling the ${fixture.label.toLowerCase()}`,
       mode,
     });
@@ -884,6 +902,54 @@ export function fixtureRoutes(
       let usage: Usage | null = null;
       let model: string | undefined;
       let requestId: string | null = null;
+      let facts: MergedFacts | null = null;
+      let productTiles: { w: number; d: number; h: number } | null = null;
+      if (note) {
+        job.run('lookup');
+        const web: Researcher = {
+          kind: 'web',
+          lookup: async (q, need) => {
+            const r = await meta.lookupProduct(q, need, job.signal);
+            usage = sumUsage(usage, r.usage);
+            return r.output.facts;
+          },
+        };
+        // The lookup only helps: when it fails, Spark models from the note and the picture.
+        let failed: string | null = null;
+        const found = await research(
+          note,
+          ['parts', 'colors'],
+          [new Catalog([productsDir, BUNDLED_CATALOG]), web],
+          { signal: job.signal },
+        ).catch((e: unknown) => {
+          job.check();
+          failed = e instanceof Error ? e.message : 'It failed.';
+          return null;
+        });
+        job.check();
+        facts = found?.facts.sources.length ? found.facts : null;
+        // What the web found is kept, so the same thing next time comes from the catalog.
+        if (facts?.origin.name === 'web' || facts?.origin.size === 'web')
+          try {
+            new Catalog([productsDir, BUNDLED_CATALOG]).save({ ...facts, query: note });
+          } catch {
+            /* keeping it is a convenience; the model doesn't depend on it */
+          }
+        const real = facts && productSize(facts, activeSize);
+        if (real) {
+          productTiles = real;
+          size = proportions(real);
+        }
+        await job.done(
+          'lookup',
+          facts && found
+            ? `${facts.name ?? 'Found it'} (${found.asked.map((a) => `${a.kind}${a.found ? ' ✓' : ' –'}`).join(' · ')})`
+            : failed
+              ? `Couldn’t look it up (${failed}); modelling from your note and the picture`
+              : 'Nothing found; modelling from your note and the picture',
+        );
+      }
+      const context = { note: note ?? null, facts, greyscale };
       const drafts: { item: IsoItem; iou: number; note: string; round: number }[] = [];
       let from: IsoItem = { label: activeModel.label, parts: activeModel.parts };
       job.run('current');
@@ -900,7 +966,9 @@ export function fixtureRoutes(
         const answer = await meta.sculpt(
           await shown(png),
           await shown(render),
-          round === 1 ? sculptPrompt(fixture.label, size) : sculptCheckPrompt(fixture.label),
+          round === 1
+            ? sculptPrompt(fixture.label, size, context)
+            : sculptCheckPrompt(fixture.label, context),
           JSON.stringify(toSculpt(from)),
           job.signal,
         );
@@ -950,6 +1018,10 @@ export function fixtureRoutes(
           iou: best.iou,
           note: best.note,
           item,
+          ...(note ? { asked: note, product: facts?.name ?? null } : {}),
+          // The product's size in tiles, laid as this fixture stands; the save gives it the fixture.
+          ...(productTiles ? { size: productTiles } : {}),
+          greyscale,
         },
         model,
         requestId,
@@ -962,7 +1034,14 @@ export function fixtureRoutes(
       const event = await run('fixture', mode, (id) => sculptSteps(id));
       // Stopped while the last step ran: nothing is saved.
       job.check();
-      const out = event.output as { item: IsoItem };
+      const out = event.output as { item: IsoItem; size?: FixtureInput['size'] };
+      // The looked-up product's size, where each view keeps its size now, laid along its own longer side.
+      const sized = <F extends { size?: FixtureInput['size'] }>(f: F): F => {
+        const s = out.size;
+        if (!s || !f.size) return f;
+        const same = f.size.w >= f.size.d === s.w >= s.d;
+        return { ...f, size: same ? s : { w: s.d, d: s.w, h: s.h } };
+      };
       const now = new Date().toISOString();
       const saved: SavedItem = {
         ...out.item,
@@ -979,19 +1058,28 @@ export function fixtureRoutes(
           ? fixture.state
             ? {
                 ...f,
+                ...(f.states?.[fixture.state]?.size ? {} : sized({ size: f.size })),
                 states: {
                   ...f.states,
-                  [fixture.state]: { ...(f.states?.[fixture.state] ?? {}), model: saved },
+                  [fixture.state]: {
+                    ...(f.states?.[fixture.state]?.size
+                      ? sized(f.states[fixture.state]!)
+                      : (f.states?.[fixture.state] ?? {})),
+                    model: saved,
+                  },
                 },
                 updatedAt: now,
               }
-            : { ...f, model: saved, updatedAt: now }
+            : { ...sized(f), model: saved, updatedAt: now }
           : f,
       );
       store.saveMemory(fresh);
       await job.done(
         'save',
-        `Saved${group.size > 1 ? ` here and in ${group.size - 1} linked view${group.size > 2 ? 's' : ''}` : ''}`,
+        `Saved${group.size > 1 ? ` here and in ${group.size - 1} linked view${group.size > 2 ? 's' : ''}` : ''}` +
+          (out.size
+            ? `, sized as the product: ${[out.size.w, out.size.d, out.size.h].map((t) => Math.round(t * 30)).join(' × ')} cm`
+            : ''),
       );
       job.finish();
       return { memory: fresh, run: event };
@@ -1466,4 +1554,35 @@ export function fixtureRoutes(
     store.saveMemory(memory);
     return { memory, event };
   });
+}
+
+/** Whether a picture has no colour to speak of: a night or infrared camera's. */
+async function isGreyscale(png: Buffer): Promise<boolean> {
+  const { data, info } = await sharp(png).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+  let spread = 0;
+  let n = 0;
+  for (let i = 0; i < data.length; i += info.channels) {
+    if (data[i + 3]! < 128) continue;
+    spread +=
+      Math.max(data[i]!, data[i + 1]!, data[i + 2]!) -
+      Math.min(data[i]!, data[i + 1]!, data[i + 2]!);
+    n++;
+  }
+  return n > 0 && spread / n < 8;
+}
+
+/**
+ * A looked-up product's size in tiles, laid the way the fixture stands (its
+ * longer side along its own longer side), when the lookup is sure enough of
+ * it and it is a size a fixture can be. Null otherwise.
+ */
+export function productSize(
+  facts: Pick<ProductFacts, 'sizeCm' | 'confidence'>,
+  current: { w: number; d: number },
+): { w: number; d: number; h: number } | null {
+  const cm = facts.sizeCm;
+  if (!cm || facts.confidence < 0.5) return null;
+  const same = current.w >= current.d === cm.w >= cm.d;
+  const t = { w: (same ? cm.w : cm.d) / 30, d: (same ? cm.d : cm.w) / 30, h: cm.h / 30 };
+  return [t.w, t.d, t.h].every((v) => v >= 0.1 && v <= 8) ? t : null;
 }

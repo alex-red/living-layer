@@ -1190,6 +1190,7 @@ function SculptFixture({ fixture, disabled }: { fixture: Fixture; disabled: bool
     fixture.id,
     ...linkedFixtures(memory?.fixtures ?? [], fixture).map((x) => x.id),
   ]);
+  const [note, setNote] = useState('');
   const lifted = memory?.illustration?.layers?.sprites.some((x) => group.has(x.fixtureId));
   // As the server finds a picture: its cut-out, its fitted crop, else the scan's crop of it
   // seen through the calibrated camera.
@@ -1208,17 +1209,39 @@ function SculptFixture({ fixture, disabled }: { fixture: Fixture; disabled: bool
         : !pictured
           ? 'Lift the fixtures off the room’s picture, or draft it from a photo, first.'
           : null;
+  const off = disabled || Boolean(busy) || Boolean(why);
+  const go = () => void lab.sculptFixture(fixture.id, note.trim() || undefined);
   return (
     <div className="sculpt-fixture">
-      <Button
-        disabled={disabled || Boolean(busy) || Boolean(why)}
-        onClick={() => void lab.sculptFixture(fixture.id)}
+      <form
+        className="brush-prompt"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (!off) go();
+        }}
       >
-        {busy === 'sculpt' ? 'Modelling…' : 'Model with AI'}
-      </Button>
+        <textarea
+          aria-label={`What to know about the ${fixture.label.toLowerCase()} before modelling it`}
+          rows={2}
+          maxLength={300}
+          value={note}
+          disabled={off}
+          placeholder="Optional: “it’s a Dyson Pure Cool tower fan”, “give it a round base”"
+          onChange={(e) => setNote(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+              e.preventDefault();
+              if (!off) go();
+            }
+          }}
+        />
+        <Button type="submit" disabled={off}>
+          {busy === 'sculpt' ? 'Modelling…' : 'Model with AI'}
+        </Button>
+      </form>
       <p className="micro">
         {why ??
-          `Spark rebuilds its model in editable parts from its ${lifted ? 'cut-out' : 'photo'}, keeping locked parts · 2 Spark calls, ~$0.05–0.10, a minute or two.`}
+          `Spark rebuilds its model in editable parts from its ${lifted ? 'cut-out' : 'photo'}, keeping locked parts${note.trim() ? ', and looks up what you name first (catalog, then the web)' : ''} · ${note.trim() ? '3' : '2'} Spark calls, ~$0.05–${note.trim() ? '0.15' : '0.10'}, a minute or two.`}
       </p>
     </div>
   );

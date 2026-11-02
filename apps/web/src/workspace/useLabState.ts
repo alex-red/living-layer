@@ -2191,10 +2191,10 @@ export function useLabState() {
   }
   /**
    * Rebuild a fixture's model with Spark from the picture of it (two Spark
-   * calls, live), step by step in the AI dialog where it can be stopped, then
-   * open it to edit.
+   * calls, live; a third looks up what the person says of it, `note`, first),
+   * step by step in the AI dialog where it can be stopped, then open it to edit.
    */
-  async function sculptFixture(id: string) {
+  async function sculptFixture(id: string, note?: string) {
     if (busy) return;
     const f = memory?.fixtures?.find((x) => x.id === id);
     if (!f) return;
@@ -2204,22 +2204,23 @@ export function useLabState() {
       const result = await followAi(
         {
           title: `Modelling the ${f.label.toLowerCase()}`,
-          description:
-            'Spark rebuilds its model in parts from its picture, then checks its own draft. Two Spark calls, about $0.05 to $0.10.',
+          description: note
+            ? `Looks up “${note}”, then Spark rebuilds its model in parts from its picture and checks its own draft. Three Spark calls, about $0.05 to $0.15.`
+            : 'Spark rebuilds its model in parts from its picture, then checks its own draft. Two Spark calls, about $0.05 to $0.10.',
         },
         (jobId, signal) =>
           api<{ run: EvidenceRun; memory: DeskMemory }>(
             'fixtures/sculpt',
-            { mode, fixtureId: id, jobId },
+            { mode, fixtureId: id, jobId, ...(note ? { note } : {}) },
             { signal },
           ),
       );
       if (!result) return;
       setMemory(result.memory);
       setSelected(result.run);
-      const out = result.run.output as { parts: number; note: string };
+      const out = result.run.output as { parts: number; note: string; product?: string | null };
       setMessage(
-        `Modelled the ${f.label.toLowerCase()} in ${out.parts} parts${costNote(result.run)}. ${out.note} Edit it here; undo puts the old model back.`,
+        `Modelled the ${f.label.toLowerCase()}${out.product ? ` as the ${out.product}` : ''} in ${out.parts} parts${costNote(result.run)}. ${out.note} Edit it here; undo puts the old model back.`,
       );
       openModel(id);
       void refresh().catch(() => {});

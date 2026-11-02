@@ -4,9 +4,11 @@ import sharp from 'sharp';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { buildApp } from '../apps/server/src/app.js';
+import { productSize } from '../apps/server/src/fixture.js';
 import { parseConfig, type Fetcher } from '../apps/server/src/config.js';
 import { syntheticStream } from '../apps/server/src/sam.js';
 import {
+  sculptPrompt,
   DEMO_CAMERA,
   DEMO_SURFACE as ROOM_SURFACE,
   ISO_PRESETS,
@@ -1033,6 +1035,42 @@ describe('scanning live, with a mocked Meta API', () => {
       ['stand', 'tube'],
     ]);
     expect(after.run.assets).toContain(`${after.run.id}/render-final.png`);
+    // A note is looked up first (the catalog knows this one, so no web search) and told to Spark.
+    calls.length = 0;
+    const noted = crypto.randomUUID();
+    const withNote = await s.post('fixtures/sculpt', {
+      mode: 'live',
+      fixtureId: lamp.id,
+      jobId: noted,
+      note: 'It’s an IKEA Alex desk',
+    });
+    expect(withNote.statusCode, withNote.body).toBe(200);
+    const lookedUp = (await s.app.inject(`/api/jobs/${noted}`)).json<Job>().steps[1]!;
+    expect([lookedUp.id, lookedUp.state, lookedUp.detail]).toEqual([
+      'lookup',
+      'done',
+      'IKEA ALEX desk (catalog ✓)',
+    ]);
+    expect(calls).toHaveLength(2);
+    for (const call of calls) {
+      expect(call).toContain('The person says about it: "It’s an IKEA Alex desk"');
+      expect(call).toContain('What is known of the product: It is the IKEA ALEX desk.');
+    }
+    expect(withNote.json<{ run: EvidenceRun }>().run.output).toMatchObject({
+      asked: 'It’s an IKEA Alex desk',
+      product: 'IKEA ALEX desk',
+    });
+    // The product's size (131 × 60 × 76 cm) is the fixture's now, along its own longer side.
+    const resized = withNote
+      .json<{ memory: DeskMemory }>()
+      .memory.fixtures!.find((f) => f.id === lamp.id)!.size;
+    const long = lamp.size.w >= lamp.size.d;
+    expect(resized).toEqual(
+      long ? { w: 131 / 30, d: 2, h: 76 / 30 } : { w: 2, d: 131 / 30, h: 76 / 30 },
+    );
+    expect((await s.app.inject(`/api/jobs/${noted}`)).json<Job>().steps.at(-1)!.detail).toMatch(
+      /sized as the product: (131 × 60|60 × 131) × 76 cm$/,
+    );
     // The demo has no Spark to ask.
     expect((await s.post('fixtures/sculpt', { fixtureId: lamp.id })).statusCode).toBe(400);
     await s.app.close();
@@ -1162,5 +1200,26 @@ describe('scanning live, with a mocked Meta API', () => {
     await pin(poor);
     expect((await poor.scan()).statusCode).toBe(429);
     expect(poor.prompts).toEqual([]);
+  });
+});
+
+describe('a looked-up product’s size for a fixture', () => {
+  const alex = { sizeCm: { w: 131, d: 60, h: 76 }, confidence: 0.9 };
+  it('lays it along the fixture’s own longer side, in tiles', () => {
+    expect(productSize(alex, { w: 4, d: 2 })).toEqual({ w: 131 / 30, d: 2, h: 76 / 30 });
+    expect(productSize(alex, { w: 2, d: 4 })).toEqual({ w: 2, d: 131 / 30, h: 76 / 30 });
+  });
+  it('keeps the fixture’s own when the lookup is unsure or the size is not one a fixture can be', () => {
+    expect(productSize({ ...alex, confidence: 0.3 }, { w: 4, d: 2 })).toBeNull();
+    expect(productSize({ confidence: 0.9 }, { w: 4, d: 2 })).toBeNull();
+    expect(
+      productSize({ sizeCm: { w: 900, d: 60, h: 76 }, confidence: 0.9 }, { w: 4, d: 2 }),
+    ).toBeNull();
+  });
+  it('tells Spark a greyscale picture is for shape only', () => {
+    expect(sculptPrompt('Fan', { w: 1, d: 1, h: 3 }, { greyscale: true })).toContain(
+      'use it for shape only',
+    );
+    expect(sculptPrompt('Fan', { w: 1, d: 1, h: 3 })).not.toContain('greyscale');
   });
 });

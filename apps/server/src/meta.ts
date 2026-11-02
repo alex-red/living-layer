@@ -168,6 +168,29 @@ function classifyCause(e: unknown): string {
   }
   return 'upstream_failure';
 }
+/**
+ * The JSON a response answers with. With a tool such as web search, Spark can
+ * say a sentence around it or answer in more than one message, so after the
+ * whole text the last message is tried, then the outermost braces in each;
+ * the schema still decides whether it is the answer. Undefined when none parse.
+ */
+function parsedJson(response: OpenAI.Responses.Response): unknown {
+  const messages = response.output
+    .filter((o): o is OpenAI.Responses.ResponseOutputMessage => o.type === 'message')
+    .map((m) => m.content.map((c) => (c.type === 'output_text' ? c.text : '')).join(''))
+    .reverse();
+  for (const text of [response.output_text, ...messages]) {
+    const braces = text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1);
+    for (const candidate of [text, braces])
+      try {
+        if (candidate) return JSON.parse(candidate) as unknown;
+      } catch {
+        /* the next candidate */
+      }
+  }
+  return undefined;
+}
+
 export class MetaAdapter {
   private client: OpenAI;
   constructor(
@@ -1071,17 +1094,14 @@ export class MetaAdapter {
         ...(code ? { providerCode: code } : {}),
       });
     }
-    let data: unknown;
-    try {
-      data = JSON.parse(response.output_text);
-    } catch {
+    const data = parsedJson(response);
+    if (data === undefined)
       throw new LabError(
         'invalid_response',
         `Spark's ${what} was not valid JSON (${response.output_text.length.toLocaleString('en')} characters).`,
         502,
         { ...detail, reason: 'invalid_json' },
       );
-    }
     const result = schema.safeParse(data);
     if (!result.success)
       throw new LabError(

@@ -1208,6 +1208,9 @@
   margin-top: 8px;
   justify-items: start;
 }
+.sculpt-fixture .brush-prompt {
+  justify-self: stretch;
+}
 
 /* The tool strip, and beside it how fixtures show on the room's picture. */
 .stage-tools {

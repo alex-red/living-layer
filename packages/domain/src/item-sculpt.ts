@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { ProductFacts } from './facts.js';
 import { ITEM_MATERIALS, itemPartSchema, type IsoItem, type ItemPart } from './iso-item.js';
 
 /**
@@ -163,18 +164,60 @@ const FORMAT = [
   'Give each part its main colour as lowercase #rrggbb and a material (matte, gloss, metal, glass, fabric, wood); bands paint horizontal stripes on it, from and to as shares of its height. Use few parts and get the big shapes right first.',
 ];
 /** What Spark is asked: our part format, and how to build the thing from its picture. */
-export function sculptPrompt(label: string, size: { w: number; d: number; h: number }): string {
+/**
+ * What the person said about the thing before modelling it ("it's a Dyson
+ * bladeless fan"), and what a lookup found of that product: Spark models by
+ * both, the picture still deciding where they disagree.
+ */
+export interface SculptContext {
+  note?: string | null;
+  facts?: ProductFacts | null;
+  /** The picture has no colour (a night or infrared camera): colours come from the words. */
+  greyscale?: boolean;
+}
+function contextLines({ note, facts, greyscale }: SculptContext = {}): string[] {
+  const lines: string[] = [];
+  if (greyscale)
+    lines.push(
+      'The first image is greyscale, from a night or infrared camera: use it for shape only, and take colours from what the person says or what is known of the product, else plain neutral ones.',
+    );
+  if (note) lines.push(`The person says about it: "${note}". Follow it where the picture allows.`);
+  if (!facts) return lines;
+  const known = [
+    facts.name ? `It is the ${facts.name}.` : '',
+    facts.sizeCm ? `It measures ${facts.sizeCm.w} × ${facts.sizeCm.d} × ${facts.sizeCm.h} cm.` : '',
+    facts.parts?.length
+      ? `Its parts: ${facts.parts.map((p) => (p.count && p.count > 1 ? `${p.count} × ${p.name}` : p.name)).join(', ')}.`
+      : '',
+    facts.colors?.length
+      ? `Its colours: ${facts.colors.map((c) => `${c.name} ${c.hex}`).join(', ')}.`
+      : '',
+    facts.materials?.length ? `Its materials: ${facts.materials.join(', ')}.` : '',
+  ].filter(Boolean);
+  if (known.length)
+    lines.push(
+      `What is known of the product: ${known.join(' ')} The picture wins where they differ.`,
+    );
+  return lines;
+}
+export function sculptPrompt(
+  label: string,
+  size: { w: number; d: number; h: number },
+  context?: SculptContext,
+): string {
   return [
     `Model the ${label.toLowerCase()} in the first image as a small parametric 3D model, made of at most 12 parts. The second image is how the current model renders from the same angle; its parts are given below as JSON. Start from them: keep what is right, fix what is wrong, and add or remove parts so the render matches the first image.`,
     `It stands ${size.w.toFixed(2)} wide, ${size.d.toFixed(2)} deep and ${size.h.toFixed(2)} tall, as its footprint's longer side is 1.`,
+    ...contextLines(context),
     ...FORMAT,
     'Say in note what you changed.',
   ].join('\n');
 }
 /** What Spark is asked on its second look: its own model rendered beside the picture. */
-export function sculptCheckPrompt(label: string): string {
+export function sculptCheckPrompt(label: string, context?: SculptContext): string {
   return [
     `The first image is the ${label.toLowerCase()}; the second is your model of it rendered from the same angle, with its parts below as JSON. Correct the parts so the render matches the first image better: proportions, widths, positions, colours and any missing or unclosed piece.`,
+    ...contextLines(context),
     ...FORMAT,
     'Say in note what you changed.',
   ].join('\n');

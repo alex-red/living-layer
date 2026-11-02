@@ -234,6 +234,7 @@ export async function buildApp(
     control: async (mode, entityId, action) =>
       mode === 'demo' ? demoLampFor(entityId, action) : switchLive(entityId, action),
     entities,
+    productsDir: join(config.dataDir, 'products'),
   });
   const remote = options.remote ?? new RemoteCamera();
   remoteRoutes(app, config, remote);

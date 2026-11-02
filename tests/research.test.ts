@@ -183,7 +183,7 @@ describe('looking a product up with Spark’s web search, against a mocked Meta 
     materials: ['matte'],
     confidence: 0.85,
   };
-  const reply = (body: object) =>
+  const reply = (body: object, text = JSON.stringify(body)) =>
     new Response(
       JSON.stringify({
         id: 'resp_lookup',
@@ -212,7 +212,7 @@ describe('looking a product up with Spark’s web search, against a mocked Meta 
             content: [
               {
                 type: 'output_text',
-                text: JSON.stringify(body),
+                text,
                 annotations: [
                   {
                     type: 'url_citation',
@@ -259,5 +259,24 @@ describe('looking a product up with Spark’s web search, against a mocked Meta 
     expect(facts!.sizeCm).toEqual({ w: 131, d: 60, h: 76 });
     // Tokens, and two searches at $0.0025 each.
     expect(store.spentToday()).toBeCloseTo((1000 * 1.25 + 500 * 4.25) / 1e6 + 2 * 0.0025, 8);
+  });
+
+  it('reads the answer when Spark says a sentence around its JSON', async () => {
+    const config = parseConfig({
+      DATA_DIR: tempDir(),
+      MODEL_API_KEY: 'test-key',
+      META_LIVE_ENABLED: 'true',
+    });
+    const store = new EvidenceStore(config.dataDir);
+    const fetcher = mock<Fetcher>().mockImplementation(async () =>
+      reply(
+        lookup,
+        `Here is what I found on the maker's page:\n\`\`\`json\n${JSON.stringify(lookup)}\n\`\`\``,
+      ),
+    );
+    const result = await new MetaAdapter(config, store, fetcher).lookupProduct('IKEA Alex desk', [
+      'size',
+    ]);
+    expect(result.output.facts!.sizeCm).toEqual({ w: 131, d: 60, h: 76 });
   });
 });
