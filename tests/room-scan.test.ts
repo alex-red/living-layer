@@ -32,10 +32,13 @@ import {
   thingSolids,
   refineWalls,
   turnWall,
-  type TemplateId,
   resizeRoom,
-  type IsoScene,
   type RoomCalibration,
+  sceneOf,
+  layoutRoom,
+  roomCase,
+  type IsoScene,
+  scanCase,
 } from '@livinglayer/domain';
 import { demoPhotoInventory, demoPhotoSegmentation } from '../apps/server/src/demo.js';
 
@@ -43,18 +46,7 @@ describe('laying out a room from its calibrated camera', () => {
   for (const c of ROOM_CASES)
     it(`places everything in ${c.name} where it stands`, () => {
       const scene = c.scene();
-      const truth = c.camera(scene);
-      const s = roomCase(scene, truth, c.guess);
-      const marks = marksOf(truth);
-      const fit = cameraFromMarks(marks, truth.frame, truth.room);
-      const calibration: RoomCalibration = {
-        camera: fit.camera,
-        marks,
-        scene: 'custom',
-        error: fit.error,
-        calibratedAt: new Date(0).toISOString(),
-      };
-      const j = judgeRoom(layoutRoom({ ...s, calibration }), s.truth);
+      const j = scanCase(scene, c.camera(scene), c).judged;
       expect(j.worst).toBeLessThanOrEqual(ROOM_TARGETS.position);
       expect(j.size).toBeLessThanOrEqual(ROOM_TARGETS.size);
       expect(j.wrongTurns).toBe(0);
@@ -62,73 +54,48 @@ describe('laying out a room from its calibrated camera', () => {
 
   it('stops a desk Spark guessed long at the bookcase beside it, and leaves the bookcase', () => {
     // A bookcase in the back corner, a 120 cm desk to its right along the back wall.
-    let scene: IsoScene = {
-      kind: 'custom',
-      label: 'Study',
-      grid: { w: 12, d: 9 },
-      props: [],
-      surfaces: [],
-    };
-    for (const [id, g, x, y] of [
-      ['wall', 'wall-back', 0, 0],
-      ['shelf', 'shelf', 0.4, 0.2],
-      ['desk', 'desk', 3.6, 0.2],
-    ] as const) {
-      const built = placeTemplate(id, g, x, y, 0);
-      scene = {
-        ...scene,
-        props: [...scene.props, ...built.props],
-        surfaces: [...scene.surfaces, ...built.surfaces],
-      };
-    }
-    const truth = cornerCamera(scene.grid);
+    const scene = sceneOf(
+      [
+        { template: 'wall', id: 'wall-back', x: 0, y: 0 },
+        { template: 'shelf', x: 0.4, y: 0.2 },
+        { template: 'desk', x: 3.6, y: 0.2 },
+      ],
+      { grid: { w: 12, d: 9 } },
+    );
     // Guessed at 230 cm, it would reach back into the bookcase.
-    const s = roomCase(scene, truth, { desk: { w: 230 } });
-    const marks = marksOf(truth);
-    const fit = cameraFromMarks(marks, truth.frame, truth.room);
-    const layout = layoutRoom({
-      ...s,
-      calibration: {
-        camera: fit.camera,
-        marks,
-        scene: 'custom',
-        error: fit.error,
-        calibratedAt: '',
-      },
-    });
-    const box = (id: string) =>
-      groupBounds(layout.scene, layout.things.find((t) => t.id === id)!.group!)!;
-    const desk = box('desk');
-    const shelf = box('shelf');
+    const { boxes } = scanCase(scene, cornerCamera(scene.grid), { guess: { desk: { w: 230 } } });
+    const [desk, shelf] = [boxes.desk!, boxes.shelf!];
     expect(desk.at.x).toBeGreaterThanOrEqual(shelf.at.x + shelf.size.w - 0.02);
     expect(Math.abs(shelf.at.x - 0.4)).toBeLessThan(0.15);
     // Its near end, which the camera sees, stays where it is.
     expect(Math.abs(desk.at.x + desk.size.w - (3.6 + 4))).toBeLessThan(0.15);
   });
+  // The near end the camera doesn't see isn't where it is cut: 140 cm, to a couple of centimetres.
+  for (const [name, why] of [
+    ['desk cut off by the frame', 'the frame cuts off'],
+    ["desk's near end hidden", 'a cabinet hides'],
+  ])
+    it(`keeps the length of a desk whose near end ${why}, clear of the bookcase`, () => {
+      const c = ROOM_CASES.find((c) => c.name === name)!;
+      const scene = c.scene();
+      const { boxes } = scanCase(scene, c.camera(scene), c);
+      const [desk, shelf] = [boxes.desk!, boxes.shelf!];
+      expect(Math.abs(desk.size.d * 30 - 140)).toBeLessThan(2);
+      expect(desk.at.y).toBeGreaterThanOrEqual(shelf.at.y + shelf.size.d - 0.02);
+    });
   it('turns a wall marked askew back to the things standing against it', () => {
     // A desk along the back wall, four things on it against that wall.
-    let scene: IsoScene = {
-      kind: 'custom',
-      label: 'Study',
-      grid: { w: 12, d: 10 },
-      props: [],
-      surfaces: [],
-    };
-    const add = (id: TemplateId, g: string, x: number, y: number, z = 0) => {
-      const built = placeTemplate(id, g, x, y, z);
-      scene = {
-        ...scene,
-        props: [...scene.props, ...built.props],
-        surfaces: [...scene.surfaces, ...built.surfaces],
-      };
-    };
-    add('wall', 'wall-back', 0, 0);
-    add('wall', 'wall-left', 0, 0.2);
-    add('desk', 'desk', 2, 0.2);
-    const top = scene.surfaces.find((s) => s.propId === 'desk')!.z;
-    (['bottle', 'jar', 'carton', 'book'] as const).forEach((id, i) =>
-      add(id, id, 2.4 + i, 0.2, top),
-    );
+    const scene = sceneOf([
+      { template: 'wall', id: 'wall-back', x: 0, y: 0 },
+      { template: 'wall', id: 'wall-left', x: 0, y: 0.2 },
+      { template: 'desk', x: 2, y: 0.2 },
+      ...(['bottle', 'jar', 'carton', 'book'] as const).map((template, i) => ({
+        template,
+        x: 2.4 + i,
+        y: 0.2,
+        on: 'desk',
+      })),
+    ]);
     const truth = cornerCamera(scene.grid);
     const s = roomCase(scene, truth);
     // Marked where the floor meets the walls' inner faces, as a person would.
@@ -168,20 +135,7 @@ describe('laying out a room from its calibrated camera', () => {
   it('builds a bookcase as tall as Spark says, with its top up there', () => {
     const c = ROOM_CASES[0]!;
     const scene = c.scene();
-    const truth = c.camera(scene);
-    const s = roomCase(scene, truth, { shelf: { h: 180 } });
-    const marks = marksOf(truth);
-    const fit = cameraFromMarks(marks, truth.frame, truth.room);
-    const layout = layoutRoom({
-      ...s,
-      calibration: {
-        camera: fit.camera,
-        marks,
-        scene: 'custom',
-        error: fit.error,
-        calibratedAt: '',
-      },
-    });
+    const { layout } = scanCase(scene, c.camera(scene), { guess: { shelf: { h: 180 } } });
     const shelf = layout.things.find((t) => t.id === 'shelf')!;
     const box = groupBounds(layout.scene, shelf.group!)!;
     expect(box.size.h * 30).toBeCloseTo(180, 0);

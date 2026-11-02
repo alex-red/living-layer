@@ -12,16 +12,7 @@
  *   bun run bench:room --set desk.legCm=4,6,8      sweep a measurement
  *   bun run bench:room --set layout.pastTop=2,4,8  sweep one of the layout's numbers
  */
-import {
-  ROOM_CASES,
-  ROOM_TARGETS,
-  cameraFromMarks,
-  judgeRoom,
-  layoutRoom,
-  marksOf,
-  roomCase,
-  type RoomCalibration,
-} from '@livinglayer/domain';
+import { ROOM_CASES, ROOM_TARGETS, scanCase } from '@livinglayer/domain';
 import { parseArgs, variants, withVariant } from './lib/args.js';
 import { report, type Row } from './lib/bench.js';
 
@@ -32,21 +23,8 @@ for (const v of swept)
   for (const c of ROOM_CASES)
     withVariant(v, () => {
       const scene = c.scene();
-      const truthCamera = c.camera(scene);
-      const s = roomCase(scene, truthCamera, c.guess);
       // Calibrated from the room's marks, as a person would, not handed the true camera.
-      const fit = cameraFromMarks(marksOf(truthCamera), truthCamera.frame, truthCamera.room);
-      const calibration: RoomCalibration = {
-        camera: fit.camera,
-        marks: marksOf(truthCamera),
-        scene: 'custom',
-        error: fit.error,
-        calibratedAt: new Date(0).toISOString(),
-      };
-      const start = performance.now();
-      const layout = layoutRoom({ ...s, calibration });
-      const ms = Math.round(performance.now() - start);
-      const j = judgeRoom(layout, s.truth);
+      const { judged: j, ms, inventory } = scanCase(scene, c.camera(scene), c);
       rows.push({
         case: c.name,
         variant: v.label,
@@ -60,7 +38,11 @@ for (const v of swept)
           'wrong turns': { value: j.wrongTurns, target: 0, better: 'lower', digits: 0 },
           size: { value: j.size, target: ROOM_TARGETS.size, better: 'lower', unit: 'tiles' },
         },
-        notes: { worst: j.who, ms: String(ms), things: String(s.inventory.things.length) },
+        notes: {
+          worst: j.who,
+          ms: String(Math.round(ms)),
+          things: String(inventory.things.length),
+        },
       });
     });
 process.exit(report(rows, args, 'room bench', swept));
