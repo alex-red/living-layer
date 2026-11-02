@@ -13,11 +13,14 @@ import { join, resolve } from 'node:path';
 
 export const repoRoot = resolve(import.meta.dir, '..', '..');
 
-/** What to check out: a commit as it is, or with this checkout's staged changes, or some paths as they are now. */
+/**
+ * What to check out: a commit as it is, or with this checkout's staged
+ * changes, or some paths as they are now, after a patch of hunks if given.
+ */
 export type Snapshot =
   | { ref: string }
   | { ref: string; staged: true }
-  | { ref: string; paths: string[] };
+  | { ref: string; paths: string[]; patch?: string };
 
 /** `--at <ref>`, `--at staged` (HEAD and the index): a snapshot from a flag's value. */
 export const snapshotOf = (at: string): Snapshot =>
@@ -27,29 +30,37 @@ export const describeSnapshot = (s: Snapshot) =>
   'staged' in s
     ? `${s.ref} and what is staged`
     : 'paths' in s
-      ? `${s.ref} and ${s.paths.length} path(s) as they are now`
+      ? `${s.ref} ${s.patch ? 'with a patch and' : 'and'} ${s.paths.length} path(s) as they are now`
       : s.ref;
 
-export function git(args: string[], cwd = repoRoot, input?: string) {
-  const r = spawnSync('git', args, { cwd, encoding: 'utf8', input, maxBuffer: 256 << 20 });
+export function git(args: string[], cwd = repoRoot, input?: string, env?: Record<string, string>) {
+  const r = spawnSync('git', args, {
+    cwd,
+    encoding: 'utf8',
+    input,
+    maxBuffer: 256 << 20,
+    env: env && { ...process.env, ...env },
+  });
   return { ok: r.status === 0, code: r.status ?? 1, out: r.stdout ?? '', err: r.stderr ?? '' };
 }
 
 /**
  * The changes a snapshot puts on top of its commit, as a binary patch: the
- * index against the commit, or the named paths as they are on disk, new
- * files included. Empty when there is nothing on top.
+ * index against the commit, or the patch given and the named paths as they
+ * are on disk, new files included. Empty when there is nothing on top.
  */
 export function snapshotPatch(s: Snapshot, cwd = repoRoot): string {
   if ('staged' in s) return git(['diff', '--binary', '--cached', s.ref], cwd).out;
   if (!('paths' in s)) return '';
+  // No paths would mean the whole tree to `git diff`.
+  if (!s.paths.length) return s.patch ?? '';
   const tracked = new Set(
     git(['ls-files', '-z', '--', ...s.paths], cwd)
       .out.split('\0')
       .filter(Boolean),
   );
   // Tracked paths (changed or deleted) diff against the commit; new files against nothing.
-  let patch = git(['diff', '--binary', s.ref, '--', ...s.paths], cwd).out;
+  let patch = (s.patch ?? '') + git(['diff', '--binary', s.ref, '--', ...s.paths], cwd).out;
   for (const p of s.paths)
     if (!tracked.has(p) && existsSync(join(cwd, p)))
       // --no-index exits 1 when the files differ, which they always do here.
