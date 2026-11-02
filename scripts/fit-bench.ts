@@ -14,7 +14,12 @@
  *   from, and the fixture pictures (a mouse from above, a lamp), cut out by
  *   their outlines;
  * - real crops: any `testdata/items/<name>.png` (a masked RGBA crop) with a
- *   `<name>.json` of `{ "label", "archetype", "elevation"? }` beside it.
+ *   `<name>.json` of `{ "label", "archetype", "elevation"?, "object"?,
+ *   "sizeCm"? }` beside it. With `sizeCm` (the real height and rim, in cm),
+ *   `shape` is how far the fit's height over rim is from the real one's;
+ *   crops sharing an `object` get a row of how far their views disagree
+ *   (`spread`). Silhouettes can match each crop while the shapes disagree,
+ *   so these say more about the model than IoU does (SHAPE_TARGETS).
  *
  *   bun run bench:fit
  *   bun run bench:fit --json out/fit-base.json, later --compare out/fit-base.json
@@ -27,6 +32,8 @@ import sharp from 'sharp';
 import {
   ARCHETYPE_FAMILY,
   FIT_TARGETS,
+  SHAPE_TARGETS,
+  latheProportions,
   buildItem,
   defaultFit,
   fitItem,
@@ -45,6 +52,8 @@ interface Case {
   name: string;
   input: FitInput;
   source: 'synthetic' | 'demo' | 'real';
+  object?: string;
+  sizeCm?: { h: number; rim: number; estimate?: boolean };
 }
 const cases: Case[] = [];
 const synthetic = (
@@ -120,10 +129,16 @@ if (existsSync(dir))
   for (const file of readdirSync(dir).filter((f) => f.endsWith('.png'))) {
     const meta = join(dir, file.replace(/\.png$/, '.json'));
     if (!existsSync(meta)) continue;
-    const { label, archetype, elevation } = JSON.parse(readFileSync(meta, 'utf8')) as {
+    const { label, archetype, elevation, object, sizeCm } = JSON.parse(
+      readFileSync(meta, 'utf8'),
+    ) as {
       label: string;
       archetype: Archetype;
       elevation?: number;
+      /** Crops of one thing share it, so the bench can say whether its views agree. */
+      object?: string;
+      /** The real thing's height and rim, in cm; `estimate` when not measured. */
+      sizeCm?: { h: number; rim: number; estimate?: boolean };
     };
     const { data, info } = await sharp(join(dir, file))
       .ensureAlpha()
@@ -132,6 +147,8 @@ if (existsSync(dir))
     cases.push({
       name: file.replace(/\.png$/, ''),
       source: 'real',
+      ...(object ? { object } : {}),
+      ...(sizeCm ? { sizeCm } : {}),
       input: {
         rgba: new Uint8Array(data),
         width: info.width,
@@ -152,6 +169,8 @@ if (existsSync(dir))
  */
 const KNOWN_GAPS = new Set(['desk lamp 15°', 'illustrated lamp', 'demo room mug, close up']);
 const rows: Row[] = [];
+/** Each thing's height over rim, per view, for the across-views rows. */
+const views = new Map<string, number[]>();
 for (const c of cases) {
   const start = performance.now();
   const out = fitItem(c.input);
@@ -160,6 +179,8 @@ for (const c of cases) {
   const lathe = ARCHETYPE_FAMILY[c.input.archetype ?? 'generic'] === 'lathe';
   const iou = out.score.iou.toFixed(3);
   const deltaE = out.score.deltaE.toFixed(2);
+  const rim = out.params.family === 'lathe' ? latheProportions(out.params).rim : null;
+  if (rim !== null && c.object) views.set(c.object, [...(views.get(c.object) ?? []), rim]);
   rows.push({
     case: c.name,
     variant: 'as built',
@@ -168,6 +189,18 @@ for (const c of cases) {
       ? {
           IoU: { value: out.score.iou, target: FIT_TARGETS.iou, better: 'higher', digits: 3 },
           ΔE: { value: out.score.deltaE, target: FIT_TARGETS.deltaE, better: 'lower' },
+          // A silhouette can match its crop and be the wrong shape: against the real one.
+          ...(rim !== null && c.sizeCm
+            ? {
+                shape: {
+                  value: Math.abs(rim / (c.sizeCm.h / c.sizeCm.rim) - 1),
+                  target: SHAPE_TARGETS.aspect,
+                  better: 'lower' as const,
+                  unit: '%' as const,
+                  digits: 0,
+                },
+              }
+            : {}),
         }
       : {},
     notes: {
@@ -179,6 +212,22 @@ for (const c of cases) {
     },
   });
 }
+// One thing seen from several sides should come out one shape.
+for (const [object, rims] of views)
+  if (rims.length > 1)
+    rows.push({
+      case: `${object}, across ${rims.length} views`,
+      variant: 'as built',
+      knownGap: true,
+      metrics: {
+        spread: {
+          value: Math.max(...rims) - Math.min(...rims),
+          target: SHAPE_TARGETS.spread,
+          better: 'lower',
+        },
+      },
+      notes: { source: 'real', 'height/rim': rims.map((r) => r.toFixed(2)).join(' ') },
+    });
 const code = report(rows, parseArgs(), 'fit');
 console.log('* shown, not held to a target: only turned bodies are.');
 if (!cases.some((c) => c.source === 'real'))

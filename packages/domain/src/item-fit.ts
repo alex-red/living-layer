@@ -1112,6 +1112,30 @@ export function refineFit(
  * tests: silhouette overlap at least `iou`, colour error at most `deltaE`.
  */
 export const FIT_TARGETS = { iou: 0.9, deltaE: 8 } as const;
+/**
+ * What a turned body's shape should reach against the real thing, when its
+ * size is known: height over rim within `aspect` (a share) of the real
+ * one's, and views of one thing agreeing within `spread` of each other.
+ * A silhouette can match its own crop and still be the wrong shape.
+ */
+export const SHAPE_TARGETS = { aspect: 0.15, spread: 0.2 } as const;
+
+/** A turned body's radius at a share of its height, from its profile. */
+export function profileRadius(fit: LatheFit, z: number): number {
+  const p = fit.profile;
+  for (let i = 1; i < p.length; i++)
+    if (p[i]!.z >= z) {
+      const a = p[i - 1]!;
+      const b = p[i]!;
+      return fit.radius * (a.r + ((b.r - a.r) * (z - a.z)) / (b.z - a.z || 1));
+    }
+  return fit.radius * (p.at(-1)?.r ?? 1);
+}
+/** Height over the body's width at its base, middle and rim (5, 50 and 95% up). */
+export function latheProportions(fit: LatheFit) {
+  const at = (z: number) => fit.height / (2 * profileRadius(fit, z));
+  return { base: at(0.05), middle: at(0.5), rim: at(0.95) };
+}
 export function fitItem(input: FitInput): FitOutput {
   const photo = preparePhoto(input);
   const archetype = input.archetype ?? 'generic';

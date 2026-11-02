@@ -11,6 +11,7 @@ import {
   hexLab,
   isoItemSchema,
   isoSurface,
+  latheProportions,
   paintAt,
   partPrims,
   renderSprite,
@@ -213,6 +214,22 @@ describe('model kernel', () => {
     // Seen from above, a tall can looks shorter and its top ellipse rounder.
     expect(high.height).toBeLessThan(low.height);
     expect(Math.abs(low.width - high.width)).toBeLessThanOrEqual(2);
+  });
+});
+
+describe('a turned body’s proportions', () => {
+  it('reads height over width at the base, middle and rim from the profile', () => {
+    const fit = defaultFit('mug') as LatheFit;
+    fit.radius = 0.5;
+    fit.height = 1.2;
+    fit.profile = [
+      { r: 0.8, z: 0 },
+      { r: 1, z: 1 },
+    ];
+    const p = latheProportions(fit);
+    expect(p.rim).toBeCloseTo(1.2 / 0.99, 3);
+    expect(p.middle).toBeCloseTo(1.2 / 0.9, 3);
+    expect(p.base).toBeCloseTo(1.2 / 0.81, 3);
   });
 });
 

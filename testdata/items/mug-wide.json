@@ -1,4 +1,10 @@
 {
   "label": "Tim Hortons mug",
-  "archetype": "mug"
+  "archetype": "mug",
+  "object": "tim-hortons-mug",
+  "sizeCm": {
+    "h": 9.8,
+    "rim": 8.5,
+    "estimate": true
+  }
 }
