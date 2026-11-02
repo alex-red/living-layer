@@ -96,7 +96,9 @@ export class Catalog implements Researcher {
     };
   }
   /** Keep a product for next time, with the model a person accepted for it. */
-  save(facts: ProductFacts, recipe?: FixtureRecipe): string {
+  save(merged: ProductFacts | MergedFacts, recipe?: FixtureRecipe): string {
+    // Merged facts say where each field came from; the catalog keeps only the facts.
+    const { origin: _, ...facts } = merged as MergedFacts;
     const dir = this.dirs[0]!;
     mkdirSync(dir, { recursive: true });
     const file = join(dir, `${slug(facts.name ?? facts.query)}.json`);

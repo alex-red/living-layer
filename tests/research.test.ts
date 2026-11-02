@@ -120,6 +120,14 @@ describe('the product catalog', () => {
     expect(catalog.find('ALEX desk white')?.facts.name).toBe('ALEX Desk, white');
     expect(catalog.find('the white alex')?.facts.name).toBe('ALEX Desk, white');
   });
+
+  it('saves merged facts without where each field came from', async () => {
+    const catalog = new Catalog([join(tempDir(), 'products')]);
+    const merged = mergeFacts('my alex', [web]);
+    expect(merged.origin).not.toEqual({});
+    catalog.save(merged);
+    expect(await catalog.lookup('my alex')).not.toHaveProperty('origin');
+  });
 });
 
 describe('research', () => {
