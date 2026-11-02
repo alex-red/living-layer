@@ -1,8 +1,12 @@
 # From a picture to a fixture
 
-How a picture of a thing becomes a fixture, as of November 2, 2026. A fixture is a modelled thing placed in a room, such as a lamp, a switch or a mouse. The data model and the reasons behind it are in [plans/fixtures.md](plans/fixtures.md), and the routes are in [architecture.md](architecture.md). This doc follows the picture through each step.
+How a picture of a thing becomes a fixture, as of November 2, 2026 (updated the same day for the improvements below). A fixture is a modelled thing placed in a room, such as a lamp, a switch or a mouse. The data model and the reasons behind it are in [plans/fixtures.md](plans/fixtures.md), and the routes are in [architecture.md](architecture.md). This doc follows the picture through each step.
 
-**In short:** Spark names the thing and boxes it. SAM outlines it from that box. The outline cuts a masked crop. A local fitter builds a voxel model from the crop, from one of a few archetypes (mug, lamp, box and so on), helped live by SAM part masks and one Spark check. Spark's usual size for the thing sets its size in 30 cm tiles. The person reviews it, says what it controls, and places it. Later, **Model with AI** can redraw the model as free-form parts, which Spark revises against renders.
+**In short:** Spark names the thing and boxes it. SAM outlines it from that box. The outline cuts a masked crop. A local fitter builds a voxel model from the crop, from one of a few archetypes (mug, lamp, box and so on), helped live by SAM part masks and one Spark check. A saved product it matches, or the camera, sets its real size; otherwise Spark's usual size does. The person reviews it, says what it controls, and places it. Afterwards the model can be improved three ways, each keeping the model it replaces to pick back:
+
+- **Take a close photo** fits another view and fuses it in, a closer one counting for more.
+- **Model with AI** redraws it as free-form parts, which Spark revises against renders. A live draft offers it straight after placing for shapes the fitter draws poorly.
+- **Refine its shape with SAM 3D** (experimental) reconstructs a turned body whole and takes its profile and handle.
 
 ```mermaid
 flowchart LR
@@ -19,24 +23,29 @@ flowchart LR
   Z --> R[review: name, control,<br/>model vs photo]
   R --> L[place on a surface<br/>or the floor]
   L --> F[(fixture)]
+  F -. close photo .-> P2[fit and fuse,<br/>closer counts more]
   F -. later .-> A[Model with AI:<br/>lookup, Spark parts,<br/>check, keep better IoU]
+  F -. experimental .-> S3[SAM 3D: profile,<br/>height, handle]
+  P2 & A & S3 -. replaced model kept .-> D[earlier drafts:<br/>pick one back]
 ```
 
 ## The ways in
 
 All of these end in the same model step (`draftModel`, `apps/server/src/item.ts`). They differ in where the picture and the outline come from.
 
-| Way in                              | Route                        | Picture                                 | Outline                                                  | Model calls (live)                                     |
-| ----------------------------------- | ---------------------------- | --------------------------------------- | -------------------------------------------------------- | ------------------------------------------------------ |
-| **Add fixture**, from a photo       | `POST /api/fixtures/draft`   | a photo of the one thing                | SAM, from the box Spark gives                            | Spark class, SAM box, SAM part masks, Spark check (≤5) |
-| **A box on the desk or room photo** | `POST /api/fixtures/draft`   | the camera's frame (Spark sees the box) | SAM, from the person's own box on the whole frame        | the same                                               |
-| **Scan and map**                    | `POST /api/fixtures/scan`    | the pinned camera's frame               | one SAM call for every box Spark lists                   | Spark list, SAM boxes; each model is fitted locally    |
-| **Room setup or room draft**        | `POST /api/scene/from-photo` | the calibrated camera's frame           | the draft's own SAM call (labelled by box)               | none for the model: catalogue, saved fixture or a cube |
-| **Lift off the room's picture**     | `POST /api/scene/separate`   | the room's Muse Image illustration      | SAM per fixture box (the demo uses the box's silhouette) | SAM, Muse Image for the base without them              |
+| Way in                              | Route                        | Picture                                 | Outline                                                  | Model calls (live)                                                                                  |
+| ----------------------------------- | ---------------------------- | --------------------------------------- | -------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| **Add fixture**, from a photo       | `POST /api/fixtures/draft`   | a photo of the one thing                | SAM, from the box Spark gives                            | Spark class, SAM box, SAM part masks, Spark check (≤5)                                              |
+| **A box on the desk or room photo** | `POST /api/fixtures/draft`   | the camera's frame (Spark sees the box) | SAM, from the person's own box on the whole frame        | the same                                                                                            |
+| **Scan and map**                    | `POST /api/fixtures/scan`    | the pinned camera's frame               | one SAM call for every box Spark lists                   | Spark list, SAM boxes; part masks and Spark's check for things ≥ 40 px, while the limit covers them |
+| **Room setup or room draft**        | `POST /api/scene/from-photo` | the calibrated camera's frame           | the draft's own SAM call (labelled by box)               | none for the model: catalogue, saved fixture or a cube                                              |
+| **Lift off the room's picture**     | `POST /api/scene/separate`   | the room's Muse Image illustration      | SAM per fixture box (the demo uses the box's silhouette) | SAM, Muse Image for the base without them                                                           |
+| **Another photo** of a fixture      | `POST /api/fixtures/photo`   | a close photo (the demo uses its own)   | SAM, from the box Spark gives                            | as a draft; then fused with the fits it has                                                         |
 
 - **Demo mode** makes no model calls. It drafts from the bundled `lamp.svg`, `mouse.svg`, `monitor.svg` and `cat.svg`, whose outlines are each SVG's own `<name>-body` polygon, or from a box on the demo office, which picks one of the render's own outlines (`demoReference`, `demoDeskThing`, `apps/server/src/demo.ts`).
 - **The room draft doesn't fit models.** Things no template draws get `draftModel` from `photo.ts`: a saved fixture of the same name, else the archetype's catalogue model, else a cube, in Spark's colour and size. Its masked crop is kept, so **Model with AI** can model it properly later.
 - **Lifted fixtures are drawn as their cut-outs** on the illustration, not as their models. That cut-out is also what **Model with AI** prefers as its picture.
+- **A scan checks what it can judge.** Each thing at least 40 px across gets the draft's live help (part masks, Spark's check) while today's limit covers it. A check that fails leaves that thing fitted locally instead of failing the scan. Smaller things want a close photo, not a check.
 
 ## Step by step
 
@@ -82,11 +91,27 @@ The draft keeps the fit record: archetype, parameters, IoU, ΔE, elevation, the 
 
 ### 5. Size it
 
-`sizeInTiles(cls.sizeCm)` turns Spark's usual size into tiles of 30 cm (`ISO_TILE_CM`), the same in every scene. The model is scaled to fit that box.
+Sizes are in tiles of 30 cm (`ISO_TILE_CM`), the same in every scene, and the model is scaled to fit its box. Where the size comes from, most trusted first:
+
+1. **A saved product.** When the person's name, Spark's label or its description names a product in the catalog (saved products and `apps/server/catalog`, offline and free), the draft takes its real size, laid along its own longer side, and the review says so. The catalog matches only when every word of a product's name is there, so "desk lamp" doesn't become a particular lamp.
+2. **The camera** (a scan). `cameraScale` projects a box of Spark's usual size, standing where the scan found the thing, through the pin's camera, and sets its width against the outline's. Spark keeps the proportions and the camera gives the scale, between half and double; past that, the outline is likelier wrong and Spark's size stands.
+3. **Spark's usual size** (`sizeInTiles(cls.sizeCm)`).
 
 ### 6. Review and place
 
 The review shows the reference beside the model, the name, and `Light · Switch · Just a thing`. The suggested control is preselected, and only kinds with configured entities are offered. **Place it** shows a ghost of the model that follows the pointer onto the highest surface under it, or the floor, until a click saves it. `POST /api/fixtures/save` checks where it stands (`fixtureProblem`) and that its entity is configured, and keeps the draft's swatches and fit record, scored again against its crop.
+
+In a live draft of a shape the fitter draws poorly (`SCULPT_FIRST`: a device, a box, a generic thing, a lamp), **Then model it with AI** is ticked, and Model with AI runs as soon as it is placed.
+
+## Improving a fixture afterwards
+
+The fixture panel offers each of these. The fit record keeps its crop's size (`cropPx`), and a fixture fitted from a crop under 60 px says so and puts **Take a close photo** first.
+
+- **Take a close photo** (`POST /api/fixtures/photo`). Fitted as a draft is, then fused with the fits it has (`fuseFits`), counted up to four times as much as the last when its crop is that much wider. The bench shows why: the real mug's four views, fused, land 14% from its real shape, where one view alone was up to 45% off.
+- **Model with AI** (below).
+- **Refine its shape with SAM 3D** (`POST /api/fixtures/refine3d`, experimental, [log](plans/sam3d-experiment.md)). Only for a turned body fitted to a photo, and only when SAM 3D is set up (`SAM3D_MLX_WEIGHTS` locally, or `FAL_KEY`). It takes about 10 minutes locally, so the request answers at once and the page follows the job. `latheFromSplat` reads the splat's profile, height and handle in place of the fit's; colours and print stay the photo's. Outline overlap only guards against a reconstruction of something else (under 0.55), since the fitter bends its shape to one outline and outscores a right shape there.
+
+**Earlier drafts.** Each of these keeps the model it replaces on the fixture, newest first, at most four. The panel shows the model beside them, front and back, with where each came from and its outline match, and **Use this** puts one back (`POST /api/fixtures/choose`). Each pick is noted in `fixture-picks.jsonl` in the data folder, what was chosen over what, as examples of which modeller suits which things.
 
 ## Model with AI (`POST /api/fixtures/sculpt`)
 
@@ -106,18 +131,22 @@ Every run's pictures (the picture, `render-1.png` to `render-3.png` and `render-
 Each live path works out its worst case before calling anything and refuses (429 `spend_limit`) if today's limit can't cover it:
 
 - **A draft:** `fixtureDraftCeiling()`, up to five calls.
-- **A scan:** one Spark list plus one SAM call.
+- **A scan:** one Spark list plus one SAM call; each thing's check runs only while the limit still covers it.
+- **Another photo:** as a draft.
+- **SAM 3D:** no Meta calls. Local runs cost nothing; fal bills separately.
 - **Model with AI:** two Spark calls, plus the lookup and its web searches when there's a note.
 
 A run is billed by its Spark tokens.
 
 ## Where it falls short
 
-These show up in the pictures above, and in [plans/sam3d-experiment.md](plans/sam3d-experiment.md):
+These show up in the pictures above, in `bun run bench:fit`, and in [plans/sam3d-experiment.md](plans/sam3d-experiment.md):
 
-- **Archetypes cap the shape.** The mouse comes out as a rounded blob, because `device` is a flat-family box. The mouse picture is drawn from almost straight above, so its height is a guess and its outline comes out turned.
-- **Small or low crops mislead the profile.** The desk mug is about 20 px across in the frame. Its fit reads its rim and body as two tiers, and its colour misses by ΔE 11.6. Across a room, a mug is about 17 × 23 pixels, so a close photo or a zoomed crop does much better than the whole frame.
-- **Proportions shift with the view.** On the four real crops of one mug (`testdata/items/`), the fitter's height over width at mid-height ranges from 0.63 to 1.25. SAM 3D, tried as an experiment, held 1.11–1.24 across the same crops.
+- **Archetypes cap the shape.** The mouse comes out as a rounded blob, because `device` is a flat-family box. The mouse picture is drawn from almost straight above, so its height is a guess and its outline comes out turned. A live draft now offers Model with AI for these.
+- **Small or low crops mislead the profile.** The desk mug is about 20 px across in the frame. Its fit reads its rim and body as two tiers, and its colour misses by ΔE 11.6. Across a room, a mug is about 17 × 23 pixels. The panel now flags these and asks for a close photo.
+- **One view's shape is unreliable.** On the four real crops of one mug (`testdata/items/`, with its real size), the fitter's height over rim ranges from 0.63 to 1.31, up to 45% off the real one; the bench's `shape` and `spread` rows track it. Fused, the views come within 14%. SAM 3D's shapes of the same crops come within 3–9% and agree within 0.18.
+- **Outline overlap can't judge a shape.** The fitter matches each crop's outline better than SAM 3D's right shape does. Judge a change to shape by the bench's real-size rows, not by IoU.
+- **SAM 3D is experimental:** turned bodies only, about 10 minutes locally, no mesh at the tool's memory guard, and it guesses the sides a crop doesn't show (an inside it didn't see comes out white).
 - **Model with AI** is bounded by its two rounds, and is judged by silhouette only.
 
 ## Pictures

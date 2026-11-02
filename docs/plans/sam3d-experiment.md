@@ -1,6 +1,6 @@
 # SAM 3D experiment · log, November 2, 2026
 
-**Experimental.** Nothing in the app uses this. It is one script (`scripts/experiments/sam3d.ts`), run by hand on four crops of one mug, to see whether Meta's SAM 3D Objects could replace or check the item fitter (`item-fit.ts`). Nothing here is tested or benched, and the setup depends on one machine.
+**Experimental.** It began as one script (`scripts/experiments/sam3d.ts`), run by hand on four crops of one mug, to see whether Meta's SAM 3D Objects could replace or check the item fitter (`item-fit.ts`). Since [the follow-up below](#follow-up-wired-in-experimentally) it is in the app as an opt-in refine of a turned fixture's shape, off unless SAM 3D is set up, and the setup still depends on one machine.
 
 Can SAM 3D turn a close crop of a thing into a model we could use? Tried on the four real mug crops in `testdata/items/`, which are 88–129 pixels across.
 
@@ -53,8 +53,27 @@ The fitter's numbers are `fitItem` with archetype `mug` and no elevation given: 
 4. **No real size.** The splat fits a unit box. Size has to come from the room camera, as it does now. (fal returns a pose and scale per object. Whether those are metric is unchecked.)
 5. **Too slow to run live.** About 9.5 minutes per object locally. It would fit a background job when a fixture or item is saved, or fal if that's faster.
 
+## Follow-up: wired in, experimentally
+
+Later the same day, the first two ideas below were done:
+
+- **A lathe fit read off the splat** (`latheFromSplat`, `packages/domain/src/splat.ts`). The axis is the middle of the base, where no handle reaches. The body's radius in 12 slices is the outer surface away from the handle (the 95th percentile of distances from the axis, since the hollow inside sits nearer). The handle is what stands well clear of the body on one side. The splat's profile, height and handle replace the fit's; colours and print stay the photo's.
+- **Scored like the fitter.** `--lathe` writes each crop's splat shape to `testdata/items/<crop>.sam3d.json`, and `bun run bench:fit` scores it against the mug's real size:
+
+| crop      | fitter's height ÷ rim, off the real one | SAM 3D's |
+| --------- | --------------------------------------: | -------: |
+| mug-front |                                     16% |       9% |
+| mug-side  |                                     14% |       7% |
+| mug-low   |                                      8% |       3% |
+| mug-wide  |                                     45% |       6% |
+
+Across the four views SAM 3D's shapes agree within 0.18 (target 0.2); the fitter's are 0.68 apart. The real size is a typical mug's, an estimate until the mug is measured.
+
+- **Outline overlap can't be the judge.** Against each crop's outline the splat's right shape scores 0.60–0.84, where the fitter's own scores 0.83–0.95: the fitter bends its shape to the outline (a taller mug seen from lower looks the same), and searching the elevation again doesn't close the gap. So the app keeps SAM 3D's shape unless it falls under 0.55, which catches a reconstruction of something else.
+- **In the app:** **Refine its shape with SAM 3D** on a turned fixture fitted to a photo (`POST /api/fixtures/refine3d`, `apps/server/src/sam3d.ts`), local or on fal by `.env`. It runs as a background job the page follows, since it outlasts a request; the model it replaces is kept to pick back. See [image-to-fixture.md](../image-to-fixture.md).
+
 ## If it goes further
 
-- **Read a lathe fit off the splat:** the profile from slices up z, the handle's top, bottom and reach, and the inside and body colours. That way the renderer and editor stay as they are, and SAM 3D takes over only the guessing. Score it the way `bun run bench:fit` scores the fitter, and against the crop through `renderView`.
+- ~~Read a lathe fit off the splat~~: done (above), without colours, which stay the photo's.
 - **Try fal on the same four crops** for speed, the mesh and the pose metadata, before choosing local or hosted.
 - **Things the fitter has no archetype for** (the cat tree, the fan) are where a free-form splat or mesh would help most. Untried.
