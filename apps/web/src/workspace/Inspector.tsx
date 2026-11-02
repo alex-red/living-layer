@@ -379,6 +379,18 @@ function RoomPanel() {
           Adjust the pin’s corners on the photo →
         </Button>
       )}
+      {mode === 'live' && (
+        <Button
+          variant="text"
+          disabled={
+            Boolean(lab.busy) || Boolean(lab.calibrating) || !(lab.camera || Boolean(image))
+          }
+          title="Drag the far corner and the walls' floor lines on the current frame, and add height lines up to things of known height. No model calls."
+          onClick={lab.calibrateHere}
+        >
+          Calibrate the camera by hand →
+        </Button>
+      )}
       <ScanFixtures initial={pinScene(room)} open />
       {progress.view && (
         <Button variant="text" onClick={() => lab.select({ kind: 'view' })}>
