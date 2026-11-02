@@ -4,6 +4,8 @@ import {
   believableWidth,
   ISO_PRESETS,
   fixtureBox,
+  fixtureInput,
+  fixtureModel,
   closeViewShift,
   inRoomView,
   guessedScene,
@@ -330,9 +332,9 @@ export function IsoView({
       id: f.id,
       label: f.label,
       box: boxOf(f),
-      item: rotateItem(f.model, f.turns),
+      item: rotateItem(fixtureModel(f), f.turns),
       glow: f.control.kind === 'light' && f.state === 'on',
-      ...(f.control.kind === 'none' ? {} : { state: f.state ?? null }),
+      ...(f.control.kind === 'none' && !f.state && !f.states ? {} : { state: f.state ?? null }),
       focused: f.id === focus?.fixture,
       ...(f.track?.status === 'missing' ? { missing: true } : {}),
     }));
@@ -356,6 +358,9 @@ export function IsoView({
       : null;
 
   const target = memory ? modelTarget(memory, modelOf) : null;
+  const targetFixture = target?.fixture
+    ? memory?.fixtures?.find((f) => f.id === target.id)
+    : undefined;
 
   async function send<T>(path: string, body: object, done: (r: T) => void) {
     setAsking(true);
@@ -376,6 +381,7 @@ export function IsoView({
           <ItemEditor
             key={target?.id}
             item={target?.item}
+            fixture={targetFixture}
             busy={off}
             sparkNote={
               mode === 'demo'
@@ -413,6 +419,26 @@ export function IsoView({
                 { item, ...(modelOf ? { objectId: modelOf } : {}) },
                 onMemory,
               )
+            }
+            onFixtureState={
+              targetFixture
+                ? (payload) =>
+                    void send<DeskMemory>(
+                      'fixtures/state',
+                      { fixtureId: targetFixture.id, ...payload },
+                      onMemory,
+                    )
+                : undefined
+            }
+            onFixtureSize={
+              targetFixture
+                ? (size) =>
+                    void send<DeskMemory>(
+                      'fixtures/save',
+                      { fixture: { ...fixtureInput(targetFixture), size } },
+                      onMemory,
+                    )
+                : undefined
             }
           />
         ) : panel === 'scene' ? (
@@ -547,7 +573,9 @@ export function IsoView({
         )}
         <span className="iso-tag" aria-hidden="true">
           {panel === 'item'
-            ? `ITEM · ${(target?.item?.label ?? target?.label ?? 'object').toUpperCase()}`
+            ? targetFixture
+              ? `FIXTURE STUDIO · ${targetFixture.label.toUpperCase()}${targetFixture.state ? ` · ${targetFixture.state.toUpperCase()}` : ''}`
+              : `ITEM · ${(target?.item?.label ?? target?.label ?? 'object').toUpperCase()}`
             : panel === 'scene'
               ? 'SCENE EDITOR'
               : `ISO · ${scene.label.toUpperCase()} · ${surface?.label.toUpperCase() ?? 'NO SURFACE'}${pinned ? (memory?.surface ? ' · PINNED' : ' · DEMO') : ''}`}

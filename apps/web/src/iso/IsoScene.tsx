@@ -135,8 +135,8 @@ export interface IsoFixture {
   item: IsoItem;
   /** A light whose last action was confirmed on: it glows like a lamp. */
   glow: boolean;
-  /** A light or switch's last confirmed state; null when unknown, absent for plain things. */
-  state?: 'on' | 'off' | null;
+  /** The fixture's active state (`on`, `off`, `idle`, `sleeping`, or custom); null when unknown. */
+  state?: string | null;
   focused?: boolean;
   /** The camera follows it and has lost it: drawn faded where it was last seen. */
   missing?: boolean;
@@ -229,12 +229,20 @@ function FixtureMarker({
           ])}
         />
       )}
-      <ItemSprite item={fixture.item} origin={box.at} scale={Math.max(box.size.w, box.size.d)} />
+      <ItemSprite
+        item={fixture.item}
+        origin={box.at}
+        scale={Math.max(box.size.w, box.size.d)}
+        glow={fixture.glow}
+      />
       {/* The sprite lets the pointer through; its box, invisible, is what is clicked and dragged. */}
       <Solid box={box} color="#000000" className="iso-hit-shape" />
       <text x={head.sx} y={head.sy - 8}>
         {pip}
         {fixture.label.toUpperCase()}
+        {fixture.state && fixture.state !== 'on' && fixture.state !== 'off'
+          ? ` · ${fixture.state.toUpperCase()}`
+          : ''}
       </text>
     </g>
   );

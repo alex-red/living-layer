@@ -29,9 +29,16 @@ import {
   promptBox,
   sparkCeiling,
   sizeInTiles,
+  defaultFixtureStates,
   fixtureEntity,
   fixtureInputSchema,
+  fixtureModel,
   fixtureProblem,
+  fixtureReference,
+  fixtureSize,
+  fixtureStateInputSchema,
+  fixtureStateNameSchema,
+  monitorItem,
   modeSchema,
   uniqueParts,
   fromSculpt,
@@ -46,6 +53,7 @@ import {
   type FixtureInput,
   type FixtureClass,
   type FixtureDraft,
+  type FixtureState,
   type LampResult,
   type Mode,
   type Segmentation,
@@ -433,33 +441,44 @@ export function fixtureRoutes(
               totalTokens: usage.totalTokens + drafted.usage.totalTokens,
             }
           : drafted.usage;
+      const isMonitor = /\b(monitor|display|screen)\b/i.test(label);
+      const draftedItem = isMonitor ? monitorItem(label, false) : uniqueParts(drafted.item);
+      const savedModel: SavedItem = {
+        ...draftedItem,
+        source: live ? 'spark' : 'demo',
+        segmentRunId: null,
+        swatches: drafted.fitted.swatches,
+        updatedAt: new Date().toISOString(),
+        fit: {
+          archetype: drafted.fitted.archetype,
+          params: drafted.params,
+          iou: drafted.score.iou,
+          deltaE: drafted.score.deltaE,
+          elevation: drafted.fitted.elevation,
+          views: 1,
+          crop: cropAsset,
+          assists: [
+            `${live ? 'Spark' : 'Demo'}: ${cls.archetype}, ${cls.material}. ${cls.description}`,
+            ...drafted.assists,
+          ],
+        },
+      };
+      const seeded = defaultFixtureStates({
+        label,
+        archetype: drafted.fitted.archetype,
+        control: cls.control,
+        model: savedModel,
+      });
       const draft: FixtureDraft = {
         label,
         archetype: drafted.fitted.archetype,
         suggested: cls.control,
         description: cls.description,
-        model: {
-          ...uniqueParts(drafted.item),
-          source: live ? 'spark' : 'demo',
-          segmentRunId: null,
-          swatches: drafted.fitted.swatches,
-          updatedAt: new Date().toISOString(),
-          fit: {
-            archetype: drafted.fitted.archetype,
-            params: drafted.params,
-            iou: drafted.score.iou,
-            deltaE: drafted.score.deltaE,
-            elevation: drafted.fitted.elevation,
-            views: 1,
-            crop: cropAsset,
-            assists: [
-              `${live ? 'Spark' : 'Demo'}: ${cls.archetype}, ${cls.material}. ${cls.description}`,
-              ...drafted.assists,
-            ],
-          },
-        },
+        model: savedModel,
         size: sizeInTiles(cls.sizeCm),
         reference: { runId: id, asset: referenceAsset },
+        ...(seeded.state ? { state: seeded.state } : {}),
+        ...(seeded.states ? { states: seeded.states } : {}),
       };
       return {
         output: draft,
@@ -726,7 +745,7 @@ export function fixtureRoutes(
         const link = linkWith(m);
         const fit = m.match === 'fitted' ? fits[i] : undefined;
         const known = m.match === 'library' ? library.find((f) => f.id === m.fixtureId) : undefined;
-        const { model, ...rest } = m.fixture;
+        const { model, states: _states, ...rest } = m.fixture;
         return [
           {
             ...rest,
@@ -741,7 +760,8 @@ export function fixtureRoutes(
                   updatedAt: now,
                   fit: fit?.fit ?? null,
                 },
-            state: null,
+            ...(known?.states ? { states: known.states } : {}),
+            state: known?.state ?? null,
             ...(link ? { link } : {}),
             scanned: true,
             ...(m.seen ? { seen: m.seen } : {}),
@@ -796,11 +816,14 @@ export function fixtureRoutes(
       fixture.id,
       ...linkedFixtures(memory.fixtures ?? [], fixture).map((f) => f.id),
     ]);
+    const activeModel = fixtureModel(fixture);
+    const activeRef = fixtureReference(fixture);
+    const activeSize = fixtureSize(fixture);
     const sprite = memory.illustration?.layers?.sprites.find((x) => group.has(x.fixtureId));
-    const crop = fixture.model.fit?.crop;
+    const crop = activeModel.fit?.crop ?? fixture.model.fit?.crop;
     const camera = calibrationOf(memory)?.camera;
     const drafted = () => {
-      if (!fixture.reference || fixture.scene !== 'custom' || !memory.scene || !camera) return null;
+      if (!activeRef || fixture.scene !== 'custom' || !memory.scene || !camera) return null;
       const box = fixtureBox(fixture, memory.scene);
       const centre = {
         x: box.at.x + box.size.w / 2,
@@ -808,14 +831,17 @@ export function fixtureRoutes(
         z: box.at.z,
       };
       return {
-        png: store.readAsset(fixture.reference.asset),
+        png: store.readAsset(activeRef.asset),
         elevation: elevationAt(camera, centre),
       };
     };
     const pictured = sprite
       ? { png: store.readAsset(sprite.asset), elevation: ISO_ELEVATION }
       : crop
-        ? { png: store.readAsset(crop), elevation: fixture.model.fit!.elevation }
+        ? {
+            png: store.readAsset(crop),
+            elevation: (activeModel.fit ?? fixture.model.fit)!.elevation,
+          }
         : drafted();
     if (!pictured?.png)
       throw new LabError(
@@ -835,11 +861,11 @@ export function fixtureRoutes(
     const input = await cropInput(png, fixture.label);
     const shown = async (b: Buffer) =>
       `data:image/png;base64,${(await sharp(b).flatten({ background: SCULPT_BACKDROP }).png().toBuffer()).toString('base64')}`;
-    const longest = Math.max(fixture.size.w, fixture.size.d);
+    const longest = Math.max(activeSize.w, activeSize.d);
     const size = {
-      w: fixture.size.w / longest,
-      d: fixture.size.d / longest,
-      h: fixture.size.h / longest,
+      w: activeSize.w / longest,
+      d: activeSize.d / longest,
+      h: activeSize.h / longest,
     };
     const job = jobs.start(jobId, SCULPT_STEPS, {
       title: `Modelling the ${fixture.label.toLowerCase()}`,
@@ -859,7 +885,7 @@ export function fixtureRoutes(
       let model: string | undefined;
       let requestId: string | null = null;
       const drafts: { item: IsoItem; iou: number; note: string; round: number }[] = [];
-      let from: IsoItem = { label: fixture.model.label, parts: fixture.model.parts };
+      let from: IsoItem = { label: activeModel.label, parts: activeModel.parts };
       job.run('current');
       let render = await viewPng(from, elevation, input.width);
       assets.push(store.asset(id, 'render-1.png', render));
@@ -882,7 +908,7 @@ export function fixtureRoutes(
         usage = sumUsage(usage, answer.usage);
         model = answer.model;
         requestId = answer.requestId;
-        const item = fromSculpt(fixture.model.label, answer.output);
+        const item = fromSculpt(activeModel.label, answer.output);
         if (!item) {
           await job.done(step, 'No usable parts came back');
           break;
@@ -906,7 +932,7 @@ export function fixtureRoutes(
           `Spark’s model of the ${fixture.label.toLowerCase()} had no usable parts. Try again.`,
           502,
         );
-      const item = keepLocked(best.item, fixture.model);
+      const item = keepLocked(best.item, activeModel);
       const final = await viewPng(item, elevation, input.width);
       assets.push(store.asset(id, 'render-final.png', final));
       const kept = item.parts.length - best.item.parts.length;
@@ -942,14 +968,25 @@ export function fixtureRoutes(
         ...out.item,
         source: 'spark',
         segmentRunId: null,
-        swatches: fixture.model.swatches,
+        swatches: activeModel.swatches,
         updatedAt: now,
         fit: null,
       };
       // The same thing in its other scenes takes the same model.
       const fresh = store.memory(mode);
       fresh.fixtures = (fresh.fixtures ?? []).map((f) =>
-        group.has(f.id) ? { ...f, model: saved, updatedAt: now } : f,
+        group.has(f.id)
+          ? fixture.state
+            ? {
+                ...f,
+                states: {
+                  ...f.states,
+                  [fixture.state]: { ...(f.states?.[fixture.state] ?? {}), model: saved },
+                },
+                updatedAt: now,
+              }
+            : { ...f, model: saved, updatedAt: now }
+          : f,
       );
       store.saveMemory(fresh);
       await job.done(
@@ -1001,30 +1038,76 @@ export function fixtureRoutes(
         400,
       );
     const now = new Date().toISOString();
-    const { id: _id, model, room: roomInput, ...rest } = input;
+    const { id: _id, model, room: roomInput, states: statesInput, ...rest } = input;
     // Its own place in the room's view: kept unless the save says otherwise, null clears it.
     const room = roomInput === undefined ? previous?.room : roomInput;
     // What the model was drafted as: the fixture before, or the draft it came from.
-    const base =
-      previous?.model ??
-      (referenceRun?.kind === 'fixture' && referenceRun.status === 'completed'
-        ? (referenceRun.output as FixtureDraft).model
-        : undefined);
+    const drafted =
+      referenceRun?.kind === 'fixture' && referenceRun.status === 'completed'
+        ? (referenceRun.output as FixtureDraft)
+        : undefined;
+    const base = previous?.model ?? drafted?.model;
+    const savedModel: SavedItem = {
+      ...uniqueParts(model),
+      source: base?.source ?? (mode === 'demo' ? 'demo' : 'sampled'),
+      segmentRunId: base?.segmentRunId ?? null,
+      swatches: base?.swatches ?? [],
+      updatedAt: now,
+      // An edit keeps its fit record, scored again against the same crop.
+      fit: await rescore(store, model, base?.fit),
+    };
+    const seeded = defaultFixtureStates({
+      label: rest.label,
+      archetype: drafted?.archetype ?? savedModel.fit?.archetype,
+      control: rest.control.kind,
+      model: savedModel,
+    });
+    const states: Record<string, FixtureState> | undefined = statesInput
+      ? Object.fromEntries(
+          Object.entries(statesInput).map(([stateName, entry]) => {
+            const prevState = previous?.states?.[stateName]?.model;
+            return [
+              stateName,
+              {
+                model: {
+                  ...uniqueParts(entry.model),
+                  source: prevState?.source ?? savedModel.source,
+                  segmentRunId: prevState?.segmentRunId ?? null,
+                  swatches: prevState?.swatches ?? savedModel.swatches,
+                  updatedAt: now,
+                  fit: prevState?.fit ?? null,
+                },
+                ...(entry.size ? { size: entry.size } : {}),
+                ...(entry.reference !== undefined ? { reference: entry.reference } : {}),
+              },
+            ];
+          }),
+        )
+      : (previous?.states ?? drafted?.states ?? seeded.states);
+    if (states) {
+      for (const entry of Object.values(states)) {
+        if (entry.size) {
+          const sizeProblem = fixtureProblem({ ...input, size: entry.size }, memory.scene);
+          if (sizeProblem) throw new LabError('fixture_place', sizeProblem, 400);
+        }
+      }
+    }
     const fixture: Fixture = {
       ...rest,
       ...(room ? { room } : {}),
       id: previous?.id ?? randomUUID(),
-      model: {
-        ...uniqueParts(model),
-        source: base?.source ?? (mode === 'demo' ? 'demo' : 'sampled'),
-        segmentRunId: base?.segmentRunId ?? null,
-        swatches: base?.swatches ?? [],
-        updatedAt: now,
-        // An edit keeps its fit record, scored again against the same crop.
-        fit: await rescore(store, model, base?.fit),
-      },
-      // A new entity starts with no known state.
-      state: previous && fixtureEntity(previous) === entity ? (previous.state ?? null) : null,
+      model: savedModel,
+      ...(states ? { states } : {}),
+      // A new entity starts with no known state; a pet starts in its default pose.
+      state: previous
+        ? entity
+          ? fixtureEntity(previous) === entity
+            ? (previous.state ?? null)
+            : null
+          : (previous.state ?? null)
+        : entity
+          ? null
+          : (drafted?.state ?? seeded.state ?? null),
       ...(previous?.link ? { link: previous.link } : {}),
       // The camera keeps following it unless it was moved by hand.
       ...(previous?.track && samePlace(previous, input) ? { track: previous.track } : {}),
@@ -1043,6 +1126,7 @@ export function fixtureRoutes(
                   ...f,
                   label: fixture.label,
                   model: fixture.model,
+                  ...(fixture.states ? { states: fixture.states } : {}),
                   control: fixture.control,
                   state: fixture.state ?? null,
                   updatedAt: now,
@@ -1242,8 +1326,94 @@ export function fixtureRoutes(
     return memory;
   });
   /**
-   * Switch a fixture's light or switch, or a configured entity directly: a
-   * lamp that is part of the room's layout has no fixture of its own.
+   * Switch a fixture's active state, or add/edit/remove a custom state with its
+   * own unique fixture model, size or reference.
+   */
+  app.post('/api/fixtures/state', async (request) => {
+    const {
+      mode,
+      fixtureId,
+      state,
+      fixture: stateInput,
+      remove,
+    } = parseInput(
+      z
+        .object({
+          mode: modeSchema,
+          fixtureId: z.string().uuid(),
+          state: fixtureStateNameSchema.nullable().optional(),
+          fixture: fixtureStateInputSchema.optional(),
+          remove: fixtureStateNameSchema.optional(),
+        })
+        .strict(),
+      request.body,
+    );
+    const memory = store.memory(mode);
+    const target = memory.fixtures?.find((f) => f.id === fixtureId);
+    if (!target)
+      throw new LabError('fixture_unknown', 'That fixture is not in this desk memory.', 404);
+    const now = new Date().toISOString();
+    const states: Record<string, FixtureState> = { ...(target.states ?? {}) };
+    if (remove) delete states[remove];
+    if (state) {
+      if (stateInput) {
+        if (stateInput.size) {
+          const problem = fixtureProblem({ ...target, size: stateInput.size }, memory.scene);
+          if (problem) throw new LabError('fixture_place', problem, 400);
+        }
+        const prev = states[state]?.model ?? fixtureModel(target, state);
+        states[state] = {
+          model: {
+            ...uniqueParts(stateInput.model),
+            source: prev.source,
+            segmentRunId: prev.segmentRunId,
+            swatches: prev.swatches,
+            updatedAt: now,
+            fit: prev.fit,
+          },
+          ...(stateInput.size
+            ? { size: stateInput.size }
+            : states[state]?.size
+              ? { size: states[state]!.size }
+              : {}),
+          ...(stateInput.reference !== undefined
+            ? { reference: stateInput.reference }
+            : states[state]?.reference !== undefined
+              ? { reference: states[state]!.reference }
+              : {}),
+        };
+      } else if (!states[state] && state !== 'on' && state !== 'off') {
+        const currentModel = fixtureModel(target);
+        states[state] = {
+          model: { ...currentModel, updatedAt: now },
+          size: fixtureSize(target),
+        };
+      }
+    }
+    const nextState =
+      state !== undefined
+        ? state
+        : remove && target.state === remove
+          ? null
+          : (target.state ?? null);
+    const nextStates = Object.keys(states).length ? states : undefined;
+    const group = new Set([
+      target.id,
+      ...linkedFixtures(memory.fixtures ?? [], target).map((f) => f.id),
+    ]);
+    memory.fixtures = (memory.fixtures ?? []).map((f) => {
+      if (!group.has(f.id)) return f;
+      const copy: Fixture = { ...f, state: nextState, updatedAt: now };
+      if (nextStates) copy.states = nextStates;
+      else delete copy.states;
+      return copy;
+    });
+    store.saveMemory(memory);
+    return memory;
+  });
+  /**
+   * Switch a fixture's light or switch, a fixture's state/pose, or a configured
+   * entity directly: a lamp that is part of the room's layout has no fixture of its own.
    */
   app.post('/api/fixtures/control', async (request) => {
     const { mode, fixtureId, entityId, action } = parseInput(
@@ -1252,7 +1422,7 @@ export function fixtureRoutes(
           mode: modeSchema,
           fixtureId: z.string().uuid().optional(),
           entityId: entityIdSchema.optional(),
-          action: z.enum(['on', 'off']),
+          action: fixtureStateNameSchema,
         })
         .strict()
         .refine((x) => Boolean(x.fixtureId) !== Boolean(x.entityId), {
@@ -1262,14 +1432,31 @@ export function fixtureRoutes(
     );
     let entity = entityId ?? null;
     if (fixtureId) {
-      const fixture = store.memory(mode).fixtures?.find((f) => f.id === fixtureId);
+      const memory = store.memory(mode);
+      const fixture = memory.fixtures?.find((f) => f.id === fixtureId);
       if (!fixture)
         throw new LabError('fixture_unknown', 'That fixture is not in this desk memory.', 404);
       entity = fixtureEntity(fixture);
-      if (!entity)
-        throw new LabError('fixture_control', `The ${fixture.label} has nothing to switch.`, 400);
+      if (!entity || (action !== 'on' && action !== 'off')) {
+        if (!fixture.states || !(action in fixture.states))
+          throw new LabError('fixture_control', `The ${fixture.label} has nothing to switch.`, 400);
+        const now = new Date().toISOString();
+        const group = new Set([
+          fixture.id,
+          ...linkedFixtures(memory.fixtures ?? [], fixture).map((f) => f.id),
+        ]);
+        for (const f of memory.fixtures ?? [])
+          if (group.has(f.id)) {
+            f.state = action;
+            f.updatedAt = now;
+          }
+        store.saveMemory(memory);
+        return { memory, event: null };
+      }
     } else if (!entities(mode).includes(entity!))
       throw new LabError('lamp_unknown', 'That entity is not one of the configured ones.', 409);
+    if (action !== 'on' && action !== 'off')
+      throw new LabError('fixture_control', 'An entity can only be switched on or off.', 400);
     const event = await run('lamp', mode, async () => ({
       output: await control(mode, entity!, action),
     }));

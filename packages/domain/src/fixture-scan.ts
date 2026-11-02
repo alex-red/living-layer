@@ -271,6 +271,7 @@ const OWN_MODEL = new Set<Archetype>([
   'plant',
   'lamp',
   'device',
+  'cat',
 ]);
 /** A thing nothing models yet is a grey glass box: plainly a stand-in, and what's behind it shows. */
 const CUBE = { color: '#9aa0a8', material: 'glass' } as const;

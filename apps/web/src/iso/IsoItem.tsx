@@ -12,6 +12,7 @@ export function ItemSprite({
   scale,
   selected,
   resolution = 32,
+  glow,
 }: {
   item: IsoItem;
   origin: IsoVec;
@@ -20,12 +21,15 @@ export function ItemSprite({
   selected?: string;
   /** Voxels along the model's longest side: 32 in the room, 64 for close-ups. */
   resolution?: number;
+  /** Warm light cast when a lamp fixture is on. */
+  glow?: boolean;
 }) {
   const index = item.parts.findIndex((p) => p.id === selected);
   const sprite = itemSprite(item, {
     scale,
     resolution,
     ...(index >= 0 ? { select: index } : {}),
+    ...(glow ? { glow } : {}),
   });
   const at = toIso(origin);
   return (

@@ -107,7 +107,7 @@ export function selectionLabel(lab: Lab, s: Selection): string {
 }
 /** What a fixture is and, for a light or switch, its last confirmed state. */
 export function controlLabel(f: Pick<Fixture, 'control' | 'state'>): string {
-  if (f.control.kind === 'none') return 'just a thing';
+  if (f.control.kind === 'none') return f.state ? `thing · ${f.state}` : 'just a thing';
   return `${f.control.kind} · ${f.state ?? 'unknown'}`;
 }
 

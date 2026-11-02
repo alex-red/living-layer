@@ -52,13 +52,19 @@ function cached(key: string, draw: () => Sprite): SpriteImage {
 /** An item model as it stands in a scene or the editor, `scale` tiles per item unit. */
 export function itemSprite(
   item: IsoItem,
-  { scale, resolution = 32, select }: { scale: number; resolution?: number; select?: number },
+  {
+    scale,
+    resolution = 32,
+    select,
+    glow,
+  }: { scale: number; resolution?: number; select?: number; glow?: boolean },
 ): SpriteImage {
-  const key = `item|${resolution}|${scale.toFixed(3)}|${select ?? -1}|${JSON.stringify(item.parts)}`;
+  const key = `item|${resolution}|${scale.toFixed(3)}|${select ?? -1}|${glow ? 1 : 0}|${JSON.stringify(item.parts)}`;
   return cached(key, () =>
     renderSprite(voxelize(item.parts, { resolution }), {
       scale,
       ...(select !== undefined ? { select } : {}),
+      ...(glow ? { glow: '#ffb866' } : {}),
     }),
   );
 }

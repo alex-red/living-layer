@@ -23,10 +23,13 @@ export const ARCHETYPES = [
   'plant',
   'lamp',
   'device',
+  'cat',
   'generic',
 ] as const;
 export const archetypeSchema = z.enum(ARCHETYPES);
 export type Archetype = z.infer<typeof archetypeSchema>;
+export const CAT_POSES = ['idle', 'sleeping'] as const;
+export type CatPose = (typeof CAT_POSES)[number];
 /** How wide each kind of object usually is, handle included, in centimetres. */
 export const ARCHETYPE_WIDTH_CM: Record<Archetype, number | null> = {
   mug: 12,
@@ -38,6 +41,7 @@ export const ARCHETYPE_WIDTH_CM: Record<Archetype, number | null> = {
   plant: 15,
   lamp: 18,
   device: 15,
+  cat: 26,
   generic: null,
 };
 /**
@@ -111,7 +115,13 @@ export interface FlatFit {
   decal: Decal | null;
   material: ItemMaterial;
 }
-export type ArchetypeFit = LatheFit | BoxFit | FlatFit;
+export interface CatFit {
+  family: 'cat';
+  pose: CatPose;
+  colors: { body: string; accent: string };
+  material: ItemMaterial;
+}
+export type ArchetypeFit = LatheFit | BoxFit | FlatFit | CatFit;
 
 export const ARCHETYPE_FAMILY: Record<Archetype, ArchetypeFit['family']> = {
   mug: 'lathe',
@@ -121,6 +131,7 @@ export const ARCHETYPE_FAMILY: Record<Archetype, ArchetypeFit['family']> = {
   plant: 'lathe',
   lamp: 'lathe',
   device: 'flat',
+  cat: 'cat',
   generic: 'lathe',
   book: 'box',
   box: 'box',
@@ -131,6 +142,8 @@ const WORDS: [Archetype, RegExp][] = [
     'device',
     /\b(mouse|remote|router|switch|plug|speaker|keyboard|controller|thermostat|charger|trackpad)\b/,
   ],
+  // Only as the name's last word: a cat tower, cat bed or pet bowl is something else.
+  ['cat', /\b(cat|kitty|kitten|feline|pet)s?$/],
   ['lamp', /\b(lamp|light|bulb|sconce|lantern)\b/],
   ['mug', /\b(mug|tankard|stein)\b/],
   ['cup', /\b(cup|glass|tumbler|bowl|beaker)\b/],
@@ -142,7 +155,7 @@ const WORDS: [Archetype, RegExp][] = [
 ];
 /** A guess from the object's name alone, for drafts made without Spark. */
 export function archetypeOf(label: string): Archetype {
-  const text = label.toLowerCase();
+  const text = label.toLowerCase().trim();
   return WORDS.find(([, re]) => re.test(text))?.[0] ?? 'generic';
 }
 
@@ -302,6 +315,13 @@ export function defaultFit(archetype: Archetype, colors: string[] = []): Archety
         decal: null,
         material: 'matte',
       };
+    case 'cat':
+      return {
+        family: 'cat',
+        pose: 'idle',
+        colors: { body: colors[0] ?? '#d88b4b', accent: colors[1] ?? '#f2e6d8' },
+        material: 'fabric',
+      };
     case 'generic':
       return lathe({ radius: 0.42, height: 1, colors: all });
   }
@@ -321,6 +341,141 @@ const bandPaint = (bands: Band[]): Paint[] =>
 
 /** The parts for a fit, in item space: the body centred on the footprint. */
 export function buildItem(label: string, fit: ArchetypeFit): IsoItem {
+  if (fit.family === 'cat') {
+    const { body, accent } = fit.colors;
+    const material = fit.material;
+    const ear = (id: string, x: number, y: number, z: number): ItemPart => ({
+      id,
+      shape: 'lathe',
+      at: { x: round(x), y: round(y), z: round(z) },
+      size: { w: 0.14, d: 0.14, h: 0.2 },
+      color: body,
+      taper: 1,
+      profile: [
+        { r: 1, z: 0 },
+        { r: 0.15, z: 1 },
+      ],
+      material,
+    });
+    if (fit.pose === 'sleeping') {
+      return {
+        label,
+        parts: [
+          {
+            id: 'body',
+            shape: 'blob',
+            at: { x: 0.12, y: 0.14, z: 0 },
+            size: { w: 0.72, d: 0.68, h: 0.42 },
+            color: body,
+            taper: 1,
+            rough: 0.15,
+            material,
+          },
+          {
+            id: 'head',
+            shape: 'blob',
+            at: { x: 0.44, y: 0.46, z: 0.04 },
+            size: { w: 0.36, d: 0.36, h: 0.34 },
+            color: body,
+            taper: 1,
+            rough: 0.1,
+            material,
+          },
+          ear('ear-l', 0.48, 0.62, 0.3),
+          ear('ear-r', 0.64, 0.48, 0.3),
+          {
+            id: 'tail',
+            shape: 'tube',
+            at: { x: 0.1, y: 0.1, z: 0.02 },
+            size: { w: 0.68, d: 0.68, h: 0.18 },
+            color: accent,
+            taper: 0.7,
+            radius: 0.06,
+            path: [
+              { x: 0.15, y: 0.4, z: 0.4 },
+              { x: 0.1, y: 0.85, z: 0.3 },
+              { x: 0.55, y: 0.9, z: 0.25 },
+              { x: 0.85, y: 0.65, z: 0.2 },
+            ],
+            material,
+          },
+        ],
+      };
+    }
+    return {
+      label,
+      parts: [
+        {
+          id: 'body',
+          shape: 'blob',
+          at: { x: 0.2, y: 0.18, z: 0 },
+          size: { w: 0.56, d: 0.56, h: 0.74 },
+          color: body,
+          taper: 0.82,
+          rough: 0.12,
+          material,
+        },
+        {
+          id: 'chest',
+          shape: 'blob',
+          at: { x: 0.38, y: 0.38, z: 0.14 },
+          size: { w: 0.36, d: 0.36, h: 0.46 },
+          color: accent,
+          taper: 0.85,
+          rough: 0.08,
+          material,
+        },
+        {
+          id: 'paw-l',
+          shape: 'rbox',
+          at: { x: 0.42, y: 0.6, z: 0 },
+          size: { w: 0.14, d: 0.18, h: 0.14 },
+          color: accent,
+          taper: 1,
+          radius: 0.45,
+          material,
+        },
+        {
+          id: 'paw-r',
+          shape: 'rbox',
+          at: { x: 0.6, y: 0.42, z: 0 },
+          size: { w: 0.18, d: 0.14, h: 0.14 },
+          color: accent,
+          taper: 1,
+          radius: 0.45,
+          material,
+        },
+        {
+          id: 'head',
+          shape: 'blob',
+          at: { x: 0.34, y: 0.34, z: 0.62 },
+          size: { w: 0.42, d: 0.42, h: 0.4 },
+          color: body,
+          taper: 1,
+          rough: 0.08,
+          material,
+        },
+        ear('ear-l', 0.38, 0.56, 0.94),
+        ear('ear-r', 0.56, 0.38, 0.94),
+        {
+          id: 'tail',
+          shape: 'tube',
+          at: { x: 0.08, y: 0.08, z: 0.04 },
+          size: { w: 0.38, d: 0.38, h: 0.68 },
+          color: body,
+          taper: 0.75,
+          radius: 0.055,
+          path: [
+            { x: 0.65, y: 0.65, z: 0.1 },
+            { x: 0.2, y: 0.25, z: 0.25 },
+            { x: 0.15, y: 0.2, z: 0.65 },
+            { x: 0.35, y: 0.35, z: 0.92 },
+          ],
+          material,
+        },
+      ],
+    };
+  }
   if (fit.family === 'flat') {
     const w = clamp(fit.w, 0.05, 1);
     const d = clamp(fit.d, 0.05, 1);
@@ -490,6 +645,11 @@ export type ItemCheck = z.infer<typeof itemCheckSchema>;
  */
 export function applyCheck(fit: ArchetypeFit, check: ItemCheck): ArchetypeFit {
   const k = (v: number, lo = 0.8, hi = 1.2) => (Number.isFinite(v) ? clamp(v, lo, hi) : 1);
+  if (fit.family === 'cat')
+    return {
+      ...fit,
+      colors: check.body ? { ...fit.colors, body: check.body } : fit.colors,
+    };
   if (fit.family === 'flat')
     return {
       ...fit,
@@ -517,6 +677,8 @@ export function applyCheck(fit: ArchetypeFit, check: ItemCheck): ArchetypeFit {
 /** One line about a fit, for Spark's check and for evidence. */
 export function describeFit(fit: ArchetypeFit): string {
   const n = (v: number) => v.toFixed(2);
+  if (fit.family === 'cat')
+    return `a ${fit.pose} cat in ${fit.colors.body} with ${fit.colors.accent} markings`;
   if (fit.family === 'flat')
     return `a flat shape ${n(fit.w)} wide, ${n(fit.d)} deep and ${n(fit.h)} tall with a ${fit.outline.length}-point outline, ${fit.colors.side} sides and a ${fit.colors.top} top`;
   if (fit.family === 'box')
@@ -529,4 +691,59 @@ export function describeFit(fit: ArchetypeFit): string {
   ]
     .filter(Boolean)
     .join(', ');
+}
+
+/** A cat model in a pose (`idle` or `sleeping`). */
+export function catItem(label = 'Cat', pose: CatPose = 'idle', colors: string[] = []): IsoItem {
+  const base = defaultFit('cat', colors) as CatFit;
+  return buildItem(label, { ...base, pose });
+}
+
+/** A monitor fixture model, with a screen that lights up when `on`. */
+export function monitorItem(label = 'Monitor', on = false): IsoItem {
+  return {
+    label,
+    parts: [
+      {
+        id: 'base',
+        shape: 'rbox',
+        at: { x: 0.28, y: 0.25, z: 0 },
+        size: { w: 0.44, d: 0.5, h: 0.05 },
+        color: '#23283c',
+        taper: 1,
+        radius: 0.15,
+        material: 'metal',
+      },
+      {
+        id: 'neck',
+        shape: 'rbox',
+        at: { x: 0.44, y: 0.3, z: 0.05 },
+        size: { w: 0.12, d: 0.14, h: 0.25 },
+        color: '#23283c',
+        taper: 1,
+        radius: 0.1,
+        material: 'metal',
+      },
+      {
+        id: 'frame',
+        shape: 'rbox',
+        at: { x: 0.05, y: 0.36, z: 0.22 },
+        size: { w: 0.9, d: 0.12, h: 0.72 },
+        color: '#23283c',
+        taper: 1,
+        radius: 0.06,
+        material: 'matte',
+      },
+      {
+        id: 'screen',
+        shape: 'rbox',
+        at: { x: 0.09, y: 0.43, z: 0.26 },
+        size: { w: 0.82, d: 0.07, h: 0.64 },
+        color: on ? '#68b5e8' : '#2c3858',
+        taper: 1,
+        radius: 0.04,
+        material: 'gloss',
+      },
+    ],
+  };
 }

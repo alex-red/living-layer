@@ -1,13 +1,27 @@
-import { useEffect, useRef, useState, type PointerEvent } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
 import {
+  fromIso,
+  ISO_RISE,
   ITEM_MATERIALS,
   ITEM_SHAPES,
+  STARTER_TEMPLATES,
+  fixtureModel,
+  fixtureSize,
+  fixtureStateNames,
   isoItemSchema,
   rotateItem,
+  sizeInTiles,
+  starterMeta,
+  starterTemplateModel,
+  tileCm,
+  toIso,
+  type Fixture,
+  type FixtureInput,
   type IsoItem,
   type ItemPart,
   type Paint,
   type SavedItem,
+  type StarterTemplate,
 } from '@livinglayer/domain';
 import { ItemSprite } from './IsoItem';
 import { itemSprite, viewOverlay } from './sprites';
@@ -23,9 +37,52 @@ const SOURCE: Record<SavedItem['source'], string> = {
   placeholder: 'Placeholder from a scan',
 };
 const round = (n: number) => Math.round(n * 100) / 100;
+const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
 /** Only the editable fields, so the working copy matches the save contract exactly. */
 const editable = (item?: SavedItem | null): IsoItem | null =>
   item ? { label: item.label, parts: item.parts } : null;
+
+function nextPartId(baseId: string, taken: string[]): string {
+  const stem = baseId.replace(/-\d+$/, '').slice(0, 20) || 'part';
+  let n = 2;
+  while (taken.includes(`${stem}-${n}`)) n++;
+  return `${stem}-${n}`;
+}
+
+function mirrorPart(part: ItemPart, axis: 'x' | 'y'): ItemPart {
+  if (axis === 'x') {
+    return {
+      ...part,
+      at: { ...part.at, x: round(clamp(1 - (part.at.x + part.size.w), -0.5, 1.5)) },
+      ...(part.path ? { path: part.path.map((p) => ({ ...p, x: round(1 - p.x) })) } : {}),
+      ...(part.outline
+        ? { outline: [...part.outline].reverse().map((p) => ({ ...p, x: round(1 - p.x) })) }
+        : {}),
+    };
+  }
+  return {
+    ...part,
+    at: { ...part.at, y: round(clamp(1 - (part.at.y + part.size.d), -0.5, 1.5)) },
+    ...(part.path ? { path: part.path.map((p) => ({ ...p, y: round(1 - p.y) })) } : {}),
+    ...(part.outline
+      ? { outline: [...part.outline].reverse().map((p) => ({ ...p, y: round(1 - p.y) })) }
+      : {}),
+  };
+}
+
+const STUDIO_PRESETS: { id: string; label: string; template: StarterTemplate; state?: string }[] = [
+  { id: 'cat:idle', label: 'Cat · idle', template: 'cat', state: 'idle' },
+  { id: 'cat:sleeping', label: 'Cat · sleeping', template: 'cat', state: 'sleeping' },
+  { id: 'monitor:off', label: 'Monitor · off', template: 'monitor', state: 'off' },
+  { id: 'monitor:on', label: 'Monitor · on', template: 'monitor', state: 'on' },
+  { id: 'lamp:off', label: 'Desk lamp · off', template: 'lamp', state: 'off' },
+  { id: 'lamp:on', label: 'Desk lamp · on', template: 'lamp', state: 'on' },
+  ...STARTER_TEMPLATES.filter((t) => t !== 'cat' && t !== 'monitor' && t !== 'lamp').map((t) => ({
+    id: t,
+    label: starterMeta(t).label,
+    template: t,
+  })),
+];
 
 function newPart(shape: ItemPart['shape'], taken: string[]): ItemPart {
   let n = 1;
@@ -234,6 +291,267 @@ function ProfileEditor({
   );
 }
 
+/**
+ * A tube's 2–4 Bézier control points inside its box: edit either X·Z (side)
+ * or X·Y (top) by dragging points.
+ */
+function TubePathEditor({
+  path,
+  onChange,
+}: {
+  path: NonNullable<ItemPart['path']>;
+  onChange: (path: NonNullable<ItemPart['path']>) => void;
+}) {
+  const svg = useRef<SVGSVGElement>(null);
+  const [active, setActive] = useState<number | null>(null);
+  const [plane, setPlane] = useState<'xz' | 'xy'>('xz');
+  const S = 100;
+  const at = (e: PointerEvent<SVGSVGElement>) => {
+    const ctm = svg.current?.getScreenCTM();
+    if (!ctm) return null;
+    const p = new DOMPoint(e.clientX, e.clientY).matrixTransform(ctm.inverse());
+    return {
+      u: round(clamp(p.x / S, 0, 1)),
+      v: round(clamp(plane === 'xz' ? 1 - p.y / S : p.y / S, 0, 1)),
+    };
+  };
+  const curve = Array.from({ length: 17 }, (_, i) => {
+    const t = i / 16;
+    const u = 1 - t;
+    if (path.length === 2) {
+      return {
+        x: u * path[0]!.x + t * path[1]!.x,
+        y: u * path[0]!.y + t * path[1]!.y,
+        z: u * path[0]!.z + t * path[1]!.z,
+      };
+    }
+    if (path.length === 3) {
+      return {
+        x: u * u * path[0]!.x + 2 * u * t * path[1]!.x + t * t * path[2]!.x,
+        y: u * u * path[0]!.y + 2 * u * t * path[1]!.y + t * t * path[2]!.y,
+        z: u * u * path[0]!.z + 2 * u * t * path[1]!.z + t * t * path[2]!.z,
+      };
+    }
+    return {
+      x:
+        u * u * u * path[0]!.x +
+        3 * u * u * t * path[1]!.x +
+        3 * u * t * t * path[2]!.x +
+        t * t * t * path[3]!.x,
+      y:
+        u * u * u * path[0]!.y +
+        3 * u * u * t * path[1]!.y +
+        3 * u * t * t * path[2]!.y +
+        t * t * t * path[3]!.y,
+      z:
+        u * u * u * path[0]!.z +
+        3 * u * u * t * path[1]!.z +
+        3 * u * t * t * path[2]!.z +
+        t * t * t * path[3]!.z,
+    };
+  });
+  const toSvg = (p: { x: number; y: number; z: number }) => ({
+    cx: p.x * S,
+    cy: (plane === 'xz' ? 1 - p.z : p.y) * S,
+  });
+  return (
+    <div className="item-profile">
+      <div className="item-head">
+        <span className="tiny">TUBE PATH · {plane === 'xz' ? 'SIDE (X·Z)' : 'TOP (X·Y)'}</span>
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={() => setPlane((p) => (p === 'xz' ? 'xy' : 'xz'))}
+        >
+          {plane === 'xz' ? 'Switch to Top X·Y' : 'Switch to Side X·Z'}
+        </Button>
+      </div>
+      <svg
+        ref={svg}
+        viewBox={`-8 -8 ${S + 16} ${S + 16}`}
+        role="img"
+        aria-label="Tube path editor"
+        onPointerMove={(e) => {
+          const p = active !== null && at(e);
+          if (!p) return;
+          onChange(
+            path.map((q, i) =>
+              i === active
+                ? plane === 'xz'
+                  ? { ...q, x: p.u, z: p.v }
+                  : { ...q, x: p.u, y: p.v }
+                : q,
+            ),
+          );
+        }}
+        onPointerUp={() => setActive(null)}
+        onPointerLeave={() => setActive(null)}
+      >
+        <polyline
+          className="axis"
+          fill="none"
+          points={path
+            .map((p) => {
+              const c = toSvg(p);
+              return `${c.cx},${c.cy}`;
+            })
+            .join(' ')}
+        />
+        <polyline
+          className="outline"
+          style={{ fill: 'none' }}
+          points={curve
+            .map((p) => {
+              const c = toSvg(p);
+              return `${c.cx},${c.cy}`;
+            })
+            .join(' ')}
+        />
+        {path.map((p, i) => {
+          const c = toSvg(p);
+          return (
+            <circle
+              key={i}
+              className={active === i ? 'active' : ''}
+              cx={c.cx}
+              cy={c.cy}
+              r={4}
+              onPointerDown={(e) => {
+                setActive(i);
+                e.currentTarget.ownerSVGElement?.setPointerCapture(e.pointerId);
+              }}
+            />
+          );
+        })}
+      </svg>
+      <div className="item-add">
+        <Button
+          size="sm"
+          disabled={path.length >= 4}
+          onClick={() => {
+            const a = path[path.length - 2]!;
+            const b = path[path.length - 1]!;
+            onChange([
+              ...path.slice(0, -1),
+              {
+                x: round((a.x + b.x) / 2),
+                y: round((a.y + b.y) / 2),
+                z: round((a.z + b.z) / 2),
+              },
+              b,
+            ]);
+          }}
+        >
+          Add point
+        </Button>
+        <Button
+          size="sm"
+          disabled={path.length <= 2}
+          onClick={() => onChange(path.filter((_, i) => i !== Math.floor(path.length / 2)))}
+        >
+          Remove point
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * An extrusion's footprint polygon (3–12 vertices in X·Y). Drag a vertex to
+ * reshape the footprint.
+ */
+function ExtrudeOutlineEditor({
+  outline,
+  onChange,
+}: {
+  outline: NonNullable<ItemPart['outline']>;
+  onChange: (outline: NonNullable<ItemPart['outline']>) => void;
+}) {
+  const svg = useRef<SVGSVGElement>(null);
+  const [active, setActive] = useState<number | null>(null);
+  const S = 100;
+  const at = (e: PointerEvent<SVGSVGElement>) => {
+    const ctm = svg.current?.getScreenCTM();
+    if (!ctm) return null;
+    const p = new DOMPoint(e.clientX, e.clientY).matrixTransform(ctm.inverse());
+    return {
+      x: round(clamp(p.x / S, 0, 1)),
+      y: round(clamp(p.y / S, 0, 1)),
+    };
+  };
+  return (
+    <div className="item-profile">
+      <span className="tiny">FOOTPRINT OUTLINE (X·Y)</span>
+      <svg
+        ref={svg}
+        viewBox={`-8 -8 ${S + 16} ${S + 16}`}
+        role="img"
+        aria-label="Footprint outline editor"
+        onPointerMove={(e) => {
+          const p = active !== null && at(e);
+          if (!p) return;
+          onChange(outline.map((q, i) => (i === active ? p : q)));
+        }}
+        onPointerUp={() => setActive(null)}
+        onPointerLeave={() => setActive(null)}
+      >
+        <polygon
+          className="outline"
+          points={outline.map((p) => `${p.x * S},${p.y * S}`).join(' ')}
+        />
+        {outline.map((p, i) => (
+          <circle
+            key={i}
+            className={active === i ? 'active' : ''}
+            cx={p.x * S}
+            cy={p.y * S}
+            r={4}
+            onPointerDown={(e) => {
+              setActive(i);
+              e.currentTarget.ownerSVGElement?.setPointerCapture(e.pointerId);
+            }}
+          />
+        ))}
+      </svg>
+      <div className="item-add">
+        <Button
+          size="sm"
+          disabled={outline.length >= 12}
+          onClick={() => {
+            let best = 0;
+            let len = -1;
+            for (let i = 0; i < outline.length; i++) {
+              const a = outline[i]!;
+              const b = outline[(i + 1) % outline.length]!;
+              const d = Math.hypot(b.x - a.x, b.y - a.y);
+              if (d > len) {
+                len = d;
+                best = i;
+              }
+            }
+            const a = outline[best]!;
+            const b = outline[(best + 1) % outline.length]!;
+            onChange([
+              ...outline.slice(0, best + 1),
+              { x: round((a.x + b.x) / 2), y: round((a.y + b.y) / 2) },
+              ...outline.slice(best + 1),
+            ]);
+          }}
+        >
+          Add vertex
+        </Button>
+        <Button
+          size="sm"
+          disabled={outline.length <= 3}
+          onClick={() => onChange(outline.filter((_, i) => i !== outline.length - 1))}
+        >
+          Remove vertex
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 function PaintLayer({
   layer,
   colours,
@@ -412,21 +730,62 @@ function PhotoCompare({ item, url, elevation }: { item: IsoItem; url: string; el
   );
 }
 
+/** Isometric wireframe polygon points for a 3D box in item units, scaled by `PREVIEW_SCALE`. */
+function isoBoxWireframe(
+  at: { x: number; y: number; z: number },
+  size: { w: number; d: number; h: number },
+) {
+  const s = PREVIEW_SCALE;
+  const p = (x: number, y: number, z: number) => toIso({ x: x * s, y: y * s, z: z * s });
+  const b00 = p(at.x, at.y, at.z);
+  const b10 = p(at.x + size.w, at.y, at.z);
+  const b11 = p(at.x + size.w, at.y + size.d, at.z);
+  const b01 = p(at.x, at.y + size.d, at.z);
+  const t00 = p(at.x, at.y, at.z + size.h);
+  const t10 = p(at.x + size.w, at.y, at.z + size.h);
+  const t11 = p(at.x + size.w, at.y + size.d, at.z + size.h);
+  const t01 = p(at.x, at.y + size.d, at.z + size.h);
+  const centerTop = p(at.x + size.w / 2, at.y + size.d / 2, at.z + size.h);
+  return {
+    bottom: `${b00.sx},${b00.sy} ${b10.sx},${b10.sy} ${b11.sx},${b11.sy} ${b01.sx},${b01.sy}`,
+    top: `${t00.sx},${t00.sy} ${t10.sx},${t10.sy} ${t11.sx},${t11.sy} ${t01.sx},${t01.sy}`,
+    hull: `${t00.sx},${t00.sy} ${t10.sx},${t10.sy} ${b10.sx},${b10.sy} ${b11.sx},${b11.sy} ${b01.sx},${b01.sy} ${t01.sx},${t01.sy}`,
+    pillars: [
+      [b00, t00],
+      [b10, t10],
+      [b11, t11],
+      [b01, t01],
+    ] as const,
+    centerTop,
+  };
+}
+
+function unrotateDelta(rx: number, ry: number, turns: number): { dx: number; dy: number } {
+  const k = ((turns % 4) + 4) % 4;
+  if (k === 1) return { dx: ry, dy: -rx };
+  if (k === 2) return { dx: -rx, dy: -ry };
+  if (k === 3) return { dx: -ry, dy: rx };
+  return { dx: rx, dy: ry };
+}
+
 /**
- * Edit the remembered object's model part by part, with a live preview. A
- * draft is fitted to the mask (locally, or helped by Spark and SAM); saving
- * keeps it in desk memory, so the iso scene draws it where the object stands.
+ * Edit the remembered object's or fixture's model part by part, with a live
+ * preview, state/pose ribbon, onion-skin comparison, and 2D/isometric handles.
  */
 export function ItemEditor({
   item,
+  fixture,
   busy,
   sparkNote,
   cropUrl,
   onDraft,
   onSave,
   onRefit,
+  onFixtureState,
+  onFixtureSize,
 }: {
   item: SavedItem | null | undefined;
+  fixture?: Fixture | undefined;
   busy: boolean;
   /** Why a Spark draft would cost something, or is unavailable. */
   sparkNote: string;
@@ -437,16 +796,65 @@ export function ItemEditor({
   onSave: (item: IsoItem | null) => void;
   /** Fit again to the same crop, keeping locked parts. */
   onRefit: (item: IsoItem) => void;
+  /** Switch, add, update or remove a fixture state directly from the studio. */
+  onFixtureState?: (payload: {
+    state?: string | null;
+    fixture?: NonNullable<FixtureInput['states']>[string];
+    remove?: string;
+  }) => void;
+  /** Resize the fixture's base footprint/height. */
+  onFixtureSize?: (size: FixtureInput['size']) => void;
 }) {
   const [draft, setDraft] = useState<IsoItem | null>(editable(item));
   const [selected, setSelected] = useState(item?.parts[0]?.id ?? '');
   const [turns, setTurns] = useState(0);
   const [addShape, setAddShape] = useState<ItemPart['shape']>('lathe');
-  const [view, setView] = useState<'model' | 'photo'>('model');
+  const [view, setView] = useState<'model' | 'states' | 'photo'>('model');
+  const [ghostState, setGhostState] = useState<string>('');
+  const [showBox, setShowBox] = useState(true);
+  const [newStateName, setNewStateName] = useState('');
+  const [copyFromState, setCopyFromState] = useState('__base__');
+  const [presetId, setPresetId] = useState<string>(STUDIO_PRESETS[0]!.id);
+  const perTileCm = tileCm();
+  const activeTileSize = fixture ? fixtureSize(fixture) : { w: 1, d: 1, h: 1 };
+  const [cmSize, setCmSize] = useState({
+    w: Math.round(activeTileSize.w * perTileCm),
+    d: Math.round(activeTileSize.d * perTileSizeCm(perTileCm)),
+    h: Math.round(activeTileSize.h * perTileCm),
+  });
+  function perTileSizeCm(c: number) {
+    return c;
+  }
+  const previewSvg = useRef<SVGSVGElement>(null);
+  const [dragStart, setDragStart] = useState<{
+    pointerId: number;
+    clientX: number;
+    clientY: number;
+    at: { x: number; y: number; z: number };
+  } | null>(null);
+
   useEffect(() => {
     setDraft(editable(item));
     setSelected((s) => (item?.parts.some((p) => p.id === s) ? s : (item?.parts[0]?.id ?? '')));
-  }, [item?.updatedAt]);
+  }, [item?.updatedAt, fixture?.id, fixture?.state]);
+
+  useEffect(() => {
+    if (!fixture) return;
+    const sz = fixtureSize(fixture);
+    setCmSize({
+      w: Math.round(sz.w * perTileCm),
+      d: Math.round(sz.d * perTileCm),
+      h: Math.round(sz.h * perTileCm),
+    });
+  }, [
+    fixture?.id,
+    fixture?.state,
+    activeTileSize.w,
+    activeTileSize.d,
+    activeTileSize.h,
+    perTileCm,
+  ]);
+
   const dirty = Boolean(draft) && JSON.stringify(draft) !== JSON.stringify(editable(item));
   const checked = draft ? isoItemSchema.safeParse(draft) : null;
   const valid = Boolean(checked?.success);
@@ -494,393 +902,864 @@ export function ItemEditor({
       </div>
     );
 
+  const stateNames = fixture ? fixtureStateNames(fixture) : [];
+  const nextTiles = sizeInTiles(cmSize);
+  const sizeDirty =
+    Boolean(fixture) &&
+    (nextTiles.w !== activeTileSize.w ||
+      nextTiles.d !== activeTileSize.d ||
+      nextTiles.h !== activeTileSize.h);
+
   const shown = rotateItem(draft, turns);
+  const shownPart = shown.parts.find((p) => p.id === selected);
   const selectIndex = shown.parts.findIndex((p) => p.id === selected);
+  const isLitGlow = Boolean(fixture?.control.kind === 'light' && fixture.state === 'on');
   const sprite = itemSprite(shown, {
     scale: PREVIEW_SCALE,
     resolution: 64,
     ...(selectIndex >= 0 ? { select: selectIndex } : {}),
+    ...(isLitGlow ? { glow: true } : {}),
   });
-  const pad = 16;
+  const ghostItem =
+    fixture && ghostState
+      ? rotateItem(fixtureModel(fixture, ghostState === '__base__' ? null : ghostState), turns)
+      : null;
+  const pad = 22;
   const paints = part?.paint ?? [];
+
+  function handleCanvasKeyDown(e: KeyboardEvent<SVGSVGElement>) {
+    if (!part) return;
+    const step = 0.02;
+    if (e.shiftKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+      e.preventDefault();
+      const dz = e.key === 'ArrowUp' ? step : -step;
+      update({ at: { ...part.at, z: round(clamp(part.at.z + dz, 0, 6)) } });
+      return;
+    }
+    const move: Record<string, [number, number]> = {
+      ArrowLeft: [-step, step],
+      ArrowRight: [step, -step],
+      ArrowUp: [-step, -step],
+      ArrowDown: [step, step],
+    };
+    const dir = move[e.key];
+    if (dir) {
+      e.preventDefault();
+      const { dx, dy } = unrotateDelta(dir[0], dir[1], turns);
+      update({
+        at: {
+          ...part.at,
+          x: round(clamp(part.at.x + dx, -0.5, 1.5)),
+          y: round(clamp(part.at.y + dy, -0.5, 1.5)),
+        },
+      });
+    }
+  }
+
   return (
-    <div className="item-editor">
-      <div className="item-parts">
-        <div className="item-head">
-          <span className="tiny">PARTS · {draft.parts.length}/12</span>
-          {item && (
-            <span className="tiny">
-              {/* A Spark model with no fit record was built by Spark from the picture, not fitted. */}
-              {(item.source === 'spark' && !item.fit
-                ? 'Modelled with AI'
-                : SOURCE[item.source]
-              ).toUpperCase()}
-            </span>
-          )}
-        </div>
-        <ul role="listbox" aria-label="Item parts">
-          {draft.parts.map((p) => (
-            <li key={p.id}>
-              <button
-                role="option"
-                aria-selected={p.id === selected}
-                onClick={() => setSelected(p.id)}
-              >
-                <span className="swatch" style={{ background: p.color }} />
-                {p.id}
-                {p.locked && <span className="tiny">LOCKED</span>}
-                <span className="tiny">{p.shape.toUpperCase()}</span>
-              </button>
-            </li>
-          ))}
-        </ul>
-        <div className="item-add">
-          <select
-            value={addShape}
-            aria-label="New part shape"
-            onChange={(e) => setAddShape(e.target.value as ItemPart['shape'])}
-          >
-            {ITEM_SHAPES.map((s) => (
-              <option key={s} value={s}>
-                {s}
-              </option>
-            ))}
-          </select>
-          <Button
-            size="sm"
-            disabled={draft.parts.length >= 12}
-            onClick={() => {
-              const p = newPart(
-                addShape,
-                draft.parts.map((q) => q.id),
+    <div className="item-editor-wrap">
+      {fixture && onFixtureState && (
+        <div className="studio-bar" role="region" aria-label="Fixture Studio States">
+          <div className="studio-states" role="tablist" aria-label="Fixture states">
+            {[
+              { id: null, label: 'Base', size: fixture.size },
+              ...stateNames.map((s) => ({
+                id: s,
+                label: s,
+                size: fixtureSize(fixture, s),
+              })),
+            ].map((entry) => {
+              const active = (fixture.state ?? null) === entry.id;
+              const entryModel = active ? draft : fixtureModel(fixture, entry.id);
+              const thumb = itemSprite(entryModel, { scale: 1.5, resolution: 32 });
+              const cmText = `${Math.round(entry.size.w * perTileCm)}×${Math.round(entry.size.d * perTileCm)}×${Math.round(entry.size.h * perTileCm)} cm`;
+              return (
+                <button
+                  key={entry.id ?? '__base__'}
+                  role="tab"
+                  aria-selected={active}
+                  className={`studio-state-card ${active ? 'active' : ''}`}
+                  disabled={busy}
+                  onClick={() => {
+                    if (!active) onFixtureState({ state: entry.id });
+                  }}
+                >
+                  <img src={thumb.url} alt="" />
+                  <div>
+                    <strong>{entry.label}</strong>
+                    <small>{cmText}</small>
+                  </div>
+                </button>
               );
-              setDraft({ ...draft, parts: [...draft.parts, p] });
-              setSelected(p.id);
-            }}
-          >
-            Add part
-          </Button>
-        </div>
-        {part && (
-          <div className="item-fields">
-            <div className="item-head">
-              <span className="tiny">{part.id.toUpperCase()}</span>
-              <Check
-                checked={Boolean(part.locked)}
-                onChange={(locked) => update({ locked: locked || undefined })}
-              >
-                <span className="tiny">KEEP ON REFIT</span>
-              </Check>
+            })}
+            <div className="studio-state-new">
+              <input
+                aria-label="New studio state"
+                placeholder="New state (e.g. alert)"
+                value={newStateName}
+                maxLength={24}
+                onChange={(e) => setNewStateName(e.target.value)}
+              />
               <Button
-                variant="text"
-                disabled={draft.parts.length <= 1}
+                size="sm"
+                disabled={busy || !newStateName.trim() || !valid}
                 onClick={() => {
-                  const rest = draft.parts.filter((p) => p.id !== part.id);
-                  setDraft({ ...draft, parts: rest });
-                  setSelected(rest[0]?.id ?? '');
-                }}
-              >
-                Remove part
-              </Button>
-            </div>
-            <label className="item-slider">
-              <span className="tiny">SHAPE</span>
-              <select
-                value={part.shape}
-                aria-label="Part shape"
-                onChange={(e) => {
-                  const shape = e.target.value as ItemPart['shape'];
-                  const fresh = newPart(shape, []);
-                  // Keep the box and colour; take the new shape's own numbers.
-                  update({
-                    shape,
-                    profile: part.profile ?? fresh.profile,
-                    path: part.path ?? fresh.path,
-                    outline: part.outline ?? fresh.outline,
-                    radius: part.radius ?? fresh.radius,
-                    rough: part.rough ?? fresh.rough,
+                  const name = newStateName.trim();
+                  setNewStateName('');
+                  onFixtureState({
+                    state: name,
+                    fixture: {
+                      model: { label: draft.label, parts: draft.parts },
+                      size: nextTiles,
+                    },
                   });
                 }}
               >
-                {ITEM_SHAPES.map((s) => (
-                  <option key={s} value={s}>
-                    {s}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="item-slider">
-              <span className="tiny">MATERIAL</span>
+                + State
+              </Button>
+            </div>
+          </div>
+          <div className="studio-tools">
+            <div className="studio-tool-group">
+              <span className="tiny">POSE / TEMPLATE</span>
               <select
-                value={part.material ?? 'matte'}
-                aria-label="Part material"
-                onChange={(e) => update({ material: e.target.value as ItemPart['material'] })}
+                aria-label="Starter template"
+                value={presetId}
+                onChange={(e) => setPresetId(e.target.value)}
               >
-                {ITEM_MATERIALS.map((m) => (
-                  <option key={m} value={m}>
-                    {m}
+                {STUDIO_PRESETS.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.label}
                   </option>
                 ))}
               </select>
-            </label>
-            {(['x', 'y', 'z'] as const).map((k) => (
-              <Slider
-                key={k}
-                label={k.toUpperCase()}
-                value={part.at[k]}
-                min={k === 'z' ? 0 : -0.5}
-                max={k === 'z' ? 6 : 1.5}
-                onChange={(v) => update({ at: { ...part.at, [k]: round(v) } })}
-              />
-            ))}
-            {(['w', 'd', 'h'] as const).map((k) => (
-              <Slider
-                key={k}
-                label={k === 'w' ? 'WIDTH' : k === 'd' ? 'DEPTH' : 'HEIGHT'}
-                value={part.size[k]}
-                min={0.02}
-                max={k === 'h' ? 6 : 3}
-                onChange={(v) => update({ size: { ...part.size, [k]: round(v) } })}
-              />
-            ))}
-            {part.shape === 'cone' && (
-              <Slider
-                label="TAPER"
-                value={part.taper}
-                min={0}
-                max={2}
-                onChange={(v) => update({ taper: round(v) })}
-              />
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={busy}
+                onClick={() => {
+                  const preset =
+                    STUDIO_PRESETS.find((p) => p.id === presetId) ?? STUDIO_PRESETS[0]!;
+                  const built = starterTemplateModel(preset.template, {
+                    label: draft.label,
+                    colors: colours.slice(0, 2),
+                    ...(preset.state ? { state: preset.state } : {}),
+                  });
+                  setDraft({ label: draft.label, parts: built.parts });
+                  setSelected(built.parts[0]?.id ?? '');
+                }}
+              >
+                Load template
+              </Button>
+            </div>
+            {stateNames.length > 0 && (
+              <div className="studio-tool-group">
+                <span className="tiny">COPY FROM</span>
+                <select
+                  aria-label="Copy model from state"
+                  value={copyFromState}
+                  onChange={(e) => setCopyFromState(e.target.value)}
+                >
+                  <option value="__base__">Base</option>
+                  {stateNames.map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
+                </select>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={busy}
+                  onClick={() => {
+                    const src = fixtureModel(
+                      fixture,
+                      copyFromState === '__base__' ? null : copyFromState,
+                    );
+                    setDraft({ label: draft.label, parts: src.parts });
+                    setSelected(src.parts[0]?.id ?? '');
+                  }}
+                >
+                  Copy parts
+                </Button>
+              </div>
             )}
-            {(part.shape === 'lathe' || part.shape === 'cylinder') && (
-              <Slider
-                label="WALL"
-                value={part.wall ?? 0}
-                min={0}
-                max={0.9}
-                onChange={(v) =>
-                  update(
-                    v > 0
-                      ? {
-                          wall: round(v),
-                          inside: part.inside ?? { wall: part.color, liquid: null, level: 0 },
-                        }
-                      : { wall: undefined, inside: undefined },
-                  )
-                }
-              />
-            )}
-            {(part.shape === 'rbox' || part.shape === 'extrude' || part.shape === 'tube') && (
-              <Slider
-                label={part.shape === 'tube' ? 'RADIUS' : 'ROUNDING'}
-                value={part.radius ?? 0}
-                min={0}
-                max={part.shape === 'tube' ? 0.3 : 0.5}
-                onChange={(v) => update({ radius: round(v) })}
-              />
-            )}
-            {part.shape === 'blob' && (
-              <Slider
-                label="LUMPS"
-                value={part.rough ?? 0}
-                min={0}
-                max={1}
-                onChange={(v) => update({ rough: round(v) })}
-              />
-            )}
-            {part.shape === 'lathe' && part.profile && (
-              <ProfileEditor profile={part.profile} onChange={(profile) => update({ profile })} />
-            )}
-            {part.inside && (
-              <div className="item-inside">
-                <Slider
-                  label="FILL"
-                  value={part.inside.level}
-                  min={0}
-                  max={1}
-                  onChange={(v) =>
-                    update({
-                      inside: {
-                        ...part.inside!,
-                        level: round(v),
-                        liquid: part.inside!.liquid ?? (v > 0 ? MATERIALS[2]! : null),
-                      },
+            <div className="studio-tool-group">
+              <span className="tiny">SIZE (CM)</span>
+              {(['w', 'd', 'h'] as const).map((k) => (
+                <input
+                  key={k}
+                  type="number"
+                  min={3}
+                  max={240}
+                  step={1}
+                  aria-label={`State ${k.toUpperCase()} cm`}
+                  title={`${k.toUpperCase()} in centimetres`}
+                  value={cmSize[k]}
+                  onChange={(e) =>
+                    setCmSize({
+                      ...cmSize,
+                      [k]: clamp(Math.round(Number(e.target.value) || 3), 3, 240),
                     })
                   }
                 />
-                <label className="item-slider">
-                  <span className="tiny">LIQUID</span>
-                  <input
-                    type="color"
-                    value={part.inside.liquid ?? MATERIALS[2]!}
-                    aria-label="Liquid colour"
-                    onChange={(e) =>
-                      update({ inside: { ...part.inside!, liquid: e.target.value.toLowerCase() } })
+              ))}
+              {sizeDirty && (
+                <Button
+                  size="sm"
+                  disabled={busy || !valid}
+                  onClick={() => {
+                    if (fixture.state) {
+                      onFixtureState({
+                        state: fixture.state,
+                        fixture: {
+                          model: { label: draft.label, parts: draft.parts },
+                          size: nextTiles,
+                        },
+                      });
+                    } else {
+                      onFixtureSize?.(nextTiles);
                     }
-                  />
-                </label>
-              </div>
+                  }}
+                >
+                  Save size
+                </Button>
+              )}
+            </div>
+            {fixture.state && fixture.states?.[fixture.state] && (
+              <Button
+                size="sm"
+                variant="text"
+                disabled={busy}
+                onClick={() => onFixtureState({ remove: fixture.state! })}
+              >
+                Delete “{fixture.state}”
+              </Button>
             )}
-            <div className="item-colours" role="group" aria-label="Part colour">
-              {colours.map((c) => (
+          </div>
+        </div>
+      )}
+      <div className="item-editor">
+        <div className="item-parts">
+          <div className="item-head">
+            <span className="tiny">PARTS · {draft.parts.length}/12</span>
+            {item && (
+              <span className="tiny">
+                {/* A Spark model with no fit record was built by Spark from the picture, not fitted. */}
+                {(item.source === 'spark' && !item.fit
+                  ? 'Modelled with AI'
+                  : SOURCE[item.source]
+                ).toUpperCase()}
+              </span>
+            )}
+          </div>
+          <ul role="listbox" aria-label="Item parts">
+            {draft.parts.map((p) => (
+              <li key={p.id}>
                 <button
-                  key={c}
-                  className="swatch"
-                  style={{ background: c }}
-                  aria-label={`Colour ${c}`}
-                  aria-pressed={part.color === c}
-                  onClick={() => update({ color: c })}
+                  role="option"
+                  aria-selected={p.id === selected}
+                  onClick={() => setSelected(p.id)}
+                >
+                  <span className="swatch" style={{ background: p.color }} />
+                  {p.id}
+                  {p.locked && <span className="tiny">LOCKED</span>}
+                  <span className="tiny">{p.shape.toUpperCase()}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+          <div className="item-add">
+            <select
+              value={addShape}
+              aria-label="New part shape"
+              onChange={(e) => setAddShape(e.target.value as ItemPart['shape'])}
+            >
+              {ITEM_SHAPES.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </select>
+            <Button
+              size="sm"
+              disabled={draft.parts.length >= 12}
+              onClick={() => {
+                const p = newPart(
+                  addShape,
+                  draft.parts.map((q) => q.id),
+                );
+                setDraft({ ...draft, parts: [...draft.parts, p] });
+                setSelected(p.id);
+              }}
+            >
+              Add part
+            </Button>
+          </div>
+          {part && (
+            <div className="item-fields">
+              <div className="item-head">
+                <span className="tiny">{part.id.toUpperCase()}</span>
+                <Check
+                  checked={Boolean(part.locked)}
+                  onChange={(locked) => update({ locked: locked || undefined })}
+                >
+                  <span className="tiny">KEEP ON REFIT</span>
+                </Check>
+                <Button
+                  variant="text"
+                  disabled={draft.parts.length <= 1}
+                  onClick={() => {
+                    const rest = draft.parts.filter((p) => p.id !== part.id);
+                    setDraft({ ...draft, parts: rest });
+                    setSelected(rest[0]?.id ?? '');
+                  }}
+                >
+                  Remove part
+                </Button>
+              </div>
+              <div className="item-add">
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={draft.parts.length >= 12}
+                  onClick={() => {
+                    const id = nextPartId(
+                      part.id,
+                      draft.parts.map((q) => q.id),
+                    );
+                    const copy: ItemPart = {
+                      ...part,
+                      id,
+                      at: {
+                        ...part.at,
+                        x: round(clamp(part.at.x + 0.06, -0.5, 1.5)),
+                      },
+                    };
+                    setDraft({ ...draft, parts: [...draft.parts, copy] });
+                    setSelected(id);
+                  }}
+                >
+                  Duplicate
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => update(mirrorPart(part, 'x'))}>
+                  Flip X
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => update(mirrorPart(part, 'y'))}>
+                  Flip Y
+                </Button>
+              </div>
+              <label className="item-slider">
+                <span className="tiny">SHAPE</span>
+                <select
+                  value={part.shape}
+                  aria-label="Part shape"
+                  onChange={(e) => {
+                    const shape = e.target.value as ItemPart['shape'];
+                    const fresh = newPart(shape, []);
+                    // Keep the box and colour; take the new shape's own numbers.
+                    update({
+                      shape,
+                      profile: part.profile ?? fresh.profile,
+                      path: part.path ?? fresh.path,
+                      outline: part.outline ?? fresh.outline,
+                      radius: part.radius ?? fresh.radius,
+                      rough: part.rough ?? fresh.rough,
+                    });
+                  }}
+                >
+                  {ITEM_SHAPES.map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="item-slider">
+                <span className="tiny">MATERIAL</span>
+                <select
+                  value={part.material ?? 'matte'}
+                  aria-label="Part material"
+                  onChange={(e) => update({ material: e.target.value as ItemPart['material'] })}
+                >
+                  {ITEM_MATERIALS.map((m) => (
+                    <option key={m} value={m}>
+                      {m}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {(['x', 'y', 'z'] as const).map((k) => (
+                <Slider
+                  key={k}
+                  label={k.toUpperCase()}
+                  value={part.at[k]}
+                  min={k === 'z' ? 0 : -0.5}
+                  max={k === 'z' ? 6 : 1.5}
+                  onChange={(v) => update({ at: { ...part.at, [k]: round(v) } })}
                 />
               ))}
-              <input
-                type="color"
-                value={part.color}
-                aria-label="Custom colour"
-                onChange={(e) => update({ color: e.target.value.toLowerCase() })}
-              />
-            </div>
-            <div className="item-paint">
-              <span className="tiny">PAINT · {paints.length}/6</span>
-              <ul>
-                {paints.map((layer, i) => (
-                  <PaintLayer
-                    key={i}
-                    layer={layer}
-                    colours={colours}
-                    onChange={(next) =>
-                      update({ paint: paints.map((l, j) => (j === i ? next : l)) })
+              {(['w', 'd', 'h'] as const).map((k) => (
+                <Slider
+                  key={k}
+                  label={k === 'w' ? 'WIDTH' : k === 'd' ? 'DEPTH' : 'HEIGHT'}
+                  value={part.size[k]}
+                  min={0.02}
+                  max={k === 'h' ? 6 : 3}
+                  onChange={(v) => update({ size: { ...part.size, [k]: round(v) } })}
+                />
+              ))}
+              {part.shape === 'cone' && (
+                <Slider
+                  label="TAPER"
+                  value={part.taper}
+                  min={0}
+                  max={2}
+                  onChange={(v) => update({ taper: round(v) })}
+                />
+              )}
+              {(part.shape === 'lathe' || part.shape === 'cylinder') && (
+                <Slider
+                  label="WALL"
+                  value={part.wall ?? 0}
+                  min={0}
+                  max={0.9}
+                  onChange={(v) =>
+                    update(
+                      v > 0
+                        ? {
+                            wall: round(v),
+                            inside: part.inside ?? { wall: part.color, liquid: null, level: 0 },
+                          }
+                        : { wall: undefined, inside: undefined },
+                    )
+                  }
+                />
+              )}
+              {(part.shape === 'rbox' || part.shape === 'extrude' || part.shape === 'tube') && (
+                <Slider
+                  label={part.shape === 'tube' ? 'RADIUS' : 'ROUNDING'}
+                  value={part.radius ?? 0}
+                  min={0}
+                  max={part.shape === 'tube' ? 0.3 : 0.5}
+                  onChange={(v) => update({ radius: round(v) })}
+                />
+              )}
+              {part.shape === 'blob' && (
+                <Slider
+                  label="LUMPS"
+                  value={part.rough ?? 0}
+                  min={0}
+                  max={1}
+                  onChange={(v) => update({ rough: round(v) })}
+                />
+              )}
+              {part.shape === 'lathe' && part.profile && (
+                <ProfileEditor profile={part.profile} onChange={(profile) => update({ profile })} />
+              )}
+              {part.shape === 'tube' && part.path && (
+                <TubePathEditor path={part.path} onChange={(path) => update({ path })} />
+              )}
+              {part.shape === 'extrude' && part.outline && (
+                <ExtrudeOutlineEditor
+                  outline={part.outline}
+                  onChange={(outline) => update({ outline })}
+                />
+              )}
+              {part.inside && (
+                <div className="item-inside">
+                  <Slider
+                    label="FILL"
+                    value={part.inside.level}
+                    min={0}
+                    max={1}
+                    onChange={(v) =>
+                      update({
+                        inside: {
+                          ...part.inside!,
+                          level: round(v),
+                          liquid: part.inside!.liquid ?? (v > 0 ? MATERIALS[2]! : null),
+                        },
+                      })
                     }
-                    onRemove={() => {
-                      const rest = paints.filter((_, j) => j !== i);
-                      update({ paint: rest.length ? rest : undefined });
-                    }}
+                  />
+                  <label className="item-slider">
+                    <span className="tiny">LIQUID</span>
+                    <input
+                      type="color"
+                      value={part.inside.liquid ?? MATERIALS[2]!}
+                      aria-label="Liquid colour"
+                      onChange={(e) =>
+                        update({
+                          inside: { ...part.inside!, liquid: e.target.value.toLowerCase() },
+                        })
+                      }
+                    />
+                  </label>
+                </div>
+              )}
+              <div className="item-colours" role="group" aria-label="Part colour">
+                {colours.map((c) => (
+                  <button
+                    key={c}
+                    className="swatch"
+                    style={{ background: c }}
+                    aria-label={`Colour ${c}`}
+                    aria-pressed={part.color === c}
+                    onClick={() => update({ color: c })}
                   />
                 ))}
-              </ul>
-              <div className="item-add">
-                {(Object.keys(NEW_PAINT) as (keyof typeof NEW_PAINT)[]).map((kind) => (
-                  <Button
-                    key={kind}
-                    variant="ghost"
-                    size="sm"
-                    disabled={paints.length >= 6}
-                    onClick={() =>
-                      update({ paint: [...paints, NEW_PAINT[kind](colours[1] ?? MATERIALS[5]!)] })
-                    }
-                  >
-                    + {kind}
-                  </Button>
-                ))}
+                <input
+                  type="color"
+                  value={part.color}
+                  aria-label="Custom colour"
+                  onChange={(e) => update({ color: e.target.value.toLowerCase() })}
+                />
+              </div>
+              <div className="item-paint">
+                <span className="tiny">PAINT · {paints.length}/6</span>
+                <ul>
+                  {paints.map((layer, i) => (
+                    <PaintLayer
+                      key={i}
+                      layer={layer}
+                      colours={colours}
+                      onChange={(next) =>
+                        update({ paint: paints.map((l, j) => (j === i ? next : l)) })
+                      }
+                      onRemove={() => {
+                        const rest = paints.filter((_, j) => j !== i);
+                        update({ paint: rest.length ? rest : undefined });
+                      }}
+                    />
+                  ))}
+                </ul>
+                <div className="item-add">
+                  {(Object.keys(NEW_PAINT) as (keyof typeof NEW_PAINT)[]).map((kind) => (
+                    <Button
+                      key={kind}
+                      variant="ghost"
+                      size="sm"
+                      disabled={paints.length >= 6}
+                      onClick={() =>
+                        update({ paint: [...paints, NEW_PAINT[kind](colours[1] ?? MATERIALS[5]!)] })
+                      }
+                    >
+                      + {kind}
+                    </Button>
+                  ))}
+                </div>
               </div>
             </div>
-          </div>
-        )}
-      </div>
-      <div className="item-preview">
-        {fit && cropUrl && (
-          <Segmented
-            label="Preview"
-            value={view}
-            onChange={setView}
-            options={[
-              { value: 'model', label: 'Model' },
-              { value: 'photo', label: 'Photo vs model' },
-            ]}
-          />
-        )}
-        {view === 'photo' && fit && cropUrl ? (
-          <PhotoCompare item={draft} url={cropUrl} elevation={fit.elevation} />
-        ) : (
-          <svg
-            viewBox={`${sprite.x - pad} ${sprite.y - pad} ${sprite.width + 2 * pad} ${sprite.height + 2 * pad}`}
-            role="img"
-            aria-label={`Preview of ${draft.label}`}
-          >
-            <ItemSprite
-              item={shown}
-              origin={{ x: 0, y: 0, z: 0 }}
-              scale={PREVIEW_SCALE}
-              selected={selected}
-              resolution={64}
-            />
-          </svg>
-        )}
-        {fit && (
-          <div className="item-fit" aria-label="How well the model matches the photo">
-            <span className="tiny">
-              MATCH {Math.round(fit.iou * 100)}% · COLOUR ΔE {fit.deltaE.toFixed(1)} · {fit.views}{' '}
-              VIEW{fit.views === 1 ? '' : 'S'} · CAMERA {Math.round(fit.elevation)}° ·{' '}
-              {fit.archetype.toUpperCase()}
-            </span>
-            {fit.assists.length > 0 && (
-              <ul>
-                {fit.assists.map((a) => (
-                  <li key={a}>{a}</li>
-                ))}
-              </ul>
+          )}
+        </div>
+        <div className="item-preview">
+          <div className="studio-preview-bar">
+            {((fit && cropUrl) || stateNames.length > 0) && (
+              <Segmented
+                label="Preview"
+                value={view}
+                onChange={setView}
+                options={[
+                  { value: 'model', label: 'Model' },
+                  ...(stateNames.length > 0
+                    ? [{ value: 'states' as const, label: `All states (${stateNames.length})` }]
+                    : []),
+                  ...(fit && cropUrl ? [{ value: 'photo' as const, label: 'Photo vs model' }] : []),
+                ]}
+              />
+            )}
+            {view === 'model' && (
+              <div className="studio-canvas-opts">
+                {fixture && stateNames.length > 0 && (
+                  <label className="studio-ghost-pick">
+                    <span className="tiny">ONION SKIN</span>
+                    <select
+                      aria-label="Onion skin state"
+                      value={ghostState}
+                      onChange={(e) => setGhostState(e.target.value)}
+                    >
+                      <option value="">Off</option>
+                      {fixture.state && <option value="__base__">Base</option>}
+                      {stateNames
+                        .filter((s) => s !== fixture.state)
+                        .map((s) => (
+                          <option key={s} value={s}>
+                            {s}
+                          </option>
+                        ))}
+                    </select>
+                  </label>
+                )}
+                <Check checked={showBox} onChange={setShowBox}>
+                  <span className="tiny">HANDLES</span>
+                </Check>
+              </div>
             )}
           </div>
-        )}
-        <div className="item-turns">
-          <IconButton framed label="Turn left" onClick={() => setTurns((t) => t - 1)}>
-            ⟲
-          </IconButton>
-          <IconButton framed label="Turn right" onClick={() => setTurns((t) => t + 1)}>
-            ⟳
-          </IconButton>
-        </div>
-        <p
-          className={`item-save-state ${dirty ? (valid ? 'unsaved' : 'invalid') : ''}`}
-          role="status"
-        >
-          {busy
-            ? 'Saving…'
-            : !dirty
-              ? 'Saved. Change a part, its colour or its paint, and Save model saves it.'
-              : valid
-                ? 'Unsaved changes. Save model keeps them; Revert goes back to the saved model.'
-                : `Can’t save yet: ${problem}. Fix it, or Revert.`}
-        </p>
-        <div className="item-actions">
-          <Button
-            variant="primary"
-            disabled={busy || !dirty || !valid}
-            title={
-              !dirty
-                ? 'Nothing to save: the model is as saved'
-                : !valid
-                  ? `Can’t save yet: ${problem}`
-                  : undefined
-            }
-            onClick={() => onSave(draft)}
+          {view === 'photo' && fit && cropUrl ? (
+            <PhotoCompare item={draft} url={cropUrl} elevation={fit.elevation} />
+          ) : view === 'states' && fixture ? (
+            <div className="studio-compare-grid" role="list" aria-label="All fixture states">
+              {[
+                { id: null, label: 'Base', size: fixture.size },
+                ...stateNames.map((s) => ({
+                  id: s,
+                  label: s,
+                  size: fixtureSize(fixture, s),
+                })),
+              ].map((entry) => {
+                const active = (fixture.state ?? null) === entry.id;
+                const entryModel = rotateItem(
+                  active ? draft : fixtureModel(fixture, entry.id),
+                  turns,
+                );
+                const sp = itemSprite(entryModel, {
+                  scale: PREVIEW_SCALE,
+                  resolution: 64,
+                  ...(fixture.control.kind === 'light' && entry.id === 'on' ? { glow: true } : {}),
+                });
+                return (
+                  <button
+                    key={entry.id ?? '__base__'}
+                    role="listitem"
+                    className={`studio-compare-card ${active ? 'active' : ''}`}
+                    onClick={() => {
+                      onFixtureState?.({ state: entry.id });
+                      setView('model');
+                    }}
+                  >
+                    <svg
+                      viewBox={`${sp.x - 12} ${sp.y - 12} ${sp.width + 24} ${sp.height + 24}`}
+                      aria-label={`${entry.label} state preview`}
+                    >
+                      <ItemSprite
+                        item={entryModel}
+                        origin={{ x: 0, y: 0, z: 0 }}
+                        scale={PREVIEW_SCALE}
+                        resolution={64}
+                        glow={fixture.control.kind === 'light' && entry.id === 'on'}
+                      />
+                    </svg>
+                    <div className="studio-compare-meta">
+                      <strong>{entry.label}</strong>
+                      <span className="tiny">
+                        {entryModel.parts.length} parts · {Math.round(entry.size.w * perTileCm)}×
+                        {Math.round(entry.size.d * perTileCm)}×
+                        {Math.round(entry.size.h * perTileCm)} cm
+                      </span>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          ) : (
+            <svg
+              ref={previewSvg}
+              tabIndex={0}
+              viewBox={`${sprite.x - pad} ${sprite.y - pad} ${sprite.width + 2 * pad} ${sprite.height + 2 * pad}`}
+              role="img"
+              aria-label={`Preview of ${draft.label}`}
+              onKeyDown={handleCanvasKeyDown}
+              onPointerMove={(e) => {
+                if (!dragStart || !part || !previewSvg.current) return;
+                const ctm = previewSvg.current.getScreenCTM();
+                if (!ctm) return;
+                const p0 = new DOMPoint(dragStart.clientX, dragStart.clientY).matrixTransform(
+                  ctm.inverse(),
+                );
+                const p1 = new DOMPoint(e.clientX, e.clientY).matrixTransform(ctm.inverse());
+                const dsx = p1.x - p0.x;
+                const dsy = p1.y - p0.y;
+                if (e.shiftKey) {
+                  const dz = -dsy / (ISO_RISE * PREVIEW_SCALE);
+                  update({
+                    at: {
+                      ...dragStart.at,
+                      z: round(clamp(dragStart.at.z + dz, 0, 6)),
+                    },
+                  });
+                  return;
+                }
+                const deltaTile = fromIso({ sx: dsx, sy: dsy }, 0);
+                const { dx, dy } = unrotateDelta(
+                  deltaTile.x / PREVIEW_SCALE,
+                  deltaTile.y / PREVIEW_SCALE,
+                  turns,
+                );
+                update({
+                  at: {
+                    ...dragStart.at,
+                    x: round(clamp(dragStart.at.x + dx, -0.5, 1.5)),
+                    y: round(clamp(dragStart.at.y + dy, -0.5, 1.5)),
+                  },
+                });
+              }}
+              onPointerUp={() => setDragStart(null)}
+              onPointerLeave={() => setDragStart(null)}
+            >
+              {ghostItem && (
+                <g className="studio-onion-ghost" opacity={0.28}>
+                  <ItemSprite
+                    item={ghostItem}
+                    origin={{ x: 0, y: 0, z: 0 }}
+                    scale={PREVIEW_SCALE}
+                    resolution={64}
+                  />
+                </g>
+              )}
+              <ItemSprite
+                item={shown}
+                origin={{ x: 0, y: 0, z: 0 }}
+                scale={PREVIEW_SCALE}
+                selected={selected}
+                resolution={64}
+                glow={isLitGlow}
+              />
+              {showBox &&
+                shown.parts.map((p) => {
+                  const wf = isoBoxWireframe(p.at, p.size);
+                  const isSel = p.id === selected;
+                  return (
+                    <g key={p.id} className={`studio-part-overlay ${isSel ? 'selected' : ''}`}>
+                      <polygon
+                        className="studio-part-hit"
+                        points={wf.hull}
+                        onPointerDown={(e) => {
+                          e.stopPropagation();
+                          setSelected(p.id);
+                          const orig = draft.parts.find((q) => q.id === p.id);
+                          if (!orig) return;
+                          setDragStart({
+                            pointerId: e.pointerId,
+                            clientX: e.clientX,
+                            clientY: e.clientY,
+                            at: { ...orig.at },
+                          });
+                          previewSvg.current?.setPointerCapture(e.pointerId);
+                        }}
+                      />
+                      {isSel && (
+                        <>
+                          <polygon className="studio-wire-face" points={wf.bottom} />
+                          <polygon className="studio-wire-face" points={wf.top} />
+                          {wf.pillars.map(([a, b], idx) => (
+                            <line
+                              key={idx}
+                              className="studio-wire-edge"
+                              x1={a.sx}
+                              y1={a.sy}
+                              x2={b.sx}
+                              y2={b.sy}
+                            />
+                          ))}
+                          <circle
+                            className="studio-gizmo"
+                            cx={wf.centerTop.sx}
+                            cy={wf.centerTop.sy}
+                            r={3.5}
+                            onPointerDown={(e) => {
+                              e.stopPropagation();
+                              if (!part) return;
+                              setDragStart({
+                                pointerId: e.pointerId,
+                                clientX: e.clientX,
+                                clientY: e.clientY,
+                                at: { ...part.at },
+                              });
+                              previewSvg.current?.setPointerCapture(e.pointerId);
+                            }}
+                          />
+                        </>
+                      )}
+                    </g>
+                  );
+                })}
+            </svg>
+          )}
+          {shownPart && view === 'model' && (
+            <p className="micro studio-canvas-hint">
+              Click any part on the model to select it. Drag to move X·Y, Shift+drag for Z, or use
+              arrow keys.
+            </p>
+          )}
+          {fit && (
+            <div className="item-fit" aria-label="How well the model matches the photo">
+              <span className="tiny">
+                MATCH {Math.round(fit.iou * 100)}% · COLOUR ΔE {fit.deltaE.toFixed(1)} · {fit.views}{' '}
+                VIEW{fit.views === 1 ? '' : 'S'} · CAMERA {Math.round(fit.elevation)}° ·{' '}
+                {fit.archetype.toUpperCase()}
+              </span>
+              {fit.assists.length > 0 && (
+                <ul>
+                  {fit.assists.map((a) => (
+                    <li key={a}>{a}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+          <div className="item-turns">
+            <IconButton framed label="Turn left" onClick={() => setTurns((t) => t - 1)}>
+              ⟲
+            </IconButton>
+            <IconButton framed label="Turn right" onClick={() => setTurns((t) => t + 1)}>
+              ⟳
+            </IconButton>
+          </div>
+          <p
+            className={`item-save-state ${dirty ? (valid ? 'unsaved' : 'invalid') : ''}`}
+            role="status"
           >
-            Save model
-          </Button>
-          <Button disabled={busy || !dirty} onClick={() => setDraft(editable(item))}>
-            Revert
-          </Button>
-          {fit?.crop && (
-            <Button disabled={busy || !valid} onClick={() => onRefit(draft)}>
-              Refit to photo
+            {busy
+              ? 'Saving…'
+              : !dirty
+                ? 'Saved. Change a part, its colour or its paint, and Save model saves it.'
+                : valid
+                  ? 'Unsaved changes. Save model keeps them; Revert goes back to the saved model.'
+                  : `Can’t save yet: ${problem}. Fix it, or Revert.`}
+          </p>
+          <div className="item-actions">
+            <Button
+              variant="primary"
+              disabled={busy || !dirty || !valid}
+              title={
+                !dirty
+                  ? 'Nothing to save: the model is as saved'
+                  : !valid
+                    ? `Can’t save yet: ${problem}`
+                    : undefined
+              }
+              onClick={() => onSave(draft)}
+            >
+              {fixture?.state ? `Save “${fixture.state}” model` : 'Save model'}
             </Button>
-          )}
-          {onDraft && (
-            <>
-              <Button variant="ghost" disabled={busy} onClick={() => onDraft('sampled')}>
-                Resample
-              </Button>
-              <Button variant="ghost" disabled={busy} onClick={() => onDraft('spark')}>
-                Redraft with Spark
-              </Button>
-            </>
-          )}
-          {item && onDraft && (
-            <Button variant="danger" disabled={busy} onClick={() => onSave(null)}>
-              Remove model
+            <Button disabled={busy || !dirty} onClick={() => setDraft(editable(item))}>
+              Revert
             </Button>
-          )}
+            {fit?.crop && (
+              <Button disabled={busy || !valid} onClick={() => onRefit(draft)}>
+                Refit to photo
+              </Button>
+            )}
+            {onDraft && (
+              <>
+                <Button variant="ghost" disabled={busy} onClick={() => onDraft('sampled')}>
+                  Resample
+                </Button>
+                <Button variant="ghost" disabled={busy} onClick={() => onDraft('spark')}>
+                  Redraft with Spark
+                </Button>
+              </>
+            )}
+            {item && onDraft && (
+              <Button variant="danger" disabled={busy} onClick={() => onSave(null)}>
+                Remove model
+              </Button>
+            )}
+          </div>
+          {onDraft && <small>{sparkNote}</small>}
         </div>
-        {onDraft && <small>{sparkNote}</small>}
       </div>
     </div>
   );

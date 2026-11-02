@@ -435,6 +435,41 @@ test('a fixture is drafted from the demo mouse, placed on the office desk and se
   await marker.locator('.iso-hit-shape').click({ button: 'right' });
   await page.getByRole('menuitem', { name: 'Delete' }).click();
   await expect(marker).toHaveCount(0);
+
+  // Draft the demo cat, place it, switch between idle and sleeping poses, and add a custom state.
+  await outline(page, 'Add fixture').click();
+  await page.getByRole('button', { name: /Cat/ }).click();
+  await expect(page.getByRole('heading', { name: 'Cat' })).toBeVisible();
+  await page.getByRole('button', { name: 'Place it' }).click();
+  const catHit = page.getByLabel('Place the cat');
+  await expect(catHit).toBeVisible();
+  await catHit.click();
+  await expect(outline(page, 'Cat')).toBeVisible();
+  await expect(marker.locator('text')).toContainText('CAT · IDLE');
+
+  await page.getByRole('button', { name: 'sleeping', exact: true }).click();
+  await expect(page.locator('.feedback')).toContainText('Set the cat to sleeping.');
+  await expect(marker.locator('text')).toContainText('CAT · SLEEPING');
+
+  await page.getByLabel('New state').fill('stretching');
+  await page.getByRole('button', { name: 'Add state', exact: true }).click();
+  await expect(page.locator('.feedback')).toContainText('Added state “stretching” to the cat.');
+  await expect(marker.locator('text')).toContainText('CAT · STRETCHING');
+
+  // Open the Fixture Studio to edit states, tube paths, and compare all states side-by-side.
+  await page.getByRole('button', { name: 'Edit “stretching” model' }).click();
+  const studio = page.getByRole('region', { name: 'Fixture Studio States' });
+  await expect(studio).toBeVisible();
+  await expect(studio.getByRole('tab', { name: /stretching/ })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
+  await page.getByRole('option', { name: /^tail/ }).click();
+  await expect(page.getByRole('img', { name: 'Tube path editor' })).toBeVisible();
+  await page.getByLabel('Onion skin state').selectOption('idle');
+  await expect(page.locator('.studio-onion-ghost')).toBeVisible();
+  await page.getByRole('button', { name: /All states/ }).click();
+  await expect(page.getByRole('list', { name: 'All fixture states' })).toBeVisible();
 });
 
 test('the AI brush turns the office desk into an Alex desk, follows up, and puts it in the room', async ({

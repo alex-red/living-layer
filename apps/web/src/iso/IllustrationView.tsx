@@ -1,6 +1,7 @@
 import { useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
 import {
   fixtureBox,
+  fixtureModel,
   framePointInPicture,
   isoToPicture,
   rotateItem,
@@ -173,7 +174,7 @@ export function IllustrationView({
     if (!top || !centre || !base.every(Boolean)) return [];
     const fit = look === 'model' ? isoToPicture(pin, illustration, custom, { at, size }) : null;
     const model = fit && {
-      item: rotateItem(f.model, f.turns),
+      item: rotateItem(fixtureModel(f), f.turns),
       origin: at,
       scale: Math.max(size.w, size.d),
       matrix: `matrix(${fit.map((v) => v.toFixed(4)).join(' ')})`,

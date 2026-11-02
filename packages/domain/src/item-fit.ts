@@ -1119,16 +1119,29 @@ export function fitItem(input: FitInput): FitOutput {
   let measured: { fit: ArchetypeFit; elevation: number } =
     archetype === 'plant'
       ? measurePlant(photo, input.elevation ?? null, input.material ?? null)
-      : family === 'lathe'
-        ? measureLathe(photo, archetype, input.elevation ?? null, input.material ?? null)
-        : family === 'flat'
-          ? measureFlat(
-              photo,
-              input.elevation ?? null,
-              input.material ?? null,
-              input.knownHeight ?? null,
-            )
-          : measureBox(photo, archetype, input.elevation ?? null, input.material ?? null);
+      : family === 'cat'
+        ? {
+            fit: {
+              family: 'cat',
+              pose: photo.h / Math.max(1, photo.w) < 0.72 ? 'sleeping' : 'idle',
+              colors: {
+                body: photo.groups[0]?.hex ?? '#d88b4b',
+                accent: photo.groups[1]?.hex ?? '#f2e6d8',
+              },
+              material: input.material ?? 'fabric',
+            },
+            elevation: clamp(input.elevation ?? 30, 8, 75),
+          }
+        : family === 'lathe'
+          ? measureLathe(photo, archetype, input.elevation ?? null, input.material ?? null)
+          : family === 'flat'
+            ? measureFlat(
+                photo,
+                input.elevation ?? null,
+                input.material ?? null,
+                input.knownHeight ?? null,
+              )
+            : measureBox(photo, archetype, input.elevation ?? null, input.material ?? null);
   // A generic object that is far from symmetric is drawn as a box instead.
   if (archetype === 'generic' && measured.fit.family === 'lathe') {
     const rows = rowsOf(photo);

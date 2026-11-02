@@ -3,9 +3,18 @@ import {
   DEMO_REFERENCES,
   DEMO_SURFACE,
   ISO_PRESETS,
+  STARTER_TEMPLATES,
+  calibrationOf,
   linkedFixtures,
   pinFits,
   fixtureEntity,
+  fixtureInput,
+  fixtureModel,
+  fixtureReference,
+  fixtureSize,
+  fixtureStateNames,
+  starterFixtureDraft,
+  starterMeta,
   tileCm,
   type ControlKind,
   type DemoReference,
@@ -17,6 +26,7 @@ import {
   type FixtureInput,
   type LampResult,
   type MappedThing,
+  type StarterTemplate,
   type ZoneRect,
 } from '@livinglayer/domain';
 import { api } from '../api';
@@ -51,6 +61,8 @@ const KIND_ORDER: ControlKind[] = ['light', 'switch', 'none'];
 const REFERENCE_LABEL: Record<DemoReference, string> = {
   mouse: 'Computer mouse',
   lamp: 'Desk lamp',
+  monitor: 'Monitor',
+  cat: 'Cat',
 };
 
 /** The model as a small pixel-art picture, for review. */
@@ -323,7 +335,12 @@ export function NewFixturePanel() {
   const lab = useLab();
   const { mode, busy, placing } = lab;
   const scenes = useScenes();
-  const [draft, setDraft] = useState<{ draft: FixtureDraft; scene: WorkScene } | null>(null);
+  const [draft, setDraft] = useState<{
+    draft: FixtureDraft;
+    scene: WorkScene;
+    template?: StarterTemplate;
+    colors?: [string, string];
+  } | null>(null);
   const [label, setLabel] = useState('');
   const [kind, setKind] = useState<ControlKind>('none');
   const [entity, setEntity] = useState('');
@@ -332,6 +349,26 @@ export function NewFixturePanel() {
   /** What the person says it is, before drafting; Spark is told. */
   const [hint, setHint] = useState('');
   const target = scene && scenes.some((s) => s.id === scene) ? scene : (scenes[0]?.id ?? null);
+
+  function startFromTemplate(template: StarterTemplate, customColors?: [string, string]) {
+    if (!target) return;
+    const meta = starterMeta(template);
+    const colors: [string, string] = customColors ?? meta.colors;
+    const d = starterFixtureDraft(template, {
+      ...(label.trim() && draft?.template === template ? { label: label.trim() } : {}),
+      colors,
+    });
+    setDraft({ draft: d, scene: target, template, colors });
+    if (!customColors) {
+      setLabel(d.label);
+      const suggested = lab.entities.find((e) => e.startsWith(`${d.suggested}.`));
+      setKind(d.suggested !== 'none' && suggested ? d.suggested : 'none');
+      setEntity(d.suggested !== 'none' ? (suggested ?? '') : '');
+      lab.setMessage(
+        `Started a ${d.label.toLowerCase()} from the template. Name it, pick its colours, then place it.`,
+      );
+    }
+  }
 
   async function draftFrom(
     source: { reference: DemoReference } | { file: File } | { box: ZoneRect },
@@ -479,6 +516,35 @@ export function NewFixturePanel() {
           Or box it on the desk photo →
         </Button>
         <ScanFixtures initial={target} />
+        <Details summary="Start from a template" open>
+          <p className="micro">
+            Start directly from an archetype with pre-built states and poses — no photo needed.
+          </p>
+          <div className="starter-catalog" role="list" aria-label="Fixture starter templates">
+            {STARTER_TEMPLATES.map((t) => {
+              const meta = starterMeta(t);
+              const preview = itemSprite(starterFixtureDraft(t).model, {
+                scale: 1.8,
+                resolution: 32,
+              });
+              return (
+                <button
+                  key={t}
+                  role="listitem"
+                  className="starter-card"
+                  disabled={off}
+                  onClick={() => startFromTemplate(t)}
+                >
+                  <img src={preview.url} alt="" />
+                  <strong>{meta.label}</strong>
+                  <small>
+                    {meta.sizeCm.w}×{meta.sizeCm.d}×{meta.sizeCm.h} cm
+                  </small>
+                </button>
+              );
+            })}
+          </div>
+        </Details>
         {!live && (
           <div className="object-grid">
             {DEMO_REFERENCES.map((r) => (
@@ -511,12 +577,40 @@ export function NewFixturePanel() {
       tone="seen"
     >
       <div className="fixture-compare">
-        <img
-          src={`/api/fixtures/reference?runId=${d.reference.runId}`}
-          alt={`The reference photo of the ${d.label.toLowerCase()}`}
-        />
+        {d.reference && (
+          <img
+            src={`/api/fixtures/reference?runId=${d.reference.runId}`}
+            alt={`The reference photo of the ${d.label.toLowerCase()}`}
+          />
+        )}
         <ModelPreview model={d.model} />
       </div>
+      {draft.template && draft.colors && (
+        <div className="save-actions" aria-label="Template colours">
+          <label className="item-slider">
+            <span className="tiny">MAIN</span>
+            <input
+              type="color"
+              aria-label="Template primary colour"
+              value={draft.colors[0]}
+              onChange={(e) =>
+                startFromTemplate(draft.template!, [e.target.value.toLowerCase(), draft.colors![1]])
+              }
+            />
+          </label>
+          <label className="item-slider">
+            <span className="tiny">ACCENT</span>
+            <input
+              type="color"
+              aria-label="Template accent colour"
+              value={draft.colors[1]}
+              onChange={(e) =>
+                startFromTemplate(draft.template!, [draft.colors![0], e.target.value.toLowerCase()])
+              }
+            />
+          </label>
+        </div>
+      )}
       {fit && (
         <p className="micro">
           Outline match {Math.round(fit.iou * 100)}% · {d.model.parts.length} part
@@ -561,6 +655,20 @@ export function NewFixturePanel() {
               model: { label: label.trim(), parts: d.model.parts },
               reference: d.reference,
               control: controlOf(kind, entity),
+              ...(d.states
+                ? {
+                    states: Object.fromEntries(
+                      Object.entries(d.states).map(([k, v]) => [
+                        k,
+                        {
+                          model: { label: label.trim(), parts: v.model.parts },
+                          ...(v.size ? { size: v.size } : {}),
+                          ...(v.reference !== undefined ? { reference: v.reference } : {}),
+                        },
+                      ]),
+                    ),
+                  }
+                : {}),
             })
           }
         >
@@ -575,18 +683,7 @@ export function NewFixturePanel() {
 
 /** What a saved fixture sends back to be saved again. */
 function inputOf(f: Fixture): FixtureInput & FixturePlacing {
-  return {
-    id: f.id,
-    label: f.label,
-    scene: f.scene,
-    surfaceId: f.surfaceId,
-    at: f.at,
-    turns: f.turns,
-    size: f.size,
-    model: { label: f.model.label, parts: f.model.parts },
-    reference: f.reference,
-    control: f.control,
-  };
+  return fixtureInput(f);
 }
 
 /** A placed fixture: switch it, move or turn it, change what it is, or remove it. */
@@ -598,13 +695,24 @@ export function FixturePanel({ id }: { id: string }) {
   const [kind, setKind] = useState<ControlKind>(f?.control.kind ?? 'none');
   const [entity, setEntity] = useState(f ? (fixtureEntity(f) ?? '') : '');
   const [result, setResult] = useState<LampResult | null>(null);
-  const [size, setSize] = useState(f?.size ?? { w: 1, d: 1, h: 1 });
+  const [newState, setNewState] = useState('');
+  const activeSize = f ? fixtureSize(f) : { w: 1, d: 1, h: 1 };
+  const [size, setSize] = useState(activeSize);
+  const [lastStateKey, setLastStateKey] = useState(
+    `${f?.id ?? ''}:${f?.state ?? ''}:${activeSize.w},${activeSize.d},${activeSize.h}`,
+  );
+  const stateKey = `${f?.id ?? ''}:${f?.state ?? ''}:${activeSize.w},${activeSize.d},${activeSize.h}`;
+  if (stateKey !== lastStateKey) {
+    setLastStateKey(stateKey);
+    setSize(activeSize);
+  }
   if (!f)
     return <Panel tiny="FIXTURE" title="Gone" status="This fixture is no longer in the room." />;
   const scene = f.scene === 'custom' ? memory?.scene : ISO_PRESETS[f.scene];
   const byScan = Boolean(f.scanned || f.model.source === 'placeholder');
-  const resized = size.w !== f.size.w || size.d !== f.size.d || size.h !== f.size.h;
+  const resized = size.w !== activeSize.w || size.d !== activeSize.d || size.h !== activeSize.h;
   const entityId = fixtureEntity(f);
+  const stateNames = fixtureStateNames(f);
   const where = `${f.scene === 'custom' ? roomLabel('custom', memory) : ISO_PRESETS[f.scene].label}${f.surfaceId ? '' : ', on the floor'}`;
   const liveBlocked = mode === 'live' && !lab.lampReady;
   const save = (next: FixtureInput, done: string) =>
@@ -612,15 +720,31 @@ export function FixturePanel({ id }: { id: string }) {
       lab.setMemory(m);
       lab.setMessage(done);
     });
+  const setFixtureState = (
+    payload: {
+      state?: string | null;
+      fixture?: NonNullable<FixtureInput['states']>[string];
+      remove?: string;
+    },
+    done: string,
+  ) =>
+    void call<DeskMemory>('fixtures/state', { fixtureId: f.id, ...payload }, (m) => {
+      lab.setMemory(m);
+      lab.setMessage(done);
+    });
   const control = (action: 'on' | 'off') =>
-    void call<{ memory: DeskMemory; event: EvidenceRun<LampResult> }>(
+    void call<{ memory: DeskMemory; event: EvidenceRun<LampResult> | null }>(
       'fixtures/control',
       { fixtureId: f.id, action },
       (r) => {
         lab.setMemory(r.memory, false);
-        lab.setSelected(r.event);
-        setResult(r.event.output);
-        lab.setMessage(r.event.output.explanation);
+        if (r.event) {
+          lab.setSelected(r.event);
+          setResult(r.event.output);
+          lab.setMessage(r.event.output.explanation);
+        } else {
+          lab.setMessage(`Set the ${f.label.toLowerCase()} to ${action}.`);
+        }
       },
     );
   const moving = placing?.id === f.id;
@@ -634,7 +758,9 @@ export function FixturePanel({ id }: { id: string }) {
           ? 'Click where it stands now. Esc cancels.'
           : entityId
             ? `${controlLabel(f)} · ${entityId} · in the ${where.toLowerCase()}`
-            : `Just a thing, in the ${where.toLowerCase()}.`
+            : f.state
+              ? `${controlLabel(f)} · in the ${where.toLowerCase()}`
+              : `Just a thing, in the ${where.toLowerCase()}.`
       }
       tone={f.control.kind === 'light' && f.state === 'on' ? 'warm' : entityId ? 'ok' : 'idle'}
     >
@@ -694,9 +820,75 @@ export function FixturePanel({ id }: { id: string }) {
           Turn ↻
         </Button>
         <Button size="sm" disabled={off || moving} onClick={() => lab.openModel(f.id)}>
-          Edit model
+          {f.state ? `Edit “${f.state}” model` : 'Edit model'}
         </Button>
       </div>
+      <Details summary="States" open={stateNames.length > 0}>
+        {stateNames.length > 0 && (
+          <div className="save-actions">
+            {stateNames.map((s) => (
+              <Button
+                key={s}
+                size="sm"
+                variant={f.state === s ? 'primary' : 'secondary'}
+                disabled={off || moving}
+                onClick={() => {
+                  if (entityId && (s === 'on' || s === 'off') && !liveBlocked) control(s);
+                  else
+                    setFixtureState(
+                      { state: f.state === s && !f.states?.[s] ? null : s },
+                      `Set the ${f.label.toLowerCase()} to ${s}.`,
+                    );
+                }}
+              >
+                {s}
+              </Button>
+            ))}
+            {f.state && f.states?.[f.state] && (
+              <Button
+                size="sm"
+                variant="text"
+                disabled={off || moving}
+                onClick={() =>
+                  setFixtureState(
+                    { remove: f.state! },
+                    `Removed the “${f.state}” state from the ${f.label.toLowerCase()}.`,
+                  )
+                }
+              >
+                Remove “{f.state}”
+              </Button>
+            )}
+          </div>
+        )}
+        <div className="save-actions">
+          <input
+            aria-label="New state"
+            placeholder="e.g. on, off, idle, sleeping"
+            value={newState}
+            maxLength={24}
+            onChange={(e) => setNewState(e.target.value)}
+          />
+          <Button
+            size="sm"
+            disabled={off || moving || !newState.trim()}
+            onClick={() => {
+              const name = newState.trim();
+              setNewState('');
+              setFixtureState(
+                { state: name },
+                `Added state “${name}” to the ${f.label.toLowerCase()}.`,
+              );
+            }}
+          >
+            Add state
+          </Button>
+        </div>
+        <p className="micro">
+          Each state can have its own model and size. Select a state, then click Edit model or
+          adjust Size to customise it.
+        </p>
+      </Details>
       <SculptFixture fixture={f} disabled={off || moving} />
       <FixtureCamera fixture={f} disabled={off || moving} />
       <p className="micro fixture-placed">
@@ -812,9 +1004,20 @@ export function FixturePanel({ id }: { id: string }) {
         </p>
         <Button
           disabled={off || moving || !resized}
-          onClick={() =>
-            void lab.updateFixture(f.id, { size }, `Resized the ${f.label.toLowerCase()}.`)
-          }
+          onClick={() => {
+            if (f.state) {
+              const m = fixtureModel(f);
+              setFixtureState(
+                {
+                  state: f.state,
+                  fixture: { model: { label: m.label, parts: m.parts }, size },
+                },
+                `Resized the “${f.state}” state of the ${f.label.toLowerCase()}.`,
+              );
+            } else {
+              void lab.updateFixture(f.id, { size }, `Resized the ${f.label.toLowerCase()}.`);
+            }
+          }}
         >
           Save size
         </Button>
@@ -988,14 +1191,22 @@ function SculptFixture({ fixture, disabled }: { fixture: Fixture; disabled: bool
     ...linkedFixtures(memory?.fixtures ?? [], fixture).map((x) => x.id),
   ]);
   const lifted = memory?.illustration?.layers?.sprites.some((x) => group.has(x.fixtureId));
-  const pictured = lifted || Boolean(fixture.model.fit?.crop);
+  // As the server finds a picture: its cut-out, its fitted crop, else the scan's crop of it
+  // seen through the calibrated camera.
+  const scanned =
+    Boolean(fixtureReference(fixture)) &&
+    fixture.scene === 'custom' &&
+    Boolean(memory?.scene) &&
+    Boolean(memory && calibrationOf(memory));
+  const pictured =
+    lifted || Boolean(fixtureModel(fixture).fit?.crop ?? fixture.model.fit?.crop) || scanned;
   const why =
     mode !== 'live'
       ? 'Modelling with AI asks Spark, so it runs in Live mode.'
       : !lab.metaReady
         ? 'Live calls aren’t available: set MODEL_API_KEY and META_LIVE_ENABLED, or raise today’s spend limit.'
         : !pictured
-          ? 'Lift the fixtures off the room’s picture first.'
+          ? 'Lift the fixtures off the room’s picture, or draft it from a photo, first.'
           : null;
   return (
     <div className="sculpt-fixture">

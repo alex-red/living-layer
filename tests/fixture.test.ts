@@ -10,14 +10,21 @@ import { ControlAdapter } from '../apps/server/src/control.js';
 import { syntheticStream } from '../apps/server/src/sam.js';
 import { demoPhotoInventory } from '../apps/server/src/demo.js';
 import {
+  STARTER_TEMPLATES,
   archetypeOf,
+  defaultFixtureStates,
+  starterFixtureDraft,
   buildItem,
+  catItem,
   defaultFit,
   fixtureBox,
   fixtureControlSchema,
   fixtureEntity,
   fixtureInputSchema,
+  fixtureModel,
   fixtureProblem,
+  fixtureSize,
+  fixtureStateNames,
   inRoomView,
   isoItemSchema,
   itemHeight,
@@ -542,6 +549,19 @@ describe('fixture shapes', () => {
     expect(archetypeOf('desk lamp')).toBe('lamp');
     expect(archetypeOf('phone')).toBe('box');
   });
+  it('takes only a thing named as a cat for one, not a cat tower or bed', () => {
+    const states = (label: string) =>
+      defaultFixtureStates({ label, model: { label, parts: [], swatches: [] } as never }).states;
+    for (const cat of ['Gray cat', 'Sleeping kitten', 'Black cat '])
+      expect([archetypeOf(cat), Object.keys(states(cat) ?? {})]).toEqual([
+        'cat',
+        ['idle', 'sleeping'],
+      ]);
+    for (const thing of ['Gray cat tower', 'cat bed', 'Cat litter box']) {
+      expect(archetypeOf(thing)).not.toBe('cat');
+      expect(states(thing)).toBeUndefined();
+    }
+  });
   it('builds a flat thing as one rounded extrusion, and a lamp as a turned body', () => {
     const flat = buildItem('Mouse', defaultFit('device'));
     expect(isoItemSchema.safeParse(flat).success).toBe(true);
@@ -774,5 +794,146 @@ describe('drafting a fixture from a box on the desk photo', () => {
     expect(empty.statusCode).toBe(422);
     const both = await s.post('fixtures/draft', { scene: 'office', reference: 'mouse', box });
     expect(both.statusCode).toBe(400);
+  });
+});
+
+describe('fixture states and cat poses', () => {
+  it('drafts and switches a cat between idle and sleeping poses, each with its own model and size', async () => {
+    const s = await setup();
+    const res = await s.post('fixtures/draft', { scene: 'office', reference: 'cat' });
+    expect(res.statusCode, res.body).toBe(200);
+    const { draft } = res.json<{ draft: FixtureDraft }>();
+    expect(draft.archetype).toBe('cat');
+    expect(draft.state).toBe('idle');
+    expect(Object.keys(draft.states ?? {})).toEqual(['idle', 'sleeping']);
+    expect(itemHeight(draft.states!.idle!.model)).toBeGreaterThan(
+      itemHeight(draft.states!.sleeping!.model),
+    );
+
+    const saved = (
+      await s.post('fixtures/save', {
+        fixture: {
+          label: 'Mochi',
+          scene: 'office',
+          surfaceId: null,
+          at: { x: 1, y: 1 },
+          turns: 0,
+          size: draft.size,
+          model: { label: 'Mochi', parts: draft.model.parts },
+          reference: draft.reference,
+          control: { kind: 'none' },
+        },
+      })
+    ).json<DeskMemory>().fixtures![0]!;
+    expect(saved.state).toBe('idle');
+    expect(fixtureStateNames(saved)).toEqual(['idle', 'sleeping']);
+    const idleBox = fixtureBox(saved);
+
+    const sleeping = (
+      await s.post('fixtures/control', { fixtureId: saved.id, action: 'sleeping' })
+    ).json<{ memory: DeskMemory }>().memory.fixtures![0]!;
+    expect(sleeping.state).toBe('sleeping');
+    expect(fixtureBox(sleeping).size.h).toBeLessThan(idleBox.size.h);
+    expect(fixtureModel(sleeping).parts.map((p) => p.id)).toEqual([
+      'body',
+      'head',
+      'ear-l',
+      'ear-r',
+      'tail',
+    ]);
+  });
+
+  it('supports on/off states on lamps and monitors and arbitrary custom states with unique models', async () => {
+    const s = await setup();
+    const monDraft = (
+      await s.post('fixtures/draft', { scene: 'office', reference: 'monitor' })
+    ).json<{ draft: FixtureDraft }>().draft;
+    const mon = (
+      await s.post('fixtures/save', {
+        fixture: {
+          label: 'Monitor',
+          scene: 'office',
+          surfaceId: 'desk:top',
+          at: { x: 2.5, y: 1.4 },
+          turns: 0,
+          size: monDraft.size,
+          model: { label: 'Monitor', parts: monDraft.model.parts },
+          reference: monDraft.reference,
+          control: { kind: 'switch', entityId: 'switch.demo_monitor' },
+        },
+      })
+    ).json<DeskMemory>().fixtures![0]!;
+    expect(fixtureModel(mon, 'off').parts.find((p) => p.id === 'screen')?.color).toBe('#2c3858');
+    expect(fixtureModel(mon, 'on').parts.find((p) => p.id === 'screen')?.color).toBe('#68b5e8');
+
+    // Add an arbitrary custom state ("gaming") with its own unique model and size.
+    const gamingModel = catItem('Gaming cat', 'idle', ['#aa3355', '#ffffff']);
+    const withCustom = (
+      await s.post('fixtures/state', {
+        fixtureId: mon.id,
+        state: 'gaming',
+        fixture: { model: gamingModel, size: { w: 1.5, d: 0.8, h: 1.2 } },
+      })
+    ).json<DeskMemory>().fixtures![0]!;
+    expect(withCustom.state).toBe('gaming');
+    expect(fixtureStateNames(withCustom)).toContain('gaming');
+    expect(fixtureModel(withCustom).parts[0]!.color).toBe('#aa3355');
+    expect(fixtureSize(withCustom)).toEqual({ w: 1.5, d: 0.8, h: 1.2 });
+
+    // Editing the model while a state is active updates only that state's unique model.
+    const edited = (
+      await s.post('item/save', {
+        objectId: mon.id,
+        item: {
+          label: 'Gaming cat',
+          parts: gamingModel.parts.map((p, i) => (i === 0 ? { ...p, color: '#2288aa' } : p)),
+        },
+      })
+    ).json<DeskMemory>().fixtures![0]!;
+    expect(fixtureModel(edited, 'gaming').parts[0]!.color).toBe('#2288aa');
+    expect(fixtureModel(edited, 'off').parts.find((p) => p.id === 'screen')?.color).toBe('#2c3858');
+
+    // Removing the custom state clears it and resets active state if it was selected.
+    const removed = (
+      await s.post('fixtures/state', { fixtureId: mon.id, remove: 'gaming' })
+    ).json<DeskMemory>().fixtures![0]!;
+    expect(removed.state).toBeNull();
+    expect(removed.states?.gaming).toBeUndefined();
+  });
+
+  it('builds valid starter drafts from every template without needing a photo', async () => {
+    const s = await setup();
+    for (const t of STARTER_TEMPLATES) {
+      const draft = starterFixtureDraft(t, { colors: ['#cc7744', '#eeece6'] });
+      expect(
+        isoItemSchema.safeParse({ label: draft.model.label, parts: draft.model.parts }).success,
+      ).toBe(true);
+      expect(draft.reference).toBeNull();
+      for (const state of Object.values(draft.states ?? {})) {
+        expect(
+          isoItemSchema.safeParse({ label: state.model.label, parts: state.model.parts }).success,
+        ).toBe(true);
+      }
+    }
+    const catDraft = starterFixtureDraft('cat', {
+      label: 'Biscuit',
+      colors: ['#333844', '#f0f0f5'],
+    });
+    expect(catDraft.states?.idle?.model.parts[0]!.color).toBe('#333844');
+    expect(catDraft.states?.sleeping?.model.parts[0]!.color).toBe('#333844');
+    const saved = await s.post('fixtures/save', {
+      fixture: {
+        label: catDraft.label,
+        scene: 'office',
+        surfaceId: null,
+        at: { x: 1, y: 1 },
+        turns: 0,
+        size: catDraft.size,
+        model: { label: catDraft.model.label, parts: catDraft.model.parts },
+        reference: catDraft.reference,
+        control: { kind: 'none' },
+      },
+    });
+    expect(saved.statusCode, saved.body).toBe(200);
   });
 });

@@ -7,7 +7,7 @@ import { marksOf, roomCameraSchema, roomMarksSchema } from './room-camera.js';
 import { cameraCropSchema } from './camera.js';
 import { pointSchema } from './iso.js';
 import type { SavedItem } from './iso-item.js';
-import { entityIdSchema, type Fixture } from './fixture.js';
+import { entityIdSchema, fixtureModel, linkedFixtures, type Fixture } from './fixture.js';
 import type { ExposedEntity } from './expose.js';
 
 export const modeSchema = z.enum(['demo', 'live']);
@@ -637,7 +637,7 @@ export function modelTarget(
         id: fixture.id,
         label: fixture.label,
         observation: null,
-        item: fixture.model,
+        item: fixtureModel(fixture),
         fixture: true,
       }
     : null;
@@ -650,8 +650,19 @@ export function setModel(memory: DeskMemory, objectId: string, item: SavedItem |
     if (other) other.item = item;
     const fixture = memory.fixtures?.find((f) => f.id === objectId);
     if (fixture && item) {
-      fixture.model = item;
-      fixture.updatedAt = new Date().toISOString();
+      const now = new Date().toISOString();
+      const targets = [fixture, ...linkedFixtures(memory.fixtures ?? [], fixture)];
+      for (const f of targets) {
+        if (fixture.state) {
+          f.states = {
+            ...f.states,
+            [fixture.state]: { ...(f.states?.[fixture.state] ?? {}), model: item },
+          };
+        } else {
+          f.model = item;
+        }
+        f.updatedAt = now;
+      }
     }
   }
 }

@@ -1,7 +1,15 @@
 import { z } from 'zod';
 import { ISO_PRESETS, isoSurface } from './iso-presets.js';
 import { ITEM_MATERIALS, isoItemSchema, type SavedItem } from './iso-item.js';
-import { archetypeSchema, type Archetype } from './iso-archetypes.js';
+import {
+  archetypeSchema,
+  buildItem,
+  catItem,
+  defaultFit,
+  monitorItem,
+  type Archetype,
+  type CatFit,
+} from './iso-archetypes.js';
 import { ISO_TILE_CM } from './iso-furniture.js';
 import { isoSceneKindSchema, type IsoBox, type IsoScene, type IsoSceneKind } from './iso.js';
 import type { DeskObservation } from './index.js';
@@ -26,8 +34,40 @@ export const fixtureControlSchema = z.discriminatedUnion('kind', [
 export type FixtureControl = z.infer<typeof fixtureControlSchema>;
 export const MAX_FIXTURES = 12;
 /** The illustrated reference pictures demo mode can draft fixtures from. */
-export const DEMO_REFERENCES = ['mouse', 'lamp'] as const;
+export const DEMO_REFERENCES = ['mouse', 'lamp', 'monitor', 'cat'] as const;
 export type DemoReference = (typeof DEMO_REFERENCES)[number];
+
+export const fixtureStateNameSchema = z.string().trim().min(1).max(24);
+export const fixtureSizeSchema = z
+  .object({
+    w: z.number().min(0.1).max(8),
+    d: z.number().min(0.1).max(8),
+    h: z.number().min(0.1).max(8),
+  })
+  .strict();
+export const fixtureReferenceSchema = z
+  .object({ runId: z.string().min(1), asset: z.string().min(1) })
+  .strict()
+  .nullable();
+export const fixtureStateInputSchema = z
+  .object({
+    model: z.preprocess(
+      (m) =>
+        m && typeof m === 'object' && 'label' in m && 'parts' in m
+          ? { label: (m as { label: unknown }).label, parts: (m as { parts: unknown }).parts }
+          : m,
+      isoItemSchema,
+    ),
+    size: fixtureSizeSchema.optional(),
+    reference: fixtureReferenceSchema.optional(),
+  })
+  .strict();
+export type FixtureStateInput = z.infer<typeof fixtureStateInputSchema>;
+export interface FixtureState {
+  model: SavedItem;
+  size?: z.infer<typeof fixtureSizeSchema>;
+  reference?: z.infer<typeof fixtureReferenceSchema>;
+}
 
 /** What a person sends to save a fixture; the server adds the rest. */
 export const fixtureInputSchema = z
@@ -42,20 +82,13 @@ export const fixtureInputSchema = z
     at: z.object({ x: z.number().finite(), y: z.number().finite() }).strict(),
     turns: z.union([z.literal(0), z.literal(1), z.literal(2), z.literal(3)]),
     /** Footprint and height in tiles before turning; the model is scaled to fit. */
-    size: z
-      .object({
-        w: z.number().min(0.1).max(8),
-        d: z.number().min(0.1).max(8),
-        h: z.number().min(0.1).max(8),
-      })
-      .strict(),
+    size: fixtureSizeSchema,
     model: isoItemSchema,
     /** The reference photo's run and asset, for the editor's photo overlay. */
-    reference: z
-      .object({ runId: z.string().min(1), asset: z.string().min(1) })
-      .strict()
-      .nullable(),
+    reference: fixtureReferenceSchema,
     control: fixtureControlSchema,
+    /** Named states or poses, each with its own unique model, size or reference. */
+    states: z.record(fixtureStateNameSchema, fixtureStateInputSchema).optional(),
     /** True hands its place back to scans; any other save keeps it where the person put it. */
     scanned: z.boolean().optional(),
     /**
@@ -76,11 +109,13 @@ export const fixtureInputSchema = z
   .strict();
 export type FixtureInput = z.infer<typeof fixtureInputSchema>;
 
-export interface Fixture extends Omit<FixtureInput, 'id' | 'model'> {
+export interface Fixture extends Omit<FixtureInput, 'id' | 'model' | 'states'> {
   id: string;
   model: SavedItem;
-  /** The last confirmed state of its entity, for drawing; never a verdict. */
-  state?: 'on' | 'off' | null;
+  /** The active state or pose of the fixture (`on`, `off`, `idle`, `sleeping`, or custom). */
+  state?: string | null;
+  /** Each state's unique fixture model, size or reference. */
+  states?: Record<string, FixtureState>;
   /**
    * One thing seen in several scenes (a room and its close view) shares a
    * link: what it is and what it switches stay the same in each.
@@ -151,8 +186,180 @@ export function fixtureInput(f: Fixture): FixtureInput {
     model: { label: f.model.label, parts: f.model.parts },
     reference: f.reference,
     control: f.control,
+    ...(f.states
+      ? {
+          states: Object.fromEntries(
+            Object.entries(f.states).map(([k, v]) => [
+              k,
+              {
+                model: { label: v.model.label, parts: v.model.parts },
+                ...(v.size ? { size: v.size } : {}),
+                ...(v.reference !== undefined ? { reference: v.reference } : {}),
+              },
+            ]),
+          ),
+        }
+      : {}),
     ...(f.room ? { room: f.room } : {}),
   };
+}
+
+/** A cat by name: the name's last word, so a cat tower, bed or litter box isn't one. */
+const CAT_NAME = /\b(cat|kitty|kitten)s?$/i;
+/** A state's variant of a base model when no custom state model was saved for it. */
+export function stateVariantModel(
+  base: SavedItem,
+  state: string,
+  kind: ControlKind = 'none',
+): SavedItem {
+  if (
+    (state === 'idle' || state === 'sleeping') &&
+    (base.fit?.archetype === 'cat' || CAT_NAME.test(base.label.trim()))
+  ) {
+    const fit = base.fit?.params as CatFit | undefined;
+    const colors =
+      fit?.family === 'cat'
+        ? [fit.colors.body, fit.colors.accent]
+        : base.swatches.map((s) => s.hex);
+    const built = catItem(base.label, state, colors);
+    return {
+      ...base,
+      parts: built.parts,
+      fit:
+        base.fit && fit?.family === 'cat'
+          ? { ...base.fit, params: { ...fit, pose: state } }
+          : base.fit,
+    };
+  }
+  if (state === 'on' || state === 'off') {
+    if (base.parts.some((p) => p.id === 'screen')) {
+      return {
+        ...base,
+        parts: base.parts.map((p) =>
+          p.id === 'screen' ? { ...p, color: state === 'on' ? '#68b5e8' : '#2c3858' } : p,
+        ),
+      };
+    }
+    if (
+      state === 'on' &&
+      (kind === 'light' ||
+        base.fit?.archetype === 'lamp' ||
+        /\b(lamp|light|bulb|sconce|lantern)\b/i.test(base.label))
+    ) {
+      return {
+        ...base,
+        parts: base.parts.map((p, i) => {
+          if (p.shape === 'lathe' && (p.profile?.length ?? 0) >= 5) {
+            const bands = (p.paint ?? []).filter((b) => !(b.kind === 'band' && b.from >= 0.55));
+            return {
+              ...p,
+              paint: [
+                ...bands,
+                { kind: 'band' as const, from: 0.58, to: 1, color: '#ffe299' },
+              ].slice(0, 6),
+            };
+          }
+          return i === base.parts.length - 1 ? { ...p, color: '#ffe299' } : p;
+        }),
+      };
+    }
+  }
+  return base;
+}
+
+/** Default per-state fixtures for a newly drafted or saved cat, monitor or lamp. */
+export function defaultFixtureStates(f: {
+  label: string;
+  archetype?: Archetype;
+  control?: ControlKind;
+  model: SavedItem;
+}): { state?: string | null; states?: Record<string, FixtureState> } {
+  const isCat =
+    f.archetype === 'cat' || f.model.fit?.archetype === 'cat' || CAT_NAME.test(f.label.trim());
+  if (isCat) {
+    return {
+      state: 'idle',
+      states: {
+        idle: {
+          model: stateVariantModel(f.model, 'idle'),
+          size: sizeInTiles({ w: 26, d: 28, h: 32 }),
+        },
+        sleeping: {
+          model: stateVariantModel(f.model, 'sleeping'),
+          size: sizeInTiles({ w: 28, d: 26, h: 18 }),
+        },
+      },
+    };
+  }
+  const isMonitor =
+    /\b(monitor|display|screen)\b/i.test(f.label) || f.model.parts.some((p) => p.id === 'screen');
+  if (isMonitor) {
+    const base = f.model.parts.some((p) => p.id === 'screen')
+      ? f.model
+      : { ...f.model, ...monitorItem(f.label, false) };
+    return {
+      states: {
+        off: { model: stateVariantModel(base, 'off', f.control) },
+        on: { model: stateVariantModel(base, 'on', f.control) },
+      },
+    };
+  }
+  if (
+    f.control === 'light' ||
+    f.archetype === 'lamp' ||
+    f.model.fit?.archetype === 'lamp' ||
+    /\b(lamp|light|bulb|sconce|lantern)\b/i.test(f.label)
+  ) {
+    return {
+      states: {
+        off: { model: f.model },
+        on: { model: stateVariantModel(f.model, 'on', 'light') },
+      },
+    };
+  }
+  return {};
+}
+
+/** The model a fixture shows in its active (or given) state. */
+export function fixtureModel(
+  f: Pick<Fixture, 'model'> & Partial<Pick<Fixture, 'state' | 'states' | 'control'>>,
+  state = f.state,
+): SavedItem {
+  if (!state) return f.model;
+  const saved = f.states?.[state]?.model;
+  if (saved) return saved;
+  return stateVariantModel(f.model, state, f.control?.kind);
+}
+
+/** The size a fixture takes in its active (or given) state. */
+export function fixtureSize(
+  f: Pick<Fixture, 'size'> & Partial<Pick<Fixture, 'state' | 'states'>>,
+  state = f.state,
+): FixtureInput['size'] {
+  return (state ? f.states?.[state]?.size : undefined) ?? f.size;
+}
+
+/** The reference photo a fixture uses in its active (or given) state. */
+export function fixtureReference(
+  f: Pick<Fixture, 'reference'> & Partial<Pick<Fixture, 'state' | 'states'>>,
+  state = f.state,
+): FixtureInput['reference'] {
+  const custom = state ? f.states?.[state]?.reference : undefined;
+  return custom !== undefined ? custom : f.reference;
+}
+
+/** All state names a fixture offers, in order. */
+export function fixtureStateNames(
+  f: Pick<Fixture, 'control'> & Partial<Pick<Fixture, 'state' | 'states'>>,
+): string[] {
+  const names = new Set<string>();
+  if (f.control.kind !== 'none') {
+    names.add('off');
+    names.add('on');
+  }
+  for (const k of Object.keys(f.states ?? {})) names.add(k);
+  if (f.state) names.add(f.state);
+  return [...names];
 }
 
 /** A fixture where the room's own view shows it: its room place, else where the camera puts it. */
@@ -171,19 +378,21 @@ function sceneOf(kind: IsoSceneKind | 'custom', custom?: IsoScene | null): IsoSc
 
 /** Where a fixture stands in its scene, as a box for depth sorting and picking. */
 export function fixtureBox(
-  fixture: Pick<Fixture, 'scene' | 'surfaceId' | 'at' | 'turns' | 'size'>,
+  fixture: Pick<Fixture, 'scene' | 'surfaceId' | 'at' | 'turns' | 'size'> &
+    Partial<Pick<Fixture, 'state' | 'states'>>,
   custom?: IsoScene | null,
 ): IsoBox {
   const surface = fixture.surfaceId
     ? isoSurface(fixture.scene, fixture.surfaceId, custom)
     : undefined;
+  const sz = fixtureSize(fixture);
   const turned = fixture.turns % 2 === 1;
   return {
     at: { x: fixture.at.x, y: fixture.at.y, z: surface?.z ?? 0 },
     size: {
-      w: turned ? fixture.size.d : fixture.size.w,
-      d: turned ? fixture.size.w : fixture.size.d,
-      h: fixture.size.h,
+      w: turned ? sz.d : sz.w,
+      d: turned ? sz.w : sz.d,
+      h: sz.h,
     },
   };
 }
@@ -343,7 +552,165 @@ export interface FixtureDraft {
   model: SavedItem;
   /** Its size in the scene it was drafted for, in tiles. */
   size: FixtureInput['size'];
-  reference: NonNullable<FixtureInput['reference']>;
+  reference: FixtureInput['reference'];
+  state?: string | null;
+  states?: Record<string, FixtureState>;
+}
+
+/** Templates the Fixture Studio and Add Fixture panel can start from without a photo. */
+export const STARTER_TEMPLATES = [
+  'cat',
+  'monitor',
+  'lamp',
+  'plant',
+  'mug',
+  'book',
+  'device',
+  'box',
+] as const;
+export type StarterTemplate = (typeof STARTER_TEMPLATES)[number];
+
+const STARTER_META: Record<
+  StarterTemplate,
+  {
+    label: string;
+    archetype: Archetype;
+    suggested: ControlKind;
+    description: string;
+    sizeCm: { w: number; d: number; h: number };
+    colors: [string, string];
+  }
+> = {
+  cat: {
+    label: 'Cat',
+    archetype: 'cat',
+    suggested: 'none',
+    description: 'A cat with idle and sleeping poses.',
+    sizeCm: { w: 26, d: 28, h: 32 },
+    colors: ['#d88b4b', '#f2e6d8'],
+  },
+  monitor: {
+    label: 'Monitor',
+    archetype: 'box',
+    suggested: 'switch',
+    description: 'A monitor with off and on screen states.',
+    sizeCm: { w: 52, d: 18, h: 38 },
+    colors: ['#23283c', '#68b5e8'],
+  },
+  lamp: {
+    label: 'Desk lamp',
+    archetype: 'lamp',
+    suggested: 'light',
+    description: 'A lamp with off and warm on states.',
+    sizeCm: { w: 18, d: 18, h: 36 },
+    colors: ['#d7ccb8', '#8a7966'],
+  },
+  plant: {
+    label: 'Potted plant',
+    archetype: 'plant',
+    suggested: 'none',
+    description: 'A leafy plant in a ceramic pot.',
+    sizeCm: { w: 16, d: 16, h: 24 },
+    colors: ['#b38b6d', '#4d6a54'],
+  },
+  mug: {
+    label: 'Mug',
+    archetype: 'mug',
+    suggested: 'none',
+    description: 'A ceramic mug with a handle.',
+    sizeCm: { w: 12, d: 10, h: 10 },
+    colors: ['#ece5d0', '#73604c'],
+  },
+  book: {
+    label: 'Book',
+    archetype: 'book',
+    suggested: 'none',
+    description: 'A hardcover book lying flat.',
+    sizeCm: { w: 16, d: 22, h: 4 },
+    colors: ['#3c554a', '#e6dfcc'],
+  },
+  device: {
+    label: 'Device',
+    archetype: 'device',
+    suggested: 'switch',
+    description: 'A compact tabletop device or switch.',
+    sizeCm: { w: 8, d: 12, h: 4 },
+    colors: ['#4a5164', '#1f232f'],
+  },
+  box: {
+    label: 'Speaker box',
+    archetype: 'box',
+    suggested: 'none',
+    description: 'A rounded box or tabletop speaker.',
+    sizeCm: { w: 18, d: 14, h: 14 },
+    colors: ['#5f7c88', '#4a5164'],
+  },
+};
+
+export function starterMeta(template: StarterTemplate) {
+  return STARTER_META[template];
+}
+
+/** Build a model from a starter template and optional state (`idle`, `sleeping`, `on`, `off`). */
+export function starterTemplateModel(
+  template: StarterTemplate,
+  opts: { label?: string; colors?: string[]; state?: string | null } = {},
+): SavedItem {
+  const meta = STARTER_META[template];
+  const label = opts.label?.trim() || meta.label;
+  const colors = opts.colors?.length ? opts.colors : meta.colors;
+  const pose = opts.state === 'sleeping' ? 'sleeping' : 'idle';
+  const base =
+    template === 'cat'
+      ? catItem(label, pose, colors)
+      : template === 'monitor'
+        ? {
+            ...monitorItem(label, opts.state === 'on'),
+            parts: monitorItem(label, opts.state === 'on').parts.map((p) =>
+              p.id === 'screen'
+                ? { ...p, color: opts.state === 'on' ? (colors[1] ?? '#68b5e8') : '#2c3858' }
+                : { ...p, color: colors[0] ?? '#23283c' },
+            ),
+          }
+        : buildItem(label, defaultFit(meta.archetype, colors));
+  const saved: SavedItem = {
+    ...base,
+    source: 'placeholder',
+    segmentRunId: null,
+    swatches: colors.map((hex, i) => ({ hex, share: i === 0 ? 0.7 : 0.3 })),
+    updatedAt: new Date().toISOString(),
+    fit: null,
+  };
+  return opts.state && template !== 'cat' && template !== 'monitor'
+    ? stateVariantModel(saved, opts.state, meta.suggested)
+    : saved;
+}
+
+/** Draft a complete fixture with its default states directly from a starter template. */
+export function starterFixtureDraft(
+  template: StarterTemplate,
+  opts: { label?: string; colors?: string[] } = {},
+): FixtureDraft {
+  const meta = STARTER_META[template];
+  const label = opts.label?.trim() || meta.label;
+  const model = starterTemplateModel(template, { label, colors: opts.colors });
+  const seeded = defaultFixtureStates({
+    label,
+    archetype: meta.archetype,
+    control: meta.suggested,
+    model,
+  });
+  return {
+    label,
+    archetype: meta.archetype,
+    suggested: meta.suggested,
+    description: meta.description,
+    model,
+    size: sizeInTiles(meta.sizeCm),
+    reference: null,
+    ...(seeded.state ? { state: seeded.state } : {}),
+    ...(seeded.states ? { states: seeded.states } : {}),
+  };
 }
 
 /** Centimetres per tile: every scene is built at real size, so one scale fits all. */

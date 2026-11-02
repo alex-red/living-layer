@@ -253,6 +253,24 @@ export const demoFixtureClass: Record<DemoReference, FixtureClass> = {
     box: { x1: 302, y1: 167, x2: 698, y2: 833 },
     sizeCm: { w: 25, d: 25, h: 45 },
   },
+  monitor: {
+    label: 'Monitor',
+    archetype: 'box',
+    material: 'matte',
+    control: 'switch',
+    description: 'A widescreen desktop monitor on a dark stand.',
+    box: { x1: 208, y1: 167, x2: 792, y2: 828 },
+    sizeCm: { w: 54, d: 18, h: 40 },
+  },
+  cat: {
+    label: 'Cat',
+    archetype: 'cat',
+    material: 'fabric',
+    control: 'none',
+    description: 'An orange tabby cat with a cream chest patch.',
+    box: { x1: 342, y1: 189, x2: 742, y2: 828 },
+    sizeCm: { w: 26, d: 28, h: 32 },
+  },
 };
 const references = new Map<DemoReference, { png: Buffer; detection: Detection }>();
 /**
