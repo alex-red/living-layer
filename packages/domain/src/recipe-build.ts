@@ -1,4 +1,4 @@
-import { clusterColours, rgbLab, type Lab } from './color.js';
+import { clusterColours, deltaE, rgbLab, type Lab } from './color.js';
 import type { ProductFacts } from './facts.js';
 import type { IsoScene } from './iso.js';
 import {
@@ -417,7 +417,19 @@ export interface RecipeCheck {
   extra: number;
   /** Where most of the mismatch is, in plain words, for the refiner. */
   report: string;
+  /**
+   * How far the drawing's colours are from the photo's where both are the
+   * thing (mean ΔE), when there is a photo: an open white shelf and a closed
+   * wooden one share an outline, not their colours. Null without one.
+   */
+  deltaE: number | null;
 }
+/**
+ * One number to rank drafts of the same thing by: the outline's match, less
+ * a little for each unit of colour difference, so a draft that looks like the
+ * photo wins over one that only fills the same outline.
+ */
+export const draftScore = (c: Pick<RecipeCheck, 'iou' | 'deltaE'>) => c.iou - (c.deltaE ?? 0) / 100;
 /** A recipe at least this close to the outline needs no refining. */
 export const RECIPE_TARGET = { iou: 0.75 } as const;
 
@@ -432,13 +444,13 @@ export function checkRecipe(
   recipe: FixtureRecipe,
   place: RecipePlace,
   outline: Bits,
+  /** The frame's pixels (RGBA, the camera's frame size), to compare colours with. */
+  photo?: Uint8Array | Uint8ClampedArray,
 ): RecipeCheck {
   const s = sceneWithRecipe(scene, recipe, place);
-  const picture = renderRoom(camera, [floorSolid(s.grid), ...sceneSolids(s)], { labels: true });
+  // Its colours drawn only when there is a photo to compare them with.
+  const picture = renderRoom(camera, [floorSolid(s.grid), ...sceneSolids(s)], { labels: !photo });
   const k = picture.names.indexOf('candidate');
-  let both = 0;
-  let drawn = 0;
-  let wanted = 0;
   // Mismatch by side of the outline's box, for the report.
   let [x0, x1, y0, y1] = [Infinity, -1, Infinity, -1];
   for (let i = 0; i < outline.data.length; i++)
@@ -447,26 +459,67 @@ export function checkRecipe(
       const y = Math.floor(i / outline.width);
       [x0, x1, y0, y1] = [Math.min(x0, x), Math.max(x1, x), Math.min(y0, y), Math.max(y1, y)];
     }
-  const sides = { left: [0, 0], right: [0, 0], top: [0, 0], bottom: [0, 0] } as Record<
-    string,
-    [number, number]
-  >;
   const mx = (x0 + x1) / 2;
   const my = (y0 + y1) / 2;
-  for (let i = 0; i < outline.data.length; i++) {
-    const isDrawn = picture.ids[i] === k;
-    const isWanted = outline.data[i] === 1;
-    if (isDrawn) drawn++;
-    if (isWanted) wanted++;
-    if (isDrawn && isWanted) both++;
-    if (isDrawn === isWanted) continue;
-    const x = i % outline.width;
-    const y = Math.floor(i / outline.width);
-    const slot = isWanted ? 0 : 1;
-    sides[x < mx ? 'left' : 'right']![slot]++;
-    sides[y < my ? 'top' : 'bottom']![slot]++;
+  const { width } = outline;
+  // Its drawing, and the same with the gaps across each row filled: SAM outlines an open
+  // shelf with what stands in it and the wall seen through it, so an open frame is judged
+  // by its envelope as well as its parts, whichever matches the outline better.
+  const drawnAt = new Uint8Array(outline.data.length);
+  const filled = new Uint8Array(outline.data.length);
+  // The colours compared, drawn and photographed, for after the loop.
+  const pairs: [Lab, Lab][] = [];
+  for (let y = 0; y * width < outline.data.length; y++) {
+    let first = -1;
+    let last = -1;
+    for (let x = 0; x < width; x++) {
+      const i = y * width + x;
+      if (picture.ids[i] !== k) continue;
+      drawnAt[i] = 1;
+      if (first < 0) first = x;
+      last = x;
+      if (photo && outline.data[i])
+        pairs.push([
+          rgbLab([picture.rgba[i * 4]!, picture.rgba[i * 4 + 1]!, picture.rgba[i * 4 + 2]!]),
+          rgbLab([photo[i * 4]!, photo[i * 4 + 1]!, photo[i * 4 + 2]!]),
+        ]);
+    }
+    if (first >= 0) filled.fill(1, y * width + first, y * width + last + 1);
   }
-  const iou = both / Math.max(1, drawn + wanted - both);
+  const compare = (mask: Uint8Array) => {
+    const sides = { left: [0, 0], right: [0, 0], top: [0, 0], bottom: [0, 0] } as Record<
+      string,
+      [number, number]
+    >;
+    let both = 0;
+    let drawn = 0;
+    let wanted = 0;
+    for (let i = 0; i < outline.data.length; i++) {
+      const isDrawn = mask[i] === 1;
+      const isWanted = outline.data[i] === 1;
+      if (isDrawn) drawn++;
+      if (isWanted) wanted++;
+      if (isDrawn && isWanted) both++;
+      if (isDrawn === isWanted) continue;
+      const x = i % width;
+      const y = Math.floor(i / width);
+      const slot = isWanted ? 0 : 1;
+      sides[x < mx ? 'left' : 'right']![slot]++;
+      sides[y < my ? 'top' : 'bottom']![slot]++;
+    }
+    return { both, drawn, wanted, sides, iou: both / Math.max(1, drawn + wanted - both) };
+  };
+  const asDrawn = compare(drawnAt);
+  const asFilled = compare(filled);
+  const { both, drawn, wanted, sides, iou } = asFilled.iou > asDrawn.iou ? asFilled : asDrawn;
+  // A room's camera sees everything darker than the drawing's light: its colours are compared
+  // with the drawing's brightness brought to the photo's, so white reads as white in a dim room.
+  let colour: number | null = null;
+  if (pairs.length) {
+    const lift = pairs.reduce((sum, [a, b]) => sum + b[0] - a[0], 0) / pairs.length;
+    colour =
+      pairs.reduce((sum, [a, b]) => sum + deltaE([a[0] + lift, a[1], a[2]], b), 0) / pairs.length;
+  }
   const missing = (wanted - both) / Math.max(1, wanted);
   const extra = (drawn - both) / Math.max(1, wanted);
   const worst = (slot: 0 | 1) =>
@@ -475,10 +528,11 @@ export function checkRecipe(
     `The model covers ${Math.round((1 - missing) * 100)}% of the outline (IoU ${iou.toFixed(2)}).`,
     missing > 0.1 ? `Most of the outline it misses is on its ${worst(0)}.` : '',
     extra > 0.1 ? `It is drawn beyond the outline mostly on its ${worst(1)}.` : '',
+    colour !== null ? `Its colours are ΔE ${Math.round(colour)} from the photo’s.` : '',
   ]
     .filter(Boolean)
     .join(' ');
-  return { iou, missing, extra, report };
+  return { iou, missing, extra, report, deltaE: colour };
 }
 
 /** Suggests ops that bring a recipe closer to its outline: Spark, live. */

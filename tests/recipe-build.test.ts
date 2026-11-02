@@ -186,7 +186,13 @@ describe('Spark as the refiner, against a mocked Meta API', () => {
       );
     });
     const refine = sparkRefiner(new MetaAdapter(config, new EvidenceStore(dir), fetcher));
-    const report: RecipeCheck = { iou: 0.5, missing: 0.4, extra: 0.1, report: 'Misses its right.' };
+    const report: RecipeCheck = {
+      iou: 0.5,
+      missing: 0.4,
+      extra: 0.1,
+      report: 'Misses its right.',
+      deltaE: null,
+    };
     const ops = await refine(alex(), report);
     expect(prompt).toContain('Misses its right.');
     expect(prompt).toContain('drawer-unit (body)');

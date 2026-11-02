@@ -10,7 +10,7 @@ import {
   fixtureClassSchema,
   fixtureScanSchema,
   pictureFindSchema,
-  sculptSchema,
+  sculptSchemaOf,
   MAX_SCAN_THINGS,
   itemCheckSchema,
   sceneDraftSchema,
@@ -799,7 +799,10 @@ export class MetaAdapter {
     prompt: string,
     parts: string,
     signal?: AbortSignal,
+    /** The most parts the answer may have: a fixture's 12, more for furniture. */
+    maxParts = 12,
   ) {
+    const schema = sculptSchemaOf(maxParts);
     return this.executeCall('sculpt', async (timeoutMs) => {
       const response = await this.spark(
         2,
@@ -822,14 +825,14 @@ export class MetaAdapter {
               type: 'json_schema',
               name: 'sculpt',
               strict: true,
-              schema: z.toJSONSchema(sculptSchema),
+              schema: z.toJSONSchema(schema),
             },
           },
         },
         timeoutMs,
         signal,
       );
-      return this.parsed(response, sculptSchema, 'model', SPARK_CALLS.sculpt.tokens);
+      return this.parsed(response, schema, 'model', SPARK_CALLS.sculpt.tokens);
     });
   }
   /**

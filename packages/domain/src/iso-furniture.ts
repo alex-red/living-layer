@@ -735,10 +735,12 @@ export function propModel(
  */
 export function propSolids(
   prop: IsoProp,
-): { box: IsoBox; shape: IsoProp['shape']; tone: IsoTone }[] {
+): { box: IsoBox; shape: IsoProp['shape']; tone: IsoTone; color?: string }[] {
   const model = propModel(prop, true);
   if (!model) return [{ box: prop, shape: prop.shape, tone: prop.tone }];
   return model.map((q) => ({
+    // A recipe part's own colour, where it has one: a camera's picture shows it, not the tone.
+    ...(q.color ? { color: q.color } : {}),
     box: {
       at: { x: prop.at.x + q.at.x, y: prop.at.y + q.at.y, z: prop.at.z + q.at.z },
       size: q.size,

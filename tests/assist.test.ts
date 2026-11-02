@@ -70,10 +70,14 @@ describe('the AI brush in the demo', () => {
     // Every step ran, and the job is over.
     const job = (await s.app.inject(`/api/jobs/${jobId}`)).json<{
       done: boolean;
-      steps: { id: string; state: string }[];
+      steps: { id: string; state: string; detail?: string }[];
     }>();
     expect(job.done).toBe(true);
-    expect(job.steps.map((x) => x.state)).toEqual(Array(6).fill('done'));
+    expect(job.steps.map((x) => x.state)).toEqual(Array(7).fill('done'));
+    // Shaping it from the photo is Spark's, live: the demo keeps the model built from its form.
+    expect(job.steps.find((x) => x.id === 'shape')?.detail).toBe(
+      'Demo: built from its form, with no model calls',
+    );
   });
 
   it('follows up on the same selection and model: one reading, nothing looked up again', async () => {

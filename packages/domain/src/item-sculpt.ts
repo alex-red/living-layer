@@ -29,13 +29,16 @@ export const sculptPartSchema = z
   })
   .strict();
 export type SculptPart = z.infer<typeof sculptPartSchema>;
-export const sculptSchema = z
-  .object({
-    parts: z.array(sculptPartSchema).max(12),
-    /** What it changed, in a sentence. */
-    note: z.string().max(240),
-  })
-  .strict();
+/** A model of at most `max` parts as Spark writes it. */
+export const sculptSchemaOf = (max: number) =>
+  z
+    .object({
+      parts: z.array(sculptPartSchema).max(max),
+      /** What it changed, in a sentence. */
+      note: z.string().max(240),
+    })
+    .strict();
+export const sculptSchema = sculptSchemaOf(12);
 export type Sculpt = z.infer<typeof sculptSchema>;
 
 const clamp = (v: number, lo: number, hi: number) =>
@@ -152,7 +155,7 @@ export function toSculpt(item: IsoItem): SculptPart[] {
   });
 }
 /** Our part format, as Spark is told it, the same on every look. */
-const FORMAT = [
+export const SCULPT_FORMAT = [
   'Coordinates: x left to right and y back to front across the footprint, from 0 to 1; z up, in the same units. Each part has a box: at is its back-left-bottom corner, size its width, depth and height.',
   'Shapes:',
   '- lathe: a side profile turned about the box’s vertical axis, for round bodies, pots, cups and bases. profile: points r, z from bottom to top, z a share of the box’s height and r a share of its half-width, so r = 1 reaches the box’s sides: a plain cylinder filling its box is [{r: 1, z: 0}, {r: 1, z: 1}]. The box sets the size; keep r near 1 unless the shape narrows.',
@@ -209,7 +212,7 @@ export function sculptPrompt(
     `Model the ${label.toLowerCase()} in the first image as a small parametric 3D model, made of at most 12 parts. The second image is how the current model renders from the same angle; its parts are given below as JSON. Start from them: keep what is right, fix what is wrong, and add or remove parts so the render matches the first image.`,
     `It stands ${size.w.toFixed(2)} wide, ${size.d.toFixed(2)} deep and ${size.h.toFixed(2)} tall, as its footprint's longer side is 1.`,
     ...contextLines(context),
-    ...FORMAT,
+    ...SCULPT_FORMAT,
     'Say in note what you changed.',
   ].join('\n');
 }
@@ -218,7 +221,7 @@ export function sculptCheckPrompt(label: string, context?: SculptContext): strin
   return [
     `The first image is the ${label.toLowerCase()}; the second is your model of it rendered from the same angle, with its parts below as JSON. Correct the parts so the render matches the first image better: proportions, widths, positions, colours and any missing or unclosed piece.`,
     ...contextLines(context),
-    ...FORMAT,
+    ...SCULPT_FORMAT,
     'Say in note what you changed.',
   ].join('\n');
 }

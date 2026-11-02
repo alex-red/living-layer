@@ -43,7 +43,9 @@ import {
   type Mode,
   type ProductFacts,
   type PropForm,
+  type RecipeCheck,
   type RecipeOp,
+  type RecipePlace,
   type Refiner,
   type Resolved,
   type Segmentation,
@@ -52,6 +54,7 @@ import {
   type AssistDraft,
 } from '@livinglayer/domain';
 import { sparkRefiner } from './build.js';
+import { shapeFromPhoto, type Shaped } from './brush-sculpt.js';
 import { demoPng } from './demo.js';
 import { demoIntent } from './demo-intent.js';
 import { LabError, parseInput } from './errors.js';
@@ -79,16 +82,17 @@ const STEPS = [
   { id: 'read', label: 'Read your request' },
   { id: 'lookup', label: 'Look it up' },
   { id: 'build', label: 'Build the model' },
+  { id: 'shape', label: 'Shape it from the photo' },
   { id: 'check', label: 'Check it against the camera' },
 ];
 
-/** The most one request can cost live: reading it, SAM, a lookup with searches, two refinements. */
+/** The most one request can cost live: reading it, SAM, a lookup with searches, two looks at the photo. */
 export const assistCeiling = () =>
   sparkCeiling(SPARK_BUDGET.intent, 1) +
   META_PRICES.samPerImage +
   sparkCeiling(SPARK_BUDGET.productLookup, 0) +
   SEARCH_CEILING * META_PRICES.webSearchPerQuery +
-  2 * sparkCeiling(SPARK_BUDGET.refine, 1);
+  2 * Math.max(sparkCeiling(SPARK_BUDGET.refine, 1), sparkCeiling(SPARK_BUDGET.sculpt, 2));
 
 /** A mask as a black and white PNG, to keep with the run for follow-ups and replays. */
 const maskPng = (m: Bits) =>
@@ -291,7 +295,7 @@ export function assistRoutes(
           rounds: [],
         };
         if (question) {
-          for (const s of ['lookup', 'build', 'check'])
+          for (const s of ['lookup', 'build', 'shape', 'check'])
             await job.done(s, 'Waiting for your answer');
           return { output: draft, assets, usage, model, requestId };
         }
@@ -317,6 +321,25 @@ export function assistRoutes(
           rgba: (await rgbaOf(png)).data,
           researchers,
           refiner: live ? sparkRefiner(meta, dataUrl(crop), job.signal) : null,
+          shaper: live
+            ? async (recipe, place, against, check) => {
+                const shaped = await shapeFromPhoto({
+                  meta,
+                  camera: room.camera,
+                  scene: room.scene,
+                  place,
+                  recipe,
+                  frame: png,
+                  against,
+                  request: input.prompt,
+                  check,
+                  onCall: note,
+                  signal: job.signal,
+                });
+                if (shaped) assets.push(store.asset(id, 'shaped.png', shaped.render));
+                return shaped;
+              }
+            : null,
           steps: job,
           signal: job.signal,
         });
@@ -498,7 +521,7 @@ export function keepOutline(
 /** How a draft's steps are reported: the job live, the console in a replay. */
 export interface DraftSteps {
   run(id: string, detail?: string): void;
-  done(id: string, detail?: string): Promise<void>;
+  done(id: string, detail?: string, image?: Buffer): Promise<void>;
   check(): void;
 }
 /**
@@ -517,6 +540,7 @@ export async function finishDraft(
     rgba,
     researchers,
     refiner,
+    shaper = null,
     steps,
     signal,
   }: {
@@ -527,6 +551,15 @@ export async function finishDraft(
     rgba: Uint8Array | Uint8ClampedArray;
     researchers: Researcher[];
     refiner: Refiner | null;
+    /** Spark reshapes the model from the photo, live; null in the demo. */
+    shaper?:
+      | ((
+          recipe: FixtureRecipe,
+          place: RecipePlace,
+          against: Bits,
+          check: (r: FixtureRecipe) => RecipeCheck,
+        ) => Promise<Shaped | null>)
+      | null;
     steps: DraftSteps;
     signal?: AbortSignal;
   },
@@ -601,14 +634,13 @@ export async function finishDraft(
   );
   steps.check();
 
-  // 6. The camera check, and Spark's refinements of a new model (never of a size asked for).
-  steps.run('check');
-  const reshaped = Boolean(create) || edits.some((o) => SHAPES.includes(o.op));
+  // 6. Where it stands: a new model in an old one's place stands where the camera sees the thing,
+  // not where the old one stood. A follow-up keeps the place its first request found.
+  const matchPhoto = intent.ops.some((o) => o.op === 'match_photo');
+  const reshaped = Boolean(create) || matchPhoto || edits.some((o) => SHAPES.includes(o.op));
   draft.place ??=
     (targetProp ? placeOfGroup(room.scene, targetProp) : null) ??
     (box ? { cx: box.cx, cy: box.cy, z: 0, turns: 0, replaces: null } : null);
-  // A new model in an old one's place stands where the camera sees the thing, not where the old
-  // one stood. A follow-up keeps the place its first request found.
   if (!draft.previous && create && recipe && draft.place?.replaces && whole) {
     const at = draft.place;
     const fit = fitGroup(
@@ -632,13 +664,54 @@ export async function finishDraft(
       };
     } else draft.fit = null;
   }
-  if (recipe && draft.place && (reshaped || !draft.check)) {
-    const place = draft.place;
-    // Checked against all of the thing once its place was fitted to it, not the part selected.
-    const against = draft.fit && whole ? whole : outline;
-    const check = (r: FixtureRecipe) => checkRecipe(room.camera, room.scene, r, place, against);
+  // Checked against all of the thing once its place was fitted to it, not the part selected,
+  // and against the photo's colours as well as its outline.
+  const against = draft.fit && whole ? whole : outline;
+  const place = draft.place;
+  const check = (r: FixtureRecipe) =>
+    checkRecipe(room.camera, room.scene, r, place!, against, rgba);
+
+  // 7. A new model, or one asked to look like the photo, is shaped from the photo by Spark.
+  steps.run('shape');
+  let shaped: Shaped | null = null;
+  if (recipe && place && shaper && (create || matchPhoto)) {
+    const before = check(recipe);
+    let failed: string | null = null;
+    try {
+      shaped = await shaper(recipe, place, against, check);
+    } catch (e) {
+      steps.check();
+      failed = e instanceof Error ? e.message : 'it failed';
+    }
+    if (shaped) {
+      draft.recipe = recipe = shaped.recipe;
+      await steps.done(
+        'shape',
+        `${recipe.parts.length} parts, IoU ${shaped.check.iou.toFixed(2)} (as built ${before.iou.toFixed(2)}). ${shaped.note}`,
+        shaped.render,
+      );
+    } else
+      await steps.done(
+        'shape',
+        failed
+          ? `Spark couldn’t shape it, so it is as built: ${failed}`
+          : 'No usable model came back, so it is as built',
+      );
+  } else
+    await steps.done(
+      'shape',
+      !shaper && (create || matchPhoto)
+        ? 'Demo: built from its form, with no model calls'
+        : 'Not needed',
+    );
+  steps.check();
+
+  // 8. The camera check, and Spark's refinements of a new model not shaped from the photo
+  // (never of a size asked for).
+  steps.run('check');
+  if (recipe && place && (reshaped || !draft.check)) {
     // Only a new model is refined, and never away from a size the person asked for.
-    const refine = create && !edits.some((o) => o.op === 'resize') ? refiner : null;
+    const refine = create && !shaped && !edits.some((o) => o.op === 'resize') ? refiner : null;
     // A refinement that fails (a timeout, an overloaded model) keeps the best model so far; a stop still stops.
     let failed: string | null = null;
     const { best, history } = await refineRecipe(

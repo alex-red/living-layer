@@ -16,7 +16,7 @@ import type { SelectionTarget } from './selection.js';
  * so a strict schema holds it, and `readIntent` turns that into typed ops,
  * keeping only what can be done and saying why the rest can't.
  */
-export const INTENT_KINDS = ['create', 'rebase', 'set_control', 'clarify'] as const;
+export const INTENT_KINDS = ['create', 'rebase', 'match_photo', 'set_control', 'clarify'] as const;
 export type IntentKind = (typeof INTENT_KINDS)[number];
 export const MAX_INTENT_OPS = 4;
 
@@ -25,6 +25,8 @@ export const INTENT_ABOUT: Record<IntentKind, string> = {
   create:
     'Make the selection its own model: a fixture or a piece of furniture (label; form: the built-in form it is closest to, if any; as: fixture or furniture).',
   rebase: 'Build the model again from another built-in form ("it is a table, not a desk").',
+  match_photo:
+    'Rebuild the model’s parts and colours from the camera’s picture of it, keeping its size, when the request is about how it looks overall ("make it look like the photo", "it is an open shelf with white shelves"). What the person describes is passed on with it, so use it instead of many small ops.',
   set_control:
     'Say what the fixture switches: none, or a light or switch entity from the list (control).',
   clarify: 'Ask one short question back when the request is unclear. Never guess instead.',
@@ -34,6 +36,7 @@ export type IntentOp =
   | RecipeOp
   | { op: 'create'; label: string; form: PropForm | null; as: 'fixture' | 'furniture' | null }
   | { op: 'rebase'; form: PropForm }
+  | { op: 'match_photo' }
   | { op: 'set_control'; control: FixtureControl }
   | { op: 'clarify'; question: string };
 
@@ -169,6 +172,10 @@ function readOp(o: SparkIntentOp, ctx: IntentContext, creating: boolean): Intent
       };
     case 'rebase':
       return o.form ? { op: 'rebase', form: o.form } : 'The form to build from was missing.';
+    case 'match_photo':
+      return ctx.recipe || creating
+        ? { op: 'match_photo' }
+        : 'There is no model to change yet: make it its own fixture first.';
     case 'set_control': {
       if (!o.control) return 'What it switches was missing.';
       const control =

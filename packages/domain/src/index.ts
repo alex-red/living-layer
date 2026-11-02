@@ -814,6 +814,7 @@ export * from './iso-prop-sprite.js';
 export * from './iso-archetypes.js';
 export * from './item-fit.js';
 export * from './item-sculpt.js';
+export * from './recipe-sculpt.js';
 export * from './photo-scene.js';
 export * from './iso-face.js';
 export * from './illustration.js';

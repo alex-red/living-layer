@@ -47,7 +47,7 @@ export function sceneSolids(scene: IsoScene): RoomSolid[] {
       id: p.group,
       box: s.box,
       shape: s.shape === 'cylinder' ? ('cylinder' as const) : ('prism' as const),
-      color: hexLab(PROP_TONES[s.tone as IsoTone]),
+      color: hexLab(s.color ?? PROP_TONES[s.tone as IsoTone]),
       flat: s.tone === 'wall',
     })),
   );

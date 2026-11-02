@@ -10,11 +10,19 @@
  *   bun run assist latest --replaces ikea-alex-desk
  *                                     the group it replaces now, when the room has
  *                                     changed since (the request's own was saved over)
+ *   bun run assist latest --match     read the request as “match the photo”
+ *   bun run assist latest --live      shape it from the photo with Spark (billed, two calls)
+ *   bun run assist latest --looks     the same, from the answers a --live replay kept (free)
  */
-import { mkdirSync, writeFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
 import type { AssistDraft, DeskMemory, FixtureRecipe, ProductFacts } from '@livinglayer/domain';
 import { finishDraft, pngMask, rgbaOf, samWhole } from '../apps/server/src/assist.js';
+import { shapeFromPhoto } from '../apps/server/src/brush-sculpt.js';
+import { parseConfig } from '../apps/server/src/config.js';
+import { MetaAdapter } from '../apps/server/src/meta.js';
+import { EvidenceStore } from '../apps/server/src/store.js';
 import { decodeStoredSam } from '../apps/server/src/sam.js';
 import { BUNDLED_CATALOG, Catalog, type Researcher } from '../apps/server/src/research.js';
 import { selectionRoom } from '../apps/server/src/select.js';
@@ -67,6 +75,9 @@ const researchers = has(args, 'catalog')
   : [stored];
 const draft: AssistDraft = {
   ...was,
+  ...(has(args, 'match')
+    ? { intent: { ...was.intent, ops: [{ op: 'match_photo' as const }] } }
+    : {}),
   facts: before?.facts ?? null,
   disagreement: [],
   recipe: start,
@@ -79,6 +90,46 @@ const draft: AssistDraft = {
   rounds: [],
 };
 const log: string[] = [];
+const spent: number[] = [];
+const shots = resolve(import.meta.dir, '..', 'out', 'assist', run.id.slice(0, 8));
+let meta: MetaAdapter | null = null;
+if (has(args, 'live')) {
+  // The running server's keys; spend kept in a throwaway store, so the server's ledger isn't touched.
+  const env = join(dirname(dataDir()), '.env');
+  if (!process.env.MODEL_API_KEY && existsSync(env)) process.loadEnvFile(env);
+  meta = new MetaAdapter(
+    parseConfig(process.env),
+    new EvidenceStore(mkdtempSync(join(tmpdir(), 'assist-replay-'))),
+  );
+}
+if (has(args, 'looks')) {
+  // Spark's answers from the last --live replay, read back in order.
+  let n = 0;
+  meta = {
+    sculpt: async () => {
+      const file = join(shots, `look-${++n}.json`);
+      if (!existsSync(file)) throw new Error(`No ${file}: run with --live first.`);
+      return {
+        output: JSON.parse(readFileSync(file, 'utf8')),
+        usage: null,
+        model: 'stored',
+        requestId: null,
+      };
+    },
+  } as unknown as MetaAdapter;
+}
+// Each of Spark's answers kept beside the pictures, to read when a look comes back unusable.
+else if (meta) {
+  const sculpt = meta.sculpt.bind(meta);
+  let n = 0;
+  meta.sculpt = async (...a: Parameters<typeof sculpt>) => {
+    const r = await sculpt(...a);
+    mkdirSync(shots, { recursive: true });
+    writeFileSync(join(shots, `look-${++n}.json`), JSON.stringify(r.output, null, 2));
+    writeFileSync(join(shots, `look-${n}-prompt.txt`), a[2]);
+    return r;
+  };
+}
 await finishDraft(draft, {
   room,
   outline,
@@ -86,6 +137,29 @@ await finishDraft(draft, {
   rgba: (await rgbaOf(frame)).data,
   researchers,
   refiner: null,
+  shaper: meta
+    ? async (recipe, place, against, check) => {
+        const shaped = await shapeFromPhoto({
+          meta: meta!,
+          camera: room.camera,
+          scene: room.scene,
+          place,
+          recipe,
+          frame,
+          against,
+          request: was.prompt,
+          check,
+          onCall: (r) => void spent.push(r.usage?.totalTokens ?? 0),
+        });
+        if (shaped) {
+          mkdirSync(shots, { recursive: true });
+          writeFileSync(join(shots, 'shaped.png'), shaped.render);
+          for (const [i, c] of shaped.looks.entries())
+            log.push(`  look ${i + 1}  IoU ${c.iou.toFixed(3)}, ΔE ${c.deltaE?.toFixed(1) ?? '–'}`);
+        }
+        return shaped;
+      }
+    : null,
   steps: {
     run: () => {},
     done: async (id, detail) => void log.push(`  ${id.padEnd(7)} ${detail ?? ''}`),
@@ -106,6 +180,9 @@ console.log(`  parts   ${String(a.size).padEnd(26)} ${b.size}`);
 console.log(
   `  IoU     ${(was.check?.iou.toFixed(3) ?? '–').padEnd(26)} ${draft.check?.iou.toFixed(3) ?? '–'}`,
 );
+console.log(`  ΔE      ${'–'.padEnd(26)} ${draft.check?.deltaE?.toFixed(1) ?? '–'}`);
+if (spent.length)
+  console.log(`  Spark   ${spent.length} calls, ${spent.reduce((a, b) => a + b, 0)} tokens`);
 if (was.rounds.length) console.log(`  (then refined ${was.rounds.length}× by Spark; not replayed)`);
 const added = [...b].filter((n) => !a.has(n));
 const gone = [...a].filter((n) => !b.has(n));
