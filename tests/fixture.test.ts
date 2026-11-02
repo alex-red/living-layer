@@ -8,6 +8,7 @@ import { parseConfig, type Fetcher } from '../apps/server/src/config.js';
 import { EvidenceStore } from '../apps/server/src/store.js';
 import { ControlAdapter } from '../apps/server/src/control.js';
 import { syntheticStream } from '../apps/server/src/sam.js';
+import { latheSplat, mugSplat } from './lib/splat.js';
 import { demoPhotoInventory, demoPhotoSegmentation } from '../apps/server/src/demo.js';
 import {
   STARTER_TEMPLATES,
@@ -44,6 +45,8 @@ import {
   type FixtureClass,
   type FixtureDraft,
   type IsoScene,
+  type Job,
+  type LatheFit,
   type LampResult,
   type PlacementRule,
   type Segmentation,
@@ -777,6 +780,106 @@ describe('another photo of a fixture', () => {
       (await s.post('fixtures/photo', { fixtureId: saved.fixtures![0]!.id, imageDataUrl: 'x' }))
         .statusCode,
     ).toBe(400);
+  });
+});
+
+describe('refining a fixture with SAM 3D', () => {
+  async function withSam3d(sam3d: ((crop: Buffer) => Promise<Buffer>) | null) {
+    const dataDir = mkdtempSync(join(tmpdir(), 'livinglayer-fixture-'));
+    dirs.push(dataDir);
+    const app = await buildApp(parseConfig({ DATA_DIR: dataDir }), {
+      fetcher: mock<Fetcher>(),
+      serveWeb: false,
+      sam3d,
+    });
+    const post = (path: string, body: object = {}) =>
+      app.inject({ method: 'POST', url: `/api/${path}`, payload: { mode: 'demo', ...body } });
+    return { app, post };
+  }
+  /** A fixture drafted from a demo picture and placed on the desk. */
+  async function placed(s: Awaited<ReturnType<typeof withSam3d>>, reference: 'lamp' | 'mouse') {
+    const { draft } = (await s.post('fixtures/draft', { scene: 'desk', reference })).json<{
+      draft: FixtureDraft;
+    }>();
+    const memory = (
+      await s.post('fixtures/save', {
+        fixture: {
+          label: draft.label,
+          scene: 'desk',
+          surfaceId: 'desk:top',
+          at: { x: 3, y: 2 },
+          turns: 0,
+          size: draft.size,
+          model: { label: draft.model.label, parts: draft.model.parts },
+          reference: draft.reference,
+          control: { kind: 'none' },
+        },
+      })
+    ).json<DeskMemory>();
+    return memory.fixtures!.at(-1)!;
+  }
+  async function ended(s: Awaited<ReturnType<typeof withSam3d>>, jobId: string) {
+    for (let i = 0; i < 200; i++) {
+      const job = (await s.app.inject(`/api/jobs/${jobId}`)).json<Job>();
+      if (job.done) return job;
+      await Bun.sleep(25);
+    }
+    throw new Error('The job never ended.');
+  }
+  it('answers at once, then reshapes a turned body from the splat as a job', async () => {
+    let splat: Buffer | null = null;
+    const asked: number[] = [];
+    const s = await withSam3d(async (crop) => {
+      asked.push((await sharp(crop).metadata()).width!);
+      return splat!;
+    });
+    const lamp = await placed(s, 'lamp');
+    // SAM 3D sees the lamp as the fit drew it, but a little taller.
+    const fit = lamp.model.fit!.params as LatheFit;
+    splat = latheSplat({ ...fit, height: fit.height * 1.1 });
+    const jobId = crypto.randomUUID();
+    const res = await s.post('fixtures/refine3d', { fixtureId: lamp.id, jobId });
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json()).toEqual({ jobId });
+    const job = await ended(s, jobId);
+    expect(job.outcome, job.error).toBe('done');
+    expect(asked).toHaveLength(1);
+    expect(job.steps.map((x) => x.id)).toEqual([
+      'picture',
+      'reconstruct',
+      'shape',
+      'check',
+      'save',
+    ]);
+    expect(job.steps[3]!.detail).toMatch(/: kept$/);
+    const after = (await s.app.inject('/api/desk/demo')).json<DeskMemory>().fixtures!.at(-1)!;
+    expect(after.model.fit!.assists.at(-1)).toMatch(/^SAM 3D/);
+    const shaped = after.model.fit!.params as LatheFit;
+    expect(shaped.height / fit.height).toBeCloseTo(1.1, 1);
+    expect(shaped.colors).toEqual(fit.colors);
+  });
+  it('keeps the model as it was when the splat is of something else', async () => {
+    const s = await withSam3d(async () => mugSplat({ height: 3.2, base: 0.6, handle: false }));
+    const lamp = await placed(s, 'lamp');
+    const jobId = crypto.randomUUID();
+    await s.post('fixtures/refine3d', { fixtureId: lamp.id, jobId });
+    const job = await ended(s, jobId);
+    expect(job.steps[3]!.detail).toMatch(/not kept$/);
+    const after = (await s.app.inject('/api/desk/demo')).json<DeskMemory>().fixtures!.at(-1)!;
+    expect(after.model).toEqual(lamp.model);
+  });
+  it('refuses when SAM 3D isn’t set up, or for a shape it can’t refine yet', async () => {
+    const off = await withSam3d(null);
+    const lamp = await placed(off, 'lamp');
+    const jobId = crypto.randomUUID();
+    expect((await off.post('fixtures/refine3d', { fixtureId: lamp.id, jobId })).statusCode).toBe(
+      409,
+    );
+    const on = await withSam3d(async () => mugSplat());
+    const mouse = await placed(on, 'mouse');
+    const refused = await on.post('fixtures/refine3d', { fixtureId: mouse.id, jobId });
+    expect(refused.statusCode).toBe(409);
+    expect(refused.json<{ error: { message: string } }>().error.message).toMatch(/turned body/);
   });
 });
 

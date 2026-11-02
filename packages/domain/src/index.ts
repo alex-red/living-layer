@@ -160,6 +160,8 @@ export interface LabStatus {
   /** The MQTT broker entities are published to. `state` never carries credentials. */
   mqtt: Readiness & { state: 'off' | 'connecting' | 'connected' | 'error' };
   liveEvidence: { text: boolean; discover: boolean; segment: boolean; lamp: boolean };
+  /** Where SAM 3D runs for refining a fixture's shape (experimental), or null when it can't. */
+  sam3d: 'local' | 'fal' | null;
 }
 export interface ApiFailure {
   error: { code: string; message: string; runId?: string };
@@ -813,6 +815,7 @@ export * from './iso-voxel.js';
 export * from './iso-prop-sprite.js';
 export * from './iso-archetypes.js';
 export * from './item-fit.js';
+export * from './splat.js';
 export * from './item-sculpt.js';
 export * from './recipe-sculpt.js';
 export * from './photo-scene.js';

@@ -1254,6 +1254,24 @@ function FixturePhoto({ fixture, disabled }: { fixture: Fixture; disabled: boole
           ? `Fitted from ${fit.views} view${fit.views === 1 ? '' : 's'}. Another photo is fitted and fused with them, a closer one counting for more.`
           : 'A photo of it is fitted as a draft is, and becomes its model.'}
       </p>
+      {lab.status?.sam3d && fit?.params.family === 'lathe' && fit.crop && (
+        <>
+          <Button
+            variant="secondary"
+            disabled={disabled || Boolean(busy)}
+            onClick={() => void lab.refineFixture3d(fixture.id)}
+          >
+            Refine its shape with SAM 3D
+          </Button>
+          <p className="micro">
+            Experimental. SAM 3D sees it whole from its photo, the hidden side and handle too, and
+            its shape replaces the fit’s; colours stay the photo’s.{' '}
+            {lab.status.sam3d === 'local'
+              ? 'About 10 minutes on this machine; the lab stays usable.'
+              : 'On fal.ai, billed by fal.'}
+          </p>
+        </>
+      )}
     </div>
   );
 }

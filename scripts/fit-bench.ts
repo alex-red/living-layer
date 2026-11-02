@@ -19,7 +19,9 @@
  *   `shape` is how far the fit's height over rim is from the real one's;
  *   crops sharing an `object` get a row of how far their views disagree
  *   (`spread`). Silhouettes can match each crop while the shapes disagree,
- *   so these say more about the model than IoU does (SHAPE_TARGETS).
+ *   so these say more about the model than IoU does (SHAPE_TARGETS). A
+ *   `<name>.sam3d.json` beside a crop (from `scripts/experiments/sam3d.ts
+ *   --lathe`) adds SAM 3D's shape of it, scored the same way.
  *
  *   bun run bench:fit
  *   bun run bench:fit --json out/fit-base.json, later --compare out/fit-base.json
@@ -56,6 +58,8 @@ interface Case {
   source: 'synthetic' | 'demo' | 'real';
   object?: string;
   sizeCm?: { h: number; rim: number; estimate?: boolean };
+  /** SAM 3D's shape of the same crop, when the experiment wrote one (`<name>.sam3d.json`). */
+  sam3d?: Pick<LatheFit, 'radius' | 'height' | 'profile' | 'handle'>;
 }
 const cases: Case[] = [];
 const synthetic = (
@@ -151,6 +155,13 @@ if (existsSync(dir))
       source: 'real',
       ...(object ? { object } : {}),
       ...(sizeCm ? { sizeCm } : {}),
+      ...(existsSync(join(dir, file.replace(/\.png$/, '.sam3d.json')))
+        ? {
+            sam3d: JSON.parse(
+              readFileSync(join(dir, file.replace(/\.png$/, '.sam3d.json')), 'utf8'),
+            ),
+          }
+        : {}),
       input: {
         rgba: new Uint8Array(data),
         width: info.width,
@@ -171,8 +182,9 @@ if (existsSync(dir))
  */
 const KNOWN_GAPS = new Set(['desk lamp 15°', 'illustrated lamp', 'demo room mug, close up']);
 const rows: Row[] = [];
-/** Each thing's fits, per view, for the across-views rows. */
+/** Each thing's fits, per view, for the across-views rows; SAM 3D's shapes apart. */
 const views = new Map<string, { rim: number; params: LatheFit }[]>();
+const sam3dViews = new Map<string, number[]>();
 const sizes = new Map<string, NonNullable<Case['sizeCm']>>();
 for (const c of cases) {
   const start = performance.now();
@@ -217,6 +229,28 @@ for (const c of cases) {
       ms: String(ms),
     },
   });
+  // SAM 3D's shape of the same crop, against the real one: a reconstruction, not a fit.
+  if (c.sam3d && out.params.family === 'lathe') {
+    const sam3dRim = latheProportions({ ...out.params, ...c.sam3d }).rim;
+    if (c.object) sam3dViews.set(c.object, [...(sam3dViews.get(c.object) ?? []), sam3dRim]);
+    rows.push({
+      case: `${c.name}, SAM 3D`,
+      variant: 'as built',
+      knownGap: true,
+      metrics: c.sizeCm
+        ? {
+            shape: {
+              value: Math.abs(sam3dRim / (c.sizeCm.h / c.sizeCm.rim) - 1),
+              target: SHAPE_TARGETS.aspect,
+              better: 'lower',
+              unit: '%',
+              digits: 0,
+            },
+          }
+        : {},
+      notes: { source: 'real', model: 'sam 3d' },
+    });
+  }
 }
 // One thing seen from several sides should come out one shape, and its views
 // fused (as a fixture's photos are) should come out closer than most alone.
@@ -252,6 +286,21 @@ for (const [object, seen] of views) {
     notes: { source: 'real', 'height/rim': rims.map((r) => r.toFixed(2)).join(' ') },
   });
 }
+for (const [object, rims] of sam3dViews)
+  if (rims.length > 1)
+    rows.push({
+      case: `${object}, SAM 3D across ${rims.length} views`,
+      variant: 'as built',
+      knownGap: true,
+      metrics: {
+        spread: {
+          value: Math.max(...rims) - Math.min(...rims),
+          target: SHAPE_TARGETS.spread,
+          better: 'lower',
+        },
+      },
+      notes: { source: 'real', 'height/rim': rims.map((r) => r.toFixed(2)).join(' ') },
+    });
 const code = report(rows, parseArgs(), 'fit');
 console.log('* shown, not held to a target: only turned bodies are.');
 if (!cases.some((c) => c.source === 'real'))

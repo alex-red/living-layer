@@ -22,6 +22,14 @@ const schema = z.object({
   /** The most today's live Meta calls may cost (UTC day); changeable in the lab. */
   META_DAILY_SPEND_LIMIT_USD: z.coerce.number().positive().max(1000).default(10),
   META_TIMEOUT_MS: z.coerce.number().int().min(1000).max(120000).default(30000),
+  /**
+   * SAM 3D Objects, for refining a fixture's shape (experimental): on this
+   * machine through mlx-spatial (its weights folder and its command), else
+   * fal.ai's host with FAL_KEY. Neither set, it is off.
+   */
+  SAM3D_MLX_WEIGHTS: z.string().default(''),
+  SAM3D_MLX_BIN: z.string().default('mlx-spatial-sam3d'),
+  FAL_KEY: z.string().default(''),
   HA_URL: z.string().default(''),
   HA_TOKEN: z.string().default(''),
   HA_ENTITY_ID: z.string().default(''),
@@ -75,6 +83,8 @@ export interface Config {
   metaEnabled: boolean;
   spendLimitUsd: number;
   timeoutMs: number;
+  /** Where SAM 3D runs, when it can: this machine, fal.ai, or nowhere. */
+  sam3d: { kind: 'local'; weights: string; bin: string } | { kind: 'fal'; key: string } | null;
   haUrl: string;
   haToken: string;
   haEntity: string;
@@ -204,6 +214,11 @@ export function parseConfig(env: NodeJS.ProcessEnv, cwd = process.cwd()): Config
     metaEnabled: value.META_LIVE_ENABLED,
     spendLimitUsd: value.META_DAILY_SPEND_LIMIT_USD,
     timeoutMs: value.META_TIMEOUT_MS,
+    sam3d: value.SAM3D_MLX_WEIGHTS
+      ? { kind: 'local', weights: value.SAM3D_MLX_WEIGHTS, bin: value.SAM3D_MLX_BIN }
+      : value.FAL_KEY
+        ? { kind: 'fal', key: value.FAL_KEY }
+        : null,
     haUrl: value.HA_URL.replace(/\/$/, ''),
     haToken: value.HA_TOKEN,
     haEntity: value.HA_ENTITY_ID,

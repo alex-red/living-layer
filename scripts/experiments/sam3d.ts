@@ -20,6 +20,8 @@
  *
  *   bun scripts/experiments/sam3d.ts --local              every mug in testdata/items
  *   bun scripts/experiments/sam3d.ts mug-front --scale 6
+ *   bun scripts/experiments/sam3d.ts --local --lathe      also testdata/items/<crop>.sam3d.json,
+ *                                                         the splat's shape for the fit bench
  */
 import {
   existsSync,
@@ -31,6 +33,7 @@ import {
 } from 'node:fs';
 import { join, resolve } from 'node:path';
 import sharp from 'sharp';
+import { fitItem, latheFromSplat, readSplat } from '@livinglayer/domain';
 import { flag, has, parseArgs } from '../lib/args.js';
 
 const ENDPOINT = 'https://fal.run/fal-ai/sam-3/3d-objects';
@@ -108,6 +111,34 @@ for (const name of names) {
       `  pose: scale ${fmt(m.scale)}  rotation ${fmt(m.rotation)}  translation ${fmt(m.translation)}`,
     );
   console.log(`  look: ${join(dir, 'views.png')}`);
+  // The splat's shape as the fit bench reads it: a turned body beside the crop.
+  if (has(args, 'lathe')) {
+    const { data, info } = await sharp(join(ITEMS, `${name}.png`))
+      .ensureAlpha()
+      .raw()
+      .toBuffer({ resolveWithObject: true });
+    const meta = JSON.parse(readFileSync(join(ITEMS, `${name}.json`), 'utf8'));
+    const fitted = fitItem({
+      rgba: new Uint8Array(data),
+      width: info.width,
+      height: info.height,
+      label: meta.label,
+      archetype: meta.archetype,
+    });
+    if (fitted.params.family !== 'lathe') throw new Error(`${name} isn't fitted as a turned body.`);
+    const shaped = latheFromSplat(readSplat(readFileSync(join(dir, 'splat.ply'))), fitted.params);
+    const { radius, height: h, profile, handle } = shaped;
+    const out = join(ITEMS, `${name}.sam3d.json`);
+    writeFileSync(
+      out,
+      JSON.stringify(
+        { source: local ? 'mlx-spatial' : 'fal', radius, height: h, profile, handle },
+        null,
+        2,
+      ) + '\n',
+    );
+    console.log(`  shape: ${out}`);
+  }
 }
 
 interface Sam3dFile {

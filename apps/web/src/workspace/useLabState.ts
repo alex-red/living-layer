@@ -1994,8 +1994,7 @@ export function useLabState() {
       return setError(
         'Calibrate the room’s camera first: the AI brush reads what you pick through it.',
       );
-    // A little wider than its box: the room may draw it too small, and SAM needs all of it in view.
-    const box = groupInFrame(camera, scene, group, 0.15);
+    const box = groupInFrame(camera, scene, group, 0.05);
     if (!box)
       return setError('The room’s camera doesn’t see all of it, so the AI brush can’t pick it.');
     const { width, height } = camera.frame;
@@ -2242,6 +2241,44 @@ export function useLabState() {
    * calls, live; a third looks up what the person says of it, `note`, first),
    * step by step in the AI dialog where it can be stopped, then open it to edit.
    */
+  /**
+   * Refine a fixture's shape with SAM 3D (experimental). It takes minutes,
+   * so the server answers at once and this follows its job to the end; the
+   * lab stays usable meanwhile, and the server saves the result either way.
+   */
+  async function refineFixture3d(id: string) {
+    const f = memory?.fixtures?.find((x) => x.id === id);
+    if (!f) return;
+    setError('');
+    try {
+      const job = await followAi(
+        {
+          title: `Refining the ${f.label.toLowerCase()} with SAM 3D`,
+          description:
+            'SAM 3D reconstructs it whole from its photo crop, and its profile, height and handle replace the fit’s. About 10 minutes on this machine. Experimental.',
+        },
+        async (jobId, signal) => {
+          await api('fixtures/refine3d', { mode, fixtureId: id, jobId }, { signal });
+          for (;;) {
+            if (signal.aborted) throw new Error('Stopped.');
+            const job = await api<Job>(`jobs/${jobId}`, undefined, { signal });
+            if (job.done) {
+              if (job.outcome === 'failed') throw new Error(job.error ?? 'SAM 3D failed.');
+              return job;
+            }
+            await new Promise((r) => setTimeout(r, 2000));
+          }
+        },
+      );
+      if (!job) return;
+      await refresh();
+      setMessage(
+        `SAM 3D: ${job.steps.find((s) => s.id === 'check')?.detail ?? 'done'}. Undo puts the old shape back.`,
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e : 'SAM 3D could not refine it.');
+    }
+  }
   async function sculptFixture(id: string, note?: string) {
     if (busy) return;
     const f = memory?.fixtures?.find((x) => x.id === id);
@@ -2599,6 +2636,7 @@ export function useLabState() {
     separate,
     sculptFixture,
     addFixturePhoto,
+    refineFixture3d,
     scanFixtures,
     followAi,
     aiTask,

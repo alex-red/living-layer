@@ -1,5 +1,6 @@
 import { describe, expect, it, setDefaultTimeout } from 'bun:test';
 import { expectGolden } from './lib/golden.js';
+import { mugSplat } from './lib/splat.js';
 import {
   ARCHETYPES,
   applyCheck,
@@ -11,9 +12,11 @@ import {
   hexLab,
   isoItemSchema,
   isoSurface,
+  latheFromSplat,
   latheProportions,
   paintAt,
   partPrims,
+  readSplat,
   renderSprite,
   renderView,
   rotateItem,
@@ -230,6 +233,28 @@ describe('a turned body’s proportions', () => {
     expect(p.rim).toBeCloseTo(1.2 / 0.99, 3);
     expect(p.middle).toBeCloseTo(1.2 / 0.9, 3);
     expect(p.base).toBeCloseTo(1.2 / 0.81, 3);
+  });
+});
+
+describe('a SAM 3D splat read as a turned body', () => {
+  it('reads its taper, height and handle, keeping the fit’s radius and colours', () => {
+    const like = defaultFit('mug', ['#ece5d0', '#5a3d2b']) as LatheFit;
+    const shaped = latheFromSplat(readSplat(mugSplat({ height: 2.3, base: 0.8 })), like);
+    expect(shaped.radius).toBe(like.radius);
+    expect(shaped.colors).toEqual(like.colors);
+    const p = latheProportions(shaped);
+    // Height over the rim's width: 2.3 rim radii over 2.
+    expect(p.rim).toBeCloseTo(2.3 / 2, 1);
+    expect(p.base / p.rim).toBeCloseTo(1 / 0.8, 1);
+    expect(shaped.handle).not.toBeNull();
+    expect(shaped.handle!.bottom).toBeGreaterThan(0.2);
+    expect(shaped.handle!.top).toBeLessThan(0.95);
+    expect(shaped.handle!.reach / shaped.radius).toBeGreaterThan(0.5);
+  });
+  it('finds no handle on a plain cup, and refuses a splat with nothing in it', () => {
+    const like = defaultFit('cup') as LatheFit;
+    expect(latheFromSplat(readSplat(mugSplat({ handle: false })), like).handle).toBeNull();
+    expect(() => latheFromSplat([], like)).toThrow(/too sparse/);
   });
 });
 

@@ -49,6 +49,7 @@ import { Watcher, setWatching, watchRoutes, type WatcherDeps } from './watcher.j
 import { Appearance } from './appearance.js';
 import { DemoSource } from './frames.js';
 import { RemoteCamera, remoteRoutes } from './remote.js';
+import { reconstruct } from './sam3d.js';
 import { Exposer, exposeRoutes } from './expose.js';
 import { MqttLink, type MqttConnect } from './mqtt.js';
 import { MqttControl } from './mqtt-control.js';
@@ -84,6 +85,8 @@ export async function buildApp(
     previews?: Parameters<typeof cameraRoutes>[2]['preview'];
     /** Relays saved cameras as WebRTC; the server passes one when mediamtx is installed. */
     relay?: Relay | null;
+    /** SAM 3D on a crop; tests pass their own, null turns it off. */
+    sam3d?: ((crop: Buffer, signal?: AbortSignal) => Promise<Buffer>) | null;
   } = {},
 ) {
   const app = Fastify({ logger: false, bodyLimit: 7_100_000, requestTimeout: 130000 });
@@ -210,6 +213,8 @@ export async function buildApp(
           : 'Set MQTT_URL and MQTT_LIVE_ENABLED to show entities in Home Assistant.',
       },
       liveEvidence: store.liveEvidence(),
+      sam3d:
+        options.sam3d === null ? null : (config.sam3d?.kind ?? (options.sam3d ? 'local' : null)),
     };
   });
   const entities = (mode: Mode) =>
@@ -235,6 +240,16 @@ export async function buildApp(
       mode === 'demo' ? demoLampFor(entityId, action) : switchLive(entityId, action),
     entities,
     productsDir: join(config.dataDir, 'products'),
+    sam3d:
+      options.sam3d !== undefined
+        ? options.sam3d
+        : config.sam3d
+          ? (crop, signal) =>
+              reconstruct(config.sam3d!, crop, {
+                ...(signal ? { signal } : {}),
+                ...(options.fetcher ? { fetcher: options.fetcher } : {}),
+              })
+          : null,
   });
   const remote = options.remote ?? new RemoteCamera();
   remoteRoutes(app, config, remote);
