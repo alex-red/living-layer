@@ -174,7 +174,18 @@ export interface RoomMarks {
    * shape, not its size; a known height pins its size and the camera's.
    */
   heights?: HeightMark[];
+  /**
+   * Lines a person drew along things that stand straight up (a shelf's post,
+   * a door's edge), no length needed: the floor marks barely say which way is
+   * up, so these pin the camera's tilt.
+   */
+  verticals?: VerticalMark[];
 }
+export interface VerticalMark {
+  a: Point;
+  b: Point;
+}
+export const verticalMarkSchema = z.object({ a: pointSchema, b: pointSchema }).strict();
 export interface HeightMark {
   foot: Point;
   top: Point;
@@ -191,6 +202,7 @@ export const roomMarksSchema = z
     backEnd: pointSchema.nullable().optional(),
     leftEnd: pointSchema.nullable().optional(),
     heights: z.array(heightMarkSchema).max(8).optional(),
+    verticals: z.array(verticalMarkSchema).max(8).optional(),
   })
   .strict();
 
@@ -209,6 +221,31 @@ function heightMiss(c: RoomCamera, m: HeightMark) {
   const foot = unprojectRoom(c, m.foot, 0);
   const top = foot && projectRoom(c, { x: foot.x, y: foot.y, z: cm(m.cm) });
   return top ? (top.x - m.top.x) ** 2 + (top.y - m.top.y) ** 2 : 1e8;
+}
+
+/**
+ * Which way straight up runs in the frame at a pixel, as a unit vector
+ * pointing up the picture: every upright runs toward the point straight up
+ * (or down) vanishes to, so its direction there is the camera's tilt.
+ */
+export function uprightAt(c: RoomCamera, p: Point): Point {
+  const w = c.forward[2];
+  // Where straight up vanishes, in homogeneous pixels (w near 0: a level camera, uprights parallel).
+  const vx = c.f * c.right[2] + c.cx * w;
+  const vy = c.f * c.down[2] + c.cy * w;
+  const [ux, uy] = [vx - p.x * w, vy - p.y * w];
+  const u = Math.hypot(ux, uy) || 1;
+  const s = uy > 0 ? -1 : 1;
+  return { x: (s * ux) / u, y: (s * uy) / u };
+}
+/**
+ * How far, squared in pixels, a vertical mark's ends are from the upright the
+ * camera draws through its middle, whatever the thing's height.
+ */
+function verticalMiss(c: RoomCamera, m: VerticalMark) {
+  const u = uprightAt(c, { x: (m.a.x + m.b.x) / 2, y: (m.a.y + m.b.y) / 2 });
+  // The far end's distance from the drawn upright through the middle, at half the line's length.
+  return (((m.b.x - m.a.x) * u.y - (m.b.y - m.a.y) * u.x) / 2) ** 2;
 }
 
 /** Nelder–Mead on a few numbers. */
@@ -301,6 +338,9 @@ export function cameraFromMarks(
               heights: marks.heights.map((m) => ({ ...m, foot: shift(m.foot), top: shift(m.top) })),
             }
           : {}),
+        ...(marks.verticals
+          ? { verticals: marks.verticals.map((m) => ({ a: shift(m.a), b: shift(m.b) })) }
+          : {}),
       },
       full,
       room,
@@ -358,11 +398,17 @@ export function cameraFromMarks(
       e += 4 * heightMiss(c, m);
       n += 4;
     }
+    // So does an upright, at both its ends.
+    for (const m of marks.verticals ?? []) {
+      e += 4 * 2 * verticalMiss(c, m);
+      n += 4;
+    }
     e /= n;
     // Priors, in pixels² so they weigh like a mark a few pixels off.
     const px = diag / 200;
     e += ((fov! - CORNER_DEFAULTS.hfovDeg) / 40) ** 2 * px * px;
-    e += (roll! / 0.05) ** 2 * px * px;
+    // A level camera is a guess the uprights, when marked, replace: they show its roll.
+    e += (roll! / (marks.verticals?.length ? 0.5 : 0.05)) ** 2 * px * px;
     const want = cm(heightCm ?? CORNER_DEFAULTS.heightCm);
     e += ((h! - want) / (heightCm ? cm(heightSpreadCm ?? 1.5) : 5)) ** 2 * px * px;
     return e;
@@ -392,6 +438,7 @@ export function cameraFromMarks(
     ...(marks.backEnd ? [gap(projectRoom(inner, { x: room.w, y: 0, z: 0 }), marks.backEnd)] : []),
     ...(marks.leftEnd ? [gap(projectRoom(inner, { x: 0, y: room.d, z: 0 }), marks.leftEnd)] : []),
     ...(marks.heights ?? []).map((m) => heightMiss(inner, m)),
+    ...(marks.verticals ?? []).map((m) => verticalMiss(inner, m)),
   ];
   // In the scene's own coordinates, walls and all.
   const camera: RoomCamera = {
@@ -469,6 +516,28 @@ export function roomScaleFor(
     for (const d of [-2, -1, 1, 2]) {
       const here = at(best.scale + d * step);
       if (here.scale > 0 && here.error < best.error) best = here;
+    }
+  return best;
+}
+
+/**
+ * The room's size that best fits marks with vertical lines: each wall's
+ * length found in turn, twice over. The floor marks alone fit a room of the
+ * wrong size by tilting the camera; uprights say which way is up, so only
+ * the right size fits both.
+ */
+export function roomShapeFor(
+  marks: RoomMarks,
+  frame: RoomCamera['frame'],
+  room: RoomCamera['room'],
+  options: Parameters<typeof cameraFromMarks>[3] = {},
+): { room: RoomCamera['room']; error: number } {
+  let best = { room, error: cameraFromMarks(marks, frame, room, options).error };
+  if (!marks.verticals?.length) return best;
+  for (let round = 0; round < 2; round++)
+    for (const solve of ['w', 'd'] as const) {
+      const here = roomSizeFor(marks, frame, best.room, solve, options);
+      if (here.error < best.error) best = here;
     }
   return best;
 }

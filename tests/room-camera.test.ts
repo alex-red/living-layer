@@ -13,6 +13,7 @@ import {
   fillRings,
   projectRoom,
   roomScaleFor,
+  roomShapeFor,
   roomSizeFor,
   unprojectRoom,
   type RoomCamera,
@@ -107,6 +108,45 @@ describe('room camera', () => {
     // Within a few centimetres: the lens prior still pulls a little.
     expect(Math.abs(fit.heightCm - 210)).toBeLessThan(8);
     expect(close(fit.camera, truth)).toBeLessThan(8);
+  });
+
+  it('takes the camera’s tilt from lines along things that stand straight up', () => {
+    // A narrow lens over the floor lines alone: the lens prior pulls it wide and the uprights lean.
+    const truth = cornerCamera(room, { heightCm: 260, hfovDeg: 47 });
+    const { backEnd: _b, leftEnd: _l, ...floor } = marksOf(truth);
+    const spots = [
+      [3, 2],
+      [6, 3],
+      [2, 6],
+    ] as const;
+    const lean = (c: RoomCamera) =>
+      Math.max(
+        ...spots.map(([x, y]) => {
+          const angle = (k: RoomCamera) => {
+            const p = projectRoom(k, { x, y, z: 0 })!;
+            const q = projectRoom(k, { x, y, z: 4 })!;
+            return Math.atan2(q.x - p.x, p.y - q.y);
+          };
+          return (Math.abs(angle(c) - angle(truth)) * 180) / Math.PI;
+        }),
+      );
+    // Each line drawn along part of something upright: no length, no foot on the floor.
+    const verticals = spots.map(([x, y]) => ({
+      a: projectRoom(truth, { x, y, z: 0.3 })!,
+      b: projectRoom(truth, { x, y, z: 4 })!,
+    }));
+    expect(lean(cameraFromMarks(floor, truth.frame, room).camera)).toBeGreaterThan(1.5);
+    const fit = cameraFromMarks({ ...floor, verticals }, truth.frame, room);
+    expect(lean(fit.camera)).toBeLessThan(0.5);
+    expect(Math.abs(fit.hfovDeg - 47)).toBeLessThan(5);
+    expect(fit.error).toBeLessThan(2);
+    // A room typed another shape: the uprights and the floor disagree until each wall's length is
+    // found again, in the room's own proportions (its size still trades off with the camera's height).
+    const typed = { w: room.w * 0.7, d: room.d * 0.9 };
+    expect(cameraFromMarks({ ...floor, verticals }, truth.frame, typed).error).toBeGreaterThan(3);
+    const found = roomShapeFor({ ...floor, verticals }, truth.frame, typed);
+    expect(found.error).toBeLessThan(2);
+    expect(Math.abs(found.room.w / found.room.d - room.w / room.d)).toBeLessThan(0.15);
   });
 
   it('fits the whole lens behind a zoomed view, its principal point off centre', () => {

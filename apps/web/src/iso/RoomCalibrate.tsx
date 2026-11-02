@@ -4,12 +4,15 @@ import {
   cameraFromMarks,
   projectRoom,
   roomScaleFor,
+  roomShapeFor,
   roomSizeFor,
   unprojectRoom,
+  uprightAt,
   type CameraCrop,
   type HeightMark,
   type Point,
   type RoomMarks,
+  type VerticalMark,
 } from '@livinglayer/domain';
 
 /** What a calibration needs from the person: the marks, and the room's size. */
@@ -43,6 +46,11 @@ interface Suggestion {
  * a desk's top or a door's frame. The floor marks only give the room's
  * shape; a known height gives its size and the camera's, and the room's size
  * that fits them is offered like a wall's.
+ *
+ * Vertical lines go along anything that stands straight up, a shelf's post
+ * or a door's edge, with no length: the floor marks barely say which way is
+ * up, so these set the camera's tilt. The upright the camera draws through
+ * each one's middle shows beside it.
  */
 export function RoomCalibrate({
   frame,
@@ -73,12 +81,24 @@ export function RoomCalibrate({
   const [room, setRoom] = useState(initial.room);
   const [height, setHeight] = useState(initial.heightCm ? String(initial.heightCm) : '');
   const [lines, setLines] = useState<HeightMark[]>(start.heights ?? []);
-  // Handles 0–2 are the corner and the walls; then each height line's foot and top.
+  const [uprights, setUprights] = useState<VerticalMark[]>(start.verticals ?? []);
+  // Handles 0–2 are the corner and the walls; then each height line's foot and top; then
+  // each vertical line's ends.
   const [dragging, setDragging] = useState<number | null>(null);
   const r = Math.max(4, frame.width / 160);
-  const all = [...handles, ...lines.flatMap((l) => [l.foot, l.top])];
+  const all = [
+    ...handles,
+    ...lines.flatMap((l) => [l.foot, l.top]),
+    ...uprights.flatMap((l) => [l.a, l.b]),
+  ];
+  const firstUpright = handles.length + lines.length * 2;
   const moveHandle = (i: number, p: Point) => {
     if (i < handles.length) return setHandles(handles.map((c, j) => (j === i ? p : c)));
+    if (i >= firstUpright) {
+      const k = Math.floor((i - firstUpright) / 2);
+      const end = (i - firstUpright) % 2 ? 'b' : 'a';
+      return setUprights(uprights.map((l, j) => (j === k ? { ...l, [end]: p } : l)));
+    }
     const k = Math.floor((i - handles.length) / 2);
     const end = (i - handles.length) % 2 ? 'top' : 'foot';
     setLines(lines.map((l, j) => (j === k ? { ...l, [end]: p } : l)));
@@ -98,8 +118,9 @@ export function RoomCalibrate({
       backEnd: ends.back ? back : null,
       leftEnd: ends.left ? left : null,
       ...(lines.length ? { heights: lines } : {}),
+      ...(uprights.length ? { verticals: uprights } : {}),
     };
-  }, [handles, ends, lines]);
+  }, [handles, ends, lines, uprights]);
   const heightCm = Number(height) || undefined;
   // The camera these marks imply, and the floor's tiles drawn through it.
   const fit = useMemo(() => {
@@ -119,7 +140,14 @@ export function RoomCalibrate({
       const foot = unprojectRoom(f.camera, m.foot, 0);
       return foot && projectRoom(f.camera, { x: foot.x, y: foot.y, z: m.cm / 30 });
     });
-    return { ...f, path: lines.join(''), tops };
+    // The camera's upright through each vertical line's middle, as long as the line.
+    const ups = (marks.verticals ?? []).map((m) => {
+      const mid = { x: (m.a.x + m.b.x) / 2, y: (m.a.y + m.b.y) / 2 };
+      const u = uprightAt(f.camera, mid);
+      const half = Math.hypot(m.b.x - m.a.x, m.b.y - m.a.y) / 2;
+      return `M${mid.x - u.x * half} ${mid.y - u.y * half}L${mid.x + u.x * half} ${mid.y + u.y * half}`;
+    });
+    return { ...f, path: lines.join(''), tops, ups };
   }, [marks, room, heightCm, frame, crop]);
 
   // Marks pin the room's shape, not its size: when the grid misses them, the
@@ -133,7 +161,12 @@ export function RoomCalibrate({
     const timer = setTimeout(() => {
       const tiles = { w: room.w / 30, d: room.d / 30 };
       const options = { ...(heightCm ? { heightCm } : {}), crop };
-      const scaled = marks.heights?.length ? roomScaleFor(marks, frame, tiles, options) : null;
+      // Both walls: scaled by known heights, else each found again by the uprights.
+      const scaled = marks.heights?.length
+        ? roomScaleFor(marks, frame, tiles, options)
+        : marks.verticals?.length
+          ? roomShapeFor(marks, frame, tiles, options)
+          : null;
       setSuggestions(
         [
           ...(scaled ? [{ wall: 'Both walls' as const, found: scaled }] : []),
@@ -217,6 +250,18 @@ export function RoomCalibrate({
             </g>
           );
         })}
+        {uprights.map((l, k) => (
+          <g key={`v${k}`} className="calibrate-upright">
+            <line x1={l.a.x} y1={l.a.y} x2={l.b.x} y2={l.b.y} vectorEffect="non-scaling-stroke" />
+            {fit?.ups[k] && (
+              <path
+                className="calibrate-upright-fit"
+                d={fit.ups[k]}
+                vectorEffect="non-scaling-stroke"
+              />
+            )}
+          </g>
+        ))}
         {all.map((c, i) => (
           <circle
             key={i}
@@ -227,7 +272,9 @@ export function RoomCalibrate({
             role="slider"
             aria-label={
               HANDLES[i] ??
-              `height line ${Math.floor((i - handles.length) / 2) + 1} ${(i - handles.length) % 2 ? 'top' : 'floor'}`
+              (i >= firstUpright
+                ? `vertical line ${Math.floor((i - firstUpright) / 2) + 1} ${(i - firstUpright) % 2 ? 'top' : 'bottom'}`
+                : `height line ${Math.floor((i - handles.length) / 2) + 1} ${(i - handles.length) % 2 ? 'top' : 'floor'}`)
             }
             aria-valuetext={`${Math.round(c.x)}, ${Math.round(c.y)}`}
           />
@@ -241,8 +288,8 @@ export function RoomCalibrate({
           <span>
             {fit
               ? suggestions.length
-                ? lines.length && suggestions[0]!.wall === 'Both walls'
-                  ? `The marks miss by ${fit.error.toFixed(0)} px: the height lines say the room is another size. Try:`
+                ? (lines.length || uprights.length) && suggestions[0]!.wall === 'Both walls'
+                  ? `The marks miss by ${fit.error.toFixed(0)} px: the ${lines.length ? 'height' : 'vertical'} lines say the room is another size. Try:`
                   : `The grid misses the marks by ${fit.error.toFixed(0)} px: a room this shape can’t look like that from its front corner. Measure a wall, or try:`
                 : good
                   ? `The floor grid should sit on the floor. Camera about ${fit.heightCm} cm up, ${Math.round(fit.hfovDeg)}° wide.`
@@ -255,7 +302,9 @@ export function RoomCalibrate({
               className="secondary"
               title={
                 x.wall === 'Both walls'
-                  ? `The room’s size the height lines say, its shape kept; the marks then miss by ${x.error.toFixed(1)} px.`
+                  ? lines.length
+                    ? `The room’s size the height lines say, its shape kept; the marks then miss by ${x.error.toFixed(1)} px.`
+                    : `The room’s size at which the floor and the uprights agree; the marks then miss by ${x.error.toFixed(1)} px. A wall you have measured pins it exactly.`
                   : `Keeps the ${x.wall === 'Back wall' ? 'left' : 'back'} wall as it is; the grid then misses by ${x.error.toFixed(1)} px.`
               }
               onClick={() => setRoom(x.room)}
@@ -341,6 +390,35 @@ export function RoomCalibrate({
               }
             >
               Add height line
+            </button>
+          )}
+          {uprights.map((_, k) => (
+            <label key={`v${k}`} title="Drag its ends along something that stands straight up.">
+              Vertical line {k + 1}
+              <button
+                className="secondary"
+                aria-label={`Remove vertical line ${k + 1}`}
+                onClick={() => setUprights(uprights.filter((_, j) => j !== k))}
+              >
+                ✕
+              </button>
+            </label>
+          ))}
+          {uprights.length < 8 && (
+            <button
+              className="secondary"
+              title="Drag a line along something that stands straight up, like a shelf's post, a door's edge or a desk's leg; no length needed. Two or three, apart across the frame, set the camera's tilt, so the room's uprights lean as they do in the picture."
+              onClick={() =>
+                setUprights([
+                  ...uprights,
+                  {
+                    a: { x: frame.width * (0.3 + 0.12 * uprights.length), y: frame.height * 0.75 },
+                    b: { x: frame.width * (0.3 + 0.12 * uprights.length), y: frame.height * 0.35 },
+                  },
+                ])
+              }
+            >
+              Add vertical line
             </button>
           )}
           <label>

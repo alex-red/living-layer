@@ -1409,6 +1409,17 @@
   stroke: rgb(0 0 0 / 60%);
   stroke-width: 3px;
 }
+/* A vertical line, and the upright the camera draws through its middle: one line when they agree. */
+.calibrate-overlay .calibrate-upright line {
+  stroke: var(--chosen);
+  stroke-width: 2px;
+}
+.calibrate-overlay .calibrate-upright-fit {
+  fill: none;
+  stroke: var(--chosen);
+  stroke-width: 1.5px;
+  stroke-dasharray: 6 4;
+}
 /* The saved calibration, for looking: quieter than the handles that set it. */
 .calibration-overlay {
   position: absolute;
