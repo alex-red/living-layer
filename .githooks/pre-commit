@@ -2,11 +2,13 @@
 # This checkout is shared by several sessions, so a commit names its files: `bun run commit -m …
 # -- <paths>` checks them in a clean worktree and commits only those. This refuses any other
 # commit, and any staged file the commit didn't name (another session's work waiting in the
-# index). For a commit by hand (concluding a merge, say): COMMIT_ANY=1 git commit …
+# index). `--patch` commits through a temporary index (GIT_INDEX_FILE) and runs this against it, so
+# there "staged" is just HEAD, the patch and the named paths. For a commit by hand (concluding a
+# merge, say): COMMIT_ANY=1 git commit …
 [ "$COMMIT_ANY" = 1 ] && exit 0
 list=$(git rev-parse --git-path livinglayer-commit-paths)
 if [ ! -f "$list" ]; then
-  echo "Commit with: bun run commit -m '<summary>' -- <paths>" >&2
+  echo "Commit with: bun run commit -m '<summary>' -- <paths>  (or --patch <file> for some hunks)" >&2
   echo "(by hand, knowing what is staged: COMMIT_ANY=1 git commit …)" >&2
   exit 1
 fi
