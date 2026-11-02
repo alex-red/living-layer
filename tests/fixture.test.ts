@@ -1329,6 +1329,12 @@ describe('fixture states and cat poses', () => {
         ).toBe(true);
       }
     }
+    const floor = starterFixtureDraft('floor-lamp');
+    expect([floor.label, floor.suggested]).toEqual(['Floor lamp', 'light']);
+    const bowl = (state: string) =>
+      floor.states?.[state]?.model.parts.find((p) => p.id === 'shade-bowl');
+    expect(bowl('on')?.paint?.some((b) => b.kind === 'band' && b.color === '#ffe299')).toBe(true);
+    expect(bowl('off')?.paint ?? []).toEqual([]);
     const catDraft = starterFixtureDraft('cat', {
       label: 'Biscuit',
       colors: ['#333844', '#f0f0f5'],

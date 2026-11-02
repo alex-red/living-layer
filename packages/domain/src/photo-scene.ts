@@ -9,7 +9,13 @@ import {
   type Quad,
   type SurfacePin,
 } from './iso.js';
-import { PROP_TEMPLATES, TEMPLATE_IDS, groupBounds, type TemplateId } from './iso-templates.js';
+import {
+  PROP_TEMPLATES,
+  SCAN_TEMPLATE_IDS,
+  TEMPLATE_IDS,
+  groupBounds,
+  type TemplateId,
+} from './iso-templates.js';
 import { ARCHETYPES, type Archetype } from './iso-archetypes.js';
 import { ITEM_MATERIALS, hexColorSchema, type SavedItem } from './iso-item.js';
 
@@ -132,7 +138,7 @@ export function promptBox(
 }
 /** The prompt catalogue for Spark: templates to draw furniture with, archetypes for objects. */
 export function photoCatalog(): string {
-  const templates = TEMPLATE_IDS.map((id) => {
+  const templates = SCAN_TEMPLATE_IDS.map((id) => {
     const t = PROP_TEMPLATES[id];
     return `${id} (${t.label.toLowerCase()}${t.onTop ? ', stands on a surface' : ''})`;
   }).join(', ');

@@ -1148,6 +1148,82 @@ export function LampPanel({ id }: { id: string }) {
   const lamp = builtInLamps(lab).find((l) => l.id === id);
   if (!lamp)
     return <Panel tiny="BUILT-IN LAMP" title="Gone" status="This lamp is no longer in the room." />;
+  const scene = lab.memory?.scene;
+  const group = lamp.prop.group;
+  const parts = scene?.props.filter((p) => p.group === group) ?? [];
+  const floor = Math.min(...parts.map((p) => p.at.z));
+  /** On a desk it was a desk lamp; standing on the floor, a floor lamp. */
+  const suggested: StarterTemplate = floor > 0.05 ? 'lamp' : 'floor-lamp';
+  /**
+   * The lamp out of the layout, and a lamp fixture in its place with its
+   * light: a desk lamp on what it stood on, a floor lamp on the floor below.
+   */
+  async function toFixture(template: StarterTemplate) {
+    if (!scene || !parts.length) return;
+    const x0 = Math.min(...parts.map((p) => p.at.x));
+    const y0 = Math.min(...parts.map((p) => p.at.y));
+    const centre = {
+      x: (x0 + Math.max(...parts.map((p) => p.at.x + p.size.w))) / 2,
+      y: (y0 + Math.max(...parts.map((p) => p.at.y + p.size.d))) / 2,
+    };
+    const ids = new Set(parts.map((p) => p.id));
+    const below =
+      template === 'lamp'
+        ? scene.surfaces.find(
+            (x) =>
+              !ids.has(x.propId) &&
+              Math.abs(x.z - floor) < 0.1 &&
+              centre.x >= x.rect.x &&
+              centre.x <= x.rect.x + x.rect.w &&
+              centre.y >= x.rect.y &&
+              centre.y <= x.rect.y + x.rect.d,
+          )
+        : undefined;
+    const d = starterFixtureDraft(template);
+    const fixture: FixtureInput = {
+      label: d.label,
+      scene: 'custom',
+      surfaceId: below?.id ?? null,
+      at: { x: centre.x - d.size.w / 2, y: centre.y - d.size.d / 2 },
+      turns: 0,
+      size: d.size,
+      model: { label: d.label, parts: d.model.parts },
+      reference: null,
+      control: lamp!.entity ? { kind: 'light', entityId: lamp!.entity } : { kind: 'none' },
+      ...(d.states
+        ? {
+            states: Object.fromEntries(
+              Object.entries(d.states).map(([k, v]) => [
+                k,
+                { model: { label: d.label, parts: v.model.parts } },
+              ]),
+            ),
+          }
+        : {}),
+    };
+    // Only once the layout has let go of it, so a failure never leaves two lamps.
+    let removed = false;
+    await call<DeskMemory>(
+      'scene/save',
+      {
+        scene: {
+          ...scene,
+          props: scene.props.filter((p) => !ids.has(p.id)),
+          surfaces: scene.surfaces.filter((x) => !ids.has(x.propId)),
+        },
+      },
+      () => (removed = true),
+    );
+    if (!removed) return;
+    await call<DeskMemory>('fixtures/save', { fixture }, (m) => {
+      lab.setMemory(m);
+      const made = m.fixtures?.at(-1);
+      lab.setMessage(
+        `The ${lamp!.prop.label.toLowerCase()} is now a ${d.label.toLowerCase()} fixture${lamp!.entity ? `, still switching ${lamp!.entity}` : ''}. Drag it to where it stands.`,
+      );
+      if (made) lab.select({ kind: 'fixture', id: made.id });
+    });
+  }
   const on = lab.lightsOn.has(lamp.entity);
   const liveBlocked = lab.mode === 'live' && !lab.lampReady;
   const sceneLabel = roomLabel(lamp.scene, lab.memory);
@@ -1190,10 +1266,30 @@ export function LampPanel({ id }: { id: string }) {
           {result.stateConfirmed ? `reported ${result.state}` : 'state not confirmed'}
         </p>
       )}
-      {lamp.scene === 'custom' ? (
-        <Button variant="text" disabled={off} onClick={() => lab.editLayout()}>
-          Choose its light in the layout →
-        </Button>
+      {/* The close view is cut from the room, so its lamp is the room's too. */}
+      {(lamp.scene === 'custom' || lamp.scene === 'custom-desk') && parts.length ? (
+        <>
+          <p className="micro">
+            Built in, it’s part of the layout: it can’t be moved on its own, and only a desk lamp is
+            drawn. As a fixture it can be either, moved and named like your other things, and keeps
+            its light.
+          </p>
+          <div className="save-actions">
+            {(suggested === 'lamp'
+              ? (['lamp', 'floor-lamp'] as const)
+              : (['floor-lamp', 'lamp'] as const)
+            ).map((t, i) => (
+              <Button
+                key={t}
+                variant={i === 0 ? 'primary' : 'secondary'}
+                disabled={off}
+                onClick={() => void toFixture(t)}
+              >
+                Make it a {starterMeta(t).label.toLowerCase()}
+              </Button>
+            ))}
+          </div>
+        </>
       ) : (
         <p className="micro">
           A preset room’s lamps can’t be changed. Edit a layout of your own to choose another light.

@@ -707,6 +707,98 @@ export function catItem(label = 'Cat', pose: CatPose = 'idle', colors: string[] 
   return buildItem(label, { ...base, pose });
 }
 
+/** A floor lamp's height in its own units: one unit is its bowl's width, about 36 cm. */
+const FLOOR_LAMP_H = 4.85;
+/**
+ * A floor lamp: a round base, a thin pole, an uplight bowl at the top and a
+ * small reading shade on an arm halfway up. Its shades (`shade-*`) are what
+ * light up when it is on. `colors` are the metal, then the shades.
+ */
+export function floorLampItem(label = 'Floor lamp', colors: string[] = []): IsoItem {
+  const metal = colors[0] ?? '#1e1f24';
+  const shade = colors[1] ?? '#f1ede4';
+  const top = FLOOR_LAMP_H - 0.44;
+  return {
+    label,
+    parts: [
+      {
+        id: 'base',
+        shape: 'lathe',
+        at: { x: 0.25, y: 0.25, z: 0 },
+        size: { w: 0.5, d: 0.5, h: 0.06 },
+        color: metal,
+        taper: 1,
+        profile: [
+          { r: 1, z: 0 },
+          { r: 1, z: 0.5 },
+          { r: 0.7, z: 1 },
+        ],
+        material: 'metal',
+      },
+      {
+        id: 'pole',
+        shape: 'tube',
+        at: { x: 0.4, y: 0.4, z: 0.06 },
+        size: { w: 0.2, d: 0.2, h: top - 0.04 },
+        color: metal,
+        taper: 1,
+        path: [
+          { x: 0.5, y: 0.5, z: 0 },
+          { x: 0.5, y: 0.5, z: 1 },
+        ],
+        // Thicker than a real pole (2.5 cm), so it still shows a voxel wide in a sprite.
+        radius: 0.07,
+        material: 'metal',
+      },
+      {
+        id: 'arm',
+        shape: 'tube',
+        at: { x: 0.5, y: 0.4, z: 2.1 },
+        size: { w: 0.42, d: 0.2, h: 0.5 },
+        color: metal,
+        taper: 1,
+        path: [
+          { x: 0, y: 0.5, z: 0 },
+          { x: 0.35, y: 0.5, z: 0.9 },
+          { x: 0.8, y: 0.5, z: 1 },
+        ],
+        radius: 0.055,
+        material: 'metal',
+      },
+      {
+        id: 'shade-reading',
+        shape: 'lathe',
+        at: { x: 0.7, y: 0.36, z: 2.26 },
+        size: { w: 0.28, d: 0.28, h: 0.32 },
+        color: shade,
+        taper: 1,
+        profile: [
+          { r: 1, z: 0 },
+          { r: 0.85, z: 0.35 },
+          { r: 0.55, z: 0.75 },
+          { r: 0.3, z: 1 },
+        ],
+        material: 'matte',
+      },
+      {
+        id: 'shade-bowl',
+        shape: 'lathe',
+        at: { x: 0, y: 0, z: top },
+        size: { w: 1, d: 1, h: 0.44 },
+        color: shade,
+        taper: 1,
+        profile: [
+          { r: 0.12, z: 0 },
+          { r: 0.55, z: 0.25 },
+          { r: 0.85, z: 0.6 },
+          { r: 1, z: 1 },
+        ],
+        material: 'matte',
+      },
+    ],
+  };
+}
+
 /** A monitor fixture model, with a screen that lights up when `on`. */
 export function monitorItem(label = 'Monitor', on = false): IsoItem {
   return {

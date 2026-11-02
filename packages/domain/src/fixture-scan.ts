@@ -14,6 +14,7 @@ import {
   archetypeSchema,
   buildItem,
   defaultFit,
+  floorLampItem,
   type Archetype,
 } from './iso-archetypes.js';
 import { ITEM_MATERIALS, hexColorSchema, type IsoItem } from './iso-item.js';
@@ -273,6 +274,14 @@ const OWN_MODEL = new Set<Archetype>([
   'device',
   'cat',
 ]);
+/** A lamp named for standing on the floor; one taller than this (cm) stands there too. */
+const FLOOR_LAMP = /\b(floor|standing|torchiere|torchière|arc)\b/i;
+const FLOOR_LAMP_CM = 110;
+/** A hex colour's lightness, 0 to 1, by its luma. */
+const lightness = (hex: string) => {
+  const n = parseInt(hex.slice(1), 16);
+  return (0.299 * ((n >> 16) & 255) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255;
+};
 /** A thing nothing models yet is a grey glass box: plainly a stand-in, and what's behind it shows. */
 const CUBE = { color: '#9aa0a8', material: 'glass' } as const;
 /** Where a drafted thing's model came from. */
@@ -305,6 +314,19 @@ export function draftModel(
       item: { label: known.model.label, parts: known.model.parts },
       source: 'library',
       fixtureId: known.id,
+    };
+  // A lamp on the floor, or as tall as one, is a floor lamp: a pole, a bowl, a reading shade.
+  if (
+    archetype === 'lamp' &&
+    (FLOOR_LAMP.test(thing.label) || (thing.sizeCm?.h ?? 0) >= FLOOR_LAMP_CM)
+  )
+    return {
+      // Its colour is mostly its pole's; a dark one leaves the shades their usual white.
+      item: floorLampItem(thing.label, [
+        '#1e1f24',
+        lightness(thing.color) > 0.55 ? thing.color : '#f1ede4',
+      ]),
+      source: 'catalog',
     };
   // A device is a flat thing (a mouse, a remote): anything taller than it is wide isn't one.
   const flat = !thing.sizeCm || thing.sizeCm.h < Math.max(thing.sizeCm.w, thing.sizeCm.d);

@@ -2,6 +2,7 @@ import type { IsoScene, Quad, SurfacePin } from './iso.js';
 import { ISO_PRESETS } from './iso-presets.js';
 import {
   PROP_TEMPLATES,
+  SCAN_TEMPLATE_IDS,
   freshGroupId,
   groupBounds,
   moveGroup,
@@ -52,7 +53,8 @@ export interface RoomLayoutInput extends Pick<
   calibration: RoomCalibration;
 }
 
-const isTemplate = (as: string): as is TemplateId => as in PROP_TEMPLATES;
+const isTemplate = (as: string): as is TemplateId =>
+  (SCAN_TEMPLATE_IDS as readonly string[]).includes(as);
 /** Templates that come in many sizes, drawn at Spark's estimate within reason. */
 const SIZED = new Set<string>(['desk', 'table', 'shelf', 'cabinet', 'rug']);
 /** Of those, the ones whose height varies a lot too: a bookcase can be 80 or 200 cm tall. */

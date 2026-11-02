@@ -8,6 +8,7 @@ import {
   defaultFit,
   deltaE,
   fitItem,
+  floorLampItem,
   fuseFits,
   hexLab,
   isoItemSchema,
@@ -20,6 +21,7 @@ import {
   renderSprite,
   renderView,
   rotateItem,
+  stateVariantModel,
   syntheticCrop,
   voxelize,
   type IsoItem,
@@ -34,6 +36,14 @@ import type { DeskMemory } from '@livinglayer/domain';
 // several times over, past bun's 5 s default.
 setDefaultTimeout(30_000);
 
+/** What a saved model carries beside its parts. */
+const SAVED = {
+  source: 'placeholder' as const,
+  segmentRunId: null,
+  swatches: [],
+  updatedAt: '2026-11-02T00:00:00.000Z',
+  fit: null,
+};
 const mug = (change: Partial<LatheFit> = {}): LatheFit => ({
   ...(defaultFit('mug', ['#2f5d8c', '#3b2416']) as LatheFit),
   ...change,
@@ -421,5 +431,11 @@ describe('reference sprites', () => {
       const item = buildItem(archetype, defaultFit(archetype, colours[archetype]));
       const s = renderSprite(voxelize(item.parts, { resolution: 32 }), { scale: 1 });
       await expectGolden(archetype, s);
+    });
+  for (const state of ['off', 'on'] as const)
+    it(`draws the floor lamp ${state} as before`, async () => {
+      const item = stateVariantModel({ ...floorLampItem(), ...SAVED }, state, 'light');
+      const s = renderSprite(voxelize(item.parts, { resolution: 48 }), { scale: 1 });
+      await expectGolden(`floor-lamp-${state}`, s);
     });
 });

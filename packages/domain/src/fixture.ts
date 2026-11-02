@@ -6,6 +6,7 @@ import {
   buildItem,
   catItem,
   defaultFit,
+  floorLampItem,
   monitorItem,
   type Archetype,
   type CatFit,
@@ -255,6 +256,8 @@ export function fixtureInput(f: Fixture): FixtureInput {
 
 /** A cat by name: the name's last word, so a cat tower, bed or litter box isn't one. */
 const CAT_NAME = /\b(cat|kitty|kitten)s?$/i;
+/** The warm tone a lit shade takes. */
+const WARM = '#ffe299';
 /** A state's variant of a base model when no custom state model was saved for it. */
 export function stateVariantModel(
   base: SavedItem,
@@ -287,6 +290,25 @@ export function stateVariantModel(
         parts: base.parts.map((p) =>
           p.id === 'screen' ? { ...p, color: state === 'on' ? '#68b5e8' : '#2c3858' } : p,
         ),
+      };
+    }
+    // A floor lamp's shades glow: the bowl from inside, the reading shade at its mouth.
+    if (base.parts.some((p) => p.id.startsWith('shade-'))) {
+      const lit = state === 'on';
+      return {
+        ...base,
+        parts: base.parts.map((p) => {
+          if (!p.id.startsWith('shade-')) return p;
+          const rest = (p.paint ?? []).filter((b) => !(b.kind === 'band' && b.color === WARM));
+          const glow = p.id === 'shade-bowl' ? { from: 0.7, to: 1 } : { from: 0, to: 0.3 };
+          return {
+            ...p,
+            paint: lit
+              ? [...rest, { kind: 'band' as const, ...glow, color: WARM }].slice(0, 6)
+              : rest,
+            ...(p.inside ? { inside: { ...p.inside, wall: lit ? WARM : p.color } } : {}),
+          };
+        }),
       };
     }
     if (
@@ -613,6 +635,7 @@ export const STARTER_TEMPLATES = [
   'cat',
   'monitor',
   'lamp',
+  'floor-lamp',
   'plant',
   'mug',
   'book',
@@ -655,6 +678,14 @@ const STARTER_META: Record<
     description: 'A lamp with off and warm on states.',
     sizeCm: { w: 18, d: 18, h: 36 },
     colors: ['#d7ccb8', '#8a7966'],
+  },
+  'floor-lamp': {
+    label: 'Floor lamp',
+    archetype: 'lamp',
+    suggested: 'light',
+    description: 'A floor lamp with an uplight bowl and a reading shade, off and warm on.',
+    sizeCm: { w: 36, d: 36, h: 175 },
+    colors: ['#1e1f24', '#f1ede4'],
   },
   plant: {
     label: 'Potted plant',
@@ -723,7 +754,9 @@ export function starterTemplateModel(
                 : { ...p, color: colors[0] ?? '#23283c' },
             ),
           }
-        : buildItem(label, defaultFit(meta.archetype, colors));
+        : template === 'floor-lamp'
+          ? floorLampItem(label, colors)
+          : buildItem(label, defaultFit(meta.archetype, colors));
   const saved: SavedItem = {
     ...base,
     source: 'placeholder',

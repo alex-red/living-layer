@@ -77,7 +77,11 @@ const STUDIO_PRESETS: { id: string; label: string; template: StarterTemplate; st
   { id: 'monitor:on', label: 'Monitor · on', template: 'monitor', state: 'on' },
   { id: 'lamp:off', label: 'Desk lamp · off', template: 'lamp', state: 'off' },
   { id: 'lamp:on', label: 'Desk lamp · on', template: 'lamp', state: 'on' },
-  ...STARTER_TEMPLATES.filter((t) => t !== 'cat' && t !== 'monitor' && t !== 'lamp').map((t) => ({
+  { id: 'floor-lamp:off', label: 'Floor lamp · off', template: 'floor-lamp', state: 'off' },
+  { id: 'floor-lamp:on', label: 'Floor lamp · on', template: 'floor-lamp', state: 'on' },
+  ...STARTER_TEMPLATES.filter(
+    (t) => t !== 'cat' && t !== 'monitor' && t !== 'lamp' && t !== 'floor-lamp',
+  ).map((t) => ({
     id: t,
     label: starterMeta(t).label,
     template: t,

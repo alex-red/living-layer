@@ -26,6 +26,7 @@ import {
   sceneForSave,
   fixturesForSave,
   draftModel,
+  photoCatalog,
   type Fixture,
   type IsoScene,
   unprojectPoint,
@@ -242,6 +243,27 @@ describe('the saved scene', () => {
     } as unknown as Fixture;
     const known = draftModel(thing, 'generic', [{ ...saved, id: 'f1' }]);
     expect([known.source, known.fixtureId]).toEqual(['library', 'f1']);
+  });
+  it('scans lamps as fixtures, a floor lamp with its own model', () => {
+    // Spark isn't offered a lamp template, so a lamp is never drawn as part of the room.
+    expect(photoCatalog()).not.toMatch(/\blamp \(/);
+    const lamp = { label: 'black floor lamp', color: '#1c1c20', material: 'matte' as const };
+    const floor = draftModel(lamp, 'lamp', []).item;
+    expect(floor.parts.map((p) => p.id)).toContain('shade-bowl');
+    // A dark lamp's colour is its pole's; its shades stay white.
+    expect(floor.parts.find((p) => p.id === 'shade-bowl')!.color).toBe('#f1ede4');
+    const tall = draftModel(
+      { ...lamp, label: 'lamp', sizeCm: { w: 40, d: 40, h: 170 } },
+      'lamp',
+      [],
+    );
+    expect(tall.item.parts.some((p) => p.id === 'shade-bowl')).toBe(true);
+    const desk = draftModel(
+      { ...lamp, label: 'desk lamp', sizeCm: { w: 15, d: 15, h: 40 } },
+      'lamp',
+      [],
+    );
+    expect(desk.item.parts.some((p) => p.id === 'shade-bowl')).toBe(false);
   });
 });
 

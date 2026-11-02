@@ -294,6 +294,12 @@ export const PROP_TEMPLATES = {
 } satisfies Record<string, Template>;
 export type TemplateId = keyof typeof PROP_TEMPLATES;
 export const TEMPLATE_IDS = Object.keys(PROP_TEMPLATES) as [TemplateId, ...TemplateId[]];
+/**
+ * The templates a scan draws things with. A lamp isn't one: a scanned lamp
+ * (on a desk or the floor) becomes a fixture, which can be tied to its light.
+ * Preset rooms still draw theirs with the template.
+ */
+export const SCAN_TEMPLATE_IDS = TEMPLATE_IDS.filter((id) => id !== 'lamp');
 
 /**
  * Place a template as group `g` with its back-left corner at (x, y), at height
