@@ -30,6 +30,8 @@ export interface Overlay {
   marks?: RoomMarks;
   /** The floor's tiles drawn through the camera. */
   grid?: boolean;
+  /** Points in the room, drawn as dots: a thing's near points, say. */
+  dots?: { at: { x: number; y: number; z: number }; color: string }[];
 }
 
 const TINTS: [number, number, number][] = [
@@ -44,7 +46,15 @@ const TINTS: [number, number, number][] = [
 ];
 const esc = (s: string) => s.replace(/[<>&"]/g, (c) => `&#${c.charCodeAt(0)};`);
 
-export async function overlay({ camera, frame, scene, boxes = [], marks, grid }: Overlay) {
+export async function overlay({
+  camera,
+  frame,
+  scene,
+  boxes = [],
+  marks,
+  grid,
+  dots = [],
+}: Overlay) {
   const { width, height } = camera.frame;
   const base = frame
     ? await sharp(frame).ensureAlpha().raw().toBuffer({ resolveWithObject: true })
@@ -112,6 +122,10 @@ export async function overlay({ camera, frame, scene, boxes = [], marks, grid }:
     for (let x = 0; x <= camera.room.w; x++) line([x, 0], [x, camera.room.d]);
     for (let y = 0; y <= camera.room.d; y++) line([0, y], [camera.room.w, y]);
     svg.push(`<path d="${lines.join('')}" fill="none" stroke="#f0f" stroke-opacity="0.5"/>`);
+  }
+  for (const { at: p, color } of dots) {
+    const q = at(p.x, p.y, p.z);
+    if (q) svg.push(`<circle cx="${q.x}" cy="${q.y}" r="1.6" fill="${color}"/>`);
   }
   if (marks) {
     const wall = (points: { x: number; y: number }[]) =>

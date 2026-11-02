@@ -30,6 +30,11 @@ export interface Row {
   metrics: Record<string, Metric>;
   /** Shown as they are, not judged: a camera angle, a time. */
   notes?: Record<string, string>;
+  /**
+   * Numbers too many for the table (each marked point's error), kept in the
+   * --json baseline: --compare lists the ones that moved, not judged.
+   */
+  details?: Record<string, number>;
   /** Reported against the targets, but a miss doesn't fail the run. */
   knownGap?: boolean;
 }
@@ -132,12 +137,22 @@ export function report(rows: Row[], args: Args, title = 'bench', swept: Variant[
           return Math.abs(d) < 1e-9 ? '' : `${n} ${d > 0 ? '+' : ''}${show(r.metrics[n]!, d)}`;
         })
         .filter(Boolean);
+      const detail = Object.entries(r.details ?? {})
+        .flatMap(([n, v]) => {
+          const was = b.details?.[n];
+          return was === undefined || Math.abs(v - was) < 0.5
+            ? []
+            : [`${n} ${v > was ? '+' : ''}${(v - was).toFixed(1)}`];
+        })
+        .join(', ');
       const lost = meets(b) && !meets(r);
       if (lost) regressions++;
       console.log(
         `  ${`${r.case}${variants ? ` · ${r.variant}` : ''}`.padEnd(caseW + varW)} ${
           moved.length ? moved.join('  ') : 'unchanged'
-        }${lost ? '  ← REGRESSION: met its targets before' : meets(r) && !meets(b) ? '  ← fixed' : ''}`,
+        }${lost ? '  ← REGRESSION: met its targets before' : meets(r) && !meets(b) ? '  ← fixed' : ''}${
+          detail ? `\n    ${''.padEnd(caseW + varW)}${detail}` : ''
+        }`,
       );
     }
     console.log('(margin moved: + is more room, − is less)');

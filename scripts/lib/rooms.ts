@@ -13,7 +13,9 @@ import { join } from 'node:path';
 import {
   layoutRoom,
   refineWalls,
+  type LayoutTrace,
   type PhotoDraft,
+  type RoomCalibration,
   type RoomLayoutInput,
 } from '@livinglayer/domain';
 import { roomsDir } from './evidence.js';
@@ -79,12 +81,18 @@ export const roomFrame = (room: CapturedRoom) => {
 /**
  * Laid out with this tree's code, as the room's setup does: a wall whose
  * marks the things against it disagree with is turned first, and the layout
- * goes through that camera.
+ * goes through that camera. `calibration` lays it out through another
+ * camera instead (a captured room's, the saved one), to tell a calibration's
+ * error from the layout's; `trace` collects what the layout weighed.
  */
-export function layOutInput(input: RoomLayoutInput) {
-  const refined = refineWalls(input);
-  const calibration = refined?.calibration ?? input.calibration;
-  return { layout: layoutRoom({ ...input, calibration }), calibration, refined };
+export function layOutInput(
+  input: RoomLayoutInput,
+  { calibration: through, trace }: { calibration?: RoomCalibration; trace?: LayoutTrace } = {},
+) {
+  const start = through ? { ...input, calibration: through } : input;
+  const refined = refineWalls(start);
+  const calibration = refined?.calibration ?? start.calibration;
+  return { layout: layoutRoom({ ...start, calibration }, { trace }), calibration, refined };
 }
 /** The room laid out with this tree's code. */
 export const layOut = (room: CapturedRoom) => layOutInput(room.input);

@@ -1,18 +1,9 @@
 import type { RoomCalibration } from './index.js';
 import type { Point } from './iso.js';
 import { cameraFromMarks, fitLimit, roomSizeFor, type RoomMarks } from './room-camera.js';
+import { layoutTuning } from './layout-tuning.js';
 import { layoutRoom, type RoomLayoutInput, type WallGap } from './room-scan.js';
 
-/** How far behind a wall a thing may seem to stand before it says the wall is off: a Spark size's slip. */
-const SLACK = 0.2;
-/**
- * Further behind a wall than this, in tiles, a thing isn't standing on the
- * floor there at all: it hangs on the wall (a calendar, a picture), and its
- * outline's lowest pixel is nowhere near the floor.
- */
-const HANGING = 4;
-/** Things that have to stand behind one wall before it is turned: one could be a bad outline. */
-const WITNESSES = 3;
 const STEP_DEG = 0.5;
 const MOST_DEG = 15;
 
@@ -39,15 +30,17 @@ export interface WallRefinement {
 export function refineWalls(input: RoomLayoutInput): WallRefinement | null {
   const gapsOf = (calibration: RoomCalibration) => {
     const gaps = new Map<string, WallGap>();
-    layoutRoom({ ...input, calibration }, gaps);
+    layoutRoom({ ...input, calibration }, { behind: gaps });
     return gaps;
   };
+  const T = layoutTuning();
   const base = gapsOf(input.calibration);
   for (const wall of ['left', 'back'] as const) {
     const witnesses = [...base]
-      .filter(([, g]) => g[wall] > SLACK && g[wall] < HANGING)
+      // Too far behind it, a thing hangs on the wall (a calendar) rather than standing there.
+      .filter(([, g]) => g[wall] > T.wallSlack && g[wall] < T.hanging)
       .map(([id]) => id);
-    if (witnesses.length < WITNESSES) continue;
+    if (witnesses.length < T.witnesses) continue;
     const middle = (gaps: Map<string, WallGap>) => {
       const vs = witnesses.map((id) => gaps.get(id)?.[wall] ?? 0).sort((a, b) => a - b);
       return (vs[Math.floor((vs.length - 1) / 2)]! + vs[Math.floor(vs.length / 2)]!) / 2;

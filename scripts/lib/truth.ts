@@ -40,6 +40,9 @@ export function truthOf(runId: string): TruthPoint[] | null {
   const room = capturedRooms().find((r) => r.runId.startsWith(runId));
   return room ? truthIn(room.dir) : null;
 }
+/** A mark's name in tables: its thing, and which corner when it marks one. */
+export const markName = (p: TruthPoint) =>
+  `${p.thing}${p.corner ? ` ${p.corner}${p.top ? ' top' : ''}` : ''}`;
 /** Where the layout draws a marked point, in the frame. */
 export function drawnAt(layout: PhotoLayout, camera: RoomCamera, p: TruthPoint) {
   const t = layout.things.find((x) => x.id === p.thing);

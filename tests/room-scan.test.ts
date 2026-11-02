@@ -19,6 +19,10 @@ import {
   type DeskMemory,
   judgeRoom,
   layoutRoom,
+  layoutTrace,
+  layoutTuning,
+  LAYOUT_TUNING,
+  withLayout,
   marksOf,
   roomCase,
   placeTemplate,
@@ -183,6 +187,63 @@ describe('laying out a room from its calibrated camera', () => {
     expect(box.size.h * 30).toBeCloseTo(180, 0);
     const top = layout.scene.surfaces.find((x) => x.propId === shelf.group)!;
     expect(top.z * 30).toBeCloseTo(180, 0);
+  });
+  it('traces why each thing went where it did, without changing where', () => {
+    // The study above: a desk Spark guessed at 230 cm runs into the bookcase beside it.
+    let scene: IsoScene = {
+      kind: 'custom',
+      label: 'Study',
+      grid: { w: 12, d: 9 },
+      props: [],
+      surfaces: [],
+    };
+    for (const [id, g, x, y] of [
+      ['wall', 'wall-back', 0, 0],
+      ['shelf', 'shelf', 0.4, 0.2],
+      ['desk', 'desk', 3.6, 0.2],
+    ] as const) {
+      const built = placeTemplate(id, g, x, y, 0);
+      scene = {
+        ...scene,
+        props: [...scene.props, ...built.props],
+        surfaces: [...scene.surfaces, ...built.surfaces],
+      };
+    }
+    const truth = cornerCamera(scene.grid);
+    const s = roomCase(scene, truth, { desk: { w: 230 } });
+    const marks = marksOf(truth);
+    const fit = cameraFromMarks(marks, truth.frame, truth.room);
+    const input = {
+      ...s,
+      calibration: {
+        camera: fit.camera,
+        marks,
+        scene: 'custom' as const,
+        error: fit.error,
+        calibratedAt: '',
+      },
+    };
+    const trace = layoutTrace();
+    const traced = layoutRoom(input, { trace });
+    expect(traced).toEqual(layoutRoom(input));
+    const desk = trace.things.desk!;
+    expect(desk.points.length).toBeGreaterThan(0);
+    expect(desk.topFar).not.toBeNull();
+    // How that overlap was settled: every fix it weighed, cheapest (the one taken) first.
+    const step = trace.apart.find((x) => x.a === 'desk' || x.b === 'desk')!;
+    expect(step.fixes[0]!.cost).toBeLessThanOrEqual(step.fixes.at(-1)!.cost);
+    const box = groupBounds(traced.scene, traced.things.find((t) => t.id === 'desk')!.group!)!;
+    expect(desk.placed).toMatchObject({ x: box.at.x, w: box.size.w });
+  });
+  it('tries the layout’s numbers without an edit, and puts them back', () => {
+    expect(layoutTuning().pastTop).toBe(LAYOUT_TUNING.pastTop);
+    withLayout({ pastTop: 9 }, () => {
+      expect(layoutTuning().pastTop).toBe(9);
+      withLayout({ flush: 0 }, () =>
+        expect(layoutTuning()).toMatchObject({ pastTop: 9, flush: 0 }),
+      );
+    });
+    expect(layoutTuning()).toEqual(LAYOUT_TUNING);
   });
   it('lays out the demo room, the mug where it stands on the desk', async () => {
     const segmentation = await demoPhotoSegmentation();

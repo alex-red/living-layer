@@ -25,6 +25,7 @@ import {
 import { cornerCamera, projectRoom, unprojectRoom, type RoomCamera } from './room-camera.js';
 import { floorSolid, renderRoom, sceneSolids } from './room-render.js';
 import { ISO_TILE_CM, cm } from './iso-furniture.js';
+import { layoutTuning } from './layout-tuning.js';
 
 /**
  * A room's things laid out from one frame of its calibrated camera. Nothing
@@ -46,8 +47,6 @@ const isTemplate = (as: string): as is TemplateId => as in PROP_TEMPLATES;
 const SIZED = new Set<string>(['desk', 'table', 'shelf', 'cabinet', 'rug']);
 /** Of those, the ones whose height varies a lot too: a bookcase can be 80 or 200 cm tall. */
 const TALL = new Set<string>(['shelf', 'cabinet']);
-/** A thing whose back is within this many tiles of a wall is put flush against it. */
-const FLUSH = 0.5;
 /** Round things have no back to put to a wall. */
 const ROUND_TEMPLATES = new Set<string>(['plant', 'lamp', 'bottle', 'jar', 'carton']);
 /** The way a chair at each turn faces, in the room: at turn 0 its back is to the room's front. */
@@ -117,33 +116,32 @@ function drawnInset(
   for (let i = 0; i < bits.data.length; i++) bits.data[i] = picture.ids[i]! >= 0 ? 1 : 0;
   const points = nearPoints(camera, bits, z);
   if (!points.length) return { x: 0, y: 0 };
+  const q = layoutTuning().reachQuantile;
   return {
     x:
       at.x +
       size.w / 2 -
       quantile(
         points.map((p) => p.x),
-        0.98,
+        q,
       ),
     y:
       at.y +
       size.d / 2 -
       quantile(
         points.map((p) => p.y),
-        0.98,
+        q,
       ),
   };
 }
 /** The walls' inner faces, in tiles: the back and left walls are 0.2 thick, the others the room's edge. */
 type Walls = { x0: number; y0: number; x1: number; y1: number };
-interface NearPoint {
+export interface NearPoint {
   x: number;
   y: number;
   /** Only a bound, nothing seen there: the frame cuts the column off, or it fell behind a wall. */
   open: boolean;
 }
-/** Within this many pixels of the frame's edge, a column is cut off. */
-const EDGE_PX = 3;
 /**
  * Where a mask meets a plane at height z, in the room: each column's lowest
  * pixel, dropped onto the plane. Seen from the camera's corner they lie on
@@ -156,12 +154,13 @@ const EDGE_PX = 3;
  */
 function nearPoints(camera: RoomCamera, mask: Bits, z: number, walls?: Walls) {
   const points: NearPoint[] = [];
+  const edge = layoutTuning().edgePx;
   for (let x = 0; x < mask.width; x++)
     for (let y = mask.height - 1; y >= 0; y--) {
       if (!mask.data[y * mask.width + x]) continue;
       const p = unprojectRoom(camera, { x: x + 0.5, y: y + 1 }, z);
       if (p) {
-        const cut = y >= mask.height - EDGE_PX || x < EDGE_PX || x >= mask.width - EDGE_PX;
+        const cut = y >= mask.height - edge || x < edge || x >= mask.width - edge;
         const hidden = !!walls && (p.x < walls.x0 || p.y < walls.y0);
         points.push({ x: p.x, y: p.y, open: cut || hidden });
       }
@@ -183,7 +182,7 @@ function openTowards(points: NearPoint[], axis: 'x' | 'y') {
 }
 /** Whether the frame's bottom edge cuts a mask off: the thing goes on out of view, towards the camera. */
 function cutBelow(mask: Bits) {
-  for (let i = (mask.height - EDGE_PX) * mask.width; i < mask.data.length; i++)
+  for (let i = (mask.height - layoutTuning().edgePx) * mask.width; i < mask.data.length; i++)
     if (mask.data[i]) return true;
   return false;
 }
@@ -203,7 +202,8 @@ function topFar(camera: RoomCamera, mask: Bits, z: number) {
       const p = unprojectRoom(camera, { x: x + 0.5, y: y + 0.5 }, z);
       if (p) [xs.push(p.x), ys.push(p.y)];
     }
-  return xs.length ? { x: quantile(xs, 0.02), y: quantile(ys, 0.02) } : null;
+  const q = layoutTuning().topQuantile;
+  return xs.length ? { x: quantile(xs, q), y: quantile(ys, q) } : null;
 }
 /** The value below which a share `q` of the values lie. */
 const quantile = (vs: number[], q: number) =>
@@ -240,6 +240,7 @@ interface Plan {
 const tucked = (a: Plan, b: Plan) =>
   (a.template === 'desk' || a.template === 'table') &&
   (b.template === 'chair' || b.h <= a.h + 0.05);
+const tiles = (v: number) => v.toFixed(2);
 /**
  * Pull overlapping floor pieces apart, each pair by the cheapest fix: a desk,
  * table or shelf gives up a side (its size is only an estimate), or the other
@@ -248,21 +249,18 @@ const tucked = (a: Plan, b: Plan) =>
  * seen, while its far side was only estimated. Unless what was seen is only
  * a bound: then moving towards the camera, within its slack, costs little,
  * and a desk the frame cuts off moves out from the shelf behind it rather
- * than losing a third of its length.
+ * than losing a third of its length. The costs are `LAYOUT_TUNING`'s.
  */
-/** Shrinking a piece by all of one side costs as much as moving one a tile. */
-const SHRINK_COST = 2;
-const MOVE_COST = 2;
-/** Moving towards the camera within a piece's slack, per tile: cheaper than any shrink of note. */
-const SLACK_COST = 0.2;
-/** How far a piece whose near side is only a bound may move towards the camera cheaply, in tiles. */
-const OPEN_SLACK = 2;
-/** Cutting a seen top short, or pushing it past where it was seen, per tile: worse than moving a guess. */
-const PAST_TOP = 4;
-function apart(plans: Plan[], walls: Walls) {
+function apart(
+  plans: Plan[],
+  walls: Walls,
+  steps?: ApartStep[],
+  phase: ApartStep['phase'] = 'floor',
+) {
+  const T = layoutTuning();
   /** Ways to clear a of b: a shrinks away from b, or b moves out of a. */
   const fixesFor = (a: Plan, b: Plan) => {
-    const fixes: { cost: number; apply: () => void }[] = [];
+    const fixes: { what: string; cost: number; apply: () => void }[] = [];
     for (const axis of ['x', 'y'] as const) {
       const side = axis === 'x' ? 'w' : 'd';
       const least = a.least?.[side];
@@ -271,11 +269,12 @@ function apart(plans: Plan[], walls: Walls) {
       const by = bFirst ? b[axis] + b.turned[side] - a[axis] : a[axis] + a.turned[side] - b[axis];
       if (!a.fixed && least !== undefined && a.turned[side] - by >= least)
         fixes.push({
+          what: `${a.t.id} gives up ${tiles(by)} of its ${bFirst ? 'far' : 'near'} ${axis} side`,
           // A share of that side: a long desk gives up length before depth, but
           // not the length its top was seen to have, nor the near side it showed.
           cost:
-            (by / a.turned[side]) * SHRINK_COST +
-            (bFirst ? Math.max(0, by - a.give[axis]) * PAST_TOP : by * MOVE_COST),
+            (by / a.turned[side]) * T.shrinkCost +
+            (bFirst ? Math.max(0, by - a.give[axis]) * T.pastTop : by * T.moveCost),
           apply: () => {
             a.turned[side] -= by;
             if (!bFirst) return;
@@ -293,7 +292,8 @@ function apart(plans: Plan[], walls: Walls) {
         // Pushed forward past where its top was seen, a desk's far side leaves the top behind.
         const past = Math.max(0, move - b.give[axis]);
         fixes.push({
-          cost: free * SLACK_COST + (Math.abs(move) - free - past) * MOVE_COST + past * PAST_TOP,
+          what: `${b.t.id} moves ${move > 0 ? '+' : ''}${tiles(move)} along ${axis}`,
+          cost: free * T.slackCost + (Math.abs(move) - free - past) * T.moveCost + past * T.pastTop,
           apply: () => {
             b[axis] = to;
             b.slack[axis] = Math.max(0, b.slack[axis] - move);
@@ -312,7 +312,16 @@ function apart(plans: Plan[], walls: Walls) {
         const oy = Math.min(a.y + a.turned.d, b.y + b.turned.d) - Math.max(a.y, b.y);
         if (ox <= 0.02 || oy <= 0.02) return;
         // Either way round, whichever is cheapest.
-        [...fixesFor(a, b), ...fixesFor(b, a)].sort((p, q) => p.cost - q.cost)[0]?.apply();
+        const fixes = [...fixesFor(a, b), ...fixesFor(b, a)].sort((p, q) => p.cost - q.cost);
+        steps?.push({
+          phase,
+          pass,
+          a: a.t.id,
+          b: b.t.id,
+          overlap: { x: ox, y: oy },
+          fixes: fixes.map(({ what, cost }) => ({ what, cost })),
+        });
+        fixes[0]?.apply();
       }),
     );
 }
@@ -322,13 +331,65 @@ export interface WallGap {
   back: number;
   left: number;
 }
+/** A footprint: its corner nearest the origin and its size once turned, in tiles. */
+export interface Footprint {
+  x: number;
+  y: number;
+  w: number;
+  d: number;
+}
+/** How one thing's place was found. */
+export interface PlanTrace {
+  /** The height it stands at, and the turn it took. */
+  top: number;
+  turns: number;
+  /** Each column's lowest pixel, dropped onto the plane it stands on. */
+  points: NearPoint[];
+  /** How far those reach (its near sides), and how far in from them its template touches down. */
+  reach: { x: number; y: number };
+  inset: { x: number; y: number };
+  /** Where its top was seen reaching back, for a desk or table. */
+  topFar: { x: number; y: number } | null;
+  /** Whether the frame cuts it off below, and whether each near side is only a bound. */
+  cut: boolean;
+  open: { x: boolean; y: boolean };
+  /** The axis it was put flush against a wall along, if it was. */
+  flush: 'x' | 'y' | null;
+  slack: { x: number; y: number };
+  give: { x: number; y: number };
+  /** Before overlaps were pulled apart, and after. */
+  planned: Footprint;
+  placed?: Footprint;
+}
+/** One overlap `apart` met: every way it could clear it, cheapest first, and it took the first. */
+export interface ApartStep {
+  /** Floor pieces first, then chairs among them. */
+  phase: 'floor' | 'chairs';
+  pass: number;
+  a: string;
+  b: string;
+  overlap: { x: number; y: number };
+  fixes: { what: string; cost: number }[];
+}
+/** What `layoutRoom` weighed, for `bun run draft --why` and `--trace`. */
+export interface LayoutTrace {
+  things: Record<string, PlanTrace>;
+  apart: ApartStep[];
+}
+export const layoutTrace = (): LayoutTrace => ({ things: {}, apart: [] });
 
 /**
  * `behind`, when given, collects how far each thing whose size is known (not
  * a desk, table, shelf or rug Spark sized, nor a chair) stood behind the walls
  * before it was put in front of them: what `refineWalls` reads the walls from.
+ * `trace`, when given, collects how each thing's place was found and every
+ * overlap pulled apart.
  */
-export function layoutRoom(input: RoomLayoutInput, behind?: Map<string, WallGap>): PhotoLayout {
+export function layoutRoom(
+  input: RoomLayoutInput,
+  { behind, trace }: { behind?: Map<string, WallGap>; trace?: LayoutTrace } = {},
+): PhotoLayout {
+  const T = layoutTuning();
   const { inventory, segmentation, calibration } = input;
   const camera = calibration.camera;
   const frame = segmentation.frame;
@@ -386,7 +447,7 @@ export function layoutRoom(input: RoomLayoutInput, behind?: Map<string, WallGap>
     if (!points.length) return null;
     const template = isTemplate(t.as) ? t.as : null;
     // Its own size, before turning: the template's, or Spark's for what comes in many sizes.
-    const sized = (v: number, of: number) => Math.min(of * 1.6, Math.max(of * 0.6, v));
+    const sized = (v: number, of: number) => Math.min(of * T.sizeMax, Math.max(of * T.sizeMin, v));
     const spark = { w: cm(t.sizeCm.w), d: cm(t.sizeCm.d) };
     const base = template ? PROP_TEMPLATES[template].size : spark;
     const size: { w: number; d: number; h?: number } =
@@ -422,19 +483,20 @@ export function layoutRoom(input: RoomLayoutInput, behind?: Map<string, WallGap>
     const reach = {
       x: quantile(
         points.map((p) => p.x),
-        0.98,
+        T.reachQuantile,
       ),
       y: quantile(
         points.map((p) => p.y),
-        0.98,
+        T.reachQuantile,
       ),
     };
     let x = reach.x - turned.w;
     let y = reach.y - turned.d;
+    let inset = { x: 0, y: 0 };
     if (template) {
       // Twice: where the outline reaches down shifts a little with where it stands.
       for (let k = 0; k < 2; k++) {
-        const inset = drawnInset(
+        inset = drawnInset(
           camera,
           template,
           turns,
@@ -469,19 +531,21 @@ export function layoutRoom(input: RoomLayoutInput, behind?: Map<string, WallGap>
               x:
                 quantile(
                   points.map((p) => p.x),
-                  0.98,
+                  T.reachQuantile,
                 ) - own,
               y:
                 quantile(
                   points.map((p) => p.y),
-                  0.98,
+                  T.reachQuantile,
                 ) - own,
             },
           ];
         });
       if (held.length) {
         const most =
-          turns % 2 ? { w: base.d * 1.6, d: base.w * 1.6 } : { w: base.w * 1.6, d: base.d * 1.6 };
+          turns % 2
+            ? { w: base.d * T.sizeMax, d: base.w * T.sizeMax }
+            : { w: base.w * T.sizeMax, d: base.d * T.sizeMax };
         const far = {
           x: Math.max(walls.x0, Math.min(...held.map((p) => p.x))),
           y: Math.max(walls.y0, Math.min(...held.map((p) => p.y))),
@@ -511,10 +575,10 @@ export function layoutRoom(input: RoomLayoutInput, behind?: Map<string, WallGap>
     // Its back against the wall it nearly touches, and never through one or off its surface.
     let flush: 'x' | 'y' | null = null;
     if (!surface && template && !ROUND_TEMPLATES.has(template) && template !== 'chair') {
-      if (turns === 0 && y - walls.y0 < FLUSH) [y, flush] = [walls.y0, 'y'];
-      if (turns === 1 && walls.x1 - (x + turned.w) < FLUSH) x = walls.x1 - turned.w;
-      if (turns === 2 && walls.y1 - (y + turned.d) < FLUSH) y = walls.y1 - turned.d;
-      if (turns === 3 && x - walls.x0 < FLUSH) [x, flush] = [walls.x0, 'x'];
+      if (turns === 0 && y - walls.y0 < T.flush) [y, flush] = [walls.y0, 'y'];
+      if (turns === 1 && walls.x1 - (x + turned.w) < T.flush) x = walls.x1 - turned.w;
+      if (turns === 2 && walls.y1 - (y + turned.d) < T.flush) y = walls.y1 - turned.d;
+      if (turns === 3 && x - walls.x0 < T.flush) [x, flush] = [walls.x0, 'x'];
     }
     x = Math.min(Math.max(x, area.x0), Math.max(area.x0, area.x1 - turned.w));
     y = Math.min(Math.max(y, area.y0), Math.max(area.y0, area.y1 - turned.d));
@@ -525,17 +589,33 @@ export function layoutRoom(input: RoomLayoutInput, behind?: Map<string, WallGap>
     const far =
       template === 'desk' || template === 'table' ? topFar(camera, mask, top + height) : null;
     const cut = cutBelow(mask);
+    const open = { x: openTowards(points, 'x'), y: openTowards(points, 'y') };
     const slack = { x: 0, y: 0 };
     const give = { x: Infinity, y: Infinity };
     for (const axis of ['x', 'y'] as const) {
       const at = axis === 'x' ? x : y;
       if (far) give[axis] = Math.max(0, Math.max(walls[`${axis}0`], far[axis]) - at);
       if (surface || axis === flush) continue;
-      if (cut || openTowards(points, axis)) slack[axis] = Math.min(OPEN_SLACK, give[axis]);
+      if (cut || open[axis]) slack[axis] = Math.min(T.openSlack, give[axis]);
     }
+    if (trace)
+      trace.things[t.id] = {
+        top,
+        turns,
+        points,
+        reach,
+        inset,
+        topFar: far,
+        cut,
+        open,
+        flush,
+        slack: { ...slack },
+        give: { ...give },
+        planned: { x, y, w: turned.w, d: turned.d },
+      };
     if (x + turned.w < -0.5 || y + turned.d < -0.5 || x > room.w + 0.5 || y > room.d + 0.5)
       return null;
-    const least = { w: base.w * 0.6, d: base.d * 0.6 };
+    const least = { w: base.w * T.sizeMin, d: base.d * T.sizeMin };
     return {
       t,
       template,
@@ -554,6 +634,8 @@ export function layoutRoom(input: RoomLayoutInput, behind?: Map<string, WallGap>
   };
   /** Stand a planned thing in the room: a template's props, or a model's box. */
   const build = ({ t, template, x, y, top, turns, turned }: Plan) => {
+    const traced = trace?.things[t.id];
+    if (traced) traced.placed = { x, y, w: turned.w, d: turned.d };
     if (!template) {
       // Not in the catalogue: a model of Spark's size, standing there.
       t.status = 'object';
@@ -594,6 +676,7 @@ export function layoutRoom(input: RoomLayoutInput, behind?: Map<string, WallGap>
   apart(
     plans.flatMap((x) => (x.planned ? [x.planned] : [])),
     walls,
+    trace?.apart,
   );
   for (const { t, planned } of plans) place(t, planned);
   // Chairs face the desks just built, and step out of anything else's way.
@@ -601,7 +684,12 @@ export function layoutRoom(input: RoomLayoutInput, behind?: Map<string, WallGap>
   const chairs = order
     .filter((t) => onFloor(t) && t.as === 'chair')
     .map((t) => ({ t, planned: plan(t) }));
-  apart([...built, ...chairs.flatMap((x) => (x.planned ? [x.planned] : []))], walls);
+  apart(
+    [...built, ...chairs.flatMap((x) => (x.planned ? [x.planned] : []))],
+    walls,
+    trace?.apart,
+    'chairs',
+  );
   for (const { t, planned } of chairs) place(t, planned);
   for (const t of order) if (!floor.includes(t) && !chairs.some((c) => c.t === t)) place(t);
 

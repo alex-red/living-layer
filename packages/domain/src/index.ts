@@ -971,4 +971,5 @@ export * from './room-render.js';
 export * from './place-fit.js';
 export * from './demo-room.js';
 export * from './room-scan.js';
+export * from './layout-tuning.js';
 export * from './wall-refine.js';

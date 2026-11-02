@@ -42,6 +42,7 @@
     "room": "bun scripts/room-view.ts",
     "draft": "bun scripts/draft.ts",
     "calib": "bun scripts/calib.ts",
+    "truth": "bun scripts/truth.ts",
     "runs": "bun scripts/runs.ts",
     "sheet": "bun scripts/prop-sheet.ts",
     "ref": "bun scripts/ref-match.ts",

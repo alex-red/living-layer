@@ -52,3 +52,52 @@ export async function besideReference(png: Buffer, reference: string): Promise<B
     .png()
     .toBuffer();
 }
+
+/**
+ * Pictures in a grid, each row's under a label: `[[before, after], [beforeIso, afterIso]]`
+ * with `labels` over the columns. Each cell is scaled to its column's first picture's width.
+ */
+export async function pictureGrid(rows: Buffer[][], labels: string[] = []): Promise<Buffer> {
+  const gap = 10;
+  const head = labels.length ? 40 : 0;
+  const widths = await Promise.all(
+    (rows[0] ?? []).map(async (png) => (await sharp(png).metadata()).width ?? 1),
+  );
+  const cells = await Promise.all(
+    rows.map((row) =>
+      Promise.all(
+        row.map(async (png, i) => {
+          const fit = await sharp(png).resize({ width: widths[i] }).png().toBuffer();
+          return { png: fit, height: (await sharp(fit).metadata()).height ?? 1 };
+        }),
+      ),
+    ),
+  );
+  const heights = cells.map((row) => Math.max(...row.map((c) => c.height)));
+  const width = widths.reduce((a, w) => a + w, 0) + gap * (widths.length - 1);
+  const height = head + heights.reduce((a, h) => a + h, 0) + gap * (heights.length - 1);
+  const left = (i: number) => widths.slice(0, i).reduce((a, w) => a + w + gap, 0);
+  const label = labels.length
+    ? Buffer.from(
+        `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${head}">${labels
+          .map(
+            (l, i) =>
+              `<text x="${left(i) + 12}" y="27" fill="#fff" font-size="22" font-family="sans-serif">${l.replace(/[<>&]/g, '')}</text>`,
+          )
+          .join('')}</svg>`,
+      )
+    : null;
+  return sharp({ create: { width, height, channels: 4, background: '#14161c' } })
+    .composite([
+      ...(label ? [{ input: label, left: 0, top: 0 }] : []),
+      ...cells.flatMap((row, r) =>
+        row.map((c, i) => ({
+          input: c.png,
+          left: left(i),
+          top: head + heights.slice(0, r).reduce((a, h) => a + h + gap, 0),
+        })),
+      ),
+    ])
+    .png()
+    .toBuffer();
+}

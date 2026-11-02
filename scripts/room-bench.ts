@@ -10,6 +10,7 @@
  *
  *   bun run bench:room
  *   bun run bench:room --set desk.legCm=4,6,8      sweep a measurement
+ *   bun run bench:room --set layout.pastTop=2,4,8  sweep one of the layout's numbers
  */
 import {
   ROOM_CASES,
@@ -19,10 +20,9 @@ import {
   layoutRoom,
   marksOf,
   roomCase,
-  withFurniture,
   type RoomCalibration,
 } from '@livinglayer/domain';
-import { parseArgs, variants } from './lib/args.js';
+import { parseArgs, variants, withVariant } from './lib/args.js';
 import { report, type Row } from './lib/bench.js';
 
 const args = parseArgs();
@@ -30,7 +30,7 @@ const rows: Row[] = [];
 const swept = variants(args.flags.get('set'));
 for (const v of swept)
   for (const c of ROOM_CASES)
-    withFurniture(v.overrides, () => {
+    withVariant(v, () => {
       const scene = c.scene();
       const truthCamera = c.camera(scene);
       const s = roomCase(scene, truthCamera, c.guess);
