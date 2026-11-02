@@ -155,6 +155,16 @@ export const newBits = (width: number, height: number): Bits => ({
   height,
   data: new Uint8Array(width * height),
 });
+/** A mask with each row filled across, between its first and last pixel: an open thing's envelope. */
+export function filledRows(m: Bits): Bits {
+  const data = new Uint8Array(m.data.length);
+  for (let y = 0; y * m.width < m.data.length; y++) {
+    const row = m.data.subarray(y * m.width, (y + 1) * m.width);
+    const first = row.indexOf(1);
+    if (first >= 0) data.fill(1, y * m.width + first, y * m.width + row.lastIndexOf(1) + 1);
+  }
+  return { ...m, data };
+}
 /** Fill polygons into `bits` by the even-odd rule, sampling each pixel's centre. */
 export function fillRings(bits: Bits, rings: Point[][]) {
   const { width, height, data } = bits;

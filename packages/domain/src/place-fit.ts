@@ -1,6 +1,6 @@
 import type { IsoScene } from './iso.js';
 import { groupBounds, moveGroup, ridersOf, rotateGroup, settleGroup } from './iso-templates.js';
-import type { Bits } from './photo-scene.js';
+import { filledRows, type Bits } from './photo-scene.js';
 import { projectRoom, type RoomCamera } from './room-camera.js';
 import { floorSolid, renderRoom, sceneSolids } from './room-render.js';
 
@@ -52,8 +52,13 @@ export function fitGroup(
     props: own,
     surfaces: scene.surfaces.filter((s) => own.some((p) => p.id === s.propId)),
   };
-  let wanted = 0;
-  for (let i = 0; i < outline.data.length; i++) wanted += outline.data[i]!;
+  // An open thing (a shelf's frame) is drawn with gaps SAM's outline doesn't have, so each
+  // place is also compared with both rows filled across, and the better match counts.
+  const envelope = filledRows(outline);
+  const count = (m: Bits) => m.data.reduce((n, v) => n + v, 0);
+  const wanted = count(outline);
+  const wantedFilled = count(envelope);
+  const visible: Bits = { ...outline, data: new Uint8Array(outline.data.length) };
   const placed = (dx: number, dy: number, turned: boolean) => {
     const s = turned ? rotateGroup(rotateGroup(alone, g), g) : alone;
     return moveGroup(s, g, dx, dy);
@@ -64,11 +69,24 @@ export function fitGroup(
     let drawn = 0;
     for (let i = 0; i < pic.ids.length; i++) {
       // Hidden where something else stands nearer, as in the photo.
-      if (pic.ids[i]! < 0 || pic.depth[i]! > rest.depth[i]! + 1e-4) continue;
+      const seen = pic.ids[i]! >= 0 && pic.depth[i]! <= rest.depth[i]! + 1e-4;
+      visible.data[i] = seen ? 1 : 0;
+      if (!seen) continue;
       drawn++;
       both += outline.data[i]!;
     }
-    return both / Math.max(1, drawn + wanted - both);
+    const filled = filledRows(visible);
+    let bothFilled = 0;
+    let drawnFilled = 0;
+    for (let i = 0; i < filled.data.length; i++)
+      if (filled.data[i]) {
+        drawnFilled++;
+        bothFilled += envelope.data[i]!;
+      }
+    return Math.max(
+      both / Math.max(1, drawn + wanted - both),
+      bothFilled / Math.max(1, drawnFilled + wantedFilled - bothFilled),
+    );
   };
   const from = score(alone);
   let tried = 1;

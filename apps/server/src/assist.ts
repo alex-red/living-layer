@@ -36,6 +36,7 @@ import {
   sizeDisagreement,
   sparkCeiling,
   demoFrame,
+  filledRows,
   type Bits,
   type BuildRound,
   type FixtureRecipe,
@@ -496,16 +497,6 @@ export function drawnOf(
   return t && t.kind !== 'object'
     ? roomMask(room.picture, t.kind === 'fixture' ? `fixture:${t.id}` : t.id)
     : null;
-}
-/** A mask with each row filled across, between its first and last pixel: an open thing's envelope. */
-function filledRows(m: Bits): Bits {
-  const data = new Uint8Array(m.data.length);
-  for (let y = 0; y * m.width < m.data.length; y++) {
-    const row = m.data.subarray(y * m.width, (y + 1) * m.width);
-    const first = row.indexOf(1);
-    if (first >= 0) data.fill(1, y * m.width + first, y * m.width + row.lastIndexOf(1) + 1);
-  }
-  return { ...m, data };
 }
 /** How much of the room's drawing of a thing must lie inside SAM's outline for SAM's to be kept. */
 const KEEP_SAM_OVER = 0.6;

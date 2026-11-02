@@ -7,6 +7,7 @@ import { parseConfig } from '../apps/server/src/config.js';
 import { BUNDLED_CATALOG, Catalog } from '../apps/server/src/research.js';
 import {
   assembleRecipe,
+  filledRows,
   DEMO_CAMERA,
   DEMO_ROOM,
   floorSolid,
@@ -16,11 +17,13 @@ import {
   groupInFrame,
   moveGroup,
   placeOfGroup,
+  recipeFromForm,
   renderRoom,
   roomMask,
   sceneSolids,
   sceneWithRecipe,
   type IsoScene,
+  type RecipePart,
   type SceneFit,
 } from '@livinglayer/domain';
 
@@ -87,6 +90,54 @@ describe('fitting a thing to its outline through the room camera', () => {
     const fit = fitGroup(DEMO_CAMERA, wrong, 'alex', seen)!;
     expect(fit.turned).toBe(true);
     expect(fit.iou).toBeGreaterThan(0.9);
+  });
+
+  it('puts an open shelf back by the outline SAM gives it, solid where its drawing has gaps', () => {
+    const { w, d, h } = { w: 60, d: 30, h: 150 };
+    const part = (
+      name: string,
+      role: RecipePart['role'],
+      at: [number, number, number],
+      size: [number, number, number],
+    ): RecipePart => ({
+      name,
+      role,
+      shape: 'rbox',
+      atCm: { x: at[0], y: at[1], z: at[2] },
+      sizeCm: { w: size[0], d: size[1], h: size[2] },
+      tone: 'wood',
+    });
+    const open = {
+      ...recipeFromForm('bookcase', { w, d, h }, 'Open shelf'),
+      parts: [
+        ...[0, w - 3].flatMap((x) =>
+          [0, d - 3].map((y) => part(`post-${x}-${y}`, 'leg', [x, y, 0], [3, 3, h])),
+        ),
+        ...[10, 60, 110, h - 2].map((z) => part(`shelf-${z}`, 'shelf', [0, 0, z], [w, d, 2])),
+      ],
+      surfaces: undefined,
+    };
+    const place = placeOfGroup(DEMO_ROOM, 'shelf')!;
+    const room = sceneWithRecipe(DEMO_ROOM, open, place, 'open');
+    // SAM outlines the shelf with what stands on it as one solid shape, not its frame's gaps.
+    const seen = filledRows(
+      roomMask(
+        renderRoom(DEMO_CAMERA, [floorSolid(room.grid), ...sceneSolids(room)], { labels: true }),
+        'open',
+      )!,
+    );
+    const off = sceneWithRecipe(
+      DEMO_ROOM,
+      open,
+      { ...place, cx: place.cx + 1, cy: place.cy - 0.5 },
+      'open',
+    );
+    const fit = fitGroup(DEMO_CAMERA, off, 'open', seen)!;
+    const want = middle(room, 'open');
+    const got = middle(fit.scene, 'open');
+    expect(Math.hypot(got.x - want.x, got.y - want.y)).toBeLessThan(0.15);
+    expect(fit.iou).toBeGreaterThan(0.8);
+    expect(fitKept(fit)).toBe(true);
   });
 
   it('leaves a desk that already fits, and keeps what stands on it in place', () => {
