@@ -134,23 +134,76 @@ function drawnInset(
       ),
   };
 }
+/** The walls' inner faces, in tiles: the back and left walls are 0.2 thick, the others the room's edge. */
+type Walls = { x0: number; y0: number; x1: number; y1: number };
+interface NearPoint {
+  x: number;
+  y: number;
+  /** Only a bound, nothing seen there: the frame cuts the column off, or it fell behind a wall. */
+  open: boolean;
+}
+/** Within this many pixels of the frame's edge, a column is cut off. */
+const EDGE_PX = 3;
 /**
  * Where a mask meets a plane at height z, in the room: each column's lowest
  * pixel, dropped onto the plane. Seen from the camera's corner they lie on
  * the footprint's near sides or behind them, never in front: whatever hides
- * the thing only pushes them back. Columns the frame cuts off are left out.
+ * the thing only pushes them back. So does the frame's edge: a column it cuts
+ * off still says the thing reaches at least that far, which is all that is
+ * known of a desk's near end when the frame cuts its drawers off. A point
+ * behind a wall can't be where the thing stands either: something hides its
+ * foot there, so that too says only how far it reaches at least.
  */
-function nearPoints(camera: RoomCamera, mask: Bits, z: number) {
-  const points: { x: number; y: number }[] = [];
-  const cut: { x: number; y: number }[] = [];
+function nearPoints(camera: RoomCamera, mask: Bits, z: number, walls?: Walls) {
+  const points: NearPoint[] = [];
   for (let x = 0; x < mask.width; x++)
     for (let y = mask.height - 1; y >= 0; y--) {
       if (!mask.data[y * mask.width + x]) continue;
       const p = unprojectRoom(camera, { x: x + 0.5, y: y + 1 }, z);
-      if (p) (y === mask.height - 1 ? cut : points).push(p);
+      if (p) {
+        const cut = y >= mask.height - EDGE_PX || x < EDGE_PX || x >= mask.width - EDGE_PX;
+        const hidden = !!walls && (p.x < walls.x0 || p.y < walls.y0);
+        points.push({ x: p.x, y: p.y, open: cut || hidden });
+      }
       break;
     }
-  return points.length ? points : cut;
+  return points;
+}
+/**
+ * Whether a footprint's near side on an axis is only a bound: most of the
+ * points that reach furthest that way were cut off by the frame or hidden.
+ */
+function openTowards(points: NearPoint[], axis: 'x' | 'y') {
+  const from = quantile(
+    points.map((p) => p[axis]),
+    0.9,
+  );
+  const front = points.filter((p) => p[axis] >= from);
+  return front.filter((p) => p.open).length * 2 > front.length;
+}
+/** Whether the frame's bottom edge cuts a mask off: the thing goes on out of view, towards the camera. */
+function cutBelow(mask: Bits) {
+  for (let i = (mask.height - EDGE_PX) * mask.width; i < mask.data.length; i++)
+    if (mask.data[i]) return true;
+  return false;
+}
+/**
+ * How far back a desk's or table's top is seen to reach: its outline dropped
+ * onto the plane of its top. A pixel of the top lands on the top, and one of
+ * a leg or a drawer below it lands nearer the camera than it is, so the
+ * furthest back they reach (bar a stray few) is a point on the top, and its
+ * far sides lie at least that far back.
+ */
+function topFar(camera: RoomCamera, mask: Bits, z: number) {
+  const xs: number[] = [];
+  const ys: number[] = [];
+  for (let y = 0; y < mask.height; y += 2)
+    for (let x = 0; x < mask.width; x += 2) {
+      if (!mask.data[y * mask.width + x]) continue;
+      const p = unprojectRoom(camera, { x: x + 0.5, y: y + 0.5 }, z);
+      if (p) [xs.push(p.x), ys.push(p.y)];
+    }
+  return xs.length ? { x: quantile(xs, 0.02), y: quantile(ys, 0.02) } : null;
 }
 /** The value below which a share `q` of the values lie. */
 const quantile = (vs: number[], q: number) =>
@@ -167,6 +220,17 @@ interface Plan {
   turned: { w: number; d: number; h?: number };
   /** How small it may shrink, for a surface whose size is an estimate; null when it can't. */
   least: { w: number; d: number } | null;
+  /**
+   * How far it may move towards the camera along each axis without going
+   * against what the camera saw: a near side the frame cut off or something
+   * hid is only a bound.
+   */
+  slack: { x: number; y: number };
+  /**
+   * How far its far sides may come forward before they cut into the top the
+   * camera saw reaching back, for a desk or table; no limit for a guess.
+   */
+  give: { x: number; y: number };
   /** How tall it stands. */
   h: number;
   /** Already built: others move out of its way, it doesn't. */
@@ -178,38 +242,65 @@ const tucked = (a: Plan, b: Plan) =>
   (b.template === 'chair' || b.h <= a.h + 0.05);
 /**
  * Pull overlapping floor pieces apart, each pair by the cheapest fix: a desk,
- * table or shelf gives up the side facing the other (its size is only an
- * estimate), or the other moves away, within the walls. Pieces that can do
- * neither stay as they are. Moving costs more than shrinking: the side a
- * piece shows the camera was seen, while its far side was only estimated.
+ * table or shelf gives up a side (its size is only an estimate), or the other
+ * moves away, within the walls. Pieces that can do neither stay as they are.
+ * Moving costs more than shrinking: the side a piece shows the camera was
+ * seen, while its far side was only estimated. Unless what was seen is only
+ * a bound: then moving towards the camera, within its slack, costs little,
+ * and a desk the frame cuts off moves out from the shelf behind it rather
+ * than losing a third of its length.
  */
 /** Shrinking a piece by all of one side costs as much as moving one a tile. */
 const SHRINK_COST = 2;
 const MOVE_COST = 2;
-function apart(plans: Plan[], walls: { x0: number; y0: number; x1: number; y1: number }) {
+/** Moving towards the camera within a piece's slack, per tile: cheaper than any shrink of note. */
+const SLACK_COST = 0.2;
+/** How far a piece whose near side is only a bound may move towards the camera cheaply, in tiles. */
+const OPEN_SLACK = 2;
+/** Cutting a seen top short, or pushing it past where it was seen, per tile: worse than moving a guess. */
+const PAST_TOP = 4;
+function apart(plans: Plan[], walls: Walls) {
   /** Ways to clear a of b: a shrinks away from b, or b moves out of a. */
-  const fixesFor = (a: Plan, b: Plan, ox: number, oy: number) => {
+  const fixesFor = (a: Plan, b: Plan) => {
     const fixes: { cost: number; apply: () => void }[] = [];
     for (const axis of ['x', 'y'] as const) {
       const side = axis === 'x' ? 'w' : 'd';
-      const overlap = axis === 'x' ? ox : oy;
       const least = a.least?.[side];
-      if (!a.fixed && least !== undefined && a.turned[side] - overlap >= least) {
-        const bFirst = b[axis] + b.turned[side] / 2 < a[axis] + a.turned[side] / 2;
+      const bFirst = b[axis] + b.turned[side] / 2 < a[axis] + a.turned[side] / 2;
+      // Enough to clear b, which may lie inside a's span rather than over one end.
+      const by = bFirst ? b[axis] + b.turned[side] - a[axis] : a[axis] + a.turned[side] - b[axis];
+      if (!a.fixed && least !== undefined && a.turned[side] - by >= least)
         fixes.push({
-          // A share of that side: a long desk gives up length before depth.
-          cost: (overlap / a.turned[side]) * SHRINK_COST,
+          // A share of that side: a long desk gives up length before depth, but
+          // not the length its top was seen to have, nor the near side it showed.
+          cost:
+            (by / a.turned[side]) * SHRINK_COST +
+            (bFirst ? Math.max(0, by - a.give[axis]) * PAST_TOP : by * MOVE_COST),
           apply: () => {
-            a.turned[side] -= overlap;
-            if (bFirst) a[axis] += overlap;
+            a.turned[side] -= by;
+            if (!bFirst) return;
+            a[axis] += by;
+            a.give[axis] = Math.max(0, a.give[axis] - by);
+            a.slack[axis] = Math.min(a.slack[axis], a.give[axis]);
+          },
+        });
+      const lo = axis === 'x' ? walls.x0 : walls.y0;
+      const hi = axis === 'x' ? walls.x1 : walls.y1;
+      for (const to of [a[axis] - b.turned[side], a[axis] + a.turned[side]]) {
+        if (b.fixed || to < lo - 1e-6 || to + b.turned[side] > hi + 1e-6) continue;
+        const move = to - b[axis];
+        const free = Math.min(Math.max(move, 0), b.slack[axis]);
+        // Pushed forward past where its top was seen, a desk's far side leaves the top behind.
+        const past = Math.max(0, move - b.give[axis]);
+        fixes.push({
+          cost: free * SLACK_COST + (Math.abs(move) - free - past) * MOVE_COST + past * PAST_TOP,
+          apply: () => {
+            b[axis] = to;
+            b.slack[axis] = Math.max(0, b.slack[axis] - move);
+            b.give[axis] = Math.max(0, b.give[axis] - move);
           },
         });
       }
-      const lo = axis === 'x' ? walls.x0 : walls.y0;
-      const hi = axis === 'x' ? walls.x1 : walls.y1;
-      for (const to of [a[axis] - b.turned[side], a[axis] + a.turned[side]])
-        if (!b.fixed && to >= lo - 1e-6 && to + b.turned[side] <= hi + 1e-6)
-          fixes.push({ cost: Math.abs(to - b[axis]) * MOVE_COST, apply: () => (b[axis] = to) });
     }
     return fixes;
   };
@@ -221,9 +312,7 @@ function apart(plans: Plan[], walls: { x0: number; y0: number; x1: number; y1: n
         const oy = Math.min(a.y + a.turned.d, b.y + b.turned.d) - Math.max(a.y, b.y);
         if (ox <= 0.02 || oy <= 0.02) return;
         // Either way round, whichever is cheapest.
-        [...fixesFor(a, b, ox, oy), ...fixesFor(b, a, ox, oy)]
-          .sort((p, q) => p.cost - q.cost)[0]
-          ?.apply();
+        [...fixesFor(a, b), ...fixesFor(b, a)].sort((p, q) => p.cost - q.cost)[0]?.apply();
       }),
     );
 }
@@ -284,7 +373,7 @@ export function layoutRoom(input: RoomLayoutInput, behind?: Map<string, WallGap>
     })(),
   };
   // The walls' inner faces: the back and left walls are 0.2 thick, the others the room's edge.
-  const walls = { x0: 0.2, y0: 0.2, x1: room.w, y1: room.d };
+  const walls: Walls = { x0: 0.2, y0: 0.2, x1: room.w, y1: room.d };
   const groups = new Map<string, { g: string; turns: number; x: number; y: number }>();
   /** Where a thing goes and how big it is, before anything is built; null when it can't be placed. */
   const plan = (t: PlacedThing): Plan | null => {
@@ -293,7 +382,7 @@ export function layoutRoom(input: RoomLayoutInput, behind?: Map<string, WallGap>
     const tops = scene.surfaces.filter((x) => own.has(x.propId));
     const surface = tops.sort((a, b) => b.z - a.z)[0];
     const top = surface?.z ?? 0;
-    const points = nearPoints(camera, masks.get(t.id)!, top);
+    const points = nearPoints(camera, masks.get(t.id)!, top, walls);
     if (!points.length) return null;
     const template = isTemplate(t.as) ? t.as : null;
     // Its own size, before turning: the template's, or Spark's for what comes in many sizes.
@@ -357,13 +446,17 @@ export function layoutRoom(input: RoomLayoutInput, behind?: Map<string, WallGap>
         y = reach.y + inset.y - turned.d;
       }
     }
+    // How high its top is, for one whose size varies: what stands on it stands there.
+    const height =
+      template && SIZED.has(template)
+        ? Math.max(
+            0,
+            ...standing(template, 'probe', 0, 0, 0, turns, turned).surfaces.map((x) => x.z),
+          )
+        : 0;
     // What stands on a surface has to fit on it: Spark can guess a long desk short,
     // and what stands at its far end says how far it reaches (within reason).
     if (template && SIZED.has(template)) {
-      const height = Math.max(
-        0,
-        ...standing(template, 'probe', 0, 0, 0, turns, turned).surfaces.map((x) => x.z),
-      );
       // Each thing's near side, which its lowest points give reliably, less its own depth.
       const held = live
         .filter((c) => c.on === t.id && masks.has(c.id))
@@ -416,14 +509,30 @@ export function layoutRoom(input: RoomLayoutInput, behind?: Map<string, WallGap>
     if (template !== 'chair' && !(template && SIZED.has(template)))
       behind?.set(t.id, { back: walls.y0 - y, left: walls.x0 - x });
     // Its back against the wall it nearly touches, and never through one or off its surface.
+    let flush: 'x' | 'y' | null = null;
     if (!surface && template && !ROUND_TEMPLATES.has(template) && template !== 'chair') {
-      if (turns === 0 && y - walls.y0 < FLUSH) y = walls.y0;
+      if (turns === 0 && y - walls.y0 < FLUSH) [y, flush] = [walls.y0, 'y'];
       if (turns === 1 && walls.x1 - (x + turned.w) < FLUSH) x = walls.x1 - turned.w;
       if (turns === 2 && walls.y1 - (y + turned.d) < FLUSH) y = walls.y1 - turned.d;
-      if (turns === 3 && x - walls.x0 < FLUSH) x = walls.x0;
+      if (turns === 3 && x - walls.x0 < FLUSH) [x, flush] = [walls.x0, 'x'];
     }
     x = Math.min(Math.max(x, area.x0), Math.max(area.x0, area.x1 - turned.w));
     y = Math.min(Math.max(y, area.y0), Math.max(area.y0, area.y1 - turned.d));
+    // How far it may come forward without going against what was seen: some way when
+    // its near side is only a bound (the frame cuts it off below, or something hides it),
+    // and for a desk or table only as far as its top, seen reaching back, lets it.
+    const mask = masks.get(t.id)!;
+    const far =
+      template === 'desk' || template === 'table' ? topFar(camera, mask, top + height) : null;
+    const cut = cutBelow(mask);
+    const slack = { x: 0, y: 0 };
+    const give = { x: Infinity, y: Infinity };
+    for (const axis of ['x', 'y'] as const) {
+      const at = axis === 'x' ? x : y;
+      if (far) give[axis] = Math.max(0, Math.max(walls[`${axis}0`], far[axis]) - at);
+      if (surface || axis === flush) continue;
+      if (cut || openTowards(points, axis)) slack[axis] = Math.min(OPEN_SLACK, give[axis]);
+    }
     if (x + turned.w < -0.5 || y + turned.d < -0.5 || x > room.w + 0.5 || y > room.d + 0.5)
       return null;
     const least = { w: base.w * 0.6, d: base.d * 0.6 };
@@ -438,6 +547,8 @@ export function layoutRoom(input: RoomLayoutInput, behind?: Map<string, WallGap>
       // A desk, table or shelf can give a little of its estimated size; nothing else can.
       least:
         !template || !SIZED.has(template) ? null : turns % 2 ? { w: least.d, d: least.w } : least,
+      slack,
+      give,
       h: turned.h ?? (template ? usualHeight(template) : cm(t.sizeCm.h)),
     };
   };

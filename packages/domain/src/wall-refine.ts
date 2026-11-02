@@ -5,6 +5,12 @@ import { layoutRoom, type RoomLayoutInput, type WallGap } from './room-scan.js';
 
 /** How far behind a wall a thing may seem to stand before it says the wall is off: a Spark size's slip. */
 const SLACK = 0.2;
+/**
+ * Further behind a wall than this, in tiles, a thing isn't standing on the
+ * floor there at all: it hangs on the wall (a calendar, a picture), and its
+ * outline's lowest pixel is nowhere near the floor.
+ */
+const HANGING = 4;
 /** Things that have to stand behind one wall before it is turned: one could be a bad outline. */
 const WITNESSES = 3;
 const STEP_DEG = 0.5;
@@ -38,7 +44,9 @@ export function refineWalls(input: RoomLayoutInput): WallRefinement | null {
   };
   const base = gapsOf(input.calibration);
   for (const wall of ['left', 'back'] as const) {
-    const witnesses = [...base].filter(([, g]) => g[wall] > SLACK).map(([id]) => id);
+    const witnesses = [...base]
+      .filter(([, g]) => g[wall] > SLACK && g[wall] < HANGING)
+      .map(([id]) => id);
     if (witnesses.length < WITNESSES) continue;
     const middle = (gaps: Map<string, WallGap>) => {
       const vs = witnesses.map((id) => gaps.get(id)?.[wall] ?? 0).sort((a, b) => a - b);
