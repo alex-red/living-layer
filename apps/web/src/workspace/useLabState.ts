@@ -1659,8 +1659,15 @@ export function useLabState() {
     setIsoPanel('scene');
     if (stageView === 'photo') setStageView('iso');
   }
-  function startRule(objectId: string) {
-    setRuleDraft({ objectId, entityId: entities[0] ?? '', label: '', rect: null });
+  /** Set up a rule counting one thing, or anything the camera follows. */
+  function startRule(objectId?: string) {
+    setRuleDraft({
+      objects: objectId ? [objectId] : 'any',
+      offWhenEmpty: false,
+      entityId: entities[0] ?? '',
+      label: '',
+      rect: null,
+    });
     setIsoPanel('room');
     if (stageView === 'photo') setStageView('iso');
     setSelection({ kind: 'new-rule' });

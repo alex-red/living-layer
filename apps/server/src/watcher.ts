@@ -50,6 +50,7 @@ import {
   type WatchKind,
   type WatchView,
   type ZoneRect,
+  ruleObjects,
 } from '@livinglayer/domain';
 import type { Appearance } from './appearance.js';
 import type { DeskTracking } from './desk.js';
@@ -92,9 +93,10 @@ export function zonesOf(memory: DeskMemory, objectId: string): WatchSubject['zon
       rect: memory.zone.rect,
       inside: memory.placement === 'inside',
     });
+  // A zone counting several things is crossed by each on its own.
   for (const r of memory.rules ?? [])
-    if (r.objectId === objectId)
-      zones.push({ id: r.id, rect: r.zone.rect, inside: r.placement === 'inside' });
+    if (ruleObjects(memory, r).includes(objectId))
+      zones.push({ id: r.id, rect: r.zone.rect, inside: r.inside?.includes(objectId) ?? false });
   return zones;
 }
 const unit = (o: Pick<DeskObservation, 'box' | 'frame'>): UnitBox => ({

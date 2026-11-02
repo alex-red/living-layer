@@ -292,7 +292,7 @@ describe('the server watching the demo desk', () => {
       await s.post('desk/rules/save', {
         rule: {
           label: 'Mug spot',
-          objectId: here.objectId,
+          objects: [here.objectId],
           entityId: null,
           rect: {
             x: here.box.x / here.frame.width,
@@ -381,7 +381,7 @@ describe('the server watching the demo desk', () => {
     const rule = await s.post('desk/rules/save', {
       rule: {
         label: 'Lamp spot',
-        objectId: id,
+        objects: [id],
         entityId: 'switch.demo_fan',
         rect: { x: 0.5, y: 0.3, width: 0.1, height: 0.12 },
       },

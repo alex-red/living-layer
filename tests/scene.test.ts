@@ -326,7 +326,7 @@ describe('extra rules and lights', () => {
     const s = await withMug();
     const saved = (
       await s.post('desk/rules/save', {
-        rule: { label: 'Desk', objectId: s.objectId, entityId: 'light.demo_shelf', rect: whole },
+        rule: { label: 'Desk', objects: [s.objectId], entityId: 'light.demo_shelf', rect: whole },
       })
     ).json<DeskMemory>();
     const rule = saved.rules![0]!;
@@ -345,7 +345,7 @@ describe('extra rules and lights', () => {
       rule: {
         id: rule.id,
         label: 'Desk',
-        objectId: s.objectId,
+        objects: [s.objectId],
         entityId: 'light.demo_shelf',
         rect: corner,
       },
@@ -356,7 +356,7 @@ describe('extra rules and lights', () => {
       rule: {
         id: rule.id,
         label: 'Desk',
-        objectId: s.objectId,
+        objects: [s.objectId],
         entityId: 'light.demo_shelf',
         rect: whole,
       },
@@ -367,11 +367,52 @@ describe('extra rules and lights', () => {
     expect(repeat.events[0]!.output.action).toBe('none');
     expect(s.fetcher).not.toHaveBeenCalled();
   });
+  it('counts anything, and switches off again when the zone empties', async () => {
+    const s = await withMug();
+    await s.post('desk/rules/save', {
+      rule: {
+        label: 'Tray',
+        objects: 'any',
+        entityId: 'light.demo_shelf',
+        offWhenEmpty: true,
+        rect: whole,
+      },
+    });
+    const first = (await s.post('desk/rules/verify')).json<Checked>();
+    expect(first.events[0]!.output).toMatchObject({
+      decision: 'inside',
+      transition: 'entered',
+      action: 'confirmed',
+      objectId: s.objectId,
+    });
+    expect(first.memory.rules![0]!.inside).toEqual([s.objectId]);
+    // The zone moves off the mug but keeps its story: it empties, and the light goes off.
+    const rule = first.memory.rules![0]!;
+    await s.post('desk/restore', {
+      memory: { ...first.memory, rules: [{ ...rule, zone: { ...rule.zone, rect: corner } }] },
+    });
+    const left = (await s.post('desk/rules/verify')).json<Checked>();
+    expect(left.events[0]!.output).toMatchObject({
+      decision: 'outside',
+      transition: 'left',
+      action: 'confirmed',
+    });
+    expect(left.events[0]!.output.lamp).toMatchObject({
+      entityId: 'light.demo_shelf',
+      action: 'off',
+    });
+    expect(left.memory.rules![0]!.inside).toEqual([]);
+    // Nothing to switch off without an entity.
+    const none = await s.post('desk/rules/save', {
+      rule: { label: 'X', objects: 'any', entityId: null, offWhenEmpty: true, rect: whole },
+    });
+    expect(none.statusCode).toBe(400);
+  });
   it('checks rules on tracking, and keeps the main zone working beside them', async () => {
     const s = await withMug();
     await s.post('desk/camera', { fixed: true });
     await s.post('desk/rules/save', {
-      rule: { label: 'Fridge', objectId: s.objectId, entityId: 'light.demo_fridge', rect: whole },
+      rule: { label: 'Fridge', objects: [s.objectId], entityId: 'light.demo_fridge', rect: whole },
     });
     const next = await s.segment('right');
     const tracked = (await s.post('desk/track', { segmentRunId: next.id })).json<{
@@ -387,7 +428,7 @@ describe('extra rules and lights', () => {
     const bad = await s.post('desk/rules/save', {
       rule: {
         label: 'X',
-        objectId: crypto.randomUUID(),
+        objects: [crypto.randomUUID()],
         entityId: 'light.demo_desk',
         rect: whole,
       },
@@ -395,7 +436,7 @@ describe('extra rules and lights', () => {
     expect(bad.statusCode).toBe(409);
     const m = await withMug();
     const wrong = await m.post('desk/rules/save', {
-      rule: { label: 'X', objectId: m.objectId, entityId: 'light.kitchen', rect: whole },
+      rule: { label: 'X', objects: [m.objectId], entityId: 'light.kitchen', rect: whole },
     });
     expect(wrong.statusCode).toBe(400);
   });
@@ -415,7 +456,7 @@ describe('extra rules and lights', () => {
     expect(tracked.memory.others![0]!.history).toHaveLength(1);
     expect(tracked.memory.others![0]!.observation!.identity).toBe('tracked');
     await s.post('desk/rules/save', {
-      rule: { label: 'Cup zone', objectId: cup.id, entityId: 'light.demo_desk', rect: whole },
+      rule: { label: 'Cup zone', objects: [cup.id], entityId: 'light.demo_desk', rect: whole },
     });
     const forgot = (await s.post('desk/objects/forget', { objectId: cup.id })).json<DeskMemory>();
     expect(forgot.others).toHaveLength(0);

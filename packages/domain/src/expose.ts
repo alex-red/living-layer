@@ -9,12 +9,14 @@
  * publishes each entered and left once, not retained (`zoneEvent`).
  */
 import { z } from 'zod';
-import type {
-  DeskMemory,
-  DeskObservation,
-  EvidenceRun,
-  PlacementDecision,
-  ZoneRect,
+import {
+  ruleObjects,
+  ruleWho,
+  type DeskMemory,
+  type DeskObservation,
+  type EvidenceRun,
+  type PlacementDecision,
+  type ZoneRect,
 } from './index.js';
 import type { WatchStatus, WatchView } from './watch.js';
 
@@ -147,11 +149,15 @@ export function keyFromName(name: string): string {
     .replace(/_+$/, '');
 }
 
-/** Every zone in desk memory, the main one as `main`, with its object and last verdict. */
+/** Every zone in desk memory, the main one as `main`, with what it counts and its last verdict. */
 export function zonesIn(memory: DeskMemory): {
   id: string;
   label: string;
-  objectId: string;
+  /** The things it counts, and those last seen inside it. */
+  objectIds: string[];
+  inside: string[];
+  /** What it counts, in words: "the mug", "anything". */
+  who: string;
   rect: ZoneRect;
   placement: 'inside' | 'outside' | null;
   decidedAt: string | null;
@@ -164,7 +170,9 @@ export function zonesIn(memory: DeskMemory): {
           {
             id: MAIN_ZONE,
             label: 'Main zone',
-            objectId: memory.object.id,
+            objectIds: [memory.object.id],
+            inside: memory.placement === 'inside' ? [memory.object.id] : [],
+            who: `the ${memory.object.label}`,
             rect: memory.zone.rect,
             placement: memory.placement ?? null,
             decidedAt: memory.lastDecision?.createdAt ?? null,
@@ -175,7 +183,9 @@ export function zonesIn(memory: DeskMemory): {
     ...(memory.rules ?? []).map((r) => ({
       id: r.id,
       label: r.label,
-      objectId: r.objectId,
+      objectIds: ruleObjects(memory, r),
+      inside: r.inside ?? [],
+      who: ruleWho(memory, r),
       rect: r.zone.rect,
       placement: r.placement ?? null,
       decidedAt: r.lastDecision?.createdAt ?? null,
@@ -203,11 +213,17 @@ export function zoneEvent(
     type: t,
     attributes: {
       zone: zone.label,
-      object: thingsIn(memory).find((x) => x.id === zone.objectId)?.label ?? '',
+      object: labelsOf(memory, zone.inside) || zone.who,
       at: zone.decidedAt ?? '',
     },
   };
 }
+/** The labels of some things, joined: "mug, book". */
+const labelsOf = (memory: DeskMemory, ids: string[]) =>
+  thingsIn(memory)
+    .filter((t) => ids.includes(t.id))
+    .map((t) => t.label)
+    .join(', ');
 /** The mug, other objects and tracked fixtures, by id. */
 function thingsIn(memory: DeskMemory): {
   id: string;
@@ -283,7 +299,7 @@ export function sensorOptions(memory: DeskMemory, e: ExposedEntity): string[] | 
       const id = e.source.objectId;
       return [
         ...zonesIn(memory)
-          .filter((z) => z.objectId === id)
+          .filter((z) => z.objectIds.includes(id))
           .map((z) => z.label),
         'none',
       ];
@@ -341,7 +357,7 @@ export function evaluateExposed(
         return on(e.kind === 'sensor' ? zone.placement : binary(inside), {
           source: 'sam',
           zone: zone.label,
-          object: things.find((t) => t.id === zone.objectId)?.label ?? null,
+          object: labelsOf(memory, zone.inside) || null,
           last_confirmed: zone.decidedAt,
           stale,
         });
@@ -357,10 +373,11 @@ export function evaluateExposed(
         });
       }
       case 'zone_of': {
-        const mine = zones.filter((z) => z.objectId === s.objectId);
+        const mine = zones.filter((z) => z.objectIds.includes(s.objectId));
         if (mine.every((z) => !z.placement)) return off('None of its zones has a verdict yet.');
         const thing = things.find((t) => t.id === s.objectId)!;
-        const inZone = mine.find((z) => z.placement === 'inside')?.label;
+        // A zone counting several things may be occupied by another one.
+        const inZone = mine.find((z) => z.inside.includes(s.objectId))?.label;
         if (e.kind === 'device_tracker') {
           // Home Assistant reads `home` and `not_home`; any other value is a place name.
           const lost =

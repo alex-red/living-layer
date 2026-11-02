@@ -6,6 +6,7 @@ import {
   isMugConcept,
   keyFromName,
   objectById,
+  ruleWho,
   type DeskMemory,
   type EvidenceRun,
   type PlacementDecision,
@@ -52,7 +53,7 @@ const verdictSummary = (memory: DeskMemory | undefined, events: EvidenceRun<Plac
     ? events
         .map((e) => {
           const r = memory?.rules?.find((x) => x.id === e.output.ruleId);
-          return `${r?.label ?? 'Zone'}: ${e.output.decision}${e.output.action !== 'none' ? `, light ${e.output.action}` : ''}`;
+          return `${r?.label ?? 'Zone'}: ${e.output.decision}${e.output.action !== 'none' ? `, light ${e.output.lamp?.action === 'off' ? 'off ' : ''}${e.output.action}` : ''}`;
         })
         .join(' · ')
     : 'No rules to check.';
@@ -1157,7 +1158,12 @@ function RulePanel({ id }: { id: string }) {
   const r = memory?.rules?.find((x) => x.id === id);
   if (!r) return <SetupPanel />;
   const d = r.lastDecision?.output;
-  const object = memory && objectById(memory, r.objectId)?.label;
+  const who = memory ? ruleWho(memory, r) : 'something';
+  // Who is in it, by name: "mug, book".
+  const inside =
+    memory && r.inside?.length
+      ? r.inside.map((id) => objectById(memory, id)?.label ?? 'thing').join(', ')
+      : null;
   const shown = memory?.exposed?.find(
     (e) => e.source.kind === 'in_zone' && e.source.zoneId === r.id,
   );
@@ -1170,10 +1176,12 @@ function RulePanel({ id }: { id: string }) {
           ? 'Not checked yet. Track the object or check the rules.'
           : d.decision === 'inside'
             ? d.action === 'confirmed' && r.entityId
-              ? `The ${object ?? 'object'} is in the zone. ${r.entityId} turned on.`
-              : `The ${object ?? 'object'} is in the zone.`
+              ? `Occupied (${inside ?? 'something'}). ${r.entityId} turned on.`
+              : `Occupied (${inside ?? 'something'}).`
             : d.decision === 'outside'
-              ? `The ${object ?? 'object'} is outside the zone.`
+              ? d.action === 'confirmed' && r.entityId
+                ? `Empty. ${r.entityId} turned off.`
+                : 'Empty.'
               : `Blocked: ${d.reason}`
       }
       tone={
@@ -1181,11 +1189,11 @@ function RulePanel({ id }: { id: string }) {
       }
     >
       <p className="rule-sentence">
-        When <strong>{object ?? 'a forgotten object'}</strong> is {r.placement}{' '}
-        <strong>{r.label}</strong>,{' '}
+        When <strong>{who}</strong> is inside <strong>{r.label}</strong>,{' '}
         {r.entityId ? (
           <>
-            turn on <strong>{r.entityId}</strong>.
+            turn on <strong>{r.entityId}</strong>
+            {r.offWhenEmpty ? ', and off again when it empties' : ''}.
           </>
         ) : (
           'tell Home Assistant only.'
@@ -1261,7 +1269,7 @@ function RulePanel({ id }: { id: string }) {
   );
 }
 
-/** A rule as a sentence: when [object] is inside [a zone you drag] turn on [light]. */
+/** A rule as a sentence: when [anything, a thing or several] is inside [a zone you drag] turn on [light]. */
 function NewRulePanel() {
   const lab = useLab();
   const { memory, ruleDraft: draft, entities } = lab;
@@ -1280,6 +1288,9 @@ function NewRulePanel() {
       .map((f) => ({ id: f.id, label: `${f.label} (fixture)` })),
   ];
   const set = (patch: Partial<typeof draft>) => lab.setRuleDraft({ ...draft, ...patch });
+  const ids = objects.map((o) => o.id);
+  const who =
+    draft.objects === 'any' ? 'any' : draft.objects.length === 1 ? draft.objects[0]! : 'several';
   return (
     <Panel
       tiny="NEW RULE"
@@ -1297,10 +1308,52 @@ function NewRulePanel() {
         <span>When</span>
         <Select
           aria-label="Rule object"
-          value={draft.objectId}
-          onChange={(objectId) => set({ objectId, rect: null })}
-          options={objects.map((o) => ({ value: o.id, label: o.label }))}
+          value={who}
+          onChange={(value) =>
+            set({
+              objects:
+                value === 'any'
+                  ? 'any'
+                  : value === 'several'
+                    ? draft.objects === 'any'
+                      ? ids
+                      : draft.objects
+                    : [value],
+            })
+          }
+          options={[
+            { value: 'any', label: 'anything' },
+            ...objects.map((o) => ({ value: o.id, label: o.label })),
+            ...(objects.length > 1 ? [{ value: 'several', label: 'any of several…' }] : []),
+          ]}
         />
+        {who === 'several' && draft.objects !== 'any' && (
+          <>
+            <span />
+            <div className="rule-things">
+              {objects.map((o) => {
+                const picked = (draft.objects as string[]).includes(o.id);
+                return (
+                  <Check
+                    key={o.id}
+                    checked={picked}
+                    // At least one thing stays picked.
+                    disabled={picked && draft.objects.length === 1}
+                    onChange={(on) =>
+                      set({
+                        objects: on
+                          ? ids.filter((id) => id === o.id || draft.objects.includes(id))
+                          : (draft.objects as string[]).filter((id) => id !== o.id),
+                      })
+                    }
+                  >
+                    {o.label}
+                  </Check>
+                );
+              })}
+            </div>
+          </>
+        )}
         <span>is inside</span>
         <input
           aria-label="Rule name"
@@ -1319,6 +1372,14 @@ function NewRulePanel() {
             { value: '', label: 'nothing: tell Home Assistant only' },
           ]}
         />
+        <span />
+        <Check
+          checked={draft.offWhenEmpty && Boolean(draft.entityId)}
+          disabled={!draft.entityId}
+          onChange={(offWhenEmpty) => set({ offWhenEmpty })}
+        >
+          and off again when it empties
+        </Check>
       </div>
       <div className="save-actions">
         <Button
@@ -1330,8 +1391,9 @@ function NewRulePanel() {
               {
                 rule: {
                   label: draft.label.trim(),
-                  objectId: draft.objectId,
+                  objects: draft.objects,
                   entityId: draft.entityId || null,
+                  ...(draft.offWhenEmpty && draft.entityId ? { offWhenEmpty: true } : {}),
                   rect: draft.rect,
                   ...(draft.onSurface ? { onSurface: draft.onSurface } : {}),
                 },
@@ -1339,7 +1401,7 @@ function NewRulePanel() {
               (m) => {
                 lab.setMemory(m);
                 lab.setMessage(
-                  `Saved "${draft.label.trim()}". Check rules or track the object to try it.`,
+                  `Saved "${draft.label.trim()}". Check rules or track something to try it.`,
                 );
                 const saved = m.rules?.at(-1);
                 lab.select(saved ? { kind: 'rule', id: saved.id } : null);

@@ -172,9 +172,7 @@ export function sourceSentence(memory: DeskMemory, e: Pick<ExposedEntity, 'sourc
   switch (s.kind) {
     case 'in_zone': {
       const zone = zonesIn(memory).find((z) => z.id === s.zoneId);
-      return zone
-        ? `whether the ${thingLabel(memory, zone.objectId)} is in “${zone.label}”`
-        : 'a zone that is gone';
+      return zone ? `whether ${zone.who} is in “${zone.label}”` : 'a zone that is gone';
     }
     case 'any_inside':
       return `whether any of ${s.zoneIds.map((z) => `“${zoneLabel(memory, z)}”`).join(', ')} holds its object`;
@@ -296,7 +294,7 @@ function EntityEditor({
     <select aria-label={label} value={value} onChange={(e) => onChange(e.target.value)}>
       {zones.map((z) => (
         <option key={z.id} value={z.id}>
-          {z.label} ({thingLabel(memory, z.objectId)})
+          {z.label} ({z.who})
         </option>
       ))}
     </select>
@@ -441,7 +439,7 @@ function EntityEditor({
                 if (zoneIds.length) set({ source: { ...s, zoneIds } });
               }}
             >
-              {z.label} ({thingLabel(memory, z.objectId)})
+              {z.label} ({z.who})
             </Check>
           ))}
         </fieldset>

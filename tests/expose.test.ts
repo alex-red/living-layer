@@ -45,7 +45,8 @@ function memory(over: Partial<DeskMemory> = {}): DeskMemory {
   const rule: PlacementRule = {
     id: RULE,
     label: 'Coaster',
-    objectId: MUG,
+    objects: [MUG],
+    inside: [MUG],
     entityId: null,
     zone: { sourceKey: 'k', rect: { x: 0, y: 0, width: 0.5, height: 0.5 }, frame },
     placement: 'inside',
@@ -270,7 +271,10 @@ describe('the later kinds: occupancy, events, trackers, switches, buttons', () =
     });
     const m = memory({ exposed: [e] });
     expect(evaluateExposed(m, watching())[0]!.state).toBe('Coaster');
-    const out = memory({ rules: [{ ...m.rules![0]!, placement: 'outside' }], exposed: [e] });
+    const out = memory({
+      rules: [{ ...m.rules![0]!, placement: 'outside', inside: [] }],
+      exposed: [e],
+    });
     expect(evaluateExposed(out, watching())[0]!.state).toBe('home');
     expect(
       evaluateExposed(out, watching({ things: [{ id: MUG, status: 'missing' }] }))[0]!.state,
@@ -373,7 +377,7 @@ describe('entities over the lab’s routes', () => {
     ).json<DeskMemory>();
     const saved = (
       await s.post('desk/rules/save', {
-        rule: { label: 'Coaster', objectId: picked.object!.id, entityId: null, rect: whole },
+        rule: { label: 'Coaster', objects: [picked.object!.id], entityId: null, rect: whole },
       })
     ).json<DeskMemory>();
     expect(saved.rules![0]!.entityId).toBeNull();
@@ -390,7 +394,7 @@ describe('entities over the lab’s routes', () => {
     const fixtureOnly = await s.post('desk/rules/save', {
       rule: {
         label: 'X',
-        objectId: picked.object!.id,
+        objects: [picked.object!.id],
         entityId: null,
         fixtureId: '55555555-5555-4555-8555-555555555555',
         rect: whole,
@@ -529,7 +533,7 @@ describe('entities over the lab’s routes', () => {
     ).json<DeskMemory>();
     const saved = (
       await s.post('desk/rules/save', {
-        rule: { label: 'Coaster', objectId: picked.object!.id, entityId: null, rect: whole },
+        rule: { label: 'Coaster', objects: [picked.object!.id], entityId: null, rect: whole },
       })
     ).json<DeskMemory>();
     await s.post('expose/save', {

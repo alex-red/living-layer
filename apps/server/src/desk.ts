@@ -22,6 +22,9 @@ import {
   modelTarget,
   setModel,
   ruleGate,
+  ruleObjects,
+  ruleSighting,
+  withoutThings,
   ruleInputSchema,
   exposedInputSchema,
   MAX_EXPOSED,
@@ -76,7 +79,8 @@ export type DeskTracking = ReturnType<typeof deskRoutes>;
 export function deskRoutes(
   app: FastifyInstance,
   store: EvidenceStore,
-  turnOn: (mode: Mode, entityId?: string) => Promise<LampResult>,
+  /** Switch the main lamp (no entity) or a light or switch, on unless told off. */
+  turnOn: (mode: Mode, entityId?: string, action?: 'on' | 'off') => Promise<LampResult>,
   /** The lights and switches rules may name. */
   entities: (mode: Mode) => string[] = () => [],
 ) {
@@ -237,20 +241,22 @@ export function deskRoutes(
   }
 
   /**
-   * Check the extra rules, all of them or only those for one object. Each
-   * rule keeps its own inside/outside story, fires its light only on
-   * entering, and can act at most once per segmentation, like the main zone.
+   * Check the extra rules, all of them or only those counting one object.
+   * Each rule keeps its own occupied/empty story, switches its entity on only
+   * when the zone fills (and off when it empties, if asked), and can act at
+   * most once per segmentation each way, like the main zone.
    */
   async function verifyRules(mode: Mode, objectId?: string) {
     const events: EvidenceRun<PlacementDecision>[] = [];
     const memory = store.memory(mode);
     for (const rule of memory.rules ?? []) {
-      if (objectId && rule.objectId !== objectId) continue;
-      const o = objectById(memory, rule.objectId)?.observation ?? null;
+      if (objectId && !ruleObjects(memory, rule).includes(objectId)) continue;
+      const { inside, objectId: by, ...gate } = ruleGate(memory, rule);
+      const o = by ? (objectById(memory, by)?.observation ?? null) : null;
       const decision: PlacementDecision = {
-        ...ruleGate(memory, rule),
+        ...gate,
         observationId: o?.id ?? null,
-        objectId: rule.objectId,
+        objectId: by,
         segmentRunId: o?.segmentRunId ?? null,
         zoneId: rule.id,
         ruleId: rule.id,
@@ -267,17 +273,26 @@ export function deskRoutes(
               ? 'left'
               : 'stayed_outside';
         rule.placement = decision.decision;
+        rule.inside = inside;
       }
       // A zone with no entity only tells Home Assistant: nothing to switch, nothing to claim.
-      const acts = decision.transition === 'entered' && rule.entityId !== null;
-      if (acts && !store.claimPlacement(`${o!.segmentRunId}:${rule.id}`)) {
+      const switching =
+        rule.entityId === null
+          ? null
+          : decision.transition === 'entered'
+            ? 'on'
+            : decision.transition === 'left' && rule.offWhenEmpty
+              ? 'off'
+              : null;
+      const claim = `${o?.segmentRunId}:${rule.id}${switching === 'off' ? ':left' : ''}`;
+      if (switching && !store.claimPlacement(claim)) {
         decision.decision = 'blocked';
         decision.transition = undefined;
         decision.reason = `This segmentation already attempted "${rule.label}". Track the object in a new frame; no automatic retry.`;
       }
       const event = evidence('placement', mode, decision);
       const start = performance.now();
-      if (acts && decision.transition === 'entered') {
+      if (switching && decision.transition) {
         decision.action = 'pending';
         event.status = 'unconfirmed';
       }
@@ -287,7 +302,7 @@ export function deskRoutes(
       if (decision.action === 'pending') {
         active.add(mode);
         try {
-          decision.lamp = await turnOn(mode, rule.entityId!);
+          decision.lamp = await turnOn(mode, rule.entityId!, switching!);
           decision.action = decision.lamp.stateConfirmed ? 'confirmed' : 'unconfirmed';
           event.status = decision.lamp.stateConfirmed ? 'completed' : 'unconfirmed';
           noteControl(memory, decision.lamp);
@@ -666,8 +681,8 @@ export function deskRoutes(
     if (!fixture)
       throw new LabError('fixture_unknown', 'That fixture is not in this desk memory.', 404);
     delete fixture.track;
-    // Rules it decided can't be checked any more.
-    memory.rules = (memory.rules ?? []).filter((r) => r.objectId !== id);
+    // Rules that counted only it can't be checked any more.
+    memory.rules = withoutThings(memory.rules, [id]);
     store.saveMemory(memory);
     return memory;
   });
@@ -679,13 +694,14 @@ export function deskRoutes(
     available(mode);
     const memory = store.memory(mode);
     memory.others = (memory.others ?? []).filter((o) => o.id !== objectId);
-    memory.rules = (memory.rules ?? []).filter((r) => r.objectId !== objectId);
+    memory.rules = withoutThings(memory.rules, [objectId]);
     store.saveMemory(memory);
     return memory;
   });
   /**
-   * Save an extra zone for one object and one light or switch, or none. Like the main zone, it
-   * belongs to the image of the object's current sighting.
+   * Save an extra zone that counts some things, or any, and one light or
+   * switch, or none. Like the main zone, it belongs to the image of the
+   * newest sighting among the things it counts.
    */
   app.post('/api/desk/rules/save', async (request) => {
     const { mode, rule: input } = parseInput(
@@ -694,11 +710,13 @@ export function deskRoutes(
     );
     available(mode);
     const memory = store.memory(mode);
-    const o = objectById(memory, input.objectId)?.observation;
-    if (!o) throw new LabError('rule_object', 'Confirm that object in a segmentation first.', 409);
+    if (input.objects !== 'any' && input.objects.some((id) => !objectById(memory, id)?.observation))
+      throw new LabError('rule_object', 'Confirm that object in a segmentation first.', 409);
+    const o = ruleSighting(memory, input.objects);
+    if (!o) throw new LabError('rule_object', 'Confirm something in a segmentation first.', 409);
     if (input.entityId !== null && !entities(mode).includes(input.entityId))
       throw new LabError('rule_light', 'Choose one of the configured lights or switches.', 400);
-    if (input.fixtureId === input.objectId)
+    if (input.fixtureId && input.objects !== 'any' && input.objects.includes(input.fixtureId))
       throw new LabError('rule_fixture', 'A fixture can’t switch itself on by moving.', 400);
     checkOnSurface(memory, input.onSurface);
     if (input.fixtureId) {
@@ -712,9 +730,10 @@ export function deskRoutes(
     const rule: PlacementRule = {
       id: input.id ?? randomUUID(),
       label: input.label,
-      objectId: input.objectId,
+      objects: input.objects === 'any' ? 'any' : [...new Set(input.objects)],
       entityId: input.entityId,
       ...(input.fixtureId ? { fixtureId: input.fixtureId } : {}),
+      ...(input.offWhenEmpty ? { offWhenEmpty: true } : {}),
       zone: {
         sourceKey: o.sourceKey,
         rect: input.rect,
@@ -723,6 +742,7 @@ export function deskRoutes(
       },
       // A new or moved zone starts a new inside/outside story.
       placement: null,
+      inside: [],
       lastDecision: null,
     };
     memory.rules =

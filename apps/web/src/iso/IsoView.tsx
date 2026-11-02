@@ -12,6 +12,7 @@ import {
   closeViewOf,
   itemHeight,
   modelTarget,
+  ruleSighting,
   pinFits,
   rotateItem,
   projectBox,
@@ -50,7 +51,10 @@ import './iso.css';
 export type IsoPanel = 'room' | 'scene' | 'item';
 /** A rule being set up; its zone is dragged out on the iso surface. */
 export interface RuleDraft {
-  objectId: string;
+  /** What the zone counts: anything the camera follows, or these. */
+  objects: 'any' | string[];
+  /** Switch the entity off again when the zone empties. */
+  offWhenEmpty: boolean;
   /** Empty for a zone that only tells Home Assistant. */
   entityId: string;
   label: string;
@@ -278,9 +282,8 @@ export function IsoView({
         quad: zoneOnSurface(rule.zone.rect, rule.zone.frame, map.toSurface),
       });
   }
-  // A rule's zone is drawn on the frame of its object's current sighting.
-  const ruleTarget =
-    ruleDraft && memory ? modelTarget(memory, ruleDraft.objectId)?.observation : null;
+  // A rule's zone is drawn on the frame of the newest sighting of what it counts.
+  const ruleTarget = ruleDraft && memory ? ruleSighting(memory, ruleDraft.objects) : null;
   const ruleMap = ruleTarget && pinned && pin ? surfaceMap(pin, ruleTarget.frame) : null;
   if (ruleDraft?.rect && ruleTarget && ruleMap)
     zones.push({

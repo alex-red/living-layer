@@ -171,7 +171,7 @@ describe('fixtures', () => {
   it('lets rules target a switch or a fixture', () => {
     const rule = {
       label: 'Fan',
-      objectId: crypto.randomUUID(),
+      objects: [crypto.randomUUID()],
       entityId: 'switch.fan',
       fixtureId: crypto.randomUUID(),
       rect: { x: 0, y: 0, width: 1, height: 1 },
@@ -234,7 +234,7 @@ describe('fixtures in desk memory', () => {
     await s.restore({ ...picked, fixtures: [lamp] });
     const rule = {
       label: 'Desk',
-      objectId: picked.object!.id,
+      objects: [picked.object!.id],
       fixtureId: lamp.id,
       rect: { x: 0, y: 0, width: 1, height: 1 },
     };
@@ -427,7 +427,7 @@ describe('fixture routes', () => {
     await s.post('desk/rules/save', {
       rule: {
         label: 'Desk',
-        objectId: picked.object!.id,
+        objects: [picked.object!.id],
         entityId: 'switch.demo_fan',
         fixtureId: fan.id,
         rect: { x: 0, y: 0, width: 1, height: 1 },

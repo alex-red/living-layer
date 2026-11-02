@@ -521,24 +521,33 @@ export interface TrackedObject {
   item?: SavedItem | null;
 }
 /**
- * A zone beyond the main one: when `objectId` enters it, switch `entityId`
- * on. With no entity it switches nothing, and only tells Home Assistant.
+ * A zone beyond the main one. It counts some things (any the camera follows,
+ * or the ones named) and is occupied while any of them is fully inside. When
+ * it becomes occupied it switches `entityId` on, and with `offWhenEmpty` off
+ * again when the last one leaves. With no entity it switches nothing, and
+ * only tells Home Assistant.
  */
 export interface PlacementRule {
   id: string;
   label: string;
-  objectId: string;
+  /** What the zone counts: any thing the camera follows, or these by id. */
+  objects: 'any' | string[];
   /** A light or a switch, or null for a zone that only tells Home Assistant. */
   entityId: string | null;
   /** The fixture the entity was picked as, when it was picked as one. */
   fixtureId?: string;
+  /** Switch the entity off when the zone empties. */
+  offWhenEmpty?: boolean;
   zone: {
     sourceKey: string;
     rect: ZoneRect;
     frame: Segmentation['frame'];
     onSurface?: ZoneOnSurface;
   };
+  /** The zone's state: `inside` while any thing it counts is in it. */
   placement?: 'inside' | 'outside' | null;
+  /** The things it counts last seen fully inside. */
+  inside?: string[];
   lastDecision?: EvidenceRun<PlacementDecision> | null;
 }
 export const MAX_OTHER_OBJECTS = 4;
@@ -551,14 +560,16 @@ export const ruleInputSchema = z
   .object({
     id: z.string().uuid().optional(),
     label: z.string().trim().min(1).max(40),
-    objectId: z.string().uuid(),
+    objects: z.union([z.literal('any'), z.array(z.string().uuid()).min(1).max(16)]),
     entityId: entityIdSchema.nullable(),
     fixtureId: z.string().uuid().optional(),
+    offWhenEmpty: z.boolean().optional(),
     rect: zoneRectSchema,
     onSurface: zoneOnSurfaceSchema.optional(),
   })
   .strict()
-  .refine((r) => r.entityId || !r.fixtureId, { message: 'A fixture needs its entity.' });
+  .refine((r) => r.entityId || !r.fixtureId, { message: 'A fixture needs its entity.' })
+  .refine((r) => r.entityId || !r.offWhenEmpty, { message: 'Nothing to switch off.' });
 /**
  * The room a preset was, adopted as the person's own scene: a copy of the
  * preset as `memory.scene`, and everything that named the preset (its
@@ -668,13 +679,72 @@ export function setModel(memory: DeskMemory, objectId: string, item: SavedItem |
     }
   }
 }
-/** The placement rule for one extra zone; the same checks as the main one. */
-export function ruleGate(
+/** Everything the camera follows: the mug, other objects and tracked fixtures. */
+export function followedIds(memory: DeskMemory): string[] {
+  return [
+    ...(memory.object && memory.observation ? [memory.object.id] : []),
+    ...(memory.others ?? []).filter((o) => o.observation).map((o) => o.id),
+    ...(memory.fixtures ?? []).filter((f) => f.track).map((f) => f.id),
+  ];
+}
+/**
+ * The things a rule counts that are still remembered. A fixture never counts
+ * toward the entity it switches: it can't switch itself on by moving.
+ */
+export function ruleObjects(memory: DeskMemory, rule: PlacementRule): string[] {
+  const ids =
+    rule.objects === 'any'
+      ? followedIds(memory)
+      : rule.objects.filter((id) => objectById(memory, id));
+  return ids.filter((id) => id !== rule.fixtureId);
+}
+/**
+ * Rules once things are forgotten: each stops counting them, and one left
+ * counting nothing goes, since it can't be checked any more.
+ */
+export function withoutThings(rules: PlacementRule[] | undefined, gone: string[]): PlacementRule[] {
+  return (rules ?? []).flatMap((r) => {
+    if (r.objects === 'any')
+      return [{ ...r, inside: r.inside?.filter((id) => !gone.includes(id)) }];
+    const objects = r.objects.filter((id) => !gone.includes(id));
+    if (!objects.length) return [];
+    return objects.length === r.objects.length
+      ? [r]
+      : [{ ...r, objects, inside: r.inside?.filter((id) => objects.includes(id)) }];
+  });
+}
+/** What a rule counts, in words: "anything", "the mug", "the mug or the book". */
+export function ruleWho(memory: DeskMemory, rule: Pick<PlacementRule, 'objects'>): string {
+  if (rule.objects === 'any') return 'anything';
+  const names = rule.objects.map(
+    (id) => `the ${objectById(memory, id)?.label ?? 'forgotten thing'}`,
+  );
+  return names.length > 1 ? `${names.slice(0, -1).join(', ')} or ${names.at(-1)}` : names[0]!;
+}
+/**
+ * The sighting a rule's zone is drawn on: the newest among the things it
+ * counts, all seen by the one camera.
+ */
+export function ruleSighting(
+  memory: DeskMemory,
+  objects: PlacementRule['objects'],
+): DeskObservation | null {
+  const ids = objects === 'any' ? followedIds(memory) : objects;
+  return (
+    ids
+      .map((id) => objectById(memory, id)?.observation)
+      .filter((o): o is DeskObservation => Boolean(o))
+      .sort((a, b) => b.observedAt.localeCompare(a.observedAt))[0] ?? null
+  );
+}
+/** One counted thing against a rule's zone: the same checks as the main zone. */
+function thingGate(
   memory: DeskMemory,
   rule: PlacementRule,
-  now = Date.now(),
+  objectId: string,
+  now: number,
 ): Pick<PlacementDecision, 'decision' | 'reason' | 'assumedFixedCamera'> {
-  const target = objectById(memory, rule.objectId);
+  const target = objectById(memory, objectId);
   const o = target?.observation;
   if (!target || !o)
     return {
@@ -687,7 +757,6 @@ export function ruleGate(
       decision: 'blocked',
       reason: `The last sighting of the ${target.label} is stale. Track it in a new frame.`,
     };
-  if (calibrationOf(memory)?.moved) return { decision: 'blocked', reason: MOVED_CAMERA };
   const zone = zoneAppliesTo(o, rule.zone, memory.fixedCamera, calibrationOf(memory));
   if (!zone.applies)
     return {
@@ -708,6 +777,62 @@ export function ruleGate(
         reason: `The ${target.label} box is outside or crosses "${rule.label}"${assumption}.`,
         assumedFixedCamera: zone.carried,
       };
+}
+/**
+ * The state of an extra zone: occupied while any thing it counts is fully
+ * inside. Each thing is checked like the main zone's mug; one with no fresh
+ * verdict (stale, or drawn on another image) keeps its last place, so it
+ * neither empties the zone nor fills it. Blocked only when no thing it counts
+ * has a verdict.
+ */
+export function ruleGate(
+  memory: DeskMemory,
+  rule: PlacementRule,
+  now = Date.now(),
+): Pick<PlacementDecision, 'decision' | 'reason' | 'assumedFixedCamera'> & {
+  /** The things now inside. */
+  inside: string[];
+  /** The thing that moved the zone: the one that entered or left, else one decided. */
+  objectId: string | null;
+} {
+  const ids = ruleObjects(memory, rule);
+  const before = (rule.inside ?? []).filter((id) => ids.includes(id));
+  if (!ids.length)
+    return {
+      decision: 'blocked',
+      reason:
+        rule.objects === 'any'
+          ? 'Confirm something in a segmentation first.'
+          : `Confirm ${ruleWho(memory, rule)} in a segmentation first.`,
+      inside: before,
+      objectId: null,
+    };
+  if (calibrationOf(memory)?.moved)
+    return { decision: 'blocked', reason: MOVED_CAMERA, inside: before, objectId: null };
+  const gates = ids.map((id) => ({ id, ...thingGate(memory, rule, id, now) }));
+  const decided = gates.filter((g) => g.decision !== 'blocked');
+  if (!decided.length) return { ...gates[0]!, inside: before, objectId: null };
+  const inside = gates
+    .filter((g) => g.decision === 'inside' || (g.decision === 'blocked' && before.includes(g.id)))
+    .map((g) => g.id);
+  const objectId =
+    inside.find((id) => !before.includes(id)) ??
+    before.find((id) => !inside.includes(id)) ??
+    (decided.find((g) => g.decision === 'inside') ?? decided[0]!).id;
+  const assumedFixedCamera = decided.some((g) => g.assumedFixedCamera);
+  // One thing reads as before; several are summed up.
+  if (ids.length === 1) return { ...gates[0]!, inside, objectId };
+  const assumption = assumedFixedCamera ? ' (zone carried over: camera assumed fixed)' : '';
+  const names = inside.map((id) => objectById(memory, id)?.label ?? 'thing');
+  return {
+    decision: inside.length ? 'inside' : 'outside',
+    reason: inside.length
+      ? `${names.length > 1 ? `${names.length} things are` : `The ${names[0]} box is`} fully inside "${rule.label}" (${names.join(', ')})${assumption}.`
+      : `Nothing it counts is fully inside "${rule.label}"${assumption}.`,
+    assumedFixedCamera,
+    inside,
+    objectId,
+  };
 }
 export function placementGate(
   memory: DeskMemory,
@@ -767,6 +892,22 @@ export function upgradeMemory(memory: DeskMemory): DeskMemory {
         if (rule.entityId !== undefined) return rule;
         const { lightId, ...rest } = rule as PlacementRule & { lightId?: string };
         return { ...rest, entityId: lightId ?? '' };
+      }),
+    };
+  // Rules named one object before they could count several, or any.
+  const single = (r: PlacementRule) =>
+    r.objects === undefined && typeof (r as { objectId?: unknown }).objectId === 'string';
+  if (next.rules?.some(single))
+    next = {
+      ...next,
+      rules: next.rules.map((rule) => {
+        if (!single(rule)) return rule;
+        const { objectId, ...rest } = rule as PlacementRule & { objectId: string };
+        return {
+          ...rest,
+          objects: [objectId],
+          inside: rule.placement === 'inside' ? [objectId] : [],
+        };
       }),
     };
   const old = (key?: string) => key?.startsWith(OLD_DEMO_ID) ?? false;

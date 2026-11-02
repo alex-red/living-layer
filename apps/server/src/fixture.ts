@@ -69,6 +69,7 @@ import {
   type MergedFacts,
   type ProductFacts,
   type Usage,
+  withoutThings,
 } from '@livinglayer/domain';
 import { LabError, parseInput } from './errors.js';
 import { following, jobs } from './jobs.js';
@@ -1792,13 +1793,11 @@ export function fixtureRoutes(
         memory.dismissed = [...(memory.dismissed ?? []), gone.label].slice(-MAX_DISMISSED);
     memory.fixtures = (memory.fixtures ?? []).filter((f) => !ids.has(f.id));
     // Rules they decided go with them; rules that switched one keep their entity.
-    memory.rules = (memory.rules ?? [])
-      .filter((r) => !r.objectId || !ids.has(r.objectId))
-      .map((r) => {
-        if (!r.fixtureId || !ids.has(r.fixtureId)) return r;
-        const { fixtureId: _gone, ...rest } = r;
-        return rest;
-      });
+    memory.rules = withoutThings(memory.rules, [...ids]).map((r) => {
+      if (!r.fixtureId || !ids.has(r.fixtureId)) return r;
+      const { fixtureId: _gone, ...rest } = r;
+      return rest;
+    });
     store.saveMemory(memory);
     return memory;
   });

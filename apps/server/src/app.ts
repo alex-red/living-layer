@@ -228,8 +228,12 @@ export async function buildApp(
   const tracking = deskRoutes(
     app,
     store,
-    async (mode, entityId) =>
-      mode === 'demo' ? (entityId ? demoLampFor(entityId) : demoLamp) : switchLive(entityId, 'on'),
+    async (mode, entityId, action = 'on') =>
+      mode === 'demo'
+        ? entityId
+          ? demoLampFor(entityId, action)
+          : demoLamp
+        : switchLive(entityId, action),
     entities,
   );
   fixtureRoutes(app, {

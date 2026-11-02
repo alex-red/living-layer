@@ -707,6 +707,11 @@
   font-size: 13px;
   color: var(--text-2);
 }
+.rule-things {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
 .rule-builder select,
 .rule-builder input,
 .remember-row input {
