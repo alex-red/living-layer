@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   ARCHETYPES,
   PROP_TEMPLATES,
@@ -6,6 +6,7 @@ import {
   draftModel,
   fixturesForSave,
   layoutRoom,
+  placements,
   sceneForSave,
   type DraftModelSource,
   type DeskMemory,
@@ -14,6 +15,7 @@ import {
   type PhotoAs,
   type PhotoDraft,
   type PhotoEdit,
+  type PhotoLayout,
   type PlacedThing,
 } from '@livinglayer/domain';
 import { api } from '../api';
@@ -89,10 +91,12 @@ function DraftReview({
     return mug ? [mug.id] : [];
   });
   const [saving, setSaving] = useState(false);
+  // In development, how many times the layout was asked for again with the current code.
+  const relaid = useRelayout();
   const layout = useMemo(
     () =>
       // Through the room's calibrated camera, as the draft was: the pin follows from it.
-      Object.keys(edits).length === 0
+      Object.keys(edits).length === 0 && !relaid.count
         ? draft.layout
         : layoutRoom({
             inventory: draft.inventory,
@@ -101,8 +105,9 @@ function DraftReview({
             edits,
             calibration: draft.calibration,
           }),
-    [draft, edits],
+    [draft, edits, relaid.count],
   );
+  useDevHooks(run, layout);
   const shown = layout.pin?.corners ?? null;
   const tracked = track.filter((id) =>
     layout.things.some((t) => t.id === id && t.detectionId && t.status !== 'removed'),
@@ -312,7 +317,53 @@ function DraftReview({
         <Button disabled={busy || saving} onClick={onCancel}>
           Discard draft
         </Button>
+        {import.meta.env.DEV && (
+          <Button variant="ghost" size="sm" onClick={relaid.again}>
+            Lay out again
+          </Button>
+        )}
       </div>
     </div>
   );
+}
+
+/**
+ * In development, whether this module has been loaded again: Vite reloads it
+ * when it or anything it imports changes, the domain package included, and
+ * Fast Refresh then reruns the review's memos with the new code.
+ */
+const hotReloaded =
+  import.meta.hot && (import.meta.hot.data.loads = (import.meta.hot.data.loads ?? 0) + 1) > 1;
+/**
+ * In development: lay the draft out again on demand, and once a hot reload has
+ * brought new code, so a layout change shows in an open review at once.
+ */
+function useRelayout() {
+  const [count, setCount] = useState(0);
+  return { count: count + (hotReloaded ? 1 : 0), again: () => setCount((n) => n + 1) };
+}
+/**
+ * In development, `window.__livinglayer`: the review's placements as plain
+ * data, as `bun run draft` prints them, and which draft run it is.
+ */
+function useDevHooks(run: PhotoRun, layout: PhotoLayout) {
+  useEffect(() => {
+    if (!import.meta.env.DEV) return;
+    const labels = new Map(layout.things.map((t) => [t.id, t.label]));
+    const hooks = {
+      layout: () =>
+        Object.entries(placements(layout)).map(([id, p]) => ({ id, label: labels.get(id), ...p })),
+      draft: () => ({
+        id: run.id,
+        short: run.id.slice(0, 8),
+        segmentRunId: run.output.segmentRunId,
+        createdAt: run.createdAt,
+      }),
+    };
+    Object.assign(window, { __livinglayer: hooks });
+    return () => {
+      if ((window as { __livinglayer?: unknown }).__livinglayer === hooks)
+        delete (window as { __livinglayer?: unknown }).__livinglayer;
+    };
+  }, [run, layout]);
 }
