@@ -11,6 +11,7 @@ import {
   floorSolid,
   projectRoom,
   renderRoom,
+  uprightAt,
   sceneSolids,
   type IsoBox,
   type IsoProp,
@@ -32,6 +33,11 @@ export interface Overlay {
   grid?: boolean;
   /** Points in the room, drawn as dots: a thing's near points, say. */
   dots?: { at: { x: number; y: number; z: number }; color: string }[];
+  /**
+   * The marks' uprights as drawn (solid cyan) and, through each one's middle
+   * at its length, the upright the camera predicts there (dashed yellow).
+   */
+  uprights?: boolean;
 }
 
 const TINTS: [number, number, number][] = [
@@ -54,6 +60,7 @@ export async function overlay({
   marks,
   grid,
   dots = [],
+  uprights,
 }: Overlay) {
   const { width, height } = camera.frame;
   const base = frame
@@ -133,6 +140,17 @@ export async function overlay({
     svg.push(wall(marks.back), wall(marks.left));
     svg.push(`<circle cx="${marks.corner.x}" cy="${marks.corner.y}" r="6" fill="#f0f"/>`);
   }
+  if (marks && uprights)
+    (marks.verticals ?? []).forEach(({ a, b }, i) => {
+      const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+      const half = Math.hypot(b.x - a.x, b.y - a.y) / 2;
+      const u = uprightAt(camera, mid);
+      svg.push(
+        `<line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" stroke="#0ff" stroke-width="2.5"/>`,
+        `<line x1="${mid.x - u.x * half}" y1="${mid.y - u.y * half}" x2="${mid.x + u.x * half}" y2="${mid.y + u.y * half}" stroke="#ff0" stroke-width="2" stroke-dasharray="6 4"/>`,
+      );
+      text(Math.min(a.x, b.x) + 6, Math.min(a.y, b.y) - 4, `upright ${i + 1}`, '#0ff');
+    });
   return sharp(px, { raw: { width, height, channels: 4 } })
     .composite([
       {
