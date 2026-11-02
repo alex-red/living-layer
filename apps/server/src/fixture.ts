@@ -79,6 +79,7 @@ import { maskedCrop, validateImage } from './images.js';
 import {
   cropInput,
   demoPhoto,
+  PART_CONCEPTS,
   draftModel,
   keepLocked,
   pinElevation,
@@ -146,6 +147,8 @@ function withModel(fixtures: Fixture[], fixture: Fixture, model: SavedItem): Fix
     };
   });
 }
+/** A crop at least this wide is worth Spark's check in a scan; smaller wants a close photo. */
+const CHECKED_CROP_PX = 40;
 const sumUsage = (a: Usage | null, b: Usage | null | undefined): Usage | null =>
   !b
     ? a
@@ -161,6 +164,10 @@ const sumUsage = (a: Usage | null, b: Usage | null | undefined): Usage | null =>
  * The most a live draft can cost: Spark names the thing, SAM outlines it,
  * SAM looks for up to two parts, and Spark checks one render.
  */
+/** The most modelling one crop live can cost: SAM per part it looks for, and Spark's check. */
+const modelCeiling = (archetype: FixtureClass['archetype']) =>
+  Object.keys(PART_CONCEPTS[archetype] ?? {}).length * META_PRICES.samPerImage +
+  sparkCeiling(SPARK_BUDGET.itemCheck, 2);
 const fixtureDraftCeiling = () =>
   sparkCeiling(SPARK_BUDGET.fixtureClass, 1) +
   3 * META_PRICES.samPerImage +
@@ -618,6 +625,7 @@ export function fixtureRoutes(
           : { output: demoFixtureScan, model: 'demo', requestId: null, usage: null };
         job.check();
         const scan: FixtureScan = result.output;
+        let usage: Usage | null = result.usage;
         await job.done(
           'list',
           scan.things.length
@@ -669,17 +677,37 @@ export function fixtureRoutes(
           job.run('model', `${label} (${i + 1} of ${scan.things.length})`);
           await job.show('model', crop.png);
           job.check();
-          const drafted = await draftModel(meta, store, id, {
+          // Live help (part masks, Spark's check) for what is big enough to judge, while
+          // today's limit covers it; a thing a few pixels across wants a close photo instead.
+          const helped =
+            Boolean(image) &&
+            Math.max(crop.width, crop.height) >= CHECKED_CROP_PX &&
+            meta.canAfford(modelCeiling(thing.archetype));
+          const request = {
             crop,
             cropUrl: `data:image/png;base64,${crop.png.toString('base64')}`,
             label,
             archetype: thing.archetype,
             material: thing.material,
             elevation: pinElevation(memory, mode),
-            live: false,
             knownHeight: thing.sizeCm.h / Math.max(thing.sizeCm.w, thing.sizeCm.d),
-          });
+          };
+          // The help only helps: when it fails, this thing is fitted locally and the scan goes on.
+          const drafted = helped
+            ? await draftModel(meta, store, id, { ...request, live: true }).catch(
+                async (e: unknown) => {
+                  job.check();
+                  const local = await draftModel(meta, store, id, { ...request, live: false });
+                  local.assists.push(
+                    `Spark's check failed (${e instanceof Error ? e.message : 'it failed'}): fitted locally`,
+                  );
+                  return local;
+                },
+              )
+            : await draftModel(meta, store, id, { ...request, live: false });
           models.push(drafted.item);
+          usage = sumUsage(usage, drafted.usage);
+          assets.push(...drafted.assets);
           fits[i] = {
             fit: {
               archetype: drafted.fitted.archetype,
@@ -727,7 +755,7 @@ export function fixtureRoutes(
           await placedPreview(png, frame, mapped),
           SCAN_PREVIEW,
         );
-        return { ...result, output: { scan, mapped }, assets };
+        return { ...result, usage, output: { scan, mapped }, assets };
       });
       // Stopped while the last step ran: nothing is saved.
       job.check();

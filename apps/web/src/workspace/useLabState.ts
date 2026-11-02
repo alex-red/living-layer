@@ -2279,7 +2279,10 @@ export function useLabState() {
     }
   }
   /** Show the room a fixture goes in, and wait for a click there to put it down. */
-  function startPlacing(next: FixturePlacing) {
+  /** Model the next placed fixture with AI as soon as it is saved: a shape the fitter draws poorly. */
+  const sculptNext = useRef(false);
+  function startPlacing(next: FixturePlacing, { sculpt = false }: { sculpt?: boolean } = {}) {
+    sculptNext.current = sculpt;
     setPlacing(next);
     setWorkScene(next.scene);
     setIsoPanel('room');
@@ -2444,6 +2447,10 @@ export function useLabState() {
       setMessage(`${placing.id ? 'Moved' : 'Placed'} the ${placing.label.toLowerCase()}.`);
       if (saved) setSelection({ kind: 'fixture', id: saved.id });
       void refresh().catch(() => {});
+      if (sculptNext.current && saved && !placing.id) {
+        sculptNext.current = false;
+        void sculptFixture(saved.id);
+      }
     } catch (e) {
       setError(e instanceof Error ? e : 'The fixture could not be placed.');
     }

@@ -14,6 +14,7 @@ import {
   fixtureSize,
   fixtureStateNames,
   starterFixtureDraft,
+  SCULPT_FIRST,
   starterMeta,
   tileCm,
   type ControlKind,
@@ -348,6 +349,8 @@ export function NewFixturePanel() {
   const [pending, setPending] = useState(false);
   /** What the person says it is, before drafting; Spark is told. */
   const [hint, setHint] = useState('');
+  /** Model it with AI once placed: ticked for shapes the photo fit draws poorly. */
+  const [sculpt, setSculpt] = useState(false);
   const target = scene && scenes.some((s) => s.id === scene) ? scene : (scenes[0]?.id ?? null);
 
   function startFromTemplate(template: StarterTemplate, customColors?: [string, string]) {
@@ -393,6 +396,7 @@ export function NewFixturePanel() {
         ...(hint.trim() ? { label: hint.trim() } : {}),
       });
       setDraft({ draft: r.draft, scene: target });
+      setSculpt(SCULPT_FIRST.includes(r.draft.archetype));
       lab.setBoxing(null);
       setLabel(r.draft.label);
       const suggested = lab.entities.find((e) => e.startsWith(`${r.draft.suggested}.`));
@@ -569,6 +573,8 @@ export function NewFixturePanel() {
   const fit = d.model.fit;
   const size = d.size;
   const ready = Boolean(label.trim() && target && (kind === 'none' || entity));
+  // Modelling with AI needs Spark and a picture: a drafted photo, not a template.
+  const sculptable = mode === 'live' && lab.metaReady && Boolean(fit?.crop);
   return (
     <Panel
       tiny="REVIEW THE FIXTURE"
@@ -642,34 +648,48 @@ export function NewFixturePanel() {
           />
         </Field>
       )}
+      {sculptable && (
+        <Check checked={sculpt} onChange={setSculpt}>
+          Then model it with AI.{' '}
+          <span className="micro">
+            {SCULPT_FIRST.includes(d.archetype)
+              ? `A ${d.archetype} is a shape the photo fit draws poorly. `
+              : ''}
+            Spark rebuilds it in parts once it’s placed · 2 calls, ~$0.05–0.10.
+          </span>
+        </Check>
+      )}
       <div className="save-actions">
         <Button
           variant="primary"
           disabled={!ready}
           onClick={() =>
-            lab.startPlacing({
-              label: label.trim(),
-              scene: target!,
-              turns: 0,
-              size,
-              model: { label: label.trim(), parts: d.model.parts },
-              reference: d.reference,
-              control: controlOf(kind, entity),
-              ...(d.states
-                ? {
-                    states: Object.fromEntries(
-                      Object.entries(d.states).map(([k, v]) => [
-                        k,
-                        {
-                          model: { label: label.trim(), parts: v.model.parts },
-                          ...(v.size ? { size: v.size } : {}),
-                          ...(v.reference !== undefined ? { reference: v.reference } : {}),
-                        },
-                      ]),
-                    ),
-                  }
-                : {}),
-            })
+            lab.startPlacing(
+              {
+                label: label.trim(),
+                scene: target!,
+                turns: 0,
+                size,
+                model: { label: label.trim(), parts: d.model.parts },
+                reference: d.reference,
+                control: controlOf(kind, entity),
+                ...(d.states
+                  ? {
+                      states: Object.fromEntries(
+                        Object.entries(d.states).map(([k, v]) => [
+                          k,
+                          {
+                            model: { label: label.trim(), parts: v.model.parts },
+                            ...(v.size ? { size: v.size } : {}),
+                            ...(v.reference !== undefined ? { reference: v.reference } : {}),
+                          },
+                        ]),
+                      ),
+                    }
+                  : {}),
+              },
+              { sculpt: sculptable && sculpt },
+            )
           }
         >
           Place it

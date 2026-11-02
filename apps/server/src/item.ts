@@ -57,7 +57,7 @@ export const demoItemClass: ItemClass = {
   backside: null,
 };
 /** SAM concepts worth asking for inside a crop, per archetype: parts the fitter can use. */
-const PART_CONCEPTS: Partial<Record<Archetype, { handle?: string; inside?: string }>> = {
+export const PART_CONCEPTS: Partial<Record<Archetype, { handle?: string; inside?: string }>> = {
   mug: { handle: 'mug handle', inside: 'coffee' },
   cup: { inside: 'drink' },
   plant: { inside: 'soil' },

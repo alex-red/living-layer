@@ -826,6 +826,8 @@ describe('scanning live, with a mocked Meta API', () => {
         return samResponse(`<0f>1${sam.wire.replace(/^<0f>7/, '')}`);
       }
       prompts.push(`${body.text.format.name}: ${body.input[0].content[0].text}`);
+      if (body.text.format.name === 'item_check')
+        return sparkResponse({ height: 1, radius: 1, handleReach: 1, body: null, note: 'Close.' });
       return sparkResponse({
         things: [
           thing({
@@ -844,7 +846,7 @@ describe('scanning live, with a mocked Meta API', () => {
     const photo = await sharp(readFileSync('testdata/desk.svg')).png().toBuffer();
     const imageDataUrl = `data:image/png;base64,${photo.toString('base64')}`;
     const scan = () => s.post('fixtures/scan', { mode: 'live', imageDataUrl });
-    return { ...s, prompts, scan };
+    return { ...s, prompts, scan, fetcher };
   }
   const pin = async (s: Awaited<ReturnType<typeof live>>) => {
     const memory = (await s.app.inject('/api/desk/live')).json<DeskMemory>();
@@ -1077,16 +1079,41 @@ describe('scanning live, with a mocked Meta API', () => {
     await s.app.close();
     // Drawing, lifting and modelling with image work: slow on a busy machine.
   }, 20_000);
+  it('fits a thing locally when Spark’s check of it fails, and scans on', async () => {
+    const s = await live();
+    await pin(s);
+    s.fetcher.mockImplementation(async (_url, init) => {
+      const body = JSON.parse(String(init?.body));
+      if (body.model === 'sam-3.1') return samResponse(`<0f>1${sam.wire.replace(/^<0f>7/, '')}`);
+      if (body.text.format.name === 'item_check') return sparkResponse({ nonsense: true });
+      return sparkResponse({
+        things: [
+          thing({
+            label: 'desk lamp',
+            archetype: 'lamp',
+            control: 'light',
+            box: { x1: 360, y1: 270, x2: 640, y2: 730 },
+          }),
+        ],
+      });
+    });
+    const res = await s.scan();
+    expect(res.statusCode, res.body).toBe(200);
+    const lamp = res.json<Scanned>().memory.fixtures![0]!;
+    expect(lamp.model.fit!.assists.at(-1)).toMatch(/^Spark's check failed .*: fitted locally$/);
+  });
   it('asks Spark once, leaving out what the camera follows, and maps what it finds', async () => {
     const s = await live();
     await pin(s);
     const res = await s.scan();
     expect(res.statusCode, res.body).toBe(200);
     const r = res.json<Scanned>();
-    expect(s.prompts).toHaveLength(2);
+    // Spark's list, SAM's outlines, then Spark's check of the lamp's fit.
+    expect(s.prompts).toHaveLength(3);
     expect(s.prompts[0]).toMatch(/^fixture_scan: /);
     expect(s.prompts[0]).toContain('followed separately: Mug');
     expect(s.prompts[1]).toBe('sam');
+    expect(s.prompts[2]).toMatch(/^item_check: /);
     expect(r.run).toMatchObject({ kind: 'fixture', mode: 'live', status: 'completed' });
     expect(r.run.assets).toEqual(
       expect.arrayContaining([
@@ -1128,7 +1155,11 @@ describe('scanning live, with a mocked Meta API', () => {
     const res = await s.post('fixtures/scan', { mode: 'live' });
     expect(res.statusCode, res.body).toBe(200);
     expect(res.json<Scanned>().memory.fixtures![0]).toMatchObject({ scene: 'custom' });
-    expect(s.prompts).toEqual([expect.stringMatching(/^fixture_scan/), 'sam']);
+    expect(s.prompts).toEqual([
+      expect.stringMatching(/^fixture_scan/),
+      'sam',
+      expect.stringMatching(/^item_check/),
+    ]);
   });
   it('says the room’s photo is the wrong shape when it scans that and not a frame', async () => {
     const s = await live();

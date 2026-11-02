@@ -136,6 +136,14 @@ export const ARCHETYPE_FAMILY: Record<Archetype, ArchetypeFit['family']> = {
   book: 'box',
   box: 'box',
 };
+/**
+ * Shapes the fitter's archetypes draw poorly, so a live draft offers Model
+ * with AI straight after placing: a device is a flat outline extruded (a
+ * mouse comes out a blob), a box only a box, generic a guessed turned body,
+ * and a lamp's thin stem is lost between profile samples (the fit bench's
+ * known gap). Turned vessels, books and cats stay with the fitter.
+ */
+export const SCULPT_FIRST: readonly Archetype[] = ['device', 'box', 'generic', 'lamp'];
 const WORDS: [Archetype, RegExp][] = [
   // Before lamps, so a light switch is a device.
   [
