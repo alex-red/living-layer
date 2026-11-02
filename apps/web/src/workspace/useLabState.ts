@@ -1363,6 +1363,19 @@ export function useLabState() {
       void refresh().catch(() => {});
     }
   }
+  /** Put one of a fixture's earlier drafts back as its model; the current one is kept. */
+  async function chooseFixtureDraft(id: string, draft: number) {
+    setBusy('fixture-draft');
+    setError('');
+    try {
+      setMemory(await api<DeskMemory>('fixtures/choose', { mode, fixtureId: id, draft }));
+      setMessage('Put that draft back. The one it replaced is kept among the earlier drafts.');
+    } catch (e) {
+      setError(e instanceof Error ? e : 'Could not use that draft.');
+    } finally {
+      setBusy('');
+    }
+  }
   /**
    * Another photo of a fixture, fitted and fused with its model: a close one
    * of a thing the room's camera sees too small. The demo uses its own.
@@ -2637,6 +2650,7 @@ export function useLabState() {
     separate,
     sculptFixture,
     addFixturePhoto,
+    chooseFixtureDraft,
     refineFixture3d,
     scanFixtures,
     followAi,

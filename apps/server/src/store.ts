@@ -1,5 +1,5 @@
 import { Database } from 'bun:sqlite';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   isMugConcept,
@@ -39,6 +39,13 @@ export class EvidenceStore {
       CREATE TABLE IF NOT EXISTS jobs (id TEXT PRIMARY KEY, created_at TEXT NOT NULL, payload TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS meta_calls (id INTEGER PRIMARY KEY AUTOINCREMENT, created_at TEXT NOT NULL, payload TEXT NOT NULL);`);
     this.renameDemoMode();
+  }
+  /**
+   * Keep a person's pick between a fixture's drafts, one JSON line each in
+   * `fixture-picks.jsonl`: what was chosen and over what, for later study.
+   */
+  appendPick(pick: Record<string, unknown>): void {
+    appendFileSync(join(this.dir, 'fixture-picks.jsonl'), `${JSON.stringify(pick)}\n`);
   }
   /**
    * The offline mode used to be called `fixture`. Payloads are compact JSON, so

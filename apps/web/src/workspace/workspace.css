@@ -1224,6 +1224,30 @@
 .fixture-photo-small {
   color: var(--unsure);
 }
+/* A fixture's model beside its earlier drafts, front and back. */
+.fixture-drafts {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.fixture-drafts li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.fixture-drafts li > .micro {
+  flex: 1;
+}
+.fixture-draft-views {
+  display: flex;
+  gap: 2px;
+}
+.fixture-draft-views .fixture-model {
+  max-width: 56px;
+  height: auto;
+}
 
 /* The tool strip, and beside it how fixtures show on the room's picture. */
 .stage-tools {

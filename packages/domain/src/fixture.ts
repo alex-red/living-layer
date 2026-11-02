@@ -135,8 +135,48 @@ export interface Fixture extends Omit<FixtureInput, 'id' | 'model' | 'states'> {
   };
   /** Set once a person confirmed it in the camera's view; moving it by hand clears it. */
   track?: FixtureTrack;
+  /**
+   * Models it had before, newest first (at most MAX_DRAFTS): each change of
+   * model by Model with AI, SAM 3D or another photo keeps the one it replaced,
+   * so the person can compare them and pick one back.
+   */
+  drafts?: EarlierDraft[];
   createdAt: string;
   updatedAt: string;
+}
+
+/** How many earlier models a fixture keeps to choose between. */
+export const MAX_DRAFTS = 4;
+/** What made a fixture's model, read off the model itself. */
+export type ModelOrigin = 'fit' | 'photos' | 'sculpt' | 'sam3d' | 'other';
+export const MODEL_ORIGIN_LABEL: Record<ModelOrigin, string> = {
+  fit: 'Fitted to its photo',
+  photos: 'Fused from several photos',
+  sculpt: 'Modelled with AI',
+  sam3d: 'Refined with SAM 3D',
+  other: 'Drawn by hand or a template',
+};
+export function modelOrigin(model: SavedItem): ModelOrigin {
+  const fit = model.fit;
+  if (fit?.assists.some((a) => a.startsWith('SAM 3D'))) return 'sam3d';
+  if (fit && fit.views > 1) return 'photos';
+  if (fit) return 'fit';
+  return model.source === 'spark' ? 'sculpt' : 'other';
+}
+export interface EarlierDraft {
+  model: SavedItem;
+  origin: ModelOrigin;
+  /** When it was replaced. */
+  replacedAt: string;
+}
+/** The fixture with `model` in place of its own, the one it replaces kept as an earlier draft. */
+export function withNewModel<F extends Pick<Fixture, 'model' | 'drafts'>>(
+  f: F,
+  model: SavedItem,
+  now: string,
+): F {
+  const kept: EarlierDraft = { model: f.model, origin: modelOrigin(f.model), replacedAt: now };
+  return { ...f, model, drafts: [kept, ...(f.drafts ?? [])].slice(0, MAX_DRAFTS) };
 }
 
 /** A fixture the camera follows, like a remembered object. */

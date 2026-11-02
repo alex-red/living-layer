@@ -42,6 +42,9 @@ import {
   modeSchema,
   uniqueParts,
   fromSculpt,
+  MAX_DRAFTS,
+  modelOrigin,
+  withNewModel,
   buildItem,
   latheFromSplat,
   latheProportions,
@@ -149,14 +152,15 @@ function mappedSummary(mapped: MappedThing[]): string {
 }
 /**
  * The fixtures with a new model for this one and its linked copies in other
- * scenes: their current state's model when it has states, else their own.
+ * scenes: their current state's model when it has states, else their own,
+ * the one it replaces kept as an earlier draft.
  */
 function withModel(fixtures: Fixture[], fixture: Fixture, model: SavedItem): Fixture[] {
   const group = new Set([fixture.id, ...linkedFixtures(fixtures, fixture).map((f) => f.id)]);
   const now = new Date().toISOString();
   return fixtures.map((f) => {
     if (!group.has(f.id)) return f;
-    if (!fixture.state) return { ...f, model, updatedAt: now };
+    if (!fixture.state) return { ...withNewModel(f, model, now), updatedAt: now };
     const state = fixture.state;
     return {
       ...f,
@@ -1152,7 +1156,7 @@ export function fixtureRoutes(
                 },
                 updatedAt: now,
               }
-            : { ...sized(f), model: saved, updatedAt: now }
+            : { ...withNewModel(sized(f), saved, now), updatedAt: now }
           : f,
       );
       store.saveMemory(fresh);
@@ -1439,6 +1443,60 @@ export function fixtureRoutes(
     work.catch(() => {});
     return { jobId };
   });
+  /**
+   * Put one of a fixture's earlier drafts back as its model, the current one
+   * kept in its place, here and in its linked copies. Each pick is logged
+   * with what it was chosen over (`fixture-picks.jsonl` in the data folder),
+   * as examples of which modeller people prefer for which things.
+   */
+  app.post('/api/fixtures/choose', async (request) => {
+    const { mode, fixtureId, draft } = parseInput(
+      z
+        .object({
+          mode: modeSchema,
+          fixtureId: z.string().uuid(),
+          draft: z
+            .number()
+            .int()
+            .min(0)
+            .max(MAX_DRAFTS - 1),
+        })
+        .strict(),
+      request.body,
+    );
+    const memory = store.memory(mode);
+    const fixture = memory.fixtures?.find((f) => f.id === fixtureId);
+    if (!fixture) throw new LabError('fixture_missing', 'That fixture is gone.', 404);
+    const chosen = fixture.drafts?.[draft];
+    if (!chosen) throw new LabError('draft_missing', 'That draft is gone.', 404);
+    const now = new Date().toISOString();
+    const swap = <F extends Pick<Fixture, 'model' | 'drafts'>>(f: F): F => {
+      const rest = (f.drafts ?? []).filter((d) => d !== chosen && d.model !== chosen.model);
+      const kept = { model: f.model, origin: modelOrigin(f.model), replacedAt: now };
+      return { ...f, model: chosen.model, drafts: [kept, ...rest].slice(0, MAX_DRAFTS) };
+    };
+    const group = new Set([
+      fixture.id,
+      ...linkedFixtures(memory.fixtures ?? [], fixture).map((f) => f.id),
+    ]);
+    memory.fixtures = (memory.fixtures ?? []).map((f) =>
+      group.has(f.id) ? { ...swap(f), updatedAt: now } : f,
+    );
+    store.saveMemory(memory);
+    store.appendPick({
+      at: now,
+      mode,
+      label: fixture.label,
+      archetype: chosen.model.fit?.archetype ?? fixture.model.fit?.archetype ?? null,
+      chosen: chosen.origin,
+      over: [
+        modelOrigin(fixture.model),
+        ...(fixture.drafts ?? []).filter((d) => d !== chosen).map((d) => d.origin),
+      ],
+      crop: chosen.model.fit?.crop ?? fixture.model.fit?.crop ?? null,
+    });
+    return memory;
+  });
   /** Where a long job the page follows has got to. */
   app.get('/api/jobs/:id', async (request) => {
     const { id } = parseInput(z.object({ id: z.string().uuid() }).strict(), request.params);
@@ -1554,6 +1612,7 @@ export function fixtureRoutes(
       // The camera keeps following it unless it was moved by hand.
       ...(previous?.track && samePlace(previous, input) ? { track: previous.track } : {}),
       ...(previous?.seen && samePlace(previous, input) ? { seen: previous.seen } : {}),
+      ...(previous?.drafts?.length ? { drafts: previous.drafts } : {}),
       createdAt: previous?.createdAt ?? now,
       updatedAt: now,
     };

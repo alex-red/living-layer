@@ -775,6 +775,23 @@ describe('another photo of a fixture', () => {
     expect(fit.cropPx!.width).toBeGreaterThan(far.cropPx!.width * 2);
     expect(fit.crop).not.toBe(far.crop);
     expect(fit.assists.at(-1)).toMatch(/Fused with 1 earlier view, this one counted 4\.0 times/);
+    // The far fit is kept as an earlier draft, and can be picked back; the pick is noted.
+    const fused = res.json<{ memory: DeskMemory }>().memory.fixtures![0]!;
+    expect(fused.drafts).toHaveLength(1);
+    expect(fused.drafts![0]).toMatchObject({ origin: 'fit', model: { fit: { views: 1 } } });
+    const chose = await s.post('fixtures/choose', { fixtureId: id, draft: 0 });
+    expect(chose.statusCode, chose.body).toBe(200);
+    const back = chose.json<DeskMemory>().fixtures![0]!;
+    expect(back.model.fit!.views).toBe(1);
+    expect(back.drafts![0]).toMatchObject({ origin: 'photos', model: { fit: { views: 2 } } });
+    const picks = readFileSync(join(s.dataDir, 'fixture-picks.jsonl'), 'utf8').trim().split('\n');
+    expect(JSON.parse(picks.at(-1)!)).toMatchObject({
+      label: draft.label,
+      chosen: 'fit',
+      over: ['photos'],
+      archetype: 'mug',
+    });
+    expect((await s.post('fixtures/choose', { fixtureId: id, draft: 3 })).statusCode).toBe(404);
   });
   it('has no close photo in the demo of a thing it never pictured', async () => {
     const s = await setup();

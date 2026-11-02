@@ -15,6 +15,9 @@ import {
   fixtureStateNames,
   starterFixtureDraft,
   SCULPT_FIRST,
+  MODEL_ORIGIN_LABEL,
+  modelOrigin,
+  rotateItem,
   starterMeta,
   tileCm,
   type ControlKind,
@@ -66,9 +69,12 @@ const REFERENCE_LABEL: Record<DemoReference, string> = {
   cat: 'Cat',
 };
 
-/** The model as a small pixel-art picture, for review. */
-function ModelPreview({ model }: { model: FixtureDraft['model'] }) {
-  const sprite = itemSprite(model, { scale: 3, resolution: 48 });
+/** The model as a small pixel-art picture, for review; `turns` shows another side. */
+function ModelPreview({ model, turns = 0 }: { model: FixtureDraft['model']; turns?: number }) {
+  const sprite = itemSprite(turns ? { ...model, ...rotateItem(model, turns) } : model, {
+    scale: 3,
+    resolution: 48,
+  });
   return (
     <img
       className="fixture-model"
@@ -911,6 +917,7 @@ export function FixturePanel({ id }: { id: string }) {
         </p>
       </Details>
       <FixturePhoto fixture={f} disabled={off || moving} />
+      <EarlierDrafts fixture={f} disabled={off || moving} />
       <SculptFixture fixture={f} disabled={off || moving} />
       <FixtureCamera fixture={f} disabled={off || moving} />
       <p className="micro fixture-placed">
@@ -1198,6 +1205,58 @@ export function LampPanel({ id }: { id: string }) {
         </p>
       )}
     </Panel>
+  );
+}
+
+/**
+ * The fixture's model beside the ones it had before (Model with AI, SAM 3D
+ * and another photo each keep the one they replace), front and back, with
+ * where each came from and its outline match. Picking one puts it back.
+ */
+function EarlierDrafts({ fixture, disabled }: { fixture: Fixture; disabled: boolean }) {
+  const lab = useLab();
+  const drafts = fixture.drafts ?? [];
+  if (!drafts.length || fixture.state) return null;
+  const match = (m: Fixture['model']) =>
+    m.fit ? ` · ${Math.round(m.fit.iou * 100)}% outline match` : '';
+  return (
+    <Details summary={`Earlier drafts (${drafts.length})`}>
+      <ul className="fixture-drafts">
+        <li>
+          <span className="fixture-draft-views">
+            <ModelPreview model={fixture.model} />
+            <ModelPreview model={fixture.model} turns={2} />
+          </span>
+          <span className="micro">
+            Now: {MODEL_ORIGIN_LABEL[modelOrigin(fixture.model)]}
+            {match(fixture.model)}
+          </span>
+        </li>
+        {drafts.map((d, i) => (
+          <li key={d.replacedAt + i}>
+            <span className="fixture-draft-views">
+              <ModelPreview model={d.model} />
+              <ModelPreview model={d.model} turns={2} />
+            </span>
+            <span className="micro">
+              {MODEL_ORIGIN_LABEL[d.origin]}
+              {match(d.model)}
+            </span>
+            <Button
+              size="sm"
+              disabled={disabled || Boolean(lab.busy)}
+              onClick={() => void lab.chooseFixtureDraft(fixture.id, i)}
+            >
+              Use this
+            </Button>
+          </li>
+        ))}
+      </ul>
+      <p className="micro">
+        Outline match is against one photo only: a model can match it and still be the wrong shape,
+        so trust your eye. What you pick is noted, to learn which modeller suits what.
+      </p>
+    </Details>
   );
 }
 
