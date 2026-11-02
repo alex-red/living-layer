@@ -8,7 +8,7 @@ import { parseConfig, type Fetcher } from '../apps/server/src/config.js';
 import { EvidenceStore } from '../apps/server/src/store.js';
 import { ControlAdapter } from '../apps/server/src/control.js';
 import { syntheticStream } from '../apps/server/src/sam.js';
-import { demoPhotoInventory } from '../apps/server/src/demo.js';
+import { demoPhotoInventory, demoPhotoSegmentation } from '../apps/server/src/demo.js';
 import {
   STARTER_TEMPLATES,
   archetypeOf,
@@ -706,6 +706,76 @@ describe('drafting a fixture live, with a mocked Meta API', () => {
     expect((await s.draft({ reference: 'mouse' })).statusCode).toBe(400);
     expect(
       (await s.post('fixtures/draft', { scene: 'desk', imageDataUrl: 'data:' })).statusCode,
+    ).toBe(400);
+  });
+});
+
+describe('another photo of a fixture', () => {
+  it('fits a close photo and fuses it with the far one, counting it for more', async () => {
+    const s = await setup();
+    // The mug, boxed on the demo office's frame: about 20 pixels across.
+    const mug = (await demoPhotoSegmentation()).detections.find(
+      (d) => Number(d.objectId) === demoPhotoInventory.things.findIndex((t) => t.id === 'mug') + 1,
+    )!;
+    const k = (v: number, of: number) => Math.round((v / of) * 1000);
+    const box = {
+      x1: k(mug.box.x, 960),
+      y1: k(mug.box.y, 640),
+      x2: k(mug.box.x + mug.box.width, 960),
+      y2: k(mug.box.y + mug.box.height, 640),
+    };
+    const { draft } = (await s.post('fixtures/draft', { scene: 'desk', box })).json<{
+      draft: FixtureDraft;
+    }>();
+    const far = draft.model.fit!;
+    expect(far.views).toBe(1);
+    expect(far.cropPx!.width).toBeLessThan(60);
+    const saved = (
+      await s.post('fixtures/save', {
+        fixture: {
+          label: draft.label,
+          scene: 'desk',
+          surfaceId: 'desk:top',
+          at: { x: 3, y: 2 },
+          turns: 0,
+          size: draft.size,
+          model: { label: draft.model.label, parts: draft.model.parts },
+          reference: draft.reference,
+          control: { kind: 'none' },
+        },
+      })
+    ).json<DeskMemory>();
+    const id = saved.fixtures![0]!.id;
+    const res = await s.post('fixtures/photo', { fixtureId: id });
+    expect(res.statusCode, res.body).toBe(200);
+    const fit = res.json<{ memory: DeskMemory }>().memory.fixtures![0]!.model.fit!;
+    expect(fit.views).toBe(2);
+    expect(fit.cropPx!.width).toBeGreaterThan(far.cropPx!.width * 2);
+    expect(fit.crop).not.toBe(far.crop);
+    expect(fit.assists.at(-1)).toMatch(/Fused with 1 earlier view, this one counted 4\.0 times/);
+  });
+  it('has no close photo in the demo of a thing it never pictured', async () => {
+    const s = await setup();
+    const saved = (
+      await s.post('fixtures/save', {
+        fixture: {
+          label: 'Fan',
+          scene: 'desk',
+          surfaceId: 'desk:top',
+          at: { x: 3, y: 2 },
+          turns: 0,
+          size: { w: 0.5, d: 0.5, h: 1 },
+          model: { label: 'Fan', parts: starterFixtureDraft('lamp').model.parts },
+          reference: null,
+          control: { kind: 'none' },
+        },
+      })
+    ).json<DeskMemory>();
+    const res = await s.post('fixtures/photo', { fixtureId: saved.fixtures![0]!.id });
+    expect(res.statusCode).toBe(409);
+    expect(
+      (await s.post('fixtures/photo', { fixtureId: saved.fixtures![0]!.id, imageDataUrl: 'x' }))
+        .statusCode,
     ).toBe(400);
   });
 });

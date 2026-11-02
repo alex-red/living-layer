@@ -42,6 +42,8 @@ import {
   modeSchema,
   uniqueParts,
   fromSculpt,
+  buildItem,
+  fuseFits,
   scoreAgainst,
   sculptCheckPrompt,
   sculptPrompt,
@@ -67,6 +69,7 @@ import { listedPreview, outlinedPreview, placedPreview } from './scan-preview.js
 import sharp from 'sharp';
 import {
   demoDeskThing,
+  demoMugCloseUp,
   demoFixtureClass,
   demoFixtureScan,
   demoPhotoSegmentation,
@@ -124,6 +127,24 @@ function mappedSummary(mapped: MappedThing[]): string {
     skipped && `${skipped} skipped`,
   ].filter(Boolean);
   return parts.length ? parts.join(', ') : 'Nothing to place';
+}
+/**
+ * The fixtures with a new model for this one and its linked copies in other
+ * scenes: their current state's model when it has states, else their own.
+ */
+function withModel(fixtures: Fixture[], fixture: Fixture, model: SavedItem): Fixture[] {
+  const group = new Set([fixture.id, ...linkedFixtures(fixtures, fixture).map((f) => f.id)]);
+  const now = new Date().toISOString();
+  return fixtures.map((f) => {
+    if (!group.has(f.id)) return f;
+    if (!fixture.state) return { ...f, model, updatedAt: now };
+    const state = fixture.state;
+    return {
+      ...f,
+      states: { ...f.states, [state]: { ...f.states?.[state], model } },
+      updatedAt: now,
+    };
+  });
 }
 const sumUsage = (a: Usage | null, b: Usage | null | undefined): Usage | null =>
   !b
@@ -463,6 +484,7 @@ export function fixtureRoutes(
           elevation: drafted.fitted.elevation,
           views: 1,
           crop: cropAsset,
+          cropPx: { width: crop.width, height: crop.height },
           assists: [
             `${live ? 'Spark' : 'Demo'}: ${cls.archetype}, ${cls.material}. ${cls.description}`,
             ...drafted.assists,
@@ -666,6 +688,7 @@ export function fixtureRoutes(
               deltaE: drafted.score.deltaE,
               elevation: drafted.fitted.elevation,
               views: 1,
+              cropPx: { width: crop.width, height: crop.height },
               crop: cropAsset,
               assists: [
                 `Scan: ${thing.archetype}, ${thing.material}, outlined by SAM`,
@@ -1084,6 +1107,158 @@ export function fixtureRoutes(
       job.finish();
       return { memory: fresh, run: event };
     });
+  });
+  /**
+   * Another photo of a fixture, usually a close one of a thing the room's
+   * camera sees too small to model well: outlined and fitted as a draft is,
+   * then fused with the fits it already has, counted for more the larger its
+   * crop is than the last one's. Its crop becomes the fixture's picture. The
+   * demo uses its own close photos: the mug's, or a bundled picture by name.
+   */
+  app.post('/api/fixtures/photo', async (request) => {
+    const { mode, fixtureId, imageDataUrl } = parseInput(
+      z
+        .object({
+          mode: modeSchema,
+          fixtureId: z.string().uuid(),
+          imageDataUrl: z.string().max(7_000_000).optional(),
+        })
+        .strict(),
+      request.body,
+    );
+    const live = mode === 'live';
+    if (live !== Boolean(imageDataUrl))
+      throw new LabError(
+        'demo_image',
+        live ? 'Send a photo of the fixture.' : 'Demo mode uses its own close photos, not uploads.',
+      );
+    const memory = store.memory(mode);
+    const fixture = memory.fixtures?.find((f) => f.id === fixtureId);
+    if (!fixture) throw new LabError('fixture_missing', 'That fixture is gone.', 404);
+    if (live && !meta.canAfford(fixtureDraftCeiling()))
+      throw new LabError(
+        'spend_limit',
+        `Fitting another photo could cost up to $${fixtureDraftCeiling().toFixed(3)}, which would pass today's Meta spending limit. Raise the limit in Setup, or wait for the next UTC day.`,
+        429,
+      );
+    const active = fixtureModel(fixture);
+    const previous = active.fit ?? null;
+    const event = await run('fixture', mode, async (id) => {
+      let usage: Usage | null = null;
+      let model: string | undefined;
+      let requestId: string | null = null;
+      const assets: string[] = [];
+      let png: Buffer;
+      let detection: Detection;
+      let cls: Pick<FixtureClass, 'archetype' | 'material'> | null = null;
+      if (live) {
+        const image = await validateImage(imageDataUrl);
+        png = image.bytes;
+        const named = await meta.fixtureClass(image.dataUrl, fixture.label);
+        cls = named.output;
+        usage = named.usage;
+        model = named.model;
+        requestId = named.requestId;
+        const frame = { width: image.width, height: image.height };
+        const box = promptBox(named.output, frame);
+        if (!box)
+          throw new LabError(
+            'fixture_none',
+            `The ${fixture.label} is too small in the photo.`,
+            422,
+          );
+        const outlined = await meta.segmentBoxes(
+          image.dataUrl,
+          [{ id: 1, box }],
+          frame.width,
+          frame.height,
+        );
+        assets.push(store.asset(id, 'sam-output.txt', outlined.raw));
+        const found = [...outlined.output.detections].sort(
+          (a, b) => b.mask.foregroundPixels - a.mask.foregroundPixels,
+        )[0];
+        if (!found)
+          throw new LabError(
+            'fixture_none',
+            `Couldn’t find the ${fixture.label.toLowerCase()} in the photo. Fill most of the frame with it.`,
+            422,
+          );
+        detection = found;
+      } else {
+        const reference = DEMO_REFERENCES.find((r) => fixture.label.toLowerCase().includes(r));
+        if (/\bmug\b/i.test(fixture.label)) ({ png, detection } = await demoMugCloseUp('centre'));
+        else if (reference) ({ png, detection } = await demoReference(reference));
+        else
+          throw new LabError(
+            'demo_photo',
+            `The demo has no close photo of the ${fixture.label.toLowerCase()}: only the mug, mouse, lamp, monitor and cat.`,
+            409,
+          );
+      }
+      const crop = await maskedCrop(png, detection);
+      const cropAsset = store.asset(id, 'item-crop.png', crop.png);
+      const archetype = previous?.archetype ?? cls?.archetype ?? 'generic';
+      const size = fixtureSize(fixture);
+      const drafted = await draftModel(meta, store, id, {
+        crop,
+        cropUrl: `data:image/png;base64,${crop.png.toString('base64')}`,
+        label: fixture.label,
+        archetype,
+        material: cls?.material ?? null,
+        elevation: null,
+        live,
+        knownHeight: size.h / Math.max(size.w, size.d),
+      });
+      usage = sumUsage(usage, drafted.usage);
+      assets.push(...drafted.assets);
+      let { params, item, score } = drafted;
+      let views = 1;
+      const assists = [...drafted.assists];
+      if (previous && previous.archetype === drafted.fitted.archetype) {
+        // A close photo carries more than a far one: weighed by how much wider its crop is.
+        const weight = previous.cropPx
+          ? Math.min(4, Math.max(1, crop.width / Math.max(1, previous.cropPx.width)))
+          : 1;
+        params = fuseFits(previous.params, previous.views, params, weight);
+        item = buildItem(fixture.label, params);
+        score = scoreAgainst(item, drafted.input, drafted.fitted.elevation);
+        views = previous.views + 1;
+        assists.push(
+          `Fused with ${previous.views} earlier view${previous.views === 1 ? '' : 's'}` +
+            (weight > 1 ? `, this one counted ${weight.toFixed(1)} times` : ''),
+        );
+      }
+      const saved: SavedItem = {
+        ...uniqueParts(keepLocked(item, active)),
+        source: live ? 'spark' : 'demo',
+        segmentRunId: null,
+        swatches: drafted.fitted.swatches,
+        updatedAt: new Date().toISOString(),
+        fit: {
+          archetype: drafted.fitted.archetype,
+          params,
+          iou: score.iou,
+          deltaE: score.deltaE,
+          elevation: drafted.fitted.elevation,
+          views,
+          crop: cropAsset,
+          cropPx: { width: crop.width, height: crop.height },
+          assists,
+        },
+      };
+      return {
+        output: { fixtureId, views, iou: score.iou, model: saved },
+        assets: [cropAsset, ...assets],
+        usage,
+        ...(model ? { model } : {}),
+        requestId,
+      };
+    });
+    const saved = (event.output as { model: SavedItem }).model;
+    const fresh = store.memory(mode);
+    fresh.fixtures = withModel(fresh.fixtures ?? [], fixture, saved);
+    store.saveMemory(fresh);
+    return { run: event, memory: fresh };
   });
   /** Where a long job the page follows has got to. */
   app.get('/api/jobs/:id', async (request) => {

@@ -33,12 +33,14 @@ import {
   ARCHETYPE_FAMILY,
   FIT_TARGETS,
   SHAPE_TARGETS,
+  fuseFits,
   latheProportions,
   buildItem,
   defaultFit,
   fitItem,
   syntheticCrop,
   type Archetype,
+  type ArchetypeFit,
   type FitInput,
   type LatheFit,
 } from '@livinglayer/domain';
@@ -169,8 +171,9 @@ if (existsSync(dir))
  */
 const KNOWN_GAPS = new Set(['desk lamp 15°', 'illustrated lamp', 'demo room mug, close up']);
 const rows: Row[] = [];
-/** Each thing's height over rim, per view, for the across-views rows. */
-const views = new Map<string, number[]>();
+/** Each thing's fits, per view, for the across-views rows. */
+const views = new Map<string, { rim: number; params: LatheFit }[]>();
+const sizes = new Map<string, NonNullable<Case['sizeCm']>>();
 for (const c of cases) {
   const start = performance.now();
   const out = fitItem(c.input);
@@ -180,7 +183,10 @@ for (const c of cases) {
   const iou = out.score.iou.toFixed(3);
   const deltaE = out.score.deltaE.toFixed(2);
   const rim = out.params.family === 'lathe' ? latheProportions(out.params).rim : null;
-  if (rim !== null && c.object) views.set(c.object, [...(views.get(c.object) ?? []), rim]);
+  if (rim !== null && c.object && out.params.family === 'lathe') {
+    views.set(c.object, [...(views.get(c.object) ?? []), { rim, params: out.params }]);
+    if (c.sizeCm) sizes.set(c.object, c.sizeCm);
+  }
   rows.push({
     case: c.name,
     variant: 'as built',
@@ -212,22 +218,40 @@ for (const c of cases) {
     },
   });
 }
-// One thing seen from several sides should come out one shape.
-for (const [object, rims] of views)
-  if (rims.length > 1)
-    rows.push({
-      case: `${object}, across ${rims.length} views`,
-      variant: 'as built',
-      knownGap: true,
-      metrics: {
-        spread: {
-          value: Math.max(...rims) - Math.min(...rims),
-          target: SHAPE_TARGETS.spread,
-          better: 'lower',
-        },
+// One thing seen from several sides should come out one shape, and its views
+// fused (as a fixture's photos are) should come out closer than most alone.
+for (const [object, seen] of views) {
+  if (seen.length < 2) continue;
+  const rims = seen.map((v) => v.rim);
+  let fused: ArchetypeFit = seen[0]!.params;
+  for (const [i, v] of seen.slice(1).entries()) fused = fuseFits(fused, i + 1, v.params);
+  const size = sizes.get(object);
+  const fusedRim = fused.family === 'lathe' ? latheProportions(fused).rim : NaN;
+  rows.push({
+    case: `${object}, across ${seen.length} views`,
+    variant: 'as built',
+    knownGap: true,
+    metrics: {
+      spread: {
+        value: Math.max(...rims) - Math.min(...rims),
+        target: SHAPE_TARGETS.spread,
+        better: 'lower',
       },
-      notes: { source: 'real', 'height/rim': rims.map((r) => r.toFixed(2)).join(' ') },
-    });
+      ...(size
+        ? {
+            'fused shape': {
+              value: Math.abs(fusedRim / (size.h / size.rim) - 1),
+              target: SHAPE_TARGETS.aspect,
+              better: 'lower' as const,
+              unit: '%' as const,
+              digits: 0,
+            },
+          }
+        : {}),
+    },
+    notes: { source: 'real', 'height/rim': rims.map((r) => r.toFixed(2)).join(' ') },
+  });
+}
 const code = report(rows, parseArgs(), 'fit');
 console.log('* shown, not held to a target: only turned bodies are.');
 if (!cases.some((c) => c.source === 'real'))

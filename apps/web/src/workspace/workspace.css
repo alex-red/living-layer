@@ -1211,6 +1211,19 @@
 .sculpt-fixture .brush-prompt {
   justify-self: stretch;
 }
+/* Another photo of a fixture, and a word when its crop was too small. */
+.fixture-photo {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+}
+.fixture-photo .row {
+  display: flex;
+  gap: 8px;
+}
+.fixture-photo-small {
+  color: var(--unsure);
+}
 
 /* The tool strip, and beside it how fixtures show on the room's picture. */
 .stage-tools {

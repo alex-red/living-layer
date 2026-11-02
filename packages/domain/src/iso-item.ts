@@ -174,6 +174,8 @@ export interface ItemFitRecord {
   views: number;
   /** The masked crop it was fitted to, as an evidence asset. */
   crop: string | null;
+  /** That crop's size in pixels: a thing under about 60 across is too small to model well. */
+  cropPx?: { width: number; height: number };
   /** What Meta's models added: part masks from SAM, a class and a check from Spark. */
   assists: string[];
 }

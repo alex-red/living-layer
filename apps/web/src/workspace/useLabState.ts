@@ -1363,6 +1363,29 @@ export function useLabState() {
       void refresh().catch(() => {});
     }
   }
+  /**
+   * Another photo of a fixture, fitted and fused with its model: a close one
+   * of a thing the room's camera sees too small. The demo uses its own.
+   */
+  async function addFixturePhoto(id: string, imageDataUrl?: string) {
+    setBusy('fixture-photo');
+    setError('');
+    try {
+      const { run, memory: next } = await api<{
+        run: EvidenceRun<{ views: number; iou: number }>;
+        memory: DeskMemory;
+      }>('fixtures/photo', { mode, fixtureId: id, ...(imageDataUrl ? { imageDataUrl } : {}) });
+      setMemory(next);
+      setMessage(
+        `Fitted the photo and fused it with ${run.output.views - 1} earlier view${run.output.views === 2 ? '' : 's'}: ${Math.round(run.output.iou * 100)}% outline match${costNote(run)}.`,
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e : 'Could not fit the photo.');
+    } finally {
+      setBusy('');
+      void refresh().catch(() => {});
+    }
+  }
   async function anchorFixture(id: string, detectionId: string) {
     if (!segmentRunId) return;
     setBusy('anchor-fixture');
@@ -2567,6 +2590,7 @@ export function useLabState() {
     setFixtureLook,
     separate,
     sculptFixture,
+    addFixturePhoto,
     scanFixtures,
     followAi,
     aiTask,

@@ -346,6 +346,7 @@ export function itemRoutes(
           elevation: fitted.elevation,
           views,
           crop: cropAsset,
+          cropPx: { width: crop.width, height: crop.height },
           assists,
         },
       };

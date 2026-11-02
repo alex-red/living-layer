@@ -889,6 +889,7 @@ export function FixturePanel({ id }: { id: string }) {
           adjust Size to customise it.
         </p>
       </Details>
+      <FixturePhoto fixture={f} disabled={off || moving} />
       <SculptFixture fixture={f} disabled={off || moving} />
       <FixtureCamera fixture={f} disabled={off || moving} />
       <p className="micro fixture-placed">
@@ -1176,6 +1177,64 @@ export function LampPanel({ id }: { id: string }) {
         </p>
       )}
     </Panel>
+  );
+}
+
+/** Under this many pixels across, a crop is too small to model a thing well. */
+const SMALL_CROP_PX = 60;
+/**
+ * Another photo of a fixture, fitted and fused with its model: what to do
+ * when the room's camera saw it too small. Says so when its crop was.
+ */
+function FixturePhoto({ fixture, disabled }: { fixture: Fixture; disabled: boolean }) {
+  const lab = useLab();
+  const { mode, busy } = lab;
+  const fit = fixtureModel(fixture).fit;
+  const small = fit?.cropPx && Math.max(fit.cropPx.width, fit.cropPx.height) < SMALL_CROP_PX;
+  const off = disabled || Boolean(busy) || (mode === 'live' && !lab.metaReady);
+  const add = (file: File) =>
+    void photoDataUrl(file)
+      .then((url) => lab.addFixturePhoto(fixture.id, url))
+      .catch((e: unknown) => lab.setError(e instanceof Error ? e : 'Could not read the photo.'));
+  return (
+    <div className="fixture-photo">
+      {small && (
+        <p className="micro fixture-photo-small">
+          Fitted from a crop {Math.max(fit.cropPx!.width, fit.cropPx!.height)} px across, too small
+          to model well. A close photo of it will help.
+        </p>
+      )}
+      <div className="row">
+        {mode === 'live' ? (
+          <>
+            <PhotoButton
+              variant={small ? 'primary' : 'secondary'}
+              capture
+              disabled={off}
+              onFile={add}
+            >
+              {busy === 'fixture-photo' ? 'Fitting…' : 'Take a close photo'}
+            </PhotoButton>
+            <PhotoButton variant="ghost" disabled={off} onFile={add}>
+              Upload
+            </PhotoButton>
+          </>
+        ) : (
+          <Button
+            variant={small ? 'primary' : 'secondary'}
+            disabled={off}
+            onClick={() => void lab.addFixturePhoto(fixture.id)}
+          >
+            {busy === 'fixture-photo' ? 'Fitting…' : 'Add the demo’s close photo'}
+          </Button>
+        )}
+      </div>
+      <p className="micro">
+        {fit
+          ? `Fitted from ${fit.views} view${fit.views === 1 ? '' : 's'}. Another photo is fitted and fused with them, a closer one counting for more.`
+          : 'A photo of it is fitted as a draft is, and becomes its model.'}
+      </p>
+    </div>
   );
 }
 

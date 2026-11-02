@@ -1218,9 +1218,16 @@ export function scoreAgainst(item: IsoItem, input: FitInput, elevation: number):
  * Combine a new sighting's fit with what earlier ones measured: the shape
  * is averaged, weighted by how many views each side carries; colours and
  * print come from the newer view, or the older one when the newer saw none.
+ * `weight` counts the new view as more than one (a close photo of a thing
+ * the room's camera saw from across the room) or less.
  */
-export function fuseFits(prev: ArchetypeFit, views: number, next: ArchetypeFit): ArchetypeFit {
-  const w = views / (views + 1);
+export function fuseFits(
+  prev: ArchetypeFit,
+  views: number,
+  next: ArchetypeFit,
+  weight = 1,
+): ArchetypeFit {
+  const w = views / (views + weight);
   const mix = (a: number, b: number) => a * w + b * (1 - w);
   if (prev.family === 'box' && next.family === 'box')
     return {
