@@ -9,6 +9,10 @@ import {
   isoSceneSchema,
   pinOf,
   sceneWithRecipe,
+  fitGroup,
+  fitKept,
+  ISO_TILE_CM,
+  maskBits,
   settleFixtures,
   type IsoScene,
   type ZoneOnSurface,
@@ -206,6 +210,8 @@ export function assistRoutes(
         // 2. What the selection is of, sharpened by its outline (SAM live, the render in the demo).
         job.run('select');
         let outline: Bits;
+        // What a new model's place is fitted to: SAM's whole outline live, the room's drawing in the demo.
+        let whole: Bits | null = null;
         let resolved: Resolved;
         let samMissed: string | null = null;
         const crop = await around(png, selectionBox(shape, room.frame));
@@ -222,17 +228,19 @@ export function assistRoutes(
         } else {
           // The request points at what the panel showed: the selection through the room.
           resolved = room.resolve(selectionMask(shape, room.frame));
-          if (live)
-            ({ outline, samMissed } = keepOutline(
-              room,
-              shape,
-              resolved.target,
-              await samOutline(png, shape, room.frame, id),
-            ));
-          // The demo outlines what its fixed frame draws there.
-          else outline = demoOutline(shape, room.frame, drawnOf(room, resolved.target));
+          if (live) {
+            const sam = await samOutline(png, shape, room.frame, id);
+            ({ outline, samMissed } = keepOutline(room, shape, resolved.target, sam.cut));
+            // Only when the cut outline was SAM's own, of the target: else it outlined something else.
+            if (!samMissed) whole = sam.whole;
+          } else {
+            // The demo outlines what its fixed frame draws there.
+            outline = demoOutline(shape, room.frame, drawnOf(room, resolved.target));
+            whole = drawnOf(room, resolved.target);
+          }
         }
         assets.push(store.asset(id, 'outline.png', await maskPng(outline)));
+        if (whole) assets.push(store.asset(id, 'whole.png', await maskPng(whole)));
         assets.push(store.asset(id, 'crop.png', crop));
         await job.done(
           'select',
@@ -305,6 +313,7 @@ export function assistRoutes(
         await finishDraft(draft, {
           room,
           outline,
+          whole,
           rgba: (await rgbaOf(png)).data,
           researchers,
           refiner: live ? sparkRefiner(meta, dataUrl(crop), job.signal) : null,
@@ -400,22 +409,26 @@ export function assistRoutes(
       const pin = pinned ? pinOf(camera, pinned, camera.frame) : null;
       memory.surface = pin ? { ...pin, scene: 'custom' } : null;
     }
-    store.saveMemory(memory);
+    // The catalog first: if it fails, the room is unchanged and a retry doesn't add a second model.
     if (mode === 'live' && draft.facts && draft.intent.product)
       new Catalog([productsDir, BUNDLED_CATALOG]).save(
         { ...draft.facts, query: draft.intent.product },
         draft.recipe,
       );
+    store.saveMemory(memory);
     return { memory, group: g };
   });
 
-  /** SAM's outline of the boxed thing, cut to the selection; the selection itself when SAM finds none. */
+  /**
+   * SAM's outline of the boxed thing, cut to the selection (the selection
+   * itself when SAM finds none), and whole: SAM often outlines all of it.
+   */
   async function samOutline(
     png: Buffer,
     shape: SelectionShape,
     frame: Segmentation['frame'],
     runId: string,
-  ): Promise<Bits> {
+  ): Promise<{ cut: Bits; whole: Bits | null }> {
     const b = selectionBox(shape, frame);
     const outlined = await meta.segmentBoxes(
       dataUrl(png),
@@ -429,7 +442,7 @@ export function assistRoutes(
       frame.height,
     );
     store.asset(runId, 'sam-output.txt', outlined.raw);
-    return samMask(outlined.output, shape, frame);
+    return { cut: samMask(outlined.output, shape, frame), whole: samWhole(outlined.output, frame) };
   }
 }
 
@@ -443,6 +456,13 @@ export function samMask(
     (a, c) => c.mask.foregroundPixels - a.mask.foregroundPixels,
   )[0];
   return (found && clipMask(found, shape, frame)) ?? selectionMask(shape, frame);
+}
+/** SAM's largest outline for a box prompt, whole; null when it found none. */
+export function samWhole(sam: Pick<Segmentation, 'detections'>, frame: Segmentation['frame']) {
+  const found = [...sam.detections].sort(
+    (a, c) => c.mask.foregroundPixels - a.mask.foregroundPixels,
+  )[0];
+  return found ? maskBits(found, frame, 1) : null;
 }
 /** How the room's camera draws a target (a prop's group or a fixture); null for a tracked object or nothing. */
 export function drawnOf(
@@ -493,6 +513,7 @@ export async function finishDraft(
   {
     room,
     outline,
+    whole = null,
     rgba,
     researchers,
     refiner,
@@ -501,6 +522,8 @@ export async function finishDraft(
   }: {
     room: Pick<ReturnType<typeof selectionRoom>, 'camera' | 'scene'>;
     outline: Bits;
+    /** SAM's outline of the whole thing, not cut to the selection: what a new model's place is fitted to. */
+    whole?: Bits | null;
     rgba: Uint8Array | Uint8ClampedArray;
     researchers: Researcher[];
     refiner: Refiner | null;
@@ -584,9 +607,36 @@ export async function finishDraft(
   draft.place ??=
     (targetProp ? placeOfGroup(room.scene, targetProp) : null) ??
     (box ? { cx: box.cx, cy: box.cy, z: 0, turns: 0, replaces: null } : null);
+  // A new model in an old one's place stands where the camera sees the thing, not where the old
+  // one stood. A follow-up keeps the place its first request found.
+  if (!draft.previous && create && recipe && draft.place?.replaces && whole) {
+    const at = draft.place;
+    const fit = fitGroup(
+      room.camera,
+      sceneWithRecipe(room.scene, recipe, at, 'candidate'),
+      'candidate',
+      whole,
+    );
+    if (fit && fitKept(fit)) {
+      draft.place = {
+        ...at,
+        cx: at.cx + fit.moved.x,
+        cy: at.cy + fit.moved.y,
+        turns: fit.turned ? (at.turns + 2) % 4 : at.turns,
+      };
+      draft.fit = {
+        from: fit.from,
+        iou: fit.iou,
+        movedCm: { x: fit.moved.x * ISO_TILE_CM, y: fit.moved.y * ISO_TILE_CM },
+        turned: fit.turned,
+      };
+    } else draft.fit = null;
+  }
   if (recipe && draft.place && (reshaped || !draft.check)) {
     const place = draft.place;
-    const check = (r: FixtureRecipe) => checkRecipe(room.camera, room.scene, r, place, outline);
+    // Checked against all of the thing once its place was fitted to it, not the part selected.
+    const against = draft.fit && whole ? whole : outline;
+    const check = (r: FixtureRecipe) => checkRecipe(room.camera, room.scene, r, place, against);
     // Only a new model is refined, and never away from a size the person asked for.
     const refine = create && !edits.some((o) => o.op === 'resize') ? refiner : null;
     // A refinement that fails (a timeout, an overloaded model) keeps the best model so far; a stop still stops.
@@ -608,9 +658,13 @@ export async function finishDraft(
     draft.recipe = best.recipe;
     draft.check = best.check;
     draft.rounds = history.slice(1).map((h: BuildRound) => h.ops);
+    const moved = draft.fit && Math.hypot(draft.fit.movedCm.x, draft.fit.movedCm.y);
     await steps.done(
       'check',
-      best.check.report +
+      (draft.fit
+        ? `Moved ${Math.round(moved!)} cm${draft.fit.turned ? ' and turned round' : ''} to where the camera sees it. `
+        : '') +
+        best.check.report +
         (failed ? ` Spark’s refinement failed, so it is as built: ${failed}` : ''),
     );
   } else await steps.done('check', draft.place ? 'Unchanged' : 'Nowhere in the room to check it');

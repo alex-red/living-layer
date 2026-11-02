@@ -167,7 +167,22 @@ export interface RoomMarks {
   left: Point[];
   backEnd?: Point | null;
   leftEnd?: Point | null;
+  /**
+   * Lines a person drew straight up from the floor to something of known
+   * height (a desk's top, a door's frame): where it stands, the point that
+   * high above it, and how high that is. The floor marks pin the room's
+   * shape, not its size; a known height pins its size and the camera's.
+   */
+  heights?: HeightMark[];
 }
+export interface HeightMark {
+  foot: Point;
+  top: Point;
+  cm: number;
+}
+export const heightMarkSchema = z
+  .object({ foot: pointSchema, top: pointSchema, cm: z.number().min(5).max(400) })
+  .strict();
 export const roomMarksSchema = z
   .object({
     corner: pointSchema,
@@ -175,6 +190,7 @@ export const roomMarksSchema = z
     left: z.array(pointSchema).max(64),
     backEnd: pointSchema.nullable().optional(),
     leftEnd: pointSchema.nullable().optional(),
+    heights: z.array(heightMarkSchema).max(8).optional(),
   })
   .strict();
 
@@ -183,6 +199,16 @@ function offLine(a: Point, b: Point, p: Point) {
   const l = Math.hypot(b.x - a.x, b.y - a.y);
   if (l < 1e-9) return Math.hypot(p.x - a.x, p.y - a.y);
   return Math.abs((b.x - a.x) * (a.y - p.y) - (a.x - p.x) * (b.y - a.y)) / l;
+}
+
+/**
+ * How far, squared in pixels, a camera draws a height mark's top from where
+ * the person put it: the point its foot marks on the floor, raised its height.
+ */
+function heightMiss(c: RoomCamera, m: HeightMark) {
+  const foot = unprojectRoom(c, m.foot, 0);
+  const top = foot && projectRoom(c, { x: foot.x, y: foot.y, z: cm(m.cm) });
+  return top ? (top.x - m.top.x) ** 2 + (top.y - m.top.y) ** 2 : 1e8;
 }
 
 /** Nelder–Mead on a few numbers. */
@@ -270,6 +296,11 @@ export function cameraFromMarks(
         left: marks.left.map(shift),
         ...(marks.backEnd !== undefined ? { backEnd: marks.backEnd && shift(marks.backEnd) } : {}),
         ...(marks.leftEnd !== undefined ? { leftEnd: marks.leftEnd && shift(marks.leftEnd) } : {}),
+        ...(marks.heights
+          ? {
+              heights: marks.heights.map((m) => ({ ...m, foot: shift(m.foot), top: shift(m.top) })),
+            }
+          : {}),
       },
       full,
       room,
@@ -322,6 +353,11 @@ export function cameraFromMarks(
       e += 4 * (drawn ? (drawn.x - seen.x) ** 2 + (drawn.y - seen.y) ** 2 : 1e8);
       n += 4;
     }
+    // A known height counts like a wall's far corner.
+    for (const m of marks.heights ?? []) {
+      e += 4 * heightMiss(c, m);
+      n += 4;
+    }
     e /= n;
     // Priors, in pixels² so they weigh like a mark a few pixels off.
     const px = diag / 200;
@@ -355,6 +391,7 @@ export function cameraFromMarks(
     ...marks.left.map((p) => offLine(o ?? marks.corner, lAlong, p) ** 2),
     ...(marks.backEnd ? [gap(projectRoom(inner, { x: room.w, y: 0, z: 0 }), marks.backEnd)] : []),
     ...(marks.leftEnd ? [gap(projectRoom(inner, { x: 0, y: room.d, z: 0 }), marks.leftEnd)] : []),
+    ...(marks.heights ?? []).map((m) => heightMiss(inner, m)),
   ];
   // In the scene's own coordinates, walls and all.
   const camera: RoomCamera = {
@@ -402,6 +439,37 @@ export function roomSizeFor(
     const here = at(v);
     if (here.error < best.error) best = here;
   }
+  return best;
+}
+
+/**
+ * The room's size that best fits the marks when they include known heights:
+ * both walls scaled together, keeping the shape the floor marks give, from
+ * 0.6 to 1.6 times as given, to a centimetre or so. Without heights every
+ * scale fits the floor alike, so the size is kept.
+ */
+export function roomScaleFor(
+  marks: RoomMarks,
+  frame: RoomCamera['frame'],
+  room: RoomCamera['room'],
+  options: Parameters<typeof cameraFromMarks>[3] = {},
+): { room: RoomCamera['room']; error: number; scale: number } {
+  const at = (scale: number) => ({
+    scale,
+    room: { w: room.w * scale, d: room.d * scale },
+    error: cameraFromMarks(marks, frame, { w: room.w * scale, d: room.d * scale }, options).error,
+  });
+  if (!marks.heights?.length) return at(1);
+  let best = at(1);
+  for (let k = 0.6; k <= 1.6 + 1e-9; k += 0.05) {
+    const here = at(k);
+    if (here.error < best.error) best = here;
+  }
+  for (const step of [0.02, 0.005])
+    for (const d of [-2, -1, 1, 2]) {
+      const here = at(best.scale + d * step);
+      if (here.scale > 0 && here.error < best.error) best = here;
+    }
   return best;
 }
 

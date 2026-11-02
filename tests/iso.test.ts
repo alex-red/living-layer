@@ -152,10 +152,13 @@ describe('placing the demo mug', () => {
       const placed = projectBox(mug.box, surface, map.toSurface);
       expect(placed.onSurface).toBe(true);
       expect(placed.box.at.z).toBe(surface.z);
-      // The box's bottom edge is the mug's front rim, so it lands a little in front of its centre.
+      // The box's bottom edge is the mug's front rim; it stands on its base's middle, behind that.
       const at = DEMO_POSITIONS[position];
-      expect(placed.box.at.x + placed.box.size.w / 2).toBeCloseTo(at.x, 0);
-      expect(Math.abs(placed.box.at.y + placed.box.size.d / 2 - at.y)).toBeLessThan(0.4);
+      expect(Math.abs(placed.box.at.x + placed.box.size.w / 2 - at.x)).toBeLessThan(0.1);
+      expect(Math.abs(placed.box.at.y + placed.box.size.d / 2 - at.y)).toBeLessThan(0.1);
+      // About a mug's width with its handle: 8 to 12 cm.
+      expect(placed.box.size.w).toBeGreaterThan(0.27);
+      expect(placed.box.size.w).toBeLessThan(0.4);
     }
   });
   it('flags a box whose foot falls off the surface', () => {

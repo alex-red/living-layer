@@ -1,4 +1,4 @@
-import { useRef, useState, type PointerEvent } from 'react';
+import { useRef, useState, type MouseEvent, type PointerEvent } from 'react';
 import {
   ISO_TILE,
   PROP_FACES,
@@ -43,7 +43,7 @@ export function Solid({
   box: IsoBox;
   /** Base colour as `#rrggbb`; the sides are shaded from it. */
   color: string;
-  shape: IsoProp['shape'];
+  shape?: IsoProp['shape'];
   className?: string;
 }) {
   const { x, y, z } = box.at;
@@ -194,9 +194,14 @@ function ObjectMarker({ box, object }: { box: IsoBox; object: IsoObject }) {
 function FixtureMarker({
   fixture,
   onSelect,
+  onGrab,
+  onMenu,
 }: {
   fixture: IsoFixture;
   onSelect?: (id: string) => void;
+  /** Pressed to drag it; a press that doesn't move selects it instead. */
+  onGrab?: (e: PointerEvent<SVGGElement>) => void;
+  onMenu?: (e: MouseEvent<SVGGElement>) => void;
 }) {
   const { box } = fixture;
   const head = toIso({
@@ -209,7 +214,9 @@ function FixtureMarker({
     <g
       className={`iso-fixture ${fixture.focused ? 'focused' : ''} ${fixture.state === 'on' ? 'on' : ''} ${fixture.missing ? 'missing' : ''}`}
       data-fixture={fixture.id}
-      onClick={onSelect ? () => onSelect(fixture.id) : undefined}
+      onClick={onSelect && !onGrab ? () => onSelect(fixture.id) : undefined}
+      onPointerDown={onGrab}
+      onContextMenu={onMenu}
     >
       {fixture.focused && (
         <polygon
@@ -223,6 +230,8 @@ function FixtureMarker({
         />
       )}
       <ItemSprite item={fixture.item} origin={box.at} scale={Math.max(box.size.w, box.size.d)} />
+      {/* The sprite lets the pointer through; its box, invisible, is what is clicked and dragged. */}
+      <Solid box={box} color="#000000" className="iso-hit-shape" />
       <text x={head.sx} y={head.sy - 8}>
         {pip}
         {fixture.label.toUpperCase()}
@@ -315,6 +324,8 @@ export function IsoScene({
   objects = [],
   fixtures = [],
   onFixture,
+  onMoveFixture,
+  onFixtureMenu,
   onResizeFixture,
   placing,
   trail = [],
@@ -324,6 +335,7 @@ export function IsoScene({
   drawing = false,
   onDrag,
   editing,
+  hidden,
 }: {
   scene: Scene;
   surface?: IsoSurface;
@@ -331,6 +343,10 @@ export function IsoScene({
   fixtures?: IsoFixture[];
   /** A click on a fixture selects it. */
   onFixture?: (id: string) => void;
+  /** Drag a fixture to stand it elsewhere: its footprint's new centre, on a surface or the floor. */
+  onMoveFixture?: (id: string, to: { x: number; y: number; surfaceId: string | null }) => void;
+  /** Right-click on a fixture, at the pointer in the window. */
+  onFixtureMenu?: (id: string, at: { x: number; y: number }) => void;
   /** Stretch the selected fixture's base by its handles, to a footprint already turned. */
   onResizeFixture?: (id: string, rect: BaseRect) => Promise<void> | void;
   placing?: IsoPlacing;
@@ -343,6 +359,8 @@ export function IsoScene({
   drawing?: boolean;
   onDrag?: (a: Point, b: Point) => void;
   editing?: IsoEditing;
+  /** Prop groups not drawn; the view keeps its framing. */
+  hidden?: ReadonlySet<string>;
 }) {
   const svg = useRef<SVGSVGElement>(null);
   const start = useRef<Point | null>(null);
@@ -350,20 +368,28 @@ export function IsoScene({
   const [hover, setHover] = useState(false);
   const [ghost, setGhost] = useState<{ at: IsoVec; surfaceId: string | null } | null>(null);
   const [stretching, setStretching] = useState<{ id: string; rect: BaseRect } | null>(null);
-  // A base being stretched is drawn at its new size while the drag goes on.
-  const shown = stretching
-    ? fixtures.map((f) =>
-        f.id === stretching.id
-          ? {
-              ...f,
-              box: {
-                at: { ...f.box.at, x: stretching.rect.x, y: stretching.rect.y },
-                size: { ...f.box.size, w: stretching.rect.w, d: stretching.rect.d },
-              },
-            }
-          : f,
-      )
-    : fixtures;
+  // A fixture being dragged: where the press was, and where it would stand once it has moved.
+  const [moving, setMoving] = useState<{
+    id: string;
+    size: { w: number; d: number };
+    from: { x: number; y: number };
+    to: { at: IsoVec; surfaceId: string | null } | null;
+  } | null>(null);
+  // A base being stretched is drawn at its new size, and a dragged fixture where it would stand.
+  const shown = fixtures.map((f) =>
+    f.id === stretching?.id
+      ? {
+          ...f,
+          box: {
+            at: { ...f.box.at, x: stretching.rect.x, y: stretching.rect.y },
+            size: { ...f.box.size, w: stretching.rect.w, d: stretching.rect.d },
+          },
+        }
+      : f.id === moving?.id && moving.to
+        ? { ...f, box: { ...f.box, at: moving.to.at } }
+        : f,
+  );
+  const movable = Boolean(onMoveFixture) && !editing && !drawing && !placing;
   const floor: IsoVec[] = [
     { x: 0, y: 0, z: 0 },
     { x: scene.grid.w, y: 0, z: 0 },
@@ -390,7 +416,9 @@ export function IsoScene({
   const minY = Math.min(...all.map((p) => p.sy)) - pad * 2;
   const maxY = Math.max(...all.map((p) => p.sy)) + pad;
   const items: Drawable[] = [
-    ...scene.props.map((prop) => ({ ...prop, kind: 'prop' as const, prop })),
+    ...scene.props
+      .filter((p) => !hidden?.has(p.group))
+      .map((prop) => ({ ...prop, kind: 'prop' as const, prop })),
     ...objects.map((object) => ({ ...object.box, kind: 'object' as const, object })),
     ...shown.map((fixture) => ({ ...fixture.box, kind: 'fixture' as const, fixture })),
   ];
@@ -408,16 +436,14 @@ export function IsoScene({
     return w ? worldSurface(surface!, w) : null;
   }
   /**
-   * Where a fixture being placed would stand under the pointer: on the
+   * Where a fixture of this footprint would stand under the pointer: on the
    * highest surface the pointer is over, else on the floor, centred on the
    * pointer and kept inside the room.
    */
-  function placeAt(e: {
-    clientX: number;
-    clientY: number;
-  }): { at: IsoVec; surfaceId: string | null } | null {
-    if (!placing) return null;
-    const { w, d } = placing.size;
+  function standAt(
+    e: { clientX: number; clientY: number },
+    { w, d }: { w: number; d: number },
+  ): { at: IsoVec; surfaceId: string | null } | null {
     const corner = (p: IsoVec) => ({
       x: Math.min(Math.max(p.x - w / 2, 0), Math.max(scene.grid.w - w, 0)),
       y: Math.min(Math.max(p.y - d / 2, 0), Math.max(scene.grid.d - d, 0)),
@@ -454,6 +480,14 @@ export function IsoScene({
       role="img"
       aria-label={`Isometric ${scene.label.toLowerCase()}${described}`}
       onPointerMove={(e) => {
+        if (moving) {
+          // A few pixels of jitter is still a click.
+          if (!moving.to && Math.hypot(e.clientX - moving.from.x, e.clientY - moving.from.y) < 4)
+            return;
+          const to = standAt(e, moving.size);
+          if (to) setMoving({ ...moving, to });
+          return;
+        }
         const d = drag.current;
         const p = d && world(e, d.z);
         if (!d || !p) return;
@@ -465,9 +499,20 @@ export function IsoScene({
       }}
       onPointerUp={() => {
         drag.current = null;
+        if (!moving) return;
+        setMoving(null);
+        const { id, size, to } = moving;
+        if (to)
+          onMoveFixture?.(id, {
+            x: to.at.x + size.w / 2,
+            y: to.at.y + size.d / 2,
+            surfaceId: to.surfaceId,
+          });
+        else onFixture?.(id);
       }}
       onPointerCancel={() => {
         drag.current = null;
+        setMoving(null);
       }}
     >
       <polygon className="iso-floor" data-pan points={pts(floor)} />
@@ -551,6 +596,34 @@ export function IsoScene({
             key={`fixture-${item.fixture.id}`}
             fixture={item.fixture}
             onSelect={editing || drawing || placing ? undefined : onFixture}
+            onGrab={
+              movable
+                ? (e) => {
+                    if (e.button !== 0) return;
+                    const f = item.fixture;
+                    setMoving({
+                      id: f.id,
+                      size: { w: f.box.size.w, d: f.box.size.d },
+                      from: { x: e.clientX, y: e.clientY },
+                      to: null,
+                    });
+                    // Synthetic events (tests, assistive tech) may have no pointer to capture.
+                    try {
+                      svg.current?.setPointerCapture(e.pointerId);
+                    } catch {
+                      /* dragging still works while the pointer stays over the scene */
+                    }
+                  }
+                : undefined
+            }
+            onMenu={
+              onFixtureMenu && !editing && !drawing && !placing
+                ? (e) => {
+                    e.preventDefault();
+                    onFixtureMenu(item.fixture.id, { x: e.clientX, y: e.clientY });
+                  }
+                : undefined
+            }
           />
         ),
       )}
@@ -652,10 +725,10 @@ export function IsoScene({
           width={maxX - minX}
           height={maxY - minY}
           aria-label={`Place the ${placing.label.toLowerCase()}`}
-          onPointerMove={(e) => setGhost(placeAt(e))}
+          onPointerMove={(e) => setGhost(standAt(e, placing.size))}
           onPointerLeave={() => setGhost(null)}
           onClick={(e) => {
-            const where = placeAt(e);
+            const where = standAt(e, placing.size);
             if (where)
               placing.onPlace({ at: { x: where.at.x, y: where.at.y }, surfaceId: where.surfaceId });
           }}

@@ -79,6 +79,7 @@ export function IllustrationView({
   custom = null,
   onFixture,
   onMoveFixture,
+  onFixtureMenu,
   onResizeFixture,
   look = 'picture',
 }: {
@@ -93,6 +94,8 @@ export function IllustrationView({
   onFixture?: (id: string) => void;
   /** Move a fixture's footprint centre to a point of the scene. */
   onMoveFixture?: (id: string, to: { x: number; y: number; surfaceId: string | null }) => void;
+  /** Right-click on a fixture, at the pointer in the window. */
+  onFixtureMenu?: (id: string, at: { x: number; y: number }) => void;
   /** Give a fixture a new footprint, already turned. */
   onResizeFixture?: (id: string, rect: BaseRect) => Promise<void> | void;
   /** Fixtures as the picture shows them (their cut-outs, when lifted), or as their models. */
@@ -292,6 +295,14 @@ export function IllustrationView({
             else onFixture?.(f.id);
           }}
           onPointerCancel={() => setDrag(null)}
+          onContextMenu={
+            onFixtureMenu
+              ? (e) => {
+                  e.preventDefault();
+                  onFixtureMenu(f.id, { x: e.clientX, y: e.clientY });
+                }
+              : undefined
+          }
           onKeyDown={(e: KeyboardEvent<SVGGElement>) => {
             const step = unit * (e.shiftKey ? 2.5 : 0.5);
             const by = {

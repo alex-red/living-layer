@@ -14,6 +14,7 @@ export type ShortcutAction =
   | 'hand'
   | 'brush'
   | 'escape'
+  | 'delete'
   | 'help';
 
 const MAC = typeof navigator !== 'undefined' && /Mac|iP(hone|ad)/.test(navigator.platform);
@@ -33,6 +34,7 @@ export const SHORTCUTS: { action: ShortcutAction; keys: string; label: string }[
   { action: 'scale', keys: 'S', label: 'Scale a fixture’s base' },
   { action: 'hand', keys: 'H', label: 'Pan the view' },
   { action: 'brush', keys: 'B', label: 'AI brush: select a thing and say what to do' },
+  { action: 'delete', keys: 'Delete', label: 'Delete the selected fixture (undo brings it back)' },
   { action: 'escape', keys: 'Esc', label: 'Cancel a pin, a zone, a selection or the scene picker' },
   { action: 'help', keys: '?', label: 'Show these shortcuts' },
 ];
@@ -67,6 +69,7 @@ export function shortcutFor(e: KeyboardEvent): ShortcutAction | null {
   // Some keyboards (and synthetic events) report Shift+/ rather than '?'.
   if (e.key === '?' || (e.key === '/' && e.shiftKey)) return 'help';
   if (e.shiftKey) return null;
+  if (e.key === 'Delete' || e.key === 'Backspace') return 'delete';
   const plain: Record<string, ShortcutAction> = {
     p: 'photo',
     i: 'iso',

@@ -112,6 +112,7 @@ export function IsoView({
   onPlace,
   onFixture,
   onMoveFixture,
+  onFixtureMenu,
   onResizeFixture,
   tool = 'select',
   hand = false,
@@ -160,6 +161,8 @@ export function IsoView({
   onFixture?: (id: string) => void;
   /** Move a fixture by dragging it on the room's picture. */
   onMoveFixture?: (id: string, to: { x: number; y: number; surfaceId: string | null }) => void;
+  /** Right-click on a fixture, at the pointer in the window. */
+  onFixtureMenu?: (id: string, at: { x: number; y: number }) => void;
   /** Stretch a fixture's base by its handles, to a footprint already turned. */
   onResizeFixture?: (id: string, rect: BaseRect) => Promise<void> | void;
   /** The canvas tool: fixtures move with Select, stretch with Scale. */
@@ -433,6 +436,7 @@ export function IsoView({
             cameraLive={cameraLive}
             {...(captureFrame ? { captureFrame } : {})}
             onCalibrated={onMemory}
+            onMessage={onMessage}
             {...(onCalibrateByHand ? { onCalibrateByHand } : {})}
             {...(onCalibrateHere ? { onCalibrateHere } : {})}
             {...(follow ? { follow } : {})}
@@ -490,6 +494,7 @@ export function IsoView({
                   .map(shown)}
                 custom={custom}
                 {...(onFixture ? { onFixture } : {})}
+                {...(onFixtureMenu ? { onFixtureMenu } : {})}
                 {...(onMoveFixture && tool === 'select' ? { onMoveFixture } : {})}
                 {...(onResizeFixture && tool === 'scale' ? { onResizeFixture } : {})}
                 look={fixtureLook}
@@ -501,6 +506,8 @@ export function IsoView({
                 objects={objects}
                 fixtures={fixtures}
                 onFixture={onFixture}
+                onMoveFixture={tool === 'select' ? onMoveFixture : undefined}
+                onFixtureMenu={onFixtureMenu}
                 onResizeFixture={tool === 'scale' ? onResizeFixture : undefined}
                 placing={
                   placing && onPlace && placing.scene === kind

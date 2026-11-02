@@ -17,6 +17,7 @@ import {
   type IsoSceneKind,
   type Mode,
   type SceneDraft,
+  type SceneFit,
   type DeskMemory,
   type CameraCrop,
   type RoomMarks,
@@ -49,7 +50,7 @@ const groupLabel = (scene: Scene, g: string) => {
 };
 
 type Preset = IsoSceneKind | 'empty';
-type Running = 'setup' | 'spark' | 'upload' | 'frame';
+type Running = 'setup' | 'spark' | 'upload' | 'frame' | 'fit';
 type Snapshot = { draft: Scene; turned: number };
 const HISTORY_LIMIT = 100;
 /** Edits under one key closer together than this are one undo step (a drag, typing a size). */
@@ -84,6 +85,7 @@ export function SceneEditor({
   onUpload,
   onPhotoSaved,
   onError,
+  onMessage,
   follow,
   room,
   onCalibrateByHand,
@@ -107,6 +109,8 @@ export function SceneEditor({
   onUpload?: (file: File) => Promise<string | undefined>;
   onPhotoSaved: (memory: DeskMemory) => void;
   onError: (error: string | Error) => void;
+  /** Say what an edit did, in the lab's message line. */
+  onMessage?: (text: string) => void;
   /** Follow a photo draft step by step in the AI dialog. */
   follow?: AiFollow;
   /** The room the camera is calibrated for when setting the room up. */
@@ -130,6 +134,8 @@ export function SceneEditor({
   const initial = () => (showsSaved ? saved! : asCustom(base));
   const [draft, setDraft] = useState<Scene>(initial);
   const [selected, setSelected] = useState<string>();
+  // Groups left out of the drawing while editing, to see and reach what they cover; never saved.
+  const [hidden, setHidden] = useState<ReadonlySet<string>>(new Set());
   const [summary, setSummary] = useState('');
   // Which camera action is running, so only its button says so.
   const [running, setRunning] = useState<Running>();
@@ -196,6 +202,16 @@ export function SceneEditor({
     return () => window.removeEventListener('keydown', onKey);
   }, []);
   const flagged = overlappingGroups(draft);
+  const groups = [...new Set(draft.props.map((p) => p.group))];
+  const hide = (gs: string[], off: boolean) =>
+    setHidden((h) => {
+      const next = new Set(h);
+      for (const g of gs) {
+        if (off) next.add(g);
+        else next.delete(g);
+      }
+      return next;
+    });
   const check = isoSceneSchema.safeParse(draft);
   const dirty = JSON.stringify(draft) !== JSON.stringify(saved ?? null);
   const groupProps = selected ? draft.props.filter((p) => p.group === selected) : [];
@@ -231,6 +247,42 @@ export function SceneEditor({
       onDrafted(run);
     } catch (e) {
       onError(e instanceof Error ? e : 'The photo could not be drafted.');
+    } finally {
+      setRunning(undefined);
+    }
+  }
+  /**
+   * Move the selected prop to where the camera sees it: SAM outlines it on
+   * the current frame (one call, live) and it is moved, or turned round,
+   * until its drawing matches. An edit like any other: undo takes it back.
+   */
+  async function fitToCamera(g: string) {
+    const url = mode === 'live' ? (captureFrame?.().url ?? image) : undefined;
+    if (mode === 'live' && !url) return;
+    setRunning('fit');
+    try {
+      const r = await api<SceneFit>('scene/fit', {
+        mode,
+        scene: draft,
+        group: g,
+        ...(url ? { imageDataUrl: url } : {}),
+      });
+      const name = groupLabel(draft, g).toLowerCase();
+      const moved = Math.round(Math.hypot(r.fit.movedCm.x, r.fit.movedCm.y));
+      if (r.fit.kept) {
+        edit(r.scene);
+        setSummary('');
+        onMessage?.(
+          `Moved the ${name} ${moved} cm${r.fit.turned ? ' and turned it round' : ''} to where the camera sees it (match ${Math.round(r.fit.from * 100)}% → ${Math.round(r.fit.iou * 100)}%). Undo takes it back.`,
+        );
+      } else
+        onMessage?.(
+          r.fit.iou >= r.fit.from + 0.05
+            ? `The ${name} matches the camera only ${Math.round(r.fit.iou * 100)}% at best, so it stays put: check what SAM outlined.`
+            : `The ${name} already stands where the camera sees it (match ${Math.round(r.fit.from * 100)}%).`,
+        );
+    } catch (e) {
+      onError(e instanceof Error ? e : 'The prop could not be fitted to the camera.');
     } finally {
       setRunning(undefined);
     }
@@ -332,9 +384,47 @@ export function SceneEditor({
   return (
     <div className="scene-editor">
       <div className="scene-editor-body">
+        <div className="scene-layers" role="group" aria-label="Props in the room">
+          <div className="scene-layers-head">
+            <span className="tiny">PROPS · {groups.length}</span>
+            {hidden.size > 0 && (
+              <Button variant="text" size="sm" onClick={() => setHidden(new Set())}>
+                Show all
+              </Button>
+            )}
+          </div>
+          <ul>
+            {groups.map((g) => (
+              <li
+                key={g}
+                className={[
+                  g === selected ? 'selected' : '',
+                  hidden.has(g) ? 'hidden' : '',
+                  flagged.has(g) ? 'overlap' : '',
+                ].join(' ')}
+              >
+                <input
+                  type="checkbox"
+                  checked={!hidden.has(g)}
+                  aria-label={`Show ${groupLabel(draft, g)}`}
+                  title={hidden.has(g) ? 'Show it' : 'Hide it while editing'}
+                  onChange={(e) => hide([g], !e.target.checked)}
+                />
+                <button
+                  type="button"
+                  aria-pressed={g === selected}
+                  onClick={() => setSelected(g === selected ? undefined : g)}
+                >
+                  {groupLabel(draft, g)}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
         <div className="scene-canvas">
           <IsoScene
             scene={draft}
+            hidden={hidden}
             litLights={new Set(lamp?.lightId ? [lamp.lightId] : [])}
             editing={{
               selected,
@@ -592,6 +682,18 @@ export function SceneEditor({
             >
               ↻
             </IconButton>
+            <Button
+              size="sm"
+              disabled={busy || drafting || !canSetUp}
+              title={
+                mode === 'demo'
+                  ? 'Move it to where the demo camera sees it. No model calls.'
+                  : 'Move it to where the camera sees it in the current frame: SAM outlines it, one billed call.'
+              }
+              onClick={() => void fitToCamera(selected)}
+            >
+              {running === 'fit' ? 'Fitting…' : 'Fit to camera'}
+            </Button>
             <IconButton
               label="Remove prop"
               disabled={busy || drafting}

@@ -41,6 +41,13 @@ export interface AssistDraft {
   disagreement: ReturnType<typeof sizeDisagreement>;
   recipe: FixtureRecipe | null;
   place: RecipePlace | null;
+  /**
+   * How the place was fitted to SAM's whole outline through the camera, when
+   * a new model took an old one's place: IoU before and after, how far its
+   * middle moved in centimetres, and whether it was turned half way round.
+   * Absent or null when it stands where the old one did.
+   */
+  fit?: { from: number; iou: number; movedCm: { x: number; y: number }; turned: boolean } | null;
   check: RecipeCheck | null;
   /** Refinement rounds after the first check, and the ops each applied. */
   rounds: RecipeOp[][];

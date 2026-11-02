@@ -109,3 +109,14 @@ export async function* syntheticStream(wire: string): AsyncGenerator<SamEvent> {
   };
   yield { type: 'response.completed', response: { id: 'demo-response', status: 'completed' } };
 }
+
+/** A segmentation from SAM's stored output (`sam-output.txt`), for replaying a run offline. */
+export function decodeStoredSam(raw: string, concept: string, width: number, height: number) {
+  const lane = { item_id: 'stored', output_index: 0, content_index: 0 };
+  async function* events(): AsyncGenerator<SamEvent> {
+    yield { type: 'response.output_text.delta', delta: raw, ...lane };
+    yield { type: 'response.output_text.done', text: raw, ...lane };
+    yield { type: 'response.completed', response: { status: 'completed' } };
+  }
+  return decodeSegmentation(events(), concept, width, height);
+}

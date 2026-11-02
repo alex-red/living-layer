@@ -373,19 +373,34 @@ export function worldSurface(surface: IsoSurface, p: Pick<IsoVec, 'x' | 'y'>): P
 
 const clamp = (n: number, min: number, max: number) => Math.max(min, Math.min(max, n));
 /**
- * Where a detection stands on a surface: the bottom-centre of its box (the
- * point that touches the surface), with a footprint sized from the box's
- * bottom edge. `onSurface` is false when that point falls off the surface.
+ * Where a detection stands on a surface: the middle of its base, with a
+ * footprint sized from the box's bottom edge. The bottom-centre of the box is
+ * the base's front edge, nearest the camera, so the middle is half the
+ * base's width further from the camera, the way up the frame goes on the
+ * surface. `onSurface` is false when that middle falls off the surface.
  */
 export function projectBox(
   box: Detection['box'],
   surface: IsoSurface,
   toSurface: Homography,
 ): { foot: Point; box: IsoBox; onSurface: boolean } {
-  const foot = applyHomography(toSurface, { x: box.x + box.width / 2, y: box.y + box.height });
+  const bottom = { x: box.x + box.width / 2, y: box.y + box.height };
+  const front = applyHomography(toSurface, bottom);
   const left = applyHomography(toSurface, { x: box.x, y: box.y + box.height });
   const right = applyHomography(toSurface, { x: box.x + box.width, y: box.y + box.height });
-  const width = clamp(Math.hypot(right.x - left.x, right.y - left.y) * surface.rect.w, 0.25, 1.5);
+  // Surface units to tiles, so the step back is measured in the room, not the unit square.
+  const { w: sw, d: sd } = surface.rect;
+  const width = clamp(Math.hypot((right.x - left.x) * sw, (right.y - left.y) * sd), 0.25, 1.5);
+  const up = applyHomography(toSurface, { x: bottom.x, y: bottom.y - box.height / 4 });
+  const ux = (up.x - front.x) * sw;
+  const uy = (up.y - front.y) * sd;
+  const along = Math.hypot(ux, uy);
+  const foot = along
+    ? {
+        x: front.x + ((ux / along) * (width / 2)) / sw,
+        y: front.y + ((uy / along) * (width / 2)) / sd,
+      }
+    : front;
   const height = clamp(width * (box.height / box.width) * 0.8, 0.25, 2);
   const onSurface = foot.x >= -0.05 && foot.x <= 1.05 && foot.y >= -0.05 && foot.y <= 1.05;
   const centre = surfaceWorld(surface, { x: clamp(foot.x, 0, 1), y: clamp(foot.y, 0, 1) });

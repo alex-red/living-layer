@@ -725,6 +725,12 @@ export function useLabState() {
       setIsoPanel('room');
       return;
     }
+    if (action === 'delete') {
+      // The layout editor deletes its own selection.
+      if (selection?.kind !== 'fixture' || busy || pinning || placing || isoPanel === 'scene')
+        return false;
+      return void deleteFixtures([selection.id]);
+    }
     if (action === 'scene' && !busy && !pinning) setChoosingScene(true);
     if (action === 'select' || action === 'scale' || action === 'hand') setTool(action);
     if (action === 'brush') chooseTool('brush');
@@ -2349,6 +2355,32 @@ export function useLabState() {
     });
     setMessage(`Check the ${label}’s corners on the photo, then save the pin.`);
   }
+  /** Remove fixtures; "Not a fixture" (`dismiss`) also tells scans to skip things named like them. */
+  async function deleteFixtures(ids: string[], dismiss = false) {
+    const gone = (memory?.fixtures ?? []).filter((f) => ids.includes(f.id));
+    if (!gone.length) return;
+    setError('');
+    try {
+      const m = await api<DeskMemory>('fixtures/delete', {
+        mode,
+        fixtureIds: gone.map((f) => f.id),
+        ...(dismiss ? { dismiss: true } : {}),
+      });
+      setMemory(m);
+      if (selection?.kind === 'fixture' && ids.includes(selection.id)) setSelection(null);
+      const undoKeys = SHORTCUTS.find((k) => k.action === 'undo')!.keys;
+      setMessage(
+        (gone.length === 1
+          ? `Removed the ${gone[0]!.label.toLowerCase()}.`
+          : `Removed ${gone.length} fixtures.`) +
+          (dismiss ? ' Scans will skip things named like it.' : '') +
+          ` Undo with ${undoKeys}.`,
+      );
+      void refresh().catch(() => {});
+    } catch (e) {
+      setError(e instanceof Error ? e : 'The fixture could not be removed.');
+    }
+  }
   /** Save the fixture being placed where the person clicked, and select it. */
   async function placeFixture(where: { at: { x: number; y: number }; surfaceId: string | null }) {
     if (!placing) return;
@@ -2546,6 +2578,7 @@ export function useLabState() {
     startPlacing,
     placeFixture,
     updateFixture,
+    deleteFixtures,
     inRoomViewOf,
     adjustPin,
     guess,

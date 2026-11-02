@@ -25,6 +25,7 @@ import type { StageView } from '../session';
 import { Button, Check, Segmented, type Option } from '../ui/controls';
 import { useLab } from './LabContext';
 import { DeskStep, Onboarding } from './Onboarding';
+import { ContextMenu } from './ContextMenu';
 import { Popover } from './Popover';
 import { ToolStrip } from './ToolStrip';
 import { BrushOverlay, BrushPanel } from './Brush';
@@ -82,6 +83,11 @@ export function Canvas() {
   const zoomStart = useRef<{ x: number; y: number } | null>(null);
   // The calibration's size and buttons, under the canvas rather than over the frame.
   const [calibratePanel, setCalibratePanel] = useState<HTMLDivElement | null>(null);
+  // A fixture's right-click menu in the Iso view.
+  const [fixtureMenu, setFixtureMenu] = useState<{
+    id: string;
+    at: { x: number; y: number };
+  } | null>(null);
   // A zoomed view inside the open one, as shares of the camera's whole frame: too small has too few pixels.
   const zoomRect = lab.zooming?.rect;
   const zoomOk =
@@ -683,6 +689,7 @@ export function Canvas() {
             placing={lab.placing}
             onPlace={(where) => void lab.placeFixture(where)}
             onFixture={(id) => lab.select({ kind: 'fixture', id })}
+            onFixtureMenu={(id, at) => setFixtureMenu({ id, at })}
             onMoveFixture={(id, to) => {
               const label = memory?.fixtures?.find((f) => f.id === id)?.label ?? 'fixture';
               lab.select({ kind: 'fixture', id });
@@ -754,6 +761,32 @@ export function Canvas() {
               void lab.refresh();
             }}
             onError={lab.setError}
+          />
+        )}
+        {fixtureMenu && (
+          <ContextMenu
+            at={fixtureMenu.at}
+            label={`${memory?.fixtures?.find((f) => f.id === fixtureMenu.id)?.label ?? 'Fixture'} actions`}
+            items={[
+              {
+                label: 'Open',
+                onSelect: () => lab.select({ kind: 'fixture', id: fixtureMenu.id }),
+              },
+              {
+                label: 'Delete',
+                destructive: true,
+                separated: true,
+                disabled: Boolean(busy),
+                onSelect: () => void lab.deleteFixtures([fixtureMenu.id]),
+              },
+              {
+                label: 'Not a fixture',
+                destructive: true,
+                disabled: Boolean(busy),
+                onSelect: () => void lab.deleteFixtures([fixtureMenu.id], true),
+              },
+            ]}
+            onClose={() => setFixtureMenu(null)}
           />
         )}
       </div>

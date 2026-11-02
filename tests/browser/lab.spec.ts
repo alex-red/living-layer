@@ -262,6 +262,19 @@ test('drafts a custom room offline, saves it, and lights a rule’s lamp', async
   await page.getByText('More ways', { exact: true }).click();
   await page.getByRole('button', { name: 'Spark only', exact: true }).click();
   await expect(page.locator('.scene-editor .iso-note')).toContainText('Spark:');
+  // The props list hides one from the drawing while editing, and picks one.
+  const layers = page.getByRole('group', { name: 'Props in the room' });
+  const desk = page.locator('.scene-canvas [data-group="desk"]');
+  await expect(desk.first()).toBeAttached();
+  await layers.getByRole('checkbox', { name: 'Show Desk', exact: true }).uncheck();
+  await expect(desk).toHaveCount(0);
+  await layers.getByRole('button', { name: 'Show all' }).click();
+  await expect(desk.first()).toBeAttached();
+  await layers.getByRole('button', { name: 'Desk', exact: true }).click();
+  await expect(page.getByRole('group', { name: 'Selected prop' })).toContainText('Desk');
+  // Fit to camera moves it to where the demo camera sees it, or says it already stands there.
+  await page.getByRole('button', { name: 'Fit to camera', exact: true }).click();
+  await expect(page.locator('.feedback')).toContainText(/where the camera sees it/);
   await page.locator('.scene-canvas [data-prop="lamp"]').dispatchEvent('pointerdown');
   await page.getByLabel('Lamp light').selectOption('light.demo_shelf');
   await page.getByRole('button', { name: 'Save', exact: true }).click();
@@ -398,6 +411,30 @@ test('a fixture is drafted from the demo mouse, placed on the office desk and se
   await expect(outline(page, 'Computer mouse')).toBeVisible();
   await expect(page.locator('[data-fixture]')).toHaveCount(1);
   await expect(page.getByRole('button', { name: 'Move' })).toBeVisible();
+
+  // Dragged in the Iso view, it stands where it is dropped.
+  const marker = page.locator('[data-fixture]');
+  // Its base, outlined while it is selected: the label reaches well past the model.
+  const base = (await marker.locator('.iso-focus').boundingBox())!;
+  await page.mouse.move(base.x + base.width / 2, base.y + base.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(base.x + base.width / 2 - 40, base.y + base.height / 2 - 10, { steps: 8 });
+  await page.mouse.up();
+  await expect(page.locator('.feedback')).toContainText('Moved the computer mouse');
+  const moved = (await marker.locator('.iso-focus').boundingBox())!;
+  expect(moved.x).toBeLessThan(base.x - 10);
+
+  // Delete removes the selected one; undo brings it back.
+  await page.keyboard.press('Delete');
+  await expect(page.locator('.feedback')).toContainText('Removed the computer mouse');
+  await expect(marker).toHaveCount(0);
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect(marker).toHaveCount(1);
+
+  // Its right-click menu deletes it too.
+  await marker.locator('.iso-hit-shape').click({ button: 'right' });
+  await page.getByRole('menuitem', { name: 'Delete' }).click();
+  await expect(marker).toHaveCount(0);
 });
 
 test('the AI brush turns the office desk into an Alex desk, follows up, and puts it in the room', async ({

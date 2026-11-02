@@ -7,14 +7,18 @@
  *
  *   bun run assist <run>              a run by id, id prefix or `latest`
  *   bun run assist latest --catalog   look the product up in the catalog again
+ *   bun run assist latest --replaces ikea-alex-desk
+ *                                     the group it replaces now, when the room has
+ *                                     changed since (the request's own was saved over)
  */
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import type { AssistDraft, DeskMemory, FixtureRecipe, ProductFacts } from '@livinglayer/domain';
-import { finishDraft, pngMask, rgbaOf } from '../apps/server/src/assist.js';
+import { finishDraft, pngMask, rgbaOf, samWhole } from '../apps/server/src/assist.js';
+import { decodeStoredSam } from '../apps/server/src/sam.js';
 import { BUNDLED_CATALOG, Catalog, type Researcher } from '../apps/server/src/research.js';
 import { selectionRoom } from '../apps/server/src/select.js';
-import { has, parseArgs } from './lib/args.js';
+import { flag, has, parseArgs } from './lib/args.js';
 import { dataDir, openEvidence } from './lib/evidence.js';
 
 const args = parseArgs();
@@ -29,6 +33,24 @@ const read = (name: string) => {
 };
 const frame = read('frame.png');
 const outline = await pngMask(read('outline.png'));
+// SAM's whole outline: kept since the place fit, else read from SAM's stored answer.
+const keptWhole = ev.asset(`${run.id}/whole.png`);
+const samText = ev.asset(`${run.id}/sam-output.txt`);
+const whole = keptWhole
+  ? await pngMask(keptWhole)
+  : samText
+    ? samWhole(
+        (
+          await decodeStoredSam(
+            samText.toString('utf8'),
+            'thing',
+            was.frame.width,
+            was.frame.height,
+          )
+        ).output,
+        was.frame,
+      )
+    : null;
 const memory = ev.memory(run.mode) ?? ({ mode: run.mode } as DeskMemory);
 const room = selectionRoom(memory);
 // What the request started from: the run it followed, else the selected group's own model.
@@ -48,7 +70,11 @@ const draft: AssistDraft = {
   facts: before?.facts ?? null,
   disagreement: [],
   recipe: start,
-  place: before?.place ?? null,
+  place:
+    before?.place ??
+    (flag(args, 'replaces') && was.place
+      ? { ...was.place, replaces: flag(args, 'replaces')! }
+      : null),
   check: before?.check ?? null,
   rounds: [],
 };
@@ -56,6 +82,7 @@ const log: string[] = [];
 await finishDraft(draft, {
   room,
   outline,
+  whole,
   rgba: (await rgbaOf(frame)).data,
   researchers,
   refiner: null,

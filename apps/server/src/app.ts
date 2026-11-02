@@ -35,6 +35,7 @@ import { validateImage } from './images.js';
 import { deskRoutes } from './desk.js';
 import { itemRoutes } from './item.js';
 import { photoRoutes } from './photo.js';
+import { sceneFitRoutes } from './scene-fit.js';
 import { pinRoutes } from './pin.js';
 import { selectRoutes } from './select.js';
 import { assistRoutes } from './assist.js';
@@ -390,6 +391,7 @@ export async function buildApp(
   });
   itemRoutes(app, { store, meta, run });
   photoRoutes(app, { store, meta, run, config });
+  sceneFitRoutes(app, { store, meta, run });
   pinRoutes(app, { store });
   selectRoutes(app, { store });
   assistRoutes(app, { store, meta, run, entities, productsDir: join(config.dataDir, 'products') });

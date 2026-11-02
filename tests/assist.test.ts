@@ -59,9 +59,12 @@ describe('the AI brush in the demo', () => {
     expect(d.check!.iou).toBeGreaterThan(0.4);
     expect(d.check!.iou).toBeLessThan(0.75);
     expect(d.rounds).toEqual([]);
+    // The demo's desk already stands where its camera draws it, so no place fits clearly better.
+    expect(d.fit).toBeNull();
     expect(run.assets.map((a) => a.split('/')[1])).toEqual([
       'frame.png',
       'outline.png',
+      'whole.png',
       'crop.png',
     ]);
     // Every step ran, and the job is over.

@@ -3,8 +3,11 @@ import { createPortal } from 'react-dom';
 import {
   cameraFromMarks,
   projectRoom,
+  roomScaleFor,
   roomSizeFor,
+  unprojectRoom,
   type CameraCrop,
+  type HeightMark,
   type Point,
   type RoomMarks,
 } from '@livinglayer/domain';
@@ -18,9 +21,9 @@ export interface CalibrationDraft {
   heightCm?: number;
 }
 const HANDLES = ['far corner', 'back wall', 'left wall'] as const;
-/** A wall's length that fits the marks better, the other wall kept. */
+/** A room size that fits the marks better: one wall's length, the other kept, or both scaled to the heights. */
 interface Suggestion {
-  wall: 'Back wall' | 'Left wall';
+  wall: 'Back wall' | 'Left wall' | 'Both walls';
   room: { w: number; d: number };
   error: number;
 }
@@ -35,6 +38,11 @@ interface Suggestion {
  * frame's zoomed view is fitted as the server will fit it, so the grid and
  * the check agree with what saving does. The size and buttons go in `panel`,
  * outside the zoomable frame, so they never pan away or cover the marks.
+ *
+ * Height lines go straight up from the floor to something of known height,
+ * a desk's top or a door's frame. The floor marks only give the room's
+ * shape; a known height gives its size and the camera's, and the room's size
+ * that fits them is offered like a wall's.
  */
 export function RoomCalibrate({
   frame,
@@ -64,8 +72,17 @@ export function RoomCalibrate({
   const [ends, setEnds] = useState({ back: Boolean(start.backEnd), left: Boolean(start.leftEnd) });
   const [room, setRoom] = useState(initial.room);
   const [height, setHeight] = useState(initial.heightCm ? String(initial.heightCm) : '');
+  const [lines, setLines] = useState<HeightMark[]>(start.heights ?? []);
+  // Handles 0–2 are the corner and the walls; then each height line's foot and top.
   const [dragging, setDragging] = useState<number | null>(null);
   const r = Math.max(4, frame.width / 160);
+  const all = [...handles, ...lines.flatMap((l) => [l.foot, l.top])];
+  const moveHandle = (i: number, p: Point) => {
+    if (i < handles.length) return setHandles(handles.map((c, j) => (j === i ? p : c)));
+    const k = Math.floor((i - handles.length) / 2);
+    const end = (i - handles.length) % 2 ? 'top' : 'foot';
+    setLines(lines.map((l, j) => (j === k ? { ...l, [end]: p } : l)));
+  };
 
   const marks: RoomMarks = useMemo(() => {
     const [corner, back, left] = handles as [Point, Point, Point];
@@ -80,8 +97,9 @@ export function RoomCalibrate({
       left: along(left),
       backEnd: ends.back ? back : null,
       leftEnd: ends.left ? left : null,
+      ...(lines.length ? { heights: lines } : {}),
     };
-  }, [handles, ends]);
+  }, [handles, ends, lines]);
   const heightCm = Number(height) || undefined;
   // The camera these marks imply, and the floor's tiles drawn through it.
   const fit = useMemo(() => {
@@ -96,7 +114,12 @@ export function RoomCalibrate({
     };
     for (let x = 0; x <= tiles.w; x += 1) draw({ x, y: 0 }, { x, y: tiles.d });
     for (let y = 0; y <= tiles.d; y += 1) draw({ x: 0, y }, { x: tiles.w, y });
-    return { ...f, path: lines.join('') };
+    // Where the camera puts each height line's top: on its mark when the size and height agree.
+    const tops = (marks.heights ?? []).map((m) => {
+      const foot = unprojectRoom(f.camera, m.foot, 0);
+      return foot && projectRoom(f.camera, { x: foot.x, y: foot.y, z: m.cm / 30 });
+    });
+    return { ...f, path: lines.join(''), tops };
   }, [marks, room, heightCm, frame, crop]);
 
   // Marks pin the room's shape, not its size: when the grid misses them, the
@@ -110,16 +133,20 @@ export function RoomCalibrate({
     const timer = setTimeout(() => {
       const tiles = { w: room.w / 30, d: room.d / 30 };
       const options = { ...(heightCm ? { heightCm } : {}), crop };
+      const scaled = marks.heights?.length ? roomScaleFor(marks, frame, tiles, options) : null;
       setSuggestions(
-        (['d', 'w'] as const)
-          .map((solve) => {
-            const found = roomSizeFor(marks, frame, tiles, solve, options);
-            return {
-              wall: solve === 'w' ? ('Back wall' as const) : ('Left wall' as const),
-              room: { w: Math.round(found.room.w * 30), d: Math.round(found.room.d * 30) },
-              error: found.error,
-            };
-          })
+        [
+          ...(scaled ? [{ wall: 'Both walls' as const, found: scaled }] : []),
+          ...(['d', 'w'] as const).map((solve) => ({
+            wall: solve === 'w' ? ('Back wall' as const) : ('Left wall' as const),
+            found: roomSizeFor(marks, frame, tiles, solve, options),
+          })),
+        ]
+          .map(({ wall, found }) => ({
+            wall,
+            room: { w: Math.round(found.room.w * 30), d: Math.round(found.room.d * 30) },
+            error: found.error,
+          }))
           // Only a clear gain, and not the size already there.
           .filter((x) => x.error < fit.error * 0.7 && x.error < fit.error - 2)
           .filter((x) => x.room.w !== room.w || x.room.d !== room.d)
@@ -147,7 +174,7 @@ export function RoomCalibrate({
         onPointerDown={(e) => {
           const p = at(e);
           const reach = (frame.width / e.currentTarget.getBoundingClientRect().width) * 28;
-          const near = handles
+          const near = all
             .map((c, i) => ({ i, d: Math.hypot(c.x - p.x, c.y - p.y) }))
             .sort((a, b) => a.d - b.d)[0]!;
           if (near.d > reach) return;
@@ -156,8 +183,7 @@ export function RoomCalibrate({
         }}
         onPointerMove={(e) => {
           if (dragging === null) return;
-          const p = at(e);
-          setHandles(handles.map((c, i) => (i === dragging ? p : c)));
+          moveHandle(dragging, at(e));
         }}
         onPointerUp={() => setDragging(null)}
         onPointerCancel={() => setDragging(null)}
@@ -167,7 +193,31 @@ export function RoomCalibrate({
           points={[handles[2]!, handles[0]!, handles[1]!].map((p) => `${p.x},${p.y}`).join(' ')}
           vectorEffect="non-scaling-stroke"
         />
-        {handles.map((c, i) => (
+        {lines.map((l, k) => {
+          const drawn = fit?.tops[k];
+          return (
+            <g key={`h${k}`} className="calibrate-height">
+              <line
+                x1={l.foot.x}
+                y1={l.foot.y}
+                x2={l.top.x}
+                y2={l.top.y}
+                vectorEffect="non-scaling-stroke"
+              />
+              {drawn && (
+                <path
+                  className="calibrate-height-fit"
+                  d={`M${drawn.x - r} ${drawn.y}H${drawn.x + r}M${drawn.x} ${drawn.y - r}V${drawn.y + r}`}
+                  vectorEffect="non-scaling-stroke"
+                />
+              )}
+              <text x={l.top.x + r * 2} y={l.top.y} fontSize={r * 3}>
+                {l.cm} cm
+              </text>
+            </g>
+          );
+        })}
+        {all.map((c, i) => (
           <circle
             key={i}
             className={dragging === i ? 'active' : ''}
@@ -175,7 +225,10 @@ export function RoomCalibrate({
             cy={c.y}
             r={r * 1.6}
             role="slider"
-            aria-label={HANDLES[i]}
+            aria-label={
+              HANDLES[i] ??
+              `height line ${Math.floor((i - handles.length) / 2) + 1} ${(i - handles.length) % 2 ? 'top' : 'floor'}`
+            }
             aria-valuetext={`${Math.round(c.x)}, ${Math.round(c.y)}`}
           />
         ))}
@@ -188,7 +241,9 @@ export function RoomCalibrate({
           <span>
             {fit
               ? suggestions.length
-                ? `The grid misses the marks by ${fit.error.toFixed(0)} px: a room this shape can’t look like that from its front corner. Measure a wall, or try:`
+                ? lines.length && suggestions[0]!.wall === 'Both walls'
+                  ? `The marks miss by ${fit.error.toFixed(0)} px: the height lines say the room is another size. Try:`
+                  : `The grid misses the marks by ${fit.error.toFixed(0)} px: a room this shape can’t look like that from its front corner. Measure a wall, or try:`
                 : good
                   ? `The floor grid should sit on the floor. Camera about ${fit.heightCm} cm up, ${Math.round(fit.hfovDeg)}° wide.`
                   : `These marks don't fit a camera in the room's front corner (off by ${fit.error.toFixed(0)} px).`
@@ -198,10 +253,17 @@ export function RoomCalibrate({
             <button
               key={x.wall}
               className="secondary"
-              title={`Keeps the ${x.wall === 'Back wall' ? 'left' : 'back'} wall as it is; the grid then misses by ${x.error.toFixed(1)} px.`}
+              title={
+                x.wall === 'Both walls'
+                  ? `The room’s size the height lines say, its shape kept; the marks then miss by ${x.error.toFixed(1)} px.`
+                  : `Keeps the ${x.wall === 'Back wall' ? 'left' : 'back'} wall as it is; the grid then misses by ${x.error.toFixed(1)} px.`
+              }
               onClick={() => setRoom(x.room)}
             >
-              {x.wall} {x.wall === 'Back wall' ? x.room.w : x.room.d} cm · {x.error.toFixed(0)} px
+              {x.wall === 'Both walls'
+                ? `Room ${x.room.w} × ${x.room.d} cm`
+                : `${x.wall} ${x.wall === 'Back wall' ? x.room.w : x.room.d} cm`}{' '}
+              · {x.error.toFixed(0)} px
             </button>
           ))}
           <label title="The back wall: the one running right from the far corner.">
@@ -238,6 +300,49 @@ export function RoomCalibrate({
             />
             cm
           </label>
+          {lines.map((l, k) => (
+            <label key={k} title="How high the line's top is above the floor it stands on.">
+              Height line {k + 1}
+              <input
+                type="number"
+                min={5}
+                max={400}
+                value={l.cm}
+                aria-label={`Height line ${k + 1} in centimetres`}
+                onChange={(e) =>
+                  setLines(
+                    lines.map((x, j) => (j === k ? { ...x, cm: Number(e.target.value) } : x)),
+                  )
+                }
+              />
+              cm
+              <button
+                className="secondary"
+                aria-label={`Remove height line ${k + 1}`}
+                onClick={() => setLines(lines.filter((_, j) => j !== k))}
+              >
+                ✕
+              </button>
+            </label>
+          ))}
+          {lines.length < 8 && (
+            <button
+              className="secondary"
+              title="Draw a line from the floor straight up to something whose height you know, like a desk's top (76 cm for an ALEX), then type its height. It gives the room's real size."
+              onClick={() =>
+                setLines([
+                  ...lines,
+                  {
+                    foot: { x: frame.width * (0.4 + 0.08 * lines.length), y: frame.height * 0.8 },
+                    top: { x: frame.width * (0.4 + 0.08 * lines.length), y: frame.height * 0.62 },
+                    cm: 76,
+                  },
+                ])
+              }
+            >
+              Add height line
+            </button>
+          )}
           <label>
             <input
               type="checkbox"

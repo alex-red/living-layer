@@ -61,7 +61,9 @@
 }
 /* A prop's flat faces stay underneath, invisible, for picking and dragging. */
 .iso-prop .iso-hit-shape .side,
-.iso-prop .iso-hit-shape .top {
+.iso-prop .iso-hit-shape .top,
+.iso-fixture .iso-hit-shape .side,
+.iso-fixture .iso-hit-shape .top {
   fill-opacity: 0;
   stroke: none;
 }
@@ -567,7 +569,7 @@
 }
 .scene-editor-body {
   display: grid;
-  grid-template-columns: 1fr;
+  grid-template-columns: minmax(140px, 180px) 1fr;
   gap: 12px;
   flex: 1;
   /* The room never gives way to the controls around it: the frame scrolls instead. */
@@ -809,6 +811,66 @@
     animation: none;
   }
 }
+/* The editor's props, one compact row each: tick to show, name to select. */
+.scene-layers {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-right: 1px solid var(--line);
+  padding-right: 8px;
+}
+.scene-layers-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 24px;
+}
+.scene-layers ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  overflow-y: auto;
+}
+.scene-layers li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 4px;
+  border-radius: 4px;
+}
+.scene-layers li.selected {
+  background: var(--surface-2);
+}
+.scene-layers li.hidden button {
+  color: var(--text-3);
+  text-decoration: line-through;
+}
+.scene-layers li.overlap button {
+  color: var(--unsure);
+}
+.scene-layers input {
+  margin: 0;
+  accent-color: var(--chosen);
+}
+.scene-layers button {
+  flex: 1;
+  min-width: 0;
+  padding: 3px 0;
+  overflow: hidden;
+  border: 0;
+  background: none;
+  color: var(--text-2);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.scene-layers li.selected button {
+  color: var(--text);
+  font-weight: 600;
+}
 .scene-canvas {
   min-height: 240px;
   display: grid;
@@ -1005,6 +1067,11 @@
   .scene-editor-body {
     grid-template-columns: 1fr;
   }
+  .scene-layers {
+    max-height: 132px;
+    padding-right: 0;
+    border-right: 0;
+  }
 }
 
 /* Scene cards: the onboarding’s ways into a room. */
@@ -1091,6 +1158,23 @@
   stroke: var(--chosen);
   stroke-opacity: 0.45;
   stroke-width: 1px;
+}
+/* A height line: the known height as drawn, and a cross where the fitted camera puts its top. */
+.calibrate-overlay .calibrate-height line {
+  stroke: var(--unsure);
+  stroke-width: 2px;
+}
+.calibrate-overlay .calibrate-height-fit {
+  fill: none;
+  stroke: var(--unsure);
+  stroke-width: 1.5px;
+}
+.calibrate-overlay .calibrate-height text {
+  fill: var(--unsure);
+  font-family: var(--mono);
+  paint-order: stroke;
+  stroke: rgb(0 0 0 / 60%);
+  stroke-width: 3px;
 }
 /* The saved calibration, for looking: quieter than the handles that set it. */
 .calibration-overlay {

@@ -12,6 +12,7 @@ import {
   newBits,
   fillRings,
   projectRoom,
+  roomScaleFor,
   roomSizeFor,
   unprojectRoom,
   type RoomCamera,
@@ -81,6 +82,31 @@ describe('room camera', () => {
     // Or keep the left wall and find the back one.
     const width = roomSizeFor(marks, truth.frame, { w: 13, d: 8 }, 'w');
     expect(Math.abs(width.room.w - 10)).toBeLessThan(0.4);
+  });
+
+  it('finds the room’s size and the camera’s height from a known height, with no wall ends', () => {
+    const truth = cornerCamera(room, { heightCm: 210, hfovDeg: 60 });
+    // Only the floor lines: neither wall's far end is in view.
+    const { backEnd: _b, leftEnd: _l, ...floor } = marksOf(truth);
+    // A desk's top, 76 cm up, drawn straight up from where it stands.
+    const line = (x: number, y: number) => ({
+      foot: projectRoom(truth, { x, y, z: 0 })!,
+      top: projectRoom(truth, { x, y, z: 76 / 30 })!,
+      cm: 76,
+    });
+    const marks = { ...floor, heights: [line(3, 2), line(6, 3)] };
+    // The room typed 20% too small: the floor alone can't tell, the heights can.
+    const small = { w: room.w * 0.8, d: room.d * 0.8 };
+    expect(cameraFromMarks(floor, truth.frame, small).error).toBeLessThan(1);
+    expect(cameraFromMarks(marks, truth.frame, small).error).toBeGreaterThan(3);
+    const found = roomScaleFor(marks, truth.frame, small);
+    expect(Math.abs(found.room.w - room.w)).toBeLessThan(0.2);
+    expect(Math.abs(found.room.d - room.d)).toBeLessThan(0.2);
+    const fit = cameraFromMarks(marks, truth.frame, found.room);
+    expect(fit.error).toBeLessThan(1);
+    // Within a few centimetres: the lens prior still pulls a little.
+    expect(Math.abs(fit.heightCm - 210)).toBeLessThan(8);
+    expect(close(fit.camera, truth)).toBeLessThan(8);
   });
 
   it('fits the whole lens behind a zoomed view, its principal point off centre', () => {

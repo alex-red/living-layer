@@ -27,6 +27,8 @@ export interface RoomPicture {
   /** Per pixel, an index into `names`, or -1 where nothing is. */
   ids: Int16Array;
   names: string[];
+  /** Per pixel, the distance along the camera's view to what is drawn there; Infinity where nothing is. */
+  depth: Float32Array;
 }
 
 type Vec3 = [number, number, number];
@@ -244,7 +246,7 @@ export function renderRoom(
         const [cr, cg, cb] = labRgb([L, lab[1], lab[2]]);
         rgba.set([cr, cg, cb, 255], i * 4);
       }
-  return { width, height, rgba, ids, names };
+  return { width, height, rgba, ids, names, depth };
 }
 
 /** The part of a polygon in front of the camera's near plane, in camera coordinates. */
