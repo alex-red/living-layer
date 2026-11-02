@@ -104,7 +104,8 @@ const steps: Step[] = [
     read: (out) =>
       /No captured rooms/.test(out)
         ? 'none captured'
-        : `${count(out, /← below target$/gm)} rooms moved`,
+        : // A marked room misses by its marks, any other by moving against its snapshot.
+          `${count(out, /← below target$/gm)} rooms below target`,
     look: (out) => /← below target$/m.test(out),
   },
   {
