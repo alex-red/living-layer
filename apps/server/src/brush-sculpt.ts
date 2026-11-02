@@ -16,6 +16,7 @@ import {
   type RecipePlace,
   type RoomCamera,
   type Usage,
+  uprightAt,
 } from '@livinglayer/domain';
 import type { MetaAdapter } from './meta.js';
 
@@ -72,6 +73,10 @@ export async function shapeFromPhoto({
   const box = cutAround(against);
   if (!box) return null;
   const photo = await sharp(frame).extract(box).png().toBuffer();
+  const upright = uprightTilt(camera, {
+    x: box.left + box.width / 2,
+    y: box.top + box.height / 2,
+  });
   const drawn = async (r: FixtureRecipe) => {
     // The model alone on the floor, so Spark sees its parts and not what stands round it.
     const solids = sceneSolids(sceneWithRecipe(scene, r, place)).filter(
@@ -93,7 +98,7 @@ export async function shapeFromPhoto({
     const answer = await meta.sculpt(
       url(photo),
       url(render),
-      brushSculptPrompt(current, request, look),
+      brushSculptPrompt(current, request, look, upright),
       JSON.stringify(recipeToSculpt(current)),
       signal,
       BRUSH_SCULPT_PARTS,
@@ -108,6 +113,17 @@ export async function shapeFromPhoto({
   if (!looks.length) return null;
   const best = looks.reduce((a, b) => (draftScore(b.check) > draftScore(a.check) ? b : a));
   return { ...best, looks: looks.map((l) => l.check) };
+}
+
+/**
+ * How far, in degrees, something standing straight up at `p` runs from the
+ * frame's vertical as it rises: positive to the right. A camera tilted down
+ * from high in a corner draws uprights slanting, more so towards the frame's
+ * edges.
+ */
+export function uprightTilt(camera: RoomCamera, p: { x: number; y: number }): number {
+  const u = uprightAt(camera, p);
+  return (Math.atan2(u.x, -u.y) * 180) / Math.PI;
 }
 
 /** The outline's box in the frame, grown by 15% each way and kept inside it. */

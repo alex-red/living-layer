@@ -155,6 +155,8 @@ export function brushSculptPrompt(
   recipe: FixtureRecipe,
   request: string,
   look: 'first' | 'again',
+  /** How far, in degrees, an upright at the thing runs from the picture's vertical: positive to the right. */
+  upright?: number,
 ): string {
   const { w, d, h } = recipe.sizeCm;
   const L = longest(recipe);
@@ -167,7 +169,18 @@ export function brushSculptPrompt(
     `Model only the thing itself, in at most ${BRUSH_SCULPT_PARTS} parts: leave out what stands on it or in it (books, toys, boxes, cables) unless the person asks for them. Name parts with lowercase words and hyphens.`,
     'Posts, legs, rails and frames are thin parts: draw a side or a back as a solid panel only where the picture shows one, not where you can see through it.',
     'Boxes stand straight and cannot lean: anything that leans or slants (a ladder shelf’s rails, splayed legs, braces) is a tube, its box spanning the slant and its path two points from its bottom end to its top end, as shares of that box (a rail leaning back: {x: 0.5, y: 1, z: 0} to {x: 0.5, y: 0, z: 1}), its radius half its thickness. Never draw a leaning rail as a box: a box spanning its slant is a solid panel.',
+    ...(upright === undefined ? [] : [uprightLine(upright)]),
     ...SCULPT_FORMAT,
     'Say in note what you changed.',
   ].join('\n');
+}
+
+/** Where the camera draws an upright, so a post slanting only by its tilt isn't read as leaning. */
+function uprightLine(tilt: number): string {
+  const a = Math.round(Math.abs(tilt));
+  const runs =
+    a < 1
+      ? 'runs straight up the picture'
+      : `runs about ${a}° to the ${tilt > 0 ? 'right' : 'left'} of the picture's vertical as it rises, because of how the camera is tilted`;
+  return `Here, an edge standing straight up ${runs}, in the photo and in the model's drawing alike. Posts and sides at that angle stand straight: draw them as boxes. Only a part slanting away from that angle leans.`;
 }

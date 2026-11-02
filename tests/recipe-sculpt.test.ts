@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'bun:test';
+import { uprightTilt } from '../apps/server/src/brush-sculpt.js';
+import { DEMO_CAMERA } from '../packages/domain/src/demo-room.js';
 import {
   brushSculptPrompt,
   placeRecipe,
@@ -110,5 +112,20 @@ describe('a brush model shaped from the photo', () => {
     expect(p).toContain('71.25 × 39.84 × 165 cm');
     expect(p).toContain('leave out what stands on it');
     expect(p).toContain('anything that leans or slants');
+    expect(p).not.toContain('standing straight up');
+  });
+
+  it('says where the camera draws an upright, so a tilted post is not read as leaning', () => {
+    const { width } = DEMO_CAMERA.frame;
+    const y = DEMO_CAMERA.frame.height / 2;
+    // A camera looking down draws uprights spreading apart as they rise: leftwards on the left, rightwards on the right.
+    const left = uprightTilt(DEMO_CAMERA, { x: width * 0.1, y });
+    const right = uprightTilt(DEMO_CAMERA, { x: width * 0.9, y });
+    expect(left).toBeLessThan(-1);
+    expect(right).toBeGreaterThan(1);
+    const p = brushSculptPrompt(shelf(), 'an open shelf', 'again', right);
+    expect(p).toContain(`about ${Math.round(right)}° to the right of the picture's vertical`);
+    expect(p).toContain('Posts and sides at that angle stand straight');
+    expect(brushSculptPrompt(shelf(), 'x', 'first', 0.3)).toContain('runs straight up the picture');
   });
 });
