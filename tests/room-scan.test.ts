@@ -17,7 +17,6 @@ import {
   projectRoom,
   upgradeMemory,
   type DeskMemory,
-  judgeRoom,
   layoutRoom,
   layoutTrace,
   layoutTuning,
@@ -35,8 +34,6 @@ import {
   resizeRoom,
   type RoomCalibration,
   sceneOf,
-  layoutRoom,
-  roomCase,
   type IsoScene,
   scanCase,
 } from '@livinglayer/domain';
