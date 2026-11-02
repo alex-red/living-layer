@@ -165,6 +165,7 @@ export function brushSculptPrompt(
     `The person asked: "${request}". Follow it where the picture allows.`,
     `It measures ${w} × ${d} × ${h} cm: as its footprint's longer side is 1, it is ${(w / L).toFixed(3)} wide, ${(d / L).toFixed(3)} deep and ${(h / L).toFixed(3)} tall. Keep every part inside that box. The camera looks down at it from high in a corner of the room.`,
     `Model only the thing itself, in at most ${BRUSH_SCULPT_PARTS} parts: leave out what stands on it or in it (books, toys, boxes, cables) unless the person asks for them. Name parts with lowercase words and hyphens.`,
+    'Posts, legs, rails and frames are thin parts: draw a side or a back as a solid panel only where the picture shows one, not where you can see through it.',
     ...SCULPT_FORMAT,
     'Say in note what you changed.',
   ].join('\n');

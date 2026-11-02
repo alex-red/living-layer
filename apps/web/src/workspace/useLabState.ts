@@ -1994,7 +1994,8 @@ export function useLabState() {
       return setError(
         'Calibrate the room’s camera first: the AI brush reads what you pick through it.',
       );
-    const box = groupInFrame(camera, scene, group, 0.05);
+    // A little wider than its box: the room may draw it too small, and SAM needs all of it in view.
+    const box = groupInFrame(camera, scene, group, 0.15);
     if (!box)
       return setError('The room’s camera doesn’t see all of it, so the AI brush can’t pick it.');
     const { width, height } = camera.frame;

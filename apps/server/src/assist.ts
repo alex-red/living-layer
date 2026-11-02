@@ -234,9 +234,10 @@ export function assistRoutes(
           resolved = room.resolve(selectionMask(shape, room.frame));
           if (live) {
             const sam = await samOutline(png, shape, room.frame, id);
-            ({ outline, samMissed } = keepOutline(room, shape, resolved.target, sam.cut));
+            let open: boolean;
+            ({ outline, samMissed, open } = keepOutline(room, shape, resolved.target, sam.cut));
             // Only when the cut outline was SAM's own, of the target: else it outlined something else.
-            if (!samMissed) whole = sam.whole;
+            if (!samMissed) whole = open && sam.whole ? filledRows(sam.whole) : sam.whole;
           } else {
             // The demo outlines what its fixed frame draws there.
             outline = demoOutline(shape, room.frame, drawnOf(room, resolved.target));
@@ -496,26 +497,52 @@ export function drawnOf(
     ? roomMask(room.picture, t.kind === 'fixture' ? `fixture:${t.id}` : t.id)
     : null;
 }
+/** A mask with each row filled across, between its first and last pixel: an open thing's envelope. */
+function filledRows(m: Bits): Bits {
+  const data = new Uint8Array(m.data.length);
+  for (let y = 0; y * m.width < m.data.length; y++) {
+    const row = m.data.subarray(y * m.width, (y + 1) * m.width);
+    const first = row.indexOf(1);
+    if (first >= 0) data.fill(1, y * m.width + first, y * m.width + row.lastIndexOf(1) + 1);
+  }
+  return { ...m, data };
+}
+/** How much of the room's drawing of a thing must lie inside SAM's outline for SAM's to be kept. */
+const KEEP_SAM_OVER = 0.6;
 /**
  * The outline a live request works on. SAM outlines what stands out in the
  * box, which can be what stands on the thing (a keyboard on a desk): its
- * outline is kept only when the room reads it as the same target, else the
- * room's drawing of the target inside the selection is used, and `samMissed`
- * says what SAM outlined instead.
+ * outline is kept when the room reads it as the same target, or when the
+ * room's drawing of the target lies mostly inside it (the thing drawn too
+ * small, then kept with its rows filled across); else the room's drawing of the target inside the selection is
+ * used, and `samMissed` says what SAM outlined instead.
  */
 export function keepOutline(
   room: Pick<ReturnType<typeof selectionRoom>, 'picture' | 'frame' | 'resolve'>,
   shape: SelectionShape,
   target: Resolved['target'],
   sam: Bits,
-): { outline: Bits; samMissed: string | null } {
+): { outline: Bits; samMissed: string | null; open: boolean } {
   const drawn = drawnOf(room, target);
   const of = room.resolve(sam).target;
   if (!drawn || (of?.kind === target!.kind && of.id === target!.id))
-    return { outline: sam, samMissed: null };
+    return { outline: sam, samMissed: null, open: false };
+  // The room's own drawing of it lying mostly inside SAM's outline is the same thing drawn
+  // too small or a little off: the case a person selects it to put right, so SAM's is kept.
+  // An open thing (a shelf's frame) is outlined with gaps, so its rows are filled across first.
+  const envelope = filledRows(sam);
+  let mine = 0;
+  let shared = 0;
+  for (let i = 0; i < drawn.data.length; i++) {
+    mine += drawn.data[i]!;
+    shared += drawn.data[i]! & envelope.data[i]!;
+  }
+  // Kept filled: the size, the place and the check all read an outline as the thing's solid shape.
+  if (mine && shared / mine >= KEEP_SAM_OVER)
+    return { outline: envelope, samMissed: null, open: true };
   const inside = selectionMask(shape, room.frame);
   for (let i = 0; i < drawn.data.length; i++) drawn.data[i] = drawn.data[i]! & inside.data[i]!;
-  return { outline: drawn, samMissed: of?.label ?? 'nothing the room has' };
+  return { outline: drawn, samMissed: of?.label ?? 'nothing the room has', open: false };
 }
 
 /** How a draft's steps are reported: the job live, the console in a replay. */

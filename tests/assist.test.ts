@@ -6,11 +6,13 @@ import { buildApp } from '../apps/server/src/app.js';
 import { parseConfig, type Fetcher } from '../apps/server/src/config.js';
 import { demoIntent } from '../apps/server/src/demo-intent.js';
 import { demoPng } from '../apps/server/src/demo.js';
+import { keepOutline } from '../apps/server/src/assist.js';
 import { syntheticStream } from '../apps/server/src/sam.js';
 import {
   cm,
   DEMO_CALIBRATION,
   ISO_PRESETS,
+  roomMask,
   type AssistDraft,
   type DeskMemory,
   type EvidenceRun,
@@ -356,5 +358,28 @@ describe('the AI brush live, against a mocked Meta API', () => {
     );
     expect(wrong.statusCode).toBe(409);
     expect(wrong.json().error.code).toBe('not_calibrated');
+  });
+});
+
+describe('the outline a live request keeps', () => {
+  const room = demoRoom();
+  const mask = (group: string) => roomMask(room.picture, group)!;
+  const desk = { kind: 'prop' as const, id: 'desk', label: 'Desk' };
+  it('keeps SAM’s outline of a thing the room draws too small, not of what stands on it', () => {
+    // SAM's outline of the real desk, wider than the room's drawing of it: the room's drawing lies inside it.
+    const wider = mask('desk');
+    const { width, height } = wider;
+    const grown = { ...wider, data: new Uint8Array(wider.data) };
+    for (let y = 0; y < height; y++)
+      for (let x = 0; x < width; x++)
+        if (wider.data[y * width + x])
+          for (let d = -12; d <= 12; d++) {
+            const xx = x + d;
+            if (xx >= 0 && xx < width) grown.data[y * width + xx] = 1;
+          }
+    expect(keepOutline(room, around('desk'), desk, grown).samMissed).toBeNull();
+    // The keyboard on it: the room's desk mostly lies outside it, so the room's own drawing is used.
+    const kept = keepOutline(room, around('desk'), desk, mask('keyboard'));
+    expect(kept.samMissed).toBe('Keyboard');
   });
 });
