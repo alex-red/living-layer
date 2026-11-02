@@ -117,6 +117,7 @@ export function IsoView({
   onFixtureMenu,
   onResizeFixture,
   tool = 'select',
+  onAiEdit,
   hand = false,
   fixtureLook = 'picture',
   lightsOn,
@@ -169,6 +170,8 @@ export function IsoView({
   onResizeFixture?: (id: string, rect: BaseRect) => Promise<void> | void;
   /** The canvas tool: fixtures move with Select, stretch with Scale. */
   tool?: Tool;
+  /** Pick a prop of the saved room for the AI brush. */
+  onAiEdit?: (scene: Scene, group: string) => void;
   /** Every drag pans the room, for the hand tool. */
   hand?: boolean;
   /** On the room's picture, fixtures as the picture shows them or as their models. */
@@ -463,6 +466,9 @@ export function IsoView({
             {...(captureFrame ? { captureFrame } : {})}
             onCalibrated={onMemory}
             onMessage={onMessage}
+            hand={hand}
+            brushTool={tool === 'brush'}
+            {...(onAiEdit ? { onAiEdit } : {})}
             {...(onCalibrateByHand ? { onCalibrateByHand } : {})}
             {...(onCalibrateHere ? { onCalibrateHere } : {})}
             {...(follow ? { follow } : {})}

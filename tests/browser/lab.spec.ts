@@ -472,6 +472,30 @@ test('a fixture is drafted from the demo mouse, placed on the office desk and se
   await expect(page.getByRole('list', { name: 'All fixture states' })).toBeVisible();
 });
 
+test('the layout editor zooms like the room, and picks a prop for the AI brush', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await chooseScene(page);
+  await page.getByRole('button', { name: 'Iso', exact: true }).click();
+  await outline(page, 'Office').click();
+  await page.getByRole('button', { name: 'Edit layout', exact: true }).click();
+  const canvas = page.locator('.scene-canvas');
+  await expect(canvas.locator('.zoom-controls')).toBeAttached();
+  await canvas.getByRole('button', { name: 'Zoom in' }).click();
+  await expect(canvas.locator('.zoom-pan.zoomed')).toBeVisible();
+  const layers = page.getByRole('group', { name: 'Props in the room' });
+  await layers.getByRole('button', { name: 'Desk', exact: true }).click();
+  await page.getByRole('button', { name: 'Edit with AI', exact: true }).click();
+  // Its box through the demo camera is the brush's selection, beside the room.
+  const panel = page.getByRole('complementary', { name: 'AI brush' });
+  await expect(panel.locator('.brush-target')).toContainText('Desk');
+  await expect(page.locator('.scene-editor')).toBeVisible();
+  // An unsaved edit waits for a save: the brush reads the room as saved.
+  await page.getByRole('button', { name: 'Turn prop' }).click();
+  await expect(page.getByRole('button', { name: 'Edit with AI', exact: true })).toBeDisabled();
+});
+
 test('the AI brush turns the office desk into an Alex desk, follows up, and puts it in the room', async ({
   page,
 }) => {

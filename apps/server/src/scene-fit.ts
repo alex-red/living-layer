@@ -8,10 +8,10 @@ import {
   fitKept,
   floorSolid,
   groupBounds,
+  groupInFrame,
   ISO_TILE_CM,
   isoSceneSchema,
   modeSchema,
-  projectRoom,
   renderRoom,
   roomMask,
   sceneSolids,
@@ -52,39 +52,16 @@ export function sceneFitRoutes(
     );
     const camera = mode === 'demo' ? DEMO_CAMERA : calibrationOf(store.memory(mode))?.camera;
     if (!camera) throw new LabError('not_calibrated', NOT_CALIBRATED, 409);
-    const b = groupBounds(scene as IsoScene, group);
-    if (!b) throw new LabError('fit_group', 'That prop isn’t in the scene.', 404);
+    if (!groupBounds(scene as IsoScene, group))
+      throw new LabError('fit_group', 'That prop isn’t in the scene.', 404);
     if (mode === 'live' && !imageDataUrl)
       throw new LabError('fit_frame', 'Send a frame of the room’s camera to fit it to.', 400);
     if (mode === 'demo' && imageDataUrl)
       throw new LabError('demo_image', 'Demo mode uses only the demo room’s camera.');
     const { width, height } = camera.frame;
     // Its drawing's box, grown by a quarter each way: where it stands is the guess being corrected.
-    const corners = [0, 1].flatMap((i) =>
-      [0, 1].flatMap((j) =>
-        [0, 1].map((k) =>
-          projectRoom(camera, {
-            x: b.at.x + i * b.size.w,
-            y: b.at.y + j * b.size.d,
-            z: b.at.z + k * b.size.h,
-          }),
-        ),
-      ),
-    );
-    const seen = corners.filter((c) => c !== null);
-    if (seen.length < corners.length)
-      throw new LabError('fit_view', 'The camera doesn’t see all of it.', 409);
-    const xs = seen.map((c) => c.x);
-    const ys = seen.map((c) => c.y);
-    const [x0, x1, y0, y1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
-    const box = {
-      left: Math.max(0, x0 - (x1 - x0) / 4),
-      top: Math.max(0, y0 - (y1 - y0) / 4),
-      right: Math.min(width, x1 + (x1 - x0) / 4),
-      bottom: Math.min(height, y1 + (y1 - y0) / 4),
-    };
-    if (box.right - box.left < 4 || box.bottom - box.top < 4)
-      throw new LabError('fit_view', 'The camera doesn’t see it.', 409);
+    const box = groupInFrame(camera, scene as IsoScene, group, 1 / 4);
+    if (!box) throw new LabError('fit_view', 'The camera doesn’t see all of it.', 409);
     let outline: ReturnType<typeof samWhole> = null;
     const outlined = await run('segment', mode, async (id) => {
       if (mode === 'demo') {

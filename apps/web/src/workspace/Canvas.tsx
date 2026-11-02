@@ -167,7 +167,8 @@ export function Canvas() {
   const brushing =
     lab.tool === 'brush' &&
     brushable &&
-    !showIso &&
+    // Drawn on the picture, which the iso view alone hides; a prop picked in the room shows there too.
+    (stageView !== 'iso' || Boolean(lab.brush.shape)) &&
     !drawing &&
     !pinning &&
     !lab.boxing &&
@@ -700,6 +701,7 @@ export function Canvas() {
               );
             }}
             tool={lab.tool}
+            onAiEdit={lab.brushGroup}
             hand={hand}
             fixtureLook={lab.fixtureLook}
             onResizeFixture={(id, rect) => {

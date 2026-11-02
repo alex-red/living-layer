@@ -24,6 +24,7 @@ import {
 } from '@livinglayer/domain';
 import { api, type AiFollow } from '../api';
 import { ApiError } from '../activity';
+import { ZoomPan } from '../ZoomPan';
 import { IsoScene } from './IsoScene';
 import { PropPickerPopover } from './PropPicker';
 import { PhotoReview, type PhotoRun } from './PhotoReview';
@@ -93,6 +94,9 @@ export function SceneEditor({
   captureFrame,
   cameraLive = false,
   onCalibrated,
+  hand = false,
+  brushTool = false,
+  onAiEdit,
 }: {
   mode: Mode;
   /** The person's saved scene, if any. */
@@ -128,6 +132,12 @@ export function SceneEditor({
   onCalibrateByHand?: (found: CalibrateByHand) => void;
   /** Calibrate by hand on the current frame, with no model calls. */
   onCalibrateHere?: () => void;
+  /** Every drag pans the room, for the hand tool. */
+  hand?: boolean;
+  /** The AI brush is the canvas tool: a click on a prop picks it for the brush. */
+  brushTool?: boolean;
+  /** Pick a prop of the saved room for the AI brush. */
+  onAiEdit?: (scene: Scene, group: string) => void;
 }) {
   // The room the view shows, not whatever was saved last: editing the office starts from the office.
   const showsSaved = Boolean(saved) && base === saved;
@@ -214,6 +224,11 @@ export function SceneEditor({
     });
   const check = isoSceneSchema.safeParse(draft);
   const dirty = JSON.stringify(draft) !== JSON.stringify(saved ?? null);
+  // The AI brush reads the room as it is shown, so it waits for the layout's edits to be saved.
+  const aiBlocked =
+    JSON.stringify(draft) !== JSON.stringify(initial())
+      ? 'Save the layout first: the AI brush edits the room as saved.'
+      : null;
   const groupProps = selected ? draft.props.filter((p) => p.group === selected) : [];
   const lamp = groupProps.find((p) => p.role === 'lamp');
   const bounds = selected ? groupBounds(draft, selected) : null;
@@ -422,18 +437,23 @@ export function SceneEditor({
           </ul>
         </div>
         <div className="scene-canvas">
-          <IsoScene
-            scene={draft}
-            hidden={hidden}
-            litLights={new Set(lamp?.lightId ? [lamp.lightId] : [])}
-            editing={{
-              selected,
-              flagged,
-              onSelect: setSelected,
-              onMove: (g, dx, dy) =>
-                edit((d) => settleGroup(moveGroup(d, g, dx, dy), g), `move.${g}`),
-            }}
-          />
+          <ZoomPan className="iso-zoom" hand={hand} store="scene-editor" resetKey={room}>
+            <IsoScene
+              scene={draft}
+              hidden={hidden}
+              litLights={new Set(lamp?.lightId ? [lamp.lightId] : [])}
+              editing={{
+                selected,
+                flagged,
+                onSelect: (g) => {
+                  setSelected(g);
+                  if (g && brushTool && !aiBlocked) onAiEdit?.(draft, g);
+                },
+                onMove: (g, dx, dy) =>
+                  edit((d) => settleGroup(moveGroup(d, g, dx, dy), g), `move.${g}`),
+              }}
+            />
+          </ZoomPan>
         </div>
       </div>
       {note && (
@@ -694,6 +714,19 @@ export function SceneEditor({
             >
               {running === 'fit' ? 'Fitting…' : 'Fit to camera'}
             </Button>
+            {onAiEdit && (
+              <Button
+                size="sm"
+                disabled={busy || drafting || Boolean(aiBlocked)}
+                title={
+                  aiBlocked ??
+                  'Change its model with the AI brush: say what it is or what to change, as on the picture.'
+                }
+                onClick={() => onAiEdit(draft, selected)}
+              >
+                Edit with AI
+              </Button>
+            )}
             <IconButton
               label="Remove prop"
               disabled={busy || drafting}

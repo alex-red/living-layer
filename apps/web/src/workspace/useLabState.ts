@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type PointerEvent } from 'react';
 import type {
+  IsoScene,
   Fixture,
   EvidenceRun,
   LabStatus,
@@ -32,6 +33,7 @@ import type {
   CameraCrop,
 } from '@livinglayer/domain';
 import {
+  DEMO_CAMERA,
   DEMO_POSITIONS,
   DEMO_LIGHTS,
   DEMO_SWITCHES,
@@ -49,6 +51,7 @@ import {
   toLuma,
   zoneApplies,
   cropWithin,
+  groupInFrame,
 } from '@livinglayer/domain';
 import { api, ApiError } from '../api';
 import { useBrush } from './useBrush';
@@ -368,10 +371,10 @@ export function useLabState() {
   const [stageView, setStageView] = useState<StageView>(boot.prefs.stageView);
   // What a drag on the canvas does.
   const [tool, setTool] = useState<Tool>(boot.prefs.tool);
-  /** Choose a canvas tool; the AI brush draws on the camera's picture, so it shows it. */
+  /** Choose a canvas tool; the AI brush draws on the camera's picture, so it shows it beside the room. */
   function chooseTool(next: Tool) {
     setTool(next);
-    if (next === 'brush') setStageView('photo');
+    if (next === 'brush') setStageView((v) => (v === 'iso' ? 'split' : v));
   }
   // Scene first: nothing runs until the person says which scene they are in.
   const [workScene, setWorkScene] = useState<WorkScene | null>(boot.prefs.workScene);
@@ -1959,6 +1962,27 @@ export function useLabState() {
     setError,
   });
   /**
+   * The AI brush on a prop picked in the room rather than drawn round on the
+   * picture: its box, seen through the room's camera, is the selection.
+   */
+  function brushGroup(scene: IsoScene, group: string) {
+    const camera = mode === 'demo' ? DEMO_CAMERA : memory?.camera?.camera;
+    if (!camera)
+      return setError(
+        'Calibrate the room’s camera first: the AI brush reads what you pick through it.',
+      );
+    const box = groupInFrame(camera, scene, group, 0.05);
+    if (!box)
+      return setError('The room’s camera doesn’t see all of it, so the AI brush can’t pick it.');
+    const { width, height } = camera.frame;
+    chooseTool('brush');
+    void brush.finish({
+      kind: 'rect',
+      a: { x: box.left / width, y: box.top / height },
+      b: { x: box.right / width, y: box.bottom / height },
+    });
+  }
+  /**
    * Run an AI call that reports its steps under a job id, followed in the
    * dialog until it ends. Resolves to its answer, or null when it was stopped.
    */
@@ -2538,6 +2562,7 @@ export function useLabState() {
     tool,
     setTool: chooseTool,
     brush,
+    brushGroup,
     fixtureLook,
     setFixtureLook,
     separate,

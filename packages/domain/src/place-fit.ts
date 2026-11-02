@@ -1,7 +1,7 @@
 import type { IsoScene } from './iso.js';
 import { groupBounds, moveGroup, ridersOf, rotateGroup, settleGroup } from './iso-templates.js';
 import type { Bits } from './photo-scene.js';
-import type { RoomCamera } from './room-camera.js';
+import { projectRoom, type RoomCamera } from './room-camera.js';
 import { floorSolid, renderRoom, sceneSolids } from './room-render.js';
 
 /**
@@ -133,4 +133,43 @@ export interface SceneFit {
     kept: boolean;
   };
   runId: string;
+}
+
+/**
+ * Where a group's box falls in the camera's frame, in pixels: the box of its
+ * eight corners' drawing, grown by `grow` of its size each way and cut to the
+ * frame. Null when the camera doesn't see all of it, or it is under 4 pixels.
+ */
+export function groupInFrame(
+  camera: RoomCamera,
+  scene: IsoScene,
+  g: string,
+  grow = 0,
+): { left: number; top: number; right: number; bottom: number } | null {
+  const b = groupBounds(scene, g);
+  if (!b) return null;
+  const corners = [0, 1].flatMap((i) =>
+    [0, 1].flatMap((j) =>
+      [0, 1].map((k) =>
+        projectRoom(camera, {
+          x: b.at.x + i * b.size.w,
+          y: b.at.y + j * b.size.d,
+          z: b.at.z + k * b.size.h,
+        }),
+      ),
+    ),
+  );
+  const seen = corners.filter((c) => c !== null);
+  if (seen.length < corners.length) return null;
+  const xs = seen.map((c) => c.x);
+  const ys = seen.map((c) => c.y);
+  const [x0, x1, y0, y1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
+  const { width, height } = camera.frame;
+  const box = {
+    left: Math.max(0, x0 - (x1 - x0) * grow),
+    top: Math.max(0, y0 - (y1 - y0) * grow),
+    right: Math.min(width, x1 + (x1 - x0) * grow),
+    bottom: Math.min(height, y1 + (y1 - y0) * grow),
+  };
+  return box.right - box.left < 4 || box.bottom - box.top < 4 ? null : box;
 }

@@ -1094,9 +1094,9 @@
   font-weight: 600;
 }
 .scene-canvas {
+  /* The zoom view fills it, as the room view's does. */
+  position: relative;
   min-height: 240px;
-  display: grid;
-  place-items: center;
 }
 .scene-editor .iso-note {
   color: var(--text-2);
