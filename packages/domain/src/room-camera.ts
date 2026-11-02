@@ -542,6 +542,23 @@ export function roomShapeFor(
   return best;
 }
 
+/**
+ * The camera a zoomed view of `c` is: the part of its frame `crop` keeps, at
+ * the same focal length, its principal point moved off the new frame's centre.
+ */
+export function cropCamera(c: RoomCamera, crop: CameraCrop): RoomCamera {
+  const frame = {
+    width: Math.round(c.frame.width * crop.w),
+    height: Math.round(c.frame.height * crop.h),
+  };
+  return {
+    ...c,
+    frame,
+    cx: c.cx - crop.x * c.frame.width,
+    cy: c.cy - crop.y * c.frame.height,
+  };
+}
+
 /** The room's marks as a camera would see them: the corner and points along both walls. */
 export function marksOf(c: RoomCamera, count = 6): RoomMarks {
   const inFrame = (p: Point | null): p is Point =>

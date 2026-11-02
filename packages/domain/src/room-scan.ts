@@ -4,6 +4,7 @@ import {
   PROP_TEMPLATES,
   freshGroupId,
   groupBounds,
+  moveGroup,
   placeTemplate,
   rotateGroup,
   settleGroup,
@@ -22,7 +23,16 @@ import {
   type PlacedThing,
   type PhotoThing,
 } from './photo-scene.js';
-import { cornerCamera, projectRoom, unprojectRoom, type RoomCamera } from './room-camera.js';
+import {
+  cameraFromMarks,
+  cornerCamera,
+  cropCamera,
+  marksOf,
+  projectRoom,
+  unprojectRoom,
+  type RoomCamera,
+} from './room-camera.js';
+import type { CameraCrop } from './camera.js';
 import { floorSolid, renderRoom, sceneSolids } from './room-render.js';
 import { ISO_TILE_CM, cm } from './iso-furniture.js';
 
@@ -774,42 +784,100 @@ export function roomCase(
 }
 const floorOf = (scene: IsoScene) => floorSolid(scene.grid);
 
-/** A small living room: a table and two chairs, a bookcase and a plant. */
-const LOUNGE: IsoScene = (() => {
-  let scene: IsoScene = {
-    kind: 'custom',
-    label: 'Lounge',
-    grid: { w: 12, d: 10 },
-    props: [],
-    surfaces: [],
-  };
-  const add = (id: TemplateId, g: string, x: number, y: number, turns = 0) => {
-    const built = placeTemplate(id, g, x, y, 0);
+/** One thing of a scene built by `sceneOf`. */
+export interface ScenePiece {
+  template: TemplateId;
+  /** Where its footprint's corner nearest the origin lands, once turned. */
+  x: number;
+  y: number;
+  /** Its group; the template's name by default, or that with -2, -3… when taken. */
+  id?: string;
+  turns?: number;
+  /** Its size before turning, in tiles; the template's by default. */
+  size?: { w: number; d: number; h?: number };
+  /** The group whose top it stands on; the floor by default. */
+  on?: string;
+}
+/**
+ * A room of templates, each turned and then moved so that its footprint's
+ * corner nearest the origin is at (x, y): turning a group about its centre
+ * moves that corner, so placing then turning puts an oblong thing elsewhere.
+ */
+export function sceneOf(
+  pieces: ScenePiece[],
+  { grid = { w: 12, d: 10 }, label = 'Room' }: { grid?: IsoScene['grid']; label?: string } = {},
+): IsoScene {
+  let scene: IsoScene = { kind: 'custom', label, grid, props: [], surfaces: [] };
+  for (const p of pieces) {
+    let g = p.id ?? p.template;
+    for (let k = 2; !p.id && scene.props.some((q) => q.group === g); k++) g = `${p.template}-${k}`;
+    const z = p.on
+      ? Math.max(
+          ...scene.surfaces
+            .filter((s) => scene.props.some((q) => q.id === s.propId && q.group === p.on))
+            .map((s) => s.z),
+        )
+      : 0;
+    const built = placeTemplate(p.template, g, p.x, p.y, z, p.size ? { size: p.size } : {});
     scene = {
       ...scene,
       props: [...scene.props, ...built.props],
       surfaces: [...scene.surfaces, ...built.surfaces],
     };
-    for (let k = 0; k < turns; k++) scene = rotateGroup(scene, g);
-  };
-  add('wall', 'wall-back', 0, 0);
-  add('table', 'table', 4, 3.5);
-  // Both chairs face the table.
-  add('chair', 'chair', 3.5, 6.5);
-  add('chair', 'chair-2', 6.5, 1.2, 2);
-  add('shelf', 'shelf', 8.5, 0.3);
-  add('plant', 'plant', 0.6, 7.5);
+    for (let k = 0; k < (p.turns ?? 0); k++) scene = rotateGroup(scene, g);
+    const b = groupBounds(scene, g)!;
+    scene = moveGroup(scene, g, p.x - b.at.x, p.y - b.at.y);
+  }
   return scene;
-})();
+}
+
+/** A small living room: a table and two chairs, a bookcase and a plant. */
+const LOUNGE = sceneOf(
+  [
+    { template: 'wall', id: 'wall-back', x: 0, y: 0 },
+    { template: 'table', x: 4, y: 3.5 },
+    // Both chairs face the table.
+    { template: 'chair', x: 3.5, y: 6.5 },
+    { template: 'chair', x: 6.5, y: 1.2, turns: 2 },
+    { template: 'shelf', x: 8.5, y: 0.3 },
+    { template: 'plant', x: 0.6, y: 7.5 },
+  ],
+  { label: 'Lounge' },
+);
+
+/**
+ * A 140 cm desk along the left wall, its far end to a bookcase in the back
+ * corner, as a live draft saw one; `hidden` puts a low cabinet in front of
+ * its near end, hiding its feet.
+ */
+const deskByShelf = (hidden = false) =>
+  sceneOf(
+    [
+      { template: 'wall', id: 'wall-back', x: 0, y: 0 },
+      { template: 'wall', id: 'wall-left', x: 0, y: 0.2, turns: 1 },
+      { template: 'shelf', x: 0.2, y: 0.2, turns: 3 },
+      { template: 'desk', x: 0.2, y: 0.2 + cm(80), turns: 3, size: { w: cm(140), d: 2.5 } },
+      ...(hidden
+        ? [
+            {
+              template: 'cabinet',
+              x: 2.8,
+              y: 6.6,
+              turns: 2,
+              size: { w: cm(60), d: cm(40), h: cm(60) },
+            } as const,
+          ]
+        : []),
+    ],
+    { label: 'Study' },
+  );
 
 /** The rooms a scan is judged on against `ROOM_TARGETS`, by the room bench and the tests alike. */
-export const ROOM_CASES: {
+export const ROOM_CASES: ({
   name: string;
   scene: () => IsoScene;
   camera: (s: IsoScene) => RoomCamera;
-  /** Sizes Spark gets wrong, by group, in centimetres. */
-  guess?: Record<string, Partial<PhotoThing['sizeCm']>>;
-}[] = [
+} & ScanOptions)[] = [
   { name: 'office', scene: () => ISO_PRESETS.office, camera: (s) => cornerCamera(s.grid) },
   {
     name: 'office, low and wide',
@@ -828,6 +896,18 @@ export const ROOM_CASES: {
     scene: () => ISO_PRESETS.office,
     camera: (s) => cornerCamera(s.grid),
     guess: { desk: { w: 120 } },
+  },
+  {
+    // Zoomed so the frame's bottom edge cuts the desk's near end off: it keeps its length.
+    name: 'desk cut off by the frame',
+    scene: () => deskByShelf(),
+    camera: (s) => cornerCamera(s.grid),
+    crop: { x: 0.15, y: 0.05, w: 0.6, h: 0.35 },
+  },
+  {
+    name: "desk's near end hidden",
+    scene: () => deskByShelf(true),
+    camera: (s) => cornerCamera(s.grid),
   },
 ];
 
@@ -867,4 +947,45 @@ export function judgeRoom(layout: PhotoLayout, truth: ReturnType<typeof roomCase
     if (e > worst) [worst, who] = [e, t.id];
   }
   return { worst, who, wrongTurns, size };
+}
+
+export interface ScanOptions {
+  /** Sizes Spark gets wrong, by group, in centimetres. */
+  guess?: Record<string, Partial<PhotoThing['sizeCm']>>;
+  /**
+   * The camera's zoomed view, so the frame's edges can cut things off. Not a
+   * narrower lens: at 60° or less `cameraFromMarks` fits the marks to a tenth
+   * of a pixel with the wrong camera.
+   */
+  crop?: CameraCrop;
+}
+/**
+ * A room scanned the way a person's would be: seen through `camera` (zoomed
+ * by `crop`), outlined, the camera calibrated from the room's floor marks
+ * rather than handed over, and laid out. With each thing's box as drawn, and
+ * how it did against where everything really is.
+ */
+export function scanCase(scene: IsoScene, camera: RoomCamera, { guess, crop }: ScanOptions = {}) {
+  const seen = crop ? cropCamera(camera, crop) : camera;
+  const s = roomCase(scene, seen, guess);
+  const marks = marksOf(seen);
+  const fit = cameraFromMarks(marks, seen.frame, seen.room, crop ? { crop } : {});
+  const calibration: RoomCalibration = {
+    camera: fit.camera,
+    marks,
+    scene: 'custom',
+    error: fit.error,
+    calibratedAt: new Date(0).toISOString(),
+    ...(crop ? { crop } : {}),
+  };
+  const start = performance.now();
+  const layout = layoutRoom({ ...s, calibration });
+  const ms = performance.now() - start;
+  const boxes = Object.fromEntries(
+    layout.things.flatMap((t) => {
+      const b = t.group && groupBounds(layout.scene, t.group);
+      return b ? [[t.id, b] as const] : [];
+    }),
+  );
+  return { ...s, calibration, layout, boxes, judged: judgeRoom(layout, s.truth), ms };
 }
