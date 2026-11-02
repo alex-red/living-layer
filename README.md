@@ -57,7 +57,7 @@ Copy `.env.example` to `.env` and fill in what you need. Restart the server afte
 | `META_LIVE_ENABLED`                      | Set to `true` to allow live Meta calls.                                                                                    |
 | `META_DAILY_SPEND_LIMIT_USD`             | Daily cap on Meta spend in USD (default 10). Changeable from the spend pill.                                               |
 | `HA_URL`, `HA_TOKEN`                     | Home Assistant origin and a long-lived token. Then tick the devices in the lab (_Home Assistant → Devices it can switch_). |
-| `HA_LIVE_ENABLED`                        | Set to `true` to allow devices to be switched.                                                                             |
+| `HA_LIVE_ENABLED`                        | On by default; `false` switches nothing at all.                                                                            |
 | `HA_ENTITY_ID`                           | Optional. The main light, instead of ticking it in the lab.                                                                |
 | `HA_EXTRA_ENTITY_IDS`                    | Optional. More `light.*` entities, comma-separated.                                                                        |
 | `HA_SWITCH_ENTITY_IDS`                   | Optional. `switch.*`, `fan.*` or `input_boolean.*` entities, comma-separated.                                              |

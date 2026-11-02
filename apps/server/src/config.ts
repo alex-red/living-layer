@@ -38,7 +38,14 @@ const schema = z.object({
   HA_EXTRA_ENTITY_IDS: z.string().default(''),
   /** Switches (or fans, helper toggles) that fixtures and rules may turn on and off, comma-separated. */
   HA_SWITCH_ENTITY_IDS: z.string().default(''),
-  HA_LIVE_ENABLED: flag,
+  /**
+   * On unless set to false: only devices ticked in the lab or named here are
+   * ever switched, so a URL and token alone switch nothing.
+   */
+  HA_LIVE_ENABLED: z
+    .enum(['true', 'false'])
+    .default('true')
+    .transform((v) => v === 'true'),
   /** Network camera WHEP URLs, comma-separated, for networks where mDNS discovery is blocked. */
   CAMERA_STREAMS: z.string().default(''),
   /** mediamtx, which relays saved RTSP cameras to the tab as WebRTC; `off` for the MJPEG preview. */

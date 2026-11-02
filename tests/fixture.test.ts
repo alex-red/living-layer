@@ -286,6 +286,10 @@ const ha = {
 };
 
 describe('lights and switches', () => {
+  it('switches by default, and nothing once HA_LIVE_ENABLED is false', () => {
+    expect(parseConfig({}).haEnabled).toBe(true);
+    expect(parseConfig({ HA_LIVE_ENABLED: 'false' }).haEnabled).toBe(false);
+  });
   it('parses switch entities, and only switch entities', () => {
     expect(
       parseConfig({ HA_SWITCH_ENTITY_IDS: 'switch.fan, switch.fan,switch.tv' }).haSwitches,

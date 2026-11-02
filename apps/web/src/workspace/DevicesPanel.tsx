@@ -21,8 +21,7 @@ const DOMAIN_LABEL: Record<HaEntity['domain'], string> = {
 /** The server keeps at most this many (`MAX_CHOSEN`). */
 const MAX_CHOSEN = 24;
 const ENV_SNIPPET = `HA_URL=http://homeassistant.local:8123
-HA_TOKEN=paste-the-long-lived-token-here
-HA_LIVE_ENABLED=true`;
+HA_TOKEN=paste-the-long-lived-token-here`;
 
 /**
  * Home Assistant, for switching: connect it (in `.env`), tick the few devices
@@ -56,12 +55,12 @@ export function DevicesPanel() {
   const [summary, tone]: [string, Tone] = !live
     ? ['Demo: these virtual devices stand in for yours. Switch to Live to use your own.', 'seen']
     : !ha?.connected && !ha?.overMqtt.length
-      ? ['Not connected yet: three lines in .env, below.', 'unsure']
+      ? ['Not connected yet: two lines in .env, below.', 'unsure']
       : !ready.length
         ? ['Connected. Tick the devices it may switch.', 'unsure']
         : ha?.connected && !ha.enabled && !ha.overMqtt.length
           ? [
-              `${count(ready.length)} chosen, but switching is off until HA_LIVE_ENABLED=true.`,
+              `${count(ready.length)} chosen, but switching is off: HA_LIVE_ENABLED=false in .env.`,
               'unsure',
             ]
           : [`${count(ready.length)} ready to switch.`, 'ok'];
@@ -117,7 +116,9 @@ function ConnectStep() {
           {ha?.connected ? `Address and token set (${ha.url}).` : 'HA_URL and HA_TOKEN not set.'}
         </li>
         <li className={ha?.enabled ? 'ok' : ''}>
-          {ha?.enabled ? 'Switching allowed.' : 'Switching off: HA_LIVE_ENABLED isn’t true.'}
+          {ha?.enabled
+            ? 'Switching allowed.'
+            : 'Switching off: HA_LIVE_ENABLED=false is in .env; remove it to switch.'}
         </li>
       </ul>
       {!done && (
@@ -328,7 +329,9 @@ function TryStep({ names }: { names: Map<string, string> }) {
         })}
       </ul>
       {blocked && (
-        <p className="micro">Switching is off: set HA_LIVE_ENABLED=true in .env and restart.</p>
+        <p className="micro">
+          Switching is off: remove HA_LIVE_ENABLED=false from .env and restart.
+        </p>
       )}
     </Details>
   );

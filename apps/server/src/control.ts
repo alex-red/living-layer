@@ -100,7 +100,7 @@ export class ControlAdapter {
     if (!c.haEnabled)
       throw new LabError(
         'lamp_not_ready',
-        'Switching is off: set HA_LIVE_ENABLED=true in .env and restart the server. Until then nothing in your home is switched.',
+        'Switching is off: HA_LIVE_ENABLED=false is in .env. Remove it and restart the server to switch devices.',
         409,
       );
     if (!entity)

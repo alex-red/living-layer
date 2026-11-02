@@ -251,7 +251,7 @@ export async function buildApp(
     if (!count)
       return 'Connected. Pick the devices it may switch under Home Assistant in the outline.';
     if (!config.haEnabled)
-      return `${devices} chosen, but switching is off until HA_LIVE_ENABLED=true is in .env.`;
+      return `${devices} chosen, but switching is off: HA_LIVE_ENABLED=false is in .env.`;
     return `${devices} ready; switched only when a rule or a button asks.`;
   }
   const entities = (mode: Mode) =>
