@@ -37,7 +37,9 @@ export type Selection =
   | { kind: 'lamp'; id: string }
   /** An entity shown in Home Assistant over MQTT. */
   | { kind: 'entity'; id: string }
-  | { kind: 'new-entity' };
+  | { kind: 'new-entity' }
+  /** Connecting Home Assistant and choosing the devices it may switch. */
+  | { kind: 'devices' };
 
 export type StepId = 'office' | 'desk' | 'objects' | 'rule' | 'run';
 export type StepState = 'done' | 'current' | 'todo' | 'locked';
@@ -215,6 +217,7 @@ export function parseSelection(hash: string): Selection | null {
     case 'new-rule':
     case 'new-fixture':
     case 'new-entity':
+    case 'devices':
       return { kind };
     case 'surface':
     case 'object':

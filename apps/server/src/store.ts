@@ -245,11 +245,11 @@ export class EvidenceStore {
         (r) =>
           r.kind === 'segment' && isMugConcept(String((r.output as { concept?: string }).concept)),
       ),
-      // Proof of the lamp: a light turned on, not a switch or a light turned off.
+      // Proof of the lamp: a light turned on, not a switch, a fan or a light turned off.
       lamp: runs.some(
         (r) =>
           (r.kind === 'lamp' &&
-            !String((r.output as { entityId?: string }).entityId).startsWith('switch.') &&
+            String((r.output as { entityId?: string }).entityId).startsWith('light.') &&
             (r.output as { action?: string }).action !== 'off') ||
           (r.kind === 'placement' &&
             (r.output as { lamp?: { stateConfirmed?: boolean } }).lamp?.stateConfirmed === true),

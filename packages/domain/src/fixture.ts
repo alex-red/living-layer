@@ -22,10 +22,19 @@ import type { DeskObservation } from './index.js';
  */
 export const CONTROL_KINDS = ['none', 'light', 'switch'] as const;
 export type ControlKind = (typeof CONTROL_KINDS)[number];
+/**
+ * The Home Assistant domains that turn on and off: lights, and the ones that
+ * act like a switch (a fan, a helper toggle). Anything else is never switched.
+ */
+export const SWITCHABLE_DOMAINS = ['light', 'switch', 'fan', 'input_boolean'] as const;
 export const lightEntitySchema = z.string().regex(/^light\.[a-z0-9_]+$/);
-export const switchEntitySchema = z.string().regex(/^switch\.[a-z0-9_]+$/);
+/** A switch, a fan or a helper toggle: on and off, no brightness. */
+export const switchEntitySchema = z.string().regex(/^(switch|fan|input_boolean)\.[a-z0-9_]+$/);
 /** A Home Assistant entity a fixture or a rule can switch. */
-export const entityIdSchema = z.string().regex(/^(light|switch)\.[a-z0-9_]+$/);
+export const entityIdSchema = z.string().regex(/^(light|switch|fan|input_boolean)\.[a-z0-9_]+$/);
+/** Which fixture kind an entity is: a light, else a switch. */
+export const controlKindOf = (entityId: string): 'light' | 'switch' =>
+  entityId.startsWith('light.') ? 'light' : 'switch';
 export const fixtureControlSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('none') }).strict(),
   z.object({ kind: z.literal('light'), entityId: lightEntitySchema }).strict(),

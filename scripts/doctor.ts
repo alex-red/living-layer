@@ -12,7 +12,7 @@ try {
     `Models: ${config.sparkModel}, ${config.samModel}; spending limit: $${config.spendLimitUsd}/UTC day (changeable in the lab)`,
   );
   console.log(
-    `Home Assistant: ${config.haUrl && config.haToken && config.haEntity ? 'configured' : 'incomplete'}; live enabled: ${config.haEnabled}`,
+    `Home Assistant: ${config.haUrl && config.haToken ? 'connected (devices are ticked in the lab)' : 'HA_URL and HA_TOKEN not set'}; live enabled: ${config.haEnabled}`,
   );
   console.log(
     `Home Assistant entities over MQTT: ${config.mqtt.url ? `broker set, ${config.mqtt.username ? 'with' : 'without'} a username` : 'MQTT_URL missing'}; live enabled: ${config.mqtt.enabled}; topics under ${config.mqtt.baseTopic}/, discovery under ${config.mqtt.discoveryPrefix}/; ${config.mqtt.devices.length} light(s) or switch(es) over MQTT`,

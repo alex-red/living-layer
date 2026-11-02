@@ -177,7 +177,8 @@ describe('fixtures', () => {
       rect: { x: 0, y: 0, width: 1, height: 1 },
     };
     expect(ruleInputSchema.safeParse(rule).success).toBe(true);
-    expect(ruleInputSchema.safeParse({ ...rule, entityId: 'fan.desk' }).success).toBe(false);
+    expect(ruleInputSchema.safeParse({ ...rule, entityId: 'fan.desk' }).success).toBe(true);
+    expect(ruleInputSchema.safeParse({ ...rule, entityId: 'climate.hall' }).success).toBe(false);
   });
   it('upgrades rules saved with only a light', () => {
     const legacy = { id: 'r', lightId: 'light.desk' } as unknown as PlacementRule;
@@ -324,8 +325,84 @@ describe('lights and switches', () => {
   it('refuses entities that aren’t configured', async () => {
     const { fetcher, calls } = fakeHa(() => 'on');
     const adapter = new ControlAdapter(parseConfig(ha), fetcher, async () => {});
-    await expect(adapter.turnOn('switch.heater')).rejects.toThrow(/configured/);
+    await expect(adapter.turnOn('switch.heater')).rejects.toThrow(/may switch/);
     expect(calls).toHaveLength(0);
+  });
+});
+
+describe('Home Assistant devices chosen in the lab', () => {
+  /** Home Assistant with a lamp, a fan, a helper toggle and a thermostat, each answering `on`. */
+  const haWithStates = () => {
+    const calls: { path: string; body?: unknown }[] = [];
+    const fetcher: Fetcher = async (input, init) => {
+      const path = new URL(String(input)).pathname;
+      calls.push({ path, ...(init?.body ? { body: JSON.parse(String(init.body)) } : {}) });
+      if (path === '/api/states')
+        return Response.json([
+          { entity_id: 'light.desk', state: 'off', attributes: { friendly_name: 'Desk lamp' } },
+          { entity_id: 'fan.ceiling', state: 'off', attributes: { friendly_name: 'Ceiling fan' } },
+          { entity_id: 'input_boolean.focus', state: 'off', attributes: {} },
+          { entity_id: 'climate.hall', state: 'heat', attributes: {} },
+        ]);
+      return Response.json(path.includes('/services/') ? [] : { state: 'on', attributes: {} });
+    };
+    return { fetcher, calls };
+  };
+  const connected = { HA_URL: 'http://ha.local:8123', HA_TOKEN: 't', HA_LIVE_ENABLED: 'true' };
+
+  it('lists only what turns on and off, lights first', async () => {
+    const s = await setup(connected, haWithStates().fetcher);
+    const { entities } = (await s.app.inject('/api/ha/entities')).json<{
+      entities: { entityId: string; name: string }[];
+    }>();
+    expect(entities.map((e) => e.entityId)).toEqual([
+      'light.desk',
+      'fan.ceiling',
+      'input_boolean.focus',
+    ]);
+    expect(entities[0]!.name).toBe('Desk lamp');
+    expect(entities[2]!.name).toBe('input_boolean.focus');
+  });
+  it('says what to fix when the token is refused or nothing is set', async () => {
+    const refused = await setup(connected, async () => new Response('', { status: 401 }));
+    const r = await refused.app.inject('/api/ha/entities');
+    expect(r.json().error.code).toBe('ha_token');
+    const bare = await setup();
+    expect((await bare.app.inject('/api/ha/entities')).json().error.code).toBe('ha_not_connected');
+  });
+  it('switches a ticked device, and only once it is ticked', async () => {
+    const { fetcher, calls } = haWithStates();
+    const s = await setup(connected, fetcher);
+    const live = (body: object) =>
+      s.app.inject({ method: 'POST', url: '/api/lamp', payload: { mode: 'live', ...body } });
+    expect((await live({ entityId: 'fan.ceiling' })).statusCode).toBe(409);
+    expect(calls.some((c) => c.path.includes('/services/'))).toBe(false);
+    const saved = await s.post('ha/chosen', { entityIds: ['fan.ceiling', 'light.desk'] });
+    expect(saved.json().chosen).toEqual(['fan.ceiling', 'light.desk']);
+    const status = (await s.app.inject('/api/status')).json<{
+      lamp: { lights: string[]; switches: string[]; configured: boolean };
+    }>();
+    expect(status.lamp).toMatchObject({
+      configured: true,
+      lights: ['light.desk'],
+      switches: ['fan.ceiling'],
+    });
+    const run = (await live({ entityId: 'fan.ceiling', action: 'on' })).json();
+    expect(run.output).toMatchObject({ entityId: 'fan.ceiling', stateConfirmed: true });
+    expect(calls.find((c) => c.path.includes('/services/'))).toEqual({
+      path: '/api/services/fan/turn_on',
+      body: { entity_id: 'fan.ceiling' },
+    });
+    expect((await s.post('ha/chosen', { entityIds: ['climate.hall'] })).statusCode).toBe(400);
+  });
+  it('keeps .env’s devices apart from the ones ticked', async () => {
+    const s = await setup({ ...connected, HA_ENTITY_ID: 'light.desk' }, haWithStates().fetcher);
+    const saved = await s.post('ha/chosen', { entityIds: ['light.desk', 'input_boolean.focus'] });
+    expect(saved.json().chosen).toEqual(['input_boolean.focus']);
+    const { ha } = (await s.app.inject('/api/status')).json<{
+      ha: { fromEnv: string[]; chosen: string[] };
+    }>();
+    expect(ha).toMatchObject({ fromEnv: ['light.desk'], chosen: ['input_boolean.focus'] });
   });
 });
 

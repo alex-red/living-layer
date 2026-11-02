@@ -157,6 +157,20 @@ export interface LabStatus {
    * `switches`: every switch entity fixtures and rules may turn on and off.
    */
   lamp: Readiness & { lights: string[]; switches: string[] };
+  /**
+   * Home Assistant, for switching: `connected` once `.env` has its URL and a
+   * token, `enabled` once switching is allowed. `fromEnv` are the devices
+   * `.env` names, `chosen` the ones ticked in the lab, `overMqtt` the
+   * `MQTT_DEVICES` (switched without Home Assistant).
+   */
+  ha: {
+    connected: boolean;
+    url: string;
+    enabled: boolean;
+    fromEnv: string[];
+    chosen: string[];
+    overMqtt: string[];
+  };
   /** The MQTT broker entities are published to. `state` never carries credentials. */
   mqtt: Readiness & { state: 'off' | 'connecting' | 'connected' | 'error' };
   liveEvidence: { text: boolean; discover: boolean; segment: boolean; lamp: boolean };

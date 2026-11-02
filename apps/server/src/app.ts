@@ -24,11 +24,14 @@ import {
   type DemoPosition,
   DEMO_POSITIONS,
   savedIdOf,
+  controlKindOf,
+  entityIdSchema,
 } from '@livinglayer/domain';
 import { type Config, type Fetcher, PROJECT_ROOT } from './config.js';
 import { EvidenceStore } from './store.js';
 import { MetaAdapter, type ProviderResult } from './meta.js';
 import { ControlAdapter } from './control.js';
+import { chosenEntities, haRoutes } from './ha.js';
 import { fixtureRoutes } from './fixture.js';
 import { LabError, parseInput, safeError } from './errors.js';
 import { validateImage } from './images.js';
@@ -92,7 +95,10 @@ export async function buildApp(
   const app = Fastify({ logger: false, bodyLimit: 7_100_000, requestTimeout: 130000 });
   const store = new EvidenceStore(config.dataDir);
   const meta = new MetaAdapter(config, store, options.fetcher);
-  const lamp = new ControlAdapter(config, options.fetcher);
+  const lamp = new ControlAdapter(config, options.fetcher, undefined, () => [
+    ...haLights(),
+    ...haSwitches(),
+  ]);
   app.addHook('onClose', async () => store.close());
   // MQTT: one install id names our device and entities in Home Assistant across restarts.
   let installId = store.setting('install_id');
@@ -125,11 +131,26 @@ export async function buildApp(
   const mqttLights = config.mqtt.devices
     .filter((d) => d.entityId.startsWith('light.'))
     .map((d) => d.entityId);
-  const liveLights = [...config.haLights, ...mqttLights];
-  const liveSwitches = [
-    ...config.haSwitches,
-    ...config.mqtt.devices.filter((d) => d.entityId.startsWith('switch.')).map((d) => d.entityId),
-  ];
+  const mqttSwitches = config.mqtt.devices
+    .filter((d) => d.entityId.startsWith('switch.'))
+    .map((d) => d.entityId);
+  // Home Assistant's: `.env`'s first, then the ones ticked in the lab, kept in `settings`.
+  const haChosen = () => chosenEntities(store).filter((e) => !mqttControl.has(e));
+  function haLights() {
+    return [
+      ...new Set([...config.haLights, ...haChosen().filter((e) => controlKindOf(e) === 'light')]),
+    ];
+  }
+  function haSwitches() {
+    return [
+      ...new Set([
+        ...config.haSwitches,
+        ...haChosen().filter((e) => controlKindOf(e) === 'switch'),
+      ]),
+    ];
+  }
+  const liveLights = () => [...haLights(), ...mqttLights];
+  const liveSwitches = () => [...haSwitches(), ...mqttSwitches];
   app.addHook('onRequest', async (request) => {
     const host = request.headers.host ?? '';
     if (!new RegExp(`^(localhost|127\\.0\\.0\\.1)(:${config.port}|:43430|:80)?$`).test(host))
@@ -192,17 +213,19 @@ export async function buildApp(
             : 'Set MODEL_API_KEY and META_LIVE_ENABLED to make live calls.',
       },
       lamp: {
-        configured:
-          Boolean(config.haUrl && config.haToken && config.haEntity) || mqttLights.length > 0,
-        lights: liveLights,
-        switches: liveSwitches,
+        configured: liveLights().length + liveSwitches().length > 0,
+        lights: liveLights(),
+        switches: liveSwitches(),
         enabled: config.haEnabled || Boolean(link && config.mqtt.devices.length),
-        note:
-          config.haEnabled && config.haUrl && config.haToken && config.haEntity
-            ? `One configured light${mqttLights.length ? ', and devices over MQTT' : ''}; explicit actions only.`
-            : link && config.mqtt.devices.length
-              ? 'Lights and switches over MQTT; explicit actions only.'
-              : 'Set the HA_* variables and HA_LIVE_ENABLED (or MQTT_DEVICES) to control a lamp.',
+        note: lampNote(),
+      },
+      ha: {
+        connected: Boolean(config.haUrl && config.haToken),
+        url: config.haUrl,
+        enabled: config.haEnabled,
+        fromEnv: [...config.haLights, ...config.haSwitches],
+        chosen: haChosen(),
+        overMqtt: config.mqtt.devices.map((d) => d.entityId),
       },
       mqtt: {
         configured: Boolean(config.mqtt.url),
@@ -217,14 +240,29 @@ export async function buildApp(
         options.sam3d === null ? null : (config.sam3d?.kind ?? (options.sam3d ? 'local' : null)),
     };
   });
+  /** What the lab says about switching, in the order someone sets it up. */
+  function lampNote() {
+    const count = liveLights().length + liveSwitches().length;
+    const devices = `${count} device${count === 1 ? '' : 's'}`;
+    if (link && config.mqtt.devices.length && !(config.haUrl && config.haToken))
+      return `${devices} over MQTT; switched only when a rule or a button asks.`;
+    if (!config.haUrl || !config.haToken)
+      return 'Not connected: add HA_URL and HA_TOKEN to .env. Open Home Assistant in the outline for the steps.';
+    if (!count)
+      return 'Connected. Pick the devices it may switch under Home Assistant in the outline.';
+    if (!config.haEnabled)
+      return `${devices} chosen, but switching is off until HA_LIVE_ENABLED=true is in .env.`;
+    return `${devices} ready; switched only when a rule or a button asks.`;
+  }
   const entities = (mode: Mode) =>
-    mode === 'demo' ? [...DEMO_LIGHTS, ...DEMO_SWITCHES] : [...liveLights, ...liveSwitches];
-  /** Switch a live light or switch: over MQTT when it is an MQTT device, else through Home Assistant. */
+    mode === 'demo' ? [...DEMO_LIGHTS, ...DEMO_SWITCHES] : [...liveLights(), ...liveSwitches()];
+  /** Switch a live device: over MQTT when it is an MQTT device, else through Home Assistant. */
   const switchLive = (entity: string | undefined, action: 'on' | 'off') => {
-    const target = entity ?? liveLights[0];
+    const target = entity ?? liveLights()[0] ?? '';
     if (target && mqttControl.has(target)) return mqttControl.act(target, action);
-    return action === 'on' ? lamp.turnOn(entity) : lamp.turnOff(target ?? '');
+    return action === 'on' ? lamp.turnOn(target) : lamp.turnOff(target);
   };
+  haRoutes(app, { store, lamp, fixed: () => [...config.haLights, ...config.haSwitches] });
   const tracking = deskRoutes(
     app,
     store,
@@ -454,10 +492,31 @@ export async function buildApp(
   app.post('/api/segment', async (request) =>
     segment(parseInput(segmentRequestSchema, request.body)),
   );
+  /** Switch one device by hand: the main light on, unless it names another and which way. */
   app.post('/api/lamp', async (request) => {
-    const { mode } = parseInput(z.object({ mode: modeSchema }).strict(), request.body);
+    const { mode, entityId, action } = parseInput(
+      z
+        .object({
+          mode: modeSchema,
+          entityId: entityIdSchema.optional(),
+          action: z.enum(['on', 'off']).default('on'),
+        })
+        .strict(),
+      request.body,
+    );
+    if (entityId && !entities(mode).includes(entityId))
+      throw new LabError(
+        'lamp_unknown',
+        `${entityId} isn’t one of the devices Living Layer may switch.`,
+        409,
+      );
     return run('lamp', mode, async () => ({
-      output: mode === 'demo' ? demoLamp : await switchLive(undefined, 'on'),
+      output:
+        mode === 'demo'
+          ? entityId
+            ? demoLampFor(entityId, action)
+            : demoLamp
+          : await switchLive(entityId, action),
     }));
   });
   // The server watches the camera, so rules fire with no tab open.

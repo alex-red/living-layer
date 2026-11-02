@@ -36,7 +36,7 @@ const schema = z.object({
   HA_ENTITY_ID: z.string().default(''),
   /** More lights that placement rules may switch, comma-separated. */
   HA_EXTRA_ENTITY_IDS: z.string().default(''),
-  /** Switches that fixtures and rules may turn on and off, comma-separated. */
+  /** Switches (or fans, helper toggles) that fixtures and rules may turn on and off, comma-separated. */
   HA_SWITCH_ENTITY_IDS: z.string().default(''),
   HA_LIVE_ENABLED: flag,
   /** Network camera WHEP URLs, comma-separated, for networks where mDNS discovery is blocked. */
@@ -91,7 +91,7 @@ export interface Config {
   haEntity: string;
   /** Every light a rule may switch: the main one first, then the extras. */
   haLights: string[];
-  /** Every switch a fixture or rule may turn on and off. */
+  /** Every switch, fan or helper toggle a fixture or rule may turn on and off. */
   haSwitches: string[];
   haEnabled: boolean;
   cameraStreams: string[];
@@ -142,8 +142,10 @@ export function parseConfig(env: NodeJS.ProcessEnv, cwd = process.cwd()): Config
   const switches = value.HA_SWITCH_ENTITY_IDS.split(',')
     .map((e) => e.trim())
     .filter(Boolean);
-  if (switches.some((e) => !/^switch\.[a-z0-9_]+$/.test(e)))
-    throw new Error('HA_SWITCH_ENTITY_IDS must list switch entities, separated by commas.');
+  if (switches.some((e) => !/^(switch|fan|input_boolean)\.[a-z0-9_]+$/.test(e)))
+    throw new Error(
+      'HA_SWITCH_ENTITY_IDS must list switch, fan or input_boolean entities, separated by commas.',
+    );
   const cameraStreams = value.CAMERA_STREAMS.split(',')
     .map((e) => e.trim())
     .filter(Boolean);

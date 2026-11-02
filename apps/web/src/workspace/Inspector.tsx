@@ -20,6 +20,7 @@ import { useLab } from './LabContext';
 import { Cost, Details, Panel, useCall } from './panel';
 import { FixturePanel, LampPanel, NewFixturePanel, ScanFixtures } from './FixturePanel';
 import { EntityPanel, NewEntityPanel } from './ExposePanel';
+import { ChooseDevicesLink, DevicesPanel } from './DevicesPanel';
 import { ago, mainSurface, roomLabel, surfaceRows } from './labels';
 import { pinScene, viewLabel, type Selection } from './progress';
 import { TRANSITION, centre } from './useLabState';
@@ -1096,9 +1097,7 @@ function ZonePanel() {
             : 'Verify placement · turn on lamp'}
       </Button>
       {mode === 'live' && !lampReady && (
-        <p className="micro">
-          The lamp isn’t set up: set the HA_ variables and HA_LIVE_ENABLED, or try it in Demo.
-        </p>
+        <ChooseDevicesLink why="The lamp isn’t set up yet (or try it in Demo)." />
       )}
       {!currentObservation && memory.zone && (
         <p className="micro">
@@ -1414,10 +1413,7 @@ function NewRulePanel() {
         <Button onClick={() => lab.select(null)}>Cancel</Button>
       </div>
       {!entities.length && (
-        <p className="micro">
-          Set HA_ENTITY_ID (HA_EXTRA_ENTITY_IDS, HA_SWITCH_ENTITY_IDS for more) to choose what a
-          rule turns on. Without one, a rule only reports to Home Assistant.
-        </p>
+        <ChooseDevicesLink why="No devices to turn on yet; without one, a rule only reports to Home Assistant." />
       )}
     </Panel>
   );
@@ -1458,6 +1454,8 @@ function body(lab: ReturnType<typeof useLab>, s: Selection | null) {
       return <EntityPanel key={s.id} id={s.id} />;
     case 'new-entity':
       return <NewEntityPanel />;
+    case 'devices':
+      return <DevicesPanel />;
   }
 }
 

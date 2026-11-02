@@ -289,6 +289,18 @@ export function Outline() {
               )}
             </div>
             <ul className="ol-tree">
+              <Row
+                label="Devices it can switch"
+                detail={
+                  lab.entities.length
+                    ? `${lab.entities.length} ready${lab.mode === 'live' && !lab.lampReady ? ' · switching off' : ''}`
+                    : 'connect, then pick a few'
+                }
+                state={
+                  lab.entities.length && (lab.mode === 'demo' || lab.lampReady) ? 'done' : 'current'
+                }
+                target={{ kind: 'devices' }}
+              />
               {(memory?.exposed ?? []).map((e) => (
                 <Row
                   key={e.id}

@@ -103,6 +103,8 @@ export function selectionLabel(lab: Lab, s: Selection): string {
       return memory?.exposed?.find((e) => e.id === s.id)?.name ?? 'Entity';
     case 'new-entity':
       return 'Show in Home Assistant';
+    case 'devices':
+      return 'Devices it can switch';
   }
 }
 /** What a fixture is and, for a light or switch, its last confirmed state. */

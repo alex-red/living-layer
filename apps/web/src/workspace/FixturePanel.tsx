@@ -50,7 +50,8 @@ import { useLab } from './LabContext';
 import { ago, builtInLamps, controlLabel, roomLabel } from './labels';
 import { pinScene } from './progress';
 import { Cost, Details, Panel, useCall } from './panel';
-import type { IsoSceneKind } from '@livinglayer/domain';
+import { ChooseDevicesLink } from './DevicesPanel';
+import { controlKindOf, type IsoSceneKind } from '@livinglayer/domain';
 
 /** Fixtures stand in a room or a preset close view; a photographed room's desk view is the room's own. */
 type WorkScene = IsoSceneKind | 'custom';
@@ -160,7 +161,7 @@ function ControlPicker({
   onEntity: (entity: string) => void;
 }) {
   const { entities } = useLab();
-  const of = (k: ControlKind) => entities.filter((e) => e.startsWith(`${k}.`));
+  const of = (k: ControlKind) => entities.filter((e) => k !== 'none' && controlKindOf(e) === k);
   const choices = kind === 'none' ? [] : of(kind);
   return (
     <>
@@ -172,7 +173,7 @@ function ControlPicker({
               key={k}
               aria-pressed={kind === k}
               disabled={none}
-              title={none ? `No ${k} entities are configured.` : undefined}
+              title={none ? `No ${k} is chosen under Home Assistant yet.` : undefined}
               onClick={() => {
                 onKind(k);
                 onEntity(k === 'none' ? '' : (of(k)[0] ?? ''));
@@ -196,9 +197,7 @@ function ControlPicker({
           ))}
         </select>
       )}
-      {!of('switch').length && (
-        <p className="micro">Set HA_SWITCH_ENTITY_IDS to tie a fixture to a switch.</p>
-      )}
+      {!of('switch').length && <ChooseDevicesLink why="No switch, fan or toggle is chosen yet." />}
     </>
   );
 }
@@ -370,7 +369,7 @@ export function NewFixturePanel() {
     setDraft({ draft: d, scene: target, template, colors });
     if (!customColors) {
       setLabel(d.label);
-      const suggested = lab.entities.find((e) => e.startsWith(`${d.suggested}.`));
+      const suggested = lab.entities.find((e) => controlKindOf(e) === d.suggested);
       setKind(d.suggested !== 'none' && suggested ? d.suggested : 'none');
       setEntity(d.suggested !== 'none' ? (suggested ?? '') : '');
       lab.setMessage(
@@ -405,7 +404,7 @@ export function NewFixturePanel() {
       setSculpt(SCULPT_FIRST.includes(r.draft.archetype));
       lab.setBoxing(null);
       setLabel(r.draft.label);
-      const suggested = lab.entities.find((e) => e.startsWith(`${r.draft.suggested}.`));
+      const suggested = lab.entities.find((e) => controlKindOf(e) === r.draft.suggested);
       setKind(r.draft.suggested !== 'none' && suggested ? r.draft.suggested : 'none');
       setEntity(r.draft.suggested !== 'none' ? (suggested ?? '') : '');
       lab.setSelected(r.run);
@@ -801,9 +800,7 @@ export function FixturePanel({ id }: { id: string }) {
               Turn off
             </Button>
           </div>
-          {liveBlocked && (
-            <p className="micro">Set the HA_* variables and HA_LIVE_ENABLED to switch it.</p>
-          )}
+          {liveBlocked && <ChooseDevicesLink why="Home Assistant isn’t ready to switch it." />}
           {result && (
             <p className="micro">
               {result.accepted ? 'Accepted' : 'Not accepted'} ·{' '}
@@ -1186,9 +1183,7 @@ export function LampPanel({ id }: { id: string }) {
           </Button>
         </div>
       )}
-      {liveBlocked && (
-        <p className="micro">Set the HA_* variables and HA_LIVE_ENABLED to switch it.</p>
-      )}
+      {liveBlocked && <ChooseDevicesLink why="Home Assistant isn’t ready to switch it." />}
       {result && (
         <p className="micro">
           {result.accepted ? 'Accepted' : 'Not accepted'} ·{' '}

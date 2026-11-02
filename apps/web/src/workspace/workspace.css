@@ -1270,6 +1270,85 @@
   font-size: 12px;
 }
 
+/* Home Assistant devices Living Layer may switch */
+.devices-checks,
+.devices-uses,
+.devices-steps {
+  display: grid;
+  gap: 6px;
+  margin: 0 0 8px;
+  padding-left: 18px;
+  font-size: 13px;
+  color: var(--text-2);
+}
+.devices-checks {
+  list-style: none;
+  padding: 0;
+}
+.devices-checks li::before {
+  content: '○ ';
+  color: var(--unsure);
+}
+.devices-checks li.ok::before {
+  content: '✓ ';
+  color: var(--ok);
+}
+.devices-snippet {
+  margin: 6px 0 2px;
+  padding: 8px;
+  overflow-x: auto;
+  border-radius: var(--r-chip);
+  background: var(--surface-2);
+  font-family: var(--mono);
+  font-size: 12px;
+  white-space: pre;
+}
+.devices-search {
+  width: 100%;
+  margin-bottom: 8px;
+}
+.devices-list {
+  display: grid;
+  gap: 10px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+.devices-list fieldset {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.devices-name {
+  display: block;
+  color: var(--text);
+}
+.devices-list small,
+.devices-try small {
+  display: block;
+  color: var(--text-3);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+.devices-try {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.devices-try li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+.devices-error {
+  color: var(--unsure);
+}
+
 /* Entities shown in Home Assistant */
 .ol-broker {
   margin-left: auto;

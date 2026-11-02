@@ -51,22 +51,23 @@ The lamp is virtual in this mode and nothing leaves your machine.
 
 Copy `.env.example` to `.env` and fill in what you need. Restart the server after editing it.
 
-| Variable                                 | Purpose                                                                                                                   |
-| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `MODEL_API_KEY`                          | Meta API key. Stays on the server and is never sent to the browser.                                                       |
-| `META_LIVE_ENABLED`                      | Set to `true` to allow live Meta calls.                                                                                   |
-| `META_DAILY_SPEND_LIMIT_USD`             | Daily cap on Meta spend in USD (default 10). Changeable from the spend pill.                                              |
-| `HA_URL`, `HA_TOKEN`, `HA_ENTITY_ID`     | Home Assistant origin, a long-lived token, and one `light.*` entity.                                                      |
-| `HA_EXTRA_ENTITY_IDS`                    | Optional. More `light.*` entities that extra placement rules may switch, comma-separated.                                 |
-| `HA_SWITCH_ENTITY_IDS`                   | Optional. `switch.*` entities that fixtures and rules may turn on and off, comma-separated.                               |
-| `HA_LIVE_ENABLED`                        | Set to `true` to allow the lamp to be switched.                                                                           |
-| `MQTT_URL`, `MQTT_USERNAME`, `_PASSWORD` | Optional. The MQTT broker Home Assistant reads, for entities you show there (e.g. `binary_sensor.ll_office_presence`).    |
-| `MQTT_LIVE_ENABLED`                      | Set to `true` to publish them. `MQTT_DISCOVERY_PREFIX` and `MQTT_BASE_TOPIC` change the topics.                           |
-| `MQTT_DEVICES`                           | Optional. Lights and switches switched over MQTT (e.g. Zigbee2MQTT): `light.desk=zigbee2mqtt/Desk lamp`, comma-separated. |
-| `CAMERA_STREAMS`                         | Optional. WHEP or `rtsp://` URLs of network cameras, where mDNS discovery is blocked.                                     |
-| `REMOTE_CAMERA_PORT`                     | HTTPS port for the phone camera page (default 43432). Only listens once a phone is paired.                                |
-| `REMOTE_CAMERA_HOST`                     | Optional. Address the pairing QR code points at, if the detected LAN address is wrong.                                    |
-| `REMOTE_CAMERA_CERT`, `_KEY`             | Optional. PEM certificate and key for the phone page (e.g. mkcert); else self-signed.                                     |
+| Variable                                 | Purpose                                                                                                                    |
+| ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `MODEL_API_KEY`                          | Meta API key. Stays on the server and is never sent to the browser.                                                        |
+| `META_LIVE_ENABLED`                      | Set to `true` to allow live Meta calls.                                                                                    |
+| `META_DAILY_SPEND_LIMIT_USD`             | Daily cap on Meta spend in USD (default 10). Changeable from the spend pill.                                               |
+| `HA_URL`, `HA_TOKEN`                     | Home Assistant origin and a long-lived token. Then tick the devices in the lab (_Home Assistant → Devices it can switch_). |
+| `HA_LIVE_ENABLED`                        | Set to `true` to allow devices to be switched.                                                                             |
+| `HA_ENTITY_ID`                           | Optional. The main light, instead of ticking it in the lab.                                                                |
+| `HA_EXTRA_ENTITY_IDS`                    | Optional. More `light.*` entities, comma-separated.                                                                        |
+| `HA_SWITCH_ENTITY_IDS`                   | Optional. `switch.*`, `fan.*` or `input_boolean.*` entities, comma-separated.                                              |
+| `MQTT_URL`, `MQTT_USERNAME`, `_PASSWORD` | Optional. The MQTT broker Home Assistant reads, for entities you show there (e.g. `binary_sensor.ll_office_presence`).     |
+| `MQTT_LIVE_ENABLED`                      | Set to `true` to publish them. `MQTT_DISCOVERY_PREFIX` and `MQTT_BASE_TOPIC` change the topics.                            |
+| `MQTT_DEVICES`                           | Optional. Lights and switches switched over MQTT (e.g. Zigbee2MQTT): `light.desk=zigbee2mqtt/Desk lamp`, comma-separated.  |
+| `CAMERA_STREAMS`                         | Optional. WHEP or `rtsp://` URLs of network cameras, where mDNS discovery is blocked.                                      |
+| `REMOTE_CAMERA_PORT`                     | HTTPS port for the phone camera page (default 43432). Only listens once a phone is paired.                                 |
+| `REMOTE_CAMERA_HOST`                     | Optional. Address the pairing QR code points at, if the detected LAN address is wrong.                                     |
+| `REMOTE_CAMERA_CERT`, `_KEY`             | Optional. PEM certificate and key for the phone page (e.g. mkcert); else self-signed.                                      |
 
 Then switch to **Live** mode and go through the same steps with your own camera: mount it high in a corner of the room, looking across at the far corner, and **Calibrate the camera** on one of its frames (SAM outlines the floor and walls; you drag three marks and give the room’s size). Every scan, pin and picture then goes through that camera. Photos are only sent to Meta when you press a button that says it calls a model. The spend pill in the top bar shows today's spend against the limit.
 

@@ -109,7 +109,9 @@ function Readiness() {
       <div className="setup-note">
         <strong>{metaReady ? 'Meta calls enabled' : 'Meta access pending'}</strong>
         <p>{status?.meta.note ?? 'Checking local configuration…'}</p>
-        <strong>{lampReady ? 'Lamp adapter enabled' : 'Lamp setup pending'}</strong>
+        <strong>
+          {lampReady ? 'Home Assistant switching on' : 'Home Assistant switching off'}
+        </strong>
         <p>{status?.lamp.note}</p>
         <strong>
           {status?.mqtt.state === 'connected'
