@@ -44,6 +44,8 @@ bun run runs [<run>]          # the run log, or one run's steps and pictures in 
 bun run verify                # all of the above that matters, plus format, types and tests, in one summary
 bun run verify --at staged    # the same on HEAD and what is staged, in a clean worktree (--at <ref> for a commit)
 bun run commit -m "fix: …" -- <files>  # verify those files on HEAD in a clean worktree, then commit just them
+bun run commit --hunks <file> --match "…"  # the file's hunks changing a line with that text, as out/<file>.patch
+bun run commit -m "fix: …" --patch <patch>  # the same as commit, for just those hunks
 ```
 
 Each bench shows how much room every case has left before its target. `--set desk.topCm=3,4,5` tries other furniture measurements without editing code. If you change how something looks on purpose, update its golden picture with `UPDATE_GOLDEN=1 bun test tests/model.test.ts tests/furniture.test.ts`, and check the new PNGs before committing them. [AGENTS.md](AGENTS.md) has more on when to run which.
@@ -51,6 +53,8 @@ Each bench shows how much room every case has left before its target. `--set des
 ## Committing
 
 Commit with `bun run commit -m "<summary>" [-m "<body>"] -- <files>`. The checkout may be shared with other sessions, so it names its files: it runs `verify` on HEAD with only those files as they are now, in a clean worktree, then commits just them and leaves anything else staged alone. The pre-commit hook refuses other commits. To commit by hand (concluding a merge with conflicts, say), check what is staged and use `COMMIT_ANY=1 git commit …`. `--skip-verify` is for changes verify can't judge, such as docs.
+
+When someone else is editing a file you changed too, commit just your hunks of it. `bun run commit --hunks <file> --match "<text>"` writes the hunks that change a line containing the text (`--match` again for more) to `out/<file>.patch`; check it, then `bun run commit -m "<summary>" --patch out/<file>.patch [-- <files>]`. That verifies HEAD with the patch and any named files on it, then builds the commit in a temporary index, so the working tree and the real index keep everyone else's changes. It refuses a patch that no longer applies to HEAD, or HEAD moving while verify runs: make the patch again.
 
 ## Commit messages
 
