@@ -728,24 +728,72 @@ export function propModel(
   }
   return parts;
 }
+/** A point on a Bézier curve of 2 to 4 control points. */
+function bezierAt(p: IsoVec[], t: number): IsoVec {
+  let pts = p;
+  while (pts.length > 1)
+    pts = pts.slice(1).map((q, i) => ({
+      x: pts[i]!.x + (q.x - pts[i]!.x) * t,
+      y: pts[i]!.y + (q.y - pts[i]!.y) * t,
+      z: pts[i]!.z + (q.z - pts[i]!.z) * t,
+    }));
+  return pts[0]!;
+}
+/** Segments a tube is shown to a camera in: enough that a leaning post reads as a post. */
+const TUBE_SEGMENTS = 8;
 /**
  * The solids a prop shows a camera: its model's outline parts as boxes
  * and cylinders in scene space (a desk's legs and top, not one block), or
- * the prop itself when it has no model.
+ * the prop itself when it has no model. A tube is a run of short boxes
+ * along its curve, not its bounding box: a ladder's leaning rail is a rail,
+ * not a slab.
  */
 export function propSolids(
   prop: IsoProp,
 ): { box: IsoBox; shape: IsoProp['shape']; tone: IsoTone; color?: string }[] {
   const model = propModel(prop, true);
   if (!model) return [{ box: prop, shape: prop.shape, tone: prop.tone }];
-  return model.map((q) => ({
+  return model.flatMap((q) => {
+    const at = { x: prop.at.x + q.at.x, y: prop.at.y + q.at.y, z: prop.at.z + q.at.z };
     // A recipe part's own colour, where it has one: a camera's picture shows it, not the tone.
-    ...(q.color ? { color: q.color } : {}),
-    box: {
-      at: { x: prop.at.x + q.at.x, y: prop.at.y + q.at.y, z: prop.at.z + q.at.z },
-      size: q.size,
-    },
-    shape: q.shape === 'lathe' ? 'cylinder' : 'prism',
-    tone: q.tone,
-  }));
+    const look = { ...(q.color ? { color: q.color } : {}), tone: q.tone };
+    if (q.shape === 'tube' && q.path && q.path.length >= 2 && q.radius) {
+      const r = q.radius;
+      const control = q.path.map((c) => ({
+        x: at.x + c.x * q.size.w,
+        y: at.y + c.y * q.size.d,
+        z: at.z + c.z * q.size.h,
+      }));
+      const points = Array.from({ length: TUBE_SEGMENTS + 1 }, (_, i) =>
+        bezierAt(control, i / TUBE_SEGMENTS),
+      );
+      return points.slice(1).map((b, i) => {
+        const a = points[i]!;
+        const lo = {
+          x: Math.min(a.x, b.x) - r,
+          y: Math.min(a.y, b.y) - r,
+          z: Math.min(a.z, b.z) - r,
+        };
+        return {
+          ...look,
+          box: {
+            at: { ...lo, z: Math.max(0, lo.z) },
+            size: {
+              w: Math.max(a.x, b.x) + r - lo.x,
+              d: Math.max(a.y, b.y) + r - lo.y,
+              h: Math.max(a.z, b.z) + r - Math.max(0, lo.z),
+            },
+          },
+          shape: 'prism' as const,
+        };
+      });
+    }
+    return [
+      {
+        ...look,
+        box: { at, size: q.size },
+        shape: q.shape === 'lathe' ? ('cylinder' as const) : ('prism' as const),
+      },
+    ];
+  });
 }

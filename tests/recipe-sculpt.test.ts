@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'bun:test';
 import {
   brushSculptPrompt,
+  placeRecipe,
+  propSolids,
   recipeFromForm,
   recipeFromSculpt,
   recipeToSculpt,
@@ -77,10 +79,36 @@ describe('a brush model shaped from the photo', () => {
     expect(recipeFromSculpt(r, { parts: [], note: '' })).toBeNull();
   });
 
+  it('keeps a leaning rail a tube, which a camera sees as a rail, not the slab its box spans', () => {
+    const r = shelf();
+    const D = 39.84 / 71.25;
+    const H = 165 / 71.25;
+    const rail = {
+      ...part('left-rail', { x: 0, y: 0, z: 0 }, { w: 0.04, d: D, h: H }, '#c8a77a'),
+      shape: 'tube' as const,
+      radius: 0.02,
+      path: [
+        { x: 0.5, y: 1, z: 0 },
+        { x: 0.5, y: 0, z: 1 },
+      ],
+    };
+    const back = recipeFromSculpt(r, { parts: [rail], note: '' })!;
+    expect(back.parts[0]).toMatchObject({ shape: 'tube', tubeCm: 1.4 });
+    const prop = placeRecipe(back, 'shelf', 0, 0).props[0]!;
+    const solids = propSolids(prop);
+    expect(solids.length).toBeGreaterThan(4);
+    // Each piece is a short stretch of the rail, so together they cover a small share of its box.
+    const volume = (b: { size: { w: number; d: number; h: number } }) =>
+      b.size.w * b.size.d * b.size.h;
+    const covered = solids.reduce((s, x) => s + volume(x.box), 0);
+    expect(covered / volume(prop)).toBeLessThan(0.25);
+  });
+
   it('asks for the thing itself, in its size, with what the person said', () => {
     const p = brushSculptPrompt(shelf(), 'it is an open shelf with white shelves', 'first');
     expect(p).toContain('The person asked: "it is an open shelf with white shelves"');
     expect(p).toContain('71.25 × 39.84 × 165 cm');
     expect(p).toContain('leave out what stands on it');
+    expect(p).toContain('anything that leans or slants');
   });
 });

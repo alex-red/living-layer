@@ -166,6 +166,7 @@ export function brushSculptPrompt(
     `It measures ${w} × ${d} × ${h} cm: as its footprint's longer side is 1, it is ${(w / L).toFixed(3)} wide, ${(d / L).toFixed(3)} deep and ${(h / L).toFixed(3)} tall. Keep every part inside that box. The camera looks down at it from high in a corner of the room.`,
     `Model only the thing itself, in at most ${BRUSH_SCULPT_PARTS} parts: leave out what stands on it or in it (books, toys, boxes, cables) unless the person asks for them. Name parts with lowercase words and hyphens.`,
     'Posts, legs, rails and frames are thin parts: draw a side or a back as a solid panel only where the picture shows one, not where you can see through it.',
+    'Boxes stand straight and cannot lean: anything that leans or slants (a ladder shelf’s rails, splayed legs, braces) is a tube, its box spanning the slant and its path two points from its bottom end to its top end, as shares of that box (a rail leaning back: {x: 0.5, y: 1, z: 0} to {x: 0.5, y: 0, z: 1}), its radius half its thickness. Never draw a leaning rail as a box: a box spanning its slant is a solid panel.',
     ...SCULPT_FORMAT,
     'Say in note what you changed.',
   ].join('\n');
