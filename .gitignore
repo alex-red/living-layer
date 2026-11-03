@@ -22,3 +22,7 @@ out/
 
 # Demo video script, kept local
 docs/demo-video.md
+
+# Local TLS certificate and key
+auto.crt
+auto.key
