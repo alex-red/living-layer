@@ -179,6 +179,13 @@ export function Canvas() {
     (camera || mode === 'demo' || Boolean(image));
   // The tracking layer replaces the follow and watch boxes on the camera with ones fitted to the video.
   const tracked = camera && lab.tracking;
+  // A segmentation of a frame the camera just gave (it sized the stage) outlines its matches on the
+  // stream; the tracking layer draws remembered things' outlines itself.
+  const cameraMasks =
+    camera &&
+    !tracked &&
+    segmentation?.frame.width === dimensions.width &&
+    segmentation.frame.height === dimensions.height;
   // A running camera is live; its rate is what reaches the page, so a fallback to MJPEG shows.
   const fps = useFrameRate(lab.video, camera);
   return (
@@ -385,7 +392,7 @@ export function Canvas() {
                 ))}
               </svg>
             )}
-            {!camera && segmentation && overlay && (
+            {segmentation && overlay && (!camera || cameraMasks) && (
               <MaskOverlay
                 key={lab.segmentRunId}
                 segmentation={segmentation}
