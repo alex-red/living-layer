@@ -55,17 +55,31 @@ _Landed:_ both fixed.
 
 **B1. now: no arrays in the ray cast.** `cast` builds five arrays with `.map` for every ray (`iso-voxel.ts:661-694`). `renderSprite` and `renderView` make a closure and tuples per pixel (`:808-856`, `:972-993`). Use plain numbers. Probe: `renderSprite` 14.2 → 6.4 ms, `renderView` 24.5 → 7.7 ms, pixel-identical.
 
+_Landed:_ `cast` is plain numbers and `renderSprite`/`renderView` share one visit closure; `renderView` on a mug 15.8 → 5.5 ms, `renderSprite` 10.7 → 7.5 ms. Hashes of every sprite, view and grid unchanged.
+
 **B2. now: `Math.sqrt` for `Math.hypot`.** In Bun, `hypot` is about 12 times slower. It is in the distance functions (`:58`, `:135`, `:177`, `:250`), the normals and AO passes, and `deltaE` (`color.ts:55`). Probe: `voxelize` 25–30% faster.
+
+_Landed:_ `Math.hypot` of three is `sqrt(a*a+b*b+c*c)` in the SDFs, normals, AO and `deltaE`: Bun gives the same bits for the three-argument form (checked on 10⁶ random triples). The two-argument form rounds differently (1.2% of inputs differ), so those calls, and `renderRoom`'s lens, stay `Math.hypot`; switching them moved the stored normals.
 
 **B3. now: test each voxel only against the parts near it.** Today every voxel tests every part (`iso-voxel.ts:460-494`). Loop part by part over its padded bounds instead, and keep the best distance in a `Float64Array` so ties fall as they do now. Probe, with B2: the office's forms 675 → 415 ms, with identical occupancy and normals.
 
+_Landed:_ part by part over its padded bounds, with the reach test kept exact inside. Office forms voxelize 784 → 577 ms before B7; occupancy and owners identical.
+
 **B4. now: `refineFit` voxelizes each shape once.** Cache the grid by the fit's numbers inside one refine (`item-fit.ts:919`, `:1070-1093`). The elevation knob only moves the camera.
+
+_Landed:_ `scoreItem` takes an optional grid cache keyed by the parts and resolution, made once per `refineFit`. `fitItem` on the synthetic mug 898–1024 → 413–516 ms, tall mug 454 → 242 ms in `bench:fit`; the fits are byte-identical.
 
 **B5. now: `renderRoom`'s colour pass.** Plain arithmetic and direct writes (`room-render.ts:238-248`), probe 84 → 46 ms. Reuse the full-frame depth and id buffers that `drawnInset` (`room-scan.ts:123-140`) and `fitGroup` (`place-fit.ts:44`, `:86`) allocate for every search.
 
+_Landed:_ the lens falloff is a table kept per frame size (built with the same `Math.hypot`), pixels are written directly, and `drawnInset` borrows the depth and id buffers (`renderRoom`'s `scratch` option). Six presets' `renderRoom` 303–322 → 192 ms; pictures and layouts identical. `fitGroup` (`place-fit.ts`) is not in this tree, so it is untouched.
+
 **B6. now: one grid for the lit and unlit sprite.** `renderPropSprite` voxelizes the same parts twice (`iso-prop-sprite.ts:112-122`).
 
+_Landed:_ `renderPropSprite` keeps the last four grids, keyed by the parts and density it sampled (not `propSpriteKey`, which ignores `withFurniture`). All presets' props, lit and unlit: 2.2–2.4 s → 1.3–1.5 s.
+
 **B7. later: parts per block for normals.** After B3, the normals pass is most of the shelf's time (78 of 116 ms). Keep a list of parts per 8³ block.
+
+_Landed:_ done now, since it stays identical: a list of parts per 8³ block, grown by a voxel and a half, keeps the reach test and order. Office forms 963 → 461 ms (shelf 329 → 93, chair 108 → 25); `bun run sheet` total about 4.3 s → 2.3 s. Timings are noisy while other sessions run.
 
 _Done when:_ the checks in the principles report what they did before, and `bun run sheet` and `bench:fit` timings are recorded here. Faster tests (A4), scans (C7) and sprites (D4) follow from this.
 

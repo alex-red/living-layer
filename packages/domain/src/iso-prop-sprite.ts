@@ -3,7 +3,7 @@ import type { IsoProp, IsoTone } from './iso.js';
 import { propModel, type PropPart } from './iso-furniture.js';
 import type { ItemMaterial, ItemPart } from './iso-item.js';
 import { recipeKey } from './recipe.js';
-import { renderSprite, voxelize, type Sprite } from './iso-voxel.js';
+import { renderSprite, voxelize, type Sprite, type VoxelGrid } from './iso-voxel.js';
 
 /**
  * How a scene prop becomes a sprite: the room's tones, the palette props
@@ -108,12 +108,21 @@ function paletteOf(model: PropPart[] | null): string[] {
   const own = [...new Set(model?.flatMap((p) => (p.color ? [p.color] : [])) ?? [])];
   return own.length ? [...PROP_PALETTE, ...own.flatMap(rampOf)] : PROP_PALETTE;
 }
+/** The last few props' grids, by what they were sampled from: a prop is drawn lit and unlit. */
+const recent = new Map<string, VoxelGrid>();
+const RECENT = 4;
 /** A scene prop drawn by the kernel, relative to its own corner `prop.at`. */
 export function renderPropSprite(prop: IsoProp, lit: boolean): Sprite {
   const model = propModel(prop);
-  const grid = model
-    ? voxelize(model.map(modelPart), { voxel: 1 / modelDensity(prop.size) })
-    : voxelize([propPart(prop)], { voxel: 1 / PROP_DENSITY });
+  const parts = model ? model.map(modelPart) : [propPart(prop)];
+  const voxel = 1 / (model ? modelDensity(prop.size) : PROP_DENSITY);
+  const key = JSON.stringify([parts, voxel]);
+  let grid = recent.get(key);
+  if (!grid) {
+    grid = voxelize(parts, { voxel });
+    if (recent.size >= RECENT) recent.delete(recent.keys().next().value!);
+    recent.set(key, grid);
+  }
   return renderSprite(grid, {
     scale: 1,
     shadow: false,

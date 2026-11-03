@@ -130,7 +130,7 @@ function drawnInset(
 ) {
   const built = standing(id, 'probe', at.x, at.y, z, turns, size);
   const probe: IsoScene = { kind: 'custom', label: 'probe', grid: { w: 1, d: 1 }, ...built };
-  const picture = renderRoom(camera, sceneSolids(probe), { labels: true });
+  const picture = renderRoom(camera, sceneSolids(probe), { labels: true, scratch: true });
   const bits = {
     width: picture.width,
     height: picture.height,

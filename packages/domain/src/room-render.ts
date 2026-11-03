@@ -183,18 +183,46 @@ const grain = (x: number, y: number) => {
   return (((h ^ (h >>> 16)) & 255) / 255 - 0.5) * 0.012;
 };
 
+let borrowed: { depth: Float32Array; ids: Int16Array } | undefined;
+const EMPTY = new Float64Array(0);
+let lens: { width: number; height: number; falloff: Float64Array } | undefined;
+/** The lens's darkening at each pixel, kept for the last frame size. */
+function lensFalloff(width: number, height: number): Float64Array {
+  if (lens?.width === width && lens.height === height) return lens.falloff;
+  const falloff = new Float64Array(width * height);
+  for (let y = 0; y < height; y++)
+    for (let x = 0; x < width; x++) {
+      const r = Math.hypot((x - width / 2) / width, (y - height / 2) / height);
+      falloff[y * width + x] = 1 - 0.18 * r * r;
+    }
+  lens = { width, height, falloff };
+  return falloff;
+}
+
 /**
  * Draw the solids through the camera. With `labels`, only which solid covers
- * each pixel is worked out, for matching drawings against masks quickly.
+ * each pixel is worked out, for matching drawings against masks quickly; with
+ * `scratch` too, its `ids` are only good until the next scratch picture, for a
+ * caller that reads them at once and keeps nothing.
  */
 export function renderRoom(
   camera: RoomCamera,
   solids: RoomSolid[],
-  { labels = false }: { labels?: boolean } = {},
+  { labels = false, scratch = false }: { labels?: boolean; scratch?: boolean } = {},
 ): RoomPicture {
   const { width, height } = camera.frame;
-  const depth = new Float32Array(width * height).fill(Infinity);
-  const ids = new Int16Array(width * height).fill(-1);
+  // A scratch picture borrows buffers the next scratch picture overwrites.
+  let depth: Float32Array;
+  let ids: Int16Array;
+  if (scratch && labels) {
+    if (borrowed?.depth.length !== width * height)
+      borrowed = { depth: new Float32Array(width * height), ids: new Int16Array(width * height) };
+    depth = borrowed.depth.fill(Infinity);
+    ids = borrowed.ids.fill(-1);
+  } else {
+    depth = new Float32Array(width * height).fill(Infinity);
+    ids = new Int16Array(width * height).fill(-1);
+  }
   const color = new Float32Array(labels ? 0 : width * height * 3);
   const names: string[] = [];
   const index = new Map<string, number>();
@@ -234,17 +262,24 @@ export function renderRoom(
     }
   }
   const rgba = new Uint8ClampedArray(labels ? 0 : width * height * 4);
+  const falloff = labels ? EMPTY : lensFalloff(width, height);
   if (!labels)
     for (let y = 0; y < height; y++)
       for (let x = 0; x < width; x++) {
         const i = y * width + x;
-        const lab: Lab =
-          ids[i]! < 0 ? BACKGROUND : [color[i * 3]!, color[i * 3 + 1]!, color[i * 3 + 2]!];
+        const bg = ids[i]! < 0;
         // A lens darkens toward the corners a little.
-        const r = Math.hypot((x - width / 2) / width, (y - height / 2) / height);
-        const L = lab[0] * (1 - 0.18 * r * r) + grain(x, y);
-        const [cr, cg, cb] = labRgb([L, lab[1], lab[2]]);
-        rgba.set([cr, cg, cb, 255], i * 4);
+        const L = (bg ? BACKGROUND[0] : color[i * 3]!) * falloff[i]! + grain(x, y);
+        const [cr, cg, cb] = labRgb([
+          L,
+          bg ? BACKGROUND[1] : color[i * 3 + 1]!,
+          bg ? BACKGROUND[2] : color[i * 3 + 2]!,
+        ]);
+        const o = i * 4;
+        rgba[o] = cr;
+        rgba[o + 1] = cg;
+        rgba[o + 2] = cb;
+        rgba[o + 3] = 255;
       }
   return { width, height, rgba, ids, names, depth };
 }

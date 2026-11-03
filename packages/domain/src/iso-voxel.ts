@@ -10,6 +10,9 @@ import { hexLab, labRgb, nearest, outlineLab, rampLab, type Lab } from './color.
  * TypeScript: it runs in the browser, on the server and in tests alike.
  */
 type V3 = [number, number, number];
+// Bun's Math.hypot with three arguments gives these same bits, far slower, and these run
+// per voxel. (The two-argument form rounds differently, so it stays Math.hypot.)
+const sqrt3 = (a: number, b: number, c: number) => Math.sqrt(a * a + b * b + c * c);
 export interface Prim {
   part: number;
   min: V3;
@@ -55,7 +58,7 @@ function segDist(px: number, py: number, pz: number, a: V3, b: V3): number {
   const wz = pz - a[2];
   const ee = ex * ex + ey * ey + ez * ez;
   const t = ee > 0 ? Math.max(0, Math.min(1, (wx * ex + wy * ey + wz * ez) / ee)) : 0;
-  return Math.hypot(wx - ex * t, wy - ey * t, wz - ez * t);
+  return sqrt3(wx - ex * t, wy - ey * t, wz - ez * t);
 }
 /** Cheap repeatable value noise in [-1, 1], for lumpy blobs. */
 function noise3(x: number, y: number, z: number): number {
@@ -174,7 +177,7 @@ function rboxPrim(part: number, { at, size }: Box, radius: number): Prim {
       const qy = Math.abs(y - c[1]) - b[1];
       const qz = Math.abs(z - c[2]) - b[2];
       return (
-        Math.hypot(Math.max(qx, 0), Math.max(qy, 0), Math.max(qz, 0)) +
+        sqrt3(Math.max(qx, 0), Math.max(qy, 0), Math.max(qz, 0)) +
         Math.min(Math.max(qx, qy, qz), 0) -
         r
       );
@@ -247,8 +250,8 @@ function blobPrim(part: number, { at, size }: Box, rough: number): Prim {
       const px = (x - c[0]) / r[0];
       const py = (y - c[1]) / r[1];
       const pz = (z - c[2]) / r[2];
-      const k0 = Math.hypot(px, py, pz);
-      const k1 = Math.hypot(px / r[0], py / r[1], pz / r[2]);
+      const k0 = sqrt3(px, py, pz);
+      const k1 = sqrt3(px / r[0], py / r[1], pz / r[2]);
       const base = k1 > 0 ? (k0 * (k0 - 1)) / k1 : -m;
       return Math.max(base - grow * noise3(x * freq, y * freq, z * freq), at.z - z);
     },
@@ -457,41 +460,83 @@ export function voxelize(
   const occ = new Uint8Array(n);
   const owner = new Int16Array(n).fill(-1);
   const pad = size * 2;
-  const field = (x: number, y: number, z: number, best?: { prim: number }) => {
+  const inReach = (p: Prim, x: number, y: number, z: number) =>
+    x >= p.min[0] - pad &&
+    y >= p.min[1] - pad &&
+    z >= p.min[2] - pad &&
+    x <= p.max[0] + pad &&
+    y <= p.max[1] + pad &&
+    z <= p.max[2] + pad;
+  const field = (x: number, y: number, z: number, near: number[]) => {
     let d = Infinity;
-    for (let i = 0; i < prims.length; i++) {
-      const p = prims[i]!;
-      if (
-        x < p.min[0] - pad ||
-        y < p.min[1] - pad ||
-        z < p.min[2] - pad ||
-        x > p.max[0] + pad ||
-        y > p.max[1] + pad ||
-        z > p.max[2] + pad
-      )
-        continue;
+    for (let j = 0; j < near.length; j++) {
+      const p = prims[near[j]!]!;
+      if (!inReach(p, x, y, z)) continue;
       const pd = p.dist(x, y, z);
-      if (pd < d) {
-        d = pd;
-        if (best) best.prim = i;
-      }
+      if (pd < d) d = pd;
     }
     return d;
   };
-  const best = { prim: -1 };
-  for (let iz = 0; iz < nz; iz++)
-    for (let iy = 0; iy < ny; iy++)
-      for (let ix = 0; ix < nx; ix++) {
-        const x = origin[0] + (ix + 0.5) * size;
+  // The parts that can reach a point near a block of voxels, in order. A normal is
+  // taken within a voxel of the voxel's centre, so a block's list is every part whose
+  // padded bounds touch the block grown by a voxel and a half.
+  const BLOCK = 8;
+  const blocksX = Math.ceil(nx / BLOCK);
+  const blocksY = Math.ceil(ny / BLOCK);
+  const blockLists: (number[] | undefined)[] = [];
+  const nearBlock = (ix: number, iy: number, iz: number) => {
+    const bx = Math.floor(ix / BLOCK);
+    const by = Math.floor(iy / BLOCK);
+    const bz = Math.floor(iz / BLOCK);
+    const key = bx + blocksX * (by + blocksY * bz);
+    let list = blockLists[key];
+    if (!list) {
+      const slack = size * 1.5;
+      const lo = [bx, by, bz].map((b, k) => origin[k]! + b * BLOCK * size - slack);
+      const hi = [bx, by, bz].map((b, k) => origin[k]! + (b + 1) * BLOCK * size + slack);
+      list = [];
+      for (let i = 0; i < prims.length; i++) {
+        const p = prims[i]!;
+        let touches = true;
+        for (let k = 0; k < 3; k++)
+          if (p.min[k]! - pad > hi[k]! || p.max[k]! + pad < lo[k]!) touches = false;
+        if (touches) list.push(i);
+      }
+      blockLists[key] = list;
+    }
+    return list;
+  };
+  // Part by part over the voxels near it. The first part to reach the least
+  // distance keeps the voxel, as when each voxel asked every part in order.
+  const best = new Float64Array(n).fill(Infinity);
+  for (let pi = 0; pi < prims.length; pi++) {
+    const p = prims[pi]!;
+    // One voxel of slack either side; the exact test below decides.
+    const span = (k: 0 | 1 | 2, nk: number): [number, number] => [
+      Math.max(0, Math.floor((p.min[k] - pad - origin[k]) / size - 0.5) - 1),
+      Math.min(nk - 1, Math.ceil((p.max[k] + pad - origin[k]) / size - 0.5) + 1),
+    ];
+    const [x0, x1] = span(0, nx);
+    const [y0, y1] = span(1, ny);
+    const [z0, z1] = span(2, nz);
+    for (let iz = z0; iz <= z1; iz++) {
+      const z = origin[2] + (iz + 0.5) * size;
+      for (let iy = y0; iy <= y1; iy++) {
         const y = origin[1] + (iy + 0.5) * size;
-        const z = origin[2] + (iz + 0.5) * size;
-        best.prim = -1;
-        if (field(x, y, z, best) <= 0) {
-          const i = ix + nx * (iy + ny * iz);
-          occ[i] = prims[best.prim]!.part + 1;
-          owner[i] = best.prim;
+        let i = x0 + nx * (iy + ny * iz);
+        for (let ix = x0; ix <= x1; ix++, i++) {
+          const x = origin[0] + (ix + 0.5) * size;
+          if (!inReach(p, x, y, z)) continue;
+          const pd = p.dist(x, y, z);
+          if (pd < best[i]!) {
+            best[i] = pd;
+            owner[i] = pi;
+          }
         }
       }
+    }
+  }
+  for (let i = 0; i < n; i++) if (best[i]! <= 0) occ[i] = prims[owner[i]!]!.part + 1;
   const at = (ix: number, iy: number, iz: number) =>
     ix < 0 || iy < 0 || iz < 0 || ix >= nx || iy >= ny || iz >= nz
       ? 0
@@ -536,23 +581,24 @@ export function voxelize(
     const ox = (at(ix + 1, iy, iz) ? 0 : 1) - (at(ix - 1, iy, iz) ? 0 : 1);
     const oy = (at(ix, iy + 1, iz) ? 0 : 1) - (at(ix, iy - 1, iz) ? 0 : 1);
     const oz = (at(ix, iy, iz + 1) ? 0 : 1) - (at(ix, iy, iz - 1) ? 0 : 1);
-    const ol = Math.hypot(ox, oy, oz) || 1;
+    const ol = sqrt3(ox, oy, oz) || 1;
     const px = x + (ox / ol) * e;
     const py = y + (oy / ol) * e;
     const pz = z + (oz / ol) * e;
-    let gx = field(px + e, py, pz) - field(px - e, py, pz);
-    let gy = field(px, py + e, pz) - field(px, py - e, pz);
-    let gz = field(px, py, pz + e) - field(px, py, pz - e);
+    const near = nearBlock(ix, iy, iz);
+    let gx = field(px + e, py, pz, near) - field(px - e, py, pz, near);
+    let gy = field(px, py + e, pz, near) - field(px, py - e, pz, near);
+    let gz = field(px, py, pz + e, near) - field(px, py, pz - e, near);
     // Still facing into the voxel's neighbours: trust the open faces instead.
     if (gx * ox + gy * oy + gz * oz < 0) [gx, gy, gz] = [ox, oy, oz];
     if (!Number.isFinite(gx + gy + gz)) [gx, gy, gz] = [0, 0, 1];
-    let len = Math.hypot(gx, gy, gz);
+    let len = sqrt3(gx, gy, gz);
     if (len < 1e-9) {
       // Fall back to the open faces of the voxel.
       gx = (at(ix + 1, iy, iz) ? 0 : 1) - (at(ix - 1, iy, iz) ? 0 : 1);
       gy = (at(ix, iy + 1, iz) ? 0 : 1) - (at(ix, iy - 1, iz) ? 0 : 1);
       gz = (at(ix, iy, iz + 1) ? 0 : 1) - (at(ix, iy, iz - 1) ? 0 : 1);
-      len = Math.hypot(gx, gy, gz) || 1;
+      len = sqrt3(gx, gy, gz) || 1;
       if (!gx && !gy && !gz) gz = len = 1;
     }
     normals[k * 3] = gx / len;
@@ -599,7 +645,7 @@ export function voxelize(
       nzv * ax[0]! - nxv * ax[2]!,
       nxv * ax[1]! - nyv * ax[0]!,
     ];
-    const l1 = Math.hypot(t1[0]!, t1[1]!, t1[2]!) || 1;
+    const l1 = sqrt3(t1[0]!, t1[1]!, t1[2]!) || 1;
     t1 = t1.map((v) => v / l1);
     const t2 = [
       nyv * t1[2]! - nzv * t1[1]!,
@@ -614,7 +660,7 @@ export function voxelize(
       let dx = nxv + spread * (Math.cos(a) * t1[0]! + Math.sin(a) * t2[0]!);
       let dy = nyv + spread * (Math.cos(a) * t1[1]! + Math.sin(a) * t2[1]!);
       let dz = nzv + spread * (Math.cos(a) * t1[2]! + Math.sin(a) * t2[2]!);
-      const dl = Math.hypot(dx, dy, dz) || 1;
+      const dl = sqrt3(dx, dy, dz) || 1;
       dx /= dl;
       dy /= dl;
       dz /= dl;
@@ -659,37 +705,71 @@ export function voxelize(
  * distance to it; returning true stops the walk.
  */
 function cast(g: VoxelGrid, o: V3, d: V3, visit: (index: number, t: number) => boolean): void {
+  const { nx, ny, nz, occ } = g;
+  const o0 = o[0];
+  const o1 = o[1];
+  const o2 = o[2];
+  const d0 = d[0];
+  const d1 = d[1];
+  const d2 = d[2];
   let t0 = 0;
   let t1 = Infinity;
-  const n = [g.nx, g.ny, g.nz];
+  // The ray's span inside the grid's box, one axis at a time (a slab test).
   for (let k = 0; k < 3; k++) {
-    if (Math.abs(d[k]!) < 1e-12) {
-      if (o[k]! < 0 || o[k]! > n[k]!) return;
+    const dk = k === 0 ? d0 : k === 1 ? d1 : d2;
+    const ok = k === 0 ? o0 : k === 1 ? o1 : o2;
+    const nk = k === 0 ? nx : k === 1 ? ny : nz;
+    if (Math.abs(dk) < 1e-12) {
+      if (ok < 0 || ok > nk) return;
       continue;
     }
-    let a = (0 - o[k]!) / d[k]!;
-    let b = (n[k]! - o[k]!) / d[k]!;
-    if (a > b) [a, b] = [b, a];
+    let a = (0 - ok) / dk;
+    let b = (nk - ok) / dk;
+    if (a > b) {
+      const swap = a;
+      a = b;
+      b = swap;
+    }
     t0 = Math.max(t0, a);
     t1 = Math.min(t1, b);
   }
   if (t0 > t1) return;
-  const p = [0, 1, 2].map((k) => o[k]! + d[k]! * (t0 + 1e-7));
-  const cell = p.map((v, k) => Math.min(n[k]! - 1, Math.max(0, Math.floor(v))));
-  const step = d.map((v) => (v > 0 ? 1 : -1));
-  const tMax = [0, 1, 2].map((k) =>
-    Math.abs(d[k]!) < 1e-12 ? Infinity : t0 + (cell[k]! + (step[k]! > 0 ? 1 : 0) - p[k]!) / d[k]!,
-  );
-  const tDelta = d.map((v) => (Math.abs(v) < 1e-12 ? Infinity : Math.abs(1 / v)));
+  const p0 = o0 + d0 * (t0 + 1e-7);
+  const p1 = o1 + d1 * (t0 + 1e-7);
+  const p2 = o2 + d2 * (t0 + 1e-7);
+  let c0 = Math.min(nx - 1, Math.max(0, Math.floor(p0)));
+  let c1 = Math.min(ny - 1, Math.max(0, Math.floor(p1)));
+  let c2 = Math.min(nz - 1, Math.max(0, Math.floor(p2)));
+  const s0 = d0 > 0 ? 1 : -1;
+  const s1 = d1 > 0 ? 1 : -1;
+  const s2 = d2 > 0 ? 1 : -1;
+  let m0 = Math.abs(d0) < 1e-12 ? Infinity : t0 + (c0 + (s0 > 0 ? 1 : 0) - p0) / d0;
+  let m1 = Math.abs(d1) < 1e-12 ? Infinity : t0 + (c1 + (s1 > 0 ? 1 : 0) - p1) / d1;
+  let m2 = Math.abs(d2) < 1e-12 ? Infinity : t0 + (c2 + (s2 > 0 ? 1 : 0) - p2) / d2;
+  const e0 = Math.abs(d0) < 1e-12 ? Infinity : Math.abs(1 / d0);
+  const e1 = Math.abs(d1) < 1e-12 ? Infinity : Math.abs(1 / d1);
+  const e2 = Math.abs(d2) < 1e-12 ? Infinity : Math.abs(1 / d2);
   let t = t0;
   for (let guard = 0; guard < 4096; guard++) {
-    const i = cell[0]! + g.nx * (cell[1]! + g.ny * cell[2]!);
-    if (g.occ[i] && visit(i, t)) return;
-    const k = tMax[0]! < tMax[1]! ? (tMax[0]! < tMax[2]! ? 0 : 2) : tMax[1]! < tMax[2]! ? 1 : 2;
-    t = tMax[k]!;
-    cell[k]! += step[k]!;
-    if (cell[k]! < 0 || cell[k]! >= n[k]!) return;
-    tMax[k]! += tDelta[k]!;
+    const i = c0 + nx * (c1 + ny * c2);
+    if (occ[i] && visit(i, t)) return;
+    // Step along the axis whose boundary is nearest (x, then z, on ties).
+    if (m0 < m1 && m0 < m2) {
+      t = m0;
+      c0 += s0;
+      if (c0 < 0 || c0 >= nx) return;
+      m0 += e0;
+    } else if (!(m0 < m1) && m1 < m2) {
+      t = m1;
+      c1 += s1;
+      if (c1 < 0 || c1 >= ny) return;
+      m1 += e1;
+    } else {
+      t = m2;
+      c2 += s2;
+      if (c2 < 0 || c2 >= nz) return;
+      m2 += e2;
+    }
   }
 }
 
@@ -805,59 +885,68 @@ export function renderSprite(g: VoxelGrid, opts: SpriteOptions): Sprite {
   const alpha = new Float32Array(count);
   const reach = (g.nx + g.ny + g.nz) * 2;
   const toward: V3 = [-VIEW[0], -VIEW[1], -VIEW[2]];
-  for (let py = 0; py < height; py++)
-    for (let px = 0; px < width; px++) {
+  const o: V3 = [0, 0, 0];
+  // One walk's state, shared by every pixel's visit.
+  let px = 0;
+  let py = 0;
+  let p = 0;
+  let glassPart = -1;
+  let lastT = 0;
+  let layers = 0;
+  let out0 = 0;
+  let out1 = 0;
+  let out2 = 0;
+  let a = 0;
+  const visit = (i: number, t: number) => {
+    const part = g.occ[i]! - 1;
+    if (part === glassPart && t - lastT < 1.8) {
+      lastT = t;
+      return false;
+    }
+    const k = g.surf[i]!;
+    if (k < 0) return false;
+    const c = shadeVoxel(g, k, px, py, glow);
+    const glass = layers === 0 && ITEM_MATERIALS[g.mats[k]!] === 'glass';
+    if (layers === 0) {
+      hitPart[p] = part;
+      depth[p] = t;
+    }
+    const alphaHere = glass ? 0.5 : 1;
+    const remaining = 1 - a;
+    out0 += c[0] * alphaHere * remaining;
+    out1 += c[1] * alphaHere * remaining;
+    out2 += c[2] * alphaHere * remaining;
+    a += alphaHere * remaining;
+    layers++;
+    if (glass) {
+      glassPart = part;
+      lastT = t;
+      return false;
+    }
+    return true;
+  };
+  for (py = 0; py < height; py++)
+    for (px = 0; px < width; px++) {
       const sx = x0 + (px + 0.5) * pixel;
       const sy = y0 + (py + 0.5) * pixel;
       const floor = fromIso({ sx, sy }, 0);
       // The ground point in voxel units, moved back toward the viewer.
-      const o: V3 = [
-        (floor.x / scale - g.origin[0]) / g.size + VIEW[0] * reach,
-        (floor.y / scale - g.origin[1]) / g.size + VIEW[1] * reach,
-        (0 - g.origin[2]) / g.size + VIEW[2] * reach,
-      ];
-      const p = px + py * width;
+      o[0] = (floor.x / scale - g.origin[0]) / g.size + VIEW[0] * reach;
+      o[1] = (floor.y / scale - g.origin[1]) / g.size + VIEW[1] * reach;
+      o[2] = (0 - g.origin[2]) / g.size + VIEW[2] * reach;
+      p = px + py * width;
       // Glass lets the next surface show through: skip the rest of the glass
       // part's own voxels, then take whatever is behind it.
-      let glassPart = -1;
-      let lastT = 0;
-      let layers = 0;
-      let out: Lab = [0, 0, 0];
-      let a = 0;
-      cast(g, o, toward, (i, t) => {
-        const part = g.occ[i]! - 1;
-        if (part === glassPart && t - lastT < 1.8) {
-          lastT = t;
-          return false;
-        }
-        const k = g.surf[i]!;
-        if (k < 0) return false;
-        const c = shadeVoxel(g, k, px, py, glow);
-        const glass = layers === 0 && ITEM_MATERIALS[g.mats[k]!] === 'glass';
-        if (layers === 0) {
-          hitPart[p] = part;
-          depth[p] = t;
-        }
-        const alphaHere = glass ? 0.5 : 1;
-        const remaining = 1 - a;
-        out = [
-          out[0] + c[0] * alphaHere * remaining,
-          out[1] + c[1] * alphaHere * remaining,
-          out[2] + c[2] * alphaHere * remaining,
-        ];
-        a += alphaHere * remaining;
-        layers++;
-        if (glass) {
-          glassPart = part;
-          lastT = t;
-          return false;
-        }
-        return true;
-      });
+      glassPart = -1;
+      lastT = 0;
+      layers = 0;
+      out0 = out1 = out2 = 0;
+      a = 0;
+      cast(g, o, toward, visit);
       if (a > 0) {
-        color[p * 3] = out[0] / a;
-        color[p * 3 + 1] = out[1] / a;
-        color[p * 3 + 2] = out[2] / a;
+        color[p * 3] = out0 / a;
+        color[p * 3 + 1] = out1 / a;
+        color[p * 3 + 2] = out2 / a;
         alpha[p] = a;
       } else if (shadow && fp.rx > 0) {
         const fx = (floor.x / scale - fp.cx) / (fp.rx * 1.05);
@@ -969,27 +1058,31 @@ export function renderView(
   let minY = fullH;
   let maxX = -1;
   let maxY = -1;
-  for (let py = 0; py < fullH; py++)
-    for (let px = 0; px < fullW; px++) {
+  const o: V3 = [0, 0, 0];
+  let px = 0;
+  let py = 0;
+  const visit = (i: number) => {
+    const k = g.surf[i]!;
+    if (k < 0) return false;
+    const p = px + py * fullW;
+    mask[p] = 1;
+    lab[p * 3] = g.colors[k * 3]!;
+    lab[p * 3 + 1] = g.colors[k * 3 + 1]!;
+    lab[p * 3 + 2] = g.colors[k * 3 + 2]!;
+    minX = Math.min(minX, px);
+    maxX = Math.max(maxX, px);
+    minY = Math.min(minY, py);
+    maxY = Math.max(maxY, py);
+    return true;
+  };
+  for (py = 0; py < fullH; py++)
+    for (px = 0; px < fullW; px++) {
       const a = r0 + (px + 0.5) / ppu;
       const b = u1 - (py + 0.5) / ppu;
-      const o: V3 = [0, 1, 2].map(
-        (k) => (right[k]! * a + up[k]! * b - f[k]! * back - g.origin[k]!) / g.size,
-      ) as V3;
-      cast(g, o, f, (i) => {
-        const k = g.surf[i]!;
-        if (k < 0) return false;
-        const p = px + py * fullW;
-        mask[p] = 1;
-        lab[p * 3] = g.colors[k * 3]!;
-        lab[p * 3 + 1] = g.colors[k * 3 + 1]!;
-        lab[p * 3 + 2] = g.colors[k * 3 + 2]!;
-        minX = Math.min(minX, px);
-        maxX = Math.max(maxX, px);
-        minY = Math.min(minY, py);
-        maxY = Math.max(maxY, py);
-        return true;
-      });
+      o[0] = (right[0] * a + up[0] * b - f[0] * back - g.origin[0]) / g.size;
+      o[1] = (right[1] * a + up[1] * b - f[1] * back - g.origin[1]) / g.size;
+      o[2] = (right[2] * a + up[2] * b - f[2] * back - g.origin[2]) / g.size;
+      cast(g, o, f, visit);
     }
   if (maxX < 0) return { width: 1, height: 1, mask: new Uint8Array(1), lab: new Float32Array(3) };
   const width = maxX - minX + 1;
