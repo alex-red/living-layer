@@ -1,9 +1,6 @@
 import { afterEach, describe, expect, it } from 'bun:test';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { buildApp } from '../apps/server/src/app.js';
-import { parseConfig } from '../apps/server/src/config.js';
+import { rmSync } from 'node:fs';
+import { testApp } from './lib/app.js';
 import { BUNDLED_CATALOG, Catalog } from '../apps/server/src/research.js';
 import {
   assembleRecipe,
@@ -200,9 +197,7 @@ describe('where a prop falls in the frame', () => {
 
 describe('POST /api/scene/fit', () => {
   it('moves a prop of the scene being edited to where the demo camera sees it, saving nothing', async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), 'livinglayer-fit-'));
-    dirs.push(dataDir);
-    const app = await buildApp(parseConfig({ DATA_DIR: dataDir }), { serveWeb: false });
+    const { app } = await testApp({ name: 'fit' });
     const res = await app.inject({
       method: 'POST',
       url: '/api/scene/fit',

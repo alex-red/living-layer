@@ -1,9 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { buildApp } from '../apps/server/src/app.js';
-import { parseConfig } from '../apps/server/src/config.js';
+import { testApp } from './lib/app.js';
 
 /** Every route the lab server answers, by path and method (HEAD omitted). */
 const ROUTES = [
@@ -122,11 +118,8 @@ function listed(tree: string): string[] {
 
 describe('routes', () => {
   it('are the ones the web and the phone page call', async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), 'livinglayer-routes-'));
-    const app = await buildApp(parseConfig({ DATA_DIR: dataDir }), { serveWeb: false });
+    const { app } = await testApp({ name: 'routes' });
     await app.ready();
     expect(listed(app.printRoutes({ commonPrefix: false }))).toEqual(ROUTES);
-    await app.close();
-    rmSync(dataDir, { recursive: true, force: true });
   });
 });

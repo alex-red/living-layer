@@ -1,9 +1,7 @@
-import { afterEach, describe, expect, it, mock, setDefaultTimeout } from 'bun:test';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { describe, expect, it, mock, setDefaultTimeout } from 'bun:test';
+import { readFileSync } from 'node:fs';
 import sharp from 'sharp';
-import { buildApp } from '../apps/server/src/app.js';
+import { tempDir, testApp } from './lib/app.js';
 import { parseConfig, type Fetcher } from '../apps/server/src/config.js';
 import { syntheticStream } from '../apps/server/src/sam.js';
 import type { PhotoDraft } from '../apps/server/src/photo.js';
@@ -289,21 +287,8 @@ describe('the saved scene', () => {
   });
 });
 
-const dirs: string[] = [];
-afterEach(() => {
-  dirs.splice(0).forEach((d) => rmSync(d, { recursive: true, force: true }));
-});
-
 describe('photo routes, offline', () => {
-  async function setup() {
-    const dataDir = mkdtempSync(join(tmpdir(), 'livinglayer-photo-'));
-    dirs.push(dataDir);
-    const fetcher = mock<Fetcher>();
-    const app = await buildApp(parseConfig({ DATA_DIR: dataDir }), { fetcher, serveWeb: false });
-    const post = (path: string, body: object = {}) =>
-      app.inject({ method: 'POST', url: `/api/${path}`, payload: { mode: 'demo', ...body } });
-    return { app, post, fetcher };
-  }
+  const setup = () => testApp({ name: 'photo' });
   it('auto-pins the demo room’s desk through its calibrated camera, with no call', async () => {
     const s = await setup();
     const res = await s.post('desk/auto-pin');
@@ -634,8 +619,6 @@ describe('photo routes, live with a mocked Meta API', () => {
   const mugBody = demo.wire.replace(/^<0f>7/, '');
 
   async function setup(env: Record<string, string> = {}, { calibrated = true } = {}) {
-    const dataDir = mkdtempSync(join(tmpdir(), 'livinglayer-photo-live-'));
-    dirs.push(dataDir);
     const asked: string[] = [];
     const fetcher = mock<Fetcher>().mockImplementation(async (_url, init) => {
       const body = JSON.parse(String(init?.body));
@@ -650,15 +633,11 @@ describe('photo routes, live with a mocked Meta API', () => {
         name === 'photo_inventory' ? inventory : { missing: [], extra: ['desk'], note: 'Close.' },
       );
     });
-    const app = await buildApp(
-      parseConfig({
-        DATA_DIR: dataDir,
-        MODEL_API_KEY: 'test-key',
-        META_LIVE_ENABLED: 'true',
-        ...env,
-      }),
-      { fetcher, serveWeb: false },
-    );
+    const { app } = await testApp({
+      name: 'photo-live',
+      env: { MODEL_API_KEY: 'test-key', META_LIVE_ENABLED: 'true', ...env },
+      fetcher,
+    });
     const photo = await sharp(readFileSync('testdata/desk.svg')).png().toBuffer();
     // The room's corner camera, calibrated on a frame of the photo's size from the demo camera's marks.
     if (calibrated) {
@@ -737,8 +716,7 @@ describe('photo routes, live with a mocked Meta API', () => {
   });
   it('sends Spark the photo and the drawing, and reads back what is missing', async () => {
     const s = await setup();
-    const dataDir = mkdtempSync(join(tmpdir(), 'livinglayer-photo-meta-'));
-    dirs.push(dataDir);
+    const dataDir = tempDir('photo-meta');
     const config = parseConfig({
       DATA_DIR: dataDir,
       MODEL_API_KEY: 'test-key',
@@ -845,9 +823,7 @@ describe('photo routes, live with a mocked Meta API', () => {
     });
     // A room drafted offline, restored as the live desk with its pin and the calibrated camera.
     const { camera } = (await s.app.inject('/api/desk/live')).json<DeskMemory>();
-    const offline = await buildApp(parseConfig({ DATA_DIR: mkdtempSync(join(tmpdir(), 'll-')) }), {
-      serveWeb: false,
-    });
+    const { app: offline } = await testApp({ name: 'photo-offline' });
     const draft = (
       await offline.inject({
         method: 'POST',

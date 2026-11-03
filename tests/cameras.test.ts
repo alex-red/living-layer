@@ -1,6 +1,5 @@
-import { afterEach, describe, expect, it, mock } from 'bun:test';
-import { mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { describe, expect, it } from 'bun:test';
+import { readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import sharp from 'sharp';
 import {
@@ -13,17 +12,13 @@ import {
   type SavedCamera,
   type WatchCamera,
 } from '@livinglayer/domain';
-import { buildApp, watchersOf } from '../apps/server/src/app.js';
-import { parseConfig, type Fetcher } from '../apps/server/src/config.js';
+import { watchersOf } from '../apps/server/src/app.js';
+import { tempDir, testApp } from './lib/app.js';
+import { parseConfig } from '../apps/server/src/config.js';
 import type { FrameSource } from '../apps/server/src/frames.js';
 import { CameraRelay, type Relay } from '../apps/server/src/relay.js';
 import { RemoteCamera } from '../apps/server/src/remote.js';
 import type { NetworkStream } from '../apps/server/src/streams.js';
-
-const dirs: string[] = [];
-afterEach(() => {
-  dirs.splice(0).forEach((d) => rmSync(d, { recursive: true, force: true }));
-});
 
 const URL_WITH_PASSWORD = 'rtsp://admin:hunter2@192.168.1.20:554/stream1';
 
@@ -33,17 +28,12 @@ async function setup(
     url: string,
     crop: CameraCrop | null,
   ) => { stream: ReadableStream<Uint8Array>; stop: () => void },
-  {
-    dataDir = mkdtempSync(join(tmpdir(), 'livinglayer-cameras-')),
-    remote,
-    relay,
-  }: { dataDir?: string; remote?: RemoteCamera; relay?: Relay } = {},
+  { dataDir, remote, relay }: { dataDir?: string; remote?: RemoteCamera; relay?: Relay } = {},
 ) {
-  dirs.push(dataDir);
   const opened: (WatchCamera | null)[] = [];
-  const app = await buildApp(parseConfig({ DATA_DIR: dataDir }), {
-    fetcher: mock<Fetcher>(),
-    serveWeb: false,
+  const t = await testApp({
+    name: 'cameras',
+    ...(dataDir ? { env: { DATA_DIR: dataDir } } : {}),
     appearance: async () => null,
     browseCameras: async () => [],
     ...(remote ? { remote } : {}),
@@ -65,11 +55,12 @@ async function setup(
       : {}),
     ...(preview ? { previews: preview } : {}),
   });
+  const { app } = t;
   const post = (path: string, payload: object) =>
     app.inject({ method: 'POST', url: `/api/${path}`, payload });
   const add = async (body: object) =>
     (await post('cameras/save', body)).json<{ camera: CameraView }>().camera;
-  return { app, post, add, opened, dataDir };
+  return { app, post, add, opened, dataDir: t.dataDir };
 }
 
 describe('stream camera URLs', () => {
@@ -319,8 +310,7 @@ describe('the camera registry', () => {
   it('gives the watcher a saved camera’s real URL, and null once it is removed', async () => {
     const { EvidenceStore } = await import('../apps/server/src/store.js');
     const { CameraRegistry } = await import('../apps/server/src/cameras.js');
-    const dir = mkdtempSync(join(tmpdir(), 'livinglayer-registry-'));
-    dirs.push(dir);
+    const dir = tempDir('registry');
     const store = new EvidenceStore(dir);
     const cameras = new CameraRegistry(store);
     const saved = cameras.save({ name: 'Cam', url: URL_WITH_PASSWORD, scene: null });
@@ -439,8 +429,7 @@ describe('camera relay', () => {
   });
 
   it('writes a loopback-only config that only its owner can read', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'livinglayer-relay-'));
-    dirs.push(dir);
+    const dir = tempDir('relay');
     // `true` exits at once: the relay writes its file and is then not running.
     const relay = new CameraRelay(dir, Bun.which('true')!, 47733);
     const saved = (id: string, url: string): SavedCamera => ({

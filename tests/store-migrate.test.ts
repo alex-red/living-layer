@@ -1,17 +1,10 @@
-import { afterEach, describe, expect, it } from 'bun:test';
+import { describe, expect, it } from 'bun:test';
 import { Database } from 'bun:sqlite';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { EvidenceStore } from '../apps/server/src/store.js';
+import { tempDir } from './lib/app.js';
 
-const dirs: string[] = [];
-afterEach(() => dirs.splice(0).forEach((d) => rmSync(d, { recursive: true, force: true })));
-const tmp = () => {
-  const dir = mkdtempSync(join(tmpdir(), 'livinglayer-store-'));
-  dirs.push(dir);
-  return dir;
-};
+const tmp = () => tempDir('store');
 
 describe('store migrations', () => {
   it('rename the old mode once, then leave later rows alone', () => {

@@ -1,9 +1,5 @@
-import { afterEach, describe, expect, it, mock } from 'bun:test';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { buildApp } from '../apps/server/src/app.js';
-import { parseConfig, type Fetcher } from '../apps/server/src/config.js';
+import { describe, expect, it } from 'bun:test';
+import { testApp } from './lib/app.js';
 import type { FloorMarks } from '../apps/server/src/room.js';
 import {
   DEMO_CALIBRATION,
@@ -253,19 +249,7 @@ describe('laying out a room from its calibrated camera', () => {
   });
 });
 
-const dirs: string[] = [];
-afterEach(() => {
-  dirs.splice(0).forEach((d) => rmSync(d, { recursive: true, force: true }));
-});
-async function setup() {
-  const dataDir = mkdtempSync(join(tmpdir(), 'livinglayer-room-'));
-  dirs.push(dataDir);
-  const fetcher = mock<Fetcher>();
-  const app = await buildApp(parseConfig({ DATA_DIR: dataDir }), { fetcher, serveWeb: false });
-  const post = async (path: string, body: object = {}) =>
-    app.inject({ method: 'POST', url: `/api/${path}`, payload: { mode: 'demo', ...body } });
-  return { app, post, fetcher };
-}
+const setup = () => testApp({ name: 'room' });
 
 describe('calibrating the room camera', () => {
   it('reads marks off the floor, fits the camera to them and pins the desk through it', async () => {

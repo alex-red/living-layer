@@ -1,10 +1,6 @@
-import { afterEach, describe, expect, it, mock, spyOn } from 'bun:test';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { describe, expect, it, mock, spyOn } from 'bun:test';
 import { randomUUID } from 'node:crypto';
-import { buildApp } from '../apps/server/src/app.js';
-import { parseConfig, type Fetcher } from '../apps/server/src/config.js';
+import { testApp } from './lib/app.js';
 import { EvidenceStore } from '../apps/server/src/store.js';
 import { createDesk, deskRoutes } from '../apps/server/src/desk.js';
 import Fastify from 'fastify';
@@ -24,15 +20,6 @@ import {
 } from '@livinglayer/domain';
 import { demoLamp } from '../apps/server/src/demo.js';
 
-const dirs: string[] = [];
-function config() {
-  const dataDir = mkdtempSync(join(tmpdir(), 'livinglayer-desk-'));
-  dirs.push(dataDir);
-  return parseConfig({ DATA_DIR: dataDir });
-}
-afterEach(() => {
-  dirs.splice(0).forEach((d) => rmSync(d, { recursive: true, force: true }));
-});
 async function waitFor(done: () => boolean, timeoutMs = 1000) {
   const deadline = Date.now() + timeoutMs;
   while (!done()) {
@@ -45,11 +32,7 @@ const inside = { x: 0.5, y: 0.3, width: 0.1, height: 0.12 };
 const outside = { x: 0, y: 0, width: 0.1, height: 0.1 };
 
 async function setup() {
-  const c = config();
-  const fetcher = mock<Fetcher>();
-  const app = await buildApp(c, { fetcher, serveWeb: false });
-  const post = async (path: string, body: object = {}) =>
-    app.inject({ method: 'POST', url: `/api/${path}`, payload: { mode: 'demo', ...body } });
+  const { app, post, fetcher, config: c } = await testApp({ name: 'desk' });
   const segment = (await post('segment', { concept: 'mug' })).json<EvidenceRun<Segmentation>>();
   const memory = (
     await post('desk/select', { segmentRunId: segment.id, detectionId: '7' })
@@ -73,7 +56,7 @@ describe('desk placement', () => {
     });
     expect(s.fetcher).not.toHaveBeenCalled();
     await s.app.close();
-    const app = await buildApp(s.c, { serveWeb: false });
+    const { app } = await testApp({ env: { DATA_DIR: s.c.dataDir } });
     const restored = (await app.inject('/api/desk/demo')).json<DeskMemory>();
     expect(restored.object!.id).toBe(s.memory.object!.id);
     expect(restored.zone).toEqual(zoned.zone);

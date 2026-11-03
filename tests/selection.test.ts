@@ -1,9 +1,5 @@
-import { afterEach, describe, expect, it } from 'bun:test';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { buildApp } from '../apps/server/src/app.js';
-import { parseConfig } from '../apps/server/src/config.js';
+import { describe, expect, it } from 'bun:test';
+import { testApp } from './lib/app.js';
 import { demoSegmentation } from '../apps/server/src/demo.js';
 import {
   clipMask,
@@ -172,15 +168,7 @@ describe('what a selection points at', () => {
 });
 
 describe('POST /api/select/resolve', () => {
-  const dirs: string[] = [];
-  afterEach(() => {
-    for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
-  });
-  async function app() {
-    const dataDir = mkdtempSync(join(tmpdir(), 'livinglayer-select-'));
-    dirs.push(dataDir);
-    return buildApp(parseConfig({ DATA_DIR: dataDir }), { serveWeb: false });
-  }
+  const app = async () => (await testApp({ name: 'select' })).app;
 
   it('reads a selection through the demo camera, with no model call', async () => {
     const a = await app();

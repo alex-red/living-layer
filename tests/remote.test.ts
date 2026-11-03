@@ -1,8 +1,6 @@
 import { afterEach, describe, expect, it } from 'bun:test';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { buildApp } from '../apps/server/src/app.js';
+import { rmSync } from 'node:fs';
+import { testApp } from './lib/app.js';
 import { parseConfig } from '../apps/server/src/config.js';
 import { RemoteCamera, phoneApp, phoneName } from '../apps/server/src/remote.js';
 import type { NetworkStream } from '../apps/server/src/streams.js';
@@ -78,10 +76,8 @@ describe('remote phone camera', () => {
   });
 
   it('carries the SDPs between the lab API and the phone page', async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), 'livinglayer-remote-'));
-    dirs.push(dataDir);
     const remote = new RemoteCamera();
-    const lab = await buildApp(parseConfig({ DATA_DIR: dataDir }), { serveWeb: false, remote });
+    const { app: lab } = await testApp({ name: 'remote', remote });
     const phones = phoneApp(remote);
     try {
       expect((await lab.inject({ url: '/api/remote' })).json()).toEqual({ pairing: null });
