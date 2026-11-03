@@ -153,11 +153,18 @@
   background:
     radial-gradient(circle at 50% 40%, rgb(111 211 224 / 6%), transparent 70%), var(--void);
 }
+/* Fills the frame: a room camera's crop of a mouse is about 45 × 25 pixels. */
 .aip-stage-image {
-  max-width: 100%;
-  max-height: 100%;
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  padding: 10%;
   object-fit: contain;
   animation: aip-develop 600ms var(--ease-out);
+}
+/* Enlarged many times, its pixels stay crisp rather than blur. */
+.aip-stage-image.small {
+  image-rendering: pixelated;
 }
 .aip-stage-empty {
   position: absolute;

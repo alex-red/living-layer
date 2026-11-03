@@ -2,6 +2,9 @@ import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { Button, IconButton } from './ui/controls';
 import './ai-rich-preview.css';
 
+/** A step's picture narrower than this is enlarged with crisp pixels. */
+const SMALL_PICTURE_PX = 160;
+
 export type AIStepState = 'pending' | 'running' | 'done' | 'failed' | 'stopped';
 export type AITaskStatus = 'running' | 'done' | 'failed' | 'stopped';
 
@@ -196,6 +199,12 @@ export function AIRichPreviewDialog({
                     key={picture.image}
                     className="aip-stage-image"
                     src={picture.image}
+                    onLoad={(e) =>
+                      e.currentTarget.classList.toggle(
+                        'small',
+                        e.currentTarget.naturalWidth < SMALL_PICTURE_PX,
+                      )
+                    }
                     alt={`${picture.label}${picture.detail ? `: ${picture.detail}` : ''}`}
                   />
                 ) : (
