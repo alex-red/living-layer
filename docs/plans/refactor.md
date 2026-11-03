@@ -47,6 +47,7 @@ _Landed:_ the demo's first scan runs once in `beforeAll` and six tests copy that
 _Landed:_ oxlint 1.90.0 (`bun run lint`, `.oxlintrc.json`: `rules-of-hooks` as error, `exhaustive-deps` as warning, nothing else). Today it reports 0 errors and 21 warnings, 10 of them in `useLabState.ts`. It does not fail verify yet; make it gate when the count reaches 0.
 
 **A7. later: catch dead exports.** Add a verify step (knip, or a small script) that lists exports nothing imports. It would catch 7 in domain, 8 in web and about 30 in server today.
+_Landed:_ `bun run dead-exports` (`scripts/dead-exports.ts`), a report step in verify. It reads imports with a regex, since the TypeScript 7 beta has no JS API, and follows `export *` through the domain index. Today it finds 216 unused exports: 32 in server, 27 in web, 157 in domain, in 60 files, in 0.03 s. The counts above are from before the merges; `IGNORE` in the script is empty.
 
 **A8. now: docs that drifted.** `architecture.md`'s server table names `lamp.ts`, which is gone, and leaves out `fixture.ts`, `assist.ts`, `watcher.ts`, `jobs.ts`, `photo.ts` and `illustration.ts`. `current.md` says `bun run check`; the script is `bun run ci`.
 _Landed:_ both fixed.
