@@ -280,6 +280,8 @@ export const fixturesSculptBodySchema = z
     jobId: z.string().uuid().optional(),
     /** What the person says it is or wants of it: "it's a Dyson bladeless fan". */
     note: z.string().trim().min(1).max(300).optional(),
+    /** A close photo of it, modelled from instead of the room camera's crop. */
+    imageDataUrl: z.string().max(7_000_000).optional(),
   })
   .strict();
 export type FixturesSculptBody = z.input<typeof fixturesSculptBodySchema>;
