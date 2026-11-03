@@ -1,4 +1,4 @@
-import { useRef, useState, type MouseEvent, type PointerEvent } from 'react';
+import { memo, useRef, useState, type MouseEvent, type PointerEvent } from 'react';
 import {
   ISO_TILE,
   PROP_FACES,
@@ -329,7 +329,7 @@ const SNAP = 0.25;
  * across that surface reports a rectangle in surface coordinates (u, v from
  * 0 to 1). With `editing`, props can be picked and dragged a group at a time.
  */
-export function IsoScene({
+function IsoSceneView({
   scene,
   surface,
   objects = [],
@@ -780,3 +780,6 @@ export function IsoScene({
     </svg>
   );
 }
+
+/** Memoised: it redraws only when its scene, objects or handlers change, so callers keep those stable. */
+export const IsoScene = memo(IsoSceneView);
