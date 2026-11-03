@@ -324,6 +324,8 @@ export function useSavesSlice(
       writeUi('activeSave', save.id);
     }
   }
+  /** Whether the server took this browser's saves when last asked: `away` keeps them here only until it's back. */
+  const [savesServer, setSavesServer] = useState<'checking' | 'shared' | 'away'>('checking');
   /** Bring this browser's saves and the server's together; a server that can't be reached leaves them as they are here. */
   const syncing = useRef(false);
   async function syncSaves() {
@@ -331,15 +333,20 @@ export function useSavesSlice(
     syncing.current = true;
     try {
       for (const entry of adopt(await api('saves'))) await send(entry);
+      setSavesServer('shared');
     } catch {
-      /* the server is away: this browser's copy serves until the next sync */
+      // The server is away: this browser's copy serves until the next sync.
+      setSavesServer('away');
     } finally {
       syncing.current = false;
     }
   }
   /** A change made here, sent on; one the server can't take now goes at the next sync. */
   function share(change: () => Promise<unknown>) {
-    void change().catch(() => {});
+    void change().then(
+      () => setSavesServer('shared'),
+      () => setSavesServer('away'),
+    );
   }
   const syncLatest = useRef(syncSaves);
   syncLatest.current = syncSaves;
@@ -555,6 +562,7 @@ export function useSavesSlice(
     saveNow,
     savedAt,
     saves,
+    savesServer,
     stepHistory,
     storageOk,
     unsaved,
@@ -576,6 +584,7 @@ export interface SavesSlice {
   saveNow: () => boolean;
   savedAt: string;
   saves: NamedSave[];
+  savesServer: 'checking' | 'shared' | 'away';
   stepHistory: (back: boolean) => Promise<void>;
   storageOk: boolean;
   unsaved: boolean;
