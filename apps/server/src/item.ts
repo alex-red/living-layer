@@ -39,6 +39,7 @@ import { demoMugCloseUp, demoPng } from './demo.js';
 import { LabError, parseInput } from './errors.js';
 import { detectionBits, maskedCrop } from './images.js';
 import type { MetaAdapter, ProviderResult } from './meta.js';
+import { requestSignal } from './request-signal.js';
 import type { EvidenceStore } from './store.js';
 
 export type Runner = (
@@ -46,7 +47,10 @@ export type Runner = (
   mode: Mode,
   operation: (
     id: string,
+    signal?: AbortSignal,
   ) => Promise<Partial<ProviderResult<unknown>> & { output: unknown; assets?: string[] }>,
+  /** Aborts the operation's model calls, such as when the client goes away. */
+  signal?: AbortSignal,
 ) => Promise<EvidenceRun>;
 
 /** What a Spark class looks like offline: the demo mug is a glossy mug. */
@@ -165,6 +169,8 @@ export interface ModelRequest {
   live: boolean;
   /** How tall it is as a share of its longer side, when its real size is known. */
   knownHeight?: number | null;
+  /** Stops the SAM asks when the caller goes away. */
+  signal?: AbortSignal;
 }
 /**
  * Model one masked crop. Live, SAM segments parts the fitter can use (a
@@ -176,20 +182,32 @@ export async function draftModel(
   meta: MetaAdapter,
   store: EvidenceStore,
   runId: string,
-  { crop, cropUrl, label, archetype, material, elevation, live, knownHeight }: ModelRequest,
+  { crop, cropUrl, label, archetype, material, elevation, live, knownHeight, signal }: ModelRequest,
 ) {
   const assets: string[] = [];
   const assists: string[] = [];
   let usage: Usage | null = null;
   // 1. Part masks from SAM, inside the crop.
   const parts: FitInput['parts'] = {};
-  if (live)
-    for (const [key, concept] of Object.entries(PART_CONCEPTS[archetype] ?? {})) {
-      const result = await meta.segment(cropUrl, concept, crop.width, crop.height);
-      const bits = await detectionBits(result.output.detections, crop.width, crop.height);
+  if (live) {
+    // The parts are asked together: each is its own SAM call on the same crop.
+    const found = await Promise.all(
+      Object.entries(PART_CONCEPTS[archetype] ?? {}).map(async ([key, concept]) => {
+        const result = await meta.segment(cropUrl, concept, crop.width, crop.height, {
+          ...(signal ? { signal } : {}),
+        });
+        return {
+          key,
+          concept,
+          bits: await detectionBits(result.output.detections, crop.width, crop.height),
+        };
+      }),
+    );
+    for (const { key, concept, bits } of found) {
       parts[key as 'handle' | 'inside'] = bits;
       assists.push(`SAM: ${concept} ${bits ? 'found' : 'not found'}`);
     }
+  }
   // 2. Measure and refine against the mask.
   const input: FitInput = {
     rgba: crop.rgba,
@@ -268,90 +286,98 @@ export function itemRoutes(
         409,
       );
     const elevation = pinElevation(store.memory(mode), mode);
-    const event = await run('item', mode, async (id) => {
-      const segment = store.getRun(sighting.segmentRunId);
-      const segmentation = segment?.output as Segmentation | undefined;
-      const detection = segmentation?.detections.find((d) => d.objectId === sighting.detectionId);
-      if (!segment || !segmentation || !detection)
-        throw new LabError(
-          'item_source',
-          'The segmentation behind this sighting is missing. Segment a new frame.',
-          409,
-        );
-      const crop = await itemCrop(store, mode, segment, detection);
-      const cropAsset = store.asset(id, 'item-crop.png', crop.png);
-      const assets = [cropAsset];
-      const cropUrl = `data:image/png;base64,${crop.png.toString('base64')}`;
-      const assists: string[] = [];
-      let usage: Usage | null = null;
-      let model: string | undefined;
-      let requestId: string | null = null;
-      const live = mode === 'live' && source === 'spark';
-      // 1. A name for the shape: Spark when asked, else the concept or label.
-      let archetype: Archetype = isMugConcept(segmentation.concept)
-        ? 'mug'
-        : archetypeOf(`${segmentation.concept} ${object.label}`);
-      let material: ItemClass['material'] | null = null;
-      if (source === 'spark') {
-        const result = live
-          ? await meta.itemClass(cropUrl, object.label)
-          : { output: demoItemClass, usage: null, model: undefined, requestId: null };
-        ({ archetype, material } = result.output);
-        usage = addUsage(usage, result.usage);
-        model = result.model ?? model;
-        requestId = result.requestId ?? requestId;
-        assists.push(`Spark: ${archetype}, ${material}. ${result.output.description}`);
-      }
-      // 2. Model the crop: part masks, the fitter and the check.
-      const drafted = await draftModel(meta, store, id, {
-        crop,
-        cropUrl,
-        label: object.label,
-        archetype,
-        material,
-        elevation,
-        live,
-      });
-      const { input, fitted } = drafted;
-      let { params, item, score } = drafted;
-      assets.push(...drafted.assets);
-      assists.push(...drafted.assists);
-      usage = addUsage(usage, drafted.usage);
-      // 3. Another sighting of the same object: average the shape with what came before.
-      const previous = object.item?.fit;
-      let views = 1;
-      if (
-        previous &&
-        previous.archetype === fitted.archetype &&
-        object.item?.segmentRunId !== segment.id
-      ) {
-        params = fuseFits(previous.params, previous.views, params);
-        item = buildItem(object.label, params);
-        score = scoreAgainst(item, input, fitted.elevation);
-        views = previous.views + 1;
-        assists.push(`Fused with ${previous.views} earlier view${previous.views === 1 ? '' : 's'}`);
-      }
-      item = keepLocked(item, object.item);
-      const saved: SavedItem = {
-        ...uniqueParts(item),
-        source: mode === 'demo' ? 'demo' : source,
-        segmentRunId: segment.id,
-        swatches: fitted.swatches,
-        updatedAt: new Date().toISOString(),
-        fit: {
-          archetype: fitted.archetype,
-          params,
-          iou: score.iou,
-          deltaE: score.deltaE,
-          elevation: fitted.elevation,
-          views,
-          crop: cropAsset,
-          cropPx: { width: crop.width, height: crop.height },
-          assists,
-        },
-      };
-      return { output: saved, assets, usage, model, requestId };
-    });
+    const event = await run(
+      'item',
+      mode,
+      async (id, signal) => {
+        const segment = store.getRun(sighting.segmentRunId);
+        const segmentation = segment?.output as Segmentation | undefined;
+        const detection = segmentation?.detections.find((d) => d.objectId === sighting.detectionId);
+        if (!segment || !segmentation || !detection)
+          throw new LabError(
+            'item_source',
+            'The segmentation behind this sighting is missing. Segment a new frame.',
+            409,
+          );
+        const crop = await itemCrop(store, mode, segment, detection);
+        const cropAsset = store.asset(id, 'item-crop.png', crop.png);
+        const assets = [cropAsset];
+        const cropUrl = `data:image/png;base64,${crop.png.toString('base64')}`;
+        const assists: string[] = [];
+        let usage: Usage | null = null;
+        let model: string | undefined;
+        let requestId: string | null = null;
+        const live = mode === 'live' && source === 'spark';
+        // 1. A name for the shape: Spark when asked, else the concept or label.
+        let archetype: Archetype = isMugConcept(segmentation.concept)
+          ? 'mug'
+          : archetypeOf(`${segmentation.concept} ${object.label}`);
+        let material: ItemClass['material'] | null = null;
+        if (source === 'spark') {
+          const result = live
+            ? await meta.itemClass(cropUrl, object.label)
+            : { output: demoItemClass, usage: null, model: undefined, requestId: null };
+          ({ archetype, material } = result.output);
+          usage = addUsage(usage, result.usage);
+          model = result.model ?? model;
+          requestId = result.requestId ?? requestId;
+          assists.push(`Spark: ${archetype}, ${material}. ${result.output.description}`);
+        }
+        // 2. Model the crop: part masks, the fitter and the check.
+        const drafted = await draftModel(meta, store, id, {
+          crop,
+          cropUrl,
+          label: object.label,
+          archetype,
+          material,
+          elevation,
+          live,
+          ...(signal ? { signal } : {}),
+        });
+        const { input, fitted } = drafted;
+        let { params, item, score } = drafted;
+        assets.push(...drafted.assets);
+        assists.push(...drafted.assists);
+        usage = addUsage(usage, drafted.usage);
+        // 3. Another sighting of the same object: average the shape with what came before.
+        const previous = object.item?.fit;
+        let views = 1;
+        if (
+          previous &&
+          previous.archetype === fitted.archetype &&
+          object.item?.segmentRunId !== segment.id
+        ) {
+          params = fuseFits(previous.params, previous.views, params);
+          item = buildItem(object.label, params);
+          score = scoreAgainst(item, input, fitted.elevation);
+          views = previous.views + 1;
+          assists.push(
+            `Fused with ${previous.views} earlier view${previous.views === 1 ? '' : 's'}`,
+          );
+        }
+        item = keepLocked(item, object.item);
+        const saved: SavedItem = {
+          ...uniqueParts(item),
+          source: mode === 'demo' ? 'demo' : source,
+          segmentRunId: segment.id,
+          swatches: fitted.swatches,
+          updatedAt: new Date().toISOString(),
+          fit: {
+            archetype: fitted.archetype,
+            params,
+            iou: score.iou,
+            deltaE: score.deltaE,
+            elevation: fitted.elevation,
+            views,
+            crop: cropAsset,
+            cropPx: { width: crop.width, height: crop.height },
+            assists,
+          },
+        };
+        return { output: saved, assets, usage, model, requestId };
+      },
+      requestSignal(request),
+    );
     const latest = store.memory(mode);
     if (modelTarget(latest, object.id)) {
       setModel(latest, object.id, event.output as SavedItem);
