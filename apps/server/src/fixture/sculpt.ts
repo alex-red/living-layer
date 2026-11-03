@@ -1,4 +1,5 @@
 import {
+  archetypeOf,
   fixtureOutput,
   type FixtureSculptOutput,
   fixturesSculptBodySchema,
@@ -15,6 +16,7 @@ import {
   fixtureReference,
   fixtureSize,
   fromSculpt,
+  isFragmented,
   withNewModel,
   scoreAgainst,
   sculptPrompt,
@@ -34,12 +36,19 @@ import {
 import sharp from 'sharp';
 import { LabError } from '../errors.js';
 import { following, type JobTracker } from '../jobs.js';
-import { detectionBits, toDataUrl } from '../images.js';
+import {
+  detectionBits,
+  maskedCrop,
+  toDataUrl,
+  validateImage,
+  type ValidatedImage,
+} from '../images.js';
 import { cropInput, keepLocked, sightingPicture, viewPng } from '../item.js';
 import { type RouteDeps } from '../route-deps.js';
 import { SEARCH_CEILING, SPARK_BUDGET, type MetaAdapter } from '../meta.js';
 import { BUNDLED_CATALOG, Catalog, research, type Researcher } from '../research.js';
 import { type EvidenceStore } from '../store.js';
+import { fitItemAsync } from '../workers/compute.js';
 import { productSize, type Parsed } from './shared.js';
 
 /** What a sighting's picture says about how it was cut out. */
@@ -47,14 +56,26 @@ const SIGHTING_CUT = {
   mask: 'Its last sighting, cut out by its outline',
   sam: 'Its last sighting, cut out by SAM: its outline was only the box drawn round it',
   box: 'Its last sighting, with what is round it: SAM couldn’t cut it out',
+  samBroken: 'Its last sighting, cut out by SAM: its outline had fallen apart',
+  boxBroken:
+    'Its last sighting, with what is round it: its outline had fallen apart and SAM couldn’t cut it out',
 } as const;
+type SightingCut = keyof typeof SIGHTING_CUT;
 /** Over this share of its box, a sighting's mask is the box drawn round it, not its outline. */
 const BOX_ONLY = 0.9;
-/** How much of a crop its mask keeps. */
-function opaqueShare(rgba: Buffer) {
-  let kept = 0;
-  for (let i = 3; i < rgba.length; i += 4) if (rgba[i]! > 127) kept++;
-  return kept / (rgba.length / 4);
+/** A crop's mask: 1 where it keeps the pixel. */
+function maskBits(rgba: Buffer) {
+  const bits = new Uint8Array(rgba.length / 4);
+  for (let i = 0; i < bits.length; i++) bits[i] = rgba[i * 4 + 3]! > 127 ? 1 : 0;
+  return bits;
+}
+/** The crop's whole box, what is round the thing too. */
+function wholeBox(crop: { rgba: Buffer; width: number; height: number }) {
+  const rgba = Buffer.from(crop.rgba);
+  for (let i = 3; i < rgba.length; i += 4) rgba[i] = 255;
+  return sharp(rgba, { raw: { width: crop.width, height: crop.height, channels: 4 } })
+    .png()
+    .toBuffer();
 }
 /**
  * A sighting outlined on this machine can be only the box drawn round it,
@@ -74,12 +95,62 @@ async function cutOut(
   const bits = best ? await detectionBits([best], width, height) : null;
   if (!bits) return null;
   const share = bits.reduce((n, b) => n + b, 0) / bits.length;
-  if (share < 0.05 || share > BOX_ONLY) return null;
+  // The thing may be a small part of a box drawn round it, but not in pieces.
+  if (share > BOX_ONLY || isFragmented(bits, width, height, 0.05)) return null;
   const rgba = Buffer.from(crop.rgba);
   for (let i = 0; i < bits.length; i++) rgba[i * 4 + 3] = bits[i] ? 255 : 0;
   return sharp(rgba, { raw: { width, height, channels: 4 } })
     .png()
     .toBuffer();
+}
+
+/**
+ * A close photo the person sent with the request, cut out by SAM (one call)
+ * and looked at from its own camera's angle, which the fitter reads off it
+ * as it does a photo's. Refused when SAM finds it nowhere or only in pieces.
+ */
+async function photoCut(
+  meta: MetaAdapter,
+  photo: ValidatedImage,
+  concept: string,
+  archetype: ReturnType<typeof archetypeOf>,
+) {
+  const found = await meta.segment(photo.dataUrl, concept, photo.width, photo.height);
+  const best = [...found.output.detections].sort(
+    (a, b) => (b.confidence ?? 0) - (a.confidence ?? 0),
+  )[0];
+  const crop = best ? await maskedCrop(photo.bytes, best) : null;
+  if (!crop || isFragmented(maskBits(crop.rgba), crop.width, crop.height))
+    throw new LabError(
+      'sculpt_photo',
+      `Couldn’t cut the ${concept.toLowerCase()} out of the photo. Fill most of the frame with it, against something plain.`,
+      422,
+    );
+  const fitted = await fitItemAsync({
+    rgba: crop.rgba,
+    width: crop.width,
+    height: crop.height,
+    label: concept,
+    archetype,
+  });
+  return {
+    png: crop.png,
+    elevation: fitted.elevation,
+    said: 'The close photo you sent, cut out by SAM',
+  };
+}
+
+/**
+ * The close photo its model was last fitted to, when another photo of it was
+ * (POST /api/fixtures/photo): its crop, at that photo's own angle.
+ */
+function storedCloseUp(store: EvidenceStore, fixture: Fixture) {
+  const fit = fixtureModel(fixture).fit ?? fixture.model.fit;
+  if (!fit?.crop || !fixtureOutput.fuse(store.getRun(fit.crop.split('/')[0]!))) return null;
+  const png = store.readAsset(fit.crop);
+  return png
+    ? { png, elevation: fit.elevation, said: 'The close photo its model was fitted to' }
+    : null;
 }
 
 /** The room picture is drawn in 2:1 isometric, so a level square shows half as deep as it is wide. */
@@ -166,15 +237,19 @@ function sculptRunOf(job: Job | null, getRun: (id: string) => EvidenceRun | unde
 }
 
 /**
- * What Modelling with AI looks at: the fixture's cut-out from the room's
- * picture, or its own or a linked copy's, else the crop its model was fitted
- * to, else the room draft's crop, looked at from where the room's camera is.
+ * What Modelling with AI looks at: a close photo sent with the request, else
+ * the close photo its model was last fitted to, else the fixture's cut-out
+ * from the room's picture, or its own or a linked copy's, else its last
+ * sighting, else the crop its model was fitted to, else the room draft's
+ * crop, looked at from where the room's camera is. A close photo comes first:
+ * across a room a mug is a few dozen pixels, too few to model it from.
  */
 function sculptPicture(
   store: EvidenceStore,
   memory: DeskMemory,
   fixture: Fixture,
-  sighted: { png: Buffer; elevation: number; cut: 'sam' | 'mask' | 'box' } | null,
+  sighted: { png: Buffer; elevation: number; cut: SightingCut } | null,
+  close: { png: Buffer; elevation: number; said: string } | null,
 ) {
   const group = new Set([
     fixture.id,
@@ -184,7 +259,8 @@ function sculptPicture(
   const activeRef = fixtureReference(fixture);
   const activeSize = fixtureSize(fixture);
   const sprite = memory.illustration?.layers?.sprites.find((x) => group.has(x.fixtureId));
-  const crop = activeModel.fit?.crop ?? fixture.model.fit?.crop;
+  const fit = activeModel.fit ?? fixture.model.fit;
+  const crop = fit?.crop;
   const camera = calibrationOf(memory)?.camera;
   const drafted = () => {
     if (!activeRef || fixture.scene !== 'custom' || !memory.scene || !camera) return null;
@@ -197,18 +273,26 @@ function sculptPicture(
     return {
       png: store.readAsset(activeRef.asset),
       elevation: elevationAt(camera, centre),
+      said: 'The crop of it the room’s draft kept',
     };
   };
-  const pictured = sprite
-    ? { png: store.readAsset(sprite.asset), elevation: ISO_ELEVATION }
-    : sighted
-      ? sighted
-      : crop
-        ? {
-            png: store.readAsset(crop),
-            elevation: (activeModel.fit ?? fixture.model.fit)!.elevation,
-          }
-        : drafted();
+  const pictured =
+    close ??
+    (sprite
+      ? {
+          png: store.readAsset(sprite.asset),
+          elevation: ISO_ELEVATION,
+          said: 'Its cut-out from the room’s picture',
+        }
+      : sighted
+        ? { ...sighted, said: SIGHTING_CUT[sighted.cut] }
+        : crop
+          ? {
+              png: store.readAsset(crop),
+              elevation: fit!.elevation,
+              said: 'The photo crop its model was fitted to',
+            }
+          : drafted());
   if (!pictured?.png)
     throw new LabError(
       'sculpt_picture',
@@ -221,9 +305,8 @@ function sculptPicture(
     group,
     activeModel,
     activeSize,
-    sprite: Boolean(sprite),
-    /** How a sighting was cut out, when it was the picture. */
-    cut: !sprite && sighted ? sighted.cut : null,
+    /** What the picture is, as its step says. */
+    said: pictured.said,
     png: pictured.png,
     elevation: pictured.elevation,
   };
@@ -541,15 +624,7 @@ async function sculptSteps(
   const { job, store, id, fixture, note, picture } = r;
   job.link(id);
   r.assets.push(store.asset(id, 'picture.png', picture.png));
-  await job.done(
-    'picture',
-    picture.sprite
-      ? 'Its cut-out from the room’s picture'
-      : picture.cut
-        ? SIGHTING_CUT[picture.cut]
-        : 'The photo crop its model was fitted to',
-    picture.png,
-  );
+  await job.done('picture', picture.said, picture.png);
   const looked = await sculptLookup(r, activeSize);
   const current = await sculptCurrent(r, activeModel);
   const asked = await sculptDraft(r, activeModel, current);
@@ -601,16 +676,17 @@ async function sculptSave(
 
 /**
  * Model a fixture in our own parts with Spark, starting from its current
- * model and the picture of it: its cut-out from the room's picture when it
- * was lifted, else the crop its model was fitted to, else the crop of it a
- * room draft kept (seen from the room's camera). Spark revises the parts
+ * model and the picture of it: a close photo sent with the request or one its
+ * model was fitted to, else its cut-out from the room's picture when it was
+ * lifted, else its last sighting, else the crop its model was fitted to, else
+ * the crop of it a room draft kept (seen from the room's camera). Spark revises the parts
  * against a render of the model (one call), then once more against a render
  * of its own draft (a second), and the draft whose silhouette matches the
  * picture better is kept, with any parts the person locked. Live only.
  */
 export async function sculptFixture(
   { store, meta, run, jobs, productsDir }: SculptDeps,
-  { mode, fixtureId, jobId, note }: Parsed<typeof fixturesSculptBodySchema>,
+  { mode, fixtureId, jobId, note, imageDataUrl }: Parsed<typeof fixturesSculptBodySchema>,
 ) {
   if (mode !== 'live')
     throw new LabError(
@@ -620,26 +696,52 @@ export async function sculptFixture(
   const memory = store.memory(mode);
   const fixture = memory.fixtures?.find((f) => f.id === fixtureId);
   if (!fixture) throw new LabError('fixture_missing', 'That fixture is gone.', 404);
-  // A thing the camera follows is modelled from its last sighting, cut out by its mask.
-  const sighting = fixture.place === 'sightings' ? fixture.track?.observation : undefined;
+  const photo = imageDataUrl ? await validateImage(imageDataUrl) : null;
+  const stored = photo ? null : storedCloseUp(store, fixture);
+  // A thing the camera follows is modelled from its last sighting, cut out by its mask,
+  // unless there is a close photo of it.
+  const sighting =
+    !photo && !stored && fixture.place === 'sightings' ? fixture.track?.observation : undefined;
   const crop = sighting ? await sightingPicture(store, mode, memory, sighting) : null;
-  // A mask that is only the box drawn round it is cut out by SAM first: one call more.
-  const boxed = crop && opaqueShare(crop.rgba) > BOX_ONLY;
+  const bits = crop ? maskBits(crop.rgba) : null;
+  // A mask that is only the box drawn round it, or that fell apart into pieces, is cut out
+  // by SAM first: one call more.
+  const boxed = crop && bits && bits.reduce((n, b) => n + b, 0) / bits.length > BOX_ONLY;
+  const broken = crop && bits && !boxed && isFragmented(bits, crop.width, crop.height);
   // A note is looked up as a product first: the catalog, then the web.
   const ceiling =
     SCULPT_DRAFTS * sparkCeiling(SPARK_BUDGET.sculpt, 2) +
     (note
       ? sparkCeiling(SPARK_BUDGET.productLookup, 0) + SEARCH_CEILING * META_PRICES.webSearchPerQuery
       : 0) +
-    (boxed ? META_PRICES.samPerImage : 0);
+    (boxed || broken || photo ? META_PRICES.samPerImage : 0);
   meta.mustAfford(ceiling, 'Modelling it');
-  const cut = boxed ? await cutOut(meta, crop, fixture.track?.concept ?? fixture.label) : null;
+  const concept = fixture.track?.concept ?? fixture.label;
+  const sent = photo
+    ? await photoCut(
+        meta,
+        photo,
+        concept,
+        fixtureModel(fixture).fit?.archetype ?? archetypeOf(fixture.label),
+      )
+    : null;
+  const cut = crop && (boxed || broken) ? await cutOut(meta, crop, concept) : null;
+  const how: SightingCut = cut
+    ? broken
+      ? 'samBroken'
+      : 'sam'
+    : broken
+      ? 'boxBroken'
+      : boxed
+        ? 'box'
+        : 'mask';
   const sighted = crop && {
-    png: cut ?? crop.png,
+    // A broken mask falls back to the whole box: what is round it, but all of the thing.
+    png: cut ?? (broken ? await wholeBox(crop) : crop.png),
     elevation: crop.elevation,
-    cut: cut ? ('sam' as const) : boxed ? ('box' as const) : ('mask' as const),
+    cut: how,
   };
-  const picture = sculptPicture(store, memory, fixture, sighted);
+  const picture = sculptPicture(store, memory, fixture, sighted, sent ?? stored);
   const { group, activeModel, activeSize } = picture;
   const look = await sculptLook(picture.png, fixture.label);
   const job = jobs.start(jobId, sculptStepList(note), {

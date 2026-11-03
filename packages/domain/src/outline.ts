@@ -254,8 +254,8 @@ function smooth(bits: Uint8Array, w: number, h: number): Uint8Array {
   return out;
 }
 
-/** The largest 4-connected piece and any at least `keepShare` of it. */
-function largestPieces(bits: Uint8Array, w: number, h: number): Uint8Array {
+/** Each 4-connected piece of `bits`: its label per pixel (0 off it) and each label's size. */
+function labelPieces(bits: Uint8Array, w: number, h: number) {
   const label = new Int32Array(bits.length);
   const sizes: number[] = [0];
   const stack: number[] = [];
@@ -283,11 +283,43 @@ function largestPieces(bits: Uint8Array, w: number, h: number): Uint8Array {
     }
     sizes.push(size);
   }
+  return { label, sizes };
+}
+
+/** The largest 4-connected piece and any at least `keepShare` of it. */
+function largestPieces(bits: Uint8Array, w: number, h: number): Uint8Array {
+  const { label, sizes } = labelPieces(bits, w, h);
   const largest = Math.max(0, ...sizes);
   const out = new Uint8Array(bits.length);
   for (let k = 0; k < bits.length; k++)
     if (label[k] && sizes[label[k]!]! >= OUTLINE.keepShare * largest) out[k] = 1;
   return out;
+}
+
+/** When a cut-out's mask is no longer the thing's outline. */
+const WHOLE = {
+  /** Under this share of its box, the mask kept only bits of the thing. */
+  minShare: 0.15,
+  /** Its largest piece holds at least this share of it; a mug's handle is a tenth of it. */
+  largest: 0.6,
+};
+
+/**
+ * Whether a mask (`w` × `h`, 1 on the thing) has fallen apart: it keeps too
+ * little of its box, or no one piece of it is most of it. A room camera's
+ * mug once came back as four pieces, the largest a third of it, over a
+ * quarter of its box: modelled from that, it is nothing like a mug.
+ */
+export function isFragmented(
+  bits: Uint8Array,
+  w: number,
+  h: number,
+  minShare = WHOLE.minShare,
+): boolean {
+  const { sizes } = labelPieces(bits, w, h);
+  const kept = sizes.reduce((n, s) => n + s, 0);
+  if (kept < minShare * w * h) return true;
+  return Math.max(...sizes) < WHOLE.largest * kept;
 }
 
 /** Fills what the outside can't reach: the dark inside of a mug, a label's letters. */
