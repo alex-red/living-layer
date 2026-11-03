@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import { SOURCE_ASSET } from './images.js';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import {
@@ -903,7 +904,10 @@ export function deskRoutes(
     if (memory.fixtures) memory.fixtures = settleFixtures(memory.fixtures, memory.scene);
     memory.surface = pin as SurfacePin | null;
     memory.scenePhoto =
-      mode === 'live' && store.readAsset(`${runId}/source.png`) ? `${runId}/source.png` : null;
+      mode === 'live'
+        ? (['webp', 'png'].map((ext) => `${runId}/source.${ext}`).find((a) => store.readAsset(a)) ??
+          null)
+        : null;
     // A new photo is a new room: the old pictures of it no longer fit.
     memory.illustration = null;
     memory.deskIllustration = null;
@@ -1157,11 +1161,7 @@ export function deskRoutes(
               surface: surfacePinSchema.nullable().optional(),
               camera: roomCalibrationSchema.nullable().optional(),
               scene: isoSceneSchema.nullable().optional(),
-              scenePhoto: z
-                .string()
-                .regex(/^[a-z0-9-]{1,64}\/source\.png$/)
-                .nullable()
-                .optional(),
+              scenePhoto: z.string().regex(SOURCE_ASSET).nullable().optional(),
               illustration: sceneIllustrationSchema.nullable().optional(),
               deskIllustration: sceneIllustrationSchema.nullable().optional(),
               others: z

@@ -37,7 +37,7 @@ import {
 } from '@livinglayer/domain';
 import { demoMugCloseUp, demoPng } from './demo.js';
 import { LabError, parseInput } from './errors.js';
-import { detectionBits, maskedCrop } from './images.js';
+import { detectionBits, findSource, maskedCrop } from './images.js';
 import type { MetaAdapter, ProviderResult } from './meta.js';
 import { requestSignal } from './request-signal.js';
 import type { EvidenceStore } from './store.js';
@@ -83,7 +83,7 @@ export async function itemCrop(
     const close = await demoMugCloseUp(DEMO_POSITIONS[position] ? position : 'centre');
     return maskedCrop(close.png, close.detection);
   }
-  const photo = segment.assets.find((a) => a.endsWith('/source.png'));
+  const photo = findSource(segment.assets);
   const bytes = photo ? store.readAsset(photo) : null;
   if (!bytes) throw new LabError('item_source', 'The photo behind this sighting is missing.', 409);
   return maskedCrop(bytes, detection);

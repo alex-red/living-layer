@@ -31,7 +31,7 @@ import {
   type Segmentation,
 } from '@livinglayer/domain';
 import { LabError, parseInput } from './errors.js';
-import { validateImage } from './images.js';
+import { samDataUrl, validateImage } from './images.js';
 import type { Runner } from './item.js';
 import {
   basePrompt,
@@ -188,7 +188,7 @@ export function illustrationRoutes(
         job.link(id);
         const result = image
           ? await meta.illustrate(
-              [image.dataUrl],
+              [await samDataUrl(image)],
               withNote(ILLUSTRATION_PROMPT, input.note),
               `${image.width}x${image.height}`,
               job.signal,
@@ -210,7 +210,7 @@ export function illustrationRoutes(
         return {
           ...result,
           output: { asset },
-          assets: [asset, ...(image ? [store.asset(id, 'source.png', image.bytes)] : [])],
+          assets: [asset, ...(image ? [store.asset(id, `source.${image.ext}`, image.bytes)] : [])],
         };
       });
       const asset = (drawn.output as { asset: string }).asset;
@@ -277,7 +277,7 @@ export function illustrationRoutes(
             ]
           : [];
         const result = await meta.illustrate(
-          [image.dataUrl, ...references],
+          [await samDataUrl(image), ...references],
           deskIllustrationPrompt(Boolean(style), note),
           `${image.width}x${image.height}`,
           job.signal,
@@ -288,7 +288,7 @@ export function illustrationRoutes(
         return {
           ...result,
           output: { asset },
-          assets: [asset, ...(image ? [store.asset(id, 'source.png', image.bytes)] : [])],
+          assets: [asset, ...(image ? [store.asset(id, `source.${image.ext}`, image.bytes)] : [])],
         };
       });
       const size = await sharp(png).metadata();

@@ -35,7 +35,7 @@ import { chosenEntities, haConnection, haRoutes, type OpenSocket } from './ha.js
 import { fixtureRoutes } from './fixture.js';
 import { requestSignal, watchRequest } from './request-signal.js';
 import { LabError, logError, parseInput, safeError } from './errors.js';
-import { validateImage } from './images.js';
+import { findSource, samDataUrl, validateImage } from './images.js';
 import { deskRoutes } from './desk.js';
 import { itemRoutes } from './item.js';
 import { photoRoutes } from './photo.js';
@@ -435,7 +435,7 @@ export async function buildApp(
       }
       const image = await validateImage(input.imageDataUrl);
       const result = await meta.discover(image.dataUrl);
-      return { ...result, assets: [store.asset(id, 'source.png', image.bytes)] };
+      return { ...result, assets: [store.asset(id, `source.${image.ext}`, image.bytes)] };
     });
   });
   /**
@@ -456,7 +456,7 @@ export async function buildApp(
       return {
         ...result,
         output: drafted(result.output),
-        assets: [store.asset(id, 'source.png', image.bytes)],
+        assets: [store.asset(id, `source.${image.ext}`, image.bytes)],
       };
     });
   });
@@ -476,7 +476,7 @@ export async function buildApp(
       }
       const image = await validateImage(input.imageDataUrl);
       const result = await meta.classify(image.dataUrl);
-      return { ...result, assets: [store.asset(id, 'source.png', image.bytes)] };
+      return { ...result, assets: [store.asset(id, `source.${image.ext}`, image.bytes)] };
     });
   });
   itemRoutes(app, { store, meta, run });
@@ -520,9 +520,15 @@ export async function buildApp(
         if (input.demoPosition)
           throw new LabError('demo_position', 'Demo positions apply only in demo mode.');
         const image = await validateImage(input.imageDataUrl);
-        const result = await meta.segment(image.dataUrl, input.concept, image.width, image.height, {
-          ...(signal ? { signal } : {}),
-        });
+        const result = await meta.segment(
+          await samDataUrl(image),
+          input.concept,
+          image.width,
+          image.height,
+          {
+            ...(signal ? { signal } : {}),
+          },
+        );
         return {
           ...result,
           output: {
@@ -530,7 +536,7 @@ export async function buildApp(
             sourceKey: createHash('sha256').update(image.bytes).digest('hex'),
           },
           assets: [
-            store.asset(id, 'source.png', image.bytes),
+            store.asset(id, `source.${image.ext}`, image.bytes),
             store.asset(id, 'sam-output.txt', result.raw),
           ],
         };
@@ -593,7 +599,7 @@ export async function buildApp(
         demoPicture.position = DEMO_POSITIONS[position] ? position : 'centre';
         return (await demoPicture.snapshot()).png;
       }
-      const photo = segmentRun.assets.find((a) => a.endsWith('/source.png'));
+      const photo = findSource(segmentRun.assets);
       return photo ? store.readAsset(photo) : null;
     },
     appearance: options.appearance ?? (() => (model ??= Appearance.load(config.dataDir))),
