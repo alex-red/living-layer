@@ -7,7 +7,7 @@ import {
 } from '@livinglayer/domain';
 import { usd } from '../cost';
 import { Button, Check, Field, IconButton, Select } from '../ui/controls';
-import { useLab } from './LabContext';
+import { useAi, useLabParts, useProbes, useRunLog, useView } from './LabContext';
 import { LOG_PAGE, RESULT_GLYPH, RUN_KINDS, isProbe, runDetail } from './useLabState';
 
 const clock = (iso: string) =>
@@ -15,7 +15,7 @@ const clock = (iso: string) =>
 
 /** The selected run: what it returned, what it cost, and how to repeat or reuse it. */
 function RunInspector() {
-  const lab = useLab();
+  const lab = useLabParts(useRunLog(), useAi(), useProbes());
   const selected = lab.selected;
   if (!selected) return <p className="placeholder">Pick a run to inspect it.</p>;
   // The AI action this call was a step of, if any, to review step by step.
@@ -136,7 +136,7 @@ const OUTCOME_GLYPH = { done: '✓', failed: '×', stopped: '■' } as const;
 
 /** The latest AI actions, each reopening its steps in the AI dialog, read-only. */
 function AiHistory() {
-  const lab = useLab();
+  const lab = useLabParts(useAi());
   return (
     <ul className="aip-history" aria-label="Recent AI runs">
       {lab.aiHistory.slice(0, 5).map((job) => {
@@ -175,7 +175,7 @@ function AiHistory() {
  * with the latest run; open, it is the filtered log beside the run inspector.
  */
 export function ActivityDrawer() {
-  const lab = useLab();
+  const lab = useLabParts(useView(), useRunLog(), useAi());
   const { runs, filteredRuns, logStats, logLimit, selected, drawer } = lab;
   const latest = runs[0];
   return (

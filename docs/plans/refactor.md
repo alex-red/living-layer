@@ -141,6 +141,8 @@ _Landed:_ a01abff. `useNow()` now ticks in the four components that show time (n
 
 **D2. later: fast state outside React's tree.** Move the follow view (10 Hz), its stats and the AI task's progress into small stores read with `useSyncExternalStore`, as `activity.ts` does. Send job progress over the existing event stream instead of polling every 350 ms.
 
+_Landed:_ the follow view and its tally (`state/follow-store.ts`) and the AI task with its job (`state/ai-task-store.ts`) are `useSyncExternalStore` stores; only the follow overlay, the inspector's tally, the AI dialog and the Steps button read them. Job progress is still polled every 350 ms: the server has no event stream for jobs (`/api/jobs/:id` is a plain GET), so moving it needs a new route in `apps/server/src/jobs.ts`.
+
 **D3. later: split `useLabState`.** It has 34 `useState`s, 15 `useEffect`s and about 218 fields, and its type is inferred. Split it into slices, each with its own interface:
 
 - preferences and view
@@ -153,6 +155,8 @@ _Landed:_ a01abff. `useNow()` now ticks in the four components that show time (n
 - the run log
 
 Keep `useLab()` as a facade, and move consumers over one pane at a time. Then `IsoView` reads its slice instead of taking 46 props, and `IsoScene` is memoized.
+
+_Landed:_ `useLabState` is now fourteen slice hooks in `apps/web/src/workspace/state/` (view, feedback, run log, desk, follow state, camera, observation, tracking, navigation, AI, fixtures, calibration, probes, saves), each with an explicit interface and reading only the slices before it. `LabProvider` runs them once and gives each its own context; `useLab()` still merges all of them. Slices return through `useStableSlice`, so a slice keeps its identity until a value in it changes. Every pane but `Canvas` now names the slices it reads with `useLabParts`. Still on the facade: `Canvas`, which reads nearly every slice. Warnings from `bun run lint` in the web app: 21 to 9. `IsoView`'s 46 props and the memoised `IsoScene` are not done.
 
 **D4. later: sprites in a Worker.** An item sprite takes 31–71 ms on the main thread, and every item-editor edit misses the cache. Draw sprites in a Web Worker with OffscreenCanvas and serve object URLs. Give the cache least-recently-used eviction instead of oldest-first (`iso/sprites.ts:47`), and bound `viewOverlay`. A `useSprite` hook keeps the last image until the new one is ready, and `useDeferredValue` smooths the editor's draft. Measure again after B first.
 _Landed:_ `iso/sprite.worker.ts` draws sprites (`sprite-draw.ts`, shared with the main-thread fallback) and returns PNG blobs via `OffscreenCanvas`; `sprites.ts` serves object URLs from an LRU cache bounded by 400 entries and 48 MB (also for `viewOverlay`), revoking evicted URLs after 30 s. `useItemSprite`, `usePropSprite` and `useViewOverlay` keep the last image until the next is ready; `IsoScene`, `IsoItem`, `ItemEditor`, `PropPicker` and `Brush` use them, and the editor draws from `useDeferredValue(draft)`. No Worker or OffscreenCanvas (and bun tests) draws on the main thread. Still synchronous: `itemSprite`, `propSprite` and `viewOverlay`, which `FixturePanel` calls (sizing needs pixels in the same tick); move it to the hooks when that file is free.

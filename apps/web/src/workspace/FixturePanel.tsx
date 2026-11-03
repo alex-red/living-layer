@@ -55,7 +55,19 @@ import {
 import { itemSprite } from '../iso/sprites';
 import type { FixturePlacing } from '../iso/IsoView';
 import { LayerButtons } from '../iso/SceneEditor';
-import { useLab } from './LabContext';
+import {
+  useCalibration,
+  useCamera,
+  useDesk,
+  useFeedback,
+  useFixtures,
+  useLabParts,
+  useNavigation,
+  useObservation,
+  useRunLog,
+  useTracking,
+  useView,
+} from './LabContext';
 import type { Lab } from './useLabState';
 import { ago, builtInLamps, builtInThings, controlLabel, ownLayout, roomLabel } from './labels';
 import { pinScene } from './progress';
@@ -170,7 +182,7 @@ function ControlPicker({
   onKind: (kind: ControlKind) => void;
   onEntity: (entity: string) => void;
 }) {
-  const { entities } = useLab();
+  const { entities } = useDesk();
   const of = (k: ControlKind) => entities.filter((e) => k !== 'none' && controlKindOf(e) === k);
   const choices = kind === 'none' ? [] : of(kind);
   return (
@@ -220,7 +232,7 @@ const controlOf = (kind: ControlKind, entity: string): FixtureControl =>
 
 /** The scenes a fixture can go in: the room, and its close view when it has one. */
 function useScenes(): { id: WorkScene; label: string }[] {
-  const { progress, memory } = useLab();
+  const { progress, memory } = useLabParts(useDesk(), useObservation());
   return [
     ...(progress.room
       ? [{ id: pinScene(progress.room), label: roomLabel(progress.room, memory) }]
@@ -254,7 +266,7 @@ export function ScanFixtures({
   initial: WorkScene | null;
   open?: boolean;
 }) {
-  const lab = useLab();
+  const lab = useLabParts(useView(), useFeedback(), useDesk(), useCamera(), useFixtures());
   const { call, off } = useCall();
   const [mapped, setMapped] = useState<MappedThing[] | null>(null);
   const [replace, setReplace] = useState(true);
@@ -365,7 +377,15 @@ export function ScanFixtures({
  * model, then the person names it, says what it is and puts it down.
  */
 export function NewFixturePanel() {
-  const lab = useLab();
+  const lab = useLabParts(
+    useView(),
+    useFeedback(),
+    useRunLog(),
+    useDesk(),
+    useCamera(),
+    useFixtures(),
+    useCalibration(),
+  );
   const { mode, busy, placing } = lab;
   const scenes = useScenes();
   const [draft, setDraft] = useState<{
@@ -740,7 +760,7 @@ export function NewFixturePanel() {
  * drafts, so a wrong pick can be undone there.
  */
 function FixtureType({ fixture: f, disabled }: { fixture: Fixture; disabled: boolean }) {
-  const lab = useLab();
+  const lab = useLabParts(useFeedback(), useDesk());
   const { call } = useCall();
   const current = fixtureType(f);
   const [type, setType] = useState<StarterTemplate | ''>(current ?? '');
@@ -787,7 +807,7 @@ function FixtureType({ fixture: f, disabled }: { fixture: Fixture; disabled: boo
  * A source left unlinked follows the fixture's own light.
  */
 function FixtureLights({ fixture: f, disabled }: { fixture: Fixture; disabled: boolean }) {
-  const lab = useLab();
+  const lab = useLabParts(useView(), useFeedback(), useRunLog(), useDesk());
   const { call, off } = useCall();
   const sources = lightSources(f.model);
   const saved = Object.fromEntries((f.lights ?? []).map((l) => [l.part, l.entityId]));
@@ -891,7 +911,14 @@ function inputOf(f: Fixture): FixtureInput & FixturePlacing {
 
 /** A placed fixture: switch it, move or turn it, change what it is, or remove it. */
 export function FixturePanel({ id }: { id: string }) {
-  const lab = useLab();
+  const lab = useLabParts(
+    useView(),
+    useFeedback(),
+    useRunLog(),
+    useDesk(),
+    useNavigation(),
+    useFixtures(),
+  );
   const { memory, mode, placing } = lab;
   const { call, off } = useCall();
   const f = memory?.fixtures?.find((x) => x.id === id);
@@ -1291,7 +1318,7 @@ const TRACK_STATUS = {
  * what the camera sees and it can decide rules, like an object.
  */
 function FixtureCamera({ fixture: f, disabled }: { fixture: Fixture; disabled: boolean }) {
-  const lab = useLab();
+  const lab = useLabParts(useFeedback(), useCamera(), useTracking(), useFixtures());
   const { busy, segmentation, segmentRunId, watch } = lab;
   const now = useNow();
   const found =
@@ -1337,8 +1364,10 @@ function FixtureCamera({ fixture: f, disabled }: { fixture: Fixture; disabled: b
  * Take a built-in thing (the office's book, bottle or lamp) out of the
  * person's own layout, in the room and its close view at once.
  */
+/** What taking a thing out of the layout, or changing its layer, reads of the lab. */
+type LayoutLab = Pick<Lab, 'memory' | 'setMemory' | 'selection' | 'select' | 'setMessage'>;
 export function removeFromLayout(
-  lab: Lab,
+  lab: LayoutLab,
   call: ReturnType<typeof useCall>['call'],
   group: string,
   label: string,
@@ -1356,7 +1385,7 @@ export function removeFromLayout(
 
 /** Bring a built-in thing forward or send it back a draw layer, in the person's own layout. */
 function layerInLayout(
-  lab: Lab,
+  lab: LayoutLab,
   call: ReturnType<typeof useCall>['call'],
   group: string,
   label: string,
@@ -1377,7 +1406,14 @@ function layerInLayout(
 
 /** A small thing drawn as part of a room's layout: the office's book or bottle. */
 export function BuiltInPanel({ id }: { id: string }) {
-  const lab = useLab();
+  const lab = useLabParts(
+    useView(),
+    useFeedback(),
+    useDesk(),
+    useCamera(),
+    useObservation(),
+    useNavigation(),
+  );
   const { call, off } = useCall();
   const thing = builtInThings(lab).find((t) => t.id === id);
   if (!thing) return <Panel tiny="BUILT IN" title="Gone" status="It is no longer in the room." />;
@@ -1422,7 +1458,15 @@ export function BuiltInPanel({ id }: { id: string }) {
 }
 
 export function LampPanel({ id }: { id: string }) {
-  const lab = useLab();
+  const lab = useLabParts(
+    useView(),
+    useFeedback(),
+    useRunLog(),
+    useDesk(),
+    useCamera(),
+    useObservation(),
+    useNavigation(),
+  );
   const { call, off } = useCall();
   const [result, setResult] = useState<LampResult | null>(null);
   const lamp = builtInLamps(lab).find((l) => l.id === id);
@@ -1592,7 +1636,7 @@ export function LampPanel({ id }: { id: string }) {
  * where each came from and its outline match. Picking one puts it back.
  */
 function EarlierDrafts({ fixture, disabled }: { fixture: Fixture; disabled: boolean }) {
-  const lab = useLab();
+  const lab = useLabParts(useFeedback(), useFixtures());
   const drafts = fixture.drafts ?? [];
   if (!drafts.length || fixture.state) return null;
   const match = (m: Fixture['model']) =>
@@ -1647,7 +1691,7 @@ const SMALL_CROP_PX = 60;
  * when the room's camera saw it too small. Says so when its crop was.
  */
 function FixturePhoto({ fixture, disabled }: { fixture: Fixture; disabled: boolean }) {
-  const lab = useLab();
+  const lab = useLabParts(useView(), useFeedback(), useDesk(), useFixtures());
   const { mode, busy } = lab;
   const fit = fixtureModel(fixture).fit;
   const small = fit?.cropPx && Math.max(fit.cropPx.width, fit.cropPx.height) < SMALL_CROP_PX;
@@ -1721,7 +1765,7 @@ function FixturePhoto({ fixture, disabled }: { fixture: Fixture; disabled: boole
  * picture of it, starting from the model it has, and the editor opens on it.
  */
 function SculptFixture({ fixture, disabled }: { fixture: Fixture; disabled: boolean }) {
-  const lab = useLab();
+  const lab = useLabParts(useView(), useFeedback(), useDesk(), useFixtures());
   const { mode, busy, memory } = lab;
   const group = new Set([
     fixture.id,

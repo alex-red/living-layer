@@ -12,6 +12,9 @@ import {
   type Mode,
 } from '@livinglayer/domain';
 import type { Lab } from './useLabState';
+
+/** What the outline's helpers read of the lab. */
+export type LabRead = Pick<Lab, 'progress' | 'memory' | 'mode' | 'lights' | 'scene'>;
 import { pinScene, viewLabel, type Selection, type WorkScene } from './progress';
 
 /** The scene a preset kind or the person's own scene stands for. */
@@ -39,7 +42,7 @@ export interface SurfaceRow {
  * Every surface of the room, each listed once: the close view's surfaces under
  * the close view, and the rest under the room.
  */
-export function surfaceRows(lab: Lab): { view: SurfaceRow[]; room: SurfaceRow[] } {
+export function surfaceRows(lab: LabRead): { view: SurfaceRow[]; room: SurfaceRow[] } {
   const { progress, memory, mode } = lab;
   const pin = pinOf(mode, memory);
   const row = (scene: WorkScene) => (surface: IsoSurface) => ({
@@ -58,13 +61,13 @@ export function surfaceRows(lab: Lab): { view: SurfaceRow[]; room: SurfaceRow[] 
   return { view, room };
 }
 /** The surface a room without a close view is pinned on: the pinned one, or its first. */
-export function mainSurface(lab: Lab): SurfaceRow | null {
+export function mainSurface(lab: LabRead): SurfaceRow | null {
   const { room } = surfaceRows(lab);
   return room.find((r) => r.pinned) ?? room[0] ?? null;
 }
 
 /** A short name for an outline node, for the breadcrumb and the inspector title. */
-export function selectionLabel(lab: Lab, s: Selection): string {
+export function selectionLabel(lab: LabRead, s: Selection): string {
   const { memory, progress } = lab;
   switch (s.kind) {
     case 'room':
@@ -161,7 +164,7 @@ export interface BuiltInLamp {
  * The lamps in the room and its close view. The office desk's lamp is in
  * both scenes, so a lamp of the same name and light is listed once.
  */
-export function builtInLamps(lab: Lab): BuiltInLamp[] {
+export function builtInLamps(lab: LabRead): BuiltInLamp[] {
   const { progress, memory } = lab;
   const kinds = [progress.view, progress.room].filter((k): k is WorkScene => Boolean(k));
   const seen = new Set<string>();
@@ -191,7 +194,7 @@ export interface BuiltInThing {
  * The small things in the room and its close view that aren't lamps, listed
  * once when both scenes draw the same one.
  */
-export function builtInThings(lab: Lab): BuiltInThing[] {
+export function builtInThings(lab: LabRead): BuiltInThing[] {
   const { progress, memory } = lab;
   const kinds = [progress.view, progress.room].filter((k): k is WorkScene => Boolean(k));
   const seen = new Set<string>();

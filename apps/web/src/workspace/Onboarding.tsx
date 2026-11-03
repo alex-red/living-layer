@@ -1,7 +1,16 @@
 import { ISO_PRESETS } from '@livinglayer/domain';
 import { IsoScene } from '../iso/IsoScene';
 import { Button } from '../ui/controls';
-import { useLab } from './LabContext';
+import {
+  useCalibration,
+  useCamera,
+  useDesk,
+  useFeedback,
+  useLabParts,
+  useNavigation,
+  useObservation,
+  useView,
+} from './LabContext';
 import { pinScene } from './progress';
 
 /**
@@ -10,7 +19,7 @@ import { pinScene } from './progress';
  * there is never a reason to skip ahead.
  */
 export function Onboarding() {
-  const lab = useLab();
+  const lab = useLabParts(useView(), useFeedback(), useDesk(), useCamera(), useNavigation());
   const { mode, memory, workScene, busy, camera, cameraPending, metaReady } = lab;
   const office = ISO_PRESETS.office;
   return (
@@ -106,7 +115,14 @@ export function Onboarding() {
  * calibrated, so this never shows there.
  */
 export function DeskStep() {
-  const lab = useLab();
+  const lab = useLabParts(
+    useView(),
+    useFeedback(),
+    useDesk(),
+    useCamera(),
+    useObservation(),
+    useCalibration(),
+  );
   const { image, camera, busy, cameraPending, progress } = lab;
   // Not while the room itself is being drafted: the desk comes after.
   if (

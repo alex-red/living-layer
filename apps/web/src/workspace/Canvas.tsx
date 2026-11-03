@@ -23,7 +23,9 @@ import { RoomCalibrate } from '../iso/RoomCalibrate';
 import { CalibrationOverlay } from '../iso/CalibrationOverlay';
 import type { StageView } from '../session';
 import { Button, Check, Segmented, type Option } from '../ui/controls';
-import { useLab } from './LabContext';
+import { useLab, useLabParts, useNavigation, useView } from './LabContext';
+import { useFollowView } from './state/follow-store';
+import type { Lab } from './useLabState';
 import { DeskStep, Onboarding } from './Onboarding';
 import { ContextMenu } from './ContextMenu';
 import { Popover } from './Popover';
@@ -42,7 +44,7 @@ const VIEWS: Option<StageView>[] = [
 
 /** What the canvas is busy with, if it has taken over: one edit mode at a time. */
 function EditBanner() {
-  const lab = useLab();
+  const lab = useLabParts(useView(), useNavigation());
   const { pinning, drawing, isoPanel, stageView, ruleDraft } = lab;
   let text = '';
   let done: (() => void) | null = null;
@@ -120,7 +122,6 @@ export function Canvas() {
     visibleZone,
     drawing,
     follow,
-    followView,
     localZone,
     watch,
     watching,
@@ -594,47 +595,7 @@ export function Canvas() {
                 />
               </svg>
             )}
-            {follow && followView && !tracked && (
-              <svg
-                className="follow-overlay"
-                viewBox="0 0 1000 1000"
-                preserveAspectRatio="none"
-                aria-label={`Locally followed mug, match ${followView.track.score.toFixed(2)}`}
-              >
-                {localZone && !zoneShown && (
-                  <rect
-                    className="follow-zone"
-                    x={localZone.x * 1000}
-                    y={localZone.y * 1000}
-                    width={localZone.width * 1000}
-                    height={localZone.height * 1000}
-                  />
-                )}
-                <rect
-                  className={`follow-box ${followView.verdict} ${followView.track.lostSteps ? 'unsure' : ''}`}
-                  x={followView.track.box.x * 1000}
-                  y={followView.track.box.y * 1000}
-                  width={followView.track.box.width * 1000}
-                  height={followView.track.box.height * 1000}
-                />
-              </svg>
-            )}
-            {follow && followView && !tracked && (
-              <span
-                className={`zone-tag follow-tag ${followView.verdict} ${followView.track.lostSteps ? 'unsure' : ''}`}
-                style={{
-                  left: `${followView.track.box.x * 100}%`,
-                  top: `${followView.track.box.y * 100}%`,
-                }}
-                aria-hidden="true"
-              >
-                LOCAL · {followView.track.score.toFixed(2)}
-                {followView.verdict !== 'follow'
-                  ? ' · ASKING SAM'
-                  : followView.track.lostSteps > 0 &&
-                    (followView.track.stillSteps > 0 ? ' · UNSURE' : ' · MOVING')}
-              </span>
-            )}
+            {follow && !tracked && <FollowOverlay localZone={localZone} zoneShown={zoneShown} />}
             {!follow && !tracked && watching && watch && watch.things.length > 0 && (
               <svg
                 className="follow-overlay"
@@ -671,11 +632,11 @@ export function Canvas() {
                 </span>
               ))}
             {tracked && (
-              <TrackingOverlay
+              <FollowedTracking
                 video={lab.video}
                 memory={memory}
                 watch={watch}
-                follow={follow ? followView : null}
+                follow={follow}
                 segmentation={segmentation}
               />
             )}
@@ -1028,4 +989,65 @@ export function Canvas() {
       )}
     </section>
   );
+}
+
+/** The local follower's box and tag; they redraw at the follower's rate, so the canvas around them does not. */
+function FollowOverlay({
+  localZone,
+  zoneShown,
+}: {
+  localZone: Lab['localZone'];
+  zoneShown: boolean;
+}) {
+  const followView = useFollowView();
+  if (!followView) return null;
+  return (
+    <>
+      <svg
+        className="follow-overlay"
+        viewBox="0 0 1000 1000"
+        preserveAspectRatio="none"
+        aria-label={`Locally followed mug, match ${followView.track.score.toFixed(2)}`}
+      >
+        {localZone && !zoneShown && (
+          <rect
+            className="follow-zone"
+            x={localZone.x * 1000}
+            y={localZone.y * 1000}
+            width={localZone.width * 1000}
+            height={localZone.height * 1000}
+          />
+        )}
+        <rect
+          className={`follow-box ${followView.verdict} ${followView.track.lostSteps ? 'unsure' : ''}`}
+          x={followView.track.box.x * 1000}
+          y={followView.track.box.y * 1000}
+          width={followView.track.box.width * 1000}
+          height={followView.track.box.height * 1000}
+        />
+      </svg>
+      <span
+        className={`zone-tag follow-tag ${followView.verdict} ${followView.track.lostSteps ? 'unsure' : ''}`}
+        style={{
+          left: `${followView.track.box.x * 100}%`,
+          top: `${followView.track.box.y * 100}%`,
+        }}
+        aria-hidden="true"
+      >
+        LOCAL · {followView.track.score.toFixed(2)}
+        {followView.verdict !== 'follow'
+          ? ' · ASKING SAM'
+          : followView.track.lostSteps > 0 &&
+            (followView.track.stillSteps > 0 ? ' · UNSURE' : ' · MOVING')}
+      </span>
+    </>
+  );
+}
+/** The camera's tracking layer, with the local follower's box when it is following. */
+function FollowedTracking({
+  follow,
+  ...props
+}: { follow: boolean } & Omit<Parameters<typeof TrackingOverlay>[0], 'follow'>) {
+  const followView = useFollowView();
+  return <TrackingOverlay {...props} follow={follow ? followView : null} />;
 }

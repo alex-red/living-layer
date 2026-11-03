@@ -3,16 +3,27 @@ import { Glyph } from '../Glyph';
 import { Button, IconButton, Segmented } from '../ui/controls';
 import { estimateLabel, usd } from '../cost';
 import { SHORTCUTS } from '../shortcuts';
-import { useLab } from './LabContext';
+import {
+  useCamera,
+  useDesk,
+  useFeedback,
+  useLabParts,
+  useNavigation,
+  useObservation,
+  useProbes,
+  useSaves,
+  useView,
+} from './LabContext';
 import { SAVE_NAME_MAX, type NamedSave } from '../session';
 import { Popover } from './Popover';
 import { BUSY } from './useLabState';
+import { aiTaskStore, setAiTask, useAiTaskPart } from './state/ai-task-store';
 import { roomLabel as labelOfRoom, selectionLabel } from './labels';
 import { viewLabel } from './progress';
 
 /** Models, Meta access, spend, the lamp, and the live proof checklist. */
 function Readiness() {
-  const lab = useLab();
+  const lab = useLabParts(useView(), useFeedback(), useDesk(), useProbes());
   const { status, mode, busy, metaReady, lampReady, spendTone, spendShare, proofCount } = lab;
   return (
     <div className="readiness-pop">
@@ -169,7 +180,7 @@ function Readiness() {
 
 /** One named save: load it, keep the desks in it, rename, export or delete it. */
 function SaveRow({ entry }: { entry: NamedSave }) {
-  const lab = useLab();
+  const lab = useLabParts(useFeedback(), useSaves());
   const active = lab.activeSave?.id === entry.id;
   const [state, setState] = useState<'idle' | 'renaming' | 'deleting' | 'loading'>('idle');
   const [draft, setDraft] = useState(entry.name);
@@ -294,7 +305,7 @@ function SaveRow({ entry }: { entry: NamedSave }) {
 
 /** Saves, history, shortcuts and starting over. */
 function MoreMenu({ close }: { close: () => void }) {
-  const lab = useLab();
+  const lab = useLabParts(useView(), useFeedback(), useDesk(), useSaves());
   const { undo, redo, mode, busy } = lab;
   const [resetting, setResetting] = useState(false);
   const [name, setName] = useState('');
@@ -405,7 +416,7 @@ function MoreMenu({ close }: { close: () => void }) {
 }
 
 export function KeysDialog() {
-  const { setShowKeys } = useLab();
+  const { setShowKeys } = useView();
   return (
     <div className="keys-backdrop" onClick={() => setShowKeys(false)}>
       <div
@@ -444,7 +455,15 @@ export function KeysDialog() {
  * capsule), and the session: data source, undo, spend and the menu.
  */
 export function TopBar() {
-  const lab = useLab();
+  const lab = useLabParts(
+    useView(),
+    useFeedback(),
+    useDesk(),
+    useCamera(),
+    useObservation(),
+    useNavigation(),
+    useSaves(),
+  );
   const { mode, busy, camera, cameraPending, status, undo, redo, progress } = lab;
   const roomLabel = labelOfRoom(progress.room, lab.memory);
   const crumbs: { label: string; onClick?: () => void }[] = [];
@@ -503,14 +522,7 @@ export function TopBar() {
         <span className="feedback-text">
           {busy ? `${BUSY[busy] ?? 'Working'}…` : lab.error || lab.message}
         </span>
-        {lab.aiTask && !lab.aiTask.open && (
-          <button
-            className="feedback-steps"
-            onClick={() => lab.setAiTask({ ...lab.aiTask!, open: true })}
-          >
-            {lab.aiTask.status === 'running' ? 'Show steps' : 'Steps'}
-          </button>
-        )}
+        <AiStepsButton />
         {lab.lamp === 'virtual' && <span className="hud-tag">VIRTUAL</span>}
       </div>
       <nav className="topbar-links">
@@ -599,5 +611,22 @@ export function TopBar() {
         />
       </nav>
     </header>
+  );
+}
+
+/** Opens the AI dialog again when it was hidden; it renders when the task's state changes, not with each step. */
+function AiStepsButton() {
+  const hidden = useAiTaskPart((t) => (t && !t.open ? t.status : null));
+  if (!hidden) return null;
+  return (
+    <button
+      className="feedback-steps"
+      onClick={() => {
+        const task = aiTaskStore.get();
+        if (task) setAiTask({ ...task, open: true });
+      }}
+    >
+      {hidden === 'running' ? 'Show steps' : 'Steps'}
+    </button>
   );
 }
