@@ -95,7 +95,9 @@ export type ScanMatch =
   /** Skipped: the person said it isn't a fixture. */
   | 'dismissed'
   /** Placed with a placeholder model. */
-  | 'placeholder';
+  | 'placeholder'
+  /** Seen, but not in the room yet, and the scan was only to find what is. */
+  | 'new';
 export interface MappedThing {
   label: string;
   match: ScanMatch;
@@ -109,6 +111,10 @@ export interface MappedThing {
   remodel?: IsoItem;
   /** The same thing in another scene, to link with: a room and its close view. */
   linkTo?: string;
+  /** A thing the person's layout draws (a book, a lamp) that the scan found: its group. */
+  layoutGroup?: string;
+  /** How far that group moves, in tiles, to where the scan found it. */
+  moveBy?: { x: number; y: number; z: number };
   /** What to save, for a library or placeholder thing; null when it is skipped. */
   fixture: FixtureInput | null;
   /** Why it was skipped, or where it went. */
@@ -669,6 +675,76 @@ export function placeSeen(
   return where && place(fixture, where, custom, grid);
 }
 
+/** A thing a person's layout draws standing on something: the office's book, lamp or monitor. */
+export interface LayoutThing {
+  group: string;
+  label: string;
+  /** The corner nearest the origin, and the box around all its parts. */
+  at: { x: number; y: number; z: number };
+  size: { w: number; d: number; h: number };
+}
+/**
+ * The groups of a layout a scan can find and move: ones standing on a
+ * surface, with none of their own (a book, not the shelf it is on).
+ */
+export function layoutThings(scene: IsoScene): LayoutThing[] {
+  const holders = new Set(
+    scene.surfaces.map((s) => scene.props.find((p) => p.id === s.propId)?.group),
+  );
+  const groups = new Map<string, IsoScene['props']>();
+  for (const p of scene.props) groups.set(p.group, [...(groups.get(p.group) ?? []), p]);
+  return [...groups].flatMap(([group, props]) => {
+    const z0 = Math.min(...props.map((p) => p.at.z));
+    if (holders.has(group) || z0 < 0.05) return [];
+    const x0 = Math.min(...props.map((p) => p.at.x));
+    const y0 = Math.min(...props.map((p) => p.at.y));
+    const main = props.find((p) => p.id === group) ?? props[0]!;
+    return [
+      {
+        group,
+        label: main.label,
+        at: { x: x0, y: y0, z: z0 },
+        size: {
+          w: Math.max(...props.map((p) => p.at.x + p.size.w)) - x0,
+          d: Math.max(...props.map((p) => p.at.y + p.size.d)) - y0,
+          h: Math.max(...props.map((p) => p.at.z + p.size.h)) - z0,
+        },
+      },
+    ];
+  });
+}
+/** How well a layout's thing fits a scanned thing, 0 to 1, by name only: it has no fitted shape. */
+function layoutScore(thing: Pick<ScannedThing, 'label'>, t: LayoutThing): number {
+  const a = words(thing.label);
+  const b = words(t.label);
+  if (!a.length || !b.length) return 0;
+  if (a.join(' ') === b.join(' ')) return 1;
+  if (a.at(-1) === b.at(-1)) return 0.8;
+  const shared = a.filter((w) => b.includes(w)).length;
+  return shared / new Set([...a, ...b]).size >= 0.5 ? 0.6 : 0;
+}
+/** The layout with each group the scan found moved to where it found it. */
+export function withLayoutMoves(scene: IsoScene, mapped: MappedThing[]): IsoScene {
+  const by = new Map(
+    mapped.flatMap((m) => (m.layoutGroup && m.moveBy ? [[m.layoutGroup, m.moveBy] as const] : [])),
+  );
+  if (!by.size) return scene;
+  const owner = new Map(scene.props.map((p) => [p.id, p.group]));
+  return {
+    ...scene,
+    props: scene.props.map((p) => {
+      const d = by.get(p.group);
+      return d ? { ...p, at: { x: p.at.x + d.x, y: p.at.y + d.y, z: p.at.z + d.z } } : p;
+    }),
+    surfaces: scene.surfaces.map((s) => {
+      const d = by.get(owner.get(s.propId) ?? '');
+      return d
+        ? { ...s, rect: { ...s.rect, x: s.rect.x + d.x, y: s.rect.y + d.y }, z: s.z + d.z }
+        : s;
+    }),
+  };
+}
+
 /**
  * Whether a box stands on the pinned surface, or on something standing on
  * it (a riser on the desk), its middle within a little of the edge (a laptop
@@ -707,7 +783,9 @@ function onPinnedTop(
  * that scene can be claimed by one scanned thing; further things of its kind
  * are added with its model. A thing found in another scene is linked with
  * it, once per scene, so a room and its close view share one lamp. `room` is
- * how many more fixtures may be added.
+ * how many more fixtures may be added. A thing no fixture is but the
+ * person's layout draws (the office's book) is that, moved where it was
+ * seen when `replace` is set. Without `addNew`, nothing else is added.
  */
 export function mapScan({
   scan,
@@ -721,9 +799,12 @@ export function mapScan({
   models = [],
   dismissed = [],
   replace = false,
+  addNew = true,
 }: {
-  /** Move every fixture the scan finds, placed by hand or not. */
+  /** Move every fixture the scan finds, placed by hand or not, and the layout's things. */
   replace?: boolean;
+  /** Add what the room doesn't have yet; without it, only what it has is placed. */
+  addNew?: boolean;
   /** Names the person said aren't fixtures. */
   dismissed?: string[];
   /** Of a photo the pin's camera took, at any size. */
@@ -747,6 +828,7 @@ export function mapScan({
   const present = new Set(library.filter((f) => f.scene === scene).map(fixtureGroup));
   // Only what stands on the pinned desk is found and moved: the pin sees
   // the floor and shelves around it too, but their things aren't its own.
+  const onTop = onPinnedTop(pin, scene, custom);
   const onDesk = new Set(
     library
       .filter(
@@ -765,6 +847,9 @@ export function mapScan({
         (!present.has(fixtureGroup(x.f)) || (self && fixtureGroup(self) === fixtureGroup(x.f))),
     )?.f;
   let left = room;
+  // The person's own layout can move; a preset's can't.
+  const layout = scene === 'custom' && custom ? layoutThings(custom).filter(onTop) : [];
+  const claimedGroups = new Set<string>();
   return scan.things.map((thing, index): MappedThing => {
     if (isDismissed(thing.label, dismissed))
       return {
@@ -827,7 +912,38 @@ export function mapScan({
         note: `Already in the room as the ${here.f.label.toLowerCase()}${moveTo ? ', moved to where the scan found it' : ''}${remodel ? ', modelled from its outline' : ''}${link ? '; now linked with the one in the other scene' : ''}.`,
       };
     }
+    const drawn = layout
+      .filter((t) => !claimedGroups.has(t.group))
+      .map((t) => ({ t, score: layoutScore(thing, t) }))
+      .filter((x) => x.score >= 0.6)
+      .sort((a, b) => b.score - a.score)[0]?.t;
+    if (drawn) {
+      claimedGroups.add(drawn.group);
+      const where = replace ? whereFor(drawn.size.h) : null;
+      const on = where && place({ scene, turns: 0, size: drawn.size }, where, custom, grid);
+      const z = on?.surfaceId ? (isoSurface(scene, on.surfaceId, custom)?.z ?? 0) : 0;
+      const moveBy = on
+        ? { x: on.at.x - drawn.at.x, y: on.at.y - drawn.at.y, z: z - drawn.at.z }
+        : undefined;
+      return {
+        label: drawn.label,
+        match: 'existing',
+        layoutGroup: drawn.group,
+        seen: share,
+        ...(moveBy ? { moveBy } : {}),
+        fixture: null,
+        note: `Part of the room’s layout as the ${drawn.label.toLowerCase()}${moveBy ? ', moved to where the scan found it' : ''}.`,
+      };
+    }
     const label = thing.label.charAt(0).toUpperCase() + thing.label.slice(1);
+    if (!addNew)
+      return {
+        label,
+        match: 'new',
+        seen: share,
+        fixture: null,
+        note: 'Not in the room yet. Tick “Add new fixtures it finds” to add it.',
+      };
     if (left <= 0)
       return { label, match: 'placeholder', fixture: null, note: 'No room for more fixtures.' };
     // The same thing elsewhere first; else another of its kind, unlinked.

@@ -44,7 +44,7 @@ import { selectRoutes } from './select.js';
 import { assistRoutes } from './assist.js';
 import { roomRoutes } from './room.js';
 import { illustrationRoutes } from './illustration.js';
-import { jobRoutes, jobs } from './jobs.js';
+import { jobRoutes, jobs, runningJobs } from './jobs.js';
 import { listStreams, streamRoutes, type NetworkStream } from './streams.js';
 import { CameraRegistry, cameraRoutes } from './cameras.js';
 import type { Relay } from './relay.js';
@@ -194,6 +194,15 @@ export async function buildApp(
       },
     });
   });
+  // Requests that change something, model calls among them, while they run: with the jobs still
+  // running, what `bun run dev` waits for before it restarts this server or reloads the page.
+  let changing = 0;
+  app.addHook('onRequest', async (request, reply) => {
+    if (request.method === 'GET' || request.method === 'HEAD') return;
+    changing++;
+    reply.raw.once('close', () => changing--);
+  });
+  app.get('/api/busy', async () => ({ jobs: runningJobs(), requests: changing }));
   app.get('/api/status', async () => {
     const history = store.list();
     return {

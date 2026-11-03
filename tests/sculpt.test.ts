@@ -93,6 +93,25 @@ describe('a job the page follows', () => {
     jobs.start(undefined, [{ id: 'a', label: 'A' }]).run('a');
     expect(jobs.get('')).toBeNull();
   });
+
+  it('counts as running, for `bun run dev` to wait on, until its steps end however they end', async () => {
+    const { Jobs, following, runningJobs } = await import('../apps/server/src/jobs.js');
+    const jobs = new Jobs();
+    let finish = () => {};
+    const done = following(
+      jobs.start(undefined, [{ id: 'a', label: 'A' }], { title: 'Drawing the room' }),
+      () => new Promise<void>((resolve) => (finish = resolve)),
+    );
+    const failed = following(jobs.start(undefined, [{ id: 'a', label: 'A' }]), async () => {
+      throw new Error('no');
+    }).catch(() => {});
+    expect(runningJobs()).toContain('Drawing the room');
+    await failed;
+    expect(runningJobs()).not.toContain('An AI task');
+    finish();
+    await done;
+    expect(runningJobs()).not.toContain('Drawing the room');
+  });
 });
 
 describe('how fixtures show on the room picture', () => {

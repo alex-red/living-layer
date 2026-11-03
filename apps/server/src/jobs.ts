@@ -94,6 +94,9 @@ export class JobTracker {
   get stopped(): boolean {
     return this.abort.signal.aborted;
   }
+  get title(): string {
+    return this.job.title ?? 'An AI task';
+  }
   /** Between steps: give up here if the page stopped the job. */
   check() {
     if (this.stopped) throw stoppedError();
@@ -158,8 +161,16 @@ export class JobTracker {
   }
 }
 
+/** Jobs whose steps are still running, whether or not a request still waits on them. */
+const working = new Set<JobTracker>();
+/** The titles of the jobs still running, so `bun run dev` can wait for them before a reload. */
+export function runningJobs(): string[] {
+  return [...working].map((job) => job.title);
+}
+
 /** Run a job's steps; a stop ends it with a plain message, a failure shows on the step that failed. */
 export async function following<T>(job: JobTracker, steps: () => Promise<T>): Promise<T> {
+  working.add(job);
   try {
     const result = await steps();
     job.check();
@@ -168,6 +179,8 @@ export async function following<T>(job: JobTracker, steps: () => Promise<T>): Pr
     if (job.stopped) throw stoppedError();
     job.fail(error instanceof Error ? error.message : 'It failed.');
     throw error;
+  } finally {
+    working.delete(job);
   }
 }
 

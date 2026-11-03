@@ -757,7 +757,13 @@ export class MetaAdapter {
    * its shape, colour, a loose box and its usual size. The objects the camera
    * follows are named so they are left out.
    */
-  async fixtureScan(imageDataUrl: string, tracked: string[], signal?: AbortSignal) {
+  async fixtureScan(
+    imageDataUrl: string,
+    tracked: string[],
+    signal?: AbortSignal,
+    /** What the room has already; with `only`, nothing else is listed. */
+    { known = [], only = false }: { known?: string[]; only?: boolean } = {},
+  ) {
     return this.executeCall('fixtureScan', async (timeoutMs) => {
       const response = await this.spark(
         1,
@@ -776,6 +782,13 @@ export class MetaAdapter {
                     'This photo shows part of a room someone is modelling. List the fixtures in it: things that stay put and could be placed in a model of the room, like a lamp, a monitor, a keyboard, a mouse, a speaker, a plant, a wall switch or a fan.',
                     `Leave out furniture (desks, tables, chairs, shelves), walls and floors${tracked.length ? `, and these objects, which are followed separately: ${tracked.join(', ')}` : ''}.`,
                     `For each give: a short grounded label (no names, owners or brands); the archetype that best describes its shape (${ARCHETYPES.join(', ')}; generic only when none fits); its main material (${ITEM_MATERIALS.join(', ')}); control: light for a lamp, bulb or light strip, switch for anything else that turns on and off, none for everything else; its main colour as lowercase #rrggbb; box, a loose box around it as x1, y1, x2, y2 from 0 to 1000 across and down the photo; and sizeCm, its usual real width, depth and height in centimetres.`,
+                    ...(known.length
+                      ? [
+                          only
+                            ? `List only these things, which the model already has, and nothing else: ${known.join(', ')}. Label each with its name from this list.`
+                            : `The model already has these; label any you see with its name from this list: ${known.join(', ')}.`,
+                        ]
+                      : []),
                     `Use at most ${MAX_SCAN_THINGS} things, only what is clearly visible, biggest first. Return an empty list if there are none.`,
                   ].join('\n'),
                 },

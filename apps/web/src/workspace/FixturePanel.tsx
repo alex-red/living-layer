@@ -7,6 +7,7 @@ import {
   calibrationOf,
   linkedFixtures,
   pinFits,
+  layoutThings,
   removeGroup,
   groupLayer,
   withGroupLayer,
@@ -235,13 +236,15 @@ const MATCH_LABEL: Record<MappedThing['match'], string> = {
   fitted: 'Fitted',
   dismissed: 'Skipped',
   placeholder: 'Placeholder',
+  new: 'Not added',
 };
 
 /**
- * Scan and map the pinned view into the room or its close view: what stays
- * put in the desk photo is found, matched against the fixtures already
- * saved, and the rest added with models fitted to SAM's outlines. Scanning both scenes
- * links each thing across them.
+ * Scan and map the pinned view into the room or its close view: the
+ * fixtures already saved, and the things the person's layout draws on the
+ * desk, are found and moved to where the camera sees them. Ticked, what the
+ * room doesn't have yet is added too, with models fitted to SAM's outlines.
+ * Scanning both scenes links each thing across them.
  */
 export function ScanFixtures({
   initial,
@@ -253,7 +256,7 @@ export function ScanFixtures({
   const lab = useLab();
   const { call, off } = useCall();
   const [mapped, setMapped] = useState<MappedThing[] | null>(null);
-  const [replace, setReplace] = useState(false);
+  const [replace, setReplace] = useState(true);
   const live = lab.mode === 'live';
   // The demo scans its office through the demo camera, whose pin is always the same.
   const pin = live ? lab.memory?.surface : DEMO_SURFACE;
@@ -265,13 +268,18 @@ export function ScanFixtures({
     pin?.scene === 'custom' && Boolean(lab.memory?.scenePhoto || lab.memory?.illustration);
   const blocked = (live && !lab.image && !lab.camera && !roomPhoto) || !scene;
   const inScene = (lab.memory?.fixtures ?? []).filter((f) => f.scene === scene);
-  const placedByHand = inScene.some((f) => !f.scanned);
+  const drawn = scene === 'custom' && lab.memory?.scene ? layoutThings(lab.memory.scene) : [];
+  const placedByHand = inScene.some((f) => !f.scanned) || drawn.length > 0;
+  // With nothing in the room to look for, the scan can only add.
+  const known = inScene.length + drawn.length > 0;
+  const [addNew, setAddNew] = useState(false);
+  const adding = addNew || !known;
   return (
     <Details summary="Scan and map fixtures" open={open}>
       <p className="micro">
         {live
-          ? `Spark lists what stays put in ${lab.camera ? 'what the camera shows' : lab.image ? 'the desk photo' : 'the room’s photo'} and SAM outlines each one. Known fixtures are reused; new ones are modelled.`
-          : 'Scans the demo office, no model calls. Known fixtures are reused; new ones are modelled.'}
+          ? `Spark finds the room’s fixtures and desk things in ${lab.camera ? 'what the camera shows' : lab.image ? 'the desk photo' : 'the room’s photo'}, SAM outlines each one, and each moves to where it stands.${adding ? ' New ones are modelled and added.' : ''}`
+          : `Scans the demo office, no model calls. The room’s fixtures move to where they stand.${adding ? ' New ones are modelled and added.' : ''}`}
       </p>
       {scenes.length > 1 && (
         <Segmented
@@ -285,7 +293,7 @@ export function ScanFixtures({
         disabled={off || blocked}
         title={blocked ? (scene ? 'Add a desk photo first.' : 'Pin a surface first.') : undefined}
         onClick={() =>
-          void lab.scanFixtures(scene!, replace).then((m) => {
+          void lab.scanFixtures(scene!, replace, adding).then((m) => {
             if (m) setMapped(m);
           })
         }
@@ -298,9 +306,19 @@ export function ScanFixtures({
       </Button>
       {placedByHand && (
         <Check checked={replace} disabled={off} onChange={setReplace}>
-          Also move fixtures you placed by hand to where the scan finds them
+          Move the ones you placed by hand too
         </Check>
       )}
+      <Check
+        checked={adding}
+        disabled={off || !known}
+        title={
+          known ? undefined : 'The room has nothing to look for yet, so the scan adds what it sees.'
+        }
+        onChange={setAddNew}
+      >
+        Add new fixtures it finds
+      </Check>
       <Cost>1 Spark and 1 SAM call, refused if today’s limit can’t cover them.</Cost>
       {(lab.memory?.dismissed?.length ?? 0) > 0 && (
         <p className="micro">

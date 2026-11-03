@@ -9,17 +9,23 @@ type DevState = {
   server: 'running' | 'changed' | 'stopped' | 'restarting';
   /** The latest files changed, newest first. */
   files: string[];
+  /** What the API server is still working on: running jobs' titles, and requests that change something. */
+  busy: { jobs: string[]; requests: number };
+  /** A reload is waiting for that to end. */
+  waiting: boolean;
 };
 
 /**
  * In development, `Reload now` once code has changed, since nothing reloads by
  * itself: it restarts the API server when its code changed (or it stopped),
- * then reloads the page. Shows nothing unless `bun run dev` started Vite.
+ * then reloads the page. While an AI task runs it waits for it, so a reload
+ * never cuts one off, unless asked to `Reload anyway`. Shows nothing unless
+ * `bun run dev` started Vite.
  */
 export function DevReload() {
   const [state, setState] = useState<DevState | null>(null);
   const loadedWith = useRef<number | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [asked, setAsked] = useState(false);
 
   useEffect(() => {
     const events = new EventSource('/__dev/events');
@@ -35,10 +41,10 @@ export function DevReload() {
   const web = state.web !== loadedWith.current;
   if (!web && state.server === 'running') return null;
 
-  const reload = async () => {
-    setBusy(true);
+  const reload = async (now = false) => {
+    setAsked(true);
     try {
-      await fetch('/__dev/reload', { method: 'POST' });
+      await fetch(now ? '/__dev/reload?now' : '/__dev/reload', { method: 'POST' });
     } finally {
       window.location.reload();
     }
@@ -51,26 +57,45 @@ export function DevReload() {
           ? 'Code changed'
           : 'Server code changed'
         : 'Page code changed';
+  const { jobs, requests } = state.busy;
+  const busy = jobs.length > 0 || requests > 0;
+  const working = jobs.length
+    ? `${jobs[0]}${jobs.length > 1 ? ` and ${jobs.length - 1} more` : ''}`
+    : `${requests} request${requests === 1 ? '' : 's'}`;
+  const waiting = state.waiting || (asked && busy);
 
   return (
     <div className="dev-reload" role="status">
       <div className="dev-reload-text">
         <strong>{what}</strong>
-        {state.files.length > 0 && (
-          <span className="dev-reload-files" title={state.files.join('\n')}>
-            {state.files[0]}
-            {state.files.length > 1 && ` +${state.files.length - 1}`}
+        {busy ? (
+          <span className="dev-reload-busy">
+            {waiting ? 'Reloads once this ends: ' : 'Running: '}
+            {working}
           </span>
+        ) : (
+          state.files.length > 0 && (
+            <span className="dev-reload-files" title={state.files.join('\n')}>
+              {state.files[0]}
+              {state.files.length > 1 && ` +${state.files.length - 1}`}
+            </span>
+          )
         )}
       </div>
-      <Button
-        variant="primary"
-        size="sm"
-        busy={(busy || state.server === 'restarting') && 'Restarting…'}
-        onClick={() => void reload()}
-      >
-        Reload now
-      </Button>
+      {waiting ? (
+        <Button variant="ghost" size="sm" onClick={() => void reload(true)}>
+          Reload anyway
+        </Button>
+      ) : (
+        <Button
+          variant="primary"
+          size="sm"
+          busy={(asked || state.server === 'restarting') && 'Restarting…'}
+          onClick={() => void reload()}
+        >
+          {busy ? 'Reload when done' : 'Reload now'}
+        </Button>
+      )}
     </div>
   );
 }

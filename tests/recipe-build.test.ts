@@ -15,6 +15,7 @@ import {
   DEMO_ROOM,
   demoFrame,
   floorSolid,
+  formOfName,
   groupBounds,
   hexLab,
   photoBox,
@@ -56,6 +57,20 @@ describe('a recipe from a built-in form', () => {
     const c = check(recipeFromForm('desk', deskCm, 'Desk'));
     expect(c.iou).toBeGreaterThan(0.95);
     expect(c.missing).toBeLessThan(0.05);
+  });
+});
+
+describe('the form a new model is built from, by its name', () => {
+  it('builds a mug as a small turned thing, not a chest of drawers', () => {
+    expect(formOfName('mug')).toBe('jar');
+    expect(formOfName('coffee cup')).toBe('jar');
+    expect(formOfName('water bottle')).toBe('bottle');
+    expect(formOfName('standing desk')).toBe('desk');
+    expect(formOfName('lamp table')).toBe('table');
+    expect(formOfName('mouse')).toBeNull();
+    const mug = assembleRecipe(formOfName('mug')!, { query: 'mug', name: 'mug', sources: [] });
+    expect(mug.parts.some((p) => p.role === 'drawer')).toBe(false);
+    expect(Math.max(mug.sizeCm.w, mug.sizeCm.d, mug.sizeCm.h)).toBeLessThan(15);
   });
 });
 

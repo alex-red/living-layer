@@ -1,6 +1,7 @@
 import { clusterColours, deltaE, rgbLab, type Lab } from './color.js';
 import type { ProductFacts } from './facts.js';
 import type { IsoScene } from './iso.js';
+import { archetypeOf, type Archetype } from './iso-archetypes.js';
 import {
   cm,
   furnitureSpec,
@@ -263,6 +264,39 @@ export function assembleRecipe(
   return fixtureRecipeSchema.parse({ ...recipe, sources: facts.sources.slice(0, 8) });
 }
 /** A form's footprint in cm when nothing says how big the product is: its template's. */
+/** Furniture named outright: before the small things, so a "lamp table" is a table. */
+const FORM_WORDS: [RegExp, PropForm][] = [
+  [/\bdesk\b/, 'desk'],
+  [/\btable\b/, 'table'],
+  [/\b(chair|stool)\b/, 'chair'],
+  [/\b(book ?case|book ?shelf|shelf|shelves)\b/, 'bookcase'],
+  [/\b(cabinet|drawers?|dresser|chest)\b/, 'cabinet'],
+  [/\b(monitor|screen)\b/, 'monitor'],
+  [/\bkeyboard\b/, 'keyboard'],
+];
+/** The built-in form nearest each kind of small thing; a mouse, a cat or an unknown has none. */
+const FORM_OF_ARCHETYPE: Partial<Record<Archetype, PropForm>> = {
+  mug: 'jar',
+  cup: 'jar',
+  can: 'jar',
+  bottle: 'bottle',
+  plant: 'pot',
+  book: 'book',
+  box: 'carton',
+  lamp: 'lamp-stand',
+};
+/**
+ * The form a new model is built from when the request named none: read off
+ * its name, so a mug is a small turned thing rather than a chest of drawers.
+ * Null when the name says nothing a form fits.
+ */
+export function formOfName(name: string): PropForm | null {
+  const text = name.toLowerCase();
+  return (
+    FORM_WORDS.find(([re]) => re.test(text))?.[1] ?? FORM_OF_ARCHETYPE[archetypeOf(text)] ?? null
+  );
+}
+
 export function defaultSize(form: PropForm): { w: number; d: number } {
   const DEFAULTS: Partial<Record<PropForm, { w: number; d: number }>> = {
     desk: { w: 120, d: 75 },
@@ -270,6 +304,12 @@ export function defaultSize(form: PropForm): { w: number; d: number } {
     cabinet: { w: 60, d: 40 },
     bookcase: { w: 80, d: 30 },
     chair: { w: 66, d: 66 },
+    pot: { w: furnitureSpec('pot').widthCm, d: furnitureSpec('pot').widthCm },
+    'lamp-stand': { w: furnitureSpec('lamp-stand').baseCm, d: furnitureSpec('lamp-stand').baseCm },
+    book: { w: 15, d: 22 },
+    bottle: { w: 8, d: 8 },
+    jar: { w: 9, d: 9 },
+    carton: { w: 7, d: 7 },
   };
   return DEFAULTS[form] ?? { w: 40, d: 40 };
 }

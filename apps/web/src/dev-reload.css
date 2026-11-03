@@ -36,3 +36,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+.dev-reload-busy {
+  color: var(--text-2);
+}

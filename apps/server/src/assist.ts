@@ -40,6 +40,7 @@ import {
   sparkCeiling,
   demoFrame,
   filledRows,
+  formOfName,
   furnitureSpec,
   type Bits,
   type BuildRound,
@@ -743,9 +744,16 @@ export async function finishDraft(
     sizeCm: box ? { w: box.w, d: box.d, h: box.h } : null,
     color,
   };
+  // Spark names a form only when one is close; a mug's isn't, and the old default made it drawers.
+  const named = [
+    intent.product,
+    create?.op === 'create' ? create.label : null,
+    draft.target?.label,
+  ];
   const form: PropForm =
     create?.form ??
     room.scene.props.find((p) => p.group === targetProp && p.form)?.form ??
+    named.reduce<PropForm | null>((f, n) => f ?? (n ? formOfName(n) : null), null) ??
     'cabinet';
   // A thing running out of the top of the picture has no height the camera can measure: the camera
   // gives its footprint, and its height comes from a lookup or, failing one, its template.

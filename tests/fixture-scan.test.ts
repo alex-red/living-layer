@@ -14,8 +14,10 @@ import {
   ISO_PRESETS,
   projectRoom,
   fixtureProblem,
+  layoutThings,
   libraryScore,
   mapScan,
+  withLayoutMoves,
   mugItem,
   placeTemplate,
   pictureToScene,
@@ -1308,5 +1310,90 @@ describe('a looked-up product’s size for a fixture', () => {
       'use it for shape only',
     );
     expect(sculptPrompt('Fan', { w: 1, d: 1, h: 3 })).not.toContain('greyscale');
+  });
+});
+
+describe('finding only what the room has', () => {
+  // The office desk as the person's own layout, pinned on its top.
+  const custom = { ...ISO_PRESETS.desk, kind: 'custom' as const };
+  const pin: SurfacePin = { ...DEMO_SURFACE, scene: 'custom' };
+  const book = thing();
+  const mouse = thing({
+    label: 'purple mouse',
+    archetype: 'device',
+    box: { x1: 500, y1: 500, x2: 560, y2: 560 },
+    sizeCm: { w: 6, d: 12, h: 4 },
+  });
+  const map = (over: Partial<Parameters<typeof mapScan>[0]> = {}) =>
+    mapScan({
+      scan: { things: [book, mouse] },
+      pin,
+      scene: 'custom',
+      custom,
+      library: [],
+      room: 12,
+      entities: [],
+      replace: true,
+      ...over,
+    });
+
+  it('lists the layout’s things standing on the desk, not the desk', () => {
+    expect(
+      layoutThings(custom)
+        .map((t) => t.group)
+        .sort(),
+    ).toEqual(['book', 'bottle', 'lamp']);
+  });
+  it('moves the layout’s book to where it was seen, and adds nothing without addNew', () => {
+    const [found, other] = map({ addNew: false });
+    expect(found).toMatchObject({ match: 'existing', layoutGroup: 'book', fixture: null });
+    expect(found!.moveBy).toBeDefined();
+    expect(other).toMatchObject({ match: 'new', fixture: null });
+    // It lands where a new book seen there would have been placed.
+    const [placed] = mapScan({
+      scan: { things: [book] },
+      pin,
+      scene: 'custom',
+      custom: { ...custom, props: custom.props.filter((p) => p.group !== 'book') },
+      library: [],
+      room: 12,
+      entities: [],
+    });
+    const moved = withLayoutMoves(custom, [found!]);
+    const was = layoutThings(custom).find((t) => t.group === 'book')!;
+    const now = layoutThings(moved).find((t) => t.group === 'book')!;
+    expect(now.at.z).toBeCloseTo(was.at.z, 5);
+    const f = placed!.fixture!;
+    expect(Math.abs(now.at.x + now.size.w / 2 - (f.at.x + f.size.w / 2))).toBeLessThan(0.3);
+    expect(Math.abs(now.at.y + now.size.d - (f.at.y + f.size.d))).toBeLessThan(0.3);
+  });
+  it('leaves the layout’s things off the desk where they are', () => {
+    // The office's plant stands on the floor, its book on the shelf.
+    const office = { ...ISO_PRESETS.office, kind: 'custom' as const };
+    const room = {
+      ...office,
+      props: office.props.map((p) =>
+        p.group === 'book' ? { ...p, at: { x: 7.4, y: 0.3, z: 4 } } : p,
+      ),
+    };
+    const plant = thing({ label: 'potted plant', archetype: 'plant' });
+    const mapped = mapScan({
+      scan: { things: [book, plant] },
+      pin,
+      scene: 'custom',
+      custom: room,
+      library: [],
+      room: 12,
+      entities: [],
+      replace: true,
+      addNew: false,
+    });
+    expect(mapped.map((m) => m.match)).toEqual(['new', 'new']);
+    expect(mapped.some((m) => m.layoutGroup)).toBe(false);
+  });
+  it('leaves the layout where it is without replace, and adds new things with addNew', () => {
+    const [found, other] = map({ replace: false });
+    expect(found!.moveBy).toBeUndefined();
+    expect(other!.fixture).not.toBeNull();
   });
 });

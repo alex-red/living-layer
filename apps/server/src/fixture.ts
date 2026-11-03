@@ -9,7 +9,9 @@ import {
   fixtureBox,
   demoSourceKey,
   fixtureInFrame,
+  layoutThings,
   mapScan,
+  withLayoutMoves,
   isDismissed,
   MAX_DISMISSED,
   outlineOf,
@@ -152,9 +154,9 @@ const SCAN_STEPS = [
 const SCAN_PREVIEW = 640;
 /** What a scan did, in a line: moved, added and skipped. */
 function mappedSummary(mapped: MappedThing[]): string {
-  const moved = mapped.filter((m) => m.moveTo).length;
+  const moved = mapped.filter((m) => m.moveTo || m.moveBy).length;
   const added = mapped.filter((m) => m.fixture).length;
-  const kept = mapped.filter((m) => m.match === 'existing' && !m.moveTo).length;
+  const kept = mapped.filter((m) => m.match === 'existing' && !m.moveTo && !m.moveBy).length;
   const skipped = mapped.length - moved - added - kept;
   const parts = [
     added && `${added} added`,
@@ -664,15 +666,17 @@ export function fixtureRoutes(
    * demo office through its camera, with no model call.
    */
   app.post('/api/fixtures/scan', async (request) => {
-    const { mode, imageDataUrl, scene, replace, jobId } = parseInput(
+    const { mode, imageDataUrl, scene, replace, addNew, jobId } = parseInput(
       z
         .object({
           mode: modeSchema,
           imageDataUrl: z.string().max(7_000_000).optional(),
           /** The scene to map into; the pin's own when left out. */
           scene: z.union([isoSceneKindSchema, z.literal('custom')]).optional(),
-          /** Move fixtures placed by hand too, to where the scan finds them. */
+          /** Move fixtures placed by hand too, and the layout's things, to where the scan finds them. */
           replace: z.boolean().optional(),
+          /** Add what the room doesn't have yet; false only looks for what it has. */
+          addNew: z.boolean().optional(),
           /** The page's id for following the steps as they go. */
           jobId: z.string().uuid().optional(),
         })
@@ -727,6 +731,22 @@ export function fixtureRoutes(
       const tracked = [before.object?.label, ...(before.others ?? []).map((o) => o.label)].filter(
         (l): l is string => Boolean(l),
       );
+      // What the room has already, so Spark names them as it does; without addNew, all it looks for.
+      const known = [
+        ...new Set([
+          ...(before.fixtures ?? []).filter((f) => f.scene === target).map((f) => f.label),
+          ...(target === 'custom' && before.scene
+            ? layoutThings(before.scene).map((t) => t.label)
+            : []),
+        ]),
+      ];
+      const only = addNew === false;
+      if (only && !known.length)
+        throw new LabError(
+          'scan_nothing_known',
+          'The room has no fixtures or desk things to look for yet. Tick “Add new fixtures it finds” to add what the scan sees.',
+          409,
+        );
       const png = image ? image.bytes : await demoPhoto();
       const frame = image
         ? { width: image.width, height: image.height }
@@ -747,7 +767,7 @@ export function fixtureRoutes(
         // 1. Spark lists what stays put, each with a loose box.
         job.run('list');
         const result = image
-          ? await meta.fixtureScan(image.dataUrl, tracked, job.signal)
+          ? await meta.fixtureScan(image.dataUrl, tracked, job.signal, { known, only })
           : { output: demoFixtureScan, model: 'demo', requestId: null, usage: null };
         job.check();
         const scan: FixtureScan = result.output;
@@ -858,6 +878,7 @@ export function fixtureRoutes(
           models,
           dismissed: memory.dismissed ?? [],
           replace: Boolean(replace),
+          addNew: addNew !== false,
         });
         await job.done(
           'map',
@@ -939,6 +960,7 @@ export function fixtureRoutes(
       });
       // A fixture saved meanwhile may have taken a place the scan counted on.
       memory.fixtures = [...library, ...added].slice(0, MAX_FIXTURES);
+      if (target === 'custom' && memory.scene) memory.scene = withLayoutMoves(memory.scene, mapped);
       store.saveMemory(memory);
       await job.done(
         'save',

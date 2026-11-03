@@ -11,7 +11,9 @@
  * would otherwise restart the API server and reload the page under you. A
  * change is noticed and the page shows `Reload now` (`DevReload.tsx`), which
  * restarts the API server when its code changed, then reloads the page. An API
- * server that stops (a crash) is started again the same way.
+ * server that stops (a crash) is started again the same way. While an AI task
+ * or a request that changes something is running, the reload waits for it
+ * (`/api/busy`), unless the page says `Reload anyway`.
  *
  * Only this checkout's servers are stopped: the API server and Vite started
  * from its apps, the `bun run dev` above them, and whatever of this checkout
@@ -123,6 +125,10 @@ const state = {
   web: 0,
   server: 'running' as 'running' | 'changed' | 'stopped' | 'restarting',
   files: [] as string[],
+  /** What the API server is still working on: running jobs' titles, and requests that change something. */
+  busy: { jobs: [] as string[], requests: 0 },
+  /** A reload is waiting for that to end. */
+  waiting: false,
 };
 const clients = new Set<ReadableStreamDefaultController<string>>();
 const send = (c: ReadableStreamDefaultController<string>) =>
@@ -154,7 +160,9 @@ const control = Bun.serve({
       });
     },
     '/__dev/reload': {
-      POST: async () => {
+      POST: async (request) => {
+        if (!new URL(request.url).searchParams.has('now')) await idle();
+        else if (state.waiting) skipWait = true;
         if (state.server !== 'running') await restartServer();
         return Response.json({ ok: state.server === 'running' });
       },
@@ -164,6 +172,39 @@ const control = Bun.serve({
 
 const env = { ...process.env, LIVING_LAYER_DEV: '1' };
 const apiPort = ports[0]!;
+
+/** What the API server is working on; nothing when it doesn't answer (stopped, or still starting). */
+async function busyNow(): Promise<typeof state.busy> {
+  const none = { jobs: [], requests: 0 };
+  if (state.server === 'stopped' || state.server === 'restarting') return none;
+  return fetch(`http://127.0.0.1:${apiPort}/api/busy`)
+    .then((r) => (r.ok ? (r.json() as Promise<typeof state.busy>) : none))
+    .catch(() => none);
+}
+const isBusy = (b: typeof state.busy) => b.jobs.length > 0 || b.requests > 0;
+async function pollBusy() {
+  const busy = await busyNow();
+  if (JSON.stringify(busy) === JSON.stringify(state.busy)) return;
+  state.busy = busy;
+  broadcast();
+}
+// Only once something changed and a page is open to show it.
+setInterval(() => {
+  if (clients.size && (state.web || state.server !== 'running')) void pollBusy();
+}, 1000).unref();
+let skipWait = false;
+let waiting: Promise<void> | undefined;
+/** Waits until the API server has no AI task or changing request left, or a page says not to. */
+function idle() {
+  return (waiting ??= (async () => {
+    state.waiting = true;
+    broadcast();
+    while (!skipWait && isBusy(await busyNow())) await Bun.sleep(1000);
+    skipWait = false;
+    state.waiting = false;
+    broadcast();
+  })().finally(() => (waiting = undefined)));
+}
 let server: Bun.Subprocess | undefined;
 let quitting = false;
 function startServer() {

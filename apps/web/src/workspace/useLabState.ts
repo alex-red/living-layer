@@ -2410,6 +2410,7 @@ export function useLabState() {
   async function scanFixtures(
     scene: IsoSceneKind | 'custom',
     replace: boolean,
+    addNew: boolean,
   ): Promise<MappedThing[] | null> {
     if (busy) return null;
     // What the camera shows now, which is the frame the pin was set on, not the last one captured.
@@ -2428,7 +2429,14 @@ export function useLabState() {
         (jobId, signal) =>
           api<{ run: EvidenceRun; mapped: MappedThing[]; memory: DeskMemory }>(
             'fixtures/scan',
-            { mode, scene, replace, jobId, ...(mode === 'live' ? { imageDataUrl: photo } : {}) },
+            {
+              mode,
+              scene,
+              replace,
+              addNew,
+              jobId,
+              ...(mode === 'live' ? { imageDataUrl: photo } : {}),
+            },
             { signal },
           ),
       );
@@ -2436,9 +2444,10 @@ export function useLabState() {
       setMemory(result.memory);
       setSelected(result.run);
       const added = result.mapped.filter((m) => m.fixture).length;
+      const moved = result.mapped.filter((m) => m.moveTo || m.moveBy).length;
       setMessage(
         result.mapped.length
-          ? `Scanned ${result.mapped.length} thing${result.mapped.length === 1 ? '' : 's'}; added ${added}${costNote(result.run)}.`
+          ? `Scanned ${result.mapped.length} thing${result.mapped.length === 1 ? '' : 's'}; moved ${moved}${addNew ? `, added ${added}` : ''}${costNote(result.run)}.`
           : 'The scan found nothing that stays put.',
       );
       void refresh().catch(() => {});

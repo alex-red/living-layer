@@ -90,6 +90,7 @@ const MATCH_COLOR: Record<MappedThing['match'], string> = {
   fitted: '#86d9aa',
   placeholder: '#ffb866',
   dismissed: '#7c8299',
+  new: '#7c8299',
 };
 /** Where each thing touched down, marked with how it was mapped. */
 export function placedPreview(png: Buffer, frame: Frame, mapped: MappedThing[]) {
