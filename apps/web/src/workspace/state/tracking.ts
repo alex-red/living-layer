@@ -33,6 +33,7 @@ import type { DeskSlice } from './desk';
 import type { FollowStateSlice } from './follow-state';
 import type { CameraSlice } from './camera';
 import type { ObservationSlice } from './observation';
+import { useStableSlice } from './stable';
 
 /** The Tracking slice of the lab's state. */
 export function useTrackingSlice(
@@ -340,7 +341,7 @@ export function useTrackingSlice(
     if (watch) void refresh().catch(() => {});
   }, [missingFixtures]);
   followLatest.current = { zone: localZone, check: followCheck };
-  return {
+  return useStableSlice({
     canWatch,
     expose,
     moveDemoMug,
@@ -350,6 +351,6 @@ export function useTrackingSlice(
     track,
     watch,
     watching,
-  };
+  });
 }
 export type TrackingSlice = ReturnType<typeof useTrackingSlice>;

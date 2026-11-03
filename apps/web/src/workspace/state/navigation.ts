@@ -22,6 +22,7 @@ import type { FollowStateSlice } from './follow-state';
 import type { CameraSlice } from './camera';
 import type { ObservationSlice } from './observation';
 import type { TrackingSlice } from './tracking';
+import { useStableSlice } from './stable';
 
 /** The Navigation slice of the lab's state. */
 export function useNavigationSlice(
@@ -219,7 +220,7 @@ export function useNavigationSlice(
   }
   // A guess for another mode or room no longer applies.
   useEffect(() => setGuess(null), [mode]);
-  return {
+  return useStableSlice({
     askGuess,
     asking,
     draftOwnPhoto,
@@ -231,6 +232,6 @@ export function useNavigationSlice(
     sceneLabel,
     select,
     startRule,
-  };
+  });
 }
 export type NavigationSlice = ReturnType<typeof useNavigationSlice>;

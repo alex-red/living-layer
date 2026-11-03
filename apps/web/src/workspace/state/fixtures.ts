@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useRef, useCallback } from 'react';
 import type {
   Fixture,
   EvidenceRun,
@@ -23,6 +23,7 @@ import type { ObservationSlice } from './observation';
 import type { TrackingSlice } from './tracking';
 import type { NavigationSlice } from './navigation';
 import type { AiSlice } from './ai';
+import { useStableSlice } from './stable';
 
 /** The Fixtures slice of the lab's state. */
 export function useFixturesSlice(
@@ -436,10 +437,13 @@ export function useFixturesSlice(
    * footprint's centre on the point, on that surface or the floor.
    */
   /** Whether a fixture is being shown in the room's own view, apart from its office desk. */
-  const inRoomViewOf = (f: Pick<Fixture, 'scene'>) =>
-    workScene === 'custom' &&
-    f.scene === 'custom' &&
-    Boolean(memory?.scene && closeViewOf(memory.scene));
+  const inRoomViewOf = useCallback(
+    (f: Pick<Fixture, 'scene'>) =>
+      workScene === 'custom' &&
+      f.scene === 'custom' &&
+      Boolean(memory?.scene && closeViewOf(memory.scene)),
+    [workScene, memory?.scene],
+  );
   async function updateFixture(
     id: string,
     change: {
@@ -536,22 +540,25 @@ export function useFixturesSlice(
       setError(e instanceof Error ? e : 'The fixture could not be placed.');
     }
   }
-  return {
-    addFixturePhoto,
-    anchorFixture,
-    chooseFixtureDraft,
-    deleteFixtures,
-    findFixture,
-    illustrate,
-    inRoomViewOf,
-    placeFixture,
-    refineFixture3d,
-    scanFixtures,
-    sculptFixture,
-    separate,
-    startPlacing,
-    untrackFixture,
-    updateFixture,
-  };
+  return useStableSlice(
+    {
+      addFixturePhoto,
+      anchorFixture,
+      chooseFixtureDraft,
+      deleteFixtures,
+      findFixture,
+      illustrate,
+      inRoomViewOf,
+      placeFixture,
+      refineFixture3d,
+      scanFixtures,
+      sculptFixture,
+      separate,
+      startPlacing,
+      untrackFixture,
+      updateFixture,
+    },
+    ['inRoomViewOf'],
+  );
 }
 export type FixturesSlice = ReturnType<typeof useFixturesSlice>;

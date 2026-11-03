@@ -2,6 +2,7 @@ import { useRef, useState } from 'react';
 import type { LocalTrack } from '@livinglayer/domain';
 import { followViewStore } from './follow-store';
 import { REANCHOR_GAP_MS } from './helpers';
+import { useStableSlice } from './stable';
 
 /** The FollowState slice of the lab's state. */
 export function useFollowStateSlice() {
@@ -16,7 +17,7 @@ export function useFollowStateSlice() {
     setFollow(false);
     followViewStore.set(null);
   }
-  return {
+  return useStableSlice({
     follow,
     goodSteps,
     lastCheck,
@@ -24,6 +25,6 @@ export function useFollowStateSlice() {
     reanchorGap,
     setFollow,
     stopFollow,
-  };
+  });
 }
 export type FollowStateSlice = ReturnType<typeof useFollowStateSlice>;

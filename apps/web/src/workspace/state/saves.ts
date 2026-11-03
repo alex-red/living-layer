@@ -33,6 +33,7 @@ import type { AiSlice } from './ai';
 import type { FixturesSlice } from './fixtures';
 import type { CalibrationSlice } from './calibration';
 import type { ProbesSlice } from './probes';
+import { useStableSlice } from './stable';
 
 /** The Saves slice of the lab's state. */
 export function useSavesSlice(
@@ -377,7 +378,7 @@ export function useSavesSlice(
       'Reset to the demo. Choose a room to begin.',
     );
   }
-  return {
+  return useStableSlice({
     activeSave,
     deleteSave,
     exportSave,
@@ -395,6 +396,6 @@ export function useSavesSlice(
     storageOk,
     unsaved,
     updateSave,
-  };
+  });
 }
 export type SavesSlice = ReturnType<typeof useSavesSlice>;

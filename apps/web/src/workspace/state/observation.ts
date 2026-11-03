@@ -1,4 +1,4 @@
-import { type PointerEvent } from 'react';
+import { type PointerEvent, useCallback, useMemo } from 'react';
 import type { EvidenceRun, PlacementDecision, DeskObservation, UnitBox } from '@livinglayer/domain';
 import { zoneApplies } from '@livinglayer/domain';
 import { sceneProgress } from '../progress';
@@ -8,6 +8,7 @@ import type { RunLogSlice } from './runlog';
 import type { DeskSlice } from './desk';
 import type { FollowStateSlice } from './follow-state';
 import type { CameraSlice } from './camera';
+import { useStableSlice } from './stable';
 
 /** The Observation slice of the lab's state. */
 export function useObservationSlice(
@@ -45,7 +46,10 @@ export function useObservationSlice(
     memory.observation.frame.height === cameraSize.height
       ? memory.observation
       : null);
-  const zone = memory && zoneObservation ? zoneApplies(memory) : null;
+  const zone = useMemo(
+    () => (memory && zoneObservation ? zoneApplies(memory) : null),
+    [memory, zoneObservation],
+  );
   // New frames from following only have a zone by the fixed-camera assumption.
   const localZone: UnitBox | null =
     memory?.zone &&
@@ -56,20 +60,30 @@ export function useObservationSlice(
       : null;
   const visibleZone = drawing ? draftZone : zone?.applies && memory?.zone ? memory.zone.rect : null;
   // Where the mug has been, newest first, with the verdict each sighting got.
-  const sightings = memory?.observation ? [memory.observation, ...(memory.history ?? [])] : [];
-  const verdictFor = (o: DeskObservation) =>
-    runs.find(
-      (r): r is EvidenceRun<PlacementDecision> =>
-        r.kind === 'placement' && (r.output as PlacementDecision).observationId === o.id,
-    )?.output;
+  const sightings = useMemo(
+    () => (memory?.observation ? [memory.observation, ...(memory.history ?? [])] : []),
+    [memory],
+  );
+  const verdictFor = useCallback(
+    (o: DeskObservation) =>
+      runs.find(
+        (r): r is EvidenceRun<PlacementDecision> =>
+          r.kind === 'placement' && (r.output as PlacementDecision).observationId === o.id,
+      )?.output,
+    [runs],
+  );
   // Earlier boxes only line up with this frame when the frame is the same size.
-  const trail = segmentation
-    ? sightings.filter(
-        (o) =>
-          o.frame.width === segmentation.frame.width &&
-          o.frame.height === segmentation.frame.height,
-      )
-    : [];
+  const trail = useMemo(
+    () =>
+      segmentation
+        ? sightings.filter(
+            (o) =>
+              o.frame.width === segmentation.frame.width &&
+              o.frame.height === segmentation.frame.height,
+          )
+        : [],
+    [segmentation, sightings],
+  );
   function zonePoint(e: PointerEvent<SVGSVGElement>) {
     const bounds = e.currentTarget.getBoundingClientRect();
     return {
@@ -86,25 +100,35 @@ export function useObservationSlice(
     Boolean(memory?.object && memory.observation) &&
     (mode === 'demo' || (metaReady && (Boolean(image) || camera)));
   const confirmedId = currentObservation?.detectionId;
-  const progress = sceneProgress({ mode, workScene, memory });
-  const sorted = segmentation
-    ? [...segmentation.detections].sort((a, b) => (b.confidence ?? 0) - (a.confidence ?? 0))
-    : [];
-  return {
-    canTrack,
-    canVision,
-    confirmedId,
-    currentObservation,
-    localZone,
-    progress,
-    sightings,
-    sorted,
-    trail,
-    verdictFor,
-    visibleZone,
-    zone,
-    zoneObservation,
-    zonePoint,
-  };
+  const progress = useMemo(
+    () => sceneProgress({ mode, workScene, memory }),
+    [mode, workScene, memory],
+  );
+  const sorted = useMemo(
+    () =>
+      segmentation
+        ? [...segmentation.detections].sort((a, b) => (b.confidence ?? 0) - (a.confidence ?? 0))
+        : [],
+    [segmentation],
+  );
+  return useStableSlice(
+    {
+      canTrack,
+      canVision,
+      confirmedId,
+      currentObservation,
+      localZone,
+      progress,
+      sightings,
+      sorted,
+      trail,
+      verdictFor,
+      visibleZone,
+      zone,
+      zoneObservation,
+      zonePoint,
+    },
+    ['verdictFor'],
+  );
 }
 export type ObservationSlice = ReturnType<typeof useObservationSlice>;

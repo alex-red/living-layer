@@ -1,3 +1,4 @@
+import { useCallback } from 'react';
 import type {
   EvidenceRun,
   Scene,
@@ -20,6 +21,7 @@ import type { NavigationSlice } from './navigation';
 import type { AiSlice } from './ai';
 import type { FixturesSlice } from './fixtures';
 import type { CalibrationSlice } from './calibration';
+import { useStableSlice } from './stable';
 
 /** The Probes slice of the lab's state. */
 export function useProbesSlice(
@@ -155,18 +157,21 @@ export function useProbesSlice(
     }
   }
   /** Why a saved probe can't be repeated right now, or null if it can. */
-  function rerunBlock(run: EvidenceRun): string | null {
-    if (!isProbe(run.kind))
-      return 'Only model and lamp calls can be repeated. Use the inspector for scene steps.';
-    if (run.mode !== mode) return `Switch to ${run.mode} mode to repeat this run.`;
-    if (busy) return 'Wait for the current call to finish.';
-    if (camera) return 'Capture or stop the camera first.';
-    if (run.kind === 'lamp')
-      return mode === 'live' && !lampReady ? 'The lamp is not set up.' : null;
-    if (mode === 'live' && !metaReady) return 'Live Meta calls are not available.';
-    if (run.kind !== 'text' && mode === 'live' && !image) return 'Add a desk photo first.';
-    return null;
-  }
+  const rerunBlock = useCallback(
+    (run: EvidenceRun): string | null => {
+      if (!isProbe(run.kind))
+        return 'Only model and lamp calls can be repeated. Use the inspector for scene steps.';
+      if (run.mode !== mode) return `Switch to ${run.mode} mode to repeat this run.`;
+      if (busy) return 'Wait for the current call to finish.';
+      if (camera) return 'Capture or stop the camera first.';
+      if (run.kind === 'lamp')
+        return mode === 'live' && !lampReady ? 'The lamp is not set up.' : null;
+      if (mode === 'live' && !metaReady) return 'Live Meta calls are not available.';
+      if (run.kind !== 'text' && mode === 'live' && !image) return 'Add a desk photo first.';
+      return null;
+    },
+    [mode, busy, camera, lampReady, metaReady, image],
+  );
   function rerun(run: EvidenceRun) {
     if (!isProbe(run.kind) || rerunBlock(run)) return;
     const again = run.kind === 'segment' ? (run.output as Segmentation).concept : undefined;
@@ -178,13 +183,16 @@ export function useProbesSlice(
    * screen now: always for the demo, and for a live photo when its source
    * hash matches the mask already showing.
    */
-  function canRestore(run: EvidenceRun): boolean {
-    if (busy || camera || run.mode !== mode || run.status === 'failed') return false;
-    if (run.kind === 'discover') return mode === 'demo';
-    if (run.kind !== 'segment') return false;
-    const key = (run.output as Segmentation).sourceKey;
-    return mode === 'demo' || (Boolean(key) && key === segmentation?.sourceKey);
-  }
+  const canRestore = useCallback(
+    (run: EvidenceRun): boolean => {
+      if (busy || camera || run.mode !== mode || run.status === 'failed') return false;
+      if (run.kind === 'discover') return mode === 'demo';
+      if (run.kind !== 'segment') return false;
+      const key = (run.output as Segmentation).sourceKey;
+      return mode === 'demo' || (Boolean(key) && key === segmentation?.sourceKey);
+    },
+    [busy, camera, mode, segmentation?.sourceKey],
+  );
   function restore(run: EvidenceRun) {
     if (run.kind === 'discover') {
       setScene(run.output as Scene);
@@ -199,13 +207,16 @@ export function useProbesSlice(
     setLamp('off');
     setMessage(`Mask from run ${run.id.slice(0, 8)} restored. You can confirm it as before.`);
   }
-  return {
-    canRestore,
-    deskAction,
-    execute,
-    rerun,
-    rerunBlock,
-    restore,
-  };
+  return useStableSlice(
+    {
+      canRestore,
+      deskAction,
+      execute,
+      rerun,
+      rerunBlock,
+      restore,
+    },
+    ['rerunBlock', 'canRestore'],
+  );
 }
 export type ProbesSlice = ReturnType<typeof useProbesSlice>;

@@ -15,6 +15,7 @@ import type { CameraSlice } from './camera';
 import type { ObservationSlice } from './observation';
 import type { TrackingSlice } from './tracking';
 import type { NavigationSlice } from './navigation';
+import { useStableSlice } from './stable';
 
 /** The Ai slice of the lab's state. */
 export function useAiSlice(
@@ -189,16 +190,18 @@ export function useAiSlice(
     clearTimeout(aiClose.current);
     aiClose.current = setTimeout(() => setAiTask(null), ms);
   }
-  const brush = useBrush({
-    mode,
-    frameNow,
-    followAi,
-    closeAiTaskSoon,
-    setMemory,
-    showOwnScene: () => setWorkScene('custom'),
-    setMessage,
-    setError,
-  });
+  const brush = useStableSlice(
+    useBrush({
+      mode,
+      frameNow,
+      followAi,
+      closeAiTaskSoon,
+      setMemory,
+      showOwnScene: () => setWorkScene('custom'),
+      setMessage,
+      setError,
+    }),
+  );
   /**
    * The AI brush on a prop picked in the room rather than drawn round on the
    * picture: its box, seen through the room's camera, is the selection.
@@ -293,7 +296,7 @@ export function useAiSlice(
       }
     }
   }
-  return {
+  return useStableSlice({
     aiHistory,
     aiRun,
     brush,
@@ -307,6 +310,6 @@ export function useAiSlice(
     reviewAiRun,
     setLastAiRun,
     stopAiTask,
-  };
+  });
 }
 export type AiSlice = ReturnType<typeof useAiSlice>;

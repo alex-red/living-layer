@@ -15,6 +15,7 @@ import type { FeedbackSlice } from './feedback';
 import type { RunLogSlice } from './runlog';
 import type { DeskSlice } from './desk';
 import type { FollowStateSlice } from './follow-state';
+import { useStableSlice } from './stable';
 
 /** The Camera slice of the lab's state. */
 export function useCameraSlice(
@@ -54,7 +55,7 @@ export function useCameraSlice(
   /** The zoomed view of the camera that is open, and of the one the current frame came from. */
   const openCrop = useRef<CameraCrop | null>(null);
   const imageCrop = useRef<CameraCrop | null>(null);
-  const network = useNetworkStreams();
+  const network = useStableSlice(useNetworkStreams());
   /** '' for this device's camera, else the id of a network camera. */
   const [cameraSource, setCameraSource] = useState(boot.prefs.cameraSource);
   /** The camera should be on: set when one opens, cleared only when the person stops it. */
@@ -350,7 +351,7 @@ export function useCameraSlice(
     const url = frameNow();
     return { url, crop: url ? imageCrop.current : null };
   }
-  return {
+  return useStableSlice({
     camera,
     cameraFrame,
     cameraGeneration,
@@ -388,6 +389,6 @@ export function useCameraSlice(
     upload,
     video,
     setTracking: changeTracking,
-  };
+  });
 }
 export type CameraSlice = ReturnType<typeof useCameraSlice>;

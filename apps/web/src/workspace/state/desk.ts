@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useMemo } from 'react';
 import type { EvidenceRun, LabStatus, Mode, DeskMemory } from '@livinglayer/domain';
 import { DEMO_LIGHTS, DEMO_SWITCHES } from '@livinglayer/domain';
 import { api } from '../../api';
@@ -8,6 +8,7 @@ import { UNDO_LIMIT } from './helpers';
 import type { ViewSlice } from './view';
 import type { FeedbackSlice } from './feedback';
 import type { RunLogSlice } from './runlog';
+import { useStableSlice } from './stable';
 
 /** The Desk slice of the lab's state. */
 export function useDeskSlice(deps: ViewSlice & FeedbackSlice & RunLogSlice) {
@@ -24,7 +25,7 @@ export function useDeskSlice(deps: ViewSlice & FeedbackSlice & RunLogSlice) {
   // Each mode's desks from before (undo) and after (redo) the person's edits.
   const undo = useRef<Record<Mode, DeskMemory[]>>({ demo: [], live: [] });
   const redo = useRef<Record<Mode, DeskMemory[]>>({ demo: [], live: [] });
-  const [, setHistoryTick] = useState(0);
+  const [historyTick, setHistoryTick] = useState(0);
   /** Edits, undos and redos so far; a named save notes the count it was saved or loaded at. */
   const edits = useRef(0);
   /** A new desk memory; an edit can be undone, a sighting (`undoable` false) can't. */
@@ -87,20 +88,28 @@ export function useDeskSlice(deps: ViewSlice & FeedbackSlice & RunLogSlice) {
     }
   }
   const proofCount = status ? Object.values(status.liveEvidence).filter(Boolean).length : 0;
-  const lights = mode === 'demo' ? DEMO_LIGHTS : (status?.lamp.lights ?? []);
+  const lights = useMemo(
+    () => (mode === 'demo' ? DEMO_LIGHTS : (status?.lamp.lights ?? [])),
+    [mode, status?.lamp.lights],
+  );
   /** Each light's last confirmed state in this mode, for lamps that glow. */
-  const lightsOn = new Set(
-    [...lightStates(memory, runs)].filter(([, s]) => s === 'on').map(([entity]) => entity),
+  const lightsOn = useMemo(
+    () =>
+      new Set(
+        [...lightStates(memory, runs)].filter(([, s]) => s === 'on').map(([entity]) => entity),
+      ),
+    [memory, runs],
   );
   /** What a rule or a fixture may switch: the lights, then the switches. */
-  const entities = [
-    ...lights,
-    ...(mode === 'demo' ? DEMO_SWITCHES : (status?.lamp.switches ?? [])),
-  ];
-  return {
+  const entities = useMemo(
+    () => [...lights, ...(mode === 'demo' ? DEMO_SWITCHES : (status?.lamp.switches ?? []))],
+    [lights, mode, status?.lamp.switches],
+  );
+  return useStableSlice({
     deskReady,
     edits,
     entities,
+    historyTick,
     lampReady,
     lights,
     lightsOn,
@@ -121,6 +130,6 @@ export function useDeskSlice(deps: ViewSlice & FeedbackSlice & RunLogSlice) {
     spendTone,
     status,
     undo,
-  };
+  });
 }
 export type DeskSlice = ReturnType<typeof useDeskSlice>;

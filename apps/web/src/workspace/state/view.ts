@@ -13,6 +13,7 @@ import type { CalibrationDraft } from '../../iso/RoomCalibrate';
 import { prefsOf, readSession, type StageView } from '../../session';
 import { parseSelection, selectionHash, type Selection, type WorkScene } from '../progress';
 import type { Tool } from '../ToolStrip';
+import { useStableSlice } from './stable';
 
 /** The View slice of the lab's state. */
 export function useViewSlice() {
@@ -100,7 +101,7 @@ export function useViewSlice() {
   } | null>(null);
   const [drawer, setDrawer] = useState(boot.prefs.drawer);
   const [showKeys, setShowKeys] = useState(false);
-  return {
+  return useStableSlice({
     boot,
     boxing,
     calibrating,
@@ -163,6 +164,6 @@ export function useViewSlice() {
     zoneStart,
     zooming,
     setTool: chooseTool,
-  };
+  });
 }
 export type ViewSlice = ReturnType<typeof useViewSlice>;

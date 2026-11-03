@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { ApiError } from '../../api';
 import type { Issue } from '../../ProviderUi';
 import type { ViewSlice } from './view';
+import { useStableSlice } from './stable';
 
 /** The Feedback slice of the lab's state. */
 export function useFeedbackSlice(deps: ViewSlice) {
@@ -30,7 +31,7 @@ export function useFeedbackSlice(deps: ViewSlice) {
   const light = () => setLamp(mode === 'demo' ? 'virtual' : 'live');
   const capsuleTone = error ? 'blocked' : busy ? 'busy' : lamp !== 'off' ? 'warm' : 'idle';
 
-  return {
+  return useStableSlice({
     busy,
     capsuleTone,
     error,
@@ -43,6 +44,6 @@ export function useFeedbackSlice(deps: ViewSlice) {
     setIssue,
     setLamp,
     setMessage,
-  };
+  });
 }
 export type FeedbackSlice = ReturnType<typeof useFeedbackSlice>;

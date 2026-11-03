@@ -23,6 +23,7 @@ import type { TrackingSlice } from './tracking';
 import type { NavigationSlice } from './navigation';
 import type { AiSlice } from './ai';
 import type { FixturesSlice } from './fixtures';
+import { useStableSlice } from './stable';
 
 /** The Calibration slice of the lab's state. */
 export function useCalibrationSlice(
@@ -415,7 +416,7 @@ export function useCalibrationSlice(
     });
     setMessage(`Check the ${label}’s corners on the photo, then save the pin.`);
   }
-  return {
+  return useStableSlice({
     adjustPin,
     autoPin,
     calibrateByHand,
@@ -428,6 +429,6 @@ export function useCalibrationSlice(
     startCalibrating,
     startZooming,
     zoomable: zoomable(),
-  };
+  });
 }
 export type CalibrationSlice = ReturnType<typeof useCalibrationSlice>;
