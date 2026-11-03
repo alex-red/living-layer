@@ -7,6 +7,7 @@ export * from './motion-zone.js';
 export * from './fixture.js';
 export * from './tracker.js';
 export * from './watch.js';
+export * from './track-health.js';
 export * from './assign.js';
 export * from './outline.js';
 export * from './appearance.js';

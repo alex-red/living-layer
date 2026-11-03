@@ -36,6 +36,8 @@ export interface FrameSource {
   stop(): void;
   /** The current picture as a PNG at most 1280 px on its longer side. */
   snapshot(): Promise<{ png: Buffer; width: number; height: number }>;
+  /** The process decoding the frames, to read its CPU; none when they are made here. */
+  readonly pid?: number | null;
 }
 
 /** The height of the grey frames from a picture this size: even, as ffmpeg's scaler gives it. */
@@ -140,6 +142,9 @@ export class FfmpegSource implements FrameSource {
   private cut() {
     const c = this.crop;
     return c ? `crop=iw*${c.w}:ih*${c.h}:iw*${c.x}:ih*${c.y},` : '';
+  }
+  get pid() {
+    return this.proc?.pid ?? null;
   }
   private get rtsp() {
     return /^rtsps?:\/\//.test(this.url);

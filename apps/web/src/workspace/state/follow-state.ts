@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
 import type { LocalTrack } from '@livinglayer/domain';
-import { followViewStore } from './follow-store';
+import { followHealth, followViewStore } from './follow-store';
 import { REANCHOR_GAP_MS } from './helpers';
 import { useStableSlice } from './stable';
 import type { Dispatch, RefObject, SetStateAction } from 'react';
@@ -20,6 +20,7 @@ export function useFollowStateSlice(): FollowStateSlice {
     localTrack.current = null;
     setFollow(false);
     followViewStore.set(null);
+    followHealth.stop();
   }
   return useStableSlice({
     follow,

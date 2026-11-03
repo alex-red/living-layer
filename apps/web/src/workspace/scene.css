@@ -477,3 +477,118 @@
 .stat-chip .unknown {
   fill: var(--unsure);
 }
+
+/* Trackers' health over the camera's corner: green keeping up, amber strained, red behind. */
+.health-bars {
+  position: absolute;
+  z-index: var(--z-controls);
+  top: 14px;
+  right: 40px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  max-width: calc(100% - 80px);
+}
+.health-bar {
+  --signal: var(--ok);
+  border-radius: var(--r-chip);
+  font: 500 11px/14px var(--mono);
+  letter-spacing: 0.08em;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  background: var(--glass-regular);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: var(--glass-edge);
+}
+.health-bar.waiting {
+  --signal: var(--text-3);
+}
+.health-bar.strained {
+  --signal: var(--warm);
+}
+.health-bar.lagging,
+.health-bar.stalled {
+  --signal: var(--blocked);
+}
+.health-bar button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  border: 0;
+  font: inherit;
+  letter-spacing: inherit;
+  color: inherit;
+  background: none;
+  cursor: pointer;
+}
+.health-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--signal);
+  box-shadow: 0 0 6px var(--signal);
+}
+.health-bar.stalled .health-dot {
+  animation: breathe 1.4s ease-in-out infinite;
+}
+.health-who {
+  color: var(--text-3);
+}
+.health-verdict {
+  color: var(--signal);
+}
+.health-numbers {
+  color: var(--text-2);
+  white-space: nowrap;
+}
+.health-reason {
+  margin: 0;
+  padding: 0 8px 3px 20px;
+  color: var(--signal);
+  text-align: right;
+}
+.health-detail {
+  padding: 2px 8px 6px;
+  border-top: 1px solid var(--line);
+}
+.health-spark {
+  display: block;
+  width: 100%;
+  height: 24px;
+  margin: 4px 0;
+}
+.health-spark line {
+  stroke: var(--line-strong);
+  stroke-dasharray: 2 2;
+  vector-effect: non-scaling-stroke;
+}
+.health-spark rect {
+  fill: var(--ok);
+}
+.health-spark rect.high {
+  fill: var(--warm);
+}
+.health-spark rect.over {
+  fill: var(--blocked);
+}
+.health-detail dl {
+  display: grid;
+  gap: 1px;
+  margin: 0;
+  letter-spacing: 0.02em;
+}
+.health-detail dl div {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+}
+.health-detail dt {
+  color: var(--text-3);
+}
+.health-detail dd {
+  margin: 0;
+  color: var(--text-2);
+}

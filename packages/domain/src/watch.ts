@@ -10,6 +10,7 @@
  * tests drive it with made-up frames and clocks.
  */
 import type { StatsNow } from './stats.js';
+import type { TrackHealth } from './track-health.js';
 import { assignTracks, MULTI } from './assign.js';
 import {
   around,
@@ -495,6 +496,8 @@ export interface WatchView {
   refinds: number;
   /** Each thing's stats now, by thing id; only changes make a new message. */
   stats?: StatsNow;
+  /** How the watcher keeps up with its camera, while it watches. */
+  health?: TrackHealth;
   things: {
     id: string;
     kind: WatchKind;

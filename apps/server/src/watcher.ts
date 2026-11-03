@@ -74,10 +74,12 @@ import {
   followedThings,
   mugOf,
   followStats,
+  HealthMeter,
 } from '@livinglayer/domain';
 import type { Appearance } from './appearance.js';
 import type { DeskTracking } from './desk.js';
 import { LabError, parseInput, safeError } from './errors.js';
+import { ProcessLoad } from './health.js';
 import { DemoSource, FfmpegSource, LUMA_FPS, lumaOf, type FrameSource } from './frames.js';
 import { StatRunner, lookText, readLook } from './stats.js';
 import type { EvidenceStore } from './store.js';
@@ -231,8 +233,22 @@ export class Watcher {
   readonly busy = new Set<Promise<unknown>>();
   /** Each thing's stats, fed this watcher's frames. */
   readonly statRunner: StatRunner;
+  /** How the frames keep up, and what the process does meanwhile: the camera's health bar. */
+  private health: HealthMeter;
+  private load: ProcessLoad;
+  /** The verdict last sent, so a change between frames (a stall) is sent too. */
+  private healthSaid = '';
   constructor(private deps: WatcherDeps) {
     this.pace = deps.mode === 'demo' ? { quietSteps: 0, placeGapMs: 0 } : {};
+    // Demo frames come one move at a time: only their work says anything.
+    this.health = new HealthMeter(LUMA_FPS, deps.mode === 'live');
+    this.load = new ProcessLoad(
+      () => this.source?.pid,
+      () => {
+        const h = this.healthNow();
+        if (h && `${h.verdict}:${h.reason}` !== this.healthSaid) this.emit();
+      },
+    );
     this.statRunner = new StatRunner({
       mode: deps.mode,
       store: deps.store,
@@ -279,6 +295,7 @@ export class Watcher {
       ai: this.ai,
       ...this.stats,
       stats: this.statRunner.current(),
+      ...this.healthPart(),
       things: [...this.things.values()].map((t) => ({
         id: t.subject.id,
         kind: t.subject.kind,
@@ -290,6 +307,21 @@ export class Watcher {
         ...(this.boxOnly.has(t.subject.id) ? { boxOnly: true as const } : {}),
       })),
     };
+  }
+  private healthNow() {
+    if (this.state !== 'watching' && this.state !== 'paused') return null;
+    const things = [...this.things.values()];
+    return this.health.read(this.now, {
+      ...this.load.read(),
+      looking: this.held.size + this.pending.length,
+      lost: things.filter((t) => t.status === 'missing').length,
+      things: things.length,
+    });
+  }
+  private healthPart() {
+    const health = this.healthNow();
+    this.healthSaid = health ? `${health.verdict}:${health.reason}` : '';
+    return health ? { health } : {};
   }
   /** What entities shown in Home Assistant need: the state, each thing's status, zone motion. */
   exposeWatch(): ExposeWatch {
@@ -522,6 +554,8 @@ export class Watcher {
     this.held.clear();
     this.refinding.clear();
     this.stats = { frames: 0, checks: 0, refinds: 0, places: 0 };
+    this.load.stop();
+    this.health.reset();
     this.say('starting', 'Starting…');
     const memory = this.memory();
     this.watchZones(memory);
@@ -579,6 +613,7 @@ export class Watcher {
     }
     if (generation !== this.generation) return;
     run.openMs = this.now - run.startedAt;
+    this.load.start();
     this.statRunner.setWatching(true);
     this.statRunner.sync(memory);
     this.say('watching', this.watchingNote(memory));
@@ -618,6 +653,8 @@ export class Watcher {
   }
   stop() {
     this.noteRun('stopped');
+    this.load.stop();
+    this.health.reset();
     this.generation++;
     this.asking.abort();
     this.asking = new AbortController();
@@ -753,6 +790,7 @@ export class Watcher {
     });
   }
   private frame(frame: LumaFrame) {
+    const started = performance.now();
     const previous = this.lastFrame;
     this.lastFrame = frame;
     this.stats.frames++;
@@ -802,6 +840,7 @@ export class Watcher {
       this.lastOccupancyCheck = now;
       void this.track(this.compareZones(frame));
     }
+    this.health.frame(now, performance.now() - started);
     this.emit();
   }
   /**

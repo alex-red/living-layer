@@ -14,7 +14,7 @@ import type {
 import { mainPlacement, mugSighting } from '@livinglayer/domain';
 import { DEMO_POSITIONS, startLocalTrack, stepLocalTrack } from '@livinglayer/domain';
 import { api } from '../../api';
-import { followStatsStore, followViewStore } from './follow-store';
+import { followHealth, followStatsStore, followViewStore } from './follow-store';
 import { useWatchStream, watchStore } from '../../watch';
 import { useStore } from './store';
 import {
@@ -213,6 +213,7 @@ export function useTrackingSlice(
       goodSteps.current = 0;
       followViewStore.set({ track: next, verdict: 'follow' });
       followStatsStore.set({ frames: 0, checks: 0 });
+      followHealth.start(mode === 'live');
       setFollow(true);
       if (mode === 'live') await startCamera();
       setMessage(
@@ -285,16 +286,18 @@ export function useTrackingSlice(
     // A newer move, or a stop, while this frame loaded: its step would land out of order.
     const stale = () => step !== demoStep.current || gen !== followGen.current;
     try {
-      const frame = lumaOf(await loadImage(sceneUrl(position)));
+      const picture = await loadImage(sceneUrl(position));
       const current = localTrack.current;
       if (stale() || !current) return;
+      const at = performance.now();
       // Each demo move is one deliberate frame of a mug already set down, so it needn't settle.
-      const next = stepLocalTrack(current, frame, localZone, {
+      const next = stepLocalTrack(current, lumaOf(picture), localZone, {
         settleSteps: 1,
         lostSteps: 1,
         quietSteps: 0,
       });
       applyStep(next);
+      followHealth.step(at, performance.now() - at);
       if (next.verdict !== 'follow') return void followCheck(next.verdict, position);
       setMessage(
         `Followed locally to ${DEMO_POSITIONS[position].label.toLowerCase()} · match ${next.track.score.toFixed(2)} · no model call.`,
@@ -313,12 +316,16 @@ export function useTrackingSlice(
   });
   useEffect(() => {
     if (!follow || !camera || busy || mode !== 'live') return;
+    followHealth.resume();
     const timer = window.setInterval(() => {
       const el = video.current;
       const current = localTrack.current;
       if (!el?.videoWidth || !current) return;
+      const at = performance.now();
       const step = stepLocalTrack(current, lumaOf(el), followLatest.current.zone);
+      const work = performance.now() - at;
       followLatest.current.step(step);
+      followHealth.step(at, work, el.currentTime);
       const gap = step.verdict === 'confirm' ? CONFIRM_GAP_MS : reanchorGap.current;
       if (step.verdict !== 'follow' && Date.now() - lastCheck.current > gap)
         void followLatest.current.check(step.verdict);

@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { aiTaskStore } from './state/ai-task-store';
-import { followViewStore } from './state/follow-store';
+import { followHealth, followViewStore } from './state/follow-store';
 import { takeHandoff } from '../handoff';
 import { useShortcuts, type ShortcutAction } from '../shortcuts';
 import { deskIsBlank } from './state/helpers';
@@ -168,6 +168,7 @@ export function useLabState(): LabSlices {
       // A running AI call is stopped with the lab, not left to answer no one.
       aiRun.current?.abort.abort();
       followViewStore.set(null);
+      followHealth.stop();
       aiTaskStore.set(null);
       cameraGeneration.current++;
       releaseStream();

@@ -17,6 +17,7 @@ import { api } from '../api';
 import { Glyph } from '../Glyph';
 import { MaskOverlay } from '../MaskOverlay';
 import { StatsOverlay, TrackingOverlay } from '../TrackingOverlay';
+import { HealthBar } from '../HealthBar';
 import './scene.css';
 import { Later } from '../Later';
 import type { RoomOption } from '../CameraSetup';
@@ -43,7 +44,7 @@ import {
   useTracking,
   useView,
 } from './LabContext';
-import { useFollowView } from './state/follow-store';
+import { followHealthStore, useFollowView } from './state/follow-store';
 import { createStore, useStore } from './state/store';
 import { dragRectStore, useDragRect } from './state/view';
 import { watchStore } from '../watch';
@@ -666,6 +667,23 @@ function FollowLayers() {
   );
 }
 
+/**
+ * How the trackers keep up, over the camera's corner and outside its zoom:
+ * the server's watcher while it watches, the browser's local follow while it
+ * follows. Each renders at its tracker's rate, alone.
+ */
+function HealthBars() {
+  const watcher = useStore(watchStore, (w) => (w?.on ? (w.health ?? null) : null));
+  const local = useStore(followHealthStore);
+  if (!watcher && !local) return null;
+  return (
+    <div className="health-bars">
+      {watcher && <HealthBar who="WATCHER" health={watcher} />}
+      {local && <HealthBar who="LOCAL" health={local} />}
+    </div>
+  );
+}
+
 /** The server watcher's boxes and their tags; it renders for each message the watcher sends, alone. */
 function WatchedBoxes() {
   const watch = useStore(watchStore);
@@ -839,6 +857,7 @@ export function PhotoStage({
           <FrameRate video={lab.video} on={camera} />
         </span>
       )}
+      {!fridge && <HealthBars />}
       <span className="frame-label">
         {dimensions.width} × {dimensions.height} <span>{fridge ? 'PLACEHOLDER' : 'FRAME 00'}</span>
       </span>
