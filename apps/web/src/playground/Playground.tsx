@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties, type PointerEvent } from 'react';
 import type { EvidenceRun, LabStatus, Scene, Segmentation, ZoneRect } from '@livinglayer/domain';
-import { boxInZone, runCost } from '@livinglayer/domain';
+import { footInZone, runCost } from '@livinglayer/domain';
 import { api } from '../api';
 import { usd } from '../cost';
 import { Glyph } from '../Glyph';
@@ -405,7 +405,7 @@ export function Playground() {
               glyph: '○',
               text: 'Watch the desk or detect on a captured frame, or turn on the test box.',
             }
-        : boxInZone(subject.box, subject.frame, zone)
+        : footInZone(subject.box, subject.frame, zone)
           ? {
               tone: 'ok',
               glyph: '✓',

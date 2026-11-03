@@ -16,6 +16,7 @@ import {
   type LumaFrame,
   type UnitBox,
 } from './tracker.js';
+import { footInZone } from './rules.js';
 
 /** What the watcher follows: the mug, another remembered object, or a tracked fixture. */
 export type WatchKind = 'mug' | 'object' | 'fixture';
@@ -93,11 +94,8 @@ export function watchThing(subject: WatchSubject, track: LocalTrack, now: number
 }
 
 const WHOLE: UnitBox = { x: 0, y: 0, width: 1, height: 1 };
-const inZone = (b: UnitBox, zone: UnitBox) =>
-  b.x >= zone.x &&
-  b.y >= zone.y &&
-  b.x + b.width <= zone.x + zone.width &&
-  b.y + b.height <= zone.y + zone.height;
+// Where it stands, as the rules judge it on the frame (`footInZone`): its box's bottom centre.
+const inZone = (b: UnitBox, zone: UnitBox) => footInZone(b, { width: 1, height: 1 }, zone);
 /**
  * What one frame means for one thing. `ask` is a SAM check due now: `confirm`
  * a zone crossing, `reanchor` a thing that is lost. `refind` asks the caller

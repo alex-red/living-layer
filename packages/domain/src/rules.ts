@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { Detection, EvidenceRun, Segmentation } from './api.js';
 import { entityIdSchema } from './fixture.js';
+import { isoSurface, projectBox, surfaceMap } from './iso.js';
 import {
   calibrationOf,
   objectById,
@@ -17,18 +18,40 @@ import {
 export const OBSERVATION_MAX_AGE_MS = 5 * 60 * 1000;
 export const MOVED_CAMERA =
   'The camera has moved since it was calibrated, so zones no longer line up. Calibrate it again, or keep the calibration if it still fits and redraw the zones.';
-/** True when the whole box (in frame pixels) fits inside the normalized zone. */
-export function boxInZone(
+/** True when the box's bottom centre, where it touches down nearest the camera, is in the zone. */
+export function footInZone(
   b: Detection['box'],
   frame: Segmentation['frame'],
   zone: ZoneRect,
 ): boolean {
-  return (
-    b.x / frame.width >= zone.x &&
-    b.y / frame.height >= zone.y &&
-    (b.x + b.width) / frame.width <= zone.x + zone.width &&
-    (b.y + b.height) / frame.height <= zone.y + zone.height
-  );
+  const x = (b.x + b.width / 2) / frame.width;
+  const y = (b.y + b.height) / frame.height;
+  return x >= zone.x && x <= zone.x + zone.width && y >= zone.y && y <= zone.y + zone.height;
+}
+const within = (v: number, a: number, b: number) => v >= Math.min(a, b) && v <= Math.max(a, b);
+/**
+ * Whether a sighting stands in a zone: where it stands, not its whole box, so
+ * a mug taller than the zone counts. A zone drawn in the room is judged there,
+ * by the middle of the thing's base on the pinned surface (`projectBox`);
+ * any other zone by the box's bottom centre in the frame.
+ */
+export function standsInZone(
+  memory: Pick<DeskMemory, 'surface' | 'scene'>,
+  o: Pick<DeskObservation, 'box' | 'frame'>,
+  zone: { rect: ZoneRect; onSurface?: ZoneOnSurface },
+): boolean {
+  const drawn = zone.onSurface;
+  const pin = memory.surface;
+  const surface =
+    drawn && pin?.scene === drawn.scene && pin.surfaceId === drawn.surfaceId
+      ? isoSurface(pin.scene, pin.surfaceId, memory.scene)
+      : undefined;
+  const map = surface && pin ? surfaceMap(pin, o.frame) : null;
+  if (drawn && surface && map) {
+    const { foot } = projectBox(o.box, surface, map.toSurface);
+    return within(foot.x, drawn.a.x, drawn.b.x) && within(foot.y, drawn.a.y, drawn.b.y);
+  }
+  return footInZone(o.box, o.frame, zone.rect);
 }
 export const HISTORY_LIMIT = 12;
 const normalize = (b: Detection['box'], f: Segmentation['frame']) => ({
@@ -257,15 +280,15 @@ function thingGate(
         : `The zone "${rule.label}" was drawn on another image. Mark the camera as fixed to carry it over.`,
     };
   const assumption = zone.carried ? ' (zone carried over: camera assumed fixed)' : '';
-  return boxInZone(o.box, o.frame, rule.zone.rect)
+  return standsInZone(memory, o, rule.zone)
     ? {
         decision: 'inside',
-        reason: `The ${target.label} box is fully inside "${rule.label}"${assumption}.`,
+        reason: `The ${target.label} stands in "${rule.label}"${assumption}.`,
         assumedFixedCamera: zone.carried,
       }
     : {
         decision: 'outside',
-        reason: `The ${target.label} box is outside or crosses "${rule.label}"${assumption}.`,
+        reason: `The ${target.label} stands outside "${rule.label}"${assumption}.`,
         assumedFixedCamera: zone.carried,
       };
 }
@@ -350,15 +373,15 @@ export function placementGate(
     };
   const who = o.identity === 'tracked' ? 'tracked' : 'manually confirmed';
   const assumption = zone.carried ? ' (zone carried over: camera assumed fixed)' : '';
-  return boxInZone(o.box, o.frame, z.rect)
+  return standsInZone(memory, o, z)
     ? {
         decision: 'inside',
-        reason: `The ${who} mug box is fully inside the saved zone${assumption}.`,
+        reason: `The ${who} mug stands in the saved zone${assumption}.`,
         assumedFixedCamera: zone.carried,
       }
     : {
         decision: 'outside',
-        reason: `The mug box is outside or crosses the zone boundary${assumption}. No lamp action.`,
+        reason: `The mug stands outside the zone${assumption}. No lamp action.`,
         assumedFixedCamera: zone.carried,
       };
 }

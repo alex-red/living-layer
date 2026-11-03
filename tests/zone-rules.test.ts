@@ -54,7 +54,7 @@ const rule = (over: Partial<PlacementRule> = {}): PlacementRule => ({
 });
 
 describe('zones that count any thing, or several', () => {
-  it('is occupied while any thing it counts is fully inside', () => {
+  it('is occupied while any thing it counts stands inside', () => {
     expect(ruleGate(memory(10, 70), rule(), NOW)).toMatchObject({
       decision: 'inside',
       inside: [MUG],
