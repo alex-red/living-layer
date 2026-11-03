@@ -267,7 +267,7 @@ function longLivedToken(
  * Home Assistant from the lab: sign in (or sign out), list what it has, keep
  * the devices ticked. `.env`'s URL and token, when set, win over a sign-in.
  */
-export function haRoutes(
+export async function haRoutes(
   app: FastifyInstance,
   {
     config,
@@ -286,7 +286,7 @@ export function haRoutes(
     openSocket?: OpenSocket | undefined;
   },
 ) {
-  app.post('/api/ha/login', async (request) => {
+  app.post('/login', async (request) => {
     const input = parseInput(haLoginBodySchema, request.body);
     if (config.haUrl && config.haToken)
       throw new LabError(
@@ -307,12 +307,12 @@ export function haRoutes(
     return { kind: 'done', url: step.login.url, user: step.login.user };
   });
   /** Forgets the token. Home Assistant still lists it until it's deleted there. */
-  app.post('/api/ha/logout', async () => {
+  app.post('/logout', async () => {
     store.deleteSetting(LOGIN);
     return { ok: true };
   });
-  app.get('/api/ha/entities', async () => ({ entities: await lamp.entities() }));
-  app.post('/api/ha/chosen', async (request) => {
+  app.get('/entities', async () => ({ entities: await lamp.entities() }));
+  app.post('/chosen', async (request) => {
     const { entityIds } = parseInput(haChosenBodySchema, request.body);
     const env = new Set(fixed());
     const chosen = [...new Set(entityIds)].filter((e) => !env.has(e));

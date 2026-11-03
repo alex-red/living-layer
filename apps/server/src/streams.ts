@@ -242,12 +242,12 @@ export async function listStreams(
   return [...known(), ...found, ...configured.filter((s) => !seen.has(s.whep || s.rtsp))];
 }
 
-export function streamRoutes(
+export async function streamRoutes(
   app: FastifyInstance,
   config: Config,
   browse: () => Promise<NetworkStream[]> = browseCameras,
   /** Cameras the lab already knows of, like a paired phone or a saved camera. */
   known: () => NetworkStream[] = () => [],
 ) {
-  app.get('/api/streams', async () => ({ streams: await listStreams(config, browse, known) }));
+  app.get('', async () => ({ streams: await listStreams(config, browse, known) }));
 }

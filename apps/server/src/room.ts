@@ -32,8 +32,7 @@ import { LabError, liveImage, parseInput } from './errors.js';
 import { demoPng, demoSegmentation } from './demo.js';
 import { lumaOf } from './frames.js';
 import { samDataUrl, requireFrame, validateImage, type ValidatedImage } from './images.js';
-import type { Runner } from './runs.js';
-import type { MetaAdapter } from './meta.js';
+import type { RouteDeps } from './route-deps.js';
 import type { EvidenceStore } from './store.js';
 
 export interface FloorMarks {
@@ -64,7 +63,7 @@ export interface CalibrateInput {
  * where the frame shows them, their far ends. Nothing is saved.
  */
 export async function findFloorMarks(
-  { store, meta, run }: { store: EvidenceStore; meta: MetaAdapter; run: Runner },
+  { store, meta, run }: Pick<RouteDeps, 'store' | 'meta' | 'run'>,
   mode: Mode,
   image: ValidatedImage | null,
 ): Promise<FloorMarks> {
@@ -239,11 +238,11 @@ export function fitRoom(
  * nothing: the person drags them into place and gives the room's size, and
  * `room/calibrate` fits the camera and saves it (`calibrateRoom`).
  */
-export function roomRoutes(
+export async function roomRoutes(
   app: FastifyInstance,
-  { store, meta, run }: { store: EvidenceStore; meta: MetaAdapter; run: Runner },
+  { store, meta, run }: Pick<RouteDeps, 'store' | 'meta' | 'run'>,
 ) {
-  app.post('/api/room/floor', async (request): Promise<FloorMarks> => {
+  app.post('/floor', async (request): Promise<FloorMarks> => {
     const input = parseInput(modeImageSchema, request.body);
     const live = input.mode === 'live';
     liveImage(input.mode, input.imageDataUrl);
@@ -257,7 +256,7 @@ export function roomRoutes(
     return findFloorMarks({ store, meta, run }, input.mode, image);
   });
 
-  app.post('/api/room/calibrate', async (request) => {
+  app.post('/calibrate', async (request) => {
     const input = parseInput(roomCalibrateBodySchema, request.body);
     const live = input.mode === 'live';
     liveImage(input.mode, input.imageDataUrl);
@@ -271,7 +270,7 @@ export function roomRoutes(
    * false alarm, or zones about to be drawn again): the current frame becomes
    * the one later frames are compared with, and zones apply again.
    */
-  app.post('/api/room/keep', async (request) => {
+  app.post('/keep', async (request) => {
     const input = parseInput(modeImageSchema, request.body);
     const live = input.mode === 'live';
     liveImage(input.mode, input.imageDataUrl);
@@ -301,7 +300,7 @@ export function roomRoutes(
     return store.memory(input.mode);
   });
 
-  app.post('/api/room/forget', async (request) => {
+  app.post('/forget', async (request) => {
     const { mode } = parseInput(modeOnlySchema, request.body);
     const memory = store.memory(mode);
     store.saveMemory({ ...memory, camera: null });

@@ -16,7 +16,6 @@ import {
   fixturesSculptReapplyBodySchema,
   fixturesStateBodySchema,
   fixturesUndismissBodySchema,
-  modeOnlySchema,
   DEMO_REFERENCES,
   DEMO_SURFACE,
   calibrationOf,
@@ -78,7 +77,6 @@ import {
   type FixtureDraft,
   type FixtureState,
   type LampResult,
-  type Mode,
   type Segmentation,
   type MergedFacts,
   type ProductFacts,
@@ -87,7 +85,7 @@ import {
   addUsage,
 } from '@livinglayer/domain';
 import { LabError, liveImage, parseInput } from './errors.js';
-import { following, type Jobs } from './jobs.js';
+import { following } from './jobs.js';
 import { listedPreview, outlinedPreview, placedPreview } from './scan-preview.js';
 import sharp from 'sharp';
 import {
@@ -108,7 +106,7 @@ import {
   rescore,
   viewPng,
 } from './item.js';
-import type { Runner } from './runs.js';
+import type { RouteDeps } from './route-deps.js';
 import { SEARCH_CEILING, SPARK_BUDGET, type MetaAdapter } from './meta.js';
 import { BUNDLED_CATALOG, Catalog, research, type Researcher } from './research.js';
 import type { EvidenceStore } from './store.js';
@@ -367,8 +365,6 @@ const samePlace = (a: Fixture, b: FixtureInput) =>
   Math.abs(a.at.y - b.at.y) < 1e-6;
 
 /** Switch one light or switch, through Home Assistant or the demo's virtual adapter. */
-export type Control = (mode: Mode, entityId: string, action: 'on' | 'off') => Promise<LampResult>;
-
 /** What a confirmed action says about every fixture on that entity; unconfirmed says nothing. */
 export function noteControl(memory: DeskMemory, result: LampResult): void {
   for (const f of memory.fixtures ?? []) {
@@ -399,7 +395,7 @@ function lastLit(
  * where one stands and what it switches; controlling one is an explicit
  * action recorded like the lamp test.
  */
-export function fixtureRoutes(
+export async function fixtureRoutes(
   app: FastifyInstance,
   {
     store,
@@ -410,18 +406,10 @@ export function fixtureRoutes(
     productsDir,
     sam3d = null,
     jobs,
-  }: {
-    store: EvidenceStore;
-    meta: MetaAdapter;
-    run: Runner;
-    jobs: Jobs;
-    control: Control;
-    entities: (mode: Mode) => string[];
-    /** Where looked-up products are kept, as the AI brush keeps them. */
-    productsDir: string;
-    /** SAM 3D on a masked crop, giving a splat's PLY bytes; null when it isn't set up. */
-    sam3d?: ((crop: Buffer, signal?: AbortSignal) => Promise<Buffer>) | null;
-  },
+  }: Pick<
+    RouteDeps,
+    'store' | 'meta' | 'run' | 'jobs' | 'control' | 'entities' | 'productsDir' | 'sam3d'
+  >,
 ) {
   /**
    * Draft a fixture from a reference photo: one thing, filling most of the
@@ -430,7 +418,7 @@ export function fixtureRoutes(
    * comes back for the person to name, choose a control for, and place.
    * Demo mode drafts from the bundled illustrations only.
    */
-  app.post('/api/fixtures/draft', async (request) => {
+  app.post('/draft', async (request) => {
     const input = parseInput(fixturesDraftBodySchema, request.body);
     const { mode, scene } = input;
     const live = mode === 'live';
@@ -626,7 +614,7 @@ export function fixtureRoutes(
    * touches down, which a loose box doesn't. Demo mode scans the
    * demo office through its camera, with no model call.
    */
-  app.post('/api/fixtures/scan', async (request) => {
+  app.post('/scan', async (request) => {
     const { mode, imageDataUrl, scene, replace, addNew, jobId } = parseInput(
       fixturesScanBodySchema,
       request.body,
@@ -921,7 +909,7 @@ export function fixtureRoutes(
    * of its own draft (a second), and the draft whose silhouette matches the
    * picture better is kept, with any parts the person locked. Live only.
    */
-  app.post('/api/fixtures/sculpt', async (request) => {
+  app.post('/sculpt', async (request) => {
     const { mode, fixtureId, jobId, note } = parseInput(fixturesSculptBodySchema, request.body);
     if (mode !== 'live')
       throw new LabError(
@@ -1197,7 +1185,7 @@ export function fixtureRoutes(
    * Put a past modelling job's model back on its fixture, as it saved it then,
    * with no model call: the model it replaces is kept as an earlier draft.
    */
-  app.post('/api/fixtures/sculpt/reapply', async (request) => {
+  app.post('/sculpt/reapply', async (request) => {
     const { mode, jobId } = parseInput(fixturesSculptReapplyBodySchema, request.body);
     const found = sculptRunOf(jobs.get(jobId), (id) => store.getRun(id));
     if (!found || found.run.mode !== mode)
@@ -1221,7 +1209,7 @@ export function fixtureRoutes(
    * crop is than the last one's. Its crop becomes the fixture's picture. The
    * demo uses its own close photos: the mug's, or a bundled picture by name.
    */
-  app.post('/api/fixtures/photo', async (request) => {
+  app.post('/photo', async (request) => {
     const { mode, fixtureId, imageDataUrl } = parseInput(fixturesPhotoBodySchema, request.body);
     const live = mode === 'live';
     if (live !== Boolean(imageDataUrl))
@@ -1363,7 +1351,7 @@ export function fixtureRoutes(
    * takes minutes, longer than a request may stay open, so it answers at
    * once and the page follows the job. Only turned bodies, for now.
    */
-  app.post('/api/fixtures/refine3d', async (request) => {
+  app.post('/refine3d', async (request) => {
     const { mode, fixtureId, jobId } = parseInput(fixturesRefine3dBodySchema, request.body);
     if (!sam3d)
       throw new LabError(
@@ -1473,7 +1461,7 @@ export function fixtureRoutes(
    * with what it was chosen over (`fixture-picks.jsonl` in the data folder),
    * as examples of which modeller people prefer for which things.
    */
-  app.post('/api/fixtures/choose', async (request) => {
+  app.post('/choose', async (request) => {
     const { mode, fixtureId, draft } = parseInput(fixturesChooseBodySchema, request.body);
     const memory = store.memory(mode);
     const fixture = memory.fixtures?.find((f) => f.id === fixtureId);
@@ -1508,7 +1496,7 @@ export function fixtureRoutes(
     });
     return memory;
   });
-  app.post('/api/fixtures/save', async (request) => {
+  app.post('/save', async (request) => {
     const { mode, fixture: input } = parseInput(fixturesSaveBodySchema, request.body);
     const memory = store.memory(mode);
     const fixtures = memory.fixtures ?? [];
@@ -1657,31 +1645,8 @@ export function fixtureRoutes(
     store.saveMemory(memory);
     return memory;
   });
-  /**
-   * The photo a drafted room's pin was set on, at the pin's frame size, for
-   * checking the pin's corners on it after the page has lost its photo.
-   */
-  app.get('/api/scene/photo', async (request, reply) => {
-    const { mode } = parseInput(modeOnlySchema, request.query);
-    const memory = store.memory(mode);
-    const bytes = mode === 'live' ? roomPhotoBytes(memory, store) : null;
-    if (!bytes || !memory.surface)
-      throw new LabError('photo_missing', 'This room has no photo of its own kept.', 404);
-    const { width, height } = memory.surface.frame;
-    // A photo of another shape is from another camera: stretched, its desk would
-    // pass for the pinned camera's, and the pin would be dragged onto the wrong view.
-    const size = await sharp(bytes).metadata();
-    if (Math.abs(size.width! / size.height! - width / height) > 0.02 * (width / height))
-      throw new LabError(
-        'photo_shape',
-        `The room’s photo is ${size.width}×${size.height}, and the pin was set on ${width}×${height} frames from another camera. Start that camera to check the pin on what it shows.`,
-        409,
-      );
-    const png = await sharp(bytes).resize(width, height, { fit: 'fill' }).png().toBuffer();
-    return reply.type('image/png').header('cache-control', 'no-cache').send(png);
-  });
   /** The reference photo a fixture was drafted from, for review and the inspector. */
-  app.get('/api/fixtures/reference', async (request, reply) => {
+  app.get('/reference', async (request, reply) => {
     const { runId } = parseInput(fixturesReferenceQuerySchema, request.query);
     const drafted = store.getRun(runId);
     const png = drafted?.kind === 'fixture' ? store.readAsset(`${runId}/reference.png`) : null;
@@ -1700,7 +1665,7 @@ export function fixtureRoutes(
    * call). The demo picks the render's outlines under that box.
    * Saved as an ordinary segmentation of the fixture's name.
    */
-  app.post('/api/fixtures/find', async (request) => {
+  app.post('/find', async (request) => {
     const { mode, id, imageDataUrl } = parseInput(fixturesFindBodySchema, request.body);
     const memory = store.memory(mode);
     const fixture = memory.fixtures?.find((f) => f.id === id);
@@ -1779,7 +1744,7 @@ export function fixtureRoutes(
     });
   });
   /** Delete one fixture, or several at once (`fixtureIds`), in one save. */
-  app.post('/api/fixtures/delete', async (request) => {
+  app.post('/delete', async (request) => {
     const { mode, fixtureId, fixtureIds, dismiss } = parseInput(
       fixturesDeleteBodySchema,
       request.body,
@@ -1800,7 +1765,7 @@ export function fixtureRoutes(
     return memory;
   });
   /** Hand every fixture of a scene back to scans, to place and refit on the next one. */
-  app.post('/api/fixtures/release', async (request) => {
+  app.post('/release', async (request) => {
     const { mode, scene } = parseInput(fixturesReleaseBodySchema, request.body);
     const memory = store.memory(mode);
     for (const f of memory.fixtures ?? []) if (f.scene === scene) f.scanned = true;
@@ -1808,7 +1773,7 @@ export function fixtureRoutes(
     return memory;
   });
   /** Let scans find a dismissed name again. */
-  app.post('/api/fixtures/undismiss', async (request) => {
+  app.post('/undismiss', async (request) => {
     const { mode, label } = parseInput(fixturesUndismissBodySchema, request.body);
     const memory = store.memory(mode);
     memory.dismissed = (memory.dismissed ?? []).filter((d) => d !== label);
@@ -1819,7 +1784,7 @@ export function fixtureRoutes(
    * Switch a fixture's active state, or add/edit/remove a custom state with its
    * own unique fixture model, size or reference.
    */
-  app.post('/api/fixtures/state', async (request) => {
+  app.post('/state', async (request) => {
     const {
       mode,
       fixtureId,
@@ -1894,7 +1859,7 @@ export function fixtureRoutes(
    * Switch a fixture's light or switch, a fixture's state/pose, or a configured
    * entity directly: a lamp that is part of the room's layout has no fixture of its own.
    */
-  app.post('/api/fixtures/control', async (request) => {
+  app.post('/control', async (request) => {
     const { mode, fixtureId, entityId, part, action } = parseInput(
       fixturesControlBodySchema,
       request.body,

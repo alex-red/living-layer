@@ -20,10 +20,8 @@ import {
 import { samWhole } from './assist.js';
 import { LabError, liveImage, parseInput } from './errors.js';
 import { samDataUrl, requireFrame, validateImage } from './images.js';
-import type { Runner } from './runs.js';
-import type { MetaAdapter } from './meta.js';
+import type { RouteDeps } from './route-deps.js';
 import { NOT_CALIBRATED } from './photo.js';
-import type { EvidenceStore } from './store.js';
 
 /**
  * Fit one prop of the scene being edited to where the room's camera sees it:
@@ -32,11 +30,11 @@ import type { EvidenceStore } from './store.js';
  * round if that fits better, until its drawing matches (`fitGroup`). Nothing
  * is saved: the editor takes the scene and the person saves it.
  */
-export function sceneFitRoutes(
+export async function sceneFitRoutes(
   app: FastifyInstance,
-  { store, meta, run }: { store: EvidenceStore; meta: MetaAdapter; run: Runner },
+  { store, meta, run }: Pick<RouteDeps, 'store' | 'meta' | 'run'>,
 ) {
-  app.post('/api/scene/fit', async (request): Promise<SceneFit> => {
+  app.post('/fit', async (request): Promise<SceneFit> => {
     const { mode, scene, group, imageDataUrl } = parseInput(sceneFitBodySchema, request.body);
     const camera = mode === 'demo' ? DEMO_CAMERA : calibrationOf(store.memory(mode))?.camera;
     if (!camera) throw new LabError('not_calibrated', NOT_CALIBRATED, 409);

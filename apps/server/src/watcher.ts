@@ -800,7 +800,7 @@ export async function setWatching(
  * The watchers' routes: the view and its event stream, turning watching on
  * or off with a camera the server can read, and the demo's moves.
  */
-export function watchRoutes(
+export async function watchRoutes(
   app: FastifyInstance,
   watchers: Record<Mode, Watcher>,
   {
@@ -814,18 +814,11 @@ export function watchRoutes(
     saved?: (streamId: string) => WatchCamera | null;
   },
 ) {
-  // Whatever a person changes in a desk, the watcher follows from then on.
-  app.addHook('onResponse', async (request, reply) => {
-    if (request.method !== 'POST' || reply.statusCode >= 400) return;
-    if (!/^\/api\/(desk|fixtures|scene|item|expose)\//.test(request.url)) return;
-    void watchers.demo.sync();
-    void watchers.live.sync();
-  });
-  app.get('/api/watch/:mode', async (request) => {
+  app.get('/:mode', async (request) => {
     const { mode } = parseInput(modeOnlySchema, request.params);
     return watchers[mode].view();
   });
-  app.get('/api/watch/:mode/events', (request, reply) => {
+  app.get('/:mode/events', (request, reply) => {
     const { mode } = parseInput(modeOnlySchema, request.params);
     const watcher = watchers[mode];
     reply.hijack();
@@ -843,7 +836,7 @@ export function watchRoutes(
       clearInterval(ping);
     });
   });
-  app.post('/api/watch', async (request) => {
+  app.post('', async (request) => {
     const { mode, on, streamId } = parseInput(watchBodySchema, request.body);
     const memory = store.memory(mode);
     let camera = memory.watch?.camera ?? null;
@@ -864,7 +857,7 @@ export function watchRoutes(
     }
     return setWatching(store, watchers[mode], on, camera);
   });
-  app.post('/api/watch/demo', async (request) => {
+  app.post('/demo', async (request) => {
     const { position } = parseInput(watchDemoBodySchema, request.body);
     await watchers.demo.showDemo(position);
     return { position, label: DEMO_POSITIONS[position].label };

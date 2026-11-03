@@ -40,7 +40,7 @@ import { LabError, parseInput } from './errors.js';
 import { detectionBits, findSource, maskedCrop, toDataUrl } from './images.js';
 import type { MetaAdapter } from './meta.js';
 import { requestSignal } from './request-signal.js';
-import type { Runner } from './runs.js';
+import type { RouteDeps } from './route-deps.js';
 import type { EvidenceStore } from './store.js';
 
 /** What a Spark class looks like offline: the demo mug is a glossy mug. */
@@ -225,9 +225,9 @@ export async function draftModel(
   return { input, fitted, params, item, score, assets, assists, usage };
 }
 
-export function itemRoutes(
+export async function itemRoutes(
   app: FastifyInstance,
-  { store, meta, run }: { store: EvidenceStore; meta: MetaAdapter; run: Runner },
+  { store, meta, run }: Pick<RouteDeps, 'store' | 'meta' | 'run'>,
 ) {
   /**
    * Draft a model of a remembered object from its current sighting's mask.
@@ -237,7 +237,7 @@ export function itemRoutes(
    * Spark compares a render with the photo and suggests bounded corrections,
    * kept only when the silhouette still matches.
    */
-  app.post('/api/item/draft', async (request) => {
+  app.post('/draft', async (request) => {
     const { mode, source, objectId } = parseInput(itemDraftBodySchema, request.body);
     const object = modelTarget(store.memory(mode), objectId);
     const sighting = object?.observation;
@@ -357,7 +357,7 @@ export function itemRoutes(
    * Fit the model to its crop again, after edits: no model calls, and the
    * parts a person locked stay as they are.
    */
-  app.post('/api/item/refit', async (request) => {
+  app.post('/refit', async (request) => {
     const { mode, objectId, item } = parseInput(itemRefitBodySchema, request.body);
     const target = modelTarget(store.memory(mode), objectId);
     const fit = target?.item?.fit;
@@ -382,7 +382,7 @@ export function itemRoutes(
     return memory;
   });
   /** The masked crop a model was fitted to, to lay the model over in the editor. */
-  app.get('/api/item/crop', async (request, reply) => {
+  app.get('/crop', async (request, reply) => {
     const { mode, objectId } = parseInput(itemCropQuerySchema, request.query);
     const crop = modelTarget(store.memory(mode), objectId)?.item?.fit?.crop;
     const png = crop ? store.readAsset(crop) : null;

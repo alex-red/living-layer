@@ -32,7 +32,7 @@ import {
 } from '@livinglayer/domain';
 import { LabError, liveImage, parseInput } from './errors.js';
 import { samDataUrl, toDataUrl, requireFrame, validateImage } from './images.js';
-import type { Runner } from './runs.js';
+import type { RouteDeps } from './route-deps.js';
 import {
   basePrompt,
   cutSprite,
@@ -44,10 +44,9 @@ import {
   outlineFits,
 } from './layers.js';
 import { roomPhotoBytes } from './fixture.js';
-import { following, type Jobs } from './jobs.js';
+import { following } from './jobs.js';
 import { listedPreview, outlinedPreview } from './scan-preview.js';
-import { SPARK_BUDGET, type MetaAdapter } from './meta.js';
-import type { EvidenceStore } from './store.js';
+import { SPARK_BUDGET } from './meta.js';
 
 /** What drawing the room reports while it runs, and how big its previews are. */
 const ROOM_STEPS = [
@@ -95,11 +94,11 @@ export interface Illustrated {
  * The scene and its pin stay what they were; the picture is how the room is
  * shown.
  */
-export function illustrationRoutes(
+export async function illustrationRoutes(
   app: FastifyInstance,
-  { store, meta, run, jobs }: { store: EvidenceStore; meta: MetaAdapter; run: Runner; jobs: Jobs },
+  { store, meta, run, jobs }: Pick<RouteDeps, 'store' | 'meta' | 'run' | 'jobs'>,
 ) {
-  app.post('/api/scene/illustrate', async (request): Promise<Illustrated> => {
+  app.post('/illustrate', async (request): Promise<Illustrated> => {
     const input = parseInput(sceneIllustrateBodySchema, request.body);
     const { mode, view } = input;
     const live = mode === 'live';
@@ -298,7 +297,7 @@ export function illustrationRoutes(
    * (one image, $0.01), its background made transparent like the picture's;
    * the demo fills the places they leave from around them instead.
    */
-  app.post('/api/scene/separate', async (request) => {
+  app.post('/separate', async (request) => {
     const { mode, jobId } = parseInput(sceneSeparateBodySchema, request.body);
     const live = mode === 'live';
     const memory = store.memory(mode);
@@ -536,7 +535,7 @@ export function illustrationRoutes(
     });
   });
   /** Put the fixtures back into the picture: it is shown whole again. */
-  app.post('/api/scene/separate/undo', async (request) => {
+  app.post('/separate/undo', async (request) => {
     const { mode } = parseInput(modeOnlySchema, request.body);
     const memory = store.memory(mode);
     if (memory.illustration?.layers) {
@@ -546,7 +545,7 @@ export function illustrationRoutes(
     return { memory: store.memory(mode) };
   });
   /** A room's picture, or one of its layers. */
-  app.get('/api/scene/illustration', async (request, reply) => {
+  app.get('/illustration', async (request, reply) => {
     const { asset } = parseInput(sceneIllustrationQuerySchema, request.query);
     const png = store.readAsset(asset);
     if (!png) throw new LabError('illustration_missing', 'This picture is gone.', 404);

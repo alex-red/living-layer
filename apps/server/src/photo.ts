@@ -41,7 +41,6 @@ import {
   type PhotoCheck,
   addUsage,
 } from '@livinglayer/domain';
-import type { Config } from './config.js';
 import { LabError, liveImage, parseInput } from './errors.js';
 import { demoPhotoCheck, demoPhotoInventory, demoPhotoSegmentation } from './demo.js';
 import {
@@ -54,10 +53,9 @@ import {
   type ValidatedImage,
 } from './images.js';
 import { demoPhoto } from './item.js';
-import type { Runner } from './runs.js';
-import { SPARK_BUDGET, type MetaAdapter } from './meta.js';
-import type { EvidenceStore } from './store.js';
-import { following, type JobTracker, type Jobs } from './jobs.js';
+import type { RouteDeps } from './route-deps.js';
+import { SPARK_BUDGET } from './meta.js';
+import { following, type JobTracker } from './jobs.js';
 import { calibrateRoom, findFloorMarks, fitRoom } from './room.js';
 import { listedPreview, outlinedPreview } from './scan-preview.js';
 
@@ -137,14 +135,9 @@ export type { PhotoDraft };
  * and one more SAM call for anything it says is missing). Nothing is saved to
  * desk memory until the person saves the review.
  */
-export function photoRoutes(
+export async function photoRoutes(
   app: FastifyInstance,
-  {
-    store,
-    meta,
-    run,
-    jobs,
-  }: { store: EvidenceStore; meta: MetaAdapter; run: Runner; jobs: Jobs; config: Config },
+  { store, meta, run, jobs }: Pick<RouteDeps, 'store' | 'meta' | 'run' | 'jobs' | 'config'>,
 ) {
   /** Save the box-prompted segmentation as a segment run, like any other. */
   function saveSegment(
@@ -450,7 +443,7 @@ export function photoRoutes(
     };
     return { output, usage };
   }
-  app.post('/api/scene/from-photo', async (request) => {
+  app.post('/from-photo', async (request) => {
     const input = parseInput(sceneFromPhotoBodySchema, request.body);
     const { mode } = input;
     const live = mode === 'live';
@@ -542,7 +535,7 @@ export function photoRoutes(
    * which wall is the room's back (its direction) and is saved. Then the
    * draft runs through the new camera as usual, for the person to review.
    */
-  app.post('/api/scene/setup', async (request) => {
+  app.post('/setup', async (request) => {
     const input = parseInput(sceneSetupBodySchema, request.body);
     const { mode } = input;
     const live = mode === 'live';

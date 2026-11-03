@@ -45,7 +45,6 @@ import {
   type BuildRound,
   type FixtureRecipe,
   type IntentContext,
-  type Mode,
   type ProductFacts,
   type PropForm,
   type RecipeCheck,
@@ -67,12 +66,11 @@ import { LabError, liveImage, parseInput } from './errors.js';
 import { NOT_CALIBRATED } from './photo.js';
 import { around } from './fixture.js';
 import { toDataUrl, requireFrame, validateImage } from './images.js';
-import type { Runner } from './runs.js';
-import { following, type Jobs } from './jobs.js';
-import { SEARCH_CEILING, SPARK_BUDGET, type MetaAdapter } from './meta.js';
+import type { RouteDeps } from './route-deps.js';
+import { following } from './jobs.js';
+import { SEARCH_CEILING, SPARK_BUDGET } from './meta.js';
 import { BUNDLED_CATALOG, Catalog, research, type Researcher } from './research.js';
 import { selectionRoom } from './select.js';
-import type { EvidenceStore } from './store.js';
 
 /**
  * The AI brush ([plan](../../../docs/plans/ai-brush.md#7-orchestration-and-cost)):
@@ -117,7 +115,7 @@ const dataUrl = toDataUrl;
 /** Ops that change a model's shape: after them the camera check runs again. */
 const SHAPES: RecipeOp['op'][] = ['resize', 'add_part', 'remove_part'];
 
-export function assistRoutes(
+export async function assistRoutes(
   app: FastifyInstance,
   {
     store,
@@ -126,17 +124,9 @@ export function assistRoutes(
     entities,
     productsDir,
     jobs,
-  }: {
-    store: EvidenceStore;
-    meta: MetaAdapter;
-    run: Runner;
-    jobs: Jobs;
-    entities: (mode: Mode) => string[];
-    /** Where accepted products are saved (`DATA_DIR/products`); live reads it before the web. */
-    productsDir: string;
-  },
+  }: Pick<RouteDeps, 'store' | 'meta' | 'run' | 'jobs' | 'entities' | 'productsDir'>,
 ) {
-  app.post('/api/assist', async (request) => {
+  app.post('', async (request) => {
     const input = parseInput(assistBodySchema, request.body);
     const { mode } = input;
     const live = mode === 'live';
@@ -358,7 +348,7 @@ export function assistRoutes(
    * monitor, the pin, fixtures, zones) moves onto the new model's top. Live,
    * a looked-up product is kept in the catalog with its model.
    */
-  app.post('/api/assist/save', async (request) => {
+  app.post('/save', async (request) => {
     const { mode, runId } = parseInput(assistSaveBodySchema, request.body);
     const done = store.getRun(runId);
     if (!done || done.kind !== 'assist' || done.mode !== mode || done.status !== 'completed')

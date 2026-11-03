@@ -12,9 +12,6 @@ import {
   demoSourceKey,
   DEMO_LIGHTS,
   DEMO_SWITCHES,
-  buildScene,
-  isoSceneSchema,
-  type SceneDraft,
   estimateCost,
   type EvidenceRun,
   type Mode,
@@ -36,13 +33,11 @@ import { LabError, logError, liveImage, parseInput } from './errors.js';
 import { findSource, samDataUrl, toDataUrl, validateImage } from './images.js';
 import { deskRoutes } from './desk.js';
 import { itemRoutes } from './item.js';
-import { photoRoutes } from './photo.js';
-import { sceneFitRoutes } from './scene-fit.js';
+import { sceneRoutes } from './scene.js';
 import { pinRoutes } from './pin.js';
 import { selectRoutes } from './select.js';
 import { assistRoutes } from './assist.js';
 import { roomRoutes } from './room.js';
-import { illustrationRoutes } from './illustration.js';
 import { jobRoutes, Jobs, runningJobs } from './jobs.js';
 import { listStreams, streamRoutes, type NetworkStream } from './streams.js';
 import { CameraRegistry, cameraRoutes } from './cameras.js';
@@ -56,14 +51,7 @@ import { createRunner } from './runs.js';
 import { Exposer, exposeRoutes } from './expose.js';
 import { MqttLink, type MqttConnect } from './mqtt.js';
 import { MqttControl } from './mqtt-control.js';
-import {
-  demoScene,
-  demoSceneGuess,
-  demoSegmentation,
-  demoLamp,
-  demoLampFor,
-  demoSceneDraft,
-} from './demo.js';
+import { demoScene, demoSegmentation, demoLamp, demoLampFor } from './demo.js';
 
 const watching = new WeakMap<object, Record<Mode, Watcher>>();
 /** The camera watchers of an app `buildApp` made, for tests. */
@@ -303,7 +291,8 @@ export async function buildApp(
     if (target && mqttControl.has(target)) return mqttControl.act(target, action);
     return action === 'on' ? lamp.turnOn(target) : lamp.turnOff(target);
   };
-  haRoutes(app, {
+  app.register(haRoutes, {
+    prefix: '/api/ha',
     config,
     store,
     lamp,
@@ -322,7 +311,8 @@ export async function buildApp(
         : switchLive(entityId, action),
     entities,
   );
-  fixtureRoutes(app, {
+  app.register(fixtureRoutes, {
+    prefix: '/api/fixtures',
     store,
     meta,
     run,
@@ -347,10 +337,12 @@ export async function buildApp(
   const cameras = new CameraRegistry(store, options.relay ?? null);
   remote.crop = cameras.phoneCrop();
   const knownStreams = () => [...remote.streams(), ...cameras.streams()];
-  streamRoutes(app, config, options.browseCameras, knownStreams);
+  app.register((scope) => streamRoutes(scope, config, options.browseCameras, knownStreams), {
+    prefix: '/api/streams',
+  });
   app.get('/api/runs', async () => store.list());
   jobs.keepIn(store);
-  jobRoutes(app, jobs, store);
+  app.register((scope) => jobRoutes(scope, jobs, store), { prefix: '/api/jobs' });
   app.get('/api/evidence', async (_request, reply) =>
     reply.header('Content-Disposition', 'attachment; filename="livinglayer-evidence.json"').send({
       project: 'LivingLayer',
@@ -390,51 +382,12 @@ export async function buildApp(
       return { ...result, assets: [store.asset(id, `source.${image.ext}`, image.bytes)] };
     });
   });
-  /**
-   * Draft a whole scene from a photo: Spark places templates on a grid, the
-   * server builds and checks the geometry. Nothing is saved until the person
-   * saves it from the scene editor.
-   */
-  app.post('/api/scene/draft', async (request) => {
-    const input = parseInput(imageRequestSchema, request.body);
-    return run('layout', input.mode, async (id) => {
-      if (input.mode === 'demo') {
-        liveImage(input.mode, input.imageDataUrl);
-        return { output: drafted(demoSceneDraft) };
-      }
-      const image = await validateImage(input.imageDataUrl);
-      const result = await meta.layout(image.dataUrl);
-      return {
-        ...result,
-        output: drafted(result.output),
-        assets: [store.asset(id, `source.${image.ext}`, image.bytes)],
-      };
-    });
-  });
-  function drafted(draft: SceneDraft) {
-    const scene = buildScene(draft);
-    if (!isoSceneSchema.safeParse(scene).success)
-      throw new LabError('invalid_scene', 'The drafted layout did not fit its grid.', 502);
-    return { draft, scene };
-  }
-  app.post('/api/scene/classify', async (request) => {
-    const input = parseInput(imageRequestSchema, request.body);
-    return run('scene', input.mode, async (id) => {
-      if (input.mode === 'demo') {
-        liveImage(input.mode, input.imageDataUrl);
-        return { output: demoSceneGuess };
-      }
-      const image = await validateImage(input.imageDataUrl);
-      const result = await meta.classify(image.dataUrl);
-      return { ...result, assets: [store.asset(id, `source.${image.ext}`, image.bytes)] };
-    });
-  });
-  itemRoutes(app, { store, meta, run });
-  photoRoutes(app, { store, meta, run, jobs, config });
-  sceneFitRoutes(app, { store, meta, run });
-  pinRoutes(app, { store });
-  selectRoutes(app, { store });
-  assistRoutes(app, {
+  app.register(itemRoutes, { prefix: '/api/item', store, meta, run });
+  app.register(sceneRoutes, { prefix: '/api/scene', store, meta, run, jobs, config });
+  app.register(pinRoutes, { prefix: '/api/desk', store });
+  app.register(selectRoutes, { prefix: '/api/select', store });
+  app.register(assistRoutes, {
+    prefix: '/api/assist',
     store,
     meta,
     run,
@@ -442,8 +395,7 @@ export async function buildApp(
     entities,
     productsDir: join(config.dataDir, 'products'),
   });
-  roomRoutes(app, { store, meta, run });
-  illustrationRoutes(app, { store, meta, run, jobs });
+  app.register(roomRoutes, { prefix: '/api/room', store, meta, run });
   /** One SAM segmentation, recorded and billed as a run: the lab's button, or the watcher. */
   function segment(
     input: {
@@ -551,14 +503,18 @@ export async function buildApp(
     demo: new Watcher(watcherDeps('demo')),
     live: new Watcher(watcherDeps('live')),
   };
-  watchRoutes(app, watchers, {
-    store,
-    streams: () => listStreams(config, options.browseCameras, knownStreams),
-    saved: (streamId) => {
-      const id = savedIdOf(streamId);
-      return id === null ? null : cameras.watchCamera(id);
-    },
-  });
+  app.register(
+    (scope) =>
+      watchRoutes(scope, watchers, {
+        store,
+        streams: () => listStreams(config, options.browseCameras, knownStreams),
+        saved: (streamId) => {
+          const id = savedIdOf(streamId);
+          return id === null ? null : cameras.watchCamera(id);
+        },
+      }),
+    { prefix: '/api/watch' },
+  );
   /**
    * Watching is on by default. When the server starts, the live desk watches the camera
    * it watched before, or else the one saved camera the server can read: turning it off
@@ -579,7 +535,7 @@ export async function buildApp(
           : null;
     if (camera) await setWatching(store, watchers.live, true, camera).catch(() => {});
   };
-  cameraRoutes(app, cameras, {
+  const cameraOptions: Parameters<typeof cameraRoutes>[2] = {
     onSaved: () => void watchByDefault(false),
     // Watching a camera that was just removed stops; choosing another starts it again.
     onRemoved: (streamId) => {
@@ -601,7 +557,8 @@ export async function buildApp(
     },
     ...(options.snapshots ? { source: options.snapshots } : {}),
     ...(options.previews ? { preview: options.previews } : {}),
-  });
+  };
+  app.register((scope) => cameraRoutes(scope, cameras, cameraOptions), { prefix: '/api' });
   // Entities shown in Home Assistant, worked out from desk memory and what the watchers see.
   const exposers: Record<Mode, Exposer> = {
     demo: new Exposer({
@@ -622,7 +579,24 @@ export async function buildApp(
       },
     }),
   };
-  exposeRoutes(app, exposers, store, (mode, zoneId) => watchers[mode].learnEmpty(zoneId));
+  app.register(
+    (scope) =>
+      exposeRoutes(scope, exposers, store, (mode, zoneId) => watchers[mode].learnEmpty(zoneId)),
+    { prefix: '/api/expose' },
+  );
+  // Whatever a person changes in a desk, the watchers follow and the entities shown in Home
+  // Assistant follow. A root hook, so it covers every plugin's routes.
+  app.addHook('onResponse', async (request, reply) => {
+    if (request.method !== 'POST' || reply.statusCode >= 400) return;
+    if (/^\/api\/(desk|fixtures|scene|item|expose)\//.test(request.url)) {
+      void watchers.demo.sync();
+      void watchers.live.sync();
+    }
+    if (/^\/api\/(desk|fixtures|scene|item|expose|watch)\b/.test(request.url)) {
+      exposers.demo.sync();
+      exposers.live.sync();
+    }
+  });
   for (const mode of ['demo', 'live'] as const)
     watchers[mode].subscribe(() => exposers[mode].sync());
   // Motion holds run out with no frame to say so.

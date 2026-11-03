@@ -19,7 +19,6 @@ import {
   modeOnlySchema,
   sceneFromPhotoSaveBodySchema,
   sceneSaveBodySchema,
-  sceneTextureQuerySchema,
   type ZoneOnSurface,
   isoSurface,
   fixtureEntities,
@@ -783,13 +782,6 @@ export function deskRoutes(
    * model fitted to it. The first ticked object becomes the main one (the
    * mug), so identity stays a person's choice, as it does for a mask.
    */
-  /** A face texture of a scene drafted from a photo, before the room had a calibrated camera. */
-  app.get('/api/scene/texture', async (request, reply) => {
-    const { asset } = parseInput(sceneTextureQuerySchema, request.query);
-    const png = store.readAsset(asset);
-    if (!png) throw new LabError('texture_missing', 'This texture is gone.', 404);
-    return reply.type('image/png').header('cache-control', 'no-cache').send(png);
-  });
   app.post('/api/scene/from-photo/save', async (request) => {
     const {
       mode,

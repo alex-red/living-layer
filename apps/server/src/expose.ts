@@ -207,24 +207,17 @@ export class Exposer {
 }
 
 /** The lab's routes for entities shown in Home Assistant. */
-export function exposeRoutes(
+export async function exposeRoutes(
   app: FastifyInstance,
   exposers: Record<Mode, Exposer>,
   store: EvidenceStore,
   learnEmpty: (mode: Mode, zoneId: string) => Promise<'features' | 'pixels'>,
 ) {
-  // Whatever a person changes, the entities follow.
-  app.addHook('onResponse', async (request, reply) => {
-    if (request.method !== 'POST' || reply.statusCode >= 400) return;
-    if (!/^\/api\/(desk|fixtures|scene|item|expose|watch)\b/.test(request.url)) return;
-    exposers.demo.sync();
-    exposers.live.sync();
-  });
-  app.get('/api/expose/:mode', async (request) => {
+  app.get('/:mode', async (request) => {
     const { mode } = parseInput(modeOnlySchema, request.params);
     return exposers[mode].view();
   });
-  app.get('/api/expose/:mode/events', (request, reply) => {
+  app.get('/:mode/events', (request, reply) => {
     const { mode } = parseInput(modeOnlySchema, request.params);
     const exposer = exposers[mode];
     reply.hijack();
@@ -242,7 +235,7 @@ export function exposeRoutes(
       clearInterval(ping);
     });
   });
-  app.post('/api/expose/save', async (request) => {
+  app.post('/save', async (request) => {
     const { mode, entity: input } = parseInput(exposeSaveBodySchema, request.body);
     const memory = store.memory(mode);
     const list = memory.exposed ?? [];
@@ -258,12 +251,12 @@ export function exposeRoutes(
     return memory;
   });
   /** The person says the zone is empty now: remember how it looks, to tell when someone is there. */
-  app.post('/api/expose/learn-empty', async (request) => {
+  app.post('/learn-empty', async (request) => {
     const { mode, zoneId } = parseInput(exposeLearnEmptyBodySchema, request.body);
     const method = await learnEmpty(mode, zoneId);
     return { zoneId, method, view: exposers[mode].view() };
   });
-  app.post('/api/expose/delete', async (request) => {
+  app.post('/delete', async (request) => {
     const { mode, id } = parseInput(modeIdSchema, request.body);
     const memory = store.memory(mode);
     memory.exposed = (memory.exposed ?? []).filter((e) => e.id !== id);

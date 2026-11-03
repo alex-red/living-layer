@@ -10,7 +10,7 @@ import {
 } from '@livinglayer/domain';
 import { LabError, liveImage, parseInput } from './errors.js';
 import { NOT_CALIBRATED } from './photo.js';
-import type { EvidenceStore } from './store.js';
+import type { RouteDeps } from './route-deps.js';
 
 export interface AutoPin {
   /** Always null: the calibrated camera places the surface, with no SAM call. */
@@ -25,8 +25,8 @@ export interface AutoPin {
  * room's biggest desk or table. Nothing is saved: the person checks the
  * corners and saves them through `desk/surface` like a hand-made pin.
  */
-export function pinRoutes(app: FastifyInstance, { store }: { store: EvidenceStore }) {
-  app.post('/api/desk/auto-pin', async (request): Promise<AutoPin> => {
+export async function pinRoutes(app: FastifyInstance, { store }: Pick<RouteDeps, 'store'>) {
+  app.post('/auto-pin', async (request): Promise<AutoPin> => {
     const input = parseInput(deskAutoPinBodySchema, request.body);
     liveImage(input.mode, input.imageDataUrl);
     const memory = store.memory(input.mode);
