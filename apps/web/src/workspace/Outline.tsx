@@ -263,7 +263,7 @@ function SceneSwitcher() {
   );
 }
 
-/** What is left to set this scene up, in order; one line once it is all done. */
+/** What is left to set this scene up, in order; gone once it is all done. */
 function SetupCard() {
   const lab = useLabParts(useObservation(), useNavigation());
   const steps = lab.progress.steps.filter((s) => s.id !== 'office');
@@ -276,10 +276,11 @@ function SetupCard() {
     if (was.current && !all) setOpen(true);
     was.current = all;
   }, [all]);
+  if (all) return null;
   return (
-    <section className={`ol-setup ${all ? 'all' : ''}`} aria-label="Setting up this scene">
+    <section className="ol-setup" aria-label="Setting up this scene">
       <button className="ol-setup-head" aria-expanded={open} onClick={() => setOpen(!open)}>
-        <span className="tiny">{all ? 'SET UP ✓' : 'SET UP'}</span>
+        <span className="tiny">SET UP</span>
         <span className="ol-setup-bar" aria-hidden="true">
           {steps.map((s) => (
             <i key={s.id} className={s.state} />

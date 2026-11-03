@@ -470,10 +470,6 @@
   border-radius: var(--r-card);
   background: var(--surface-1);
 }
-.ol-setup.all {
-  border-color: transparent;
-  background: none;
-}
 .ol-setup-head {
   display: flex;
   align-items: center;
@@ -483,9 +479,6 @@
   border: 0;
   background: none;
   color: var(--text-2);
-}
-.ol-setup.all .tiny {
-  color: var(--ok);
 }
 .ol-setup-bar {
   display: flex;
