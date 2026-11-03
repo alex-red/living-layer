@@ -106,7 +106,7 @@ function newPart(shape: ItemPartDraft['shape'], taken: string[]): ItemPartDraft 
     at: { x: 0.3, y: 0.3, z: 0 },
     size: { w: 0.4, d: 0.4, h: 0.4 },
     color: MATERIALS[1]!,
-    taper: shape === 'cone' ? 0.5 : 1,
+    taper: 1,
   };
   switch (shape) {
     case 'lathe':
@@ -147,10 +147,6 @@ function newPart(shape: ItemPartDraft['shape'], taken: string[]): ItemPartDraft 
       return { ...base, radius: 0.15 };
     case 'blob':
       return { ...base, rough: 0.5 };
-    case 'handle':
-      return { ...base, size: { w: 0.25, d: 0.12, h: 0.4 } };
-    case 'lid':
-      return { ...base, size: { w: 0.6, d: 0.6, h: 0.06 } };
     default:
       return base;
   }
@@ -1357,16 +1353,7 @@ export function ItemEditor({
                   onChange={(v) => update({ size: { ...part.size, [k]: round(v) } })}
                 />
               ))}
-              {part.shape === 'cone' && (
-                <Slider
-                  label="TAPER"
-                  value={part.taper}
-                  min={0}
-                  max={2}
-                  onChange={(v) => update({ taper: round(v) })}
-                />
-              )}
-              {(part.shape === 'lathe' || part.shape === 'cylinder') && (
+              {part.shape === 'lathe' && (
                 <Slider
                   label="WALL"
                   value={part.wall ?? 0}

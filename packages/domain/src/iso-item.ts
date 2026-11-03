@@ -14,21 +14,11 @@ import type { Archetype, ArchetypeFit } from './iso-archetypes.js';
  * - `tube`: a round tube along a 2 to 4 point Bézier (handles, cables, arms).
  * - `extrude`: a footprint outline pushed up, with a bevel.
  * - `blob`: a lumpy ellipsoid (foliage, cloth, food).
- * - `cylinder`, `cone`, `box`, `handle` and `lid` are the first shapes; they
- *   still load and are drawn as the lathe, rbox and tube they stand for.
+ * - `cylinder`, `cone`, `box`, `handle` and `lid` were the first shapes; saved
+ *   items that still have them are turned into the lathe, rbox and tube they
+ *   stand for when they load (`upgradeItem`).
  */
-export const ITEM_SHAPES = [
-  'lathe',
-  'rbox',
-  'tube',
-  'extrude',
-  'blob',
-  'cylinder',
-  'box',
-  'cone',
-  'handle',
-  'lid',
-] as const;
+export const ITEM_SHAPES = ['lathe', 'rbox', 'tube', 'extrude', 'blob'] as const;
 /** How a surface takes light: it sets the shading ramp, highlight and transparency. */
 export const ITEM_MATERIALS = ['matte', 'gloss', 'metal', 'glass', 'fabric', 'wood'] as const;
 export type ItemMaterial = (typeof ITEM_MATERIALS)[number];
@@ -105,7 +95,7 @@ const partBase = {
   at: z.object({ x: coord, y: coord, z: z.number().min(0).max(6) }).strict(),
   size: z.object({ w: extent, d: extent, h: tall }).strict(),
   color: hexColorSchema,
-  /** Top radius as a share of the bottom one; only cones use it. */
+  /** Top radius as a share of the bottom one; no shape draws it now, but saved items carry it. */
   taper: z.number().min(0).max(2),
   material: z.enum(ITEM_MATERIALS).optional(),
   paint: z.array(paintSchema).max(6).optional(),
@@ -127,11 +117,12 @@ const insideField = z
   .optional();
 /** Lathe: an open top with walls this thick, as a share of the radius. */
 const wallField = z.number().min(0).max(0.9).optional();
-/** Tube radius in item units; corner radius (rbox, extrude) as a share of the smallest side. */
+/** Corner radius (rbox, extrude), as a share of the smallest side. */
 const radiusField = z.number().min(0).max(0.5).optional();
+/** A tube's radius is in item units, and a legacy handle was up to 3 thick. */
+const tubeRadiusField = z.number().min(0).max(1.5).optional();
 /**
- * One variant per shape, each with only the fields that shape draws. The
- * legacy shapes are members too, so they load and draw as before.
+ * One variant per shape, each with only the fields that shape draws.
  */
 const itemPartUnion = z.discriminatedUnion('shape', [
   z
@@ -143,13 +134,6 @@ const itemPartUnion = z.discriminatedUnion('shape', [
       inside: insideField,
     })
     .strict(),
-  z
-    .object({ ...partBase, shape: z.literal('cylinder'), wall: wallField, inside: insideField })
-    .strict(),
-  z.object({ ...partBase, shape: z.literal('cone') }).strict(),
-  z.object({ ...partBase, shape: z.literal('box') }).strict(),
-  z.object({ ...partBase, shape: z.literal('lid') }).strict(),
-  z.object({ ...partBase, shape: z.literal('handle') }).strict(),
   z.object({ ...partBase, shape: z.literal('rbox'), radius: radiusField }).strict(),
   z
     .object({
@@ -160,7 +144,8 @@ const itemPartUnion = z.discriminatedUnion('shape', [
         .array(z.object({ x: share, y: share, z: share }).strict())
         .min(2)
         .max(4),
-      radius: radiusField,
+      /** Radius in item units. */
+      radius: tubeRadiusField,
     })
     .strict(),
   z
@@ -225,8 +210,6 @@ export function previewItem(draft: IsoItemDraft): IsoItem {
             inside,
           },
         ];
-      case 'cylinder':
-        return [{ ...base, shape: 'cylinder', wall, inside }];
       case 'rbox':
         return [{ ...base, shape: 'rbox', radius }];
       case 'tube':
@@ -235,11 +218,6 @@ export function previewItem(draft: IsoItemDraft): IsoItem {
         return outline ? [{ ...base, shape: 'extrude', outline, radius }] : [];
       case 'blob':
         return [{ ...base, shape: 'blob', rough }];
-      case 'cone':
-      case 'box':
-      case 'lid':
-      case 'handle':
-        return [{ ...base, shape: p.shape }];
     }
   });
   return { label: draft.label, parts };
@@ -247,11 +225,6 @@ export function previewItem(draft: IsoItemDraft): IsoItem {
 /** The optional fields each shape draws. Saved items may carry others; they are dropped on parse. */
 const USED_FIELDS: Record<ItemPart['shape'], readonly string[]> = {
   lathe: ['profile', 'wall', 'inside'],
-  cylinder: ['wall', 'inside'],
-  cone: [],
-  box: [],
-  lid: [],
-  handle: [],
   rbox: ['radius'],
   tube: ['path', 'radius'],
   extrude: ['outline', 'radius'],
@@ -268,12 +241,136 @@ function dropUnused(raw: unknown): unknown {
   return out;
 }
 export const itemPartSchema = z.preprocess(dropUnused, itemPartUnion);
-export const isoItemSchema = z
-  .object({
-    label: z.string().min(1).max(60),
-    parts: z.array(itemPartSchema).min(1).max(12),
-  })
-  .strict();
+/**
+ * The first shapes, which a saved item may still have: a part of one of these
+ * is drawn as the modern shape it stands for. Only the first three are
+ * pixel-exact. A handle becomes a tube whose box is recomputed from its loop
+ * (which reaches 1.33 times the handle's box), so a band painted on it reads
+ * the same height but a stripe or decal around it moves. A lid becomes two
+ * lathes, the cap and a knob, so every later part moves up one place, and a
+ * paint layer covers the cap only.
+ */
+const LEGACY_SHAPES = new Set(['cylinder', 'cone', 'box', 'lid', 'handle']);
+interface LegacyPart {
+  id: string;
+  shape: 'cylinder' | 'cone' | 'box' | 'lid' | 'handle';
+  at: { x: number; y: number; z: number };
+  size: { w: number; d: number; h: number };
+  taper: number;
+}
+const STRAIGHT = [
+  { r: 1, z: 0 },
+  { r: 1, z: 1 },
+];
+const isNumbers = (o: unknown, keys: string[]): boolean =>
+  typeof o === 'object' &&
+  o !== null &&
+  keys.every((k) => Number.isFinite((o as Record<string, unknown>)[k]));
+function isLegacy(p: unknown): p is LegacyPart {
+  if (typeof p !== 'object' || p === null) return false;
+  const q = p as Record<string, unknown>;
+  return (
+    typeof q.id === 'string' &&
+    LEGACY_SHAPES.has(q.shape as string) &&
+    isNumbers(q.at, ['x', 'y', 'z']) &&
+    isNumbers(q.size, ['w', 'd', 'h']) &&
+    Number.isFinite(q.taper)
+  );
+}
+/** A handle: a half loop in the upright plane, bulging away from the item's centre along its longer side. */
+function handleAsTube(p: LegacyPart): unknown {
+  const { at, size } = p;
+  const alongX = size.w >= size.d;
+  const outward = (alongX ? at.x + size.w / 2 : at.y + size.d / 2) >= 0.5;
+  const reach = (alongX ? size.w : size.d) * 1.33 * (outward ? 1 : -1);
+  const thick = (alongX ? size.d : size.w) / 2;
+  const inner = alongX ? (outward ? at.x : at.x + size.w) : outward ? at.y : at.y + size.d;
+  const lo = Math.min(inner, inner + reach);
+  const span = Math.min(3, Math.abs(reach));
+  const top = (size.h - thick) / size.h;
+  const bottom = thick / size.h;
+  const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
+  const along = (a: number) => clamp01((a - lo) / span);
+  const pt = (a: number, z: number) =>
+    alongX ? { x: along(a), y: 0.5, z: clamp01(z) } : { x: 0.5, y: along(a), z: clamp01(z) };
+  const start = Math.max(-0.5, Math.min(1.5, lo));
+  const box = alongX
+    ? { at: { ...at, x: start }, size: { ...size, w: span } }
+    : { at: { ...at, y: start }, size: { ...size, d: span } };
+  return {
+    ...p,
+    ...box,
+    shape: 'tube',
+    path: [pt(inner, top), pt(inner + reach, top), pt(inner + reach, bottom), pt(inner, bottom)],
+    radius: Math.max(0.01, thick),
+  };
+}
+function legacyParts(p: unknown): unknown[] {
+  if (!isLegacy(p)) return [p];
+  const { at, size } = p;
+  switch (p.shape) {
+    case 'cylinder':
+      return [{ ...p, shape: 'lathe', profile: STRAIGHT }];
+    case 'cone': {
+      const k = Math.max(1, p.taper);
+      return [
+        {
+          ...p,
+          shape: 'lathe',
+          profile: [
+            { r: 1 / k, z: 0 },
+            { r: Math.max(0.001, p.taper / k), z: 1 },
+          ],
+        },
+      ];
+    }
+    case 'box':
+      return [{ ...p, shape: 'rbox', radius: 0.08 }];
+    case 'handle':
+      return [handleAsTube(p)];
+    case 'lid': {
+      const { paint: _paint, ...plain } = p as LegacyPart & { paint?: unknown };
+      return [
+        { ...p, shape: 'lathe', profile: STRAIGHT },
+        {
+          ...plain,
+          id: `${p.id.slice(0, 19)}-knob`,
+          shape: 'lathe',
+          at: { x: at.x + size.w * 0.4, y: at.y + size.d * 0.4, z: at.z + size.h },
+          size: {
+            w: Math.max(0.02, size.w * 0.2),
+            d: Math.max(0.02, size.d * 0.2),
+            h: Math.max(size.h, 0.04),
+          },
+          profile: [
+            { r: 1, z: 0 },
+            { r: 0.8, z: 1 },
+          ],
+        },
+      ];
+    }
+  }
+}
+/**
+ * The item with any first-shape part turned into a modern one, the same object
+ * when it has none. For saved items, which carry whatever shapes they were made with.
+ */
+export function upgradeItem<T extends { parts: readonly unknown[] }>(item: T): T {
+  if (!item.parts.some(isLegacy)) return item;
+  return { ...item, parts: item.parts.flatMap(legacyParts) };
+}
+export const isoItemSchema = z.preprocess(
+  (raw) =>
+    typeof raw === 'object' && raw !== null && Array.isArray((raw as { parts?: unknown }).parts)
+      ? upgradeItem(raw as { parts: unknown[] })
+      : raw,
+  z
+    .object({
+      label: z.string().min(1).max(60),
+      parts: z.array(itemPartSchema).min(1).max(12),
+    })
+    .strict(),
+);
 export type IsoItem = z.infer<typeof isoItemSchema>;
 /** How well a fitted model matches the photo it was fitted to. */
 export interface ItemFitRecord {
@@ -349,12 +446,21 @@ export function rotateItem(item: IsoItem, quarters = 1): IsoItem {
 }
 /** A plain mug: body, coffee, handle on the right. The base of every mug draft. */
 export function mugItem(body = '#ece5d0', inside = '#73604c', label = 'Mug'): IsoItem {
+  const straight = [
+    { r: 1, z: 0 },
+    { r: 1, z: 1 },
+  ];
+  // The handle is a half loop, 0.16 thick, standing 0.52 tall and reaching 0.3458 out from the body.
+  const thick = 0.08;
+  const top = (0.52 - thick) / 0.52;
+  const bottom = thick / 0.52;
   return {
     label,
     parts: [
       {
         id: 'body',
-        shape: 'cylinder',
+        shape: 'lathe',
+        profile: straight,
         at: { x: 0, y: 0, z: 0 },
         size: { w: 0.78, d: 0.78, h: 0.9 },
         color: body,
@@ -362,7 +468,8 @@ export function mugItem(body = '#ece5d0', inside = '#73604c', label = 'Mug'): Is
       },
       {
         id: 'coffee',
-        shape: 'cylinder',
+        shape: 'lathe',
+        profile: straight,
         at: { x: 0.07, y: 0.07, z: 0.9 },
         size: { w: 0.64, d: 0.64, h: 0.02 },
         color: inside,
@@ -370,9 +477,16 @@ export function mugItem(body = '#ece5d0', inside = '#73604c', label = 'Mug'): Is
       },
       {
         id: 'handle',
-        shape: 'handle',
+        shape: 'tube',
+        path: [
+          { x: 0, y: 0.5, z: top },
+          { x: 1, y: 0.5, z: top },
+          { x: 1, y: 0.5, z: bottom },
+          { x: 0, y: 0.5, z: bottom },
+        ],
+        radius: thick,
         at: { x: 0.74, y: 0.31, z: 0.18 },
-        size: { w: 0.26, d: 0.16, h: 0.52 },
+        size: { w: 0.26 * 1.33, d: 0.16, h: 0.52 },
         color: body,
         taper: 1,
       },

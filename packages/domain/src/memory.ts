@@ -6,7 +6,7 @@ import type { SceneIllustration } from './illustration.js';
 import { DEMO_CAMERA } from './demo-room.js';
 import { CAMERA_EDGES_MAX, marksOf, roomCameraSchema, roomMarksSchema } from './room-camera.js';
 import { cameraCropSchema } from './camera.js';
-import type { SavedItem } from './iso-item.js';
+import { upgradeItem, type SavedItem } from './iso-item.js';
 import { fixtureModel, linkedFixtures, type Fixture } from './fixture.js';
 import type { ExposedEntity } from './expose.js';
 import {
@@ -370,7 +370,51 @@ export function upgradeMemory(memory: DeskMemory): DeskMemory {
       fixtures: (next.fixtures ?? []).filter((f) => f.scene !== 'custom'),
     };
   if (next.illustration && !next.illustration.drawnFrom) next = { ...next, illustration: null };
-  return next;
+  return upgradeItems(next);
+}
+/**
+ * Models saved with the first part shapes (cylinder, cone, box, handle, lid)
+ * get the modern ones. They sit on the remembered object, other objects and
+ * fixtures (a fixture's states and its earlier drafts too). Parts are named by
+ * id everywhere else (lights, the editor's selection), so a lid splitting in
+ * two moves no reference; the same object comes back when nothing is old.
+ */
+function upgradeItems(memory: DeskMemory): DeskMemory {
+  const modelOf = <K extends string, T extends Partial<Record<K, SavedItem | null>>>(
+    o: T,
+    key: K,
+  ): T => {
+    const was = o[key];
+    const now = was ? upgradeItem(was) : was;
+    return now === was ? o : { ...o, [key]: now };
+  };
+  const each = <T>(list: T[] | undefined, up: (x: T) => T): T[] | undefined => {
+    const out = list?.map(up);
+    return out && list && out.some((x, i) => x !== list[i]) ? out : list;
+  };
+  const fixtures = each(memory.fixtures, (f) => {
+    const model = modelOf(f, 'model');
+    const drafts = each(model.drafts, (d) => modelOf(d, 'model'));
+    const entries = Object.entries(model.states ?? {}).map(
+      ([k, v]) => [k, modelOf(v, 'model')] as const,
+    );
+    const states = entries.some(([k, v]) => v !== model.states![k])
+      ? Object.fromEntries(entries)
+      : model.states;
+    return drafts === model.drafts && states === model.states
+      ? model
+      : { ...model, ...(drafts ? { drafts } : {}), ...(states ? { states } : {}) };
+  });
+  const others = each(memory.others, (o) => modelOf(o, 'item'));
+  const item = memory.item ? upgradeItem(memory.item) : memory.item;
+  return item === memory.item && others === memory.others && fixtures === memory.fixtures
+    ? memory
+    : {
+        ...memory,
+        ...(item !== undefined ? { item } : {}),
+        ...(others ? { others } : {}),
+        ...(fixtures ? { fixtures } : {}),
+      };
 }
 
 /** Any object, typed as `T`: the nested parts have their own schemas elsewhere, or none yet. */

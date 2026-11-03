@@ -94,8 +94,7 @@ interface Box {
 type Profile = { r: number; z: number }[];
 type Inside = Extract<ItemPart, { shape: 'lathe' }>['inside'];
 /** The hollow of an open turned part; no other shape has one. */
-const insideOf = (p: ItemPart): Inside =>
-  p.shape === 'lathe' || p.shape === 'cylinder' ? p.inside : undefined;
+const insideOf = (p: ItemPart): Inside => (p.shape === 'lathe' ? p.inside : undefined);
 function lathePrim(
   part: number,
   { at, size }: Box,
@@ -253,47 +252,13 @@ function blobPrim(part: number, { at, size }: Box, rough: number): Prim {
   };
 }
 
-const CYLINDER: Profile = [
-  { r: 1, z: 0 },
-  { r: 1, z: 1 },
-];
-/** The primitives a part is drawn with; the first shapes become the new ones here. */
+/** The primitives a part is drawn with. */
 export function partPrims(p: ItemPart, index: number): Prim[] {
   const box: Box = { at: p.at, size: p.size };
   const minSide = Math.min(p.size.w, p.size.d, p.size.h);
   switch (p.shape) {
     case 'lathe':
       return [lathePrim(index, box, p.profile, p.wall ?? 0, p.inside)];
-    case 'cylinder':
-      return [lathePrim(index, box, CYLINDER, p.wall ?? 0, p.inside)];
-    case 'cone': {
-      const k = Math.max(1, p.taper);
-      return [
-        lathePrim(index, box, [
-          { r: 1 / k, z: 0 },
-          { r: Math.max(0.001, p.taper / k), z: 1 },
-        ]),
-      ];
-    }
-    case 'lid': {
-      const knobH = Math.max(p.size.h, 0.04);
-      return [
-        lathePrim(index, box, CYLINDER),
-        lathePrim(
-          index,
-          {
-            at: { x: p.at.x + p.size.w * 0.4, y: p.at.y + p.size.d * 0.4, z: p.at.z + p.size.h },
-            size: { w: p.size.w * 0.2, d: p.size.d * 0.2, h: knobH },
-          },
-          [
-            { r: 1, z: 0 },
-            { r: 0.8, z: 1 },
-          ],
-        ),
-      ];
-    }
-    case 'box':
-      return [rboxPrim(index, box, minSide * 0.08)];
     case 'rbox':
       return [rboxPrim(index, box, (p.radius ?? 0.1) * minSide)];
     case 'extrude':
@@ -307,32 +272,6 @@ export function partPrims(p: ItemPart, index: number): Prim[] {
         p.at.z + q.z * p.size.h,
       ]);
       return [tubePrim(index, control, Math.max(0.005, p.radius ?? minSide / 2))];
-    }
-    case 'handle': {
-      // A half loop in the upright plane, bulging away from the item's centre
-      // along the box's longer side; the shorter side is its thickness.
-      const alongX = p.size.w >= p.size.d;
-      const outward = alongX ? p.at.x + p.size.w / 2 >= 0.5 : p.at.y + p.size.d / 2 >= 0.5;
-      const reach = (alongX ? p.size.w : p.size.d) * 1.33 * (outward ? 1 : -1);
-      const thick = (alongX ? p.size.d : p.size.w) / 2;
-      const inner = alongX
-        ? outward
-          ? p.at.x
-          : p.at.x + p.size.w
-        : outward
-          ? p.at.y
-          : p.at.y + p.size.d;
-      const mid = alongX ? p.at.y + p.size.d / 2 : p.at.x + p.size.w / 2;
-      const top = p.at.z + p.size.h - thick;
-      const bottom = p.at.z + thick;
-      const pt = (a: number, z: number): V3 => (alongX ? [a, mid, z] : [mid, a, z]);
-      return [
-        tubePrim(
-          index,
-          [pt(inner, top), pt(inner + reach, top), pt(inner + reach, bottom), pt(inner, bottom)],
-          Math.max(0.01, thick),
-        ),
-      ];
     }
   }
 }

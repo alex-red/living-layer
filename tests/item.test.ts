@@ -15,6 +15,8 @@ import {
   clusterColours,
   rgbLab,
   uniqueParts,
+  upgradeItem,
+  upgradeMemory,
   type DeskMemory,
   type EvidenceRun,
   type SavedItem,
@@ -51,6 +53,62 @@ describe('item models', () => {
       expect(p.at.y).toBeCloseTo(mug.parts[i]!.at.y);
     });
     expect(rotateItem(mug, -1)).toEqual(rotateItem(mug, 3));
+  });
+  it('loads the first part shapes as the modern ones, a lid as a cap and a knob', () => {
+    const part = (id: string, shape: string, more: object = {}) => ({
+      id,
+      shape,
+      at: { x: 0.1, y: 0.1, z: 0.2 },
+      size: { w: 0.5, d: 0.4, h: 0.3 },
+      color: '#808080',
+      taper: 0.5,
+      ...more,
+    });
+    const old = {
+      label: 'Old',
+      parts: [
+        part('a', 'cylinder', { wall: 0.2 }),
+        part('b', 'cone'),
+        part('c', 'box'),
+        part('d', 'lid', { paint: [{ kind: 'band', from: 0, to: 1, color: '#ff0000' }] }),
+        part('e', 'handle', { at: { x: 0.7, y: 0.4, z: 0.2 }, size: { w: 0.2, d: 0.1, h: 0.5 } }),
+      ],
+    };
+    const parsed = isoItemSchema.parse(old);
+    expect(parsed.parts.map((p) => `${p.id}:${p.shape}`)).toEqual([
+      'a:lathe',
+      'b:lathe',
+      'c:rbox',
+      'd:lathe',
+      'd-knob:lathe',
+      'e:tube',
+    ]);
+    expect(parsed.parts[0]).toMatchObject({ wall: 0.2 });
+    expect(parsed.parts[3]!.paint).toHaveLength(1);
+    expect(parsed.parts[4]!.paint).toBeUndefined();
+    // The handle's loop reaches 1.33 times its old box, outward from the item's centre.
+    expect(parsed.parts[5]).toMatchObject({ radius: 0.05, at: { x: 0.7 } });
+    expect(parsed.parts[5]!.size.w).toBeCloseTo(0.266);
+    // A model with nothing old comes back as it was.
+    const mug = mugItem();
+    expect(upgradeItem(mug)).toBe(mug);
+    expect(isoItemSchema.parse(mug)).toEqual(mug);
+  });
+  it('upgrades the models in saved desk memory, parts being named by id', () => {
+    const old = { ...mugItem(), parts: [{ ...mugItem().parts[0]!, shape: 'cylinder' }] };
+    const memory = {
+      mode: 'demo',
+      item: old,
+      others: [{ id: 'o', item: old }],
+      fixtures: [{ id: 'f', model: old, states: { on: { model: old } }, drafts: [{ model: old }] }],
+    } as unknown as DeskMemory;
+    const next = upgradeMemory(memory);
+    expect(next.item!.parts[0]!.shape).toBe('lathe');
+    expect(next.others![0]!.item!.parts[0]!.shape).toBe('lathe');
+    expect(next.fixtures![0]!.model.parts[0]!.shape).toBe('lathe');
+    expect(next.fixtures![0]!.states!.on!.model.parts[0]!.shape).toBe('lathe');
+    expect(next.fixtures![0]!.drafts![0]!.model.parts[0]!.shape).toBe('lathe');
+    expect(upgradeMemory(next)).toBe(next);
   });
   it('gives repeated part ids a suffix', () => {
     const mug = mugItem();

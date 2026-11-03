@@ -92,9 +92,7 @@ export function fromSculpt(label: string, sculpt: Sculpt): IsoItem | null {
 }
 
 /**
- * Our parts as Spark writes them, for the model it starts from. The first
- * shapes are written as the ones they are drawn as: a cylinder or cone as a
- * lathe, a box or lid as a rounded box, and a handle as a C-shaped tube.
+ * Our parts as Spark writes them, for the model it starts from.
  */
 export function toSculpt(item: IsoItem): SculptPart[] {
   return item.parts.map((p) => {
@@ -117,46 +115,7 @@ export function toSculpt(item: IsoItem): SculptPart[] {
           q.kind === 'band' ? [{ from: q.from, to: q.to, color: q.color }] : [],
         ) ?? null,
     };
-    switch (p.shape) {
-      case 'cylinder':
-        return {
-          ...base,
-          shape: 'lathe',
-          profile: [
-            { r: 1, z: 0 },
-            { r: 1, z: 1 },
-          ],
-        };
-      case 'cone': {
-        const k = Math.max(1, p.taper);
-        return {
-          ...base,
-          shape: 'lathe',
-          profile: [
-            { r: 1 / k, z: 0 },
-            { r: Math.min(1, p.taper / k), z: 1 },
-          ],
-        };
-      }
-      case 'box':
-        return { ...base, shape: 'rbox', radius: 0.08 };
-      case 'lid':
-        return { ...base, shape: 'rbox', radius: 0.1 };
-      case 'handle': {
-        const alongX = p.size.w >= p.size.d;
-        const out = (alongX ? p.at.x + p.size.w / 2 : p.at.y + p.size.d / 2) >= 0.5;
-        const [near, far] = out ? [0, 1] : [1, 0];
-        const pt = (a: number, z: number) => (alongX ? { x: a, y: 0.5, z } : { x: 0.5, y: a, z });
-        return {
-          ...base,
-          shape: 'tube',
-          path: [pt(near, 0.85), pt(far, 0.85), pt(far, 0.15), pt(near, 0.15)],
-          radius: Math.min(0.5, (alongX ? p.size.d : p.size.w) / 2),
-        };
-      }
-      default:
-        return { ...base, shape: p.shape };
-    }
+    return { ...base, shape: p.shape };
   });
 }
 /** Our part format, as Spark is told it, the same on every look. */
