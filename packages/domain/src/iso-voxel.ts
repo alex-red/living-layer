@@ -467,15 +467,44 @@ export function voxelize(
     x <= p.max[0] + pad &&
     y <= p.max[1] + pad &&
     z <= p.max[2] + pad;
-  const field = (x: number, y: number, z: number) => {
+  const field = (x: number, y: number, z: number, near: number[]) => {
     let d = Infinity;
-    for (let i = 0; i < prims.length; i++) {
-      const p = prims[i]!;
+    for (let j = 0; j < near.length; j++) {
+      const p = prims[near[j]!]!;
       if (!inReach(p, x, y, z)) continue;
       const pd = p.dist(x, y, z);
       if (pd < d) d = pd;
     }
     return d;
+  };
+  // The parts that can reach a point near a block of voxels, in order. A normal is
+  // taken within a voxel of the voxel's centre, so a block's list is every part whose
+  // padded bounds touch the block grown by a voxel and a half.
+  const BLOCK = 8;
+  const blocksX = Math.ceil(nx / BLOCK);
+  const blocksY = Math.ceil(ny / BLOCK);
+  const blockLists: (number[] | undefined)[] = [];
+  const nearBlock = (ix: number, iy: number, iz: number) => {
+    const bx = Math.floor(ix / BLOCK);
+    const by = Math.floor(iy / BLOCK);
+    const bz = Math.floor(iz / BLOCK);
+    const key = bx + blocksX * (by + blocksY * bz);
+    let list = blockLists[key];
+    if (!list) {
+      const slack = size * 1.5;
+      const lo = [bx, by, bz].map((b, k) => origin[k]! + b * BLOCK * size - slack);
+      const hi = [bx, by, bz].map((b, k) => origin[k]! + (b + 1) * BLOCK * size + slack);
+      list = [];
+      for (let i = 0; i < prims.length; i++) {
+        const p = prims[i]!;
+        let touches = true;
+        for (let k = 0; k < 3; k++)
+          if (p.min[k]! - pad > hi[k]! || p.max[k]! + pad < lo[k]!) touches = false;
+        if (touches) list.push(i);
+      }
+      blockLists[key] = list;
+    }
+    return list;
   };
   // Part by part over the voxels near it. The first part to reach the least
   // distance keeps the voxel, as when each voxel asked every part in order.
@@ -556,9 +585,10 @@ export function voxelize(
     const px = x + (ox / ol) * e;
     const py = y + (oy / ol) * e;
     const pz = z + (oz / ol) * e;
-    let gx = field(px + e, py, pz) - field(px - e, py, pz);
-    let gy = field(px, py + e, pz) - field(px, py - e, pz);
-    let gz = field(px, py, pz + e) - field(px, py, pz - e);
+    const near = nearBlock(ix, iy, iz);
+    let gx = field(px + e, py, pz, near) - field(px - e, py, pz, near);
+    let gy = field(px, py + e, pz, near) - field(px, py - e, pz, near);
+    let gz = field(px, py, pz + e, near) - field(px, py, pz - e, near);
     // Still facing into the voxel's neighbours: trust the open faces instead.
     if (gx * ox + gy * oy + gz * oz < 0) [gx, gy, gz] = [ox, oy, oz];
     if (!Number.isFinite(gx + gy + gz)) [gx, gy, gz] = [0, 0, 1];
