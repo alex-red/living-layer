@@ -37,7 +37,7 @@ export function useProbesSlice(
     AiSlice &
     FixturesSlice &
     CalibrationSlice,
-) {
+): ProbesSlice {
   const {
     busy,
     camera,
@@ -219,4 +219,18 @@ export function useProbesSlice(
     ['rerunBlock', 'canRestore'],
   );
 }
-export type ProbesSlice = ReturnType<typeof useProbesSlice>;
+/** What the Probes slice of the lab offers: its state, derived values and actions. */
+export interface ProbesSlice {
+  canRestore: (run: EvidenceRun) => boolean;
+  deskAction: (
+    path: 'select' | 'zone' | 'verify' | 'reset' | 'camera' | 'surface',
+    fields?: object,
+  ) => Promise<void>;
+  execute: (
+    kind: 'text' | 'discover' | 'segment' | 'lamp',
+    overrideConcept?: string,
+  ) => Promise<void>;
+  rerun: (run: EvidenceRun) => void;
+  rerunBlock: (run: EvidenceRun) => string | null;
+  restore: (run: EvidenceRun) => void;
+}

@@ -16,11 +16,12 @@ import type { RunLogSlice } from './runlog';
 import type { DeskSlice } from './desk';
 import type { FollowStateSlice } from './follow-state';
 import { useStableSlice } from './stable';
+import type { Dispatch, RefObject, SetStateAction } from 'react';
 
 /** The Camera slice of the lab's state. */
 export function useCameraSlice(
   deps: ViewSlice & FeedbackSlice & RunLogSlice & DeskSlice & FollowStateSlice,
-) {
+): CameraSlice {
   const {
     boot,
     busy,
@@ -391,4 +392,104 @@ export function useCameraSlice(
     setTracking: changeTracking,
   });
 }
-export type CameraSlice = ReturnType<typeof useCameraSlice>;
+/** What the Camera slice of the lab offers: its state, derived values and actions. */
+export interface CameraSlice {
+  camera: boolean;
+  cameraFrame: () => {
+    url: string | undefined;
+    crop: {
+      x: number;
+      y: number;
+      w: number;
+      h: number;
+    } | null;
+  };
+  cameraGeneration: RefObject<number>;
+  cameraPending: boolean;
+  cameraSize: {
+    width: number;
+    height: number;
+  } | null;
+  cameraSource: string;
+  cameraWanted: boolean;
+  captureCanvas: (
+    source: CanvasImageSource,
+    width: number,
+    height: number,
+    crop?: CameraCrop | null,
+  ) => string;
+  changeMode: (next: Mode) => void;
+  dimensions: {
+    width: number;
+    height: number;
+  };
+  dropCamera: () => void;
+  file: RefObject<HTMLInputElement | null>;
+  frameNow: () => string | undefined;
+  frameSize: (
+    width: number,
+    height: number,
+  ) => {
+    width: number;
+    height: number;
+  };
+  image: string | undefined;
+  imageCrop: RefObject<{
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+  } | null>;
+  mounted: RefObject<boolean>;
+  network: {
+    streams: NetworkStream[];
+    scanning: boolean;
+    loaded: boolean;
+    scan: () => Promise<void>;
+  };
+  openCrop: RefObject<{
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+  } | null>;
+  releaseStream: () => void;
+  scene:
+    | {
+        summary: string;
+        objects: {
+          label: string;
+          category: string;
+          appearance: string;
+        }[];
+      }
+    | undefined;
+  sceneUrl: (position: DemoPosition) => string;
+  segmentRunId: string | undefined;
+  segmentation: Segmentation | undefined;
+  setCameraSource: Dispatch<SetStateAction<string>>;
+  setCameraWanted: Dispatch<SetStateAction<boolean>>;
+  setReopenTries: Dispatch<SetStateAction<number>>;
+  setScene: Dispatch<
+    SetStateAction<
+      | {
+          summary: string;
+          objects: {
+            label: string;
+            category: string;
+            appearance: string;
+          }[];
+        }
+      | undefined
+    >
+  >;
+  setSegmentRunId: Dispatch<SetStateAction<string | undefined>>;
+  setSegmentation: Dispatch<SetStateAction<Segmentation | undefined>>;
+  setTrackingRaw: Dispatch<SetStateAction<boolean>>;
+  startCamera: (source?: NetworkStream) => Promise<void>;
+  stopCamera: () => void;
+  tracking: boolean;
+  upload: (chosen?: File, crop?: CameraCrop | null) => Promise<string | undefined>;
+  video: RefObject<HTMLVideoElement | null>;
+  setTracking: (on: boolean) => void;
+}

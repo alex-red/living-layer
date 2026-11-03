@@ -6,9 +6,10 @@ import { LOG_PAGE, RUN_KINDS, median } from './helpers';
 import type { ViewSlice } from './view';
 import type { FeedbackSlice } from './feedback';
 import { useStableSlice } from './stable';
+import type { Dispatch, SetStateAction } from 'react';
 
 /** The RunLog slice of the lab's state. */
-export function useRunLogSlice(deps: ViewSlice & FeedbackSlice) {
+export function useRunLogSlice(deps: ViewSlice & FeedbackSlice): RunLogSlice {
   const { boot, setDrawer, setError, setMessage } = deps;
   const [runs, setRuns] = useState<EvidenceRun[]>([]);
   const [selected, setSelected] = useState<EvidenceRun>();
@@ -70,4 +71,27 @@ export function useRunLogSlice(deps: ViewSlice & FeedbackSlice) {
     setSelected,
   });
 }
-export type RunLogSlice = ReturnType<typeof useRunLogSlice>;
+/** What the RunLog slice of the lab offers: its state, derived values and actions. */
+export interface RunLogSlice {
+  copyRun: (run: EvidenceRun) => void;
+  costNote: (run: EvidenceRun) => string;
+  failuresOnly: boolean;
+  filteredRuns: EvidenceRun<unknown>[];
+  inspect: (run: EvidenceRun) => void;
+  logKind: 'all' | RunKind;
+  logLimit: number;
+  logMode: 'all' | 'demo' | 'live';
+  logStats: {
+    failed: number;
+    medianMs: number | null;
+    cost: number;
+  };
+  runs: EvidenceRun<unknown>[];
+  selected: EvidenceRun<unknown> | undefined;
+  setFailuresOnly: Dispatch<SetStateAction<boolean>>;
+  setLogKind: Dispatch<SetStateAction<'all' | RunKind>>;
+  setLogLimit: Dispatch<SetStateAction<number>>;
+  setLogMode: Dispatch<SetStateAction<'all' | 'demo' | 'live'>>;
+  setRuns: Dispatch<SetStateAction<EvidenceRun<unknown>[]>>;
+  setSelected: Dispatch<SetStateAction<EvidenceRun<unknown> | undefined>>;
+}

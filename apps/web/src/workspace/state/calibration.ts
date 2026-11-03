@@ -24,6 +24,7 @@ import type { NavigationSlice } from './navigation';
 import type { AiSlice } from './ai';
 import type { FixturesSlice } from './fixtures';
 import { useStableSlice } from './stable';
+import type { NetworkStream } from '../../streams';
 
 /** The Calibration slice of the lab's state. */
 export function useCalibrationSlice(
@@ -38,7 +39,7 @@ export function useCalibrationSlice(
     NavigationSlice &
     AiSlice &
     FixturesSlice,
-) {
+): CalibrationSlice {
   const {
     busy,
     camera,
@@ -431,4 +432,30 @@ export function useCalibrationSlice(
     zoomable: zoomable(),
   });
 }
-export type CalibrationSlice = ReturnType<typeof useCalibrationSlice>;
+/** What the Calibration slice of the lab offers: its state, derived values and actions. */
+export interface CalibrationSlice {
+  adjustPin: () => Promise<void>;
+  autoPin: (target: {
+    scene: IsoSceneKind | 'custom';
+    surfaceId: string;
+    label: string;
+  }) => Promise<void>;
+  calibrateByHand: (found: HandCalibration) => void;
+  calibrateHere: () => void;
+  keepCameraView: () => Promise<void>;
+  pinHere: (
+    target: NonNullable<{
+      scene: IsoSceneKind | 'custom';
+      surfaceId: string;
+      label: string;
+      corners?: Quad;
+      note?: string;
+    } | null>,
+  ) => void;
+  saveCalibration: (draft: CalibrationDraft) => Promise<void>;
+  saveZoom: (rect: ZoneRect | null) => Promise<void>;
+  startBoxing: () => void;
+  startCalibrating: () => Promise<void>;
+  startZooming: () => void;
+  zoomable: NetworkStream | null;
+}

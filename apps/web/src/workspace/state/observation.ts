@@ -9,11 +9,13 @@ import type { DeskSlice } from './desk';
 import type { FollowStateSlice } from './follow-state';
 import type { CameraSlice } from './camera';
 import { useStableSlice } from './stable';
+import type { Progress } from '../progress';
+import type { Detection } from '@livinglayer/domain';
 
 /** The Observation slice of the lab's state. */
 export function useObservationSlice(
   deps: ViewSlice & FeedbackSlice & RunLogSlice & DeskSlice & FollowStateSlice & CameraSlice,
-) {
+): ObservationSlice {
   const {
     busy,
     camera,
@@ -131,4 +133,31 @@ export function useObservationSlice(
     ['verdictFor'],
   );
 }
-export type ObservationSlice = ReturnType<typeof useObservationSlice>;
+/** What the Observation slice of the lab offers: its state, derived values and actions. */
+export interface ObservationSlice {
+  canTrack: boolean;
+  canVision: boolean;
+  confirmedId: string | undefined;
+  currentObservation: DeskObservation | null;
+  localZone: UnitBox | null;
+  progress: Progress;
+  sightings: DeskObservation[];
+  sorted: Detection[];
+  trail: DeskObservation[];
+  verdictFor: (o: DeskObservation) => PlacementDecision | undefined;
+  visibleZone: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  } | null;
+  zone: {
+    applies: boolean;
+    carried: boolean;
+  } | null;
+  zoneObservation: DeskObservation | null;
+  zonePoint: (e: PointerEvent<SVGSVGElement>) => {
+    x: number;
+    y: number;
+  };
+}

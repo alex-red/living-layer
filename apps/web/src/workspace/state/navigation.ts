@@ -34,7 +34,7 @@ export function useNavigationSlice(
     CameraSlice &
     ObservationSlice &
     TrackingSlice,
-) {
+): NavigationSlice {
   const {
     changeMode,
     entities,
@@ -234,4 +234,17 @@ export function useNavigationSlice(
     startRule,
   });
 }
-export type NavigationSlice = ReturnType<typeof useNavigationSlice>;
+/** What the Navigation slice of the lab offers: its state, derived values and actions. */
+export interface NavigationSlice {
+  askGuess: () => Promise<void>;
+  asking: boolean;
+  draftOwnPhoto: () => void;
+  editLayout: () => void;
+  editRule: (id: string) => void;
+  goToStep: (id: StepId) => void;
+  openModel: (objectId?: string) => void;
+  pickScene: (next: WorkScene, from?: 'preset' | 'photo') => void;
+  sceneLabel: string | null;
+  select: (next: Selection | null) => void;
+  startRule: (objectId?: string) => void;
+}

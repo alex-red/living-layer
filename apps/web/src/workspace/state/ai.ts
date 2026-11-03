@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { IsoScene, Job, DeskMemory } from '@livinglayer/domain';
 import { DEMO_CAMERA, groupInFrame } from '@livinglayer/domain';
 import { api } from '../../api';
-import { useBrush } from '../useBrush';
+import { useBrush, type Brush } from '../useBrush';
 import { aiTaskStore, setAiTask, updateAiTask, type AiTask } from './ai-task-store';
 import { SHORTCUTS } from '../../shortcuts';
 import { UNDO_LIMIT, stoppedJob } from './helpers';
@@ -16,6 +16,7 @@ import type { ObservationSlice } from './observation';
 import type { TrackingSlice } from './tracking';
 import type { NavigationSlice } from './navigation';
 import { useStableSlice } from './stable';
+import type { Dispatch, RefObject, SetStateAction } from 'react';
 
 /** The Ai slice of the lab's state. */
 export function useAiSlice(
@@ -28,7 +29,7 @@ export function useAiSlice(
     ObservationSlice &
     TrackingSlice &
     NavigationSlice,
-) {
+): AiSlice {
   const {
     busy,
     chooseTool,
@@ -312,4 +313,34 @@ export function useAiSlice(
     stopAiTask,
   });
 }
-export type AiSlice = ReturnType<typeof useAiSlice>;
+/** What the Ai slice of the lab offers: its state, derived values and actions. */
+export interface AiSlice {
+  aiHistory: Job[];
+  aiRun: RefObject<{
+    generation: number;
+    jobId: string;
+    abort: AbortController;
+  } | null>;
+  brush: Brush;
+  brushGroup: (scene: IsoScene, group: string) => void;
+  closeAiTask: () => void;
+  closeAiTaskSoon: (ms: number) => void;
+  followAi: <T>(
+    task: Pick<AiTask, 'title' | 'description'>,
+    call: (jobId: string, signal: AbortSignal) => Promise<T>,
+  ) => Promise<T | null>;
+  lastAiRun: {
+    jobId: string;
+    desk: DeskMemory;
+  } | null;
+  reapplyAiRun: (jobId: string) => Promise<void>;
+  revertLastAiRun: () => Promise<void>;
+  reviewAiRun: (jobId: string) => Promise<void>;
+  setLastAiRun: Dispatch<
+    SetStateAction<{
+      jobId: string;
+      desk: DeskMemory;
+    } | null>
+  >;
+  stopAiTask: () => void;
+}

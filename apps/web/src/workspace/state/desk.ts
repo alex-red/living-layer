@@ -9,9 +9,10 @@ import type { ViewSlice } from './view';
 import type { FeedbackSlice } from './feedback';
 import type { RunLogSlice } from './runlog';
 import { useStableSlice } from './stable';
+import type { Dispatch, RefObject, SetStateAction } from 'react';
 
 /** The Desk slice of the lab's state. */
-export function useDeskSlice(deps: ViewSlice & FeedbackSlice & RunLogSlice) {
+export function useDeskSlice(deps: ViewSlice & FeedbackSlice & RunLogSlice): DeskSlice {
   const { mode, runs, setError, setMessage, setRuns } = deps;
   const [status, setStatus] = useState<LabStatus>();
   const [memories, setMemories] = useState<Partial<Record<Mode, DeskMemory>>>({});
@@ -132,4 +133,33 @@ export function useDeskSlice(deps: ViewSlice & FeedbackSlice & RunLogSlice) {
     undo,
   });
 }
-export type DeskSlice = ReturnType<typeof useDeskSlice>;
+/** What the Desk slice of the lab offers: its state, derived values and actions. */
+export interface DeskSlice {
+  deskReady: boolean;
+  edits: RefObject<number>;
+  entities: string[];
+  historyTick: number;
+  lampReady: boolean;
+  lights: string[];
+  lightsOn: Set<string>;
+  limitDraft: string;
+  memories: Partial<Record<'demo' | 'live', DeskMemory>>;
+  memory: DeskMemory | undefined;
+  metaReady: boolean;
+  proofCount: number;
+  redo: RefObject<Record<'demo' | 'live', DeskMemory[]>>;
+  refresh: () => Promise<{
+    demo: DeskMemory;
+    live: DeskMemory;
+  }>;
+  restoreDesk: (next: DeskMemory) => Promise<DeskMemory>;
+  saveSpendLimit: (usdLimit: number | null) => Promise<void>;
+  setDeskReady: Dispatch<SetStateAction<boolean>>;
+  setHistoryTick: Dispatch<SetStateAction<number>>;
+  setLimitDraft: Dispatch<SetStateAction<string>>;
+  setMemory: (next: DeskMemory, undoable?: boolean) => void;
+  spendShare: number;
+  spendTone: string;
+  status: LabStatus | undefined;
+  undo: RefObject<Record<'demo' | 'live', DeskMemory[]>>;
+}

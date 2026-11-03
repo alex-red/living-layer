@@ -14,9 +14,11 @@ import { prefsOf, readSession, type StageView } from '../../session';
 import { parseSelection, selectionHash, type Selection, type WorkScene } from '../progress';
 import type { Tool } from '../ToolStrip';
 import { useStableSlice } from './stable';
+import type { Prefs, SessionSave } from '../../session';
+import type { Dispatch, RefObject, SetStateAction } from 'react';
 
 /** The View slice of the lab's state. */
-export function useViewSlice() {
+export function useViewSlice(): ViewSlice {
   // The browser's own save: choices and a copy of each desk, read once.
   const [boot] = useState(() => {
     const save = readSession();
@@ -166,4 +168,112 @@ export function useViewSlice() {
     setTool: chooseTool,
   });
 }
-export type ViewSlice = ReturnType<typeof useViewSlice>;
+/** What the View slice of the lab offers: its state, derived values and actions. */
+export interface ViewSlice {
+  boot: {
+    save: SessionSave | null;
+    prefs: Prefs;
+  };
+  boxing: {
+    rect: ZoneRect | null;
+  } | null;
+  calibrating: CalibrationDraft | null;
+  chooseTool: (next: Tool) => void;
+  choosingScene: boolean;
+  concept: string;
+  demoPosition: 'centre' | 'front' | 'right';
+  draftZone: DraftZone;
+  drawer: boolean;
+  drawing: boolean;
+  fixtureLook: 'model' | 'picture';
+  guess: {
+    kind: 'desk' | 'fridge' | 'office';
+    visibleProps: string[];
+    summary: string;
+  } | null;
+  isoPanel: IsoPanel;
+  isoSurfaceId: string | undefined;
+  mode: 'demo' | 'live';
+  modelOf: string | undefined;
+  outlineOpen: boolean;
+  overlay: boolean;
+  pinning: {
+    scene: IsoSceneKind | 'custom';
+    surfaceId: string;
+    label: string;
+    /** Corners found from the photo, to check and adjust instead of clicking. */
+    corners?: Quad;
+    note?: string;
+  } | null;
+  placing: FixturePlacing | null;
+  ruleDraft: RuleDraft | null;
+  selection: Selection | null;
+  setBoxing: Dispatch<
+    SetStateAction<{
+      rect: ZoneRect | null;
+    } | null>
+  >;
+  setCalibrating: Dispatch<SetStateAction<CalibrationDraft | null>>;
+  setChoosingScene: Dispatch<SetStateAction<boolean>>;
+  setConcept: Dispatch<SetStateAction<string>>;
+  setDemoPosition: Dispatch<SetStateAction<'centre' | 'front' | 'right'>>;
+  setDraftZone: Dispatch<SetStateAction<DraftZone>>;
+  setDrawer: Dispatch<SetStateAction<boolean>>;
+  setDrawing: Dispatch<SetStateAction<boolean>>;
+  setFixtureLook: Dispatch<SetStateAction<'model' | 'picture'>>;
+  setGuess: Dispatch<
+    SetStateAction<{
+      kind: 'desk' | 'fridge' | 'office';
+      visibleProps: string[];
+      summary: string;
+    } | null>
+  >;
+  setIsoPanel: Dispatch<SetStateAction<IsoPanel>>;
+  setIsoSurfaceId: Dispatch<SetStateAction<string | undefined>>;
+  setMode: Dispatch<SetStateAction<'demo' | 'live'>>;
+  setModelOf: Dispatch<SetStateAction<string | undefined>>;
+  setOutlineOpen: Dispatch<SetStateAction<boolean>>;
+  setOverlay: Dispatch<SetStateAction<boolean>>;
+  setPinning: Dispatch<
+    SetStateAction<{
+      scene: IsoSceneKind | 'custom';
+      surfaceId: string;
+      label: string;
+      /** Corners found from the photo, to check and adjust instead of clicking. */
+      corners?: Quad;
+      note?: string;
+    } | null>
+  >;
+  setPlacing: Dispatch<SetStateAction<FixturePlacing | null>>;
+  setRuleDraft: Dispatch<SetStateAction<RuleDraft | null>>;
+  setSelection: (next: Selection | null) => void;
+  setShowCorner: Dispatch<SetStateAction<boolean>>;
+  setShowKeys: Dispatch<SetStateAction<boolean>>;
+  setShowPicture: Dispatch<SetStateAction<boolean>>;
+  setShowTrail: Dispatch<SetStateAction<boolean>>;
+  setShowZones: Dispatch<SetStateAction<boolean>>;
+  setStageView: Dispatch<SetStateAction<StageView>>;
+  setToolRaw: Dispatch<SetStateAction<Tool>>;
+  setWorkScene: Dispatch<SetStateAction<WorkScene | null>>;
+  setZooming: Dispatch<
+    SetStateAction<{
+      rect: ZoneRect | null;
+    } | null>
+  >;
+  showCorner: boolean;
+  showKeys: boolean;
+  showPicture: boolean;
+  showTrail: boolean;
+  showZones: boolean;
+  stageView: StageView;
+  tool: Tool;
+  workScene: WorkScene | null;
+  zoneStart: RefObject<{
+    x: number;
+    y: number;
+  } | null>;
+  zooming: {
+    rect: ZoneRect | null;
+  } | null;
+  setTool: (next: Tool) => void;
+}

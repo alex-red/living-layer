@@ -3,9 +3,10 @@ import { ApiError } from '../../api';
 import type { Issue } from '../../ProviderUi';
 import type { ViewSlice } from './view';
 import { useStableSlice } from './stable';
+import type { Dispatch, SetStateAction } from 'react';
 
 /** The Feedback slice of the lab's state. */
-export function useFeedbackSlice(deps: ViewSlice) {
+export function useFeedbackSlice(deps: ViewSlice): FeedbackSlice {
   const { boot, mode } = deps;
   const [busy, setBusy] = useState('');
   const [issue, setIssue] = useState<Issue | null>(null);
@@ -46,4 +47,18 @@ export function useFeedbackSlice(deps: ViewSlice) {
     setMessage,
   });
 }
-export type FeedbackSlice = ReturnType<typeof useFeedbackSlice>;
+/** What the Feedback slice of the lab offers: its state, derived values and actions. */
+export interface FeedbackSlice {
+  busy: string;
+  capsuleTone: string;
+  error: string;
+  issue: Issue | null;
+  lamp: 'live' | 'off' | 'virtual';
+  light: () => void;
+  message: string;
+  setBusy: Dispatch<SetStateAction<string>>;
+  setError: (e: string | Error) => void;
+  setIssue: Dispatch<SetStateAction<Issue | null>>;
+  setLamp: Dispatch<SetStateAction<'live' | 'off' | 'virtual'>>;
+  setMessage: Dispatch<SetStateAction<string>>;
+}

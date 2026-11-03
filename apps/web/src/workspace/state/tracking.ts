@@ -34,6 +34,7 @@ import type { FollowStateSlice } from './follow-state';
 import type { CameraSlice } from './camera';
 import type { ObservationSlice } from './observation';
 import { useStableSlice } from './stable';
+import type { ExposeView } from '@livinglayer/domain';
 
 /** The Tracking slice of the lab's state. */
 export function useTrackingSlice(
@@ -44,7 +45,7 @@ export function useTrackingSlice(
     FollowStateSlice &
     CameraSlice &
     ObservationSlice,
-) {
+): TrackingSlice {
   const {
     busy,
     camera,
@@ -353,4 +354,34 @@ export function useTrackingSlice(
     watching,
   });
 }
-export type TrackingSlice = ReturnType<typeof useTrackingSlice>;
+/** What the Tracking slice of the lab offers: its state, derived values and actions. */
+export interface TrackingSlice {
+  canWatch: boolean;
+  expose: ExposeView | null;
+  moveDemoMug: (next: DemoPosition) => void;
+  placementMessage: (event: EvidenceRun<PlacementDecision>) => string;
+  startFollow: () => Promise<void>;
+  toggleWatch: () => Promise<void>;
+  track: ({
+    keepCamera,
+    position,
+  }?: {
+    keepCamera?: boolean | undefined;
+    position?: 'centre' | 'front' | 'right' | undefined;
+  }) => Promise<
+    | {
+        memory: DeskMemory;
+        event: EvidenceRun<PlacementDecision>;
+        ok: true;
+        frame: string | undefined;
+        segmentation: Segmentation;
+        code?: undefined;
+      }
+    | {
+        ok: false;
+        code: string | undefined;
+      }
+  >;
+  watch: WatchView | null;
+  watching: boolean;
+}

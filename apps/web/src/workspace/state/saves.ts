@@ -34,6 +34,7 @@ import type { FixturesSlice } from './fixtures';
 import type { CalibrationSlice } from './calibration';
 import type { ProbesSlice } from './probes';
 import { useStableSlice } from './stable';
+import type { RefObject } from 'react';
 
 /** The Saves slice of the lab's state. */
 export function useSavesSlice(
@@ -50,7 +51,7 @@ export function useSavesSlice(
     FixturesSlice &
     CalibrationSlice &
     ProbesSlice,
-) {
+): SavesSlice {
   const {
     boot,
     busy,
@@ -398,4 +399,23 @@ export function useSavesSlice(
     updateSave,
   });
 }
-export type SavesSlice = ReturnType<typeof useSavesSlice>;
+/** What the Saves slice of the lab offers: its state, derived values and actions. */
+export interface SavesSlice {
+  activeSave: NamedSave | null;
+  deleteSave: (id: string) => void;
+  exportSave: (id?: string) => void;
+  importFile: RefObject<HTMLInputElement | null>;
+  importSave: (chosen: File) => Promise<void>;
+  loadSave: (id: string) => Promise<void>;
+  renameSave: (id: string, name: string) => boolean;
+  resetToDemo: () => Promise<void>;
+  saveAs: (name: string) => boolean;
+  saveEverything: () => void;
+  saveNow: () => boolean;
+  savedAt: string;
+  saves: NamedSave[];
+  stepHistory: (back: boolean) => Promise<void>;
+  storageOk: boolean;
+  unsaved: boolean;
+  updateSave: (id: string) => boolean;
+}

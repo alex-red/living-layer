@@ -37,7 +37,7 @@ export function useFixturesSlice(
     TrackingSlice &
     NavigationSlice &
     AiSlice,
-) {
+): FixturesSlice {
   const {
     aiRun,
     busy,
@@ -561,4 +561,52 @@ export function useFixturesSlice(
     ['inRoomViewOf'],
   );
 }
-export type FixturesSlice = ReturnType<typeof useFixturesSlice>;
+/** What the Fixtures slice of the lab offers: its state, derived values and actions. */
+export interface FixturesSlice {
+  addFixturePhoto: (id: string, imageDataUrl?: string) => Promise<void>;
+  anchorFixture: (id: string, detectionId: string) => Promise<void>;
+  chooseFixtureDraft: (id: string, draft: number) => Promise<void>;
+  deleteFixtures: (ids: string[], dismiss?: boolean) => Promise<void>;
+  findFixture: (id: string) => Promise<void>;
+  illustrate: (view?: 'room' | 'desk', note?: string) => Promise<void>;
+  inRoomViewOf: (f: Pick<Fixture, 'scene'>) => boolean;
+  placeFixture: (where: {
+    at: {
+      x: number;
+      y: number;
+    };
+    surfaceId: string | null;
+  }) => Promise<void>;
+  refineFixture3d: (id: string) => Promise<void>;
+  scanFixtures: (
+    scene: IsoSceneKind | 'custom',
+    replace: boolean,
+    addNew: boolean,
+  ) => Promise<MappedThing[] | null>;
+  sculptFixture: (id: string, note?: string) => Promise<void>;
+  separate: (back?: boolean) => Promise<void>;
+  startPlacing: (
+    next: FixturePlacing,
+    {
+      sculpt,
+    }?: {
+      sculpt?: boolean;
+    },
+  ) => void;
+  untrackFixture: (id: string) => Promise<void>;
+  updateFixture: (
+    id: string,
+    change: {
+      centre?: {
+        x: number;
+        y: number;
+      };
+      surfaceId?: string | null;
+      size?: FixtureInput['size'];
+      scanned?: boolean;
+      /** Null puts it back where the desk's camera puts it, in the room's view too. */
+      room?: null;
+    },
+    done: string,
+  ) => Promise<void>;
+}
