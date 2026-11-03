@@ -19,7 +19,7 @@ import { MAIN_RULE, roomCalibrationSchema, zoneOnSurfaceSchema, zoneRectSchema }
 import { MAX_PHOTO_THINGS, PHOTO_AS } from './photo-scene.js';
 import { roomMarksSchema } from './room-camera.js';
 import { STAT_KEYS, STAT_LOOKS, STATS, thingStatSchema } from './stats.js';
-import { MAX_OTHER_OBJECTS, MAX_RULES, ruleInputSchema } from './rules.js';
+import { MAX_OTHER_OBJECTS, MAX_RULES, ruleInputSchema, zoneTriggersSchema } from './rules.js';
 import { selectionShapeSchema } from './selection.js';
 import { zoneActionsSchema } from './zone-actions.js';
 
@@ -516,6 +516,8 @@ export const deskRulesOptionsBodySchema = z
     label: z.string().trim().min(1).max(40).optional(),
     /** Its steps each way, or null for the main zone to switch the main lamp as it did. */
     actions: zoneActionsSchema.nullable().optional(),
+    /** What sets it off: any thing, or the ones named, one of them or all together. */
+    triggers: zoneTriggersSchema.optional(),
   })
   .strict();
 export type DeskRulesOptionsBody = z.input<typeof deskRulesOptionsBodySchema>;

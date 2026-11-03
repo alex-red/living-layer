@@ -75,10 +75,33 @@ import { noteControl } from './fixture/control.js';
 import type { RouteDeps } from './route-deps.js';
 import type { SwitchOptions, Switched } from './control.js';
 
-/** The main zone, when it no longer applies to the mug's sighting: the mug was seen on another image. */
+/**
+ * The main zone, when it no longer applies to the mug's sighting: the mug
+ * was seen on another image. One set to count other things keeps.
+ */
 function dropMainZone(memory: DeskMemory) {
-  if (memory.rules?.some((r) => r.id === MAIN_RULE) && !zoneApplies(memory).applies)
-    memory.rules = memory.rules.filter((r) => r.id !== MAIN_RULE);
+  const main = memory.rules?.find((r) => r.id === MAIN_RULE);
+  const mug = mugOf(memory);
+  if (main && mug && ruleObjects(memory, main).includes(mug.id) && !zoneApplies(memory).applies)
+    memory.rules = memory.rules!.filter((r) => r.id !== MAIN_RULE);
+}
+/**
+ * What a zone may be set off by: things remembered and seen, never the
+ * thing it is or the fixture it switches; a motion zone by nothing.
+ */
+function checkTriggers(
+  memory: DeskMemory,
+  rule: Pick<PlacementRule, 'objects' | 'motion' | 'anchor' | 'fixtureId'>,
+) {
+  if (rule.motion && rule.objects !== 'any')
+    throw new LabError('rule_object', 'A motion zone counts no things.', 400);
+  if (rule.objects === 'any') return;
+  if (rule.objects.some((id) => !objectById(memory, id)?.observation))
+    throw new LabError('rule_object', 'Confirm that object in a segmentation first.', 409);
+  if (rule.anchor && rule.objects.includes(rule.anchor.thingId))
+    throw new LabError('rule_object', 'A thing can’t stand on itself.', 400);
+  if (rule.fixtureId && rule.objects.includes(rule.fixtureId))
+    throw new LabError('rule_fixture', 'A fixture can’t switch itself on by moving.', 400);
 }
 /** A zone drawn in the room must name a surface the room has. */
 function checkOnSurface(memory: DeskMemory, onSurface: ZoneOnSurface | undefined) {
@@ -229,7 +252,8 @@ export function createDesk(
       mug?.track && store.latestSegment(mode) !== mug.track.observation.segmentRunId,
     );
     if (mug && !superseded && memory.rules?.some((r) => r.id === MAIN_RULE)) {
-      const [event] = await verifyRules(mode, mug.id, undefined, MAIN_RULE);
+      // Whatever it counts: the mug by default, or the things it was set to.
+      const [event] = await verifyRules(mode, undefined, undefined, MAIN_RULE);
       if (event) return event;
     }
     const o = mug?.track?.observation ?? null;
@@ -1024,8 +1048,7 @@ export async function deskRoutes(
     const { mode, rule: input } = parseInput(deskRulesSaveBodySchema, request.body);
     available(mode);
     const memory = store.memory(mode);
-    if (input.objects !== 'any' && input.objects.some((id) => !objectById(memory, id)?.observation))
-      throw new LabError('rule_object', 'Confirm that object in a segmentation first.', 409);
+    checkTriggers(memory, input);
     // A thing zone belongs to the image of the newest sighting it counts; a
     // motion zone to the calibrated camera's frames, whose pixels it watches.
     const o = input.motion ? null : ruleSighting(memory, input.objects);
@@ -1052,8 +1075,6 @@ export async function deskRoutes(
       );
     if (input.entityId !== null && !entities(mode).includes(input.entityId))
       throw new LabError('rule_light', 'Choose one of the configured lights or switches.', 400);
-    if (input.fixtureId && input.objects !== 'any' && input.objects.includes(input.fixtureId))
-      throw new LabError('rule_fixture', 'A fixture can’t switch itself on by moving.', 400);
     checkOnSurface(memory, input.onSurface);
     // A motion zone has no things for a step to ask about.
     if (input.actions)
@@ -1070,6 +1091,7 @@ export async function deskRoutes(
       id: input.id ?? randomUUID(),
       label: input.label,
       objects: input.objects === 'any' ? 'any' : [...new Set(input.objects)],
+      ...(input.match ? { match: input.match } : {}),
       entityId: input.entityId,
       ...(input.fixtureId ? { fixtureId: input.fixtureId } : {}),
       ...(input.offWhenEmpty ? { offWhenEmpty: true } : {}),
@@ -1112,17 +1134,40 @@ export async function deskRoutes(
     return memory;
   });
   /**
-   * Rename a zone or change its steps, keeping where it is and whether it is
-   * occupied. Steps given replace an older rule's entity; steps still running
-   * stop. Null puts the main zone back to switching the main lamp.
+   * Rename a zone, change what sets it off or its steps, keeping where it is.
+   * New triggers start a new inside/outside story, as a redrawn zone does;
+   * steps given replace an older rule's entity; steps still running stop.
+   * Null puts the main zone back to switching the main lamp.
    */
   app.post('/rules/options', async (request) => {
-    const { mode, ruleId, label, actions } = parseInput(deskRulesOptionsBodySchema, request.body);
+    const { mode, ruleId, label, actions, triggers } = parseInput(
+      deskRulesOptionsBodySchema,
+      request.body,
+    );
     available(mode);
     const memory = store.memory(mode);
     const rule = memory.rules?.find((r) => r.id === ruleId);
     if (!rule) throw new LabError('zone_missing', 'That zone is gone. Refresh and try again.', 409);
     if (label) rule.label = label;
+    if (triggers) {
+      const objects = triggers.objects === 'any' ? 'any' : [...new Set(triggers.objects)];
+      checkTriggers(memory, { ...rule, objects });
+      // Steps that ask about a thing must still count it.
+      const steps = actions ?? ruleActions(rule);
+      const asked = stepThings([...steps.onEnter, ...steps.onLeave]);
+      if (objects !== 'any' && asked.some((id) => !objects.includes(id)))
+        throw new LabError(
+          'rule_thing',
+          'A step asks about a thing this zone wouldn’t count.',
+          400,
+        );
+      rule.objects = objects;
+      if (triggers.match) rule.match = triggers.match;
+      else delete rule.match;
+      rule.placement = null;
+      rule.inside = [];
+      rule.lastDecision = null;
+    }
     if (actions) {
       checkActions(memory, actions, entities(mode), rule.motion ? [] : rule.objects);
       rule.actions = actions;
@@ -1139,7 +1184,7 @@ export async function deskRoutes(
       delete rule.actions;
     }
     store.saveMemory(memory);
-    if (actions !== undefined) desk.stopZoneSteps(mode, rule.id);
+    if (actions !== undefined || triggers) desk.stopZoneSteps(mode, rule.id);
     return memory;
   });
   app.post('/rules/delete', async (request) => {

@@ -127,6 +127,8 @@ export interface RuleDraft {
   id?: string;
   /** What the zone counts: anything the camera follows, or these. */
   objects: 'any' | string[];
+  /** `all`: only every one of them together fills it. */
+  match?: 'all';
   /** What it does as something enters and as it empties; none only tells Home Assistant. */
   actions: ZoneActions;
   /** Set for a motion zone, drawn on the camera's picture rather than in the room. */

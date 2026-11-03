@@ -9,6 +9,7 @@ import {
   keyFromName,
   objectById,
   ruleWho,
+  MAIN_RULE,
   THING_ZONE,
   type DeskMemory,
   type ZoneStep,
@@ -53,7 +54,8 @@ import { ScanFixtures } from './ScanFixtures';
 import { BoxOnlyNote, LocalOutline } from './LocalOutline';
 import { ChooseDevicesLink } from './ChooseDevicesLink';
 import { ThingZoneLink } from './ThingZoneLink';
-import { ZoneActionsEditor, actionsProblem, type ZoneThing } from './ZoneActions';
+import { ZoneActionsEditor, actionsProblem } from './ZoneActions';
+import { SavedZoneWatches, ZoneWatches, zoneThings } from './ZoneWatches';
 import { Later } from '../Later';
 import { mainSurface, roomLabel, surfaceRows, type LabRead } from './labels';
 import { pinScene, viewLabel, type Selection } from './progress';
@@ -1288,20 +1290,24 @@ function ZonePanel() {
       </Panel>
     );
   const d = memory.lastDecision?.output;
+  const rule = memory.rules?.find((r) => r.id === MAIN_RULE);
+  // What it watches: the mug it was drawn for, unless set to other things.
+  const who = rule ? ruleWho(memory, rule) : 'the mug';
+  const Who = who.charAt(0).toUpperCase() + who.slice(1);
   const status = !mainZone(memory)
     ? zoneObservation
       ? 'Draw the zone the mug should be in.'
       : 'Track the mug in this frame, then draw its zone.'
     : !d
-      ? 'Zone saved. Check where the mug is to try the rule.'
+      ? `Zone saved. Check where ${who} is to try the rule.`
       : d.decision === 'inside'
         ? d.action === 'confirmed'
-          ? `The mug is in the zone. Its steps ran${mode === 'demo' ? ' on virtual devices' : ''}.`
+          ? `${Who} is in the zone. Its steps ran${mode === 'demo' ? ' on virtual devices' : ''}.`
           : d.action === 'pending'
-            ? 'The mug is in the zone. Running its steps…'
-            : `The mug is still in the zone. Its steps run only on entering.`
+            ? `${Who} is in the zone. Running its steps…`
+            : `${Who} is still in the zone. Its steps run only on entering.`
         : d.decision === 'outside'
-          ? 'The mug is outside the zone. Nothing to do.'
+          ? `${Who} is outside the zone. Nothing to do.`
           : `Blocked: ${d.reason}`;
   const main = mainZone(memory);
   const mug = mugOf(memory)!;
@@ -1320,7 +1326,13 @@ function ZonePanel() {
             <span className="tiny">Name</span>
             <ZoneName id={main.id} label={main.label} />
           </div>
-          <SavedZoneActions ruleId={main.id} who={mug.label} />
+          {rule && (
+            <div className="zone-section">
+              <span className="tiny">Watches</span>
+              <SavedZoneWatches rule={rule} />
+            </div>
+          )}
+          <SavedZoneActions ruleId={main.id} who={who} />
         </div>
       ) : (
         <p className="rule-sentence">
@@ -1449,21 +1461,6 @@ function ZonePanel() {
       </Details>
     </Panel>
   );
-}
-
-/** What a zone can watch: the mug, other objects, and fixtures the camera follows. */
-function zoneThings(memory: DeskMemory | null | undefined): ZoneThing[] {
-  const mug = mugOf(memory);
-  return [
-    ...(mug && mugSighting(memory) ? [{ id: mug.id, label: mug.label }] : []),
-    ...(otherObjects(memory) ?? [])
-      .filter((o) => o.observation)
-      .map((o) => ({ id: o.id, label: o.label })),
-    // A fixture the camera follows can fill a zone too.
-    ...placedFixtures(memory)
-      .filter((f) => f.track)
-      .map((f) => ({ id: f.id, label: f.label })),
-  ];
 }
 
 /** A zone's name, renamed in place: Enter or the button saves, Escape puts it back. */
@@ -1633,16 +1630,24 @@ function RulePanel({ id }: { id: string }) {
         </div>
         <div className="zone-section">
           <span className="tiny">Watches</span>
-          <div className="zone-area drawn">
-            <span>
-              {r.motion
-                ? `Motion in ${Math.round(r.motion.share * 100)}% of it · stops after ${r.motion.quietS} s`
-                : who.charAt(0).toUpperCase() + who.slice(1)}
-            </span>
-            <Button variant="text" size="sm" disabled={off} onClick={() => lab.editRule(r.id)}>
-              {r.anchor ? 'Change →' : 'Redraw or change →'}
-            </Button>
-          </div>
+          {r.motion ? (
+            <div className="zone-area drawn">
+              <span>
+                Motion in {Math.round(r.motion.share * 100)}% of it · stops after {r.motion.quietS}{' '}
+                s
+              </span>
+              <Button variant="text" size="sm" disabled={off} onClick={() => lab.editRule(r.id)}>
+                Redraw or change →
+              </Button>
+            </div>
+          ) : (
+            <>
+              <SavedZoneWatches rule={r} exclude={r.anchor ? [r.anchor.thingId] : []} />
+              <Button variant="text" size="sm" disabled={off} onClick={() => lab.editRule(r.id)}>
+                {r.anchor ? 'Change its margin →' : 'Redraw it →'}
+              </Button>
+            </>
+          )}
         </div>
         {r.anchor && (
           <div className="zone-section">
@@ -1753,13 +1758,6 @@ function NewRulePanel() {
     ? (memory?.fixtures?.find((f) => f.id === anchor.thingId)?.label ?? 'thing')
     : null;
   const set = (patch: Partial<typeof draft>) => lab.setRuleDraft({ ...draft, ...patch });
-  const picked = (id: string) => draft.objects !== 'any' && draft.objects.includes(id);
-  const toggle = (id: string) => {
-    const now = draft.objects === 'any' ? [] : draft.objects;
-    const next = now.includes(id) ? now.filter((x) => x !== id) : [...now, id];
-    // In the things' own order; none picked watches anything.
-    set({ objects: next.length ? things.map((t) => t.id).filter((x) => next.includes(x)) : 'any' });
-  };
   const watched =
     draft.objects === 'any' ? things : things.filter((t) => draft.objects.includes(t.id));
   const who = memory ? ruleWho(memory, draft) : 'something';
@@ -1862,32 +1860,15 @@ function NewRulePanel() {
         ) : (
           <div className="zone-section">
             <span className="tiny">Watches</span>
-            <div className="zone-chips" role="group" aria-label="What the zone watches">
-              <button
-                type="button"
-                className="zone-chip"
-                aria-pressed={draft.objects === 'any'}
-                onClick={() => set({ objects: 'any' })}
-              >
-                Anything
-              </button>
-              {things.map((t) => (
-                <button
-                  key={t.id}
-                  type="button"
-                  className="zone-chip"
-                  aria-pressed={picked(t.id)}
-                  onClick={() => toggle(t.id)}
-                >
-                  {t.label}
-                </button>
-              ))}
-            </div>
-            <p className="micro">
-              {draft.objects === 'any'
-                ? 'Occupied while anything the camera follows stands inside.'
-                : `Occupied while ${who} stands inside.`}
-            </p>
+            <ZoneWatches
+              value={{ objects: draft.objects, ...(draft.match ? { match: draft.match } : {}) }}
+              onChange={({ objects, match }) => {
+                const { match: _, ...rest } = draft;
+                lab.setRuleDraft({ ...rest, objects, ...(match ? { match } : {}) });
+              }}
+              things={things}
+              memory={memory}
+            />
           </div>
         )}
         <div className="zone-section">
@@ -1953,6 +1934,7 @@ function NewRulePanel() {
                     ...(draft.id ? { id: draft.id } : {}),
                     label: draft.label.trim(),
                     objects: motion ? 'any' : draft.objects,
+                    ...(!motion && draft.match ? { match: draft.match } : {}),
                     entityId: null,
                     actions: draft.actions,
                     ...(motion ? { motion } : {}),

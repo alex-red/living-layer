@@ -125,3 +125,30 @@ describe('zones that count any thing, or several', () => {
     expect(upgraded).not.toHaveProperty('objectId');
   });
 });
+
+describe('zones that wait for all of the things they name', () => {
+  const both = rule({ objects: [MUG, BOOK], match: 'all' });
+  it('fills only once every one of them is inside', () => {
+    expect(ruleGate(memory(10, 70), both, NOW)).toMatchObject({
+      decision: 'outside',
+      inside: [MUG],
+    });
+    expect(ruleGate(memory(10, 70), both, NOW).reason).toContain('Waiting for the Book');
+    expect(ruleGate(memory(10, 20), both, NOW)).toMatchObject({
+      decision: 'inside',
+      inside: [MUG, BOOK],
+    });
+    // Either leaving empties it.
+    const full = { ...both, placement: 'inside' as const, inside: [MUG, BOOK] };
+    expect(ruleGate(memory(70, 20), full, NOW)).toMatchObject({
+      decision: 'outside',
+      objectId: MUG,
+    });
+  });
+  it('reads as all of them, and is any one again once one is forgotten', () => {
+    expect(ruleWho(memory(0, 0), both)).toBe('the Mug and the Book');
+    const [left] = withoutThings([both], [BOOK]);
+    expect(left).toMatchObject({ objects: [MUG] });
+    expect(left).not.toHaveProperty('match');
+  });
+});

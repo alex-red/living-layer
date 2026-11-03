@@ -198,6 +198,7 @@ export function useNavigationSlice(
     openRule({
       id: r.id,
       objects: r.objects,
+      ...(r.match ? { match: r.match } : {}),
       // An older rule's entity reads as a step each way, and is saved as steps.
       actions: ruleActions(r),
       ...(r.motion ? { motion: r.motion } : {}),

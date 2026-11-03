@@ -219,6 +219,11 @@ export interface PlacementRule {
   label: string;
   /** What the zone counts: any thing the camera follows, or these by id. */
   objects: 'any' | string[];
+  /**
+   * `all`: it fills only while every thing it names is inside together (the
+   * mug and the book). Unset, any one of them fills it.
+   */
+  match?: 'all';
   /** A light or a switch, or null for a zone that only tells Home Assistant. */
   entityId: string | null;
   /** The fixture the entity was picked as, when it was picked as one. */
@@ -262,11 +267,23 @@ export const MAX_RULES = 8;
 export const DEMO_LIGHTS = ['light.demo_desk', 'light.demo_shelf', 'light.demo_fridge'];
 /** Virtual switches in demo mode, for fixtures like a fan or a monitor. */
 export const DEMO_SWITCHES = ['switch.demo_fan', 'switch.demo_monitor'];
+const zoneObjectsSchema = z.union([z.literal('any'), z.array(z.string().uuid()).min(1).max(16)]);
+const allNeedsSeveral = (r: Pick<PlacementRule, 'objects' | 'match'>) =>
+  !r.match || (r.objects !== 'any' && r.objects.length > 1);
+const ALL_NEEDS_SEVERAL = { message: 'Every one of them needs two things or more to name.' };
+/** What sets a zone off: any thing, or the ones named, any one of them or all together. */
+export const zoneTriggersSchema = z
+  .object({ objects: zoneObjectsSchema, match: z.literal('all').optional() })
+  .strict()
+  .refine(allNeedsSeveral, ALL_NEEDS_SEVERAL) satisfies z.ZodType<
+  Pick<PlacementRule, 'objects' | 'match'>
+>;
 export const ruleInputSchema = z
   .object({
     id: z.string().uuid().optional(),
     label: z.string().trim().min(1).max(40),
-    objects: z.union([z.literal('any'), z.array(z.string().uuid()).min(1).max(16)]),
+    objects: zoneObjectsSchema,
+    match: z.literal('all').optional(),
     entityId: entityIdSchema.nullable(),
     fixtureId: z.string().uuid().optional(),
     offWhenEmpty: z.boolean().optional(),
@@ -279,6 +296,7 @@ export const ruleInputSchema = z
     anchor: zoneAnchorSchema.optional(),
   })
   .strict()
+  .refine(allNeedsSeveral, ALL_NEEDS_SEVERAL)
   .refine((r) => Boolean(r.rect) !== Boolean(r.anchor), {
     message: 'A zone is drawn or is a thing, not both.',
   })
@@ -300,7 +318,15 @@ export const ruleInputSchema = z
   }) satisfies z.ZodType<
   Pick<
     PlacementRule,
-    'label' | 'objects' | 'entityId' | 'fixtureId' | 'offWhenEmpty' | 'look' | 'actions' | 'motion'
+    | 'label'
+    | 'objects'
+    | 'match'
+    | 'entityId'
+    | 'fixtureId'
+    | 'offWhenEmpty'
+    | 'look'
+    | 'actions'
+    | 'motion'
   > & {
     id?: string;
     rect?: ZoneRect;
@@ -345,9 +371,16 @@ export function withoutThings(rules: PlacementRule[] | undefined, gone: string[]
       return [{ ...r, inside: r.inside?.filter((id) => !gone.includes(id)) }];
     const objects = r.objects.filter((id) => !gone.includes(id));
     if (!objects.length) return [];
-    return objects.length === r.objects.length
-      ? [r]
-      : [{ ...r, objects, inside: r.inside?.filter((id) => objects.includes(id)) }];
+    if (objects.length === r.objects.length) return [r];
+    // One left can't be waited on together with others.
+    const { match, ...rest } = r;
+    return [
+      {
+        ...(objects.length > 1 && match ? r : rest),
+        objects,
+        inside: r.inside?.filter((id) => objects.includes(id)),
+      },
+    ];
   });
 }
 /**
@@ -369,14 +402,15 @@ export function placeAnchor(memory: DeskMemory, rule: PlacementRule): PlacementR
 /** What a rule counts, in words: "anything", "the mug", "the mug or the book". */
 export function ruleWho(
   memory: DeskMemory,
-  rule: Pick<PlacementRule, 'objects' | 'motion'>,
+  rule: Pick<PlacementRule, 'objects' | 'motion' | 'match'>,
 ): string {
   if (rule.motion) return 'motion';
   if (rule.objects === 'any') return 'anything';
   const names = rule.objects.map(
     (id) => `the ${objectById(memory, id)?.label ?? 'forgotten thing'}`,
   );
-  return names.length > 1 ? `${names.slice(0, -1).join(', ')} or ${names.at(-1)}` : names[0]!;
+  const last = rule.match === 'all' ? 'and' : 'or';
+  return names.length > 1 ? `${names.slice(0, -1).join(', ')} ${last} ${names.at(-1)}` : names[0]!;
 }
 /**
  * The sighting a rule's zone is drawn on: the newest among the things it
@@ -480,7 +514,20 @@ export function ruleGate(
   // One thing reads as before; several are summed up.
   if (ids.length === 1) return { ...gates[0]!, inside, objectId };
   const assumption = assumedFixedCamera ? ' (zone carried over: camera assumed fixed)' : '';
-  const names = inside.map((id) => objectById(memory, id)?.label ?? 'thing');
+  const label = (id: string) => objectById(memory, id)?.label ?? 'thing';
+  const names = inside.map(label);
+  if (rule.match === 'all') {
+    const missing = ids.filter((id) => !inside.includes(id)).map(label);
+    return {
+      decision: missing.length ? 'outside' : 'inside',
+      reason: missing.length
+        ? `Waiting for the ${missing.join(' and the ')} in "${rule.label}"${names.length ? ` (${names.join(', ')} inside)` : ''}${assumption}.`
+        : `All ${names.length} are inside "${rule.label}" (${names.join(', ')})${assumption}.`,
+      assumedFixedCamera,
+      inside,
+      objectId,
+    };
+  }
   return {
     decision: inside.length ? 'inside' : 'outside',
     reason: inside.length

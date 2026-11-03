@@ -743,7 +743,7 @@ function Zones({ outline }: { outline: SceneOutline }) {
           aria-label="Add a zone"
           disabled={!canRule || Boolean(busy)}
           title={canRule ? undefined : 'Follow a thing in this scene first.'}
-          onClick={() => lab.startRule(first)}
+          onClick={() => lab.startRule()}
         >
           ＋ Add
         </Button>

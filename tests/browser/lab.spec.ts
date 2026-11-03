@@ -343,7 +343,7 @@ test('drafts a custom room offline, saves it, and lights a rule’s lamp', async
   await expect(page.locator('[data-prop="lamp"] .iso-lamp.lit')).toBeVisible();
   // A saved zone opens its rule from the room, and the rule changes in place.
   await page.locator('.iso-zone-hit.rule').first().click();
-  await page.getByRole('button', { name: 'Redraw or change →', exact: true }).click();
+  await page.getByRole('button', { name: 'Redraw it →', exact: true }).click();
   await page.getByLabel('Zone name').fill('Desk front');
   await page.getByRole('button', { name: 'Save changes', exact: true }).click();
   await expect(page.locator('.feedback')).toContainText('Updated "Desk front"');
