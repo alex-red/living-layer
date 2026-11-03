@@ -5,7 +5,7 @@ import { useSyncExternalStore } from 'react';
  * (as `activity.ts` does). Only the components that call `useStore` on it
  * render when it changes, however often that is.
  */
-export interface Store<T> {
+interface Store<T> {
   get(): T;
   /** Replace the value, or compute the next from the current one. */
   set(next: T | ((current: T) => T)): void;

@@ -7,7 +7,7 @@ interface State {
   attributes: Record<string, unknown>;
 }
 /** One entity Home Assistant has that Living Layer could switch, as the lab lists it. */
-export interface HaEntity {
+interface HaEntity {
   entityId: string;
   /** Its friendly name in Home Assistant, else the entity id. */
   name: string;

@@ -44,7 +44,7 @@ export async function liftedMask(
  * ring, but the hole inside it is drawn as part of the fan and has to go
  * from the base with it. Whatever the edges can't reach is inside.
  */
-export function fillHoles(bits: Uint8Array, width: number, height: number): Uint8Array {
+function fillHoles(bits: Uint8Array, width: number, height: number): Uint8Array {
   const outside = new Uint8Array(width * height);
   const queue: number[] = [];
   const seed = (i: number) => {
@@ -73,7 +73,7 @@ export function fillHoles(bits: Uint8Array, width: number, height: number): Uint
 }
 
 /** Lifted places as an alpha mask: grown so the outer strokes go too, and softened. */
-export async function spreadMask(bits: Uint8Array, width: number, height: number) {
+async function spreadMask(bits: Uint8Array, width: number, height: number) {
   const grow = Math.max(3, Math.round(Math.max(width, height) * 0.012));
   const raw = Buffer.from(bits.map((b) => (b ? 255 : 0)));
   // A dilation is a max filter: a blur, then anything touched counts.

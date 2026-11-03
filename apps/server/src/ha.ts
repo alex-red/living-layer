@@ -22,8 +22,8 @@ export function chosenEntities(store: EvidenceStore): string[] {
 /** A sign-in from the lab: the long-lived token it made, never the password. */
 const LOGIN = 'ha_login';
 const loginSchema = z.object({ url: z.string(), token: z.string(), user: z.string() });
-export type HaLogin = z.infer<typeof loginSchema>;
-export function savedLogin(store: EvidenceStore): HaLogin | null {
+type HaLogin = z.infer<typeof loginSchema>;
+function savedLogin(store: EvidenceStore): HaLogin | null {
   try {
     const parsed = loginSchema.safeParse(JSON.parse(store.setting(LOGIN) ?? 'null'));
     return parsed.success ? parsed.data : null;
@@ -48,7 +48,7 @@ export function haConnection(
 }
 
 /** An origin like `http://homeassistant.local:8123`, without a path, a query or credentials. */
-export function haOrigin(raw: string): string {
+function haOrigin(raw: string): string {
   const url = URL.parse(raw.trim());
   if (
     !url ||
@@ -83,7 +83,7 @@ type Step = { kind: 'done'; login: HaLogin } | { kind: 'code'; flowId: string; m
  * the user's tokens. The short session is revoked; the password is never kept.
  * A user with two-factor login answers `code` with the code, and its flow id.
  */
-export async function signIn(
+async function signIn(
   input: { url: string; username: string; password: string; code?: string; flowId?: string },
   {
     fetcher,

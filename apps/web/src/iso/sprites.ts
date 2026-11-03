@@ -163,7 +163,7 @@ export function loadSprite(request: SpriteRequest): Promise<SpriteImage> {
  * The image for `request`, or the previous one while the next is drawn
  * (`null` before the first, or with no request).
  */
-export function useSprite(request: SpriteRequest | null): SpriteImage | null {
+function useSprite(request: SpriteRequest | null): SpriteImage | null {
   const key = request ? spriteKey(request) : null;
   const hit = key ? recall(key) : undefined;
   const [ready, setReady] = useState<SpriteImage | null>(null);
@@ -182,7 +182,7 @@ export function useSprite(request: SpriteRequest | null): SpriteImage | null {
   return key ? (hit ?? ready) : null;
 }
 
-export interface ItemSpriteOptions {
+interface ItemSpriteOptions {
   scale: number;
   resolution?: number;
   select?: number;

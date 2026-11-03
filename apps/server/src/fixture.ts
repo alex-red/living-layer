@@ -511,7 +511,7 @@ async function fixtureSource(
  * comes back for the person to name, choose a control for, and place.
  * Demo mode drafts from the bundled illustrations only.
  */
-export async function draftFixture(
+async function draftFixture(
   { store, meta, run, productsDir }: Pick<RouteDeps, 'store' | 'meta' | 'run' | 'productsDir'>,
   input: Parsed<typeof fixturesDraftBodySchema>,
 ) {
@@ -790,7 +790,7 @@ function saveScanned(
  * touches down, which a loose box doesn't. Demo mode scans the
  * demo office through its camera, with no model call.
  */
-export async function scanFixtures(
+async function scanFixtures(
   {
     store,
     meta,
@@ -1095,7 +1095,7 @@ async function bestSculpt(
  * of its own draft (a second), and the draft whose silhouette matches the
  * picture better is kept, with any parts the person locked. Live only.
  */
-export async function sculptFixture(
+async function sculptFixture(
   {
     store,
     meta,

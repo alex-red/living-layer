@@ -21,7 +21,7 @@ export interface ProviderCall {
 }
 
 /** Which API paths call a provider, and the steps each one runs. */
-export function providerPlan(
+function providerPlan(
   path: string,
   body: Record<string, unknown>,
 ): { title: string; steps: string[] } | null {

@@ -128,7 +128,7 @@ export interface ProviderFailure {
 export interface RunFailure {
   error: { code: string; message: string; detail?: ProviderFailure };
 }
-export interface Readiness {
+interface Readiness {
   configured: boolean;
   enabled: boolean;
   note: string;

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { openStream, type NetworkStream } from '../streams';
 
-export interface CameraInfo {
+interface CameraInfo {
   width: number;
   height: number;
   frameRate: number | null;

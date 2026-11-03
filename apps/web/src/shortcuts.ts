@@ -18,7 +18,7 @@ export type ShortcutAction =
   | 'help';
 
 const MAC = typeof navigator !== 'undefined' && /Mac|iP(hone|ad)/.test(navigator.platform);
-export const MOD = MAC ? '⌘' : 'Ctrl';
+const MOD = MAC ? '⌘' : 'Ctrl';
 
 /** Every workspace shortcut, in the order the help lists them. */
 export const SHORTCUTS: { action: ShortcutAction; keys: string; label: string }[] = [
@@ -52,7 +52,7 @@ export function typing(target: EventTarget | null) {
   );
 }
 /** Which action a key press asks for, if any. */
-export function shortcutFor(e: KeyboardEvent): ShortcutAction | null {
+function shortcutFor(e: KeyboardEvent): ShortcutAction | null {
   const mod = MAC ? e.metaKey : e.ctrlKey;
   const key = e.key.toLowerCase();
   if (mod && !e.altKey) {

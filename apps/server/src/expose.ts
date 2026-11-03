@@ -28,7 +28,7 @@ const LOG_LIMIT = 40;
 const KNOWN_KEY = 'mqtt_config_topics';
 
 /** What Home Assistant's commands do: exactly what the lab's own buttons do. */
-export interface ExposeActions {
+interface ExposeActions {
   setWatching: (on: boolean) => Promise<unknown>;
   checkRules: () => Promise<unknown>;
 }

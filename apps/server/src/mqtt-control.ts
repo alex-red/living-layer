@@ -3,7 +3,7 @@ import { LabError } from './errors.js';
 import type { MqttLink } from './mqtt.js';
 
 /** A light or switch reached over MQTT, by the topic it reports its state on. */
-export interface MqttDevice {
+interface MqttDevice {
   entityId: string;
   topic: string;
 }

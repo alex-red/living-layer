@@ -2,12 +2,12 @@ import type { LocalTrack, LocalVerdict } from '@livinglayer/domain';
 import { createStore, useStore } from './store';
 
 /** What local following sees now, ten times a second: the tracker's box and what it wants done. */
-export interface FollowView {
+interface FollowView {
   track: LocalTrack;
   verdict: LocalVerdict;
 }
 /** How many local steps and SAM checks following has made since it started. */
-export interface FollowStats {
+interface FollowStats {
   frames: number;
   checks: number;
 }

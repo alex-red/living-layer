@@ -26,7 +26,7 @@ export interface UnitBox {
  * The pixels to match, as a sparse list so a mask can leave out the
  * background. Offsets are relative to the template's top-left corner.
  */
-export interface Template {
+interface Template {
   width: number;
   height: number;
   rows: Int32Array;

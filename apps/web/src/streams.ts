@@ -4,7 +4,7 @@ import { api } from './api';
 
 export type { NetworkStream };
 
-export interface OpenedStream {
+interface OpenedStream {
   media: MediaStream;
   /** Stops the track, closes the peer connection and ends the server session. */
   close: () => void;

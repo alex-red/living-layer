@@ -1,5 +1,5 @@
 import { createContext, useContext, useRef, type Context } from 'react';
-import type { Lab, LabSlices } from './state/lab';
+import type { LabSlices } from './state/lab';
 
 /** One context per slice, so a pane re-renders only when the slices it reads change. */
 export const SliceContexts = {
@@ -70,27 +70,4 @@ export function useLabParts<T extends object[]>(...parts: T): Merged<T> {
   const merged = Object.assign({}, ...parts) as Merged<T>;
   last.current = { parts, merged };
   return merged;
-}
-
-/**
- * The whole lab as one flat object. It renders with every slice, so a pane
- * that needs only some of them names those with `useLabParts`.
- */
-export function useLab(): Lab {
-  return useLabParts(
-    useView(),
-    useFeedback(),
-    useRunLog(),
-    useDesk(),
-    useFollowState(),
-    useCamera(),
-    useObservation(),
-    useTracking(),
-    useNavigation(),
-    useAi(),
-    useFixtures(),
-    useCalibration(),
-    useProbes(),
-    useSaves(),
-  ) as Lab;
 }

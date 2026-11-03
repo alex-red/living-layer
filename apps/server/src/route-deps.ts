@@ -7,7 +7,7 @@ import type { Runner } from './runs.js';
 import type { EvidenceStore } from './store.js';
 
 /** Switches one light or switch, by hand or for a rule; a demo mode answers with the demo's. */
-export type Control = (mode: Mode, entityId: string, action: 'on' | 'off') => Promise<LampResult>;
+type Control = (mode: Mode, entityId: string, action: 'on' | 'off') => Promise<LampResult>;
 
 /**
  * What `buildApp` hands the resource plugins. Each plugin takes the part it

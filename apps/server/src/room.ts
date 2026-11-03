@@ -45,7 +45,7 @@ export interface FloorMarks {
 }
 
 /** What a room calibration needs besides the marks; `room` is the inner floor in centimetres. */
-export interface CalibrateInput {
+interface CalibrateInput {
   mode: Mode;
   image: ValidatedImage | null;
   marks: RoomMarks;

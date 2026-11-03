@@ -91,7 +91,7 @@ const STEPS = [
 ];
 
 /** The most one request can cost live: reading it, SAM twice, a lookup with searches, two looks at the photo. */
-export const assistCeiling = () =>
+const assistCeiling = () =>
   sparkCeiling(SPARK_BUDGET.intent, 1) +
   2 * META_PRICES.samPerImage +
   sparkCeiling(SPARK_BUDGET.productLookup, 0) +
@@ -641,7 +641,7 @@ export function modelAxes<B extends { w: number; d: number }>(box: B | null, tur
 }
 
 /** How a draft's steps are reported: the job live, the console in a replay. */
-export interface DraftSteps {
+interface DraftSteps {
   run(id: string, detail?: string): void;
   done(id: string, detail?: string, image?: Buffer): Promise<void>;
   check(): void;

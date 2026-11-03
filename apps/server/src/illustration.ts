@@ -91,7 +91,7 @@ async function roomPicture(scene: IsoScene, camera: RoomCamera) {
     .toBuffer();
 }
 
-export interface Illustrated {
+interface Illustrated {
   /** The picture's run; `segment` is always null now, kept for the page. */
   run: EvidenceRun<{ illustration: SceneIllustration }>;
   segment: EvidenceRun<Segmentation> | null;

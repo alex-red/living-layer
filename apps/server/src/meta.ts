@@ -84,7 +84,7 @@ export const SPARK_CALLS = {
   // Spark reasons over the photo and the model's parts first: 8192 ran out before it answered.
   refine: { tokens: 16384, timeoutMs: 150_000 },
 } as const;
-export type SparkCallKind = keyof typeof SPARK_CALLS;
+type SparkCallKind = keyof typeof SPARK_CALLS;
 /**
  * How hard Spark thinks before answering, where a call sets it. Nearly all of
  * its time is reasoning: a one-line answer took 16 s by default, 7 s at low and
@@ -114,7 +114,7 @@ export const SEARCH_CEILING = 5;
  * The pages a search answer cites, then the other results it read, as
  * sources: titles trimmed, only http(s) URLs, no repeats, at most eight.
  */
-export function citedSources(response: OpenAI.Responses.Response): FactSource[] {
+function citedSources(response: OpenAI.Responses.Response): FactSource[] {
   const found: { title?: string | null; url?: string | null }[] = [];
   for (const item of response.output) {
     if (item.type !== 'message') continue;

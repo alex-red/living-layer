@@ -12,7 +12,7 @@ import type { PlacementDecision } from './memory.js';
 import type { PhotoDraft } from './photo-scene.js';
 
 /** A fixture run that scanned the room for things: what it mapped. */
-export interface FixtureScanOutput {
+interface FixtureScanOutput {
   scan: FixtureScan;
   mapped: MappedThing[];
 }
@@ -30,14 +30,14 @@ export interface FixtureSculptOutput {
   product?: string | null;
 }
 /** A fixture run that fused another photo into the model. */
-export interface FixtureFuseOutput {
+interface FixtureFuseOutput {
   fixtureId: string;
   model: SavedItem;
   views: number;
   iou: number;
 }
 /** A fixture run where SAM 3D reshaped it. */
-export interface FixtureRefineOutput {
+interface FixtureRefineOutput {
   item: IsoItem;
   shaped: LatheFit;
   kept: boolean;
@@ -48,7 +48,7 @@ export interface FixtureRefineOutput {
  * What a `fixture` run holds, by the field that tells them apart: a draft has
  * none of `scan`, `found`, `sculpted`, `views` or `shaped`, so `in` narrows.
  */
-export type FixtureRunOutput =
+type FixtureRunOutput =
   | FixtureDraft
   | FixtureScanOutput
   | PictureFind
@@ -57,7 +57,7 @@ export type FixtureRunOutput =
   | FixtureRefineOutput;
 
 /** An illustration run: the drawn picture, or the base and sprites cut from it. */
-export type IllustrationRunOutput =
+type IllustrationRunOutput =
   | { asset: string }
   | { base: string; sprites: number; skipped: string[] };
 
@@ -65,7 +65,7 @@ export type IllustrationRunOutput =
  * What a run's `output` holds, by its kind. A kind not listed has no single
  * shape worth naming (its output stays `unknown`).
  */
-export interface RunOutputs {
+interface RunOutputs {
   discover: Scene;
   segment: Segmentation;
   scene: SceneGuess;

@@ -16,7 +16,7 @@ import {
  */
 export type WorkScene = IsoSceneKind | 'custom' | 'custom-desk';
 /** A close view inside a room: the office desk. */
-export type ViewScene = IsoSceneKind | 'custom-desk';
+type ViewScene = IsoSceneKind | 'custom-desk';
 
 /**
  * What the inspector shows: a node of the scene outline. `main` is the mug,
@@ -45,7 +45,7 @@ export type Selection =
 
 export type StepId = 'office' | 'desk' | 'objects' | 'rule' | 'run';
 export type StepState = 'done' | 'current' | 'todo' | 'locked';
-export interface Step {
+interface Step {
   id: StepId;
   label: string;
   state: StepState;
@@ -85,7 +85,7 @@ export const pinScene = (scene: WorkScene): IsoSceneKind | 'custom' =>
 export const viewLabel = (view: ViewScene): string =>
   view === 'custom-desk' ? 'Office desk' : ISO_PRESETS[view].label;
 /** The desktop a close view is pinned on. */
-export function deskOf(view: ViewScene, memory?: DeskMemory | null): string | null {
+function deskOf(view: ViewScene, memory?: DeskMemory | null): string | null {
   if (view !== 'custom-desk') return 'desk:top';
   return memory?.scene ? (mainDesk(memory.scene)?.id ?? null) : null;
 }

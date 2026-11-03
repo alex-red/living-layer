@@ -45,14 +45,14 @@ import type { RouteDeps } from './route-deps.js';
 import type { EvidenceStore } from './store.js';
 
 /** What a Spark class looks like offline: the demo mug is a glossy mug. */
-export const demoItemClass: ItemClass = {
+const demoItemClass: ItemClass = {
   archetype: 'mug',
   material: 'gloss',
   description: 'A cream mug with coffee in it and a handle on the right.',
   backside: null,
 };
 /** SAM concepts worth asking for inside a crop, per archetype: parts the fitter can use. */
-export const PART_CONCEPTS: Partial<Record<Archetype, { handle?: string; inside?: string }>> = {
+const PART_CONCEPTS: Partial<Record<Archetype, { handle?: string; inside?: string }>> = {
   mug: { handle: 'mug handle', inside: 'coffee' },
   cup: { inside: 'drink' },
   plant: { inside: 'soil' },
@@ -61,7 +61,7 @@ export const PART_CONCEPTS: Partial<Record<Archetype, { handle?: string; inside?
 /** The demo camera's frame: the office rendered from its corner, the mug at `position`. */
 export const demoPhoto = (position: DemoPosition = 'centre') => demoPng(position);
 /** The detection's masked crop, from the frame it was seen in. */
-export async function itemCrop(
+async function itemCrop(
   store: EvidenceStore,
   mode: Mode,
   segment: EvidenceRun,
@@ -140,7 +140,7 @@ export async function rescore(
 }
 
 /** A masked crop and what is known about it, ready to model. */
-export interface ModelRequest {
+interface ModelRequest {
   crop: Awaited<ReturnType<typeof maskedCrop>>;
   cropUrl: string;
   label: string;
