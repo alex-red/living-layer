@@ -2317,7 +2317,7 @@ table: table, 3×3 tiles
 chair: chair, 2.2×2.2 tiles
 shelf: bookshelf, 2.6666666666666665×1 tiles
 cabinet: cabinet, 2×1.3333333333333333 tiles
-fridge: fridge, 3×2.6 tiles
+fridge: fridge, 3.033333333333333×2.466666666666667 tiles
 plant: plant, 1.6×1.6 tiles
 rug: rug, 3×2 tiles
 wall: wall, 6×0.2 tiles

@@ -58,6 +58,7 @@ export function auditProps(name: string, props: IsoProp[]): Audit {
  */
 const MEANT: Record<string, string> = {
   lamp: "the shade's gloss highlight, as in the reference",
+  fridge: "the glass door bins' glint, a pixel or two at a corner",
 };
 /** One line per audit; flags a prop with specks it isn't meant to have. Returns how many. */
 export function printAudit(audits: Audit[]) {

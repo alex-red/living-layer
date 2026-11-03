@@ -14,6 +14,7 @@ import type { CalibrationDraft } from '../../iso/RoomCalibrate';
 import { prefsOf, readSession, type StageView } from '../../session';
 import { parseSelection, selectionHash, type Selection, type WorkScene } from '../progress';
 import type { Tool } from '../ToolStrip';
+import type { FridgeView } from '../demoFridge';
 import { useStableSlice } from './stable';
 import type { Prefs, SessionSave } from '../../session';
 import type { Dispatch, RefObject, SetStateAction } from 'react';
@@ -40,6 +41,8 @@ export function useViewSlice(): ViewSlice {
       ? (boot.prefs.demoPosition as DemoPosition)
       : 'centre',
   );
+  // Which of the fridge's placeholder photos the picture pane shows.
+  const [fridgeView, setFridgeView] = useState<FridgeView>('open');
   const [overlay, setOverlay] = useState(boot.prefs.overlay);
   const [showTrail, setShowTrail] = useState(boot.prefs.trail);
   const [showPicture, setShowPicture] = useState(boot.prefs.picture);
@@ -132,6 +135,7 @@ export function useViewSlice(): ViewSlice {
     drawer,
     drawing,
     fixtureLook,
+    fridgeView,
     guess,
     isoPanel,
     isoSurfaceId,
@@ -149,6 +153,7 @@ export function useViewSlice(): ViewSlice {
     setChoosingScene,
     setConcept,
     setDemoPosition,
+    setFridgeView,
     setDraftZone,
     setDrawer,
     setDrawing,
@@ -208,6 +213,7 @@ export interface ViewSlice {
   drawer: boolean;
   drawing: boolean;
   fixtureLook: 'model' | 'picture';
+  fridgeView: FridgeView;
   guess: {
     kind: 'desk' | 'fridge' | 'office';
     visibleProps: string[];
@@ -244,6 +250,7 @@ export interface ViewSlice {
   setChoosingScene: Dispatch<SetStateAction<boolean>>;
   setConcept: Dispatch<SetStateAction<string>>;
   setDemoPosition: Dispatch<SetStateAction<'centre' | 'front' | 'right'>>;
+  setFridgeView: Dispatch<SetStateAction<FridgeView>>;
   setDraftZone: Dispatch<SetStateAction<DraftZone>>;
   setDrawer: Dispatch<SetStateAction<boolean>>;
   setDrawing: Dispatch<SetStateAction<boolean>>;

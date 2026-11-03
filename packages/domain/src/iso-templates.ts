@@ -46,8 +46,6 @@ const part = (
 });
 const prism = (...a: Parameters<typeof part> extends [unknown, ...infer R] ? R : never) =>
   part('prism', ...a);
-const cylinder = (...a: Parameters<typeof part> extends [unknown, ...infer R] ? R : never) =>
-  part('cylinder', ...a);
 const surface = (
   g: string,
   id: string,
@@ -109,54 +107,93 @@ export const PROP_TEMPLATES = {
     onTop: false,
     build: modelled('Cabinet', 'cabinet', 'wood', 'Cabinet top'),
   },
-  // The fridge opens toward +y with its door swung out on the left, so its
-  // shelves read like a photo taken into it: back at the top of the frame.
+  // A French-door fridge over a freezer drawer, as photographed: 91 cm wide,
+  // 178 tall, its cabinet 74 deep. It opens toward +y with both doors open,
+  // the left one square to the front and the right one folded flat beside
+  // it, so neither hides the shelves and both show their bins.
   fridge: {
     label: 'Fridge',
-    size: { w: 3, d: 2.6 },
+    size: { w: cm(91), d: cm(74) },
     onTop: false,
     build: (g, x, y, z0, { w, d }) => {
-      const h = 6;
-      const wall = 0.15;
+      const top = z0 + cm(178);
+      const wall = cm(4.5);
+      const door = cm(6);
+      const bin = cm(11);
+      const leaf = w / 2;
+      // The fridge's floor is the freezer drawer's top; heights inside are from it.
+      const floor = z0 + cm(66);
       const inner = { x: x + wall, y: y + wall, w: w - 2 * wall, d: d - wall };
       const shelves = (
         [
-          ['shelf-1', 'Top shelf', 4.2],
-          ['shelf-2', 'Middle shelf', 2.7],
-          ['shelf-3', 'Crisper lid', 1.25],
+          ['shelf-1', 'Top shelf', 86],
+          ['shelf-2', 'Middle shelf', 68],
+          ['shelf-3', 'Crisper lid', 40],
         ] as const
-      ).map(([id, label, top]) => ({
+      ).map(([id, label, up]) => ({
         prop: prism(
           g,
           id,
           label,
-          [inner.x, inner.y, z0 + top - 0.08],
-          [inner.w, inner.d, 0.08],
+          [inner.x, inner.y, floor + cm(up - 2)],
+          [inner.w, inner.d, cm(2)],
           'glass',
         ),
-        surface: surface(g, id, label, `${g}:${id}`, { ...inner }, z0 + top),
+        surface: surface(g, id, label, `${g}:${id}`, { ...inner }, floor + cm(up)),
       }));
+      const crisper = (inner.w - cm(3)) / 2;
+      // Door bins, from the fridge's floor: [bottom, height] in cm.
+      const bins = [
+        [8, 16],
+        [46, 13],
+        [84, 13],
+      ] as const;
       return {
         props: [
-          prism(g, 'back', 'Fridge back', [x, y, z0], [w, wall, h], 'appliance'),
-          prism(g, 'left', 'Fridge side', [x, y + wall, z0], [wall, d - wall, h], 'appliance'),
-          prism(g, '', 'Fridge base', [inner.x, inner.y, z0], [inner.w, inner.d, 0.3], 'appliance'),
+          prism(g, '', 'Freezer drawer', [x, y, z0], [w, d + door, cm(64)], 'steel'),
           prism(
             g,
-            'crisper',
-            'Crisper drawer',
-            [inner.x + 0.1, inner.y + 0.1, z0 + 0.3],
-            [inner.w - 0.2, inner.d - 0.2, 0.85],
+            'handle',
+            'Freezer handle',
+            [x + cm(8), y + d + door, z0 + cm(52)],
+            [w - cm(16), cm(3), cm(4)],
+            'steel',
+          ),
+          prism(g, 'back', 'Fridge back', [x, y, floor], [w, wall, top - floor], 'appliance'),
+          prism(
+            g,
+            'left',
+            'Fridge side',
+            [x, y + wall, floor],
+            [wall, d - wall, top - floor],
+            'appliance',
+          ),
+          prism(
+            g,
+            'pantry',
+            'Pantry drawer',
+            [inner.x + cm(1), inner.y + cm(2), floor],
+            [inner.w - cm(2), inner.d - cm(2), cm(15)],
             'glass',
           ),
+          ...[0, 1].map((i) =>
+            prism(
+              g,
+              `crisper-${i + 1}`,
+              'Crisper drawer',
+              [inner.x + cm(1) + i * (crisper + cm(1)), inner.y + cm(2), floor + cm(16)],
+              [crisper, inner.d - cm(2), cm(22)],
+              'glass',
+            ),
+          ),
           ...shelves.map((s) => s.prop),
-          // The fridge's own light, under the top: a lamp like any other.
-          cylinder(
+          // The fridge's own light, a strip under the top: a lamp like any other.
+          prism(
             g,
             'light',
             'Fridge light',
-            [x + w / 2 - 0.3, y + 0.3, z0 + h - 0.35],
-            [0.6, 0.6, 0.2],
+            [x + w * 0.2, y + d - cm(18), top - wall - cm(3)],
+            [w * 0.6, cm(5), cm(3)],
             'appliance',
             { role: 'lamp' },
           ),
@@ -164,19 +201,62 @@ export const PROP_TEMPLATES = {
             g,
             'top',
             'Fridge top',
-            [x + wall, y + wall, z0 + h - wall],
+            [x + wall, y + wall, top - wall],
             [w - wall, d - wall, wall],
-            'appliance',
+            'steel',
           ),
           prism(
             g,
             'right',
             'Fridge side',
-            [x + w - wall, y + wall, z0],
-            [wall, d - wall, h - wall],
+            [x + w - wall, y + wall, floor],
+            [wall, d - wall, top - wall - floor],
+            'steel',
+          ),
+          prism(
+            g,
+            'door',
+            'Left door',
+            [x - door, y + d, floor],
+            [door, leaf, top - floor],
             'appliance',
           ),
-          prism(g, 'door', 'Open door', [x - 0.2, y + d, z0], [0.2, 2.8, h], 'appliance'),
+          prism(
+            g,
+            'ice',
+            'Ice maker',
+            [x, y + d + cm(5), floor + cm(26)],
+            [cm(8), leaf - cm(10), cm(18)],
+            'appliance',
+          ),
+          ...bins.map(([at, tall], i) =>
+            prism(
+              g,
+              `bin-left-${i + 1}`,
+              'Door bin',
+              [x, y + d + cm(3), floor + cm(at)],
+              [bin, leaf - cm(6), cm(tall)],
+              'glass',
+            ),
+          ),
+          prism(
+            g,
+            'door-right',
+            'Right door',
+            [x + w, y + d, floor],
+            [leaf, door, top - floor],
+            'appliance',
+          ),
+          ...bins.map(([at, tall], i) =>
+            prism(
+              g,
+              `bin-right-${i + 1}`,
+              'Door bin',
+              [x + w + cm(3), y + d + door, floor + cm(at)],
+              [leaf - cm(6), bin, cm(tall)],
+              'glass',
+            ),
+          ),
         ],
         surfaces: shelves.map((s) => s.surface),
       };

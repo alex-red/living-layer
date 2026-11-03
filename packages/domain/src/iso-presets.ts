@@ -48,8 +48,9 @@ const officeScene = compose('office', 'Office', { w: 10, d: 8 }, [
 
 const fridgeScene = compose('fridge', 'Fridge', { w: 7, d: 7 }, [
   ['fridge', 'fridge', 1.5, 1, 0],
-  ['carton', 'milk', 1.9, 1.45, 2.7, { label: 'Milk carton', optional: true }],
-  ['jar', 'jar', 3.35, 2.05, 4.2, { optional: true }],
+  // The milk on the crisper lid, a jar on the top shelf (see the fridge's shelves).
+  ['carton', 'milk', 3.6, 1.5, cm(66 + 40), { label: 'Milk carton', optional: true }],
+  ['jar', 'jar', 2.1, 1.6, cm(66 + 86), { optional: true }],
 ]);
 
 export const ISO_PRESETS: Record<IsoSceneKind, IsoScene> = {

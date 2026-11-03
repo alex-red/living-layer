@@ -51,6 +51,7 @@ import { ToolStrip } from './ToolStrip';
 import { BrushOverlay } from './Brush';
 import { shapeOf, type BrushStroke } from './useBrush';
 import { demoFrameUrl } from './demoFrame';
+import { FRIDGE_PHOTO, FRIDGE_VIEWS, fridgeViewUrl, type FridgeView } from './demoFridge';
 
 const PhonePairing = lazy(() =>
   import('../PhonePairing').then((m) => ({ default: m.PhonePairing })),
@@ -83,6 +84,12 @@ function useRoomFixtures(): boolean {
   const { memory } = useDesk();
   const { workScene } = useView();
   return placedFixtures(memory).some((f) => f.scene === workScene);
+}
+
+/** Whether the fridge's placeholder photos stand in for a camera: the fridge, with no camera or photo of its own. */
+function useFridgePlaceholder(): boolean {
+  const lab = useLabParts(useView(), useCamera());
+  return lab.workScene === 'fridge' && !lab.camera && !lab.image;
 }
 
 /** Whether the iso room is shown beside or instead of the photo. */
@@ -135,17 +142,20 @@ export function SceneToolbar() {
   const { mode, camera, image, stageView, pinning } = lab;
   const layers = useLayers();
   const chosenStream = lab.network.streams.find((s) => s.id === lab.cameraSource);
+  const fridge = useFridgePlaceholder();
   return (
     <div className="scene-toolbar">
       <span>
-        <span className={`dot ${mode === 'live' ? 'live' : ''}`} />
-        {mode === 'demo'
-          ? 'DEMO DESK'
-          : camera
-            ? `LIVE · ${(chosenStream?.name ?? 'This device').toUpperCase()}`
-            : image
-              ? 'LOCAL DESK PHOTO'
-              : 'AWAITING DESK PHOTO'}
+        <span className={`dot ${mode === 'live' && !fridge ? 'live' : ''}`} />
+        {fridge
+          ? `FRIDGE CAMERA · PLACEHOLDER · ${FRIDGE_VIEWS[lab.fridgeView].label.toUpperCase()}`
+          : mode === 'demo'
+            ? 'DEMO DESK'
+            : camera
+              ? `LIVE · ${(chosenStream?.name ?? 'This device').toUpperCase()}`
+              : image
+                ? 'LOCAL DESK PHOTO'
+                : 'AWAITING DESK PHOTO'}
       </span>
       <Popover
         label="Layers"
@@ -248,8 +258,17 @@ export function StageTools() {
 function Media() {
   const lab = useLabParts(useView(), useCamera());
   const { camera, mode, image } = lab;
+  const fridge = useFridgePlaceholder();
   if (camera)
     return <video ref={lab.video} data-pan muted playsInline aria-label="Desk camera preview" />;
+  if (fridge)
+    return (
+      <img
+        data-pan
+        src={fridgeViewUrl(lab.fridgeView)}
+        alt={`${FRIDGE_VIEWS[lab.fridgeView].alt}; placeholder photo`}
+      />
+    );
   if (mode === 'demo' || image)
     return (
       <img
@@ -705,7 +724,10 @@ export function PhotoStage({
   calibratePanel: HTMLDivElement | null;
 }) {
   const lab = useLabParts(useView(), useCamera());
-  const { mode, camera, image, dimensions } = lab;
+  const { mode, camera, image } = lab;
+  // The fridge's placeholder is a photo at its own size, not a frame: nothing measured on a frame is drawn over it.
+  const fridge = useFridgePlaceholder();
+  const dimensions = fridge ? FRIDGE_PHOTO : lab.dimensions;
   return (
     <div
       className="scene"
@@ -723,15 +745,19 @@ export function PhotoStage({
         off={!camera && mode !== 'demo' && !image}
       >
         <Media />
-        <TrailLayer />
-        <MasksLayer />
-        <ZoneLayer />
-        <DrawLayers />
-        <BrushLayer />
-        <OutlineLayer />
-        <FocusLayer />
-        <FollowLayers />
-        <CalibrationLayers calibratePanel={calibratePanel} />
+        {!fridge && (
+          <>
+            <TrailLayer />
+            <MasksLayer />
+            <ZoneLayer />
+            <DrawLayers />
+            <BrushLayer />
+            <OutlineLayer />
+            <FocusLayer />
+            <FollowLayers />
+            <CalibrationLayers calibratePanel={calibratePanel} />
+          </>
+        )}
       </ZoomPan>
       <span className="frame-tick tl" aria-hidden="true" />
       <span className="frame-tick tr" aria-hidden="true" />
@@ -746,7 +772,7 @@ export function PhotoStage({
         </span>
       )}
       <span className="frame-label">
-        {dimensions.width} × {dimensions.height} <span>FRAME 00</span>
+        {dimensions.width} × {dimensions.height} <span>{fridge ? 'PLACEHOLDER' : 'FRAME 00'}</span>
       </span>
       <LayerChips view="photo" />
     </div>
@@ -802,6 +828,14 @@ export function SceneBottom() {
     useCalibration(),
   );
   const { mode, busy, camera } = lab;
+  const fridge = useFridgePlaceholder();
+  /** Take the placeholder photo on show as this frame, to pin and work on like an upload. */
+  async function takeFridgePhoto() {
+    const img = new Image();
+    img.src = fridgeViewUrl(lab.fridgeView);
+    await img.decode();
+    lab.captureCanvas(img, img.naturalWidth, img.naturalHeight);
+  }
   // Rooms a stream camera can be assigned to: the presets, and the person's own scene.
   const rooms: RoomOption[] = [
     ...isoSceneKindSchema.options.map((k) => ({ value: k, label: ISO_PRESETS[k].label })),
@@ -824,13 +858,33 @@ export function SceneBottom() {
   return (
     <div className="scene-bottom">
       <span>
-        {mode === 'demo'
-          ? 'Demo desk. Move the mug to test tracking; no model call or real lamp.'
-          : camera
-            ? 'Camera on. Capture a frame to work on it.'
-            : 'Your photo stays here until you run a live step.'}
+        {fridge
+          ? 'Placeholder fridge camera: photos of a real fridge until yours is set up.'
+          : mode === 'demo'
+            ? 'Demo desk. Move the mug to test tracking; no model call or real lamp.'
+            : camera
+              ? 'Camera on. Capture a frame to work on it.'
+              : 'Your photo stays here until you run a live step.'}
       </span>
-      {mode === 'demo' && (
+      {fridge && (
+        <div className="capture-actions" role="group" aria-label="Fridge camera view">
+          {(Object.keys(FRIDGE_VIEWS) as FridgeView[]).map((v) => (
+            <button
+              key={v}
+              aria-pressed={lab.fridgeView === v}
+              onClick={() => lab.setFridgeView(v)}
+            >
+              {FRIDGE_VIEWS[v].label}
+            </button>
+          ))}
+          {mode === 'live' && (
+            <Button disabled={Boolean(busy)} onClick={() => void takeFridgePhoto()}>
+              Use this photo
+            </Button>
+          )}
+        </div>
+      )}
+      {mode === 'demo' && !fridge && (
         <div className="capture-actions" role="group" aria-label="Move the demo mug">
           {(Object.keys(DEMO_POSITIONS) as DemoPosition[]).map((p) => (
             <button
