@@ -1,9 +1,10 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it, mock } from 'bun:test';
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import sharp from 'sharp';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { buildApp } from '../apps/server/src/app.js';
+import { testApp } from './lib/app.js';
 import { productSize } from '../apps/server/src/fixture.js';
 import { parseConfig, type Fetcher } from '../apps/server/src/config.js';
 import { syntheticStream } from '../apps/server/src/sam.js';
@@ -506,19 +507,16 @@ describe('placing what SAM outlined', () => {
 
 async function setup(
   env: Record<string, string> = {},
-  fetcher: Fetcher = mock<Fetcher>(),
+  fetcher?: Fetcher,
   /** A data folder to start from, copied: the store as an earlier test left it. */
   from?: string,
 ) {
-  const dataDir = mkdtempSync(join(tmpdir(), 'livinglayer-scan-'));
-  dirs.push(dataDir);
-  if (from) cpSync(from, dataDir, { recursive: true });
-  const app = await buildApp(parseConfig({ DATA_DIR: dataDir, ...env }), {
-    fetcher,
-    serveWeb: false,
+  const { app, post, dataDir } = await testApp({
+    name: 'scan',
+    env,
+    ...(fetcher ? { fetcher } : {}),
+    ...(from ? { from } : {}),
   });
-  const post = (path: string, body: object = {}) =>
-    app.inject({ method: 'POST', url: `/api/${path}`, payload: { mode: 'demo', ...body } });
   return { app, post, dataDir };
 }
 type Scanned = { run: EvidenceRun; mapped: MappedThing[]; memory: DeskMemory };

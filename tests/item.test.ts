@@ -1,10 +1,8 @@
-import { afterEach, describe, expect, it, mock, setDefaultTimeout } from 'bun:test';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { describe, expect, it, mock, setDefaultTimeout } from 'bun:test';
+import { readFileSync } from 'node:fs';
 import sharp from 'sharp';
-import { buildApp } from '../apps/server/src/app.js';
-import { parseConfig, type Fetcher } from '../apps/server/src/config.js';
+import { testApp } from './lib/app.js';
+import { type Fetcher } from '../apps/server/src/config.js';
 import { detectionBits, maskedCrop } from '../apps/server/src/images.js';
 import { syntheticStream } from '../apps/server/src/sam.js';
 import {
@@ -105,19 +103,7 @@ describe('masked crop', () => {
   });
 });
 
-const dirs: string[] = [];
-afterEach(() => {
-  dirs.splice(0).forEach((d) => rmSync(d, { recursive: true, force: true }));
-});
-async function setup() {
-  const dataDir = mkdtempSync(join(tmpdir(), 'livinglayer-item-'));
-  dirs.push(dataDir);
-  const fetcher = mock<Fetcher>();
-  const app = await buildApp(parseConfig({ DATA_DIR: dataDir }), { fetcher, serveWeb: false });
-  const post = (path: string, body: object = {}) =>
-    app.inject({ method: 'POST', url: `/api/${path}`, payload: { mode: 'demo', ...body } });
-  return { app, post, fetcher };
-}
+const setup = () => testApp({ name: 'item' });
 
 describe('item routes', () => {
   it('needs a confirmed object before drafting or saving', async () => {
@@ -228,8 +214,6 @@ describe('live item drafts with Meta’s help', () => {
     );
 
   it('classifies with Spark, asks SAM for parts and keeps Spark’s check only if it holds up', async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), 'livinglayer-item-live-'));
-    dirs.push(dataDir);
     const asked: string[] = [];
     const fetcher = mock<Fetcher>().mockImplementation(async (_url, init) => {
       const body = JSON.parse(String(init?.body));
@@ -247,10 +231,11 @@ describe('live item drafts with Meta’s help', () => {
           : { height: 1.05, radius: 1, handleReach: 1, body: null, note: 'Slightly taller.' },
       );
     });
-    const app = await buildApp(
-      parseConfig({ DATA_DIR: dataDir, MODEL_API_KEY: 'test-key', META_LIVE_ENABLED: 'true' }),
-      { fetcher, serveWeb: false },
-    );
+    const { app } = await testApp({
+      name: 'item-live',
+      env: { MODEL_API_KEY: 'test-key', META_LIVE_ENABLED: 'true' },
+      fetcher,
+    });
     const post = (path: string, body: object) =>
       app.inject({ method: 'POST', url: `/api/${path}`, payload: { mode: 'live', ...body } });
     // A live photo: the illustrated desk, rasterized as a camera would deliver it.

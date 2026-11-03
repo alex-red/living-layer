@@ -1,5 +1,5 @@
 import type { z } from 'zod';
-import type { ProviderFailure } from '@livinglayer/domain';
+import { calibrationOf, type DeskMemory, type ProviderFailure } from '@livinglayer/domain';
 
 export class LabError extends Error {
   constructor(
@@ -19,6 +19,29 @@ export const DEMO_IMAGE = 'Demo mode uses only the demo room’s camera.';
 /** Demo mode draws its own picture: an uploaded image there is a mistake, not something to ignore. */
 export function liveImage(mode: string, imageDataUrl: string | undefined, message = DEMO_IMAGE) {
   if (mode !== 'live' && imageDataUrl) throw new LabError('demo_image', message);
+}
+
+/** Why a frame can't be scanned without the room's camera. */
+export const NOT_CALIBRATED =
+  'Calibrate the room’s corner camera first: a scan places everything through it.';
+/** The room's calibration, or the 409 that says to calibrate first. */
+export function requireCalibration(memory: DeskMemory, message = NOT_CALIBRATED) {
+  const calibration = calibrationOf(memory);
+  if (!calibration) throw new LabError('not_calibrated', message, 409);
+  return calibration;
+}
+/**
+ * The upload a mode takes: live needs a photo, the demo draws its own and
+ * refuses one. Each says what it wants in its own words.
+ */
+export function modeImage(
+  mode: string,
+  imageDataUrl: string | undefined,
+  messages: { live: string; demo: string },
+) {
+  const live = mode === 'live';
+  if (live !== Boolean(imageDataUrl))
+    throw new LabError('demo_image', live ? messages.live : messages.demo);
 }
 
 /**

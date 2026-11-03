@@ -1,9 +1,7 @@
-import { afterEach, describe, expect, it, mock } from 'bun:test';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { buildApp } from '../apps/server/src/app.js';
-import { parseConfig, type Fetcher } from '../apps/server/src/config.js';
+import { describe, expect, it, mock } from 'bun:test';
+import { readFileSync } from 'node:fs';
+import { testApp } from './lib/app.js';
+import { type Fetcher } from '../apps/server/src/config.js';
 import { demoIntent } from '../apps/server/src/demo-intent.js';
 import { demoPng, demoSegmentation } from '../apps/server/src/demo.js';
 import {
@@ -37,15 +35,10 @@ import {
 } from '@livinglayer/domain';
 import { demoRoom, shapeOf } from '../scripts/lib/brush.js';
 
-const dirs: string[] = [];
-afterEach(() => {
-  for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
-});
 async function setup(env: Record<string, string> = {}, fetcher?: Fetcher) {
-  const dataDir = mkdtempSync(join(tmpdir(), 'livinglayer-assist-'));
-  dirs.push(dataDir);
-  const app = await buildApp(parseConfig({ DATA_DIR: dataDir, ...env }), {
-    serveWeb: false,
+  const { app, dataDir } = await testApp({
+    name: 'assist',
+    env,
     ...(fetcher ? { fetcher } : {}),
   });
   const assist = (body: object, mode = 'demo') =>

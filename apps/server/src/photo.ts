@@ -41,7 +41,7 @@ import {
   type PhotoCheck,
   addUsage,
 } from '@livinglayer/domain';
-import { LabError, liveImage, parseInput } from './errors.js';
+import { LabError, liveImage, parseInput, requireCalibration } from './errors.js';
 import { demoPhotoCheck, demoPhotoInventory, demoPhotoSegmentation } from './demo.js';
 import {
   maskedCrop,
@@ -114,9 +114,6 @@ function boxOverlap(a: ThingBox, b: ThingBox) {
   const area = (r: ThingBox) => (r.x2 - r.x1) * (r.y2 - r.y1);
   return (w * h) / (area(a) + area(b) - w * h);
 }
-/** Why a frame can't be scanned without the room's camera. */
-export const NOT_CALIBRATED =
-  'Calibrate the room’s corner camera first: a scan places everything through it.';
 
 /** The most a live photo draft can cost: the inventory and SAM, then the check and SAM again. */
 const photoDraftCeiling = (check: boolean) =>
@@ -448,8 +445,7 @@ export async function photoRoutes(
     const { mode } = input;
     const live = mode === 'live';
     liveImage(mode, input.imageDataUrl);
-    if (!calibrationOf(store.memory(mode)))
-      throw new LabError('not_calibrated', NOT_CALIBRATED, 409);
+    requireCalibration(store.memory(mode));
     // Refuse up front rather than stop halfway, with the inventory already paid for.
     if (live) meta.mustAfford(photoDraftCeiling(Boolean(input.check)), 'A photo draft');
     const job = jobs.start(input.jobId, draftSteps(Boolean(input.check)), {
@@ -468,8 +464,7 @@ export async function photoRoutes(
         const photo = image ? image.bytes : await demoPhoto();
         const frame = image ? { width: image.width, height: image.height } : { ...DEMO_FRAME };
         // Everything is placed through the room's camera, so the frame must be one of its.
-        const calibration = calibrationOf(store.memory(mode));
-        if (!calibration) throw new LabError('not_calibrated', NOT_CALIBRATED, 409);
+        const calibration = requireCalibration(store.memory(mode));
         const { width, height } = calibration.camera.frame;
         requireFrame(
           frame,

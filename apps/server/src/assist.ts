@@ -62,8 +62,7 @@ import { sparkRefiner } from './build.js';
 import { shapeFromPhoto, type Shaped } from './brush-sculpt.js';
 import { demoPng } from './demo.js';
 import { demoIntent } from './demo-intent.js';
-import { LabError, liveImage, parseInput } from './errors.js';
-import { NOT_CALIBRATED } from './photo.js';
+import { LabError, liveImage, parseInput, requireCalibration } from './errors.js';
 import { around } from './fixture.js';
 import { toDataUrl, requireFrame, validateImage } from './images.js';
 import type { RouteDeps } from './route-deps.js';
@@ -357,8 +356,7 @@ export async function assistRoutes(
     if (!draft.recipe || !draft.place)
       throw new LabError('assist_nothing', 'That request has no model to put in the room.', 409);
     let memory = store.memory(mode);
-    const calibration = calibrationOf(memory);
-    if (!calibration) throw new LabError('not_calibrated', NOT_CALIBRATED, 409);
+    const calibration = requireCalibration(memory);
     if (calibration.scene !== 'custom') {
       if (memory.scene)
         throw new LabError(

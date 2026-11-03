@@ -1,9 +1,5 @@
 import { afterEach, describe, expect, it, setSystemTime } from 'bun:test';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { buildApp } from '../apps/server/src/app.js';
-import { parseConfig } from '../apps/server/src/config.js';
+import { testApp } from './lib/app.js';
 import { Jobs } from '../apps/server/src/jobs.js';
 
 afterEach(() => setSystemTime());
@@ -29,16 +25,13 @@ describe('jobs', () => {
   });
 
   it('are kept per app, with the routes in jobs.ts', async () => {
-    const dirs = [0, 1].map(() => mkdtempSync(join(tmpdir(), 'livinglayer-jobs-')));
-    const [a, b] = await Promise.all(
-      dirs.map((dataDir) => buildApp(parseConfig({ DATA_DIR: dataDir }), { serveWeb: false })),
-    );
+    const [{ app: a }, { app: b }] = await Promise.all([
+      testApp({ name: 'jobs' }),
+      testApp({ name: 'jobs' }),
+    ]);
     const id = crypto.randomUUID();
     // Not running in either app: both answer the same, and neither knows the other's jobs.
-    expect((await a!.inject(`/api/jobs/${id}`)).statusCode).toBe(404);
-    expect((await b!.inject({ method: 'POST', url: `/api/jobs/${id}/stop` })).statusCode).toBe(404);
-    await a!.close();
-    await b!.close();
-    dirs.forEach((d) => rmSync(d, { recursive: true, force: true }));
+    expect((await a.inject(`/api/jobs/${id}`)).statusCode).toBe(404);
+    expect((await b.inject({ method: 'POST', url: `/api/jobs/${id}/stop` })).statusCode).toBe(404);
   });
 });

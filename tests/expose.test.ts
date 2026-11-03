@@ -1,11 +1,9 @@
-import { afterEach, describe, expect, it, mock } from 'bun:test';
+import { afterEach, describe, expect, it } from 'bun:test';
 import { EventEmitter } from 'node:events';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { rmSync } from 'node:fs';
 import type { MqttClient } from 'mqtt';
-import { buildApp } from '../apps/server/src/app.js';
-import { parseConfig, type Fetcher } from '../apps/server/src/config.js';
+import { testApp } from './lib/app.js';
+import { parseConfig } from '../apps/server/src/config.js';
 import { topicMatches, type MqttConnect } from '../apps/server/src/mqtt.js';
 import {
   commandOf,
@@ -344,11 +342,9 @@ function fakeBroker() {
   return { published, client, connect, seen };
 }
 async function setup(env: Record<string, string> = {}, mqttConnect?: MqttConnect) {
-  const dataDir = mkdtempSync(join(tmpdir(), 'livinglayer-expose-'));
-  dirs.push(dataDir);
-  const app = await buildApp(parseConfig({ DATA_DIR: dataDir, ...env }), {
-    fetcher: mock<Fetcher>(),
-    serveWeb: false,
+  const { app, dataDir } = await testApp({
+    name: 'expose',
+    env,
     ...(mqttConnect ? { mqttConnect } : {}),
   });
   await app.ready();

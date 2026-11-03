@@ -4,6 +4,7 @@ import sharp from 'sharp';
 import {
   itemCropQuerySchema,
   itemDraftBodySchema,
+  itemSaveBodySchema,
   itemRefitBodySchema,
   DEMO_POSITIONS,
   type DemoPosition,
@@ -229,6 +230,29 @@ export async function itemRoutes(
   app: FastifyInstance,
   { store, meta, run }: Pick<RouteDeps, 'store' | 'meta' | 'run'>,
 ) {
+  /** Save an edited model of the remembered object, or remove it. */
+  app.post('/save', async (request) => {
+    const { mode, item, objectId } = parseInput(itemSaveBodySchema, request.body);
+    const memory = store.memory(mode);
+    const target = modelTarget(memory, objectId);
+    if (!target)
+      throw new LabError('item_identity', 'Confirm the object by hand first, then model it.', 409);
+    setModel(
+      memory,
+      target.id,
+      item && {
+        ...uniqueParts(item),
+        source: target.item?.source ?? 'sampled',
+        segmentRunId: target.item?.segmentRunId ?? null,
+        swatches: target.item?.swatches ?? [],
+        updatedAt: new Date().toISOString(),
+        // An edit keeps its fit record, scored again against the same crop.
+        fit: await rescore(store, item, target.item?.fit),
+      },
+    );
+    store.saveMemory(memory);
+    return memory;
+  });
   /**
    * Draft a model of a remembered object from its current sighting's mask.
    * Both sources measure the model from the mask with the local fitter.

@@ -1,9 +1,8 @@
-import { afterEach, describe, expect, it, mock } from 'bun:test';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { describe, expect, it, mock } from 'bun:test';
+import { readFileSync } from 'node:fs';
 import sharp from 'sharp';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { buildApp } from '../apps/server/src/app.js';
+import { testApp } from './lib/app.js';
 import { parseConfig, type Fetcher } from '../apps/server/src/config.js';
 import { EvidenceStore } from '../apps/server/src/store.js';
 import { ControlAdapter } from '../apps/server/src/control.js';
@@ -195,22 +194,10 @@ describe('fixtures', () => {
   });
 });
 
-const dirs: string[] = [];
-afterEach(() => {
-  for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
-});
-async function setup(env: Record<string, string> = {}, fetcher: Fetcher = mock<Fetcher>()) {
-  const dataDir = mkdtempSync(join(tmpdir(), 'livinglayer-fixture-'));
-  dirs.push(dataDir);
-  const app = await buildApp(parseConfig({ DATA_DIR: dataDir, ...env }), {
-    fetcher,
-    serveWeb: false,
-  });
-  const post = (path: string, body: object = {}) =>
-    app.inject({ method: 'POST', url: `/api/${path}`, payload: { mode: 'demo', ...body } });
-  const memory = async () => (await app.inject('/api/desk/demo')).json<DeskMemory>();
-  const restore = (next: DeskMemory) => post('desk/restore', { memory: next });
-  return { app, post, memory, restore, dataDir };
+async function setup(env: Record<string, string> = {}, fetcher?: Fetcher) {
+  const t = await testApp({ env, name: 'fixture', ...(fetcher ? { fetcher } : {}) });
+  const restore = (next: DeskMemory) => t.post('desk/restore', { memory: next });
+  return { ...t, restore };
 }
 
 describe('fixtures in desk memory', () => {
@@ -472,12 +459,11 @@ describe('signing in to Home Assistant from the lab', () => {
     return { fetcher, openSocket, calls, sockets };
   };
   async function signInSetup(ha = fakeLogin(), env: Record<string, string> = {}) {
-    const dataDir = mkdtempSync(join(tmpdir(), 'livinglayer-ha-'));
-    dirs.push(dataDir);
-    const app = await buildApp(parseConfig({ DATA_DIR: dataDir, ...env }), {
+    const { app } = await testApp({
+      env,
+      name: 'ha',
       fetcher: ha.fetcher,
       haSocket: ha.openSocket,
-      serveWeb: false,
     });
     const post = (path: string, body: object = {}) =>
       app.inject({ method: 'POST', url: `/api/${path}`, payload: { mode: 'live', ...body } });
@@ -1022,15 +1008,7 @@ describe('another photo of a fixture', () => {
 
 describe('refining a fixture with SAM 3D', () => {
   async function withSam3d(sam3d: ((crop: Buffer) => Promise<Buffer>) | null) {
-    const dataDir = mkdtempSync(join(tmpdir(), 'livinglayer-fixture-'));
-    dirs.push(dataDir);
-    const app = await buildApp(parseConfig({ DATA_DIR: dataDir }), {
-      fetcher: mock<Fetcher>(),
-      serveWeb: false,
-      sam3d,
-    });
-    const post = (path: string, body: object = {}) =>
-      app.inject({ method: 'POST', url: `/api/${path}`, payload: { mode: 'demo', ...body } });
+    const { app, post } = await testApp({ name: 'fixture', sam3d });
     return { app, post };
   }
   /** A fixture drafted from a demo picture and placed on the desk. */

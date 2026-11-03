@@ -1,12 +1,11 @@
-import { afterEach, describe, expect, it, mock } from 'bun:test';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { describe, expect, it } from 'bun:test';
+import { tempDir, testApp } from './lib/app.js';
+import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { Appearance, appearanceModelPath } from '../apps/server/src/appearance.js';
 import { DemoSource, FfmpegSource, LUMA_WIDTH } from '../apps/server/src/frames.js';
 import { demoSegmentation } from '../apps/server/src/demo.js';
-import { buildApp, watchersOf } from '../apps/server/src/app.js';
-import { parseConfig, type Fetcher } from '../apps/server/src/config.js';
+import { watchersOf } from '../apps/server/src/app.js';
 import {
   appearanceRegion,
   cropMask,
@@ -202,22 +201,12 @@ describe('where a fixture shows in the frame', () => {
   });
 });
 
-const dirs: string[] = [];
-afterEach(() => {
-  dirs.splice(0).forEach((d) => rmSync(d, { recursive: true, force: true }));
-});
 async function setup() {
-  const dataDir = mkdtempSync(join(tmpdir(), 'livinglayer-watch-'));
-  dirs.push(dataDir);
-  const app = await buildApp(parseConfig({ DATA_DIR: dataDir }), {
-    fetcher: mock<Fetcher>(),
-    serveWeb: false,
+  const { app, post, memory } = await testApp({
+    name: 'watch',
     appearance: async () => null,
     browseCameras: async () => [],
   });
-  const post = async (path: string, body: object = {}) =>
-    app.inject({ method: 'POST', url: `/api/${path}`, payload: { mode: 'demo', ...body } });
-  const memory = async () => (await app.inject('/api/desk/demo')).json<DeskMemory>();
   const watcher = watchersOf(app).demo;
   const move = async (position: string) => {
     await post('watch/demo', { position, mode: undefined });
@@ -438,8 +427,7 @@ describe('the server watching the demo desk', () => {
 const hasFfmpeg = Bun.which('ffmpeg') !== null && Bun.which('ffprobe') !== null;
 describe.skipIf(!hasFfmpeg)('reading a camera through ffmpeg', () => {
   it('streams grey frames at the watcher’s size and takes full-size snapshots', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'livinglayer-frames-'));
-    dirs.push(dir);
+    const dir = tempDir('frames');
     const clip = join(dir, 'clip.mp4');
     const made = Bun.spawnSync([
       'ffmpeg',
@@ -475,8 +463,7 @@ describe.skipIf(!hasFfmpeg)('reading a camera through ffmpeg', () => {
   });
 
   it('cuts every frame to a camera’s zoomed view', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'livinglayer-frames-'));
-    dirs.push(dir);
+    const dir = tempDir('frames');
     const clip = join(dir, 'clip.mp4');
     const made = Bun.spawnSync([
       'ffmpeg',

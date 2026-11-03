@@ -1,8 +1,6 @@
 import { afterEach, describe, expect, it } from 'bun:test';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { buildApp } from '../apps/server/src/app.js';
+import { rmSync } from 'node:fs';
+import { testApp } from './lib/app.js';
 import { parseConfig } from '../apps/server/src/config.js';
 import {
   CAMERA_SERVICE,
@@ -79,8 +77,6 @@ describe('network camera discovery', () => {
   });
 
   it('lists discovered and configured streams without duplicates', async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), 'livinglayer-streams-'));
-    dirs.push(dataDir);
     const found: NetworkStream = {
       id: 'a',
       name: 'Desk cam',
@@ -88,11 +84,11 @@ describe('network camera discovery', () => {
       whep: 'http://192.168.1.20:8889/cam/whep',
       source: 'mdns',
     };
-    const config = parseConfig({
-      DATA_DIR: dataDir,
-      CAMERA_STREAMS: `${found.whep}, http://10.0.0.9:8889/cam/whep`,
+    const { app } = await testApp({
+      name: 'streams',
+      env: { CAMERA_STREAMS: `${found.whep}, http://10.0.0.9:8889/cam/whep` },
+      browseCameras: async () => [found],
     });
-    const app = await buildApp(config, { serveWeb: false, browseCameras: async () => [found] });
     const body = (await app.inject({ url: '/api/streams' })).json<{ streams: NetworkStream[] }>();
     expect(body.streams.map((s) => [s.source, s.whep])).toEqual([
       ['mdns', found.whep],

@@ -16,7 +16,6 @@ import {
   fixtureInPicture,
   sparkCeiling,
   isoSurface,
-  calibrationOf,
   floorSolid,
   sceneSolids,
   type DeskMemory,
@@ -30,7 +29,7 @@ import {
   type RoomCamera,
   type Segmentation,
 } from '@livinglayer/domain';
-import { LabError, liveImage, parseInput } from './errors.js';
+import { LabError, liveImage, parseInput, requireCalibration } from './errors.js';
 import { samDataUrl, toDataUrl, requireFrame, validateImage } from './images.js';
 import type { RouteDeps } from './route-deps.js';
 import {
@@ -124,13 +123,10 @@ export async function illustrationRoutes(
         );
       return drawDesk(input.imageDataUrl, mode, pin.surfaceId, input.jobId, input.note);
     }
-    const calibration = calibrationOf(memory);
-    if (!calibration)
-      throw new LabError(
-        'not_calibrated',
-        'Calibrate the room’s corner camera first: the picture redraws one of its frames.',
-        409,
-      );
+    const calibration = requireCalibration(
+      memory,
+      'Calibrate the room’s corner camera first: the picture redraws one of its frames.',
+    );
     const from = calibration.camera.frame;
     if (pin.frame.width !== from.width || pin.frame.height !== from.height)
       throw new LabError(

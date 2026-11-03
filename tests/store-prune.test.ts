@@ -1,17 +1,11 @@
-import { afterEach, describe, expect, it } from 'bun:test';
+import { describe, expect, it } from 'bun:test';
 import { Database } from 'bun:sqlite';
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { EvidenceStore } from '../apps/server/src/store.js';
+import { tempDir } from './lib/app.js';
 
-const dirs: string[] = [];
-afterEach(() => dirs.splice(0).forEach((d) => rmSync(d, { recursive: true, force: true })));
-const tmp = () => {
-  const dir = mkdtempSync(join(tmpdir(), 'livinglayer-prune-'));
-  dirs.push(dir);
-  return dir;
-};
+const tmp = () => tempDir('prune');
 const DAY = 86_400_000;
 const NOW = Date.parse('2026-06-30T12:00:00Z');
 const uuid = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
