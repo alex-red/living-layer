@@ -67,6 +67,16 @@ describe('the sidebar, one scene at a time', () => {
     ]);
   });
 
+  it('lists what your own layout stands on the desk, a monitor and keyboard too', () => {
+    const own = demo({ scene: { ...ISO_PRESETS.office, kind: 'custom', label: 'My office' } });
+    const desk = outline('custom-desk', own);
+    const labels = desk.groups.flatMap((g) => g.things.map((t) => [t.label, t.kind]));
+    expect(labels).toContainEqual(['Monitor', 'built-in']);
+    expect(labels).toContainEqual(['Keyboard', 'built-in']);
+    // Furniture on the floor is the room's, not a thing.
+    expect(labels.map(([l]) => l)).not.toContain('Chair');
+  });
+
   it('names a surface by what it is part of, without saying it twice', () => {
     for (const scene of ['fridge', 'desk'] as const)
       for (const g of outline(scene).groups) {

@@ -6,14 +6,13 @@ import {
   pinFits,
   type DeskMemory,
   type Fixture,
-  type IsoProp,
   type IsoScene,
   type IsoSceneKind,
   type IsoSurface,
   type Mode,
   type PlacementRule,
 } from '@livinglayer/domain';
-import { DESK_THINGS, roomLabel, sceneOf } from './labels';
+import { groupBase, isBuiltInThing, roomLabel, sceneOf, surfaceUnder } from './labels';
 import { pinScene, roomOf, viewOf, type Selection, type WorkScene } from './progress';
 
 /**
@@ -64,22 +63,6 @@ export function homeOf(
   return scene;
 }
 
-/** The surface a prop drawn with the room stands on, by where its base is. */
-function surfaceUnder(scene: IsoScene, prop: IsoProp): IsoSurface | null {
-  const cx = prop.at.x + prop.size.w / 2;
-  const cy = prop.at.y + prop.size.d / 2;
-  return (
-    scene.surfaces.find(
-      (s) =>
-        s.propId !== prop.id &&
-        Math.abs(s.z - prop.at.z) < 0.05 &&
-        cx >= s.rect.x &&
-        cx <= s.rect.x + s.rect.w &&
-        cy >= s.rect.y &&
-        cy <= s.rect.y + s.rect.d,
-    ) ?? null
-  );
-}
 /** A surface named by what it is part of: "Office desk", "Bookcase · middle shelf". */
 function surfaceLabel(scene: IsoScene | null, surface: IsoSurface): string {
   const owner = scene?.props.find((p) => p.id === surface.propId)?.label;
@@ -199,13 +182,9 @@ function everything({ memory, mode, mainLight, lightsOn }: Omit<OutlineInput, 's
       view && view !== scene ? new Set(sceneOf(view, memory)?.surfaces.map((s) => s.id)) : null;
     for (const prop of drawn.props) {
       const lamp = prop.role === 'lamp';
-      if (!lamp && (prop.id !== prop.group || !prop.template || !DESK_THINGS.has(prop.template)))
-        continue;
+      if (!lamp && !isBuiltInThing(drawn, prop)) continue;
       // A group stands where its lowest part does: a lamp's shade glows above its base.
-      const base = drawn.props
-        .filter((p) => p.group === prop.group)
-        .reduce((low, p) => (p.at.z < low.at.z ? p : low), prop);
-      const surface = surfaceUnder(drawn, base);
+      const surface = surfaceUnder(drawn, groupBase(drawn, prop));
       // The close view draws what stands on its surfaces itself.
       if (surface && inView?.has(surface.id)) continue;
       const entity = prop.lightId ?? mainLight;

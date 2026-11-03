@@ -7,6 +7,7 @@ import {
   type EvidenceRun,
   type Fixture,
   type IsoProp,
+  type IsoScene,
   type LampResult,
   type IsoSurface,
   type Mode,
@@ -189,6 +190,39 @@ export function builtInLamps(lab: LabRead): BuiltInLamp[] {
 }
 /** The small templates drawn standing on a desk or shelf: a book, a bottle, the fridge's eggs. */
 export const DESK_THINGS = new Set(['book', 'bottle', 'jar', 'carton', 'eggs', 'butter', 'tub']);
+
+/** The surface a prop drawn with the room stands on, by where its base is. */
+export function surfaceUnder(scene: IsoScene, prop: IsoProp): IsoSurface | null {
+  const cx = prop.at.x + prop.size.w / 2;
+  const cy = prop.at.y + prop.size.d / 2;
+  return (
+    scene.surfaces.find(
+      (s) =>
+        s.propId !== prop.id &&
+        Math.abs(s.z - prop.at.z) < 0.05 &&
+        cx >= s.rect.x &&
+        cx <= s.rect.x + s.rect.w &&
+        cy >= s.rect.y &&
+        cy <= s.rect.y + s.rect.d,
+    ) ?? null
+  );
+}
+/** A group's lowest part, which stands where the group does: a lamp's base, not its shade. */
+export const groupBase = (scene: IsoScene, prop: IsoProp) =>
+  scene.props
+    .filter((p) => p.group === prop.group)
+    .reduce((low, p) => (p.at.z < low.at.z ? p : low), prop);
+/**
+ * Whether a prop is a thing the room's layout draws, listed as one: a small
+ * template (a book, the fridge's eggs), or anything standing on a desk or
+ * shelf (a monitor, a keyboard, a model the brush made). Lamps are listed as
+ * lamps; furniture on the floor isn't a thing.
+ */
+export const isBuiltInThing = (scene: IsoScene, prop: IsoProp) =>
+  prop.id === prop.group &&
+  prop.role !== 'lamp' &&
+  ((prop.template !== undefined && DESK_THINGS.has(prop.template)) ||
+    surfaceUnder(scene, groupBase(scene, prop)) !== null);
 /** A small thing drawn as part of a room's layout, such as the office's book. */
 interface BuiltInThing {
   /** `scene~group`, the outline's id for it. */
@@ -206,13 +240,15 @@ export function builtInThings(lab: LabRead): BuiltInThing[] {
   const kinds = [progress.view, progress.room].filter((k): k is WorkScene => Boolean(k));
   const seen = new Set<string>();
   const things: BuiltInThing[] = [];
-  for (const scene of kinds)
-    for (const prop of sceneOf(scene, memory)?.props ?? []) {
-      if (prop.id !== prop.group || !prop.template || !DESK_THINGS.has(prop.template)) continue;
+  for (const scene of kinds) {
+    const drawn = sceneOf(scene, memory);
+    for (const prop of drawn?.props ?? []) {
+      if (!isBuiltInThing(drawn!, prop)) continue;
       if (seen.has(prop.group)) continue;
       seen.add(prop.group);
       things.push({ id: `${scene}~${prop.group}`, scene, prop });
     }
+  }
   return things;
 }
 /** Whether a built-in thing's scene is the person's own, whose layout can lose it. */
