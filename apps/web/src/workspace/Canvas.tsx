@@ -1,4 +1,4 @@
-import { useRef, useState, type CSSProperties } from 'react';
+import { useRef, useState, type CSSProperties, type RefObject } from 'react';
 import {
   CROP_MIN,
   DEMO_POSITIONS,
@@ -74,6 +74,15 @@ function EditBanner() {
       <Button onClick={done}>{label}</Button>
     </div>
   );
+}
+
+/**
+ * The frame rate readout, in its own component: its once-a-second updates
+ * re-render only this span, not the canvas.
+ */
+function FrameRate({ video, on }: { video: RefObject<HTMLVideoElement | null>; on: boolean }) {
+  const fps = useFrameRate(video, on);
+  return <span>{fps === null ? '– FPS' : `${fps} FPS`}</span>;
 }
 
 /**
@@ -179,8 +188,6 @@ export function Canvas() {
     (camera || mode === 'demo' || Boolean(image));
   // The tracking layer replaces the follow and watch boxes on the camera with ones fitted to the video.
   const tracked = camera && lab.tracking;
-  // A running camera is live; its rate is what reaches the page, so a fallback to MJPEG shows.
-  const fps = useFrameRate(lab.video, camera);
   return (
     <section className="ws-canvas" aria-label="Scene and segmentation">
       <div className="scene-toolbar">
@@ -669,7 +676,8 @@ export function Canvas() {
             <span className="frame-live" aria-hidden="true">
               <span className="privacy-dot" />
               LIVE
-              <span>{fps === null ? '– FPS' : `${fps} FPS`}</span>
+              {/* A running camera is live; its rate is what reaches the page, so a fallback to MJPEG shows. */}
+              <FrameRate video={lab.video} on={camera} />
             </span>
           )}
           <span className="frame-label">

@@ -37,7 +37,6 @@ import {
   DEMO_POSITIONS,
   DEMO_LIGHTS,
   DEMO_SWITCHES,
-  OBSERVATION_MAX_AGE_MS,
   ISO_PRESETS,
   cameraForScene,
   closeViewOf,
@@ -345,11 +344,6 @@ function median(values: number[]): number | null {
 
 /** All of the lab's state and actions, shared with the workspace through `LabContext`. */
 export function useLabState() {
-  const [now, setNow] = useState(Date.now());
-  useEffect(() => {
-    const timer = window.setInterval(() => setNow(Date.now()), 1000);
-    return () => window.clearInterval(timer);
-  }, []);
   // The browser's own save: choices and a copy of each desk, read once.
   const [boot] = useState(() => {
     const save = readSession();
@@ -1609,9 +1603,6 @@ export function useLabState() {
     segmentRunId === memory.observation.segmentRunId
       ? memory.observation
       : null;
-  const observationStale = memory?.observation
-    ? now - Date.parse(memory.observation.observedAt) > OBSERVATION_MAX_AGE_MS
-    : false;
   const zone = memory && currentObservation ? zoneApplies(memory) : null;
   // New frames from following only have a zone by the fixed-camera assumption.
   const localZone: UnitBox | null =
@@ -2865,7 +2856,6 @@ export function useLabState() {
     ? [...segmentation.detections].sort((a, b) => (b.confidence ?? 0) - (a.confidence ?? 0))
     : [];
   return {
-    now,
     mode,
     status,
     runs,
@@ -3042,7 +3032,6 @@ export function useLabState() {
     startFollow,
     deskAction,
     currentObservation,
-    observationStale,
     zone,
     localZone,
     visibleZone,

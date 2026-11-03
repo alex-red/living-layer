@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useNow } from '../useNow';
 import {
   MAX_OTHER_OBJECTS,
   OBSERVATION_MAX_AGE_MS,
@@ -35,7 +36,7 @@ type Events = { memory: DeskMemory; events: EvidenceRun<PlacementDecision>[] };
 
 /** A ring that empties as a sighting ages towards the 5-minute expiry. */
 function Freshness({ observedAt }: { observedAt: string }) {
-  const { now } = useLab();
+  const now = useNow();
   const left = Math.max(0, 1 - (now - Date.parse(observedAt)) / OBSERVATION_MAX_AGE_MS);
   const c = 2 * Math.PI * 6;
   return (
@@ -766,9 +767,12 @@ function WatchControl() {
 
 function MugPanel() {
   const lab = useLab();
-  const { memory, mode, camera, busy, status, follow, followView, followStats, localZone, now } =
-    lab;
-  const { currentObservation, observationStale, sightings } = lab;
+  const { memory, mode, camera, busy, status, follow, followView, followStats, localZone } = lab;
+  const { currentObservation, sightings } = lab;
+  const now = useNow();
+  const observationStale = memory?.observation
+    ? now - Date.parse(memory.observation.observedAt) > OBSERVATION_MAX_AGE_MS
+    : false;
   if (!memory?.object)
     return (
       <Panel
@@ -901,8 +905,9 @@ function MugPanel() {
 
 function OtherPanel({ id }: { id: string }) {
   const lab = useLab();
-  const { memory, segmentation, segmentRunId, canVision, now } = lab;
+  const { memory, segmentation, segmentRunId, canVision } = lab;
   const { call, off } = useCall();
+  const now = useNow();
   const o = memory?.others?.find((x) => x.id === id);
   if (!o) return <SetupPanel />;
   const canTrack =
