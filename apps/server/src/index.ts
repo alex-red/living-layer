@@ -44,7 +44,12 @@ try {
       if ((error as { code?: string }).code !== 'EADDRINUSE' || tries >= 20) throw error;
       await Bun.sleep(500);
     }
-  console.log(`Living Layer: http://127.0.0.1:${config.port}`);
+  // Under `bun run dev` the lab is Vite's page; this one serves the last build, so it names itself the API.
+  console.log(
+    process.env.LIVING_LAYER_DEV
+      ? `API server: http://127.0.0.1:${config.port}/api (open the lab at the dev page, not here)`
+      : `Living Layer: http://127.0.0.1:${config.port}`,
+  );
 } catch (error) {
   console.error(error instanceof Error ? (error.stack ?? error.message) : error);
   // A server that can't listen (another holds the port) stops its watchers too.

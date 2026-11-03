@@ -21,8 +21,9 @@
  * own and are left alone. A port held by anything else is named, and nothing
  * starts.
  */
-import { readlinkSync, watch } from 'node:fs';
+import { readlinkSync, statSync, watch } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { devBanner } from './lib/dev-banner.js';
 
 const root = resolve(import.meta.dir, '..');
 const ports = [Number(process.env.PORT || 43431), 43430];
@@ -287,3 +288,30 @@ async function quit(signal: NodeJS.Signals | null, code: number) {
 for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const)
   process.on(signal, () => void quit(signal, 0));
 void web.exited.then((code) => quit(null, code));
+
+/** Answers at all within a minute: the API's status, or Vite's page. */
+async function answers(url: string) {
+  for (const until = Date.now() + 60_000; Date.now() < until && !quitting; await Bun.sleep(300))
+    if (
+      await fetch(url).then(
+        (r) => r.ok,
+        () => false,
+      )
+    )
+      return true;
+  return false;
+}
+// Once both answer, say which address is the lab: the API server serves a page too, the last build's.
+void Promise.all([
+  answers(`http://127.0.0.1:${apiPort}/api/status`),
+  answers(`http://127.0.0.1:${ports[1]}/`),
+]).then(([api, page]) => {
+  if (!api || !page || quitting) return;
+  let builtAt: Date | null = null;
+  try {
+    builtAt = statSync(join(root, 'apps/web/dist/index.html')).mtime;
+  } catch {
+    // Never built.
+  }
+  console.log(devBanner({ webPort: ports[1]!, apiPort, builtAt }));
+});
