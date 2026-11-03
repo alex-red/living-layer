@@ -1,7 +1,11 @@
 import { lazy, useCallback, useEffect, useMemo, useState } from 'react';
 import {
   DEMO_SURFACE,
+  archetypeOf,
   believableWidth,
+  buildItem,
+  defaultFit,
+  mugItem,
   ISO_PRESETS,
   fixtureBox,
   fixtureInput,
@@ -100,22 +104,30 @@ function place(
   const map = pinned && pin && o ? surfaceMap(pin, o.frame) : null;
   return map && o ? { map, placed: projectBox(o.box, surface, map.toSurface) } : null;
 }
+/** What a thing not modelled yet is drawn as: the stock mug, or its archetype's usual shape. */
+function stockItem(label: string): IsoItem {
+  const archetype = archetypeOf(label);
+  return archetype === 'mug'
+    ? mugItem(undefined, undefined, label)
+    : buildItem(label, defaultFit(archetype));
+}
 /** A model stands as wide as the sighting's footprint, and as tall as its parts. */
 function marker(
   id: string,
   label: string,
   placed: ReturnType<typeof projectBox>,
-  item?: IsoItem | null,
+  fitted?: IsoItem | null,
 ): IsoObject {
   const { at, size } = placed.box;
-  const archetype = item && 'fit' in item ? (item as SavedItem).fit?.archetype : null;
+  const item = fitted ?? stockItem(label);
+  const archetype = fitted && 'fit' in fitted ? (fitted as SavedItem).fit?.archetype : null;
   const w = believableWidth(size.w, label, archetype);
   // Shrunk or grown about the same footprint centre.
   const box = {
     at: { x: at.x + (size.w - w) / 2, y: at.y + (size.d - w) / 2, z: at.z },
-    size: { w, d: w, h: item ? itemHeight(item) * w : size.h * (w / size.w) },
+    size: { w, d: w, h: itemHeight(item) * w },
   };
-  return { id, box, item: item ?? undefined, label, unsure: !placed.onSurface };
+  return { id, box, item, label, unsure: !placed.onSurface };
 }
 
 /**
