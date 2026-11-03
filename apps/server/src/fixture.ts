@@ -56,6 +56,8 @@ import {
   toSculpt,
   type SavedItem,
   type DeskMemory,
+  type EvidenceRun,
+  type Job,
   type Detection,
   type Fixture,
   type FixtureInput,
@@ -178,6 +180,71 @@ function withModel(fixtures: Fixture[], fixture: Fixture, model: SavedItem): Fix
       updatedAt: now,
     };
   });
+}
+/** What a sculpt run keeps: the model it drew and, when it looked the product up, its size. */
+interface SculptOutput {
+  sculpted: string;
+  item: IsoItem;
+  size?: FixtureInput['size'];
+}
+/**
+ * The fixtures with a sculpt's model saved on this one and its linked copies,
+ * sized as the product it looked up: where each view keeps its size now,
+ * laid along its own longer side.
+ */
+function withSculpt(
+  fixtures: Fixture[],
+  fixture: Fixture,
+  out: SculptOutput,
+  swatches: SavedItem['swatches'],
+): Fixture[] {
+  const group = new Set([fixture.id, ...linkedFixtures(fixtures, fixture).map((f) => f.id)]);
+  const sized = <F extends { size?: FixtureInput['size'] }>(f: F): F => {
+    const s = out.size;
+    if (!s || !f.size) return f;
+    const same = f.size.w >= f.size.d === s.w >= s.d;
+    return { ...f, size: same ? s : { w: s.d, d: s.w, h: s.h } };
+  };
+  const now = new Date().toISOString();
+  const saved: SavedItem = {
+    ...out.item,
+    source: 'spark',
+    segmentRunId: null,
+    swatches,
+    updatedAt: now,
+    fit: null,
+  };
+  // The same thing in its other scenes takes the same model.
+  return fixtures.map((f) =>
+    group.has(f.id)
+      ? fixture.state
+        ? {
+            ...f,
+            ...(f.states?.[fixture.state]?.size ? {} : sized({ size: f.size })),
+            states: {
+              ...f.states,
+              [fixture.state]: {
+                ...(f.states?.[fixture.state]?.size
+                  ? sized(f.states[fixture.state]!)
+                  : (f.states?.[fixture.state] ?? {})),
+                model: saved,
+              },
+            },
+            updatedAt: now,
+          }
+        : { ...withNewModel(sized(f), saved, now), updatedAt: now }
+      : f,
+  );
+}
+/** A past job's sculpt run, when it modelled a fixture and its model was kept. */
+function sculptRunOf(job: Job | null, getRun: (id: string) => EvidenceRun | undefined) {
+  for (const id of job?.runIds ?? []) {
+    const run = getRun(id);
+    const out = run?.output as Partial<SculptOutput> | undefined;
+    if (run?.status === 'completed' && out?.sculpted && out.item?.parts?.length)
+      return { run, out: out as SculptOutput };
+  }
+  return null;
 }
 const sumUsage = (a: Usage | null, b: Usage | null | undefined): Usage | null =>
   !b
@@ -1144,45 +1211,9 @@ export function fixtureRoutes(
       const event = await run('fixture', mode, (id) => sculptSteps(id));
       // Stopped while the last step ran: nothing is saved.
       job.check();
-      const out = event.output as { item: IsoItem; size?: FixtureInput['size'] };
-      // The looked-up product's size, where each view keeps its size now, laid along its own longer side.
-      const sized = <F extends { size?: FixtureInput['size'] }>(f: F): F => {
-        const s = out.size;
-        if (!s || !f.size) return f;
-        const same = f.size.w >= f.size.d === s.w >= s.d;
-        return { ...f, size: same ? s : { w: s.d, d: s.w, h: s.h } };
-      };
-      const now = new Date().toISOString();
-      const saved: SavedItem = {
-        ...out.item,
-        source: 'spark',
-        segmentRunId: null,
-        swatches: activeModel.swatches,
-        updatedAt: now,
-        fit: null,
-      };
-      // The same thing in its other scenes takes the same model.
+      const out = event.output as SculptOutput;
       const fresh = store.memory(mode);
-      fresh.fixtures = (fresh.fixtures ?? []).map((f) =>
-        group.has(f.id)
-          ? fixture.state
-            ? {
-                ...f,
-                ...(f.states?.[fixture.state]?.size ? {} : sized({ size: f.size })),
-                states: {
-                  ...f.states,
-                  [fixture.state]: {
-                    ...(f.states?.[fixture.state]?.size
-                      ? sized(f.states[fixture.state]!)
-                      : (f.states?.[fixture.state] ?? {})),
-                    model: saved,
-                  },
-                },
-                updatedAt: now,
-              }
-            : { ...withNewModel(sized(f), saved, now), updatedAt: now }
-          : f,
-      );
+      fresh.fixtures = withSculpt(fresh.fixtures ?? [], fixture, out, activeModel.swatches);
       store.saveMemory(fresh);
       await job.done(
         'save',
@@ -1194,6 +1225,30 @@ export function fixtureRoutes(
       job.finish();
       return { memory: fresh, run: event };
     });
+  });
+  /**
+   * Put a past modelling job's model back on its fixture, as it saved it then,
+   * with no model call: the model it replaces is kept as an earlier draft.
+   */
+  app.post('/api/fixtures/sculpt/reapply', async (request) => {
+    const { mode, jobId } = parseInput(
+      z.object({ mode: modeSchema, jobId: z.string().uuid() }).strict(),
+      request.body,
+    );
+    const found = sculptRunOf(jobs.get(jobId), (id) => store.getRun(id));
+    if (!found || found.run.mode !== mode)
+      throw new LabError('reapply_missing', 'That AI run has no model to apply again.', 404);
+    const memory = store.memory(mode);
+    const fixture = memory.fixtures?.find((f) => f.id === found.out.sculpted);
+    if (!fixture) throw new LabError('fixture_missing', 'That fixture is gone.', 404);
+    memory.fixtures = withSculpt(
+      memory.fixtures ?? [],
+      fixture,
+      found.out,
+      fixtureModel(fixture).swatches,
+    );
+    store.saveMemory(memory);
+    return { memory, fixtureId: fixture.id, label: fixture.label };
   });
   /**
    * Another photo of a fixture, usually a close one of a thing the room's

@@ -118,6 +118,7 @@ export const BUSY: Record<string, string> = {
   autopin: 'Finding the desk',
   illustrate: 'Drawing the room',
   scan: 'Scanning and mapping',
+  reapply: 'Applying the model again',
   camera: 'Updating the camera setting',
   undo: 'Undoing',
   redo: 'Redoing',
@@ -2089,6 +2090,32 @@ export function useLabState() {
       review: true,
     });
   }
+  /**
+   * Put a past modelling run's model back on its fixture, as it was saved then
+   * (no model call), and open it to edit; undo puts the model it replaces back.
+   */
+  async function reapplyAiRun(jobId: string) {
+    if (busy) return;
+    setBusy('reapply');
+    setError('');
+    try {
+      const result = await api<{ memory: DeskMemory; fixtureId: string; label: string }>(
+        'fixtures/sculpt/reapply',
+        { mode, jobId },
+      );
+      setMemory(result.memory);
+      closeAiTask();
+      setMessage(
+        `Applied that run’s model to the ${result.label.toLowerCase()} again. Undo puts the old model back.`,
+      );
+      openModel(result.fixtureId);
+      void refresh().catch(() => {});
+    } catch (e) {
+      setError(e instanceof Error ? e : 'That run’s model could not be applied again.');
+    } finally {
+      setBusy((b) => (b === 'reapply' ? '' : b));
+    }
+  }
   /** Stop the running AI action: the server aborts its model call and saves nothing. */
   function stopAiTask() {
     const running = aiRun.current;
@@ -2805,6 +2832,7 @@ export function useLabState() {
     setAiTask,
     aiHistory,
     reviewAiRun,
+    reapplyAiRun,
     stopAiTask,
     closeAiTask,
     selection,

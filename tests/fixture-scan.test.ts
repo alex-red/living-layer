@@ -1109,6 +1109,26 @@ describe('scanning live, with a mocked Meta API', () => {
     expect((await s.app.inject(`/api/jobs/${noted}`)).json<Job>().steps.at(-1)!.detail).toMatch(
       /sized as the product: (131 × 60|60 × 131) × 76 cm$/,
     );
+    // A past run's model goes back on with no call, the one it replaces kept as a draft.
+    calls.length = 0;
+    const before = withNote
+      .json<{ memory: DeskMemory }>()
+      .memory.fixtures!.find((f) => f.id === lamp.id)!;
+    const reapplied = await s.post('fixtures/sculpt/reapply', { mode: 'live', jobId });
+    expect(reapplied.statusCode, reapplied.body).toBe(200);
+    expect(calls).toEqual([]);
+    const back = reapplied
+      .json<{ memory: DeskMemory; fixtureId: string }>()
+      .memory.fixtures!.find((f) => f.id === lamp.id)!;
+    expect(reapplied.json<{ fixtureId: string }>().fixtureId).toBe(lamp.id);
+    expect(back.model.parts).toEqual(sculpture.parts);
+    expect(back.drafts?.length).toBe((before.drafts?.length ?? 0) + 1);
+    // The first run looked nothing up, so the product's size stays.
+    expect(back.size).toEqual(resized);
+    expect(
+      (await s.post('fixtures/sculpt/reapply', { mode: 'live', jobId: crypto.randomUUID() }))
+        .statusCode,
+    ).toBe(404);
     // The demo has no Spark to ask.
     expect((await s.post('fixtures/sculpt', { fixtureId: lamp.id })).statusCode).toBe(400);
     await s.app.close();

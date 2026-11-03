@@ -14,6 +14,12 @@ export function AiTaskDialog() {
   }));
   // The model calls it made, as the run log keeps them, to inspect each one.
   const runs = (task.job?.runIds ?? []).flatMap((id) => lab.runs.find((r) => r.id === id) ?? []);
+  // A past modelling run whose model was drawn can put it back on its fixture.
+  const reapply =
+    task.review &&
+    runs.some((r) => r.status === 'completed' && (r.output as { sculpted?: string }).sculpted)
+      ? { label: 'Re-Apply', onClick: () => void lab.reapplyAiRun(task.jobId) }
+      : undefined;
   return (
     <AIRichPreviewDialog
       open={task.open}
@@ -37,7 +43,9 @@ export function AiTaskDialog() {
               },
             },
           }
-        : {})}
+        : reapply
+          ? { action: reapply }
+          : {})}
       onHide={() => lab.setAiTask({ ...task, open: false })}
       footer={
         runs.length ? (
