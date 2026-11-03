@@ -328,6 +328,7 @@ function useSprite(request: SpriteRequest | null): SpriteImage | null {
 interface ItemSpriteOptions {
   scale: number;
   resolution?: number;
+  pixel?: number;
   select?: number;
   glow?: boolean;
 }
@@ -337,6 +338,7 @@ function itemRequest(item: IsoItem, o: ItemSpriteOptions): SpriteRequest {
     item,
     scale: o.scale,
     resolution: o.resolution ?? 32,
+    ...(o.pixel !== undefined ? { pixel: o.pixel } : {}),
     ...(o.select !== undefined ? { select: o.select } : {}),
     ...(o.glow ? { glow: true } : {}),
   };

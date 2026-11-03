@@ -19,6 +19,8 @@ export type SpriteRequest =
       item: IsoItem;
       scale: number;
       resolution: number;
+      /** Iso pixels per sprite pixel: 1 in the room at fit, less to draw it finer. */
+      pixel?: number;
       select?: number;
       glow?: boolean;
     }
@@ -68,7 +70,7 @@ const propKeys = new WeakMap<IsoProp, [string | undefined, string | undefined]>(
 export function spriteKey(r: SpriteRequest): string {
   switch (r.kind) {
     case 'item':
-      return `item|${r.resolution}|${r.scale.toFixed(3)}|${r.select ?? -1}|${r.glow ? 1 : 0}|${partsKey(r.item.parts)}`;
+      return `item|${r.resolution}|${r.pixel ?? 1}|${r.scale.toFixed(3)}|${r.select ?? -1}|${r.glow ? 1 : 0}|${partsKey(r.item.parts)}`;
     case 'prop': {
       let ks = propKeys.get(r.prop);
       if (!ks) propKeys.set(r.prop, (ks = [undefined, undefined]));
@@ -111,6 +113,7 @@ export function draw(r: SpriteRequest): Drawn {
       ? renderPropSprite(r.prop, r.lit)
       : renderSprite(voxelize(r.item.parts, { resolution: r.resolution }), {
           scale: r.scale,
+          ...(r.pixel !== undefined ? { pixel: r.pixel } : {}),
           // A thing is drawn as pixel art is, its prints lettered per pixel; props keep the room's dither.
           finish: 'clean',
           ...(r.select !== undefined ? { select: r.select } : {}),

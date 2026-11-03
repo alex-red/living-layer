@@ -1,4 +1,12 @@
-import { useEffect, useRef, useState, type PointerEvent, type ReactNode } from 'react';
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  type PointerEvent,
+  type ReactNode,
+} from 'react';
 import { readUi, writeUi } from './session';
 import { typing } from './shortcuts';
 import { Button, IconButton } from './ui/controls';
@@ -10,6 +18,18 @@ const STEP = 1.25;
 const SLOP = 3;
 /** How far past its edges the content may be panned, as a share of the view. */
 const SLACK = 0.5;
+
+/** The highest zoom step `useZoomStep` reports. */
+const MAX_STEP = 4;
+/**
+ * The view's zoom rounded to a power of two (1, 2 or 4), and 1 outside a
+ * `ZoomPan`: content drawn at a fixed pixel size redraws finer only when it
+ * changes, not on every wheel step.
+ */
+const ZoomStep = createContext(1);
+export function useZoomStep(): number {
+  return useContext(ZoomStep);
+}
 
 interface View {
   s: number;
@@ -262,7 +282,9 @@ export function ZoomPan({
         className="zoom-pan-content"
         style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.s})` }}
       >
-        {children}
+        <ZoomStep.Provider value={Math.min(MAX_STEP, 2 ** Math.round(Math.log2(view.s)))}>
+          {children}
+        </ZoomStep.Provider>
       </div>
       {!off && (
         <div
