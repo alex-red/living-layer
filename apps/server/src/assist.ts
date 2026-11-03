@@ -58,14 +58,17 @@ import {
   type Usage,
   type AssistDraft,
   addUsage,
-  groupRecipe,
+  OCCUPIED_STATE,
+  dayOf,
+  fixtureProblem,
+  linkedFixtures,
   occupantOf,
-  thingRef,
-  variantRecipe,
-  withVariant,
+  promoteBuiltIn,
+  promoteGroup,
+  uniqueParts,
+  variantItem,
   type IntentOp,
-  type Occupant,
-  type SelectionTarget,
+  type Mode,
 } from '@livinglayer/domain';
 import { sparkRefiner } from './build.js';
 import { shapeFromPhoto, type Shaped } from './brush-sculpt.js';
@@ -75,6 +78,7 @@ import { LabError, liveImage, parseInput, requireCalibration } from './errors.js
 import { around } from './fixture/shared.js';
 import { toDataUrl, requireFrame, validateImage } from './images.js';
 import type { RouteDeps } from './route-deps.js';
+import { saveFixture } from './fixture/save.js';
 import { following } from './jobs.js';
 import { SEARCH_CEILING, SPARK_BUDGET } from './meta.js';
 import { BUNDLED_CATALOG, Catalog, research, type Researcher } from './research.js';
@@ -364,6 +368,7 @@ export async function assistRoutes(
     if (!done || done.kind !== 'assist' || done.mode !== mode || done.status !== 'completed')
       throw new LabError('assist_previous', 'That request isn’t one of this mode’s.', 404);
     const draft = runOutput(done, 'assist')!;
+    if (draft.variant) return keepVariant(mode, draft.variant);
     if (!draft.recipe || !draft.place)
       throw new LabError('assist_nothing', 'That request has no model to put in the room.', 409);
     let memory = store.memory(mode);
@@ -378,29 +383,6 @@ export async function assistRoutes(
       memory = adoptPreset(memory, calibration.scene);
     }
     const before = memory.scene!;
-    if (draft.variant) {
-      // A variant is kept beside the furniture's own model; nothing else in the room moves.
-      const v = draft.variant;
-      const checked = isoSceneSchema.safeParse(
-        withVariant(before, v.group, v.state, draft.recipe, v.base, v.follows),
-      );
-      if (!checked.success)
-        throw new LabError('assist_place', 'The variant doesn’t fit in the room there.', 422);
-      memory.scene = checked.data as IsoScene;
-      if (memory.fixtures) memory.fixtures = settleFixtures(memory.fixtures, memory.scene);
-      if (v.follows) {
-        // Its occupied stat shows the variant: what SAM is asked to see is what sits on it.
-        const id = thingRef({ kind: 'prop', id: v.group });
-        const own = memory.thingStats?.[id] ?? [];
-        if (!own.some((x) => x.key === 'occupied'))
-          memory.thingStats = {
-            ...memory.thingStats,
-            [id]: [...own, { key: 'occupied', concept: occupantOf(v.occupant?.label ?? '') }],
-          };
-      }
-      store.saveMemory(memory);
-      return { memory, group: v.group };
-    }
     const replaced = draft.place.replaces;
     // An edited model keeps its group id, so what refers to it still does; anything else gets one from its name.
     const g =
@@ -458,6 +440,84 @@ export async function assistRoutes(
     store.saveMemory(memory);
     return { memory, group: g };
   });
+
+  /**
+   * Keep a variant as one of a thing's states, beside its own model; the
+   * state it shows stays as it is. Furniture is made a thing first, as
+   * _Make it a thing_ does: a preset's built-in one stands in for it
+   * (`promoteBuiltIn`), one of the person's own layout leaves it. A followed
+   * variant turns the thing's occupied stat on, SAM asked for what sits on it.
+   */
+  async function keepVariant(mode: Mode, v: NonNullable<AssistDraft['variant']>) {
+    let id: string;
+    const state = { model: { label: v.model.label, parts: v.model.parts }, size: v.size };
+    if (v.promotes) {
+      const memory = store.memory(mode);
+      const kind = requireCalibration(memory).scene;
+      const own = kind === 'custom' ? memory.scene : null;
+      const made =
+        kind === 'custom'
+          ? own && promoteGroup(own, v.subject.id)
+          : { scene: null, fixture: promoteBuiltIn(kind, v.subject.id, dayOf(Date.now())) };
+      if (!made?.fixture)
+        throw new LabError(
+          'assist_place',
+          `The ${v.subject.label} has nothing to draw as a thing.`,
+          422,
+        );
+      const problem = fixtureProblem(made.fixture, made.scene ?? memory.scene);
+      if (problem) throw new LabError('fixture_place', problem, 400);
+      // The layout lets go of it first, so a failure never leaves it twice.
+      if (made.scene) store.updateMemory(mode, (m) => void (m.scene = made.scene));
+      const saved = await saveFixture(
+        { store, entities },
+        { mode, fixture: { ...made.fixture, states: { [v.state]: state } } },
+      );
+      id = saved.fixtures!.at(-1)!.id;
+    } else {
+      id = v.subject.id;
+      store.updateMemory(mode, (m) => {
+        const target = m.fixtures?.find((f) => f.id === id);
+        if (!target) throw new LabError('fixture_unknown', `The ${v.subject.label} is gone.`, 404);
+        const group = new Set([id, ...linkedFixtures(m.fixtures!, target).map((f) => f.id)]);
+        const now = new Date().toISOString();
+        m.fixtures = m.fixtures!.map((f) =>
+          group.has(f.id)
+            ? {
+                ...f,
+                states: {
+                  ...f.states,
+                  [v.state]: {
+                    model: {
+                      ...uniqueParts(v.model),
+                      source: f.model.source,
+                      segmentRunId: null,
+                      swatches: f.model.swatches,
+                      updatedAt: now,
+                      fit: null,
+                    },
+                    size: v.size,
+                  },
+                },
+                updatedAt: now,
+              }
+            : f,
+        );
+      });
+    }
+    const memory = store.updateMemory(mode, (m) => {
+      if (v.follows) {
+        const stats = m.thingStats?.[id] ?? [];
+        if (!stats.some((x) => x.key === 'occupied'))
+          m.thingStats = {
+            ...m.thingStats,
+            [id]: [...stats, { key: 'occupied', concept: occupantOf(v.occupant?.label ?? '') }],
+          };
+      }
+      return m;
+    });
+    return { memory, thing: id };
+  }
 
   /**
    * SAM's outline of the boxed thing, cut to the selection (the selection
@@ -698,10 +758,8 @@ export async function finishDraft(
     steps,
     signal,
   }: {
-    room: Pick<ReturnType<typeof selectionRoom>, 'camera' | 'scene'> & {
-      /** A fixture as a variant draws it in; none in a replay. */
-      occupant?: (t: SelectionTarget | null) => Occupant | null;
-    };
+    room: Pick<ReturnType<typeof selectionRoom>, 'camera' | 'scene'> &
+      Partial<Pick<ReturnType<typeof selectionRoom>, 'drawn' | 'related'>>;
     outline: Bits;
     /** SAM's outline of the whole thing, not cut to the selection: what a new model's place is fitted to. */
     whole?: Bits | null;
@@ -944,10 +1002,10 @@ export async function finishDraft(
 }
 
 /**
- * A variant of a piece of furniture (`add_state`): its own model, or a copy
- * of its form, with what stands on it drawn in where the camera sees it now,
- * then the request's edits. Nothing is looked up or shaped: it is the same
- * furniture in another state, kept beside its model when saved.
+ * A variant of a thing (`add_state`): its own model with the occupant's, as
+ * the room draws it now, drawn in where it is (`variantItem`). Furniture is
+ * read as the thing it will be made when the variant is kept. Nothing is
+ * looked up, shaped or checked: it is the same thing in another state.
  */
 async function finishVariant(
   draft: AssistDraft,
@@ -958,50 +1016,51 @@ async function finishVariant(
   steps.run('lookup');
   await steps.done('lookup', 'Not needed');
   steps.run('build');
-  const g = op.subject.id;
-  const base = groupRecipe(room.scene, g);
-  if (!base)
+  if (op.subject.kind === 'prop') {
+    // Made a thing, it has no surfaces of its own: what was put on it by hand would fall to the floor.
+    const onIt = (room.related?.(op.subject) ?? []).filter(
+      (r) => r.relation === 'on' && r.surfaceId && r.target.kind === 'fixture',
+    );
+    if (onIt.length)
+      throw new LabError(
+        'assist_op',
+        `The ${op.subject.label} is part of the layout, which keeps no states, and making it a thing would leave the ${onIt.map((r) => r.target.label).join(' and the ')} on it without a top to stand on. Make a variant of a thing instead, like a cat tree from the starters.`,
+        422,
+      );
+  }
+  const subject = room.drawn?.(op.subject, 'subject') ?? null;
+  if (!subject)
     throw new LabError(
       'assist_op',
       `The ${op.subject.label} has no model to make a variant of.`,
       422,
     );
-  const occupant = op.occupant ? (room.occupant?.(op.occupant) ?? null) : null;
+  const occupant = op.occupant ? (room.drawn?.(op.occupant, 'occupant') ?? null) : null;
   if (op.occupant && !occupant)
     throw new LabError('assist_op', `Couldn’t find where the ${op.occupant.label} is.`, 422);
-  const label = `${base.label} (${op.state.replace(/-/g, ' ')})`.slice(0, 60);
-  const made = variantRecipe(room.scene, g, base, occupant, label);
+  const label = `${subject.label} (${op.state.replace(/-/g, ' ')})`.slice(0, 60);
+  const made = variantItem(subject, occupant, label);
   if ('reason' in made) throw new LabError('assist_op', `Couldn’t add_state: ${made.reason}`, 422);
-  let recipe = made.recipe;
-  const edits = draft.intent.ops.filter((o): o is RecipeOp => o.op in RECIPE_OPS);
-  if (edits.length) {
-    const applied = applyRecipeOps(recipe, edits);
-    if (!applied.ok)
-      throw new LabError('assist_op', `Couldn’t ${edits[applied.at]!.op}: ${applied.reason}`, 422);
-    recipe = applied.recipe;
-  }
-  draft.recipe = recipe;
-  draft.place = placeOfGroup(room.scene, g);
+  draft.recipe = null;
+  draft.place = null;
   draft.check = null;
   draft.variant = {
-    group: g,
-    label: op.subject.label,
+    subject: op.subject,
     state: op.state,
-    base,
     occupant: op.occupant,
-    follows: op.state === 'occupied' && Boolean(op.occupant),
+    model: made.model,
+    size: made.size,
+    promotes: op.subject.kind === 'prop',
+    follows: op.state === OCCUPIED_STATE && Boolean(occupant),
   };
   await steps.done(
     'build',
-    `${op.state} variant of the ${op.subject.label}${occupant ? `, with the ${occupant.label} where the camera sees it` : ''}: ${recipe.parts.length} parts`,
+    `${op.state} variant of the ${subject.label}${occupant ? `, with the ${occupant.label} where the camera sees it` : ''}: ${made.model.parts.length} parts${op.subject.kind === 'prop' ? ' (made a thing when kept)' : ''}`,
   );
   steps.check();
   for (const s of ['shape', 'check'] as const) {
     steps.run(s);
-    await steps.done(
-      s,
-      s === 'shape' ? 'Not needed' : 'A variant: drawn where its furniture stands',
-    );
+    await steps.done(s, s === 'shape' ? 'Not needed' : 'A variant: drawn where the thing stands');
   }
   return draft;
 }

@@ -31,14 +31,14 @@ const fixture: IntentContext = {
   entities: ['light.study'],
 };
 const nothing: IntentContext = { target: null, recipe: null, entities: [] };
-const catTree = { kind: 'prop' as const, id: 'cat-tree', label: 'Cat tree' };
-const cat = { kind: 'fixture' as const, id: 'cat', label: 'Cat' };
-/** The cat selected, asleep on the tree's top platform. */
+const catTree = { kind: 'fixture' as const, id: 'cat-tree', label: 'Cat tree' };
+const cat = { kind: 'object' as const, id: 'cat', label: 'Cat' };
+/** The cat selected, seen asleep on the cat tree's top: both Things. */
 const catOnTree: IntentContext = {
   target: cat,
   recipe: null,
   entities: [],
-  related: [{ target: catTree, relation: 'holds', surfaceId: 'cat-tree:platform-2' }],
+  related: [{ target: catTree, relation: 'holds', surfaceId: null }],
 };
 /** The tree selected, with nothing on it. */
 const bareTree: IntentContext = { target: catTree, recipe: null, entities: [] };

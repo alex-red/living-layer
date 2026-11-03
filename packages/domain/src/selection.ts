@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { Detection, Segmentation } from './api.js';
 import type { IsoBox, IsoScene, Point } from './iso.js';
 import { ridersOf } from './iso-templates.js';
+import { standsOn } from './thing-variant.js';
 import { fillRings, maskBits, newBits, type Bits } from './photo-scene.js';
 import type { RoomCamera } from './room-camera.js';
 import { floorSolid, renderRoom, sceneSolids, type RoomPicture } from './room-render.js';
@@ -212,48 +213,61 @@ export function resolveSelection(
 export interface RelatedThing {
   target: SelectionTarget;
   relation: 'holds' | 'on';
-  /** The surface between them (`cat-tree:platform-2`), when one is known. */
+  /** The layout's surface between them (`desk:top`), when it is one. */
   surfaceId: string | null;
 }
-/** How a request names a thing: `prop:desk`, `fixture:<id>`. */
+/** How a request names a thing: `prop:desk`, `fixture:<id>`, `object:<id>` for one placed by its sightings. */
 export const thingRef = (t: Pick<SelectionTarget, 'kind' | 'id'>) => `${t.kind}:${t.id}`;
+/** Whether two targets are the same Thing: a sighted thing is an `object` to the picture and a fixture in memory. */
+export const sameThing = (a: SelectionTarget | null, b: SelectionTarget | null) =>
+  Boolean(
+    a && b && a.id === b.id && (a.kind === b.kind || (a.kind !== 'prop' && b.kind !== 'prop')),
+  );
+/** A Thing where the room has it: its box in the scene's tiles, and the layout's surface it names. */
+export interface RoomThing {
+  target: SelectionTarget;
+  box: IsoBox;
+  surfaceId: string | null;
+}
 
 /**
- * What the selected thing stands on and what stands on it, read from the
- * scene's surfaces (where each fixture stands) and its groups' riders, not
- * from pixels: a cat on a cat tree overlaps the tree in the frame either way.
- * `fixtures` stand where the room's own view puts them.
+ * What the selected thing stands on and what stands on it. A thing on the
+ * layout names its surface, which is a prop's; a thing on another thing (a
+ * cat on a cat tree that is a thing) stands inside its footprint at its
+ * height (`standsOn`). Read from the room, not from pixels: a cat on a tree
+ * overlaps it in the frame whether it is on it or in front of it.
  */
 export function relatedTargets(
   scene: IsoScene,
-  fixtures: { id: string; label: string; surfaceId: string | null }[],
+  things: RoomThing[],
   target: SelectionTarget | null,
   labels: Map<string, string>,
 ): RelatedThing[] {
-  if (!target || target.kind === 'object') return [];
-  const groupOf = (surfaceId: string | null) => {
-    const s = surfaceId ? scene.surfaces.find((x) => x.id === surfaceId) : undefined;
-    return s ? (scene.props.find((p) => p.id === s.propId)?.group ?? null) : null;
+  if (!target) return [];
+  const prop = (g: string): SelectionTarget => ({ kind: 'prop', id: g, label: labels.get(g) ?? g });
+  /** What a thing stands on: the prop its surface is part of, else the thing under it. */
+  const holderOf = (t: RoomThing): RelatedThing | null => {
+    const s = t.surfaceId ? scene.surfaces.find((x) => x.id === t.surfaceId) : undefined;
+    const g = s ? scene.props.find((p) => p.id === s.propId)?.group : undefined;
+    if (g) return { target: prop(g), relation: 'holds', surfaceId: t.surfaceId };
+    const under = things
+      .filter((o) => !sameThing(o.target, t.target) && standsOn(t.box, o.box))
+      .sort((a, b) => b.box.at.z + b.box.size.h - (a.box.at.z + a.box.size.h))[0];
+    return under ? { target: under.target, relation: 'holds', surfaceId: null } : null;
   };
-  const prop = (g: string): SelectionTarget => ({
-    kind: 'prop',
-    id: g,
-    label: labels.get(g) ?? g,
-  });
-  if (target.kind === 'fixture') {
-    const own = fixtures.find((f) => f.id === target.id);
-    const g = groupOf(own?.surfaceId ?? null);
-    return g ? [{ target: prop(g), relation: 'holds', surfaceId: own!.surfaceId }] : [];
+  const related: RelatedThing[] = [];
+  const own = things.find((t) => sameThing(t.target, target));
+  const holder = own ? holderOf(own) : null;
+  if (holder) related.push(holder);
+  for (const t of things) {
+    if (sameThing(t.target, target)) continue;
+    const h = holderOf(t);
+    if (h && sameThing(h.target, target))
+      related.push({ target: t.target, relation: 'on', surfaceId: h.surfaceId });
   }
-  const related: RelatedThing[] = fixtures
-    .filter((f) => groupOf(f.surfaceId) === target.id)
-    .map((f) => ({
-      target: { kind: 'fixture', id: f.id, label: f.label },
-      relation: 'on',
-      surfaceId: f.surfaceId,
-    }));
-  for (const g of ridersOf(scene, target.id))
-    related.push({ target: prop(g), relation: 'on', surfaceId: null });
+  if (target.kind === 'prop')
+    for (const g of ridersOf(scene, target.id))
+      related.push({ target: prop(g), relation: 'on', surfaceId: null });
   return related;
 }
 

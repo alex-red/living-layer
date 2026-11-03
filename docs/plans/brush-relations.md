@@ -1,6 +1,6 @@
 # Plan: the brush, between things
 
-Status: built in the demo (November 3), see [As built](#as-built); Spark's reading of it not yet run live. Builds on [ai-brush.md](ai-brush.md) and [agent-tooling.md](agent-tooling.md).
+Status: built in the demo on Things (November 3), see [As built](#as-built); Spark's reading of it not yet run live. Builds on [ai-brush.md](ai-brush.md) and [agent-tooling.md](agent-tooling.md).
 
 ## Goal
 
@@ -30,45 +30,46 @@ A separate classifier would only pay off for something Spark and SAM can't do fr
 
 ## The design
 
-### 1. Several targets with their relation
+Everything here follows [things-and-stats.md](things-and-stats.md#decisions): **props stay layout** and never carry stats or states, and **everything else is one Thing** (`memory.fixtures`): fixtures placed by hand, and the mug and other things placed by their sightings. A Thing's model is an item (`SavedItem`, at most 12 parts), and its named states each have a model of their own (`Fixture.states`), the way a cat has `idle` and `sleeping`.
 
-`resolveSelection` already scores every candidate. A new `relatedTargets(scene, target)` adds what the target stands on and what stands on it. It reads support from the scene's surfaces and the camera, not from pixel overlap. The cat is on `cat-tree`'s `platform-2` surface, at a point in that surface's own tiles.
+### 1. What stands on what
 
-`IntentContext` gets `related: { target, relation: 'on' | 'under' | 'beside', at }[]`. `describeContext` lists them with their ids, so Spark can say "the subject is `cat-tree`, the occupant is `fixture:cat`" without guessing ids. `readIntent` checks every id it gets back against the context, as it does for entities now.
+`relatedTargets(scene, things, target)` (`selection.ts`) gives what the selected thing stands on (`holds`) and what stands on it (`on`), for every kind of Thing, from the room and not from pixels:
+
+- **A thing on the layout** names its surface (`desk:top`), which belongs to a prop.
+- **A thing on another thing** stands inside its footprint at its height (`standsOn`), since a thing has no surfaces of its own: a cat on a cat tree from the starters.
+- **A thing placed by its sightings** stands where the camera sees its foot touch down: the foot through the calibrated camera, on the highest top the ray meets, whether a layout surface or a thing's box (`sightingBox`).
+
+The picture names a sighted thing `object` and memory names it a fixture. `sameThing` treats the two as one, and a request names each by its ref (`prop:desk`, `fixture:<id>`, `object:<id>`).
 
 ### 2. One new intent op: `add_state`
 
-```ts
-{
-  op: 'add_state';
-  subject: string;
-  state: string;
-  occupant: string | null;
-  from: 'now' | null;
-}
-```
+`{ op: 'add_state'; subject; state; occupant }`, read by `readIntent` against the context's related things:
 
-- **Subject** is the thing that gets the variant. Its model is copied: a fixture's `SavedItem`, or a prop's `recipe`.
-- **Occupant**, with `from: 'now'`, is drawn into the copy where the camera sees it now: the occupant's current state's model (the cat's `sleeping`), placed at its `at` on the subject's surface. It's a part of the variant, not a fixture of its own, so the variant is one model.
-- Saved to `states[state]` on the subject. A prop's recipe gets states the way fixtures have them (`IsoProp.states`, the same shape). This is the one schema change.
-- **`occupied` links itself:** when the subject has the `occupied` stat, its state follows the stat (occupied ⇒ `occupied`, clear ⇒ the base). That's one line in the place that applies stat changes, not a rule the person has to write.
+- **The subject** is the Thing that gets the variant: named, else what the selection stands on, else the selection.
+- **The occupant** stands on it: named, else the selection when that stands on the subject. `occupied` needs one.
+- **The state** is a short name. `on` and `off` stay with the thing's entity.
+- **Recipe edits beside it are left out** with the reason: a variant is a thing's item model, and its card edits it once it is kept.
 
-`readIntent` refuses it with a reason when the occupant isn't on the subject, when there's no subject model to copy, or when the state name is taken. Asking back (`clarify`) covers "which tree?".
+### 3. The variant's model
 
-### 3. Review
+`variantItem` (`thing-variant.ts`) draws the occupant's current model (the cat asleep) into the subject's own model. It works in the subject's frame before its turns, at the scale the room draws both (one item unit to the box's width). The occupant settles onto the top of the subject's part under its middle (the tree's bed), not onto its box. It keeps at least its two biggest parts, and the subject keeps its biggest of the rest, within 12. The state is as tall as the occupant reaches.
 
-The panel shows the base and the variant side by side, drawn by the room's kernel. It also shows "follows Occupied (cat)" when the stat links it. Saving writes the state, and nothing else in the room moves.
+### 4. Keeping it
 
-### 4. Checks
+`/api/assist/save` writes `states[state]` on the thing (and things linked to it) and leaves the state it shows alone. When the variant follows its occupied stat, saving turns the thing's `occupied` stat on, with SAM's concept from the occupant's name. The watcher shows the state while the stat is on and puts the thing back when it turns off (`followOccupied`). Only the `occupied` state is switched off that way, so a lamp's `on` stays.
 
-- `scripts/lib/intent-cases.ts`: the cat case and "the chair taken", plus a case that should ask back: a selection on the cat with "make it occupied" and two cat trees in the room.
-- `demoIntent` gets the pattern ("variant … occupied", "… taken", "with the cat"), so the demo answers without Spark.
-- `tests/assist.test.ts`: a demo request through `/api/assist` that ends with `states.occupied` holding a part from the cat's model above the platform's top.
-- `bench:intent --live --only occupied --repeat 3` once, about $0.05, to see whether Spark picks the subject consistently.
+**Furniture is made a thing first,** as _Make it a thing_ does: `promoteBuiltIn` on a preset room, `promoteGroup` on the person's own layout. This happens only when nothing placed by hand stands on its surfaces, because a thing has no surfaces and they would drop to the floor. Otherwise the request is refused with the reason. A sighted thing on it isn't stranded: it is placed by the camera each time, onto the new thing's top.
 
-## Demo slice before the submission
+### 5. Review
 
-The demo office has no cat tree. The smallest version that shows the idea is a brush-made cat tree (the existing `create` path) and the demo cat fixture placed on it, then the `add_state` request through `demoIntent`. That's 1, 2 and 4 without the live bench. Skip it if the live checks in [current.md](current.md) aren't done.
+The panel shows the variant's model (`useItemSprite`), what it is the state of, the occupant, and whether it follows Occupied. The button reads _Keep the state_, or _Make it a thing with this state_ for furniture. Selecting something that stands on something suggests _Make a variant of the … that's occupied_.
+
+### 6. Checks
+
+- `tests/brush-variant.test.ts`: relations for every kind of Thing; the variant drawn back where the cat was, turned or not; `followOccupied`; end to end in the demo, a sighted cat on a cat-tree Thing kept as the tree's occupied state, and furniture with a thing on it refused.
+- `scripts/lib/intent-cases.ts`: the cat on the tree, said two ways, and the tree with nothing on it.
+- `tests/mcp.test.ts`: the same through the MCP server.
 
 ## Tools and MCP
 
@@ -96,30 +97,19 @@ The repo already does what works: AGENTS.md lists only what isn't in the code, p
 2. **One test that every op is reachable**: each op in the registries has an intent case and a `demoIntent` pattern, so a new op can't land with only half of it.
 3. **The MCP above**, for agents that don't read the repo. Agents that do should keep using `bun run brush` and the benches: they're the same calls, and their output lands in `out/` for review.
 
-## Order
-
-1. `relatedTargets` and `IntentContext.related`, with tests on the demo room.
-2. `add_state` in `intent.ts`, `readIntent`'s checks, `IsoProp.states`, the variant build.
-3. `demoIntent` pattern, intent cases, assist test. **Demo slice ends here.**
-4. Review panel, linking the `occupied` stat, one live intent bench run.
-5. AGENTS.md checklist and the reachability test.
-6. MCP server over `scripts/lib/brush.ts` and the registries.
-
 ## Open decisions
 
-- **Prop states or fixture only?** A cat tree made by the brush is furniture (a recipe on a prop). Recommended: give props `states` in the fixture shape, rather than forcing the tree to be a fixture, since furniture is what the cat stands on.
-- **Occupant pose:** take the occupant's current state model as it is, or ask for one ("sleeping curled up")? Recommended: as it is, with a follow-up able to change it.
-- **Auto-link to `occupied`,** or leave it to a rule? Recommended: automatic, shown in the review, with the option to turn it off.
+- **Things on things.** A thing has no surfaces, so one put on another by hand is drawn on the floor inside it. Giving a thing's model surfaces (its flat tops, as a recipe names them) would let the cat stand on the tree's bed, and let furniture with things on it be made a thing.
+- **Hide the occupant while its variant shows?** Today both are drawn. Hiding it would need the watcher to say which thing filled the occupied state.
+- **Occupant pose:** taken as the camera's thing shows it now. A follow-up can't change it yet, because recipe edits don't apply to item models.
 
 ## As built
 
-All six steps, with these differences and gaps:
+Built as above in two steps. The first (36673a7) kept variants on props, with a `prop:<group>` stat, which broke the rule that props are layout. This replaces it: nothing of it is left in `IsoProp` or the stat runner.
 
-- **Variants are on furniture only.** `add_state` refuses a fixture as its subject, with a reason. A fixture's states are `SavedItem` models, not recipes, so drawing an occupant into one is separate work.
-- **Where they live:** the group's recipe prop keeps `states` (its own model as `base`), `state` (the one drawn) and `follows`. Switching swaps `recipe` and scales the box's height (`showVariant`), so every reader of the scene draws the variant without knowing about it. A group drawn from a form is rebuilt from `recipeFromForm` in place first, keeping its group id and surface ids (`withVariant`).
-- **The occupant** is two blobs (body, head) in its model's colours, at the fixture's place in the furniture's own centimetres, through the group's turns (`variantRecipe`). The model grows taller when it lies on the top.
-- **Occupied:** saving a followed variant adds the `occupied` stat to `prop:<group>`, with SAM's concept from the occupant's name. Furniture that follows a stat is a stat thing, its region where the calibrated camera sees it (`groupRegion`). The watcher swaps the variant when the stat changes (`followStats`).
-- **Saving replaces a variant of the same name.** A later brush edit that rebuilds the furniture (`create`, `rebase`) drops its variants.
-- **Coverage:** `tests/op-coverage.test.ts` holds every op to an intent case or a `DEMO_GAPS` reason. `add_part`, `remove_part`, `rebase` and `match_photo` are listed there.
-- **MCP:** `bun run mcp` (`scripts/mcp.ts`, `.mcp.json`), a stdio server written by hand (no SDK dependency). Its tools are `room_describe`, `brush_ops`, `brush_run` (demo in process, or live and billed) and `demo_api`, which calls the in-process demo's API only. The demo lab lasts as long as the server, so a saved variant is there for the next call.
 - **Not run:** `bench:intent --live` on the new cases, and the browser suite (`bun run browser`) after the panel's change.
+- **The occupant stays a Thing of its own.** While the variant shows, the followed cat is drawn too, where the camera sees it, which is nearly the same place.
+- **A thing placed by hand on another thing** stands on the floor inside its footprint, because a thing has no surfaces. It counts as standing on it, but it is drawn at floor height. A sighted one is drawn on the top.
+- **12 parts:** the occupant's smallest parts, then the subject's, give way (the cat tree's string toy).
+- **Coverage:** `tests/op-coverage.test.ts` holds every op to an intent case or a `DEMO_GAPS` reason. `add_part`, `remove_part`, `rebase` and `match_photo` are listed there.
+- **MCP:** `bun run mcp` (`scripts/mcp.ts`, `.mcp.json`), a stdio server written by hand (no SDK dependency). Its tools are `room_describe` (the layout, the Things with their states and stats, and what stands on what), `brush_ops`, `brush_run` (demo in process, or live and billed) and `demo_api`, which calls the in-process demo's API only. The demo lab lasts as long as the server, so a kept state is there for the next call.

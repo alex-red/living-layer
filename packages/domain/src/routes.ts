@@ -83,7 +83,11 @@ interface ApiRoutes {
   segment: { body: R.SegmentBody; response: EvidenceRun<Segmentation> };
   'select/resolve': { body: R.SelectResolveBody; response: SelectResolve };
   assist: { body: R.AssistBody; response: EvidenceRun<AssistDraft> };
-  'assist/save': { body: R.AssistSaveBody; response: { memory?: DeskMemory; group: string } };
+  'assist/save': {
+    body: R.AssistSaveBody;
+    /** The group a model was put in as, or the thing a variant was kept on. */
+    response: { memory?: DeskMemory; group?: string; thing?: string };
+  };
   watch: { body: R.WatchBody; response: WatchView };
   'things/stats': { body: R.ThingsStatsBody; response: { memory: DeskMemory; stats: StatsNow } };
   'things/learn': { body: R.ThingsLearnBody; response: { now: StatNow; stats: StatsNow } };

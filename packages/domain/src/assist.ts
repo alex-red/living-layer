@@ -3,6 +3,7 @@ import type { MergedFacts, sizeDisagreement } from './facts.js';
 import type { EditIntent } from './intent.js';
 import type { RecipeCheck, RecipePlace } from './recipe-build.js';
 import type { RecipeOp } from './recipe-ops.js';
+import type { IsoItem } from './iso-item.js';
 import type { FixtureRecipe } from './recipe.js';
 import type { RelatedThing, Resolved, SelectionShape, SelectionTarget } from './selection.js';
 
@@ -61,17 +62,21 @@ export interface AssistDraft {
   /** Refinement rounds after the first check, and the ops each applied. */
   rounds: RecipeOp[][];
   /**
-   * Set when the request makes a variant of a piece of furniture (`add_state`):
-   * `recipe` is then the variant, saved beside the group's own model, not in its place.
+   * Set when the request makes a variant of a thing (`add_state`): its model
+   * with the occupant drawn in, kept as one of the thing's states, not in the
+   * room in its place. `recipe` and `place` stay unset.
    */
   variant?: {
-    group: string;
-    label: string;
+    subject: SelectionTarget;
     state: string;
-    /** The group's own model, kept as its `base`. */
-    base: FixtureRecipe;
     occupant: SelectionTarget | null;
-    /** Shown while the group's occupied stat is on, which saving turns on. */
+    /** The variant's model, in the thing's own frame before its turns. */
+    model: IsoItem;
+    /** Its footprint and height in tiles before turning, as `Fixture.size`. */
+    size: { w: number; d: number; h: number };
+    /** The subject is furniture of the layout, made a thing when this is kept (`promoteGroup`). */
+    promotes: boolean;
+    /** Shown while the thing's occupied stat is on, which keeping it turns on. */
     follows: boolean;
   } | null;
 }

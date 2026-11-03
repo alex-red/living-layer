@@ -1,6 +1,11 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent } from 'react';
-import { placeRecipe, type FixtureRecipe, type SelectionShape } from '@livinglayer/domain';
-import { usePropSprite } from '../iso/sprites';
+import {
+  placeRecipe,
+  type FixtureRecipe,
+  type IsoItem,
+  type SelectionShape,
+} from '@livinglayer/domain';
+import { useItemSprite, usePropSprite } from '../iso/sprites';
 import { typing } from '../shortcuts';
 import { Button, IconButton } from '../ui/controls';
 import { CLOSE_SHARE, inSentence, type Brush, type BrushStroke, type Share } from './useBrush';
@@ -128,6 +133,21 @@ function RecipeImage({ recipe, turns = 0 }: { recipe: FixtureRecipe; turns?: num
       width={sprite.width}
       height={sprite.height}
       alt={`${recipe.label}, as it would be drawn in the room`}
+    />
+  );
+}
+
+/** A thing's model as the room draws it, small, for the review of a variant. */
+function ThingPreview({ model }: { model: IsoItem }) {
+  const sprite = useItemSprite(model, { scale: 2.4, resolution: 40 });
+  if (!sprite) return null;
+  return (
+    <img
+      className="brush-preview"
+      src={sprite.url}
+      width={sprite.width}
+      height={sprite.height}
+      alt={`${model.label}, as it would be drawn`}
     />
   );
 }
@@ -284,6 +304,24 @@ export function BrushPanel({ brush, busy }: { brush: Brush; busy: boolean }) {
           <p className="brush-said">“{d.prompt}”</p>
           {d.question ? (
             <p className="brush-question">{d.question}</p>
+          ) : variant ? (
+            <div className="brush-model">
+              <ThingPreview model={variant.model} />
+              <div>
+                <strong>{variant.model.label}</strong>
+                <span className="micro">
+                  The {inSentence(variant.subject.label)}’s {variant.state.replace(/-/g, ' ')} state
+                  {variant.occupant
+                    ? `, with the ${inSentence(variant.occupant.label)} where the camera sees it`
+                    : ''}
+                  , kept beside its own model
+                  {variant.promotes ? ' once it is made a thing of its own' : ''}.
+                </span>
+                {variant.follows && (
+                  <span className="micro">Shown while its Occupied stat is on.</span>
+                )}
+              </div>
+            </div>
           ) : recipe ? (
             <>
               <div className="brush-model">
@@ -302,16 +340,6 @@ export function BrushPanel({ brush, busy }: { brush: Brush; busy: boolean }) {
                   )}
                 </div>
               </div>
-              {variant && (
-                <p className="micro">
-                  The {inSentence(variant.label)} {variant.state.replace(/-/g, ' ')}
-                  {variant.occupant
-                    ? `, with the ${inSentence(variant.occupant.label)} where the camera sees it`
-                    : ''}
-                  : kept beside its own model.
-                  {variant.follows ? ' Shown while its Occupied stat is on.' : ''}
-                </p>
-              )}
               {d.check && <p className="micro">{d.check.report}</p>}
               {d.disagreement.map((x) => (
                 <p key={x.axis} className="micro brush-warn">
@@ -345,7 +373,7 @@ export function BrushPanel({ brush, busy }: { brush: Brush; busy: boolean }) {
               Left out: {why}
             </p>
           ))}
-          {recipe && d.place && (
+          {((recipe && d.place) || variant) && (
             <div className="brush-actions">
               <Button
                 variant="primary"
@@ -354,7 +382,11 @@ export function BrushPanel({ brush, busy }: { brush: Brush; busy: boolean }) {
                 disabled={busy || Boolean(working)}
                 onClick={() => void brush.save()}
               >
-                {variant ? 'Keep the variant' : 'Put in the room'}
+                {variant
+                  ? variant.promotes
+                    ? 'Make it a thing with this state'
+                    : 'Keep the state'
+                  : 'Put in the room'}
               </Button>
               <Button size="sm" variant="text" onClick={brush.clear}>
                 Discard

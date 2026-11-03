@@ -59,37 +59,42 @@ const select = z
 const TOOLS = {
   room_describe: {
     description:
-      'The room the brush works on: its furniture groups (and their variants), its fixtures, and what stands on what, with the refs a request names them by.',
+      'The room the brush works on: its layout (furniture groups, which never keep stats or variants until made things), its Things with their states, and what stands on what, with the refs a request names them by.',
     input: z.object({ mode }),
     run: async ({ mode }: { mode: 'demo' | 'live' }) => {
       const memory = await memoryOf(mode);
       const room = selectionRoom(memory);
-      const groups = [...new Set(room.scene.props.map((p) => p.group))].map((g) => {
+      const layout = [...new Set(room.scene.props.map((p) => p.group))].map((g) => {
         const main =
-          room.scene.props.find((p) => p.group === g && p.recipe) ??
-          room.scene.props.find((p) => p.group === g)!;
+          room.scene.props.find((p) => p.id === g) ?? room.scene.props.find((p) => p.group === g)!;
         const target = { kind: 'prop' as const, id: g, label: main.label };
         return {
           ref: thingRef(target),
           label: main.label,
           model: main.recipe ? 'recipe' : (main.form ?? 'box'),
-          ...(main.states
-            ? { variants: Object.keys(main.states), showing: main.state ?? 'base' }
-            : {}),
-          ...(main.follows ? { follows: main.follows } : {}),
           onIt: room.related(target).map((r) => targetName(r.target)),
         };
       });
-      const fixtures = (memory.fixtures ?? []).map((f) => {
-        const target = { kind: 'fixture' as const, id: f.id, label: f.label };
+      const things = (memory.fixtures ?? []).map((f) => {
+        const target = {
+          kind: f.place === 'sightings' ? ('object' as const) : ('fixture' as const),
+          id: f.id,
+          label: f.label,
+        };
+        const related = room.related(target);
         return {
           ref: thingRef(target),
           label: f.label,
-          state: f.state ?? null,
-          standsOn: room.related(target).map((r) => targetName(r.target)),
+          ...(f.type ? { type: f.type } : {}),
+          placed: f.place === 'sightings' ? 'by its sightings' : 'by hand',
+          states: Object.keys(f.states ?? {}),
+          showing: f.state ?? null,
+          stats: (memory.thingStats?.[f.id] ?? []).map((x) => x.key),
+          standsOn: related.filter((r) => r.relation === 'holds').map((r) => targetName(r.target)),
+          onIt: related.filter((r) => r.relation === 'on').map((r) => targetName(r.target)),
         };
       });
-      return { scene: room.scene.label, groups, fixtures, stats: memory.thingStats ?? {} };
+      return { scene: room.scene.label, layout, things };
     },
   },
   brush_ops: {

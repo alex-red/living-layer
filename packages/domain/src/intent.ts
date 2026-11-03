@@ -5,7 +5,7 @@ import { PROP_FORMS, type PropForm } from './iso-furniture.js';
 import { hexColorSchema, ITEM_MATERIALS } from './iso-item.js';
 import { RECIPE_OPS, recipeOpSchema, type RecipeOp } from './recipe-ops.js';
 import { RECIPE_ROLES, recipePartSchema, type FixtureRecipe } from './recipe.js';
-import { thingRef, type RelatedThing, type SelectionTarget } from './selection.js';
+import { sameThing, thingRef, type RelatedThing, type SelectionTarget } from './selection.js';
 
 /**
  * What a sentence typed beside a selection asks for
@@ -37,13 +37,13 @@ const INTENT_ABOUT: Record<IntentKind, string> = {
   set_control:
     'Say what the fixture switches: none, or a light or switch entity from the list (control).',
   add_state:
-    'Make a variant of a piece of furniture, kept beside its own model and shown when it is in that state ("a variant of the tree that is occupied", the cat on it selected). subject: the furniture, by its ref from the list; occupant: what stands on it to draw into the variant where the camera sees it now, by ref, or null; state: the variant’s name, one or two words ("occupied").',
+    'Make a variant of a thing, kept as one of its states beside its own model and shown when it is in that state ("a variant of the tree that is occupied", the cat on it selected). Furniture is made a thing first. subject: the thing, by its ref from the list; occupant: what stands on it to draw into the variant where the camera sees it now, by ref, or null; state: the variant’s name, one or two words ("occupied").',
   clarify: 'Ask one short question back when the request is unclear. Never guess instead.',
 };
 /** A variant's name: lowercase words joined by -, as a fixture's states are named. */
 const STATE_NAME = /^[a-z0-9-]{1,24}$/;
-/** The name a group's own model is kept under once it has variants (`BASE_STATE` in recipe-build). */
-const BASE = 'base';
+/** States a thing switches by its entity, not by a variant. */
+const RESERVED = new Set(['on', 'off']);
 
 export type IntentOp =
   | RecipeOp
@@ -53,7 +53,7 @@ export type IntentOp =
   | { op: 'set_control'; control: FixtureControl }
   | {
       op: 'add_state';
-      /** The furniture that gets the variant. */
+      /** The thing that gets the variant; furniture is made a thing when it is kept. */
       subject: SelectionTarget;
       state: string;
       /** What stands on it, drawn into the variant where the camera sees it now. */
@@ -138,13 +138,7 @@ export interface IntentContext {
  * A flat op as a typed one, or why it can't be done. `creating`: the same
  * request makes the model first, so its edits apply to that.
  */
-function readOp(
-  o: SparkIntentOp,
-  ctx: IntentContext,
-  creating: boolean,
-  /** The same request makes a new fixture or piece of furniture (not a variant). */
-  makes = creating,
-): IntentOp | string {
+function readOp(o: SparkIntentOp, ctx: IntentContext, creating: boolean): IntentOp | string {
   const selector = o.parts
     ? {
         ...(o.parts.names.length ? { names: o.parts.names } : {}),
@@ -220,7 +214,8 @@ function readOp(
         return `${o.control.entityId ?? 'That'} isn't a ${o.control.kind} entity.`;
       if (checked.data.kind !== 'none' && !ctx.entities.includes(checked.data.entityId))
         return `${checked.data.entityId} isn't one of the configured entities.`;
-      if (ctx.target?.kind !== 'fixture' && !makes) return 'Only a fixture can switch something.';
+      if (ctx.target?.kind !== 'fixture' && !creating)
+        return 'Only a fixture can switch something.';
       return { op: 'set_control', control: checked.data };
     }
     case 'add_state':
@@ -240,16 +235,13 @@ function readAddState(o: SparkIntentOp, ctx: IntentContext): IntentOp | string {
   const related = ctx.related ?? [];
   const known = [...(ctx.target ? [ctx.target] : []), ...related.map((r) => r.target)];
   const find = (ref: string) => known.find((t) => thingRef(t) === ref) ?? null;
-  const same = (a: SelectionTarget | null, b: SelectionTarget | null) =>
-    Boolean(a && b && a.kind === b.kind && a.id === b.id);
+  const same = sameThing;
   const holder = related.find((r) => r.relation === 'holds')?.target ?? null;
   const subject = o.subject ? find(o.subject) : (holder ?? ctx.target);
   if (!subject)
     return o.subject
       ? `${o.subject} isn't the selection or anything on or under it.`
       : 'There is nothing selected to make a variant of.';
-  if (subject.kind !== 'prop')
-    return `Only furniture can have a variant so far, not the ${subject.kind} "${subject.label}".`;
   const occupant = o.occupant
     ? find(o.occupant)
     : ctx.target && !same(ctx.target, subject)
@@ -273,8 +265,8 @@ function readAddState(o: SparkIntentOp, ctx: IntentContext): IntentOp | string {
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-|-$/g, '');
   if (!STATE_NAME.test(state)) return 'The variant’s name was missing.';
-  if (state === BASE)
-    return `"${BASE}" names the ${subject.label}'s own model: call it something else.`;
+  if (RESERVED.has(state))
+    return `"${state}" is what the ${subject.label} switches: call the variant something else.`;
   if (state === 'occupied' && !occupant)
     return `Nothing stands on the ${subject.label} to show it occupied: select what sits on it.`;
   return { op: 'add_state', subject, state, occupant };
@@ -294,11 +286,14 @@ export function readIntent(
 ): EditIntent & { dropped: string[] } {
   const dropped: string[] = [];
   let ops: IntentOp[] = [];
-  // A variant is a new model too: edits after it in the same request change it.
-  const makes = raw.ops.some((o) => o.op === 'create');
-  const creating = makes || raw.ops.some((o) => o.op === 'add_state');
+  const creating = raw.ops.some((o) => o.op === 'create');
+  // A variant is a thing's model, not a recipe: its edits are made on its card once it is kept.
+  const variant = raw.ops.some((o) => o.op === 'add_state');
   for (const o of raw.ops) {
-    const read = readOp(o, ctx, creating, makes);
+    const read =
+      variant && o.op in RECIPE_OPS
+        ? `Change the variant on its card once it is kept: the ${o.op} was left out.`
+        : readOp(o, ctx, creating);
     if (typeof read === 'string') dropped.push(read);
     else ops.push(read);
   }

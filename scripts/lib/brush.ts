@@ -97,7 +97,7 @@ export interface BrushResult {
   turns: BrushTurn[];
   /** A request that failed, ending the turns: its status, error and how far its job got. */
   failed: { prompt: string; status: number; message: string; steps: Job['steps'] } | null;
-  /** The group the model was saved as, with `save`. */
+  /** The group the model was saved as, or the thing a variant was kept on, with `save`. */
   saved: string | null;
   /** Whether the panel and every request name the same target. */
   agrees: boolean;
@@ -291,11 +291,13 @@ export async function runBrush(options: BrushOptions): Promise<BrushResult> {
     }
     let saved: string | null = null;
     const last = turns.at(-1);
-    if (options.save && !failed && last?.run.output.recipe)
-      ({ group: saved } = await call<{ group: string }>('POST', '/api/assist/save', {
+    if (options.save && !failed && (last?.run.output.recipe || last?.run.output.variant)) {
+      const kept = await call<{ group?: string; thing?: string }>('POST', '/api/assist/save', {
         mode,
         runId: last.run.id,
-      }));
+      });
+      saved = kept.group ?? kept.thing ?? null;
+    }
     return {
       mode,
       shape,

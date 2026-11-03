@@ -43,9 +43,6 @@ import {
   type UnitBox,
   type UseSpot,
   type WatchThing,
-  calibrationOf,
-  followingGroups,
-  groupRegion,
 } from '@livinglayer/domain';
 import { LabError, parseInput } from './errors.js';
 import type { EvidenceStore } from './store.js';
@@ -91,11 +88,6 @@ function statThings(memory: DeskMemory): StatThing[] {
         : {}),
     });
   }
-  // Furniture with a variant that follows its occupied stat: where the calibrated camera sees it.
-  const camera = calibrationOf(memory)?.camera;
-  if (memory.scene && camera)
-    for (const g of followingGroups(memory.scene))
-      things.push({ id: g.id, label: g.label, region: groupRegion(camera, memory.scene, g.group) });
   return things;
 }
 

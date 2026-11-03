@@ -168,7 +168,7 @@ export function useBrush({
   }
   /** Put the reviewed model in the room, and start over. */
   async function save() {
-    if (!last?.output.recipe || working) return;
+    if (!(last?.output.recipe || last?.output.variant) || working) return;
     setWorking('save');
     try {
       const { memory } = await api('assist/save', {
@@ -185,8 +185,8 @@ export function useBrush({
       const v = last.output.variant;
       setMessage(
         v
-          ? `Kept the ${inSentence(v.label)}’s ${v.state.replace(/-/g, ' ')} variant beside its own model.${v.follows ? ' It shows while the camera sees it occupied.' : ''}`
-          : `Put ${last.output.recipe.label} in the room${last.output.place?.replaces ? `, in place of the ${inSentence(last.output.target?.label ?? 'old one')}` : ''}. The Iso view shows it.`,
+          ? `${v.promotes ? `The ${inSentence(v.subject.label)} is a thing of its own now, with` : `The ${inSentence(v.subject.label)} has`} a ${v.state.replace(/-/g, ' ')} state beside its own model.${v.follows ? ' It shows while the camera sees it occupied.' : ''}`
+          : `Put ${last.output.recipe!.label} in the room${last.output.place?.replaces ? `, in place of the ${inSentence(last.output.target?.label ?? 'old one')}` : ''}. The Iso view shows it.`,
       );
       clear();
     } catch (e) {
