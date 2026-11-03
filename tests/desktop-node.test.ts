@@ -2,7 +2,7 @@ import { describe, expect, it } from 'bun:test';
 import { desktopNodeCommandSchema, type DesktopNodeCommand } from '@livinglayer/domain';
 import { commandArgv, detectDesktop } from '../apps/node/src/desktop.js';
 import { createNode, type Identity } from '../apps/node/src/handler.js';
-import { advertiseArgv, systemdUnit } from '../apps/node/src/system.js';
+import { advertiseArgv, doctorChecks, systemdUnit } from '../apps/node/src/system.js';
 
 const off: DesktopNodeCommand = { kind: 'display', to: 'off' };
 
@@ -182,5 +182,34 @@ describe('advertising and installing', () => {
     const unit = systemdUnit(['/home/me/My Apps/living-layer-node', 'run']);
     expect(unit).toContain('ExecStart="/home/me/My Apps/living-layer-node" run');
     expect(unit).toContain('WantedBy=graphical-session.target');
+  });
+});
+
+describe('the doctor', () => {
+  const kde = {
+    platform: 'linux' as const,
+    desktop: 'kde' as const,
+    env: { WAYLAND_DISPLAY: 'wayland-0', DBUS_SESSION_BUS_ADDRESS: 'unix:path=/run/user/1000/bus' },
+    avahiRunning: true,
+  };
+  it('is happy on a KDE session with everything installed', () => {
+    expect(doctorChecks({ ...kde, which: () => true }).every((c) => c.ok)).toBe(true);
+  });
+  it('names the pacman package for a missing kscreen-doctor', () => {
+    const checks = doctorChecks({ ...kde, which: (bin) => bin !== 'kscreen-doctor' });
+    expect(checks.filter((c) => !c.ok)).toEqual([
+      { label: 'Display: kscreen-doctor', ok: false, fix: 'sudo pacman -S libkscreen' },
+    ]);
+  });
+  it('says to start avahi when it is installed but stopped', () => {
+    const checks = doctorChecks({ ...kde, which: () => true, avahiRunning: false });
+    expect(checks.find((c) => !c.ok)?.fix).toBe('sudo systemctl enable --now avahi-daemon');
+  });
+  it('notices it runs outside the desktop session, as a system service would', () => {
+    const checks = doctorChecks({ ...kde, env: {}, which: () => true });
+    expect(checks.filter((c) => !c.ok).map((c) => c.label)).toEqual([
+      'Session: Wayland or X11 display',
+      'Session: D-Bus, for banners',
+    ]);
   });
 });

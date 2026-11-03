@@ -45,6 +45,7 @@ Route request bodies are zod schemas in `packages/domain/src/requests.ts`, share
 | `discover.ts`        | Names what a photo shows, with no layout, once tracking may call AI                                                                    |
 | `segment.ts`         | One segmentation: outlined locally inside a drawn shape, or by SAM (once tracking may call AI), for the lab's button or the watcher    |
 | `lamp.ts`            | The by-hand switch, over MQTT or Home Assistant                                                                                        |
+| `nodes.ts`           | Desktop nodes ([plan](plans/desktop-node.md)): found over mDNS or by address, paired, the display a switch; banners, pages             |
 | `settings.ts`        | The daily spending limit, and whether tracking may call AI (`requireTrackingAi`)                                                       |
 | `meta.ts`            | Spark (structured JSON output, one `structured()` call for every kind, limits from `SPARK_CALLS`) and SAM (streamed), retries disabled |
 | `sam.ts`             | Runs the SAM stream through `@meta-sam/parser` and rejects anything incomplete, mismatched, or oversized                               |

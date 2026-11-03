@@ -6,6 +6,7 @@
  *   living-layer-node install [--name NAME] [--port N]   systemd user service, started now and at login
  *   living-layer-node unpair                             forget the lab that adopted it
  *   living-layer-node info                               who it is, and where it keeps that
+ *   living-layer-node doctor                             what it needs here, and how to get what's missing
  */
 import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -15,7 +16,7 @@ import { parseArgs } from 'node:util';
 import { DESKTOP_NODE_PORT } from '@livinglayer/domain';
 import { KIOSK_BROWSER_NAMES, desktopCaps, detectDesktop } from './desktop.js';
 import { createNode, type Identity, type Runner } from './handler.js';
-import { advertiseArgv, runCommand, systemdUnit } from './system.js';
+import { advertiseArgv, doctorChecks, runCommand, systemdUnit } from './system.js';
 
 const { positionals, values } = parseArgs({
   args: Bun.argv.slice(2),
@@ -28,9 +29,9 @@ const { positionals, values } = parseArgs({
   },
 });
 const action = positionals[0] ?? 'run';
-if (values.help || !['run', 'install', 'unpair', 'info'].includes(action)) {
+if (values.help || !['run', 'install', 'unpair', 'info', 'doctor'].includes(action)) {
   console.log(
-    'Usage: living-layer-node [run|install|unpair|info] [--name NAME] [--port N] [--dry-run]',
+    'Usage: living-layer-node [run|install|unpair|info|doctor] [--name NAME] [--port N] [--dry-run]',
   );
   process.exit(values.help ? 0 : 2);
 }
@@ -101,6 +102,22 @@ if (action === 'install') {
 }
 
 const desktop = detectDesktop(process.platform, process.env);
+const checks = async () =>
+  doctorChecks({
+    platform: process.platform,
+    desktop,
+    env: process.env,
+    which: (bin) => Bun.which(bin) !== null,
+    avahiRunning:
+      process.platform === 'linux' &&
+      (await runCommand(['systemctl', 'is-active', '--quiet', 'avahi-daemon'])).ok,
+  });
+if (action === 'doctor') {
+  const found = await checks();
+  for (const c of found)
+    console.log(`${c.ok ? '✓' : '✗'} ${c.label}${c.ok || !c.fix ? '' : `\n    ${c.fix}`}`);
+  process.exit(found.every((c) => c.ok) ? 0 : 1);
+}
 const run: Runner = values['dry-run']
   ? async (argv) => {
       console.log(`would run: ${argv.map((a) => JSON.stringify(a)).join(' ')}`);
@@ -149,6 +166,8 @@ const stop = () => {
 process.on('SIGINT', stop);
 process.on('SIGTERM', stop);
 
+for (const c of await checks())
+  if (!c.ok) console.warn(`Missing: ${c.label}${c.fix ? ` (${c.fix})` : ''}`);
 console.log(
   `${identity.name} (${desktop}) on port ${port}, ${identity.token ? `adopted by ${identity.adoptedBy}` : 'waiting to be adopted'}${values['dry-run'] ? ', dry run' : ''}.`,
 );
