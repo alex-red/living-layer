@@ -944,6 +944,35 @@ export function mapScan({
         note: `Part of the room’s layout as the ${drawn.label.toLowerCase()}${moveBy ? ', moved to where the scan found it' : ''}.`,
       };
     }
+    // In the room already but off this desk (the floor's fan the desk camera sees too), where
+    // the camera shows it: not this view's to move, nor to add again. One of its kind seen on
+    // the desk is another one.
+    const { width: W, height: H } = pin.frame;
+    const sameSpot = (f: Fixture) => {
+      const s = fixtureInFrame(f, pin, custom);
+      if (!s) return false;
+      const x1 = (thing.box.x1 / 1000) * W;
+      const y1 = (thing.box.y1 / 1000) * H;
+      const x2 = (thing.box.x2 / 1000) * W;
+      const y2 = (thing.box.y2 / 1000) * H;
+      const w = Math.min(x2, s.x + s.width) - Math.max(x1, s.x);
+      const h = Math.min(y2, s.y + s.height) - Math.max(y1, s.y);
+      const smaller = Math.min((x2 - x1) * (y2 - y1), s.width * s.height);
+      return smaller > 0 && (Math.max(0, w) * Math.max(0, h)) / smaller >= 0.5;
+    };
+    const elsewhere = ranked.find(
+      (x) => x.f.scene === scene && !claimed.has(x.f.id) && sameSpot(x.f),
+    );
+    if (elsewhere) {
+      claimed.add(elsewhere.f.id);
+      return {
+        label: elsewhere.f.label,
+        match: 'existing',
+        fixtureId: elsewhere.f.id,
+        fixture: null,
+        note: `Already in the room as the ${elsewhere.f.label.toLowerCase()}, off this desk, so left where it is.`,
+      };
+    }
     const label = thing.label.charAt(0).toUpperCase() + thing.label.slice(1);
     if (!addNew)
       return {

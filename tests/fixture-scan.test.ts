@@ -212,6 +212,25 @@ describe('mapping a scan into the room the view is part of', () => {
       expect(book!.fixture).toMatchObject({ surfaceId: 'desk:top' });
     }
   });
+  it('leaves one off the desk alone when the camera sees it there, rather than adding it again', () => {
+    // A floor lamp beside the desk, where the demo camera last saw it.
+    const seen = { foot: { x: 0.2, y: 0.7 }, size: { w: 0.1, h: 0.5 } };
+    const lamp = fixture({ label: 'Green book', scene: 'office', at: { x: 1, y: 5 }, seen });
+    const box = { x1: 150, y1: 200, x2: 250, y2: 700 };
+    const [found] = mapScan({
+      scan: { things: [thing({ box })] },
+      pin: DEMO_SURFACE,
+      scene: 'office',
+      custom: null,
+      library: [lamp],
+      room: 12,
+      entities: [],
+      addNew: true,
+      replace: true,
+    });
+    expect(found).toMatchObject({ match: 'existing', fixtureId: lamp.id, fixture: null });
+    expect(found!.moveTo).toBeUndefined();
+  });
   it('refuses a scene the pin doesn’t fit', () => {
     expect(
       mapScan({
