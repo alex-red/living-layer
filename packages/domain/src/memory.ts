@@ -188,6 +188,8 @@ export interface PlacementDecision {
   error?: { code: string; message: string };
   /** Set when an extra placement rule, not the main zone, made this decision. */
   ruleId?: string;
+  /** What the zone's steps did, a line each, when it ran more than one switch. */
+  steps?: string[];
 }
 /** Another remembered object, beside the mug. Any concept SAM can segment. */
 interface TrackedObject {
@@ -256,6 +258,8 @@ export function mainZone(m: DeskMemory | null | undefined) {
         ...r.zone,
         ...(r.offWhenEmpty !== undefined ? { offWhenEmpty: r.offWhenEmpty } : {}),
         ...(r.look ? { look: r.look } : {}),
+        ...(r.actions ? { actions: r.actions } : {}),
+        label: r.label,
       }
     : null;
 }

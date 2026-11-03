@@ -21,6 +21,7 @@ import { roomMarksSchema } from './room-camera.js';
 import { STAT_KEYS, STAT_LOOKS, STATS, thingStatSchema } from './stats.js';
 import { MAX_OTHER_OBJECTS, MAX_RULES, ruleInputSchema } from './rules.js';
 import { selectionShapeSchema } from './selection.js';
+import { zoneActionsSchema } from './zone-actions.js';
 
 /**
  * What each route reads from its request, hoisted so the web can share the
@@ -492,6 +493,18 @@ export const deskRulesDeleteBodySchema = z
   .object({ mode: modeSchema, ruleId: ruleIdSchema })
   .strict();
 export type DeskRulesDeleteBody = z.input<typeof deskRulesDeleteBodySchema>;
+
+/** POST /api/desk/rules/options: a zone's name or steps, its zone and story kept. */
+export const deskRulesOptionsBodySchema = z
+  .object({
+    mode: modeSchema,
+    ruleId: ruleIdSchema,
+    label: z.string().trim().min(1).max(40).optional(),
+    /** Its steps each way, or null for the main zone to switch the main lamp as it did. */
+    actions: zoneActionsSchema.nullable().optional(),
+  })
+  .strict();
+export type DeskRulesOptionsBody = z.input<typeof deskRulesOptionsBodySchema>;
 
 /** POST /api/scene/save */
 export const sceneSaveBodySchema = z

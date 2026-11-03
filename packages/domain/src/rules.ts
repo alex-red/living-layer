@@ -7,7 +7,8 @@ import {
   type LightLook,
   type Segmentation,
 } from './api.js';
-import { entityIdSchema } from './fixture.js';
+import { entityIdSchema, fixtureEntities } from './fixture.js';
+import { stepEntities, zoneActionsSchema, type ZoneActions } from './zone-actions.js';
 import { isoSurface, projectBox, surfaceMap } from './iso.js';
 import {
   MAIN_RULE,
@@ -224,6 +225,12 @@ export interface PlacementRule {
   offWhenEmpty?: boolean;
   /** What a light does when the zone turns it on; unset keeps the bulb's own. */
   look?: LightLook;
+  /**
+   * The steps run as something enters and as the zone empties. A rule with
+   * them has no entity of its own (`entityId` null); one without reads its
+   * entity as a step each way (`ruleActions`).
+   */
+  actions?: ZoneActions;
   zone: {
     sourceKey: string;
     rect: ZoneRect;
@@ -251,6 +258,7 @@ export const ruleInputSchema = z
     fixtureId: z.string().uuid().optional(),
     offWhenEmpty: z.boolean().optional(),
     look: lightLookSchema.optional(),
+    actions: zoneActionsSchema.optional(),
     rect: zoneRectSchema,
     onSurface: zoneOnSurfaceSchema.optional(),
   })
@@ -258,8 +266,14 @@ export const ruleInputSchema = z
   .refine((r) => r.entityId || !r.fixtureId, { message: 'A fixture needs its entity.' })
   .refine((r) => r.entityId || !r.offWhenEmpty, {
     message: 'Nothing to switch off.',
+  })
+  .refine((r) => !r.actions || (r.entityId === null && !r.offWhenEmpty && !r.look), {
+    message: 'A zone with steps switches through them, not an entity of its own.',
   }) satisfies z.ZodType<
-  Pick<PlacementRule, 'label' | 'objects' | 'entityId' | 'fixtureId' | 'offWhenEmpty' | 'look'> & {
+  Pick<
+    PlacementRule,
+    'label' | 'objects' | 'entityId' | 'fixtureId' | 'offWhenEmpty' | 'look' | 'actions'
+  > & {
     id?: string;
     rect: ZoneRect;
     onSurface?: ZoneOnSurface;
@@ -278,7 +292,14 @@ export function ruleObjects(memory: DeskMemory, rule: PlacementRule): string[] {
     rule.objects === 'any'
       ? followedIds(memory)
       : rule.objects.filter((id) => objectById(memory, id));
-  return ids.filter((id) => id !== rule.fixtureId);
+  const switched = rule.actions
+    ? stepEntities([...rule.actions.onEnter, ...rule.actions.onLeave])
+    : [];
+  const switches = (id: string) => {
+    const f = switched.length ? memory.fixtures?.find((x) => x.id === id) : undefined;
+    return Boolean(f && fixtureEntities(f).some((e) => switched.includes(e)));
+  };
+  return ids.filter((id) => id !== rule.fixtureId && !switches(id));
 }
 /**
  * Rules once things are forgotten: each stops counting them, and one left

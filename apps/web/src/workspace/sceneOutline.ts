@@ -1,7 +1,8 @@
 import {
   DEMO_SURFACE,
   ISO_PRESETS,
-  MAIN_RULE,
+  ruleActions,
+  stepEntities,
   foodNow,
   pinFits,
   type DeskMemory,
@@ -236,7 +237,12 @@ function ruleHome(
   return pin ? homeOf(pin.scene, pin.surfaceId, memory) : null;
 }
 function ruleRow(r: PlacementRule, mainLight: string): RuleRow {
-  const entity = r.id === MAIN_RULE && !r.entityId ? mainLight || 'the main lamp' : r.entityId;
+  const { onEnter, onLeave } = ruleActions(r);
+  const switched = stepEntities([...onEnter, ...onLeave]).map(
+    (e) => e || mainLight || 'the main lamp',
+  );
+  const entity =
+    switched.length > 2 ? `${switched[0]} +${switched.length - 1}` : switched.join(', ');
   return {
     id: r.id,
     label: r.label,

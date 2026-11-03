@@ -327,22 +327,24 @@ test('drafts a custom room offline, saves it, and lights a rule’s lamp', async
   await expect(page.locator('.feedback')).toContainText('Surface pinned');
   await sceneTab(page, 'Office desk');
   await addZone(page);
-  await page.getByLabel('Rule light').selectOption('light.demo_shelf');
-  await page.getByLabel('Rule name').fill('Whole desk');
+  // A new zone turns the first light on as it fills and off as it empties: make that the shelf's.
+  for (const device of await page.getByLabel('Device').all())
+    await device.selectOption('light.demo_shelf');
+  await page.getByLabel('Zone name').fill('Whole desk');
   const hit = (await page.locator('.iso-hit').boundingBox())!;
   // The desktop is a slanted parallelogram, so drag through its centre, not from its box's edge.
   await page.mouse.move(hit.x + hit.width / 2, hit.y + hit.height * 0.3);
   await page.mouse.down();
   await page.mouse.move(hit.x + hit.width / 2, hit.y + hit.height * 0.7, { steps: 8 });
   await page.mouse.up();
-  await page.getByRole('button', { name: 'Save rule', exact: true }).click();
-  await page.getByRole('button', { name: 'Check rules', exact: true }).click();
+  await page.getByRole('button', { name: 'Save zone', exact: true }).click();
+  await page.getByRole('button', { name: 'Check zones', exact: true }).click();
   await expect(page.locator('.feedback')).toContainText('Whole desk: inside, light confirmed');
   await expect(page.locator('[data-prop="lamp"] .iso-lamp.lit')).toBeVisible();
   // A saved zone opens its rule from the room, and the rule changes in place.
   await page.locator('.iso-zone.rule.pickable').first().click();
-  await page.getByRole('button', { name: 'Edit zone and rule', exact: true }).click();
-  await page.getByLabel('Rule name').fill('Desk front');
+  await page.getByRole('button', { name: 'Redraw or change →', exact: true }).click();
+  await page.getByLabel('Zone name').fill('Desk front');
   await page.getByRole('button', { name: 'Save changes', exact: true }).click();
   await expect(page.locator('.feedback')).toContainText('Updated "Desk front"');
   await expect(outline(page, 'Desk front')).toHaveAttribute('aria-current', 'true');
@@ -651,23 +653,25 @@ test('saves an exposed Home Assistant entity, inspects demo publish log, and che
   // The mug stands on the office desk, so its zones are the desk's.
   await sceneTab(page, 'Office desk');
   await addZone(page);
-  await page.getByLabel('Rule light').selectOption({ label: 'nothing: tell Home Assistant only' });
-  await page.getByLabel('Rule name').fill('Desk report');
+  // No steps either way: the zone only tells Home Assistant.
+  await page.getByRole('button', { name: 'Remove step' }).first().click();
+  await page.getByRole('button', { name: 'Remove step' }).first().click();
+  await page.getByLabel('Zone name').fill('Desk report');
   const hit = (await page.locator('.iso-hit').boundingBox())!;
   await page.mouse.move(hit.x + hit.width / 2, hit.y + hit.height * 0.3);
   await page.mouse.down();
   await page.mouse.move(hit.x + hit.width / 2, hit.y + hit.height * 0.7, { steps: 8 });
   await page.mouse.up();
-  await page.getByRole('button', { name: 'Save rule', exact: true }).click();
+  await page.getByRole('button', { name: 'Save zone', exact: true }).click();
   await expect(page.locator('.feedback')).toContainText('Saved "Desk report"');
 
   await expect(outline(page, 'Desk report')).toContainText('Home Assistant only');
-  await expect(page.locator('.rule-sentence')).toContainText('tell Home Assistant only.');
+  await expect(page.getByText('Nothing happens.')).toHaveCount(2);
   // Earlier tests leave a confirmed lamp run in the log (a reset keeps evidence), so the lamp may
   // already glow; a report-only rule must leave it exactly as it is.
   const lit = page.locator('[data-prop="lamp"] .iso-lamp.lit');
   const litBefore = await lit.count();
-  await page.getByRole('button', { name: 'Check rules', exact: true }).click();
+  await page.getByRole('button', { name: 'Check zones', exact: true }).click();
   await expect(page.locator('.feedback')).toContainText('Desk report: inside');
   await expect(page.locator('.feedback')).not.toContainText('light');
   await expect(lit).toHaveCount(litBefore);

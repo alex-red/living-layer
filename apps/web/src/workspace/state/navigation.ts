@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ISO_PRESETS } from '@livinglayer/domain';
+import { ISO_PRESETS, ruleActions } from '@livinglayer/domain';
 import { api } from '../../api';
 import type { RuleDraft } from '../../iso/IsoView';
 import {
@@ -162,11 +162,16 @@ export function useNavigationSlice(
     const taken = new Set(memory?.rules?.map((r) => r.label));
     let n = (memory?.rules?.length ?? 0) + 1;
     while (taken.has(`Zone ${n}`)) n++;
+    const light = entities[0];
     openRule({
       objects: objectId ? [objectId] : 'any',
-      // A zone's light follows it: on when it fills, off when it empties, unless unticked.
-      offWhenEmpty: true,
-      entityId: entities[0] ?? '',
+      // A zone's light follows it to start with: on when it fills, off when it empties.
+      actions: light
+        ? {
+            onEnter: [{ kind: 'switch', entityId: light, to: 'on' }],
+            onLeave: [{ kind: 'switch', entityId: light, to: 'off' }],
+          }
+        : { onEnter: [], onLeave: [] },
       label: `Zone ${n}`,
       rect: null,
     });
@@ -177,11 +182,9 @@ export function useNavigationSlice(
     if (!r) return;
     openRule({
       id: r.id,
-      ...(r.fixtureId ? { fixtureId: r.fixtureId } : {}),
       objects: r.objects,
-      offWhenEmpty: Boolean(r.offWhenEmpty),
-      ...(r.look ? { look: r.look } : {}),
-      entityId: r.entityId ?? '',
+      // An older rule's entity reads as a step each way, and is saved as steps.
+      actions: ruleActions(r),
       label: r.label,
       rect: r.zone.rect,
       ...(r.zone.onSurface ? { onSurface: r.zone.onSurface } : {}),

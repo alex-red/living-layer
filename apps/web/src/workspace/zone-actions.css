@@ -1,0 +1,256 @@
+/* A zone's steps: two triggers, each a list of step cards; `if` and `repeat` hold lists of their own. */
+.zone-actions {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+.za-trigger {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+.za-trigger > header {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: baseline;
+  column-gap: 6px;
+  font-size: var(--fs-13);
+  color: var(--text);
+}
+.za-trigger > header .micro {
+  grid-column: 2;
+}
+.za-trigger-mark {
+  color: var(--chosen);
+  font-family: var(--mono);
+}
+.za-list {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+.za-step {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-left: 2px solid var(--za-tone, var(--line-strong));
+  border-radius: var(--r-card);
+  background: var(--surface-2);
+}
+.za-step.switch {
+  --za-tone: var(--warm);
+}
+.za-step.wait {
+  --za-tone: var(--seen);
+}
+.za-step.if {
+  --za-tone: var(--unsure);
+}
+.za-step.repeat {
+  --za-tone: var(--ok);
+}
+.za-step-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: var(--control-h-sm);
+}
+.za-kind {
+  flex: 1;
+  color: var(--text-3);
+  font-size: var(--fs-11);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.za-step-body {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+.za-step-tools {
+  display: flex;
+  opacity: 0.55;
+  transition: opacity var(--t-fast) var(--ease-out);
+}
+.za-step:hover > .za-step-head > .za-step-tools,
+.za-step:focus-within > .za-step-head > .za-step-tools {
+  opacity: 1;
+}
+.za-mark {
+  display: inline-grid;
+  place-items: center;
+  width: 16px;
+  color: var(--za-tone, var(--text-3));
+  font-size: var(--fs-13);
+}
+.za-mark.switch {
+  --za-tone: var(--warm);
+}
+.za-mark.wait {
+  --za-tone: var(--seen);
+}
+.za-mark.if {
+  --za-tone: var(--unsure);
+}
+.za-mark.repeat {
+  --za-tone: var(--ok);
+}
+.za-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: var(--fs-13);
+  color: var(--text-2);
+}
+.za-row select {
+  flex: 1 1 120px;
+  min-width: 0;
+  min-height: var(--control-h);
+}
+.za-row input[type='time'] {
+  flex: 1 1 90px;
+  min-width: 0;
+  min-height: var(--control-h);
+}
+.za-num {
+  width: 56px;
+  min-height: var(--control-h);
+}
+.za-word {
+  color: var(--text-2);
+}
+.za-branch {
+  display: grid;
+  gap: 4px;
+  margin-left: 10px;
+  padding-left: 8px;
+  border-left: 1px dashed var(--line-strong);
+}
+.za-add {
+  justify-self: start;
+}
+.za-menu {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+}
+.za-menu > .text-button {
+  grid-column: 1 / -1;
+  justify-self: start;
+}
+.za-menu-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 4px;
+  padding: 6px;
+  border: 1px solid var(--control-line);
+  border-radius: var(--r-button);
+  background: var(--control-bg);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--fs-12);
+  text-align: left;
+  cursor: pointer;
+}
+.za-menu-item:hover:not(:disabled) {
+  border-color: var(--control-line-hover);
+  background: var(--control-bg-hover);
+}
+.za-menu-item:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.za-menu-item > span:last-child {
+  display: grid;
+}
+/* The zone editor around the steps: a name, what it watches, where it is. */
+.zone-form {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+.zone-name {
+  width: 100%;
+  min-height: 32px;
+  padding: 0 8px;
+  border: 1px solid var(--control-line);
+  border-radius: var(--r-button);
+  background: var(--control-bg);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--fs-13);
+  font-weight: 600;
+}
+.zone-name:focus {
+  border-color: var(--chosen);
+  outline: none;
+}
+.zone-section {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+.zone-section > .tiny {
+  color: var(--text-3);
+}
+.zone-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.zone-chip {
+  min-height: var(--control-h-sm);
+  padding: 0 8px;
+  border: 1px solid var(--control-line);
+  border-radius: var(--r-chip);
+  background: var(--control-bg);
+  color: var(--text-2);
+  font: inherit;
+  font-size: var(--fs-12);
+  cursor: pointer;
+}
+.zone-chip[aria-pressed='true'] {
+  border-color: var(--chosen);
+  background: var(--chosen-wash);
+  color: var(--text);
+}
+.zone-chip:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.zone-area {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 1px dashed var(--za-area, var(--line-strong));
+  border-radius: var(--r-card);
+  font-size: var(--fs-12);
+  color: var(--text-2);
+}
+.zone-area.drawn {
+  --za-area: var(--chosen);
+  border-style: solid;
+  background: var(--chosen-wash);
+}
+.zone-rename {
+  display: flex;
+  gap: 6px;
+}
+.zone-rename .zone-name {
+  flex: 1;
+}
+/* What a zone's last change ran. */
+.za-log {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--text-2);
+  font-size: var(--fs-12);
+  line-height: 18px;
+}

@@ -1,5 +1,5 @@
 import { ThingStats } from './ThingStats';
-import { lazy, useEffect, useRef, useState } from 'react';
+import { lazy, useEffect, useState } from 'react';
 import { useNow } from '../useNow';
 import {
   MAX_OTHER_OBJECTS,
@@ -9,10 +9,10 @@ import {
   keyFromName,
   objectById,
   ruleWho,
-  hexRgb,
-  rgbHex,
   type DeskMemory,
-  type LightLook,
+  type ZoneStep,
+  type ZoneActions,
+  ruleActions,
   type EvidenceRun,
   type PlacementDecision,
   type SelectionShape,
@@ -50,6 +50,7 @@ import { watchStore } from '../watch';
 import { ScanFixtures } from './ScanFixtures';
 import { BoxOnlyNote, LocalOutline } from './LocalOutline';
 import { ChooseDevicesLink } from './ChooseDevicesLink';
+import { ZoneActionsEditor, actionsProblem, type ZoneThing } from './ZoneActions';
 import { Later } from '../Later';
 import { mainSurface, roomLabel, surfaceRows, type LabRead } from './labels';
 import { pinScene, viewLabel, type Selection } from './progress';
@@ -1269,7 +1270,6 @@ function ZonePanel() {
   );
   const { memory, mode, busy, drawing, draftZone, currentObservation, zoneObservation, lampReady } =
     lab;
-  const { call, off } = useCall();
   if (!memory || !mugOf(memory))
     return (
       <Panel
@@ -1284,7 +1284,6 @@ function ZonePanel() {
       </Panel>
     );
   const d = memory.lastDecision?.output;
-  const lampName = mode === 'demo' ? 'virtual lamp' : 'lamp';
   const status = !mainZone(memory)
     ? zoneObservation
       ? 'Draw the zone the mug should be in.'
@@ -1293,26 +1292,39 @@ function ZonePanel() {
       ? 'Zone saved. Check where the mug is to try the rule.'
       : d.decision === 'inside'
         ? d.action === 'confirmed'
-          ? `The mug is in the zone. The ${lampName} turned on.`
-          : `The mug is still in the zone. The ${lampName} only fires on entering.`
+          ? `The mug is in the zone. Its steps ran${mode === 'demo' ? ' on virtual devices' : ''}.`
+          : d.action === 'pending'
+            ? 'The mug is in the zone. Running its steps…'
+            : `The mug is still in the zone. Its steps run only on entering.`
         : d.decision === 'outside'
           ? 'The mug is outside the zone. Nothing to do.'
           : `Blocked: ${d.reason}`;
+  const main = mainZone(memory);
+  const mug = mugOf(memory)!;
   return (
     <Panel
-      tiny="RULE · MAIN"
-      title={`Main zone → ${lab.lights[0] ?? 'main lamp'}`}
+      tiny="ZONE · MAIN"
+      title={main?.label ?? 'Main zone'}
       status={status}
       tone={
         !d ? 'seen' : d.decision === 'blocked' ? 'unsure' : d.action === 'confirmed' ? 'warm' : 'ok'
       }
     >
-      <p className="rule-sentence">
-        When <strong>{mugOf(memory)!.label}</strong> is inside{' '}
-        <strong>{mainZone(memory) ? 'ZN-01' : 'a zone'}</strong>, turn on{' '}
-        <strong>{lab.lights[0] ?? 'the main lamp'}</strong>
-        {mainZone(memory)?.offWhenEmpty !== false && ', and off again when it leaves'}.
-      </p>
+      {main ? (
+        <div className="zone-form">
+          <div className="zone-section">
+            <span className="tiny">Name</span>
+            <ZoneName id={main.id} label={main.label} />
+          </div>
+          <SavedZoneActions ruleId={main.id} who={mug.label} />
+        </div>
+      ) : (
+        <p className="rule-sentence">
+          Draw where the <strong>{mug.label}</strong> belongs; then choose what happens as it
+          arrives and leaves.
+        </p>
+      )}
+      <LastRun decision={memory.rules?.find((r) => r.id === main?.id)?.lastDecision?.output} />
       <CameraMoved />
       {!drawing && (
         <Button
@@ -1409,18 +1421,6 @@ function ZonePanel() {
           </p>
         </Details>
       )}
-      {mainZone(memory) && (
-        <Check
-          checked={mainZone(memory)!.offWhenEmpty !== false}
-          disabled={off}
-          onChange={(offWhenEmpty) =>
-            void call<DeskMemory>('desk/zone/options', { offWhenEmpty }, lab.setMemory)
-          }
-        >
-          and off again when the mug leaves
-        </Check>
-      )}
-      {mainZone(memory) && lab.lights[0]?.startsWith('light.') && <MainZoneLook />}
       <Details summary="Camera">
         <Check
           checked={Boolean(memory.fixedCamera)}
@@ -1442,94 +1442,142 @@ function ZonePanel() {
   );
 }
 
-/**
- * How a light looks when its zone turns it on: its own colour and brightness
- * (Home Assistant restores them), warm white, or a colour, at a brightness.
- */
-function LookPicker({
-  value,
-  onChange,
-  disabled,
-}: {
-  value: LightLook | undefined;
-  onChange: (look: LightLook) => void;
-  disabled?: boolean;
-}) {
-  const look = value ?? { kind: 'keep' };
-  const brightness = look.kind === 'keep' ? 80 : look.brightness;
-  const rgb = look.kind === 'color' ? look.rgb : ([255, 120, 40] as [number, number, number]);
+/** What a zone can watch: the mug, other objects, and fixtures the camera follows. */
+function zoneThings(memory: DeskMemory | null | undefined): ZoneThing[] {
+  const mug = mugOf(memory);
+  return [
+    ...(mug && mugSighting(memory) ? [{ id: mug.id, label: mug.label }] : []),
+    ...(otherObjects(memory) ?? [])
+      .filter((o) => o.observation)
+      .map((o) => ({ id: o.id, label: o.label })),
+    // A fixture the camera follows can fill a zone too.
+    ...placedFixtures(memory)
+      .filter((f) => f.track)
+      .map((f) => ({ id: f.id, label: f.label })),
+  ];
+}
+
+/** A zone's name, renamed in place: Enter or the button saves, Escape puts it back. */
+function ZoneName({ id, label }: { id: string; label: string }) {
+  const lab = useLabParts(useFeedback(), useDesk());
+  const { call, off } = useCall();
+  const [name, setName] = useState(label);
+  useEffect(() => setName(label), [label]);
+  const next = name.trim();
+  const changed = Boolean(next) && next !== label;
+  const save = () =>
+    changed &&
+    void call<DeskMemory>('desk/rules/options', { ruleId: id, label: next }, (m) => {
+      lab.setMemory(m, false);
+      lab.setMessage(`Renamed the zone to "${next}".`);
+    });
   return (
-    <div className="look-picker">
-      <Select
-        aria-label="Light look"
-        value={look.kind}
-        disabled={disabled}
-        onChange={(kind) =>
-          onChange(
-            kind === 'keep'
-              ? { kind }
-              : kind === 'warm'
-                ? { kind, brightness }
-                : { kind, rgb, brightness },
-          )
-        }
-        options={[
-          { value: 'keep', label: 'in its own colour' },
-          { value: 'warm', label: 'in warm white' },
-          { value: 'color', label: 'in a colour' },
-        ]}
+    <form
+      className="zone-rename"
+      onSubmit={(e) => {
+        e.preventDefault();
+        save();
+      }}
+    >
+      <input
+        className="zone-name"
+        aria-label="Zone name"
+        maxLength={40}
+        disabled={off}
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        onKeyDown={(e) => e.key === 'Escape' && setName(label)}
       />
-      {look.kind === 'color' && (
-        <input
-          type="color"
-          aria-label="Light colour"
-          disabled={disabled}
-          value={rgbHex(look.rgb)}
-          onChange={(e) => onChange({ ...look, rgb: hexRgb(e.target.value) })}
-        />
+      {changed && (
+        <Button type="submit" variant="primary" size="sm" disabled={off}>
+          Rename
+        </Button>
       )}
-      {look.kind !== 'keep' && (
-        <label className="look-brightness">
-          <input
-            type="range"
-            min={1}
-            max={100}
-            aria-label="Light brightness"
-            disabled={disabled}
-            value={look.brightness}
-            onChange={(e) => onChange({ ...look, brightness: Number(e.target.value) })}
-          />
-          <output>{look.brightness}%</output>
-        </label>
+    </form>
+  );
+}
+
+/**
+ * A saved zone's steps, edited where they are shown; Save appears once
+ * something changed. The main zone's old empty entity shows as the main lamp.
+ */
+function SavedZoneActions({ ruleId, who }: { ruleId: string; who: string }) {
+  const lab = useLabParts(useFeedback(), useDesk());
+  const { memory, entities, lights } = lab;
+  const { call, off } = useCall();
+  const rule = memory?.rules?.find((r) => r.id === ruleId);
+  const saved = rule ? ruleActions(rule) : { onEnter: [], onLeave: [] };
+  const mainLamp = lights[0] ?? '';
+  const shown: ZoneActions = {
+    onEnter: withLamp(saved.onEnter, mainLamp),
+    onLeave: withLamp(saved.onLeave, mainLamp),
+  };
+  const shownKey = JSON.stringify(shown);
+  const [draft, setDraft] = useState(shown);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- `shownKey` stands for the value's content
+  useEffect(() => setDraft(shown), [shownKey]);
+  if (!rule || !memory) return null;
+  const things = zoneThings(memory).filter(
+    (t) => rule.objects === 'any' || rule.objects.includes(t.id),
+  );
+  const dirty = JSON.stringify(draft) !== shownKey;
+  const problem = actionsProblem(draft, rule.objects);
+  return (
+    <div className="zone-section">
+      <span className="tiny">Actions</span>
+      <ZoneActionsEditor
+        value={draft}
+        onChange={setDraft}
+        entities={entities}
+        things={things}
+        disabled={off}
+        who={who}
+      />
+      {dirty && (
+        <div className="save-actions">
+          {problem && <p className="micro">{problem}</p>}
+          <Button
+            variant="primary"
+            disabled={off || Boolean(problem)}
+            onClick={() =>
+              void call<DeskMemory>('desk/rules/options', { ruleId, actions: draft }, (m) => {
+                lab.setMemory(m, false);
+                lab.setMessage(`Saved what "${rule.label}" does.`);
+              })
+            }
+          >
+            Save actions
+          </Button>
+          <Button onClick={() => setDraft(shown)}>Undo changes</Button>
+        </div>
       )}
     </div>
   );
 }
+/** Steps with the main zone's empty entity named as the main lamp, nested ones too. */
+function withLamp(steps: ZoneStep[], lamp: string): ZoneStep[] {
+  return steps.map((s) =>
+    s.kind === 'switch'
+      ? { ...s, entityId: s.entityId || lamp }
+      : s.kind === 'if'
+        ? { ...s, then: withLamp(s.then, lamp), else: withLamp(s.else, lamp) }
+        : s.kind === 'repeat'
+          ? { ...s, steps: withLamp(s.steps, lamp) }
+          : s,
+  );
+}
 
-/** The main zone's light look, saved a moment after the last change (a colour is dragged). */
-function MainZoneLook() {
-  const lab = useLabParts(useDesk());
-  const { call, off } = useCall();
-  const saved = mainZone(lab.memory)?.look;
-  const [look, setLook] = useState(saved);
-  const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
-  const savedKey = JSON.stringify(saved);
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- `savedKey` stands for the value's content
-  useEffect(() => setLook(saved), [savedKey]);
-  useEffect(() => () => clearTimeout(timer.current), []);
+/** What a zone's last change ran, a line a step. */
+function LastRun({ decision }: { decision: PlacementDecision | undefined }) {
+  if (!decision?.steps?.length) return null;
   return (
-    <LookPicker
-      value={look}
-      disabled={off}
-      onChange={(next) => {
-        setLook(next);
-        clearTimeout(timer.current);
-        timer.current = setTimeout(
-          () => void call<DeskMemory>('desk/zone/options', { look: next }, lab.setMemory),
-          400,
-        );
-      }}
-    />
+    <Details summary={decision.action === 'pending' ? 'Running now' : 'Last run'}>
+      <ol className="za-log">
+        {decision.steps.map((line, i) => (
+          <li key={i}>{line}</li>
+        ))}
+      </ol>
+    </Details>
   );
 }
 
@@ -1551,40 +1599,39 @@ function RulePanel({ id }: { id: string }) {
   );
   return (
     <Panel
-      tiny="RULE"
+      tiny="ZONE"
       title={r.label}
       status={
         !d
-          ? 'Not checked yet. Track the object or check the rules.'
+          ? 'Not checked yet. Track the object or check the zones.'
           : d.decision === 'inside'
-            ? d.action === 'confirmed' && r.entityId
-              ? `Occupied (${inside ?? 'something'}). ${r.entityId} turned on.`
-              : `Occupied (${inside ?? 'something'}).`
+            ? `Occupied (${inside ?? 'something'}).${d.action === 'pending' ? ' Running its steps…' : ''}`
             : d.decision === 'outside'
-              ? d.action === 'confirmed' && r.entityId
-                ? `Empty. ${r.entityId} turned off.`
-                : 'Empty.'
+              ? `Empty.${d.action === 'pending' ? ' Running its steps…' : ''}`
               : `Blocked: ${d.reason}`
       }
       tone={
         !d ? 'seen' : d.decision === 'blocked' ? 'unsure' : d.action === 'confirmed' ? 'warm' : 'ok'
       }
     >
-      <p className="rule-sentence">
-        When <strong>{who}</strong> is inside <strong>{r.label}</strong>,{' '}
-        {r.entityId ? (
-          <>
-            turn on <strong>{r.entityId}</strong>
-            {r.offWhenEmpty ? ', and off again when it empties' : ''}.
-          </>
-        ) : (
-          'tell Home Assistant only.'
-        )}
-      </p>
+      <div className="zone-form">
+        <div className="zone-section">
+          <span className="tiny">Name</span>
+          <ZoneName id={r.id} label={r.label} />
+        </div>
+        <div className="zone-section">
+          <span className="tiny">Watches</span>
+          <div className="zone-area drawn">
+            <span>{who.charAt(0).toUpperCase() + who.slice(1)}</span>
+            <Button variant="text" size="sm" disabled={off} onClick={() => lab.editRule(r.id)}>
+              Redraw or change →
+            </Button>
+          </div>
+        </div>
+        <SavedZoneActions ruleId={r.id} who={who} />
+      </div>
+      <LastRun decision={d} />
       <CameraMoved />
-      <Button disabled={off} onClick={() => lab.editRule(r.id)}>
-        Edit zone and rule
-      </Button>
       {shown ? (
         <p className="micro">
           Shown in Home Assistant as{' '}
@@ -1634,7 +1681,7 @@ function RulePanel({ id }: { id: string }) {
           })
         }
       >
-        Check rules
+        Check zones
       </Button>
       <Details summary="Delete">
         <Button
@@ -1655,7 +1702,10 @@ function RulePanel({ id }: { id: string }) {
   );
 }
 
-/** A rule as a sentence: when [anything, a thing or several] is inside [a zone you drag] turn on [light]. */
+/**
+ * A zone set up or changed in one place: its name, what it watches, the area
+ * dragged on the room, and what it does as something enters and as it empties.
+ */
 function NewRulePanel() {
   const lab = useLabParts(
     useView(),
@@ -1668,169 +1718,134 @@ function NewRulePanel() {
   const { memory, ruleDraft: draft, entities } = lab;
   const { call, off } = useCall();
   if (!draft) return <SetupPanel />;
-  const objects = [
-    ...(mugOf(memory) && mugSighting(memory)
-      ? [{ id: mugOf(memory)!.id, label: mugOf(memory)!.label }]
-      : []),
-    ...(otherObjects(memory) ?? [])
-      .filter((o) => o.observation)
-      .map((o) => ({ id: o.id, label: o.label })),
-    // A fixture the camera follows can decide a rule too.
-    ...placedFixtures(memory)
-      .filter((f) => f.track)
-      .map((f) => ({ id: f.id, label: `${f.label} (fixture)` })),
-  ];
-  const set = (patch: Partial<typeof draft>) => {
-    const next = { ...draft, ...patch };
-    // The saved rule's fixture goes with its entity: another entity is a plain rule.
-    if (patch.entityId !== undefined && patch.entityId !== draft.entityId) delete next.fixtureId;
-    lab.setRuleDraft(next);
+  const things = zoneThings(memory);
+  const set = (patch: Partial<typeof draft>) => lab.setRuleDraft({ ...draft, ...patch });
+  const picked = (id: string) => draft.objects !== 'any' && draft.objects.includes(id);
+  const toggle = (id: string) => {
+    const now = draft.objects === 'any' ? [] : draft.objects;
+    const next = now.includes(id) ? now.filter((x) => x !== id) : [...now, id];
+    // In the things' own order; none picked watches anything.
+    set({ objects: next.length ? things.map((t) => t.id).filter((x) => next.includes(x)) : 'any' });
   };
-  const ids = objects.map((o) => o.id);
-  const who =
-    draft.objects === 'any' ? 'any' : draft.objects.length === 1 ? draft.objects[0]! : 'several';
+  const watched =
+    draft.objects === 'any' ? things : things.filter((t) => draft.objects.includes(t.id));
+  const who = memory ? ruleWho(memory, draft) : 'something';
   const editing = Boolean(draft.id);
   const back = () => lab.select(draft.id ? { kind: 'rule', id: draft.id } : null);
+  const problem = !draft.label.trim()
+    ? 'Name the zone to save it.'
+    : !draft.rect
+      ? 'Draw the zone to save it.'
+      : actionsProblem(draft.actions, draft.objects);
   return (
     <Panel
-      tiny={editing ? 'EDIT RULE' : 'NEW RULE'}
-      title={editing ? `Change “${draft.label.trim() || 'zone'}”` : 'When something is in a zone…'}
+      tiny={editing ? 'EDIT ZONE' : 'NEW ZONE'}
+      title={draft.label.trim() || 'New zone'}
       status={
         draft.rect
-          ? `Zone ${Math.round(draft.rect.width * 100)}×${Math.round(draft.rect.height * 100)}% of the frame. Drag again on the iso surface to redraw it.`
+          ? 'Drawn. Drag again on the room to redraw it.'
           : mainSurface(lab) || lab.progress.pinned
-            ? 'Drag a rectangle on the iso surface to draw the zone.'
+            ? 'Drag a rectangle on the room to draw the zone.'
             : 'Pin a surface first, so the zone can be drawn on it.'
       }
       tone={draft.rect ? 'chosen' : 'seen'}
     >
-      <div className="rule-builder">
-        <span>When</span>
-        <Select
-          aria-label="Rule object"
-          value={who}
-          onChange={(value) =>
-            set({
-              objects:
-                value === 'any'
-                  ? 'any'
-                  : value === 'several'
-                    ? draft.objects === 'any'
-                      ? ids
-                      : draft.objects
-                    : [value],
-            })
-          }
-          options={[
-            { value: 'any', label: 'anything' },
-            ...objects.map((o) => ({ value: o.id, label: o.label })),
-            ...(objects.length > 1 ? [{ value: 'several', label: 'any of several…' }] : []),
-          ]}
-        />
-        {who === 'several' && draft.objects !== 'any' && (
-          <>
-            <span />
-            <div className="rule-things">
-              {objects.map((o) => {
-                const picked = (draft.objects as string[]).includes(o.id);
-                return (
-                  <Check
-                    key={o.id}
-                    checked={picked}
-                    // At least one thing stays picked.
-                    disabled={picked && draft.objects.length === 1}
-                    onChange={(on) =>
-                      set({
-                        objects: on
-                          ? ids.filter((id) => id === o.id || draft.objects.includes(id))
-                          : (draft.objects as string[]).filter((id) => id !== o.id),
-                      })
-                    }
-                  >
-                    {o.label}
-                  </Check>
-                );
-              })}
-            </div>
-          </>
-        )}
-        <span>is inside</span>
-        <input
-          aria-label="Rule name"
-          placeholder="Zone name"
-          maxLength={40}
-          value={draft.label}
-          onChange={(e) => set({ label: e.target.value })}
-        />
-        <span>turn on</span>
-        <Select
-          aria-label="Rule light"
-          value={draft.entityId}
-          onChange={(entityId) => set({ entityId })}
-          options={[
-            ...entities.map((l) => ({ value: l, label: l })),
-            { value: '', label: 'nothing: tell Home Assistant only' },
-          ]}
-        />
-        {draft.entityId.startsWith('light.') && (
-          <>
-            <span />
-            <LookPicker value={draft.look} onChange={(look) => set({ look })} />
-          </>
-        )}
-        <span />
-        <Check
-          checked={draft.offWhenEmpty && Boolean(draft.entityId)}
-          disabled={!draft.entityId}
-          onChange={(offWhenEmpty) => set({ offWhenEmpty })}
-        >
-          and off again when it empties
-        </Check>
-      </div>
-      {(!draft.rect || !draft.label.trim()) && (
-        <p className="micro">
-          {!draft.rect ? 'Draw the zone to save the rule.' : 'Name the zone to save the rule.'}
-        </p>
-      )}
-      <div className="save-actions">
-        <Button
-          variant="primary"
-          disabled={off || !draft.rect || !draft.label.trim()}
-          onClick={() =>
-            void call<DeskMemory>(
-              'desk/rules/save',
-              {
-                rule: {
-                  ...(draft.id ? { id: draft.id } : {}),
-                  ...(draft.fixtureId && draft.entityId ? { fixtureId: draft.fixtureId } : {}),
-                  label: draft.label.trim(),
-                  objects: draft.objects,
-                  entityId: draft.entityId || null,
-                  ...(draft.offWhenEmpty && draft.entityId ? { offWhenEmpty: true } : {}),
-                  ...(draft.look && draft.entityId.startsWith('light.')
-                    ? { look: draft.look }
-                    : {}),
-                  rect: draft.rect,
-                  ...(draft.onSurface ? { onSurface: draft.onSurface } : {}),
+      <div className="zone-form">
+        <div className="zone-section">
+          <span className="tiny">Name</span>
+          <input
+            className="zone-name"
+            aria-label="Zone name"
+            placeholder="Desk, Tray, Sofa…"
+            maxLength={40}
+            value={draft.label}
+            onChange={(e) => set({ label: e.target.value })}
+          />
+        </div>
+        <div className="zone-section">
+          <span className="tiny">Watches</span>
+          <div className="zone-chips" role="group" aria-label="What the zone watches">
+            <button
+              type="button"
+              className="zone-chip"
+              aria-pressed={draft.objects === 'any'}
+              onClick={() => set({ objects: 'any' })}
+            >
+              Anything
+            </button>
+            {things.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                className="zone-chip"
+                aria-pressed={picked(t.id)}
+                onClick={() => toggle(t.id)}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+          <p className="micro">
+            {draft.objects === 'any'
+              ? 'Occupied while anything the camera follows stands inside.'
+              : `Occupied while ${who} stands inside.`}
+          </p>
+        </div>
+        <div className="zone-section">
+          <span className="tiny">Area</span>
+          <div className={`zone-area ${draft.rect ? 'drawn' : ''}`}>
+            {draft.rect
+              ? `${Math.round(draft.rect.width * 100)} × ${Math.round(draft.rect.height * 100)}% of the frame`
+              : 'Not drawn yet: drag on the room view'}
+          </div>
+        </div>
+        <div className="zone-section">
+          <span className="tiny">Actions</span>
+          <ZoneActionsEditor
+            value={draft.actions}
+            onChange={(actions) => set({ actions })}
+            entities={entities}
+            things={watched}
+            who={who}
+          />
+        </div>
+        {problem && <p className="micro">{problem}</p>}
+        <div className="save-actions">
+          <Button
+            variant="primary"
+            disabled={off || Boolean(problem)}
+            onClick={() =>
+              void call<DeskMemory>(
+                'desk/rules/save',
+                {
+                  rule: {
+                    ...(draft.id ? { id: draft.id } : {}),
+                    label: draft.label.trim(),
+                    objects: draft.objects,
+                    entityId: null,
+                    actions: draft.actions,
+                    rect: draft.rect,
+                    ...(draft.onSurface ? { onSurface: draft.onSurface } : {}),
+                  },
                 },
-              },
-              (m) => {
-                lab.setMemory(m);
-                lab.setMessage(
-                  `${editing ? 'Updated' : 'Saved'} "${draft.label.trim()}". Check rules or track something to try it.`,
-                );
-                const saved = draft.id ?? m.rules?.at(-1)?.id;
-                lab.select(saved ? { kind: 'rule', id: saved } : null);
-              },
-            )
-          }
-        >
-          {editing ? 'Save changes' : 'Save rule'}
-        </Button>
-        <Button onClick={back}>Cancel</Button>
+                (m) => {
+                  lab.setMemory(m);
+                  lab.setMessage(
+                    `${editing ? 'Updated' : 'Saved'} "${draft.label.trim()}". Check zones or track something to try it.`,
+                  );
+                  const saved = draft.id ?? m.rules?.at(-1)?.id;
+                  lab.select(saved ? { kind: 'rule', id: saved } : null);
+                },
+              )
+            }
+          >
+            {editing ? 'Save changes' : 'Save zone'}
+          </Button>
+          <Button onClick={back}>Cancel</Button>
+        </div>
       </div>
       {!entities.length && (
-        <ChooseDevicesLink why="No devices to turn on yet; without one, a rule only reports to Home Assistant." />
+        <ChooseDevicesLink why="No devices to switch yet; without one, a zone only reports to Home Assistant." />
       )}
     </Panel>
   );

@@ -35,7 +35,8 @@ import {
   type SavedItem,
   type SurfacePin,
   type ZoneOnSurface,
-  type LightLook,
+  type ZoneActions,
+  ruleActions,
   type ZoneRect,
   promoteGroup,
   withoutPromoted,
@@ -97,16 +98,10 @@ export type IsoPanel = 'room' | 'scene' | 'item';
 export interface RuleDraft {
   /** The saved rule being changed; unset for a new one. */
   id?: string;
-  /** The fixture the saved rule switches, kept while its entity stays the same. */
-  fixtureId?: string;
   /** What the zone counts: anything the camera follows, or these. */
   objects: 'any' | string[];
-  /** Switch the entity off again when the zone empties. */
-  offWhenEmpty: boolean;
-  /** How a light looks when the zone turns it on; unset keeps its own. */
-  look?: LightLook;
-  /** Empty for a zone that only tells Home Assistant. */
-  entityId: string;
+  /** What it does as something enters and as it empties; none only tells Home Assistant. */
+  actions: ZoneActions;
   label: string;
   rect: ZoneRect | null;
   /** Where in the room it was drawn, when it was drawn here. */
@@ -480,12 +475,10 @@ function IsoViewOf({
       else lit.delete(defaultLight);
     }
     for (const rule of memory?.rules ?? [])
-      if (
-        rule.entityId &&
-        rule.placement === 'inside' &&
-        rule.lastDecision?.output.action === 'confirmed'
-      )
-        lit.add(rule.entityId);
+      if (rule.placement === 'inside' && rule.lastDecision?.output.action === 'confirmed')
+        for (const s of ruleActions(rule).onEnter)
+          // The main zone's old empty entity is the main lamp, lit by `lampOn`.
+          if (s.kind === 'switch' && s.to === 'on' && s.entityId) lit.add(s.entityId);
     const drawingRule = Boolean(ruleDraft && ruleMap);
     return { objects, note, o, mug, trail, zones, ruleTarget, ruleMap, lit, drawingRule };
   }, [

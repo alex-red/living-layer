@@ -9,6 +9,7 @@ import {
   deskObjectsTrackBodySchema,
   deskRestoreBodySchema,
   deskRulesDeleteBodySchema,
+  deskRulesOptionsBodySchema,
   deskRulesSaveBodySchema,
   deskSelectBodySchema,
   deskSurfaceBodySchema,
@@ -44,6 +45,13 @@ import {
   pinInOrder,
   calibrationOf,
   type PlacementRule,
+  type ZoneStep,
+  ruleActions,
+  runSteps,
+  stepEntities,
+  stepThings,
+  inTimeWindow,
+  type ZoneActions,
   placementGate,
   pickTracked,
   isMugConcept,
@@ -75,6 +83,25 @@ function checkOnSurface(memory: DeskMemory, onSurface: ZoneOnSurface | undefined
   if (onSurface && !isoSurface(onSurface.scene, onSurface.surfaceId, memory.scene))
     throw new LabError('zone_surface', 'That zone names a surface the room lacks.', 400);
 }
+/** A zone's steps may switch only configured entities, and ask only about things it counts. */
+function checkActions(
+  memory: DeskMemory,
+  actions: ZoneActions,
+  entities: string[],
+  counts: PlacementRule['objects'],
+) {
+  const all = [...actions.onEnter, ...actions.onLeave];
+  const unknown = stepEntities(all).find((e) => !entities.includes(e));
+  if (unknown)
+    throw new LabError(
+      'rule_light',
+      `${unknown} isn’t one of the configured lights or switches.`,
+      400,
+    );
+  const things = stepThings(all);
+  if (things.some((id) => !objectById(memory, id) || (counts !== 'any' && !counts.includes(id))))
+    throw new LabError('rule_thing', 'A step asks about a thing this zone doesn’t count.', 400);
+}
 
 /** The desk's state and steps, shared by its routes, the scene and fixture routes that change a desk, and the watcher. */
 export function createDesk(
@@ -87,8 +114,20 @@ export function createDesk(
     look?: LightLook,
     options?: SwitchOptions,
   ) => Promise<Switched>,
+  {
+    sleep = (ms: number, signal: AbortSignal) =>
+      new Promise<void>((resolve) => {
+        const timer = setTimeout(resolve, ms);
+        signal.addEventListener('abort', () => (clearTimeout(timer), resolve()), { once: true });
+      }),
+  }: {
+    /** How a zone's `wait` step waits; ends early when the run is stopped. */
+    sleep?: (ms: number, signal: AbortSignal) => Promise<void>;
+  } = {},
 ) {
   const active = new Set<Mode>();
+  /** Each zone's steps still running, by mode and rule, so a newer trigger stops them. */
+  const runs = new Map<string, AbortController>();
   const LOCALLY = 'Seen where the watcher follows it, without a SAM call.';
   function available(mode: Mode) {
     if (active.has(mode))
@@ -370,54 +409,155 @@ export function createDesk(
           rule.placement = decision.decision;
           rule.inside = inside;
         }
-        // A zone with no entity only tells Home Assistant: nothing to switch, nothing to claim.
-        const switching: 'on' | 'off' | null =
-          rule.entityId === null
-            ? null
-            : decision.transition === 'entered'
-              ? 'on'
-              : decision.transition === 'left' && rule.offWhenEmpty
-                ? 'off'
-                : null;
-        const claim = `${o ? claimOf(o, local) : undefined}:${rule.id}${switching === 'off' ? ':left' : ''}`;
-        if (switching && !store.claimPlacement(claim)) {
+        // The steps this change runs: entering's or emptying's; a zone with none only tells Home Assistant.
+        const actions = ruleActions(rule);
+        const steps =
+          decision.transition === 'entered'
+            ? actions.onEnter
+            : decision.transition === 'left'
+              ? actions.onLeave
+              : [];
+        const claim = `${o ? claimOf(o, local) : undefined}:${rule.id}${decision.transition === 'left' ? ':left' : ''}`;
+        if (steps.length && !store.claimPlacement(claim)) {
           decision.decision = 'blocked';
           decision.transition = undefined;
           decision.reason = `This segmentation already attempted "${rule.label}". Track the object in a new frame; no automatic retry.`;
         }
-        if (decision.transition === 'stayed_inside' && rule.entityId !== null)
+        if (decision.transition === 'stayed_inside' && actions.onEnter.length)
           decision.reason = `Still inside since the last check, so nothing is switched. It switches again once the zone empties and fills. ${decision.reason}`;
         const event = evidence('placement', mode, decision);
-        if (switching && decision.transition) {
+        const running = steps.length > 0 && Boolean(decision.transition);
+        if (running) {
           decision.action = 'pending';
           event.status = 'unconfirmed';
         }
         store.save(event);
         rule.lastDecision = event;
         memory.lastDecision = event;
-        return { decision, event, switching, entityId: rule.entityId, look: rule.look };
+        return { decision, event, steps: running ? steps : [] };
       });
       if (!step) continue;
-      const { decision, event, switching, entityId, look } = step;
-      await dispatch(
-        mode,
-        ruleLabels.get(ruleId) ?? 'Zone',
-        decision,
-        event,
-        performance.now(),
-        // The main zone's entity is empty: the main light.
-        () => turnOn(mode, entityId || undefined, switching!, look, { background: Boolean(local) }),
-        (memory) => {
-          const rule = memory.rules?.find((r) => r.id === ruleId);
-          if (rule && (!rule.lastDecision || rule.lastDecision.id === event.id))
-            rule.lastDecision = event;
-          if (!memory.lastDecision || memory.lastDecision.id === event.id)
-            memory.lastDecision = event;
-        },
-      );
+      const { decision, event, steps } = step;
+      const record = (memory: DeskMemory) => {
+        const rule = memory.rules?.find((r) => r.id === ruleId);
+        if (rule && (!rule.lastDecision || rule.lastDecision.id === event.id))
+          rule.lastDecision = event;
+        if (!memory.lastDecision || memory.lastDecision.id === event.id)
+          memory.lastDecision = event;
+      };
+      const only = steps.length === 1 && steps[0]!.kind === 'switch' ? steps[0]! : null;
+      if (steps.length && !only)
+        await runZoneSteps(
+          mode,
+          ruleId,
+          ruleLabels.get(ruleId) ?? 'Zone',
+          steps,
+          decision,
+          event,
+          record,
+        );
+      else {
+        // One switch is switched as a zone always has: in the background when the watcher saw it.
+        if (steps.length) stopZoneSteps(mode, ruleId);
+        await dispatch(
+          mode,
+          ruleLabels.get(ruleId) ?? 'Zone',
+          decision,
+          event,
+          performance.now(),
+          // The main zone's old entity is empty: the main light.
+          () =>
+            turnOn(mode, only!.entityId || undefined, only!.to, only!.look, {
+              background: Boolean(local),
+            }),
+          record,
+        );
+      }
       events.push(event);
     }
     return events;
+  }
+  function stopZoneSteps(mode: Mode, ruleId: string) {
+    const key = `${mode}:${ruleId}`;
+    runs.get(key)?.abort();
+    runs.delete(key);
+  }
+  /**
+   * Run a zone's steps, stopping any of its steps still running (a wait from
+   * the last time it filled, say). Returns once the steps reach their first
+   * wait or end, so a check doesn't hang on a wait; the rest runs on, and the
+   * decision is saved again as it ends.
+   */
+  async function runZoneSteps(
+    mode: Mode,
+    ruleId: string,
+    label: string,
+    steps: ZoneStep[],
+    decision: PlacementDecision,
+    event: EvidenceRun<PlacementDecision>,
+    record: (memory: DeskMemory) => void,
+  ) {
+    stopZoneSteps(mode, ruleId);
+    const key = `${mode}:${ruleId}`;
+    const controller = new AbortController();
+    runs.set(key, controller);
+    const start = performance.now();
+    const log: string[] = [];
+    decision.steps = log;
+    const save = () => {
+      event.durationMs = Math.round(performance.now() - start);
+      store.updateRun(event);
+      store.updateMemory(mode, record);
+    };
+    let reachedWait!: () => void;
+    const paused = new Promise<void>((resolve) => (reachedWait = resolve));
+    const done = runSteps(steps, {
+      signal: controller.signal,
+      log: (line) => log.push(line),
+      switch: async (s) => {
+        const { confirming: _, ...lamp } = await turnOn(
+          mode,
+          s.entityId || undefined,
+          s.to,
+          s.look,
+        );
+        decision.lamp = lamp;
+        store.updateMemory(mode, (memory) => noteControl(memory, lamp));
+        return lamp;
+      },
+      holds: (c) => {
+        const rule = store.memory(mode).rules?.find((r) => r.id === ruleId);
+        if (c.kind === 'occupied') return (rule?.placement === 'inside') === c.is;
+        if (c.kind === 'inside') return Boolean(rule?.inside?.includes(c.thingId)) === c.is;
+        return inTimeWindow(new Date(), c.from, c.to);
+      },
+      sleep: (ms) => {
+        save();
+        reachedWait();
+        return sleep(ms, controller.signal);
+      },
+    }).then((outcome) => {
+      if (runs.get(key) === controller) runs.delete(key);
+      if (outcome.cancelled) log.push('Stopped: the zone changed again.');
+      if (outcome.failed) {
+        decision.action = 'failed';
+        decision.error = outcome.failed;
+        event.status = 'failed';
+      } else {
+        const confirmed = outcome.lamps.every((l) => l.stateConfirmed);
+        decision.action = !outcome.lamps.length
+          ? outcome.cancelled
+            ? 'none'
+            : 'confirmed'
+          : confirmed
+            ? 'confirmed'
+            : 'unconfirmed';
+        event.status = decision.action === 'unconfirmed' ? 'unconfirmed' : 'completed';
+      }
+      save();
+      logZone(mode, label, decision);
+    });
+    await Promise.race([paused, done]);
   }
   /** A completed segmentation of any concept from this mode, the newest and still fresh. */
   function latestSegmentation(mode: Mode, segmentRunId: string) {
@@ -717,6 +857,8 @@ export function createDesk(
     loseFixture,
     findFixture,
     verifyRules,
+    /** Stop a zone's steps still running: it was changed or deleted. */
+    stopZoneSteps,
     placeLocally,
     latestMugSegmentation,
     latestSegmentation,
@@ -837,6 +979,7 @@ export async function deskRoutes(
     if (input.fixtureId && input.objects !== 'any' && input.objects.includes(input.fixtureId))
       throw new LabError('rule_fixture', 'A fixture can’t switch itself on by moving.', 400);
     checkOnSurface(memory, input.onSurface);
+    if (input.actions) checkActions(memory, input.actions, entities(mode), input.objects);
     if (input.fixtureId) {
       const fixture = memory.fixtures?.find((f) => f.id === input.fixtureId);
       if (!fixture || !input.entityId || !fixtureEntities(fixture).includes(input.entityId))
@@ -853,6 +996,7 @@ export async function deskRoutes(
       ...(input.fixtureId ? { fixtureId: input.fixtureId } : {}),
       ...(input.offWhenEmpty ? { offWhenEmpty: true } : {}),
       ...(input.look && input.entityId?.startsWith('light.') ? { look: input.look } : {}),
+      ...(input.actions ? { actions: input.actions } : {}),
       zone: {
         sourceKey: o.sourceKey,
         rect: input.rect,
@@ -869,9 +1013,41 @@ export async function deskRoutes(
         ? rules.map((r) => (r.id === input.id ? rule : r))
         : [...rules, rule];
     store.saveMemory(memory);
+    desk.stopZoneSteps(mode, rule.id);
     store.save(
       evidence('zone', mode, { ...rule.zone, id: rule.id, ruleId: rule.id, observationId: o.id }),
     );
+    return memory;
+  });
+  /**
+   * Rename a zone or change its steps, keeping where it is and whether it is
+   * occupied. Steps given replace an older rule's entity; steps still running
+   * stop. Null puts the main zone back to switching the main lamp.
+   */
+  app.post('/rules/options', async (request) => {
+    const { mode, ruleId, label, actions } = parseInput(deskRulesOptionsBodySchema, request.body);
+    available(mode);
+    const memory = store.memory(mode);
+    const rule = memory.rules?.find((r) => r.id === ruleId);
+    if (!rule) throw new LabError('zone_missing', 'That zone is gone. Refresh and try again.', 409);
+    if (label) rule.label = label;
+    if (actions) {
+      checkActions(memory, actions, entities(mode), rule.objects);
+      rule.actions = actions;
+      // The main zone's empty entity stays, for what reads it as the main lamp's zone.
+      if (rule.id !== MAIN_RULE) {
+        rule.entityId = null;
+        delete rule.fixtureId;
+        delete rule.offWhenEmpty;
+        delete rule.look;
+      }
+    } else if (actions === null) {
+      if (rule.id !== MAIN_RULE)
+        throw new LabError('zone_actions', 'Only the main zone switches a lamp of its own.', 400);
+      delete rule.actions;
+    }
+    store.saveMemory(memory);
+    if (actions !== undefined) desk.stopZoneSteps(mode, rule.id);
     return memory;
   });
   app.post('/rules/delete', async (request) => {
@@ -880,6 +1056,7 @@ export async function deskRoutes(
     const memory = store.memory(mode);
     memory.rules = (memory.rules ?? []).filter((r) => r.id !== ruleId);
     store.saveMemory(memory);
+    desk.stopZoneSteps(mode, ruleId);
     return memory;
   });
   app.post('/rules/verify', async (request) => {
@@ -902,13 +1079,16 @@ export async function deskRoutes(
         409,
       );
     checkOnSurface(memory, onSurface);
+    // A redrawn zone keeps the name and steps it was given.
+    const was = memory.rules?.find((r) => r.id === MAIN_RULE);
     const main: PlacementRule = {
       id: MAIN_RULE,
-      label: 'Main zone',
+      label: was?.label ?? 'Main zone',
       objects: [mug.id],
       entityId: '',
       // Its light goes off as the mug leaves, unless the zone is told to keep it on.
       offWhenEmpty: true,
+      ...(was?.actions ? { actions: was.actions } : {}),
       zone: { sourceKey: o.sourceKey, rect, frame: o.frame, ...(onSurface ? { onSurface } : {}) },
       // A new zone starts a new inside/outside story.
       placement: null,

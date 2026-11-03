@@ -23,6 +23,7 @@ const ROUTES = [
   '/api/desk/reset [POST]',
   '/api/desk/restore [POST]',
   '/api/desk/rules/delete [POST]',
+  '/api/desk/rules/options [POST]',
   '/api/desk/rules/save [POST]',
   '/api/desk/rules/verify [POST]',
   '/api/desk/select [POST]',
