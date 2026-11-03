@@ -40,6 +40,7 @@ import {
   DEMO_POSITIONS,
   type DemoPosition,
   type DeskMemory,
+  type ExposeView,
   type DeskObservation,
   type EvidenceRun,
   type EmptyLook,
@@ -1031,32 +1032,46 @@ export async function watchRoutes(
     store,
     streams,
     saved = () => null,
+    expose,
   }: {
     store: EvidenceStore;
     streams: () => Promise<NetworkStream[]>;
     /** A saved camera by its stream id, as desk memory keeps it. */
     saved?: (streamId: string) => WatchCamera | null;
+    /** What the mode shows in Home Assistant, sent on the same stream. */
+    expose?: (mode: Mode) => {
+      view(): ExposeView;
+      subscribe(listener: (view: ExposeView) => void): () => void;
+    };
   },
 ) {
   app.get('/:mode', async (request) => {
     const { mode } = parseInput(modeOnlySchema, request.params);
     return watchers[mode].view();
   });
+  /**
+   * The watcher's view (`watch` events) and what the mode shows in Home
+   * Assistant (`expose` events) on one stream: a tab holds one connection for
+   * both, of the six a browser opens to a host.
+   */
   app.get('/:mode/events', (request, reply) => {
     const { mode } = parseInput(modeOnlySchema, request.params);
     const watcher = watchers[mode];
+    const exposer = expose?.(mode);
     reply.hijack();
     reply.raw.writeHead(200, {
       'content-type': 'text/event-stream',
       'cache-control': 'no-cache',
       connection: 'keep-alive',
     });
-    const send = (view: WatchView) => reply.raw.write(`data: ${JSON.stringify(view)}\n\n`);
-    send(watcher.view());
-    const off = watcher.subscribe(send);
+    const send = (event: 'watch' | 'expose') => (view: WatchView | ExposeView) =>
+      reply.raw.write(`event: ${event}\ndata: ${JSON.stringify(view)}\n\n`);
+    send('watch')(watcher.view());
+    if (exposer) send('expose')(exposer.view());
+    const offs = [watcher.subscribe(send('watch')), exposer?.subscribe(send('expose'))];
     const ping = setInterval(() => reply.raw.write(': ping\n\n'), 20_000);
     request.raw.on('close', () => {
-      off();
+      for (const off of offs) off?.();
       clearInterval(ping);
     });
   });

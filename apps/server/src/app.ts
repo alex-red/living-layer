@@ -420,6 +420,8 @@ export async function buildApp(
           const id = savedIdOf(streamId);
           return id === null ? null : cameras.watchCamera(id);
         },
+        // Made further down; asked for only once a stream opens.
+        expose: (mode) => exposers[mode],
       }),
     { prefix: '/api/watch' },
   );

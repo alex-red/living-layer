@@ -34,7 +34,6 @@ const ROUTES = [
   '/api/discover [POST]',
   '/api/evidence [GET]',
   '/api/expose/:mode [GET]',
-  '/api/expose/:mode/events [GET]',
   '/api/expose/delete [POST]',
   '/api/expose/learn-empty [POST]',
   '/api/expose/save [POST]',

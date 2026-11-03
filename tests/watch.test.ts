@@ -561,3 +561,42 @@ describe.skipIf(!existsSync(appearanceModelPath(modelDir)))(
     });
   },
 );
+
+describe('the watch stream', () => {
+  it('sends the watcher’s view and what Home Assistant shows on one connection', async () => {
+    const { app } = await testApp({ name: 'watch-stream', browseCameras: async () => [] });
+    await app.listen({ port: 0, host: '127.0.0.1' });
+    const { port } = app.server.address() as { port: number };
+    const controller = new AbortController();
+    try {
+      // The server takes only its own loopback hosts; this one listens on a free port.
+      const response = await fetch(`http://127.0.0.1:${port}/api/watch/demo/events`, {
+        headers: { host: '127.0.0.1' },
+        signal: controller.signal,
+      });
+      expect(response.headers.get('content-type')).toContain('text/event-stream');
+      const reader = response.body!.getReader();
+      const decoder = new TextDecoder();
+      const events = new Map<string, unknown>();
+      let rest = '';
+      while (events.size < 2) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        rest += decoder.decode(value);
+        const parts = rest.split('\n\n');
+        rest = parts.pop() ?? '';
+        for (const part of parts) {
+          const kind = /^event: (\w+)$/m.exec(part)?.[1];
+          const data = /^data: (.*)$/m.exec(part)?.[1];
+          if (kind && data) events.set(kind, JSON.parse(data));
+        }
+      }
+      expect(events.get('watch')).toMatchObject({ mode: 'demo' });
+      expect(events.get('expose')).toHaveProperty('states');
+      expect((await app.inject('/api/expose/demo/events')).statusCode).toBe(404);
+    } finally {
+      controller.abort();
+      await app.close();
+    }
+  });
+});

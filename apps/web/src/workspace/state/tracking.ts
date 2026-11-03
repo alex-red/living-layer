@@ -16,7 +16,7 @@ import { mainPlacement, mugSighting } from '@livinglayer/domain';
 import { DEMO_POSITIONS, startLocalTrack, stepLocalTrack } from '@livinglayer/domain';
 import { api } from '../../api';
 import { followStatsStore, followViewStore } from './follow-store';
-import { useExpose, useWatch } from '../../watch';
+import { useWatchStream } from '../../watch';
 import { useFeedStats } from './stats';
 import {
   CONFIRM_GAP_MS,
@@ -95,12 +95,11 @@ export function useTrackingSlice(
     tracking,
     video,
   } = deps;
-  // The server's watcher: it follows things and fires rules with no tab open; this shows it.
-  const watch = useWatch(mode);
+  // The server's watcher: it follows things and fires rules with no tab open; this shows it,
+  // and the entities shown in Home Assistant over MQTT, with their states.
+  const { watch, expose } = useWatchStream(mode);
   useFeedStats(watch?.stats);
   const watching = Boolean(watch?.on);
-  // Entities shown in Home Assistant over MQTT, with their states.
-  const expose = useExpose(mode);
   function moveDemoMug(next: DemoPosition) {
     setDemoPosition(next);
     setScene(undefined);

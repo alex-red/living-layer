@@ -217,24 +217,6 @@ export async function exposeRoutes(
     const { mode } = parseInput(modeOnlySchema, request.params);
     return exposers[mode].view();
   });
-  app.get('/:mode/events', (request, reply) => {
-    const { mode } = parseInput(modeOnlySchema, request.params);
-    const exposer = exposers[mode];
-    reply.hijack();
-    reply.raw.writeHead(200, {
-      'content-type': 'text/event-stream',
-      'cache-control': 'no-cache',
-      connection: 'keep-alive',
-    });
-    const send = (view: ExposeView) => reply.raw.write(`data: ${JSON.stringify(view)}\n\n`);
-    send(exposer.view());
-    const off = exposer.subscribe(send);
-    const ping = setInterval(() => reply.raw.write(': ping\n\n'), 20_000);
-    request.raw.on('close', () => {
-      off();
-      clearInterval(ping);
-    });
-  });
   app.post('/save', async (request) => {
     const { mode, entity: input } = parseInput(exposeSaveBodySchema, request.body);
     const memory = store.memory(mode);
