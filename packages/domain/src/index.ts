@@ -61,3 +61,4 @@ export * from './item-print.js';
 export * from './starter-prints.js';
 export * from './starter-decals.js';
 export * from './sprite-presets.js';
+export * from './desktop-node.js';

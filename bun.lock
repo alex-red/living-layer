@@ -35,6 +35,13 @@
         "vite": "8.3.5",
       },
     },
+    "apps/node": {
+      "name": "@livinglayer/node",
+      "version": "0.1.0",
+      "dependencies": {
+        "@livinglayer/domain": "workspace:*",
+      },
+    },
     "apps/server": {
       "name": "@livinglayer/server",
       "version": "0.1.0",
@@ -138,6 +145,8 @@
     "@img/sharp-win32-x64": ["@img/sharp-win32-x64@0.35.5", "", { "os": "win32", "cpu": "x64" }, "sha512-x76eH0vEiHlcMQu8Y8IenntaACtddpT6W0wmXtWrnKcnKI7ME5DdgqhAD6SEWOEl1v2zDvkZDhFA9KnURwpfqg=="],
 
     "@livinglayer/domain": ["@livinglayer/domain@workspace:packages/domain"],
+
+    "@livinglayer/node": ["@livinglayer/node@workspace:apps/node"],
 
     "@livinglayer/server": ["@livinglayer/server@workspace:apps/server"],
 

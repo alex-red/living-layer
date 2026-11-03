@@ -1,0 +1,14 @@
+{
+  "name": "@livinglayer/node",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "bun src/main.ts",
+    "build": "bun build --compile --target=bun-linux-x64 src/main.ts --outfile dist/living-layer-node",
+    "build:mac": "bun build --compile src/main.ts --outfile dist/living-layer-node-mac"
+  },
+  "dependencies": {
+    "@livinglayer/domain": "workspace:*"
+  }
+}
