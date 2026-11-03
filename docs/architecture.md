@@ -31,7 +31,15 @@ Route request bodies are zod schemas in `packages/domain/src/requests.ts`, share
 | `runs.ts`            | `run()`: one operation recorded as an evidence run (output, assets, model, usage, time), typed by its kind; a failure carries its id   |
 | `request-signal.ts`  | A signal per request that aborts when the client goes away, passed through `run()` to model calls                                      |
 | `desk.ts`            | `createDesk`, the placement service (busy check, tracking, zones judged by SAM or locally, rules), and the `/api/desk` routes          |
-| `fixture.ts`         | The fixture routes and their services, each a sequence of named steps: draft from a photo, scan and map the room, sculpt, refit, save  |
+| `fixture/routes.ts`  | The `/api/fixtures` plugin: parses each request and hands it to the service below |
+| `fixture/draft.ts`   | Draft a fixture from a photo or a box, and fit another photo to one (`/draft`, `/photo`) |
+| `fixture/scan.ts`    | Scan and map the room: Spark lists, SAM outlines, the fitter models, the pin places (`/scan`) |
+| `fixture/sculpt.ts`  | Model a fixture with Spark, and put a past model back (`/sculpt`, `/sculpt/reapply`) |
+| `fixture/refine.ts`  | Refine a turned body with SAM 3D (`/refine3d`) |
+| `fixture/save.ts`    | Save a fixture, pick an earlier draft, switch its state (`/save`, `/choose`, `/state`) |
+| `fixture/find.ts`    | Point SAM at where a fixture should stand in a frame (`/find`) |
+| `fixture/control.ts` | Switch a fixture or entity, and `noteControl` (`/control`) |
+| `fixture/shared.ts`  | What the fixture services share: `around`, the room photo, `withModel`, `productSize` |
 | `scene.ts`           | `/api/scene`: saving, fitting and drafting scenes, and saving a room drafted from a photo                                              |
 | `text.ts`            | The connection check: one small model request                                                                                          |
 | `discover.ts`        | Names what a photo shows, with no layout                                                                                               |

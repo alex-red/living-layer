@@ -43,7 +43,7 @@ import {
   onBlack,
   outlineFits,
 } from './layers.js';
-import { roomPhotoBytes } from './fixture.js';
+import { roomPhotoBytes } from './fixture/shared.js';
 import { following } from './jobs.js';
 import { listedPreview, outlinedPreview } from './scan-preview.js';
 import { SPARK_BUDGET } from './meta.js';

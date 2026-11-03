@@ -31,7 +31,7 @@ import {
 } from '@livinglayer/domain';
 import { demoSceneDraft, demoSceneGuess } from './demo.js';
 import { LabError, liveImage, parseInput } from './errors.js';
-import { roomPhotoBytes } from './fixture.js';
+import { roomPhotoBytes } from './fixture/shared.js';
 import { validateImage } from './images.js';
 import { keepLocked } from './item.js';
 import type { EvidenceStore } from './store.js';

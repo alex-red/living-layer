@@ -55,7 +55,7 @@ import {
 } from '@livinglayer/domain';
 import { EvidenceStore } from './store.js';
 import { LabError, parseInput, safeError } from './errors.js';
-import { noteControl } from './fixture.js';
+import { noteControl } from './fixture/control.js';
 import type { RouteDeps } from './route-deps.js';
 import type { SwitchOptions, Switched } from './control.js';
 
