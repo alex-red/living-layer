@@ -212,7 +212,9 @@ describe('mapping a scan into the room the view is part of', () => {
     const desk = fixture({ label: 'Green book', scene: 'desk', surfaceId: 'desk:top' });
     const [linked] = map([desk]);
     expect(linked).toMatchObject({ match: 'library', fixtureId: desk.id, linkTo: desk.id });
-    const office = fixture({ label: 'Green book', scene: 'office', link: desk.id });
+    // On the office's desk top, as the close view's is.
+    const onTop = { scene: 'office' as const, surfaceId: 'desk:top', at: { x: 2, y: 2 } };
+    const office = fixture({ label: 'Green book', ...onTop, link: desk.id });
     // Already linked: it is just there.
     expect(map([{ ...desk, link: desk.id }, office])[0]).toMatchObject({
       match: 'existing',
@@ -220,12 +222,38 @@ describe('mapping a scan into the room the view is part of', () => {
     });
     expect(map([{ ...desk, link: desk.id }, office])[0]!.linkTo).toBeUndefined();
     // Both there but apart: they are joined.
-    const apart = fixture({ label: 'Green book', scene: 'office' });
+    const apart = fixture({ label: 'Green book', ...onTop });
     expect(map([desk, apart])[0]).toMatchObject({
       match: 'existing',
       fixtureId: apart.id,
       linkTo: desk.id,
     });
+  });
+  it('leaves what stands off the desk alone: the floor’s and the shelf’s', () => {
+    const floor = fixture({ label: 'Green book', scene: 'office', at: { x: 1, y: 5 } });
+    const shelf = fixture({
+      label: 'Green book',
+      scene: 'office',
+      surfaceId: 'shelf:top',
+      at: { x: 7.5, y: 0.4 },
+    });
+    for (const there of [floor, shelf]) {
+      const [book] = mapScan({
+        scan,
+        pin: DEMO_SURFACE,
+        scene: 'office',
+        custom: null,
+        library: [there],
+        room: 12,
+        entities: [],
+        replace: true,
+      });
+      // Added on the desk with its model, never moved there.
+      expect(book).toMatchObject({ match: 'library', fixtureId: there.id });
+      expect(book!.moveTo).toBeUndefined();
+      expect(book!.linkTo).toBeUndefined();
+      expect(book!.fixture).toMatchObject({ surfaceId: 'desk:top' });
+    }
   });
   it('refuses a scene the pin doesn’t fit', () => {
     expect(

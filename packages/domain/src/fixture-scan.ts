@@ -656,6 +656,38 @@ export function placeSeen(
 }
 
 /**
+ * Whether a box stands on the pinned surface, or on something standing on
+ * it (a riser on the desk), its middle within a little of the edge (a laptop
+ * hanging over). A desk view finds and moves only what is on its desk, not
+ * the floor's or a shelf's things around it.
+ */
+function onPinnedTop(
+  pin: SurfacePin,
+  scene: IsoSceneKind | 'custom',
+  custom: IsoScene | null,
+): (box: { at: { x: number; y: number; z: number }; size: { w: number; d: number } }) => boolean {
+  const pinned = isoSurface(scene, pin.surfaceId, custom);
+  const all = scene === 'custom' ? custom : ISO_PRESETS[scene];
+  if (!pinned || !all) return () => true;
+  const M = 0.25;
+  const over = (r: IsoSurface['rect'], x: number, y: number) =>
+    x > r.x - M && x < r.x + r.w + M && y > r.y - M && y < r.y + r.d + M;
+  const tops = all.surfaces.filter((s) => {
+    if (s.id === pinned.id) return true;
+    const prop = all.props.find((p) => p.id === s.propId);
+    return (
+      prop !== undefined &&
+      Math.abs(prop.at.z - pinned.z) < 0.05 &&
+      over(pinned.rect, prop.at.x + prop.size.w / 2, prop.at.y + prop.size.d / 2)
+    );
+  });
+  return ({ at, size }) =>
+    tops.some(
+      (s) => Math.abs(at.z - s.z) < 0.05 && over(s.rect, at.x + size.w / 2, at.y + size.d / 2),
+    );
+}
+
+/**
  * Map a scan onto a scene the pin fits: its own, or the room it is a close
  * view of (the office desk's top is the office's too). Each saved fixture of
  * that scene can be claimed by one scanned thing; further things of its kind
@@ -699,11 +731,23 @@ export function mapScan({
   const claimed = new Set<string>();
   // Groups that already have a member in this scene, or got one in this scan.
   const present = new Set(library.filter((f) => f.scene === scene).map(fixtureGroup));
-  /** The best match elsewhere whose group has nothing in this scene yet. */
+  // Only what stands on the pinned desk is found and moved: the pin sees
+  // the floor and shelves around it too, but their things aren't its own.
+  const onDesk = new Set(
+    library
+      .filter(
+        (f) =>
+          (f.scene === scene || pinFits(pin, f.scene)) &&
+          onPinnedTop(pin, f.scene, custom)(fixtureBox(f, custom)),
+      )
+      .map((f) => f.id),
+  );
+  /** The best match on the same desk elsewhere whose group has nothing in this scene yet. */
   const linkable = (ranked: { f: Fixture }[], self?: Fixture) =>
     ranked.find(
       (x) =>
         x.f.scene !== scene &&
+        onDesk.has(x.f.id) &&
         (!present.has(fixtureGroup(x.f)) || (self && fixtureGroup(self) === fixtureGroup(x.f))),
     )?.f;
   let left = room;
@@ -743,7 +787,9 @@ export function mapScan({
         bodyOf(share, pin, height),
       );
     const fitted = models[index] ?? null;
-    const here = ranked.find((x) => x.f.scene === scene && !claimed.has(x.f.id));
+    const here = ranked.find(
+      (x) => x.f.scene === scene && onDesk.has(x.f.id) && !claimed.has(x.f.id),
+    );
     if (here) {
       claimed.add(here.f.id);
       const other = linkable(ranked, here.f);
