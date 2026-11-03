@@ -876,6 +876,8 @@ export function ItemEditor({
   useEffect(() => {
     setDraft(editable(item));
     setSelected((s) => (item?.parts.some((p) => p.id === s) ? s : (item?.parts[0]?.id ?? '')));
+    // The draft starts again from a saved change or another fixture state, not on every new `item` object.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [item?.updatedAt, fixture?.id, fixture?.state]);
 
   useEffect(() => {
@@ -886,6 +888,8 @@ export function ItemEditor({
       d: Math.round(sz.d * perTileCm),
       h: Math.round(sz.h * perTileCm),
     });
+    // The size field follows the fixture's identity, state and tile size, not each new `fixture` object.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     fixture?.id,
     fixture?.state,

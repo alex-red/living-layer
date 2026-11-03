@@ -92,6 +92,8 @@ export function ZoomPan({
         ? clamp({ s: kept.s, x: kept.x * b.clientWidth, y: kept.y * b.clientHeight })
         : FIT,
     );
+    // The view is read again for a new reset key or when the zoom is switched off, not when `store` changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resetKey, off]);
   // Kept a moment after it settles, not on every wheel step or drag move.
   useEffect(() => {
@@ -108,6 +110,8 @@ export function ZoomPan({
     };
     const timer = window.setTimeout(save, 300);
     return () => window.clearTimeout(timer);
+    // Kept a moment after `view` settles; `store`, `off` and the key are read as they are then.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view]);
   useEffect(() => () => save(), []);
 

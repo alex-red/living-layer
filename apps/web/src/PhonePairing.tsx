@@ -59,15 +59,16 @@ export function PhonePairing({ onUse }: { onUse: (stream: NetworkStream) => void
   }, []);
 
   const waiting = pairing?.phone === 'waiting';
+  const paired = Boolean(pairing);
   useEffect(() => {
-    if (!pairing) return;
+    if (!paired) return;
     const timer = window.setInterval(() => {
       void api<{ pairing: Pairing | null }>('remote')
         .then((r) => setPairing(r.pairing))
         .catch(() => null);
     }, POLL_MS);
     return () => window.clearInterval(timer);
-  }, [Boolean(pairing)]);
+  }, [paired]);
 
   return (
     <div className="phone-pairing">

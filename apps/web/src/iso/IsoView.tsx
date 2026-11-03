@@ -291,6 +291,8 @@ function IsoViewOf({
   // A new scene or pin starts on the pinned surface when it is in this scene.
   useEffect(() => {
     if (pin && pinFits(pin, pinScene(kind))) onSurfaceId(pin.surfaceId);
+    // Only a new scene or a new pin moves the surface; the person's own pick stays until then.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [kind, pin?.scene, pin?.surfaceId]);
 
   const custom = memory?.scene ?? null;

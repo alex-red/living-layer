@@ -223,6 +223,8 @@ export function PixelFeed({
 
     return () => {
       stopped = true;
+      // The element the frame callback was set on is the one in the ref now.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
       if (viaVideoFrames) video.current?.cancelVideoFrameCallback(frameHandle);
       else cancelAnimationFrame(frameHandle);
       device?.destroy();

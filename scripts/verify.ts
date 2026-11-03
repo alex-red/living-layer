@@ -2,7 +2,7 @@
  * Everything worth knowing about a change, in one go and about a minute,
  * with no build and no server: formatting, types, the hooks lint, the tests, the benches,
  * and the colour audit of every template. Prints one summary. Fails only on
- * formatting, types or tests; the lint, benches and audit report, as agreed.
+ * formatting, types or tests; the benches and audit report, as agreed.
  *
  *   bun run verify
  *   bun run verify --against main     also the room bench at main, and what moved
@@ -83,10 +83,10 @@ const steps: Step[] = [
       `${/(\d+) pass/.exec(out)?.[1] ?? '?'} pass, ${/(\d+) fail/.exec(out)?.[1] ?? '?'} fail`,
   },
   {
-    // Hooks rules only (`.oxlintrc.json`). Reports until the web code is clean, then gates.
+    // Hooks rules only (`.oxlintrc.json`). The web code is clean, so it gates.
     name: 'lint',
     cmd: ['bun', 'run', 'lint'],
-    gate: false,
+    gate: true,
     read: (out, ok) =>
       /: (error|warning) /.test(out)
         ? `${count(out, /: error /g)} errors, ${count(out, /: warning /g)} warnings`
