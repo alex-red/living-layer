@@ -65,7 +65,7 @@ type IllustrationRunOutput =
  * What a run's `output` holds, by its kind. A kind not listed has no single
  * shape worth naming (its output stays `unknown`).
  */
-export interface RunOutputs {
+interface RunOutputs {
   discover: Scene;
   segment: Segmentation;
   scene: SceneGuess;
