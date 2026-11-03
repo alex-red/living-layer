@@ -1,0 +1,4503 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`every Spark call kind sends the same request body 1`] = `
+{
+  "recorded": [
+    [
+      "text",
+      1024,
+      30000,
+      "invalid_response",
+      null,
+    ],
+    [
+      "discover",
+      8192,
+      30000,
+      "max_output_tokens",
+      50,
+    ],
+    [
+      "classify",
+      8192,
+      30000,
+      "max_output_tokens",
+      50,
+    ],
+    [
+      "layout",
+      16384,
+      30000,
+      "max_output_tokens",
+      50,
+    ],
+    [
+      "itemClass",
+      4096,
+      30000,
+      "max_output_tokens",
+      50,
+    ],
+    [
+      "fixtureClass",
+      8192,
+      30000,
+      "max_output_tokens",
+      50,
+    ],
+    [
+      "fixtureClass",
+      8192,
+      30000,
+      "max_output_tokens",
+      50,
+    ],
+    [
+      "fixtureScan",
+      12288,
+      90000,
+      "max_output_tokens",
+      50,
+    ],
+    [
+      "fixtureScan",
+      12288,
+      90000,
+      "max_output_tokens",
+      50,
+    ],
+    [
+      "pictureFind",
+      6144,
+      30000,
+      "max_output_tokens",
+      50,
+    ],
+    [
+      "sculpt",
+      16384,
+      150000,
+      "max_output_tokens",
+      50,
+    ],
+    [
+      "sculpt",
+      16384,
+      150000,
+      "max_output_tokens",
+      50,
+    ],
+    [
+      "itemCheck",
+      4096,
+      30000,
+      "max_output_tokens",
+      50,
+    ],
+    [
+      "photoInventory",
+      16384,
+      30000,
+      "max_output_tokens",
+      50,
+    ],
+    [
+      "photoInventory",
+      16384,
+      30000,
+      "max_output_tokens",
+      50,
+    ],
+    [
+      "photoCheck",
+      12288,
+      90000,
+      "max_output_tokens",
+      50,
+    ],
+    [
+      "productLookup",
+      8192,
+      90000,
+      "max_output_tokens",
+      50,
+    ],
+    [
+      "intent",
+      8192,
+      90000,
+      "max_output_tokens",
+      50,
+    ],
+    [
+      "intent",
+      8192,
+      90000,
+      "max_output_tokens",
+      50,
+    ],
+    [
+      "refine",
+      16384,
+      150000,
+      "max_output_tokens",
+      50,
+    ],
+  ],
+  "sent": {
+    "classify": {
+      "request": {
+        "body": {
+          "input": [
+            {
+              "content": [
+                {
+                  "text": 
+"Pick the scene preset that best matches this photo: office (a room with a desk), desk (an office desk: a close view of the desktop in an office), or fridge (the inside of a fridge). Then list which of that preset's optional props are visible, using only these ids:
+office: monitor (monitor), keyboard (keyboard), book (green book), bottle (sage bottle), chair (chair), shelf (bookshelf), plant (plant)
+desk: book (green book), bottle (sage bottle)
+fridge: milk (milk carton), jar (jar)
+Describe only what is visible, in one short sentence."
+,
+                  "type": "input_text",
+                },
+                {
+                  "detail": "auto",
+                  "image_url": "data:image/png;base64,AAAA",
+                  "type": "input_image",
+                },
+              ],
+              "role": "user",
+            },
+          ],
+          "max_output_tokens": 8192,
+          "model": "muse-spark-1.3",
+          "store": false,
+          "text": {
+            "format": {
+              "name": "scene_guess",
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "additionalProperties": false,
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "office",
+                      "desk",
+                      "fridge",
+                    ],
+                    "type": "string",
+                  },
+                  "summary": {
+                    "maxLength": 200,
+                    "type": "string",
+                  },
+                  "visibleProps": {
+                    "items": {
+                      "enum": [
+                        "monitor",
+                        "keyboard",
+                        "book",
+                        "bottle",
+                        "chair",
+                        "shelf",
+                        "plant",
+                        "milk",
+                        "jar",
+                      ],
+                      "type": "string",
+                    },
+                    "maxItems": 9,
+                    "type": "array",
+                  },
+                },
+                "required": [
+                  "kind",
+                  "visibleProps",
+                  "summary",
+                ],
+                "type": "object",
+              },
+              "strict": true,
+              "type": "json_schema",
+            },
+          },
+        },
+        "url": "https://api.meta.ai/v1/responses",
+      },
+      "spend": 0.0003375,
+    },
+    "discover": {
+      "request": {
+        "body": {
+          "input": [
+            {
+              "content": [
+                {
+                  "text": "Describe this desk scene. Return up to three visible, distinctive movable objects. Use short grounded labels and visual appearance only; do not infer identities, ownership, or actions. If no suitable objects are visible, return an empty objects list.",
+                  "type": "input_text",
+                },
+                {
+                  "detail": "auto",
+                  "image_url": "data:image/png;base64,AAAA",
+                  "type": "input_image",
+                },
+              ],
+              "role": "user",
+            },
+          ],
+          "max_output_tokens": 8192,
+          "model": "muse-spark-1.3",
+          "store": false,
+          "text": {
+            "format": {
+              "name": "desk_scene",
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "additionalProperties": false,
+                "properties": {
+                  "objects": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "appearance": {
+                          "maxLength": 160,
+                          "type": "string",
+                        },
+                        "category": {
+                          "maxLength": 60,
+                          "minLength": 1,
+                          "type": "string",
+                        },
+                        "label": {
+                          "maxLength": 80,
+                          "minLength": 1,
+                          "type": "string",
+                        },
+                      },
+                      "required": [
+                        "label",
+                        "category",
+                        "appearance",
+                      ],
+                      "type": "object",
+                    },
+                    "maxItems": 3,
+                    "type": "array",
+                  },
+                  "summary": {
+                    "maxLength": 400,
+                    "type": "string",
+                  },
+                },
+                "required": [
+                  "summary",
+                  "objects",
+                ],
+                "type": "object",
+              },
+              "strict": true,
+              "type": "json_schema",
+            },
+          },
+        },
+        "url": "https://api.meta.ai/v1/responses",
+      },
+      "spend": 0.0003375,
+    },
+    "fixtureClass": {
+      "request": {
+        "body": {
+          "input": [
+            {
+              "content": [
+                {
+                  "text": 
+"This is a reference photo of one thing someone wants to add to a model of their room: a lamp.
+Name the main thing in a few plain words (label).
+Pick the archetype that best describes its shape: mug, cup, bottle, can, book, box, plant, lamp, device, cat, generic. Use generic only when none fits.
+Pick its main surface material: matte, gloss, metal, glass, fabric, wood.
+control: light for a lamp, bulb or light strip; switch for anything else that turns on and off (a fan, a smart plug, a wall switch, a monitor); none for everything else.
+Describe what you see in one short sentence (colours, shape, details).
+box: a loose box around the whole thing, in thousandths of the image width (x1, x2) and height (y1, y2), top-left first.
+sizeCm: its usual real width, depth and height in centimetres."
+,
+                  "type": "input_text",
+                },
+                {
+                  "detail": "auto",
+                  "image_url": "data:image/png;base64,AAAA",
+                  "type": "input_image",
+                },
+              ],
+              "role": "user",
+            },
+          ],
+          "max_output_tokens": 8192,
+          "model": "muse-spark-1.3",
+          "store": false,
+          "text": {
+            "format": {
+              "name": "fixture_class",
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "additionalProperties": false,
+                "properties": {
+                  "archetype": {
+                    "enum": [
+                      "mug",
+                      "cup",
+                      "bottle",
+                      "can",
+                      "book",
+                      "box",
+                      "plant",
+                      "lamp",
+                      "device",
+                      "cat",
+                      "generic",
+                    ],
+                    "type": "string",
+                  },
+                  "box": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "x1": {
+                        "maximum": 1000,
+                        "minimum": 0,
+                        "type": "integer",
+                      },
+                      "x2": {
+                        "maximum": 1000,
+                        "minimum": 0,
+                        "type": "integer",
+                      },
+                      "y1": {
+                        "maximum": 1000,
+                        "minimum": 0,
+                        "type": "integer",
+                      },
+                      "y2": {
+                        "maximum": 1000,
+                        "minimum": 0,
+                        "type": "integer",
+                      },
+                    },
+                    "required": [
+                      "x1",
+                      "y1",
+                      "x2",
+                      "y2",
+                    ],
+                    "type": "object",
+                  },
+                  "control": {
+                    "enum": [
+                      "none",
+                      "light",
+                      "switch",
+                    ],
+                    "type": "string",
+                  },
+                  "description": {
+                    "maxLength": 240,
+                    "type": "string",
+                  },
+                  "label": {
+                    "maxLength": 40,
+                    "minLength": 1,
+                    "type": "string",
+                  },
+                  "material": {
+                    "enum": [
+                      "matte",
+                      "gloss",
+                      "metal",
+                      "glass",
+                      "fabric",
+                      "wood",
+                    ],
+                    "type": "string",
+                  },
+                  "sizeCm": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "d": {
+                        "exclusiveMinimum": 0,
+                        "maximum": 400,
+                        "type": "number",
+                      },
+                      "h": {
+                        "exclusiveMinimum": 0,
+                        "maximum": 400,
+                        "type": "number",
+                      },
+                      "w": {
+                        "exclusiveMinimum": 0,
+                        "maximum": 400,
+                        "type": "number",
+                      },
+                    },
+                    "required": [
+                      "w",
+                      "d",
+                      "h",
+                    ],
+                    "type": "object",
+                  },
+                },
+                "required": [
+                  "label",
+                  "archetype",
+                  "material",
+                  "control",
+                  "description",
+                  "box",
+                  "sizeCm",
+                ],
+                "type": "object",
+              },
+              "strict": true,
+              "type": "json_schema",
+            },
+          },
+        },
+        "url": "https://api.meta.ai/v1/responses",
+      },
+      "spend": 0.0003375,
+    },
+    "fixtureClassPlain": {
+      "request": {
+        "body": {
+          "input": [
+            {
+              "content": [
+                {
+                  "text": 
+"This is a reference photo of one thing someone wants to add to a model of their room.
+Name the main thing in a few plain words (label).
+Pick the archetype that best describes its shape: mug, cup, bottle, can, book, box, plant, lamp, device, cat, generic. Use generic only when none fits.
+Pick its main surface material: matte, gloss, metal, glass, fabric, wood.
+control: light for a lamp, bulb or light strip; switch for anything else that turns on and off (a fan, a smart plug, a wall switch, a monitor); none for everything else.
+Describe what you see in one short sentence (colours, shape, details).
+box: a loose box around the whole thing, in thousandths of the image width (x1, x2) and height (y1, y2), top-left first.
+sizeCm: its usual real width, depth and height in centimetres."
+,
+                  "type": "input_text",
+                },
+                {
+                  "detail": "auto",
+                  "image_url": "data:image/png;base64,AAAA",
+                  "type": "input_image",
+                },
+              ],
+              "role": "user",
+            },
+          ],
+          "max_output_tokens": 8192,
+          "model": "muse-spark-1.3",
+          "store": false,
+          "text": {
+            "format": {
+              "name": "fixture_class",
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "additionalProperties": false,
+                "properties": {
+                  "archetype": {
+                    "enum": [
+                      "mug",
+                      "cup",
+                      "bottle",
+                      "can",
+                      "book",
+                      "box",
+                      "plant",
+                      "lamp",
+                      "device",
+                      "cat",
+                      "generic",
+                    ],
+                    "type": "string",
+                  },
+                  "box": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "x1": {
+                        "maximum": 1000,
+                        "minimum": 0,
+                        "type": "integer",
+                      },
+                      "x2": {
+                        "maximum": 1000,
+                        "minimum": 0,
+                        "type": "integer",
+                      },
+                      "y1": {
+                        "maximum": 1000,
+                        "minimum": 0,
+                        "type": "integer",
+                      },
+                      "y2": {
+                        "maximum": 1000,
+                        "minimum": 0,
+                        "type": "integer",
+                      },
+                    },
+                    "required": [
+                      "x1",
+                      "y1",
+                      "x2",
+                      "y2",
+                    ],
+                    "type": "object",
+                  },
+                  "control": {
+                    "enum": [
+                      "none",
+                      "light",
+                      "switch",
+                    ],
+                    "type": "string",
+                  },
+                  "description": {
+                    "maxLength": 240,
+                    "type": "string",
+                  },
+                  "label": {
+                    "maxLength": 40,
+                    "minLength": 1,
+                    "type": "string",
+                  },
+                  "material": {
+                    "enum": [
+                      "matte",
+                      "gloss",
+                      "metal",
+                      "glass",
+                      "fabric",
+                      "wood",
+                    ],
+                    "type": "string",
+                  },
+                  "sizeCm": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "d": {
+                        "exclusiveMinimum": 0,
+                        "maximum": 400,
+                        "type": "number",
+                      },
+                      "h": {
+                        "exclusiveMinimum": 0,
+                        "maximum": 400,
+                        "type": "number",
+                      },
+                      "w": {
+                        "exclusiveMinimum": 0,
+                        "maximum": 400,
+                        "type": "number",
+                      },
+                    },
+                    "required": [
+                      "w",
+                      "d",
+                      "h",
+                    ],
+                    "type": "object",
+                  },
+                },
+                "required": [
+                  "label",
+                  "archetype",
+                  "material",
+                  "control",
+                  "description",
+                  "box",
+                  "sizeCm",
+                ],
+                "type": "object",
+              },
+              "strict": true,
+              "type": "json_schema",
+            },
+          },
+        },
+        "url": "https://api.meta.ai/v1/responses",
+      },
+      "spend": 0.0003375,
+    },
+    "fixtureScan": {
+      "request": {
+        "body": {
+          "input": [
+            {
+              "content": [
+                {
+                  "text": 
+"This photo shows part of a room someone is modelling. List the fixtures in it: things that stay put and could be placed in a model of the room, like a lamp, a monitor, a keyboard, a mouse, a speaker, a plant, a wall switch or a fan.
+Leave out furniture (desks, tables, chairs, shelves), walls and floors, and these objects, which are followed separately: mug.
+For each give: a short grounded label (no names, owners or brands); the archetype that best describes its shape (mug, cup, bottle, can, book, box, plant, lamp, device, cat, generic; generic only when none fits); its main material (matte, gloss, metal, glass, fabric, wood); control: light for a lamp, bulb or light strip, switch for anything else that turns on and off, none for everything else; its main colour as lowercase #rrggbb; box, a loose box around it as x1, y1, x2, y2 from 0 to 1000 across and down the photo; and sizeCm, its usual real width, depth and height in centimetres.
+List only these things, which the model already has, and nothing else: lamp. Label each with its name from this list.
+Use at most 8 things, only what is clearly visible, biggest first. Return an empty list if there are none."
+,
+                  "type": "input_text",
+                },
+                {
+                  "detail": "auto",
+                  "image_url": "data:image/png;base64,AAAA",
+                  "type": "input_image",
+                },
+              ],
+              "role": "user",
+            },
+          ],
+          "max_output_tokens": 12288,
+          "model": "muse-spark-1.3",
+          "reasoning": {
+            "effort": "low",
+          },
+          "store": false,
+          "text": {
+            "format": {
+              "name": "fixture_scan",
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "additionalProperties": false,
+                "properties": {
+                  "things": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "archetype": {
+                          "enum": [
+                            "mug",
+                            "cup",
+                            "bottle",
+                            "can",
+                            "book",
+                            "box",
+                            "plant",
+                            "lamp",
+                            "device",
+                            "cat",
+                            "generic",
+                          ],
+                          "type": "string",
+                        },
+                        "box": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "x1": {
+                              "maximum": 1000,
+                              "minimum": 0,
+                              "type": "integer",
+                            },
+                            "x2": {
+                              "maximum": 1000,
+                              "minimum": 0,
+                              "type": "integer",
+                            },
+                            "y1": {
+                              "maximum": 1000,
+                              "minimum": 0,
+                              "type": "integer",
+                            },
+                            "y2": {
+                              "maximum": 1000,
+                              "minimum": 0,
+                              "type": "integer",
+                            },
+                          },
+                          "required": [
+                            "x1",
+                            "y1",
+                            "x2",
+                            "y2",
+                          ],
+                          "type": "object",
+                        },
+                        "color": {
+                          "pattern": "^#[0-9a-f]{6}$",
+                          "type": "string",
+                        },
+                        "control": {
+                          "enum": [
+                            "none",
+                            "light",
+                            "switch",
+                          ],
+                          "type": "string",
+                        },
+                        "label": {
+                          "maxLength": 40,
+                          "minLength": 1,
+                          "type": "string",
+                        },
+                        "material": {
+                          "enum": [
+                            "matte",
+                            "gloss",
+                            "metal",
+                            "glass",
+                            "fabric",
+                            "wood",
+                          ],
+                          "type": "string",
+                        },
+                        "sizeCm": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "d": {
+                              "exclusiveMinimum": 0,
+                              "maximum": 400,
+                              "type": "number",
+                            },
+                            "h": {
+                              "exclusiveMinimum": 0,
+                              "maximum": 400,
+                              "type": "number",
+                            },
+                            "w": {
+                              "exclusiveMinimum": 0,
+                              "maximum": 400,
+                              "type": "number",
+                            },
+                          },
+                          "required": [
+                            "w",
+                            "d",
+                            "h",
+                          ],
+                          "type": "object",
+                        },
+                      },
+                      "required": [
+                        "label",
+                        "archetype",
+                        "material",
+                        "control",
+                        "color",
+                        "box",
+                        "sizeCm",
+                      ],
+                      "type": "object",
+                    },
+                    "maxItems": 8,
+                    "type": "array",
+                  },
+                },
+                "required": [
+                  "things",
+                ],
+                "type": "object",
+              },
+              "strict": true,
+              "type": "json_schema",
+            },
+          },
+        },
+        "url": "https://api.meta.ai/v1/responses",
+      },
+      "spend": 0.0003375,
+    },
+    "fixtureScanPlain": {
+      "request": {
+        "body": {
+          "input": [
+            {
+              "content": [
+                {
+                  "text": 
+"This photo shows part of a room someone is modelling. List the fixtures in it: things that stay put and could be placed in a model of the room, like a lamp, a monitor, a keyboard, a mouse, a speaker, a plant, a wall switch or a fan.
+Leave out furniture (desks, tables, chairs, shelves), walls and floors.
+For each give: a short grounded label (no names, owners or brands); the archetype that best describes its shape (mug, cup, bottle, can, book, box, plant, lamp, device, cat, generic; generic only when none fits); its main material (matte, gloss, metal, glass, fabric, wood); control: light for a lamp, bulb or light strip, switch for anything else that turns on and off, none for everything else; its main colour as lowercase #rrggbb; box, a loose box around it as x1, y1, x2, y2 from 0 to 1000 across and down the photo; and sizeCm, its usual real width, depth and height in centimetres.
+Use at most 8 things, only what is clearly visible, biggest first. Return an empty list if there are none."
+,
+                  "type": "input_text",
+                },
+                {
+                  "detail": "auto",
+                  "image_url": "data:image/png;base64,AAAA",
+                  "type": "input_image",
+                },
+              ],
+              "role": "user",
+            },
+          ],
+          "max_output_tokens": 12288,
+          "model": "muse-spark-1.3",
+          "reasoning": {
+            "effort": "low",
+          },
+          "store": false,
+          "text": {
+            "format": {
+              "name": "fixture_scan",
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "additionalProperties": false,
+                "properties": {
+                  "things": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "archetype": {
+                          "enum": [
+                            "mug",
+                            "cup",
+                            "bottle",
+                            "can",
+                            "book",
+                            "box",
+                            "plant",
+                            "lamp",
+                            "device",
+                            "cat",
+                            "generic",
+                          ],
+                          "type": "string",
+                        },
+                        "box": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "x1": {
+                              "maximum": 1000,
+                              "minimum": 0,
+                              "type": "integer",
+                            },
+                            "x2": {
+                              "maximum": 1000,
+                              "minimum": 0,
+                              "type": "integer",
+                            },
+                            "y1": {
+                              "maximum": 1000,
+                              "minimum": 0,
+                              "type": "integer",
+                            },
+                            "y2": {
+                              "maximum": 1000,
+                              "minimum": 0,
+                              "type": "integer",
+                            },
+                          },
+                          "required": [
+                            "x1",
+                            "y1",
+                            "x2",
+                            "y2",
+                          ],
+                          "type": "object",
+                        },
+                        "color": {
+                          "pattern": "^#[0-9a-f]{6}$",
+                          "type": "string",
+                        },
+                        "control": {
+                          "enum": [
+                            "none",
+                            "light",
+                            "switch",
+                          ],
+                          "type": "string",
+                        },
+                        "label": {
+                          "maxLength": 40,
+                          "minLength": 1,
+                          "type": "string",
+                        },
+                        "material": {
+                          "enum": [
+                            "matte",
+                            "gloss",
+                            "metal",
+                            "glass",
+                            "fabric",
+                            "wood",
+                          ],
+                          "type": "string",
+                        },
+                        "sizeCm": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "d": {
+                              "exclusiveMinimum": 0,
+                              "maximum": 400,
+                              "type": "number",
+                            },
+                            "h": {
+                              "exclusiveMinimum": 0,
+                              "maximum": 400,
+                              "type": "number",
+                            },
+                            "w": {
+                              "exclusiveMinimum": 0,
+                              "maximum": 400,
+                              "type": "number",
+                            },
+                          },
+                          "required": [
+                            "w",
+                            "d",
+                            "h",
+                          ],
+                          "type": "object",
+                        },
+                      },
+                      "required": [
+                        "label",
+                        "archetype",
+                        "material",
+                        "control",
+                        "color",
+                        "box",
+                        "sizeCm",
+                      ],
+                      "type": "object",
+                    },
+                    "maxItems": 8,
+                    "type": "array",
+                  },
+                },
+                "required": [
+                  "things",
+                ],
+                "type": "object",
+              },
+              "strict": true,
+              "type": "json_schema",
+            },
+          },
+        },
+        "url": "https://api.meta.ai/v1/responses",
+      },
+      "spend": 0.0003375,
+    },
+    "intent": {
+      "request": {
+        "body": {
+          "input": [
+            {
+              "content": [
+                {
+                  "text": 
+"A person selected part of their room camera’s picture and typed a request about it. Read the request as a short list of ops (at most four), in the order to do them.
+The request: "make it red"
+The selection is of something the room has no model of yet.
+It has no model to edit yet.
+No light or switch entities are configured.
+The ops you may use:
+- recolor: Paint the chosen parts one colour ("make it green", "white drawers").
+- rematerial: Change how the chosen parts take light ("the legs are metal").
+- resize: Set sizes in cm: of the whole model without parts ("it is 140 cm wide"), else of the chosen parts.
+- add_part: Add one part, measured in cm from the back-left-bottom corner, inside the model.
+- remove_part: Remove the chosen parts ("there is no drawer on the left").
+- rename: Give the model another name.
+- create: Make the selection its own model: a fixture or a piece of furniture (label; form: the built-in form it is closest to, if any; as: fixture or furniture).
+- rebase: Build the model again from another built-in form ("it is a table, not a desk").
+- match_photo: Rebuild the model’s parts and colours from the camera’s picture of it, keeping its size, when the request is about how it looks overall ("make it look like the photo", "it is an open shelf with white shelves"). What the person describes is passed on with it, so use it instead of many small ops.
+- set_control: Say what the fixture switches: none, or a light or switch entity from the list (control).
+- clarify: Ask one short question back when the request is unclear. Never guess instead.
+Fill only the fields an op needs and leave the others null or empty. parts picks parts of the model by names, roles and materials it has (empty lists for no filter), minus exceptNames and exceptRoles; parts null means the whole model.
+color is a hex value (#rrggbb) for the colour asked for. sizeCm is in centimetres; leave axes not mentioned null.
+form is one of: desk, table, chair, bookcase, cabinet, pot, foliage, lamp-stand, lamp-shade, monitor, keyboard, book, bottle, jar, carton.
+product: the product named, with its brand, model and kind (“IKEA Alex desk”), or null.
+needs: what must be looked up to build it: size, parts, colors, materials. Empty unless the request makes a model.
+targetDisagrees: if the crop clearly shows something other than the selection named above, what it shows; else null.
+If the request is unclear, or asks for anything the ops can’t do, answer one clarify op with a short question."
+,
+                  "type": "input_text",
+                },
+                {
+                  "detail": "auto",
+                  "image_url": "data:image/png;base64,AAAA",
+                  "type": "input_image",
+                },
+              ],
+              "role": "user",
+            },
+          ],
+          "max_output_tokens": 8192,
+          "model": "muse-spark-1.3",
+          "store": false,
+          "text": {
+            "format": {
+              "name": "edit_intent",
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "additionalProperties": false,
+                "properties": {
+                  "needs": {
+                    "items": {
+                      "enum": [
+                        "size",
+                        "parts",
+                        "colors",
+                        "materials",
+                      ],
+                      "type": "string",
+                    },
+                    "maxItems": 4,
+                    "type": "array",
+                  },
+                  "ops": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "as": {
+                          "anyOf": [
+                            {
+                              "enum": [
+                                "fixture",
+                                "furniture",
+                              ],
+                              "type": "string",
+                            },
+                            {
+                              "type": "null",
+                            },
+                          ],
+                        },
+                        "color": {
+                          "anyOf": [
+                            {
+                              "pattern": "^#[0-9a-f]{6}$",
+                              "type": "string",
+                            },
+                            {
+                              "type": "null",
+                            },
+                          ],
+                        },
+                        "control": {
+                          "anyOf": [
+                            {
+                              "additionalProperties": false,
+                              "properties": {
+                                "entityId": {
+                                  "anyOf": [
+                                    {
+                                      "maxLength": 80,
+                                      "type": "string",
+                                    },
+                                    {
+                                      "type": "null",
+                                    },
+                                  ],
+                                },
+                                "kind": {
+                                  "enum": [
+                                    "none",
+                                    "light",
+                                    "switch",
+                                  ],
+                                  "type": "string",
+                                },
+                              },
+                              "required": [
+                                "kind",
+                                "entityId",
+                              ],
+                              "type": "object",
+                            },
+                            {
+                              "type": "null",
+                            },
+                          ],
+                        },
+                        "form": {
+                          "anyOf": [
+                            {
+                              "enum": [
+                                "desk",
+                                "table",
+                                "chair",
+                                "bookcase",
+                                "cabinet",
+                                "pot",
+                                "foliage",
+                                "lamp-stand",
+                                "lamp-shade",
+                                "monitor",
+                                "keyboard",
+                                "book",
+                                "bottle",
+                                "jar",
+                                "carton",
+                              ],
+                              "type": "string",
+                            },
+                            {
+                              "type": "null",
+                            },
+                          ],
+                        },
+                        "label": {
+                          "anyOf": [
+                            {
+                              "maxLength": 60,
+                              "minLength": 1,
+                              "type": "string",
+                            },
+                            {
+                              "type": "null",
+                            },
+                          ],
+                        },
+                        "material": {
+                          "anyOf": [
+                            {
+                              "enum": [
+                                "matte",
+                                "gloss",
+                                "metal",
+                                "glass",
+                                "fabric",
+                                "wood",
+                              ],
+                              "type": "string",
+                            },
+                            {
+                              "type": "null",
+                            },
+                          ],
+                        },
+                        "op": {
+                          "enum": [
+                            "recolor",
+                            "rematerial",
+                            "resize",
+                            "add_part",
+                            "remove_part",
+                            "rename",
+                            "create",
+                            "rebase",
+                            "match_photo",
+                            "set_control",
+                            "clarify",
+                          ],
+                          "type": "string",
+                        },
+                        "part": {
+                          "anyOf": [
+                            {
+                              "additionalProperties": false,
+                              "properties": {
+                                "atCm": {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "x": {
+                                      "type": "number",
+                                    },
+                                    "y": {
+                                      "type": "number",
+                                    },
+                                    "z": {
+                                      "type": "number",
+                                    },
+                                  },
+                                  "required": [
+                                    "x",
+                                    "y",
+                                    "z",
+                                  ],
+                                  "type": "object",
+                                },
+                                "color": {
+                                  "anyOf": [
+                                    {
+                                      "pattern": "^#[0-9a-f]{6}$",
+                                      "type": "string",
+                                    },
+                                    {
+                                      "type": "null",
+                                    },
+                                  ],
+                                },
+                                "name": {
+                                  "maxLength": 24,
+                                  "minLength": 1,
+                                  "type": "string",
+                                },
+                                "role": {
+                                  "anyOf": [
+                                    {
+                                      "enum": [
+                                        "top",
+                                        "leg",
+                                        "rail",
+                                        "panel",
+                                        "drawer",
+                                        "door",
+                                        "shelf",
+                                        "handle",
+                                        "body",
+                                        "shade",
+                                        "base",
+                                      ],
+                                      "type": "string",
+                                    },
+                                    {
+                                      "type": "null",
+                                    },
+                                  ],
+                                },
+                                "sizeCm": {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "d": {
+                                      "type": "number",
+                                    },
+                                    "h": {
+                                      "type": "number",
+                                    },
+                                    "w": {
+                                      "type": "number",
+                                    },
+                                  },
+                                  "required": [
+                                    "w",
+                                    "d",
+                                    "h",
+                                  ],
+                                  "type": "object",
+                                },
+                              },
+                              "required": [
+                                "name",
+                                "role",
+                                "atCm",
+                                "sizeCm",
+                                "color",
+                              ],
+                              "type": "object",
+                            },
+                            {
+                              "type": "null",
+                            },
+                          ],
+                        },
+                        "parts": {
+                          "anyOf": [
+                            {
+                              "additionalProperties": false,
+                              "properties": {
+                                "exceptNames": {
+                                  "items": {
+                                    "maxLength": 24,
+                                    "minLength": 1,
+                                    "type": "string",
+                                  },
+                                  "maxItems": 24,
+                                  "type": "array",
+                                },
+                                "exceptRoles": {
+                                  "items": {
+                                    "enum": [
+                                      "top",
+                                      "leg",
+                                      "rail",
+                                      "panel",
+                                      "drawer",
+                                      "door",
+                                      "shelf",
+                                      "handle",
+                                      "body",
+                                      "shade",
+                                      "base",
+                                    ],
+                                    "type": "string",
+                                  },
+                                  "maxItems": 11,
+                                  "type": "array",
+                                },
+                                "materials": {
+                                  "items": {
+                                    "enum": [
+                                      "matte",
+                                      "gloss",
+                                      "metal",
+                                      "glass",
+                                      "fabric",
+                                      "wood",
+                                    ],
+                                    "type": "string",
+                                  },
+                                  "maxItems": 6,
+                                  "type": "array",
+                                },
+                                "names": {
+                                  "items": {
+                                    "maxLength": 24,
+                                    "minLength": 1,
+                                    "type": "string",
+                                  },
+                                  "maxItems": 24,
+                                  "type": "array",
+                                },
+                                "roles": {
+                                  "items": {
+                                    "enum": [
+                                      "top",
+                                      "leg",
+                                      "rail",
+                                      "panel",
+                                      "drawer",
+                                      "door",
+                                      "shelf",
+                                      "handle",
+                                      "body",
+                                      "shade",
+                                      "base",
+                                    ],
+                                    "type": "string",
+                                  },
+                                  "maxItems": 11,
+                                  "type": "array",
+                                },
+                              },
+                              "required": [
+                                "names",
+                                "roles",
+                                "materials",
+                                "exceptNames",
+                                "exceptRoles",
+                              ],
+                              "type": "object",
+                            },
+                            {
+                              "type": "null",
+                            },
+                          ],
+                        },
+                        "question": {
+                          "anyOf": [
+                            {
+                              "maxLength": 200,
+                              "minLength": 1,
+                              "type": "string",
+                            },
+                            {
+                              "type": "null",
+                            },
+                          ],
+                        },
+                        "sizeCm": {
+                          "anyOf": [
+                            {
+                              "additionalProperties": false,
+                              "properties": {
+                                "d": {
+                                  "anyOf": [
+                                    {
+                                      "maximum": 600,
+                                      "minimum": 0.5,
+                                      "type": "number",
+                                    },
+                                    {
+                                      "type": "null",
+                                    },
+                                  ],
+                                },
+                                "h": {
+                                  "anyOf": [
+                                    {
+                                      "maximum": 600,
+                                      "minimum": 0.5,
+                                      "type": "number",
+                                    },
+                                    {
+                                      "type": "null",
+                                    },
+                                  ],
+                                },
+                                "w": {
+                                  "anyOf": [
+                                    {
+                                      "maximum": 600,
+                                      "minimum": 0.5,
+                                      "type": "number",
+                                    },
+                                    {
+                                      "type": "null",
+                                    },
+                                  ],
+                                },
+                              },
+                              "required": [
+                                "w",
+                                "d",
+                                "h",
+                              ],
+                              "type": "object",
+                            },
+                            {
+                              "type": "null",
+                            },
+                          ],
+                        },
+                      },
+                      "required": [
+                        "op",
+                        "parts",
+                        "color",
+                        "material",
+                        "sizeCm",
+                        "part",
+                        "label",
+                        "form",
+                        "as",
+                        "control",
+                        "question",
+                      ],
+                      "type": "object",
+                    },
+                    "maxItems": 4,
+                    "minItems": 1,
+                    "type": "array",
+                  },
+                  "product": {
+                    "anyOf": [
+                      {
+                        "maxLength": 120,
+                        "minLength": 1,
+                        "type": "string",
+                      },
+                      {
+                        "type": "null",
+                      },
+                    ],
+                  },
+                  "targetDisagrees": {
+                    "anyOf": [
+                      {
+                        "maxLength": 120,
+                        "minLength": 1,
+                        "type": "string",
+                      },
+                      {
+                        "type": "null",
+                      },
+                    ],
+                  },
+                },
+                "required": [
+                  "ops",
+                  "product",
+                  "needs",
+                  "targetDisagrees",
+                ],
+                "type": "object",
+              },
+              "strict": true,
+              "type": "json_schema",
+            },
+          },
+        },
+        "url": "https://api.meta.ai/v1/responses",
+      },
+      "spend": 0.0003375,
+    },
+    "intentNoCrop": {
+      "request": {
+        "body": {
+          "input": [
+            {
+              "content": [
+                {
+                  "text": 
+"A person selected part of their room camera’s picture and typed a request about it. Read the request as a short list of ops (at most four), in the order to do them.
+The request: "make it red"
+The selection is of something the room has no model of yet.
+It has no model to edit yet.
+No light or switch entities are configured.
+The ops you may use:
+- recolor: Paint the chosen parts one colour ("make it green", "white drawers").
+- rematerial: Change how the chosen parts take light ("the legs are metal").
+- resize: Set sizes in cm: of the whole model without parts ("it is 140 cm wide"), else of the chosen parts.
+- add_part: Add one part, measured in cm from the back-left-bottom corner, inside the model.
+- remove_part: Remove the chosen parts ("there is no drawer on the left").
+- rename: Give the model another name.
+- create: Make the selection its own model: a fixture or a piece of furniture (label; form: the built-in form it is closest to, if any; as: fixture or furniture).
+- rebase: Build the model again from another built-in form ("it is a table, not a desk").
+- match_photo: Rebuild the model’s parts and colours from the camera’s picture of it, keeping its size, when the request is about how it looks overall ("make it look like the photo", "it is an open shelf with white shelves"). What the person describes is passed on with it, so use it instead of many small ops.
+- set_control: Say what the fixture switches: none, or a light or switch entity from the list (control).
+- clarify: Ask one short question back when the request is unclear. Never guess instead.
+Fill only the fields an op needs and leave the others null or empty. parts picks parts of the model by names, roles and materials it has (empty lists for no filter), minus exceptNames and exceptRoles; parts null means the whole model.
+color is a hex value (#rrggbb) for the colour asked for. sizeCm is in centimetres; leave axes not mentioned null.
+form is one of: desk, table, chair, bookcase, cabinet, pot, foliage, lamp-stand, lamp-shade, monitor, keyboard, book, bottle, jar, carton.
+product: the product named, with its brand, model and kind (“IKEA Alex desk”), or null.
+needs: what must be looked up to build it: size, parts, colors, materials. Empty unless the request makes a model.
+targetDisagrees: if the crop clearly shows something other than the selection named above, what it shows; else null.
+If the request is unclear, or asks for anything the ops can’t do, answer one clarify op with a short question."
+,
+                  "type": "input_text",
+                },
+              ],
+              "role": "user",
+            },
+          ],
+          "max_output_tokens": 8192,
+          "model": "muse-spark-1.3",
+          "store": false,
+          "text": {
+            "format": {
+              "name": "edit_intent",
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "additionalProperties": false,
+                "properties": {
+                  "needs": {
+                    "items": {
+                      "enum": [
+                        "size",
+                        "parts",
+                        "colors",
+                        "materials",
+                      ],
+                      "type": "string",
+                    },
+                    "maxItems": 4,
+                    "type": "array",
+                  },
+                  "ops": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "as": {
+                          "anyOf": [
+                            {
+                              "enum": [
+                                "fixture",
+                                "furniture",
+                              ],
+                              "type": "string",
+                            },
+                            {
+                              "type": "null",
+                            },
+                          ],
+                        },
+                        "color": {
+                          "anyOf": [
+                            {
+                              "pattern": "^#[0-9a-f]{6}$",
+                              "type": "string",
+                            },
+                            {
+                              "type": "null",
+                            },
+                          ],
+                        },
+                        "control": {
+                          "anyOf": [
+                            {
+                              "additionalProperties": false,
+                              "properties": {
+                                "entityId": {
+                                  "anyOf": [
+                                    {
+                                      "maxLength": 80,
+                                      "type": "string",
+                                    },
+                                    {
+                                      "type": "null",
+                                    },
+                                  ],
+                                },
+                                "kind": {
+                                  "enum": [
+                                    "none",
+                                    "light",
+                                    "switch",
+                                  ],
+                                  "type": "string",
+                                },
+                              },
+                              "required": [
+                                "kind",
+                                "entityId",
+                              ],
+                              "type": "object",
+                            },
+                            {
+                              "type": "null",
+                            },
+                          ],
+                        },
+                        "form": {
+                          "anyOf": [
+                            {
+                              "enum": [
+                                "desk",
+                                "table",
+                                "chair",
+                                "bookcase",
+                                "cabinet",
+                                "pot",
+                                "foliage",
+                                "lamp-stand",
+                                "lamp-shade",
+                                "monitor",
+                                "keyboard",
+                                "book",
+                                "bottle",
+                                "jar",
+                                "carton",
+                              ],
+                              "type": "string",
+                            },
+                            {
+                              "type": "null",
+                            },
+                          ],
+                        },
+                        "label": {
+                          "anyOf": [
+                            {
+                              "maxLength": 60,
+                              "minLength": 1,
+                              "type": "string",
+                            },
+                            {
+                              "type": "null",
+                            },
+                          ],
+                        },
+                        "material": {
+                          "anyOf": [
+                            {
+                              "enum": [
+                                "matte",
+                                "gloss",
+                                "metal",
+                                "glass",
+                                "fabric",
+                                "wood",
+                              ],
+                              "type": "string",
+                            },
+                            {
+                              "type": "null",
+                            },
+                          ],
+                        },
+                        "op": {
+                          "enum": [
+                            "recolor",
+                            "rematerial",
+                            "resize",
+                            "add_part",
+                            "remove_part",
+                            "rename",
+                            "create",
+                            "rebase",
+                            "match_photo",
+                            "set_control",
+                            "clarify",
+                          ],
+                          "type": "string",
+                        },
+                        "part": {
+                          "anyOf": [
+                            {
+                              "additionalProperties": false,
+                              "properties": {
+                                "atCm": {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "x": {
+                                      "type": "number",
+                                    },
+                                    "y": {
+                                      "type": "number",
+                                    },
+                                    "z": {
+                                      "type": "number",
+                                    },
+                                  },
+                                  "required": [
+                                    "x",
+                                    "y",
+                                    "z",
+                                  ],
+                                  "type": "object",
+                                },
+                                "color": {
+                                  "anyOf": [
+                                    {
+                                      "pattern": "^#[0-9a-f]{6}$",
+                                      "type": "string",
+                                    },
+                                    {
+                                      "type": "null",
+                                    },
+                                  ],
+                                },
+                                "name": {
+                                  "maxLength": 24,
+                                  "minLength": 1,
+                                  "type": "string",
+                                },
+                                "role": {
+                                  "anyOf": [
+                                    {
+                                      "enum": [
+                                        "top",
+                                        "leg",
+                                        "rail",
+                                        "panel",
+                                        "drawer",
+                                        "door",
+                                        "shelf",
+                                        "handle",
+                                        "body",
+                                        "shade",
+                                        "base",
+                                      ],
+                                      "type": "string",
+                                    },
+                                    {
+                                      "type": "null",
+                                    },
+                                  ],
+                                },
+                                "sizeCm": {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "d": {
+                                      "type": "number",
+                                    },
+                                    "h": {
+                                      "type": "number",
+                                    },
+                                    "w": {
+                                      "type": "number",
+                                    },
+                                  },
+                                  "required": [
+                                    "w",
+                                    "d",
+                                    "h",
+                                  ],
+                                  "type": "object",
+                                },
+                              },
+                              "required": [
+                                "name",
+                                "role",
+                                "atCm",
+                                "sizeCm",
+                                "color",
+                              ],
+                              "type": "object",
+                            },
+                            {
+                              "type": "null",
+                            },
+                          ],
+                        },
+                        "parts": {
+                          "anyOf": [
+                            {
+                              "additionalProperties": false,
+                              "properties": {
+                                "exceptNames": {
+                                  "items": {
+                                    "maxLength": 24,
+                                    "minLength": 1,
+                                    "type": "string",
+                                  },
+                                  "maxItems": 24,
+                                  "type": "array",
+                                },
+                                "exceptRoles": {
+                                  "items": {
+                                    "enum": [
+                                      "top",
+                                      "leg",
+                                      "rail",
+                                      "panel",
+                                      "drawer",
+                                      "door",
+                                      "shelf",
+                                      "handle",
+                                      "body",
+                                      "shade",
+                                      "base",
+                                    ],
+                                    "type": "string",
+                                  },
+                                  "maxItems": 11,
+                                  "type": "array",
+                                },
+                                "materials": {
+                                  "items": {
+                                    "enum": [
+                                      "matte",
+                                      "gloss",
+                                      "metal",
+                                      "glass",
+                                      "fabric",
+                                      "wood",
+                                    ],
+                                    "type": "string",
+                                  },
+                                  "maxItems": 6,
+                                  "type": "array",
+                                },
+                                "names": {
+                                  "items": {
+                                    "maxLength": 24,
+                                    "minLength": 1,
+                                    "type": "string",
+                                  },
+                                  "maxItems": 24,
+                                  "type": "array",
+                                },
+                                "roles": {
+                                  "items": {
+                                    "enum": [
+                                      "top",
+                                      "leg",
+                                      "rail",
+                                      "panel",
+                                      "drawer",
+                                      "door",
+                                      "shelf",
+                                      "handle",
+                                      "body",
+                                      "shade",
+                                      "base",
+                                    ],
+                                    "type": "string",
+                                  },
+                                  "maxItems": 11,
+                                  "type": "array",
+                                },
+                              },
+                              "required": [
+                                "names",
+                                "roles",
+                                "materials",
+                                "exceptNames",
+                                "exceptRoles",
+                              ],
+                              "type": "object",
+                            },
+                            {
+                              "type": "null",
+                            },
+                          ],
+                        },
+                        "question": {
+                          "anyOf": [
+                            {
+                              "maxLength": 200,
+                              "minLength": 1,
+                              "type": "string",
+                            },
+                            {
+                              "type": "null",
+                            },
+                          ],
+                        },
+                        "sizeCm": {
+                          "anyOf": [
+                            {
+                              "additionalProperties": false,
+                              "properties": {
+                                "d": {
+                                  "anyOf": [
+                                    {
+                                      "maximum": 600,
+                                      "minimum": 0.5,
+                                      "type": "number",
+                                    },
+                                    {
+                                      "type": "null",
+                                    },
+                                  ],
+                                },
+                                "h": {
+                                  "anyOf": [
+                                    {
+                                      "maximum": 600,
+                                      "minimum": 0.5,
+                                      "type": "number",
+                                    },
+                                    {
+                                      "type": "null",
+                                    },
+                                  ],
+                                },
+                                "w": {
+                                  "anyOf": [
+                                    {
+                                      "maximum": 600,
+                                      "minimum": 0.5,
+                                      "type": "number",
+                                    },
+                                    {
+                                      "type": "null",
+                                    },
+                                  ],
+                                },
+                              },
+                              "required": [
+                                "w",
+                                "d",
+                                "h",
+                              ],
+                              "type": "object",
+                            },
+                            {
+                              "type": "null",
+                            },
+                          ],
+                        },
+                      },
+                      "required": [
+                        "op",
+                        "parts",
+                        "color",
+                        "material",
+                        "sizeCm",
+                        "part",
+                        "label",
+                        "form",
+                        "as",
+                        "control",
+                        "question",
+                      ],
+                      "type": "object",
+                    },
+                    "maxItems": 4,
+                    "minItems": 1,
+                    "type": "array",
+                  },
+                  "product": {
+                    "anyOf": [
+                      {
+                        "maxLength": 120,
+                        "minLength": 1,
+                        "type": "string",
+                      },
+                      {
+                        "type": "null",
+                      },
+                    ],
+                  },
+                  "targetDisagrees": {
+                    "anyOf": [
+                      {
+                        "maxLength": 120,
+                        "minLength": 1,
+                        "type": "string",
+                      },
+                      {
+                        "type": "null",
+                      },
+                    ],
+                  },
+                },
+                "required": [
+                  "ops",
+                  "product",
+                  "needs",
+                  "targetDisagrees",
+                ],
+                "type": "object",
+              },
+              "strict": true,
+              "type": "json_schema",
+            },
+          },
+        },
+        "url": "https://api.meta.ai/v1/responses",
+      },
+      "spend": 0.0003375,
+    },
+    "itemCheck": {
+      "request": {
+        "body": {
+          "input": [
+            {
+              "content": [
+                {
+                  "text": 
+"The first image is a photo of an object; the second is a simple model of it, drawn from the same angle with flat colours.
+The model is: summary.
+Suggest corrections as multipliers between 0.8 and 1.2 (1 for no change): height, radius (width), handleReach (1 if there is no handle).
+If the model body colour is clearly wrong, give the right one as lowercase #rrggbb in body; otherwise null.
+Explain the main difference in one short sentence."
+,
+                  "type": "input_text",
+                },
+                {
+                  "detail": "auto",
+                  "image_url": "data:image/png;base64,AAAA",
+                  "type": "input_image",
+                },
+                {
+                  "detail": "auto",
+                  "image_url": "data:image/png;base64,AAAA",
+                  "type": "input_image",
+                },
+              ],
+              "role": "user",
+            },
+          ],
+          "max_output_tokens": 4096,
+          "model": "muse-spark-1.3",
+          "store": false,
+          "text": {
+            "format": {
+              "name": "item_check",
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "additionalProperties": false,
+                "properties": {
+                  "body": {
+                    "anyOf": [
+                      {
+                        "pattern": "^#[0-9a-f]{6}$",
+                        "type": "string",
+                      },
+                      {
+                        "type": "null",
+                      },
+                    ],
+                  },
+                  "handleReach": {
+                    "type": "number",
+                  },
+                  "height": {
+                    "type": "number",
+                  },
+                  "note": {
+                    "maxLength": 240,
+                    "type": "string",
+                  },
+                  "radius": {
+                    "type": "number",
+                  },
+                },
+                "required": [
+                  "height",
+                  "radius",
+                  "handleReach",
+                  "body",
+                  "note",
+                ],
+                "type": "object",
+              },
+              "strict": true,
+              "type": "json_schema",
+            },
+          },
+        },
+        "url": "https://api.meta.ai/v1/responses",
+      },
+      "spend": 0.0003375,
+    },
+    "itemClass": {
+      "request": {
+        "body": {
+          "input": [
+            {
+              "content": [
+                {
+                  "text": 
+"This is a cropped photo of one object, a mug, with the background removed.
+Pick the archetype that best describes its shape: mug, cup, bottle, can, book, box, plant, lamp, device, cat, generic. Use generic only when none fits.
+Pick its main surface material: matte, gloss, metal, glass, fabric, wood.
+Describe what you see in one short sentence (colours, print, handle side).
+If the photo hints at what the hidden back looks like, say so in backside; otherwise null."
+,
+                  "type": "input_text",
+                },
+                {
+                  "detail": "auto",
+                  "image_url": "data:image/png;base64,AAAA",
+                  "type": "input_image",
+                },
+              ],
+              "role": "user",
+            },
+          ],
+          "max_output_tokens": 4096,
+          "model": "muse-spark-1.3",
+          "store": false,
+          "text": {
+            "format": {
+              "name": "item_class",
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "additionalProperties": false,
+                "properties": {
+                  "archetype": {
+                    "enum": [
+                      "mug",
+                      "cup",
+                      "bottle",
+                      "can",
+                      "book",
+                      "box",
+                      "plant",
+                      "lamp",
+                      "device",
+                      "cat",
+                      "generic",
+                    ],
+                    "type": "string",
+                  },
+                  "backside": {
+                    "anyOf": [
+                      {
+                        "maxLength": 240,
+                        "type": "string",
+                      },
+                      {
+                        "type": "null",
+                      },
+                    ],
+                  },
+                  "description": {
+                    "maxLength": 240,
+                    "type": "string",
+                  },
+                  "material": {
+                    "enum": [
+                      "matte",
+                      "gloss",
+                      "metal",
+                      "glass",
+                      "fabric",
+                      "wood",
+                    ],
+                    "type": "string",
+                  },
+                },
+                "required": [
+                  "archetype",
+                  "material",
+                  "description",
+                  "backside",
+                ],
+                "type": "object",
+              },
+              "strict": true,
+              "type": "json_schema",
+            },
+          },
+        },
+        "url": "https://api.meta.ai/v1/responses",
+      },
+      "spend": 0.0003375,
+    },
+    "layout": {
+      "request": {
+        "body": {
+          "input": [
+            {
+              "content": [
+                {
+                  "text": 
+"Lay out the furniture and objects in this photo as a small isometric scene, using only these templates:
+desk: desk, 4×2.5 tiles
+table: table, 3×3 tiles
+chair: chair, 2.2×2.2 tiles
+shelf: bookshelf, 2.6666666666666665×1 tiles
+cabinet: cabinet, 2×1.3333333333333333 tiles
+fridge: fridge, 3×2.6 tiles
+plant: plant, 1.6×1.6 tiles
+rug: rug, 3×2 tiles
+wall: wall, 6×0.2 tiles
+lamp: desk lamp, 0.6666666666666666×0.6666666666666666 tiles, stands on a surface
+monitor: monitor, 2.033333333333333×0.6666666666666666 tiles, stands on a surface
+keyboard: keyboard, 1.4666666666666666×0.4666666666666667 tiles, stands on a surface
+book: book, 0.5333333333333333×0.7666666666666667 tiles, stands on a surface
+bottle: bottle, 0.25×0.25 tiles, stands on a surface
+jar: jar, 0.3333333333333333×0.3333333333333333 tiles, stands on a surface
+carton: carton, 0.23333333333333334×0.23333333333333334 tiles, stands on a surface
+Choose a grid from 4 to 14 tiles each way. x runs left to right across the photo, y from the back of the room toward the camera; (x, y) is the back-left corner of the template. turns rotates it by quarter turns.
+Put things that stand on a surface at the x and y of that surface; their height is worked out for you. Use at most 24 items, only for what is visible, and describe the scene in one short sentence."
+,
+                  "type": "input_text",
+                },
+                {
+                  "detail": "auto",
+                  "image_url": "data:image/png;base64,AAAA",
+                  "type": "input_image",
+                },
+              ],
+              "role": "user",
+            },
+          ],
+          "max_output_tokens": 16384,
+          "model": "muse-spark-1.3",
+          "store": false,
+          "text": {
+            "format": {
+              "name": "scene_draft",
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "additionalProperties": false,
+                "properties": {
+                  "grid": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "d": {
+                        "maximum": 14,
+                        "minimum": 4,
+                        "type": "integer",
+                      },
+                      "w": {
+                        "maximum": 14,
+                        "minimum": 4,
+                        "type": "integer",
+                      },
+                    },
+                    "required": [
+                      "w",
+                      "d",
+                    ],
+                    "type": "object",
+                  },
+                  "items": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "template": {
+                          "enum": [
+                            "desk",
+                            "table",
+                            "chair",
+                            "shelf",
+                            "cabinet",
+                            "fridge",
+                            "plant",
+                            "rug",
+                            "wall",
+                            "lamp",
+                            "monitor",
+                            "keyboard",
+                            "book",
+                            "bottle",
+                            "jar",
+                            "carton",
+                          ],
+                          "type": "string",
+                        },
+                        "turns": {
+                          "maximum": 3,
+                          "minimum": 0,
+                          "type": "integer",
+                        },
+                        "x": {
+                          "maximum": 14,
+                          "minimum": 0,
+                          "type": "number",
+                        },
+                        "y": {
+                          "maximum": 14,
+                          "minimum": 0,
+                          "type": "number",
+                        },
+                      },
+                      "required": [
+                        "template",
+                        "x",
+                        "y",
+                        "turns",
+                      ],
+                      "type": "object",
+                    },
+                    "maxItems": 24,
+                    "minItems": 1,
+                    "type": "array",
+                  },
+                  "summary": {
+                    "maxLength": 200,
+                    "type": "string",
+                  },
+                },
+                "required": [
+                  "grid",
+                  "items",
+                  "summary",
+                ],
+                "type": "object",
+              },
+              "strict": true,
+              "type": "json_schema",
+            },
+          },
+        },
+        "url": "https://api.meta.ai/v1/responses",
+      },
+      "spend": 0.0003375,
+    },
+    "photoCheck": {
+      "request": {
+        "body": {
+          "input": [
+            {
+              "content": [
+                {
+                  "text": 
+"The first image is a photo; the second is a simple scene drawn from the same camera in flat colours.
+The scene has: listing.
+Templates: desk (desk), table (table), chair (chair), shelf (bookshelf), cabinet (cabinet), fridge (fridge), plant (plant), rug (rug), wall (wall).
+Object models: monitor, keyboard, laptop, mug, cup, bottle, can, book, box, plant, lamp, device, cat, generic.
+Surfaces people put things on: desk, table, cabinet, shelf.
+In missing, list up to four clearly visible things the scene lacks, in the same form (id, label, as, role, on, box from 0 to 1000). In extra, give the ids of things in the scene that are not in the photo. Explain the main difference in one short sentence."
+,
+                  "type": "input_text",
+                },
+                {
+                  "detail": "auto",
+                  "image_url": "data:image/png;base64,AAAA",
+                  "type": "input_image",
+                },
+                {
+                  "detail": "auto",
+                  "image_url": "data:image/png;base64,AAAA",
+                  "type": "input_image",
+                },
+              ],
+              "role": "user",
+            },
+          ],
+          "max_output_tokens": 12288,
+          "model": "muse-spark-1.3",
+          "store": false,
+          "text": {
+            "format": {
+              "name": "photo_check",
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "additionalProperties": false,
+                "properties": {
+                  "extra": {
+                    "items": {
+                      "maxLength": 24,
+                      "minLength": 1,
+                      "type": "string",
+                    },
+                    "maxItems": 16,
+                    "type": "array",
+                  },
+                  "missing": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "as": {
+                          "enum": [
+                            "desk",
+                            "table",
+                            "chair",
+                            "shelf",
+                            "cabinet",
+                            "fridge",
+                            "plant",
+                            "rug",
+                            "wall",
+                            "lamp",
+                            "monitor",
+                            "keyboard",
+                            "book",
+                            "bottle",
+                            "jar",
+                            "carton",
+                            "mug",
+                            "cup",
+                            "can",
+                            "box",
+                            "device",
+                            "cat",
+                            "generic",
+                            "laptop",
+                          ],
+                          "type": "string",
+                        },
+                        "box": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "x1": {
+                              "maximum": 1000,
+                              "minimum": 0,
+                              "type": "integer",
+                            },
+                            "x2": {
+                              "maximum": 1000,
+                              "minimum": 0,
+                              "type": "integer",
+                            },
+                            "y1": {
+                              "maximum": 1000,
+                              "minimum": 0,
+                              "type": "integer",
+                            },
+                            "y2": {
+                              "maximum": 1000,
+                              "minimum": 0,
+                              "type": "integer",
+                            },
+                          },
+                          "required": [
+                            "x1",
+                            "y1",
+                            "x2",
+                            "y2",
+                          ],
+                          "type": "object",
+                        },
+                        "color": {
+                          "pattern": "^#[0-9a-f]{6}$",
+                          "type": "string",
+                        },
+                        "id": {
+                          "maxLength": 24,
+                          "minLength": 1,
+                          "type": "string",
+                        },
+                        "label": {
+                          "maxLength": 40,
+                          "minLength": 1,
+                          "type": "string",
+                        },
+                        "material": {
+                          "enum": [
+                            "matte",
+                            "gloss",
+                            "metal",
+                            "glass",
+                            "fabric",
+                            "wood",
+                          ],
+                          "type": "string",
+                        },
+                        "on": {
+                          "maxLength": 24,
+                          "minLength": 1,
+                          "type": "string",
+                        },
+                        "role": {
+                          "enum": [
+                            "furniture",
+                            "surface",
+                            "object",
+                          ],
+                          "type": "string",
+                        },
+                        "sizeCm": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "d": {
+                              "exclusiveMinimum": 0,
+                              "maximum": 600,
+                              "type": "number",
+                            },
+                            "h": {
+                              "exclusiveMinimum": 0,
+                              "maximum": 400,
+                              "type": "number",
+                            },
+                            "w": {
+                              "exclusiveMinimum": 0,
+                              "maximum": 600,
+                              "type": "number",
+                            },
+                          },
+                          "required": [
+                            "w",
+                            "d",
+                            "h",
+                          ],
+                          "type": "object",
+                        },
+                      },
+                      "required": [
+                        "id",
+                        "label",
+                        "as",
+                        "role",
+                        "on",
+                        "box",
+                        "sizeCm",
+                        "color",
+                        "material",
+                      ],
+                      "type": "object",
+                    },
+                    "maxItems": 4,
+                    "type": "array",
+                  },
+                  "note": {
+                    "maxLength": 200,
+                    "type": "string",
+                  },
+                },
+                "required": [
+                  "missing",
+                  "extra",
+                  "note",
+                ],
+                "type": "object",
+              },
+              "strict": true,
+              "type": "json_schema",
+            },
+          },
+        },
+        "url": "https://api.meta.ai/v1/responses",
+      },
+      "spend": 0.0003375,
+    },
+    "photoInventory": {
+      "request": {
+        "body": {
+          "input": [
+            {
+              "content": [
+                {
+                  "text": 
+"List the furniture and objects in this photo so they can be drawn as a small isometric scene.
+Templates: desk (desk), table (table), chair (chair), shelf (bookshelf), cabinet (cabinet), fridge (fridge), plant (plant), rug (rug), wall (wall).
+Object models: monitor, keyboard, laptop, mug, cup, bottle, can, book, box, plant, lamp, device, cat, generic.
+Surfaces people put things on: desk, table, cabinet, shelf.
+For each thing give: a short id (lowercase, like desk or mug-1); a short grounded label from what you see (no names, owners or brands); as, the closest template or object model; role: surface for what things stand on (a desk, a table, a cabinet top, a shelf), furniture for anything else that stands on the floor, object for small movable things; on, the id of what it stands on, or floor; box, a loose box around it as x1, y1, x2, y2 from 0 to 1000 across and down the photo; sizeCm, its real size in whole centimetres (w across its front, d from front to back, h its height), judged from things of known size (a desk is about 75 cm high, a mug about 10 cm); color, its main colour as lowercase #rrggbb; and material, what it is mostly made of.
+Include the main surface if there is one. Use at most 16 things, only what is clearly visible, biggest first. Summarise the scene in one short sentence."
+,
+                  "type": "input_text",
+                },
+                {
+                  "detail": "auto",
+                  "image_url": "data:image/png;base64,AAAA",
+                  "type": "input_image",
+                },
+              ],
+              "role": "user",
+            },
+          ],
+          "max_output_tokens": 16384,
+          "model": "muse-spark-1.3",
+          "store": false,
+          "text": {
+            "format": {
+              "name": "photo_inventory",
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "additionalProperties": false,
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "desk",
+                      "office",
+                      "fridge",
+                      "room",
+                    ],
+                    "type": "string",
+                  },
+                  "summary": {
+                    "maxLength": 200,
+                    "type": "string",
+                  },
+                  "things": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "as": {
+                          "enum": [
+                            "desk",
+                            "table",
+                            "chair",
+                            "shelf",
+                            "cabinet",
+                            "fridge",
+                            "plant",
+                            "rug",
+                            "wall",
+                            "lamp",
+                            "monitor",
+                            "keyboard",
+                            "book",
+                            "bottle",
+                            "jar",
+                            "carton",
+                            "mug",
+                            "cup",
+                            "can",
+                            "box",
+                            "device",
+                            "cat",
+                            "generic",
+                            "laptop",
+                          ],
+                          "type": "string",
+                        },
+                        "box": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "x1": {
+                              "maximum": 1000,
+                              "minimum": 0,
+                              "type": "integer",
+                            },
+                            "x2": {
+                              "maximum": 1000,
+                              "minimum": 0,
+                              "type": "integer",
+                            },
+                            "y1": {
+                              "maximum": 1000,
+                              "minimum": 0,
+                              "type": "integer",
+                            },
+                            "y2": {
+                              "maximum": 1000,
+                              "minimum": 0,
+                              "type": "integer",
+                            },
+                          },
+                          "required": [
+                            "x1",
+                            "y1",
+                            "x2",
+                            "y2",
+                          ],
+                          "type": "object",
+                        },
+                        "color": {
+                          "pattern": "^#[0-9a-f]{6}$",
+                          "type": "string",
+                        },
+                        "id": {
+                          "maxLength": 24,
+                          "minLength": 1,
+                          "type": "string",
+                        },
+                        "label": {
+                          "maxLength": 40,
+                          "minLength": 1,
+                          "type": "string",
+                        },
+                        "material": {
+                          "enum": [
+                            "matte",
+                            "gloss",
+                            "metal",
+                            "glass",
+                            "fabric",
+                            "wood",
+                          ],
+                          "type": "string",
+                        },
+                        "on": {
+                          "maxLength": 24,
+                          "minLength": 1,
+                          "type": "string",
+                        },
+                        "role": {
+                          "enum": [
+                            "furniture",
+                            "surface",
+                            "object",
+                          ],
+                          "type": "string",
+                        },
+                        "sizeCm": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "d": {
+                              "exclusiveMinimum": 0,
+                              "maximum": 600,
+                              "type": "number",
+                            },
+                            "h": {
+                              "exclusiveMinimum": 0,
+                              "maximum": 400,
+                              "type": "number",
+                            },
+                            "w": {
+                              "exclusiveMinimum": 0,
+                              "maximum": 600,
+                              "type": "number",
+                            },
+                          },
+                          "required": [
+                            "w",
+                            "d",
+                            "h",
+                          ],
+                          "type": "object",
+                        },
+                      },
+                      "required": [
+                        "id",
+                        "label",
+                        "as",
+                        "role",
+                        "on",
+                        "box",
+                        "sizeCm",
+                        "color",
+                        "material",
+                      ],
+                      "type": "object",
+                    },
+                    "maxItems": 16,
+                    "minItems": 1,
+                    "type": "array",
+                  },
+                },
+                "required": [
+                  "kind",
+                  "things",
+                  "summary",
+                ],
+                "type": "object",
+              },
+              "strict": true,
+              "type": "json_schema",
+            },
+          },
+        },
+        "url": "https://api.meta.ai/v1/responses",
+      },
+      "spend": 0.0003375,
+    },
+    "pictureFind": {
+      "request": {
+        "body": {
+          "input": [
+            {
+              "content": [
+                {
+                  "text": 
+"This is an isometric illustration of a room. Find each of these things drawn in it. Each is numbered, with a box from 0 to 1000 across and down the picture where the room’s layout expects it; it may be drawn somewhat away from there, and what is drawn is what counts.
+1. lamp (expected near 1, 2, 3, 4)
+For each number give: seen, whether it is clearly drawn; and box, a tight box around just that thing as x1, y1, x2, y2 from 0 to 1000. When two look alike, take the one nearer its expected box. When it is not drawn, set seen false and give its expected box."
+,
+                  "type": "input_text",
+                },
+                {
+                  "detail": "auto",
+                  "image_url": "data:image/png;base64,AAAA",
+                  "type": "input_image",
+                },
+              ],
+              "role": "user",
+            },
+          ],
+          "max_output_tokens": 6144,
+          "model": "muse-spark-1.3",
+          "store": false,
+          "text": {
+            "format": {
+              "name": "picture_find",
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "additionalProperties": false,
+                "properties": {
+                  "found": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "box": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "x1": {
+                              "maximum": 1000,
+                              "minimum": 0,
+                              "type": "integer",
+                            },
+                            "x2": {
+                              "maximum": 1000,
+                              "minimum": 0,
+                              "type": "integer",
+                            },
+                            "y1": {
+                              "maximum": 1000,
+                              "minimum": 0,
+                              "type": "integer",
+                            },
+                            "y2": {
+                              "maximum": 1000,
+                              "minimum": 0,
+                              "type": "integer",
+                            },
+                          },
+                          "required": [
+                            "x1",
+                            "y1",
+                            "x2",
+                            "y2",
+                          ],
+                          "type": "object",
+                        },
+                        "index": {
+                          "maximum": 16,
+                          "minimum": 1,
+                          "type": "integer",
+                        },
+                        "seen": {
+                          "type": "boolean",
+                        },
+                      },
+                      "required": [
+                        "index",
+                        "seen",
+                        "box",
+                      ],
+                      "type": "object",
+                    },
+                    "maxItems": 16,
+                    "type": "array",
+                  },
+                },
+                "required": [
+                  "found",
+                ],
+                "type": "object",
+              },
+              "strict": true,
+              "type": "json_schema",
+            },
+          },
+        },
+        "url": "https://api.meta.ai/v1/responses",
+      },
+      "spend": 0.0003375,
+    },
+    "productLookup": {
+      "request": {
+        "body": {
+          "include": [
+            "web_search_call.results",
+          ],
+          "input": 
+"Look this product up on the web, preferring the maker’s own product page: "IKEA Alex desk".
+What is needed: size, parts.
+found: false when you can’t find this exact product.
+name: its full product name as the maker gives it.
+sizeCm: its overall width, depth and height in centimetres, as listed.
+parts: its visible parts (a desktop, a drawer unit, legs, a shelf), each with a role from: top, leg, rail, panel, drawer, door, shelf, handle, body, shade, base; its size in cm when listed; how many.
+colors: the colour it was bought in, if the request says, else its usual one, as a hex value.
+materials: from matte, gloss, metal, glass, fabric, wood.
+confidence: how sure you are that these are facts of this exact product, 0 to 1."
+,
+          "max_output_tokens": 8192,
+          "model": "muse-spark-1.3",
+          "reasoning": {
+            "effort": "low",
+          },
+          "store": false,
+          "text": {
+            "format": {
+              "name": "product_lookup",
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "additionalProperties": false,
+                "properties": {
+                  "colors": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "hex": {
+                          "pattern": "^#[0-9a-f]{6}$",
+                          "type": "string",
+                        },
+                        "name": {
+                          "maxLength": 40,
+                          "minLength": 1,
+                          "type": "string",
+                        },
+                      },
+                      "required": [
+                        "name",
+                        "hex",
+                      ],
+                      "type": "object",
+                    },
+                    "maxItems": 8,
+                    "type": "array",
+                  },
+                  "confidence": {
+                    "maximum": 1,
+                    "minimum": 0,
+                    "type": "number",
+                  },
+                  "found": {
+                    "type": "boolean",
+                  },
+                  "materials": {
+                    "items": {
+                      "enum": [
+                        "matte",
+                        "gloss",
+                        "metal",
+                        "glass",
+                        "fabric",
+                        "wood",
+                      ],
+                      "type": "string",
+                    },
+                    "maxItems": 6,
+                    "type": "array",
+                  },
+                  "name": {
+                    "anyOf": [
+                      {
+                        "maxLength": 120,
+                        "minLength": 1,
+                        "type": "string",
+                      },
+                      {
+                        "type": "null",
+                      },
+                    ],
+                  },
+                  "parts": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "count": {
+                          "anyOf": [
+                            {
+                              "maximum": 24,
+                              "minimum": 1,
+                              "type": "integer",
+                            },
+                            {
+                              "type": "null",
+                            },
+                          ],
+                        },
+                        "name": {
+                          "maxLength": 40,
+                          "minLength": 1,
+                          "type": "string",
+                        },
+                        "role": {
+                          "anyOf": [
+                            {
+                              "enum": [
+                                "top",
+                                "leg",
+                                "rail",
+                                "panel",
+                                "drawer",
+                                "door",
+                                "shelf",
+                                "handle",
+                                "body",
+                                "shade",
+                                "base",
+                              ],
+                              "type": "string",
+                            },
+                            {
+                              "type": "null",
+                            },
+                          ],
+                        },
+                        "sizeCm": {
+                          "anyOf": [
+                            {
+                              "additionalProperties": false,
+                              "properties": {
+                                "d": {
+                                  "anyOf": [
+                                    {
+                                      "exclusiveMinimum": 0,
+                                      "maximum": 600,
+                                      "type": "number",
+                                    },
+                                    {
+                                      "type": "null",
+                                    },
+                                  ],
+                                },
+                                "h": {
+                                  "anyOf": [
+                                    {
+                                      "exclusiveMinimum": 0,
+                                      "maximum": 600,
+                                      "type": "number",
+                                    },
+                                    {
+                                      "type": "null",
+                                    },
+                                  ],
+                                },
+                                "w": {
+                                  "anyOf": [
+                                    {
+                                      "exclusiveMinimum": 0,
+                                      "maximum": 600,
+                                      "type": "number",
+                                    },
+                                    {
+                                      "type": "null",
+                                    },
+                                  ],
+                                },
+                              },
+                              "required": [
+                                "w",
+                                "d",
+                                "h",
+                              ],
+                              "type": "object",
+                            },
+                            {
+                              "type": "null",
+                            },
+                          ],
+                        },
+                      },
+                      "required": [
+                        "name",
+                        "role",
+                        "sizeCm",
+                        "count",
+                      ],
+                      "type": "object",
+                    },
+                    "maxItems": 24,
+                    "type": "array",
+                  },
+                  "sizeCm": {
+                    "anyOf": [
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "d": {
+                            "exclusiveMinimum": 0,
+                            "maximum": 600,
+                            "type": "number",
+                          },
+                          "h": {
+                            "exclusiveMinimum": 0,
+                            "maximum": 300,
+                            "type": "number",
+                          },
+                          "w": {
+                            "exclusiveMinimum": 0,
+                            "maximum": 600,
+                            "type": "number",
+                          },
+                        },
+                        "required": [
+                          "w",
+                          "d",
+                          "h",
+                        ],
+                        "type": "object",
+                      },
+                      {
+                        "type": "null",
+                      },
+                    ],
+                  },
+                },
+                "required": [
+                  "found",
+                  "name",
+                  "sizeCm",
+                  "parts",
+                  "colors",
+                  "materials",
+                  "confidence",
+                ],
+                "type": "object",
+              },
+              "strict": true,
+              "type": "json_schema",
+            },
+          },
+          "tools": [
+            {
+              "type": "web_search",
+            },
+          ],
+        },
+        "url": "https://api.meta.ai/v1/responses",
+      },
+      "spend": 0.0003375,
+    },
+    "refine": {
+      "request": {
+        "body": {
+          "input": [
+            {
+              "content": [
+                {
+                  "text": 
+"A model of a piece of furniture was drawn through the room camera and compared with the outline of the real thing in its picture.
+The selection is the room's fixture "desk".
+Its model "desk" is 100 × 50 × 75 cm, with parts:
+No light or switch entities are configured.
+missed
+Suggest at most four ops that bring the model closer to the real thing: resize the model or its parts, add or remove parts. Only these ops:
+- recolor: Paint the chosen parts one colour ("make it green", "white drawers").
+- rematerial: Change how the chosen parts take light ("the legs are metal").
+- resize: Set sizes in cm: of the whole model without parts ("it is 140 cm wide"), else of the chosen parts.
+- add_part: Add one part, measured in cm from the back-left-bottom corner, inside the model.
+- remove_part: Remove the chosen parts ("there is no drawer on the left").
+- rename: Give the model another name.
+- create: Make the selection its own model: a fixture or a piece of furniture (label; form: the built-in form it is closest to, if any; as: fixture or furniture).
+- rebase: Build the model again from another built-in form ("it is a table, not a desk").
+- match_photo: Rebuild the model’s parts and colours from the camera’s picture of it, keeping its size, when the request is about how it looks overall ("make it look like the photo", "it is an open shelf with white shelves"). What the person describes is passed on with it, so use it instead of many small ops.
+- set_control: Say what the fixture switches: none, or a light or switch entity from the list (control).
+- clarify: Ask one short question back when the request is unclear. Never guess instead.
+Fill only the fields an op needs and leave the others null or empty. Sizes are in centimetres, parts measured from the back-left-bottom corner, facing the room. If nothing would help, answer one clarify op.
+product: null. needs: empty. targetDisagrees: null."
+,
+                  "type": "input_text",
+                },
+                {
+                  "detail": "auto",
+                  "image_url": "data:image/png;base64,AAAA",
+                  "type": "input_image",
+                },
+              ],
+              "role": "user",
+            },
+          ],
+          "max_output_tokens": 16384,
+          "model": "muse-spark-1.3",
+          "store": false,
+          "text": {
+            "format": {
+              "name": "recipe_refine",
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "additionalProperties": false,
+                "properties": {
+                  "needs": {
+                    "items": {
+                      "enum": [
+                        "size",
+                        "parts",
+                        "colors",
+                        "materials",
+                      ],
+                      "type": "string",
+                    },
+                    "maxItems": 4,
+                    "type": "array",
+                  },
+                  "ops": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "as": {
+                          "anyOf": [
+                            {
+                              "enum": [
+                                "fixture",
+                                "furniture",
+                              ],
+                              "type": "string",
+                            },
+                            {
+                              "type": "null",
+                            },
+                          ],
+                        },
+                        "color": {
+                          "anyOf": [
+                            {
+                              "pattern": "^#[0-9a-f]{6}$",
+                              "type": "string",
+                            },
+                            {
+                              "type": "null",
+                            },
+                          ],
+                        },
+                        "control": {
+                          "anyOf": [
+                            {
+                              "additionalProperties": false,
+                              "properties": {
+                                "entityId": {
+                                  "anyOf": [
+                                    {
+                                      "maxLength": 80,
+                                      "type": "string",
+                                    },
+                                    {
+                                      "type": "null",
+                                    },
+                                  ],
+                                },
+                                "kind": {
+                                  "enum": [
+                                    "none",
+                                    "light",
+                                    "switch",
+                                  ],
+                                  "type": "string",
+                                },
+                              },
+                              "required": [
+                                "kind",
+                                "entityId",
+                              ],
+                              "type": "object",
+                            },
+                            {
+                              "type": "null",
+                            },
+                          ],
+                        },
+                        "form": {
+                          "anyOf": [
+                            {
+                              "enum": [
+                                "desk",
+                                "table",
+                                "chair",
+                                "bookcase",
+                                "cabinet",
+                                "pot",
+                                "foliage",
+                                "lamp-stand",
+                                "lamp-shade",
+                                "monitor",
+                                "keyboard",
+                                "book",
+                                "bottle",
+                                "jar",
+                                "carton",
+                              ],
+                              "type": "string",
+                            },
+                            {
+                              "type": "null",
+                            },
+                          ],
+                        },
+                        "label": {
+                          "anyOf": [
+                            {
+                              "maxLength": 60,
+                              "minLength": 1,
+                              "type": "string",
+                            },
+                            {
+                              "type": "null",
+                            },
+                          ],
+                        },
+                        "material": {
+                          "anyOf": [
+                            {
+                              "enum": [
+                                "matte",
+                                "gloss",
+                                "metal",
+                                "glass",
+                                "fabric",
+                                "wood",
+                              ],
+                              "type": "string",
+                            },
+                            {
+                              "type": "null",
+                            },
+                          ],
+                        },
+                        "op": {
+                          "enum": [
+                            "recolor",
+                            "rematerial",
+                            "resize",
+                            "add_part",
+                            "remove_part",
+                            "rename",
+                            "create",
+                            "rebase",
+                            "match_photo",
+                            "set_control",
+                            "clarify",
+                          ],
+                          "type": "string",
+                        },
+                        "part": {
+                          "anyOf": [
+                            {
+                              "additionalProperties": false,
+                              "properties": {
+                                "atCm": {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "x": {
+                                      "type": "number",
+                                    },
+                                    "y": {
+                                      "type": "number",
+                                    },
+                                    "z": {
+                                      "type": "number",
+                                    },
+                                  },
+                                  "required": [
+                                    "x",
+                                    "y",
+                                    "z",
+                                  ],
+                                  "type": "object",
+                                },
+                                "color": {
+                                  "anyOf": [
+                                    {
+                                      "pattern": "^#[0-9a-f]{6}$",
+                                      "type": "string",
+                                    },
+                                    {
+                                      "type": "null",
+                                    },
+                                  ],
+                                },
+                                "name": {
+                                  "maxLength": 24,
+                                  "minLength": 1,
+                                  "type": "string",
+                                },
+                                "role": {
+                                  "anyOf": [
+                                    {
+                                      "enum": [
+                                        "top",
+                                        "leg",
+                                        "rail",
+                                        "panel",
+                                        "drawer",
+                                        "door",
+                                        "shelf",
+                                        "handle",
+                                        "body",
+                                        "shade",
+                                        "base",
+                                      ],
+                                      "type": "string",
+                                    },
+                                    {
+                                      "type": "null",
+                                    },
+                                  ],
+                                },
+                                "sizeCm": {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "d": {
+                                      "type": "number",
+                                    },
+                                    "h": {
+                                      "type": "number",
+                                    },
+                                    "w": {
+                                      "type": "number",
+                                    },
+                                  },
+                                  "required": [
+                                    "w",
+                                    "d",
+                                    "h",
+                                  ],
+                                  "type": "object",
+                                },
+                              },
+                              "required": [
+                                "name",
+                                "role",
+                                "atCm",
+                                "sizeCm",
+                                "color",
+                              ],
+                              "type": "object",
+                            },
+                            {
+                              "type": "null",
+                            },
+                          ],
+                        },
+                        "parts": {
+                          "anyOf": [
+                            {
+                              "additionalProperties": false,
+                              "properties": {
+                                "exceptNames": {
+                                  "items": {
+                                    "maxLength": 24,
+                                    "minLength": 1,
+                                    "type": "string",
+                                  },
+                                  "maxItems": 24,
+                                  "type": "array",
+                                },
+                                "exceptRoles": {
+                                  "items": {
+                                    "enum": [
+                                      "top",
+                                      "leg",
+                                      "rail",
+                                      "panel",
+                                      "drawer",
+                                      "door",
+                                      "shelf",
+                                      "handle",
+                                      "body",
+                                      "shade",
+                                      "base",
+                                    ],
+                                    "type": "string",
+                                  },
+                                  "maxItems": 11,
+                                  "type": "array",
+                                },
+                                "materials": {
+                                  "items": {
+                                    "enum": [
+                                      "matte",
+                                      "gloss",
+                                      "metal",
+                                      "glass",
+                                      "fabric",
+                                      "wood",
+                                    ],
+                                    "type": "string",
+                                  },
+                                  "maxItems": 6,
+                                  "type": "array",
+                                },
+                                "names": {
+                                  "items": {
+                                    "maxLength": 24,
+                                    "minLength": 1,
+                                    "type": "string",
+                                  },
+                                  "maxItems": 24,
+                                  "type": "array",
+                                },
+                                "roles": {
+                                  "items": {
+                                    "enum": [
+                                      "top",
+                                      "leg",
+                                      "rail",
+                                      "panel",
+                                      "drawer",
+                                      "door",
+                                      "shelf",
+                                      "handle",
+                                      "body",
+                                      "shade",
+                                      "base",
+                                    ],
+                                    "type": "string",
+                                  },
+                                  "maxItems": 11,
+                                  "type": "array",
+                                },
+                              },
+                              "required": [
+                                "names",
+                                "roles",
+                                "materials",
+                                "exceptNames",
+                                "exceptRoles",
+                              ],
+                              "type": "object",
+                            },
+                            {
+                              "type": "null",
+                            },
+                          ],
+                        },
+                        "question": {
+                          "anyOf": [
+                            {
+                              "maxLength": 200,
+                              "minLength": 1,
+                              "type": "string",
+                            },
+                            {
+                              "type": "null",
+                            },
+                          ],
+                        },
+                        "sizeCm": {
+                          "anyOf": [
+                            {
+                              "additionalProperties": false,
+                              "properties": {
+                                "d": {
+                                  "anyOf": [
+                                    {
+                                      "maximum": 600,
+                                      "minimum": 0.5,
+                                      "type": "number",
+                                    },
+                                    {
+                                      "type": "null",
+                                    },
+                                  ],
+                                },
+                                "h": {
+                                  "anyOf": [
+                                    {
+                                      "maximum": 600,
+                                      "minimum": 0.5,
+                                      "type": "number",
+                                    },
+                                    {
+                                      "type": "null",
+                                    },
+                                  ],
+                                },
+                                "w": {
+                                  "anyOf": [
+                                    {
+                                      "maximum": 600,
+                                      "minimum": 0.5,
+                                      "type": "number",
+                                    },
+                                    {
+                                      "type": "null",
+                                    },
+                                  ],
+                                },
+                              },
+                              "required": [
+                                "w",
+                                "d",
+                                "h",
+                              ],
+                              "type": "object",
+                            },
+                            {
+                              "type": "null",
+                            },
+                          ],
+                        },
+                      },
+                      "required": [
+                        "op",
+                        "parts",
+                        "color",
+                        "material",
+                        "sizeCm",
+                        "part",
+                        "label",
+                        "form",
+                        "as",
+                        "control",
+                        "question",
+                      ],
+                      "type": "object",
+                    },
+                    "maxItems": 4,
+                    "minItems": 1,
+                    "type": "array",
+                  },
+                  "product": {
+                    "anyOf": [
+                      {
+                        "maxLength": 120,
+                        "minLength": 1,
+                        "type": "string",
+                      },
+                      {
+                        "type": "null",
+                      },
+                    ],
+                  },
+                  "targetDisagrees": {
+                    "anyOf": [
+                      {
+                        "maxLength": 120,
+                        "minLength": 1,
+                        "type": "string",
+                      },
+                      {
+                        "type": "null",
+                      },
+                    ],
+                  },
+                },
+                "required": [
+                  "ops",
+                  "product",
+                  "needs",
+                  "targetDisagrees",
+                ],
+                "type": "object",
+              },
+              "strict": true,
+              "type": "json_schema",
+            },
+          },
+        },
+        "url": "https://api.meta.ai/v1/responses",
+      },
+      "spend": 0.0003375,
+    },
+    "sculpt": {
+      "request": {
+        "body": {
+          "input": [
+            {
+              "content": [
+                {
+                  "text": 
+"prompt
+
+Parts:
+[]"
+,
+                  "type": "input_text",
+                },
+                {
+                  "detail": "auto",
+                  "image_url": "data:image/png;base64,AAAA",
+                  "type": "input_image",
+                },
+                {
+                  "detail": "auto",
+                  "image_url": "data:image/png;base64,AAAA",
+                  "type": "input_image",
+                },
+              ],
+              "role": "user",
+            },
+          ],
+          "max_output_tokens": 16384,
+          "model": "muse-spark-1.3",
+          "store": false,
+          "text": {
+            "format": {
+              "name": "sculpt",
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "additionalProperties": false,
+                "properties": {
+                  "note": {
+                    "maxLength": 240,
+                    "type": "string",
+                  },
+                  "parts": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "at": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "x": {
+                              "type": "number",
+                            },
+                            "y": {
+                              "type": "number",
+                            },
+                            "z": {
+                              "type": "number",
+                            },
+                          },
+                          "required": [
+                            "x",
+                            "y",
+                            "z",
+                          ],
+                          "type": "object",
+                        },
+                        "bands": {
+                          "anyOf": [
+                            {
+                              "items": {
+                                "additionalProperties": false,
+                                "properties": {
+                                  "color": {
+                                    "pattern": "^#[0-9a-f]{6}$",
+                                    "type": "string",
+                                  },
+                                  "from": {
+                                    "maximum": 1,
+                                    "minimum": 0,
+                                    "type": "number",
+                                  },
+                                  "to": {
+                                    "maximum": 1,
+                                    "minimum": 0,
+                                    "type": "number",
+                                  },
+                                },
+                                "required": [
+                                  "from",
+                                  "to",
+                                  "color",
+                                ],
+                                "type": "object",
+                              },
+                              "type": "array",
+                            },
+                            {
+                              "type": "null",
+                            },
+                          ],
+                        },
+                        "color": {
+                          "pattern": "^#[0-9a-f]{6}$",
+                          "type": "string",
+                        },
+                        "id": {
+                          "maxLength": 24,
+                          "minLength": 1,
+                          "type": "string",
+                        },
+                        "material": {
+                          "enum": [
+                            "matte",
+                            "gloss",
+                            "metal",
+                            "glass",
+                            "fabric",
+                            "wood",
+                          ],
+                          "type": "string",
+                        },
+                        "outline": {
+                          "anyOf": [
+                            {
+                              "items": {
+                                "additionalProperties": false,
+                                "properties": {
+                                  "x": {
+                                    "maximum": 1,
+                                    "minimum": 0,
+                                    "type": "number",
+                                  },
+                                  "y": {
+                                    "maximum": 1,
+                                    "minimum": 0,
+                                    "type": "number",
+                                  },
+                                },
+                                "required": [
+                                  "x",
+                                  "y",
+                                ],
+                                "type": "object",
+                              },
+                              "type": "array",
+                            },
+                            {
+                              "type": "null",
+                            },
+                          ],
+                        },
+                        "path": {
+                          "anyOf": [
+                            {
+                              "items": {
+                                "additionalProperties": false,
+                                "properties": {
+                                  "x": {
+                                    "maximum": 1,
+                                    "minimum": 0,
+                                    "type": "number",
+                                  },
+                                  "y": {
+                                    "maximum": 1,
+                                    "minimum": 0,
+                                    "type": "number",
+                                  },
+                                  "z": {
+                                    "maximum": 1,
+                                    "minimum": 0,
+                                    "type": "number",
+                                  },
+                                },
+                                "required": [
+                                  "x",
+                                  "y",
+                                  "z",
+                                ],
+                                "type": "object",
+                              },
+                              "type": "array",
+                            },
+                            {
+                              "type": "null",
+                            },
+                          ],
+                        },
+                        "profile": {
+                          "anyOf": [
+                            {
+                              "items": {
+                                "additionalProperties": false,
+                                "properties": {
+                                  "r": {
+                                    "maximum": 1,
+                                    "minimum": 0,
+                                    "type": "number",
+                                  },
+                                  "z": {
+                                    "maximum": 1,
+                                    "minimum": 0,
+                                    "type": "number",
+                                  },
+                                },
+                                "required": [
+                                  "r",
+                                  "z",
+                                ],
+                                "type": "object",
+                              },
+                              "type": "array",
+                            },
+                            {
+                              "type": "null",
+                            },
+                          ],
+                        },
+                        "radius": {
+                          "type": [
+                            "number",
+                            "null",
+                          ],
+                        },
+                        "rough": {
+                          "type": [
+                            "number",
+                            "null",
+                          ],
+                        },
+                        "shape": {
+                          "enum": [
+                            "lathe",
+                            "rbox",
+                            "tube",
+                            "extrude",
+                            "blob",
+                          ],
+                          "type": "string",
+                        },
+                        "size": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "d": {
+                              "type": "number",
+                            },
+                            "h": {
+                              "type": "number",
+                            },
+                            "w": {
+                              "type": "number",
+                            },
+                          },
+                          "required": [
+                            "w",
+                            "d",
+                            "h",
+                          ],
+                          "type": "object",
+                        },
+                      },
+                      "required": [
+                        "id",
+                        "shape",
+                        "at",
+                        "size",
+                        "color",
+                        "material",
+                        "profile",
+                        "path",
+                        "outline",
+                        "radius",
+                        "rough",
+                        "bands",
+                      ],
+                      "type": "object",
+                    },
+                    "maxItems": 12,
+                    "type": "array",
+                  },
+                },
+                "required": [
+                  "parts",
+                  "note",
+                ],
+                "type": "object",
+              },
+              "strict": true,
+              "type": "json_schema",
+            },
+          },
+        },
+        "url": "https://api.meta.ai/v1/responses",
+      },
+      "spend": 0.0003375,
+    },
+    "sculptLow": {
+      "request": {
+        "body": {
+          "input": [
+            {
+              "content": [
+                {
+                  "text": 
+"prompt
+
+Parts:
+[]"
+,
+                  "type": "input_text",
+                },
+                {
+                  "detail": "auto",
+                  "image_url": "data:image/png;base64,AAAA",
+                  "type": "input_image",
+                },
+                {
+                  "detail": "auto",
+                  "image_url": "data:image/png;base64,AAAA",
+                  "type": "input_image",
+                },
+              ],
+              "role": "user",
+            },
+          ],
+          "max_output_tokens": 16384,
+          "model": "muse-spark-1.3",
+          "reasoning": {
+            "effort": "low",
+          },
+          "store": false,
+          "text": {
+            "format": {
+              "name": "sculpt",
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "additionalProperties": false,
+                "properties": {
+                  "note": {
+                    "maxLength": 240,
+                    "type": "string",
+                  },
+                  "parts": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "at": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "x": {
+                              "type": "number",
+                            },
+                            "y": {
+                              "type": "number",
+                            },
+                            "z": {
+                              "type": "number",
+                            },
+                          },
+                          "required": [
+                            "x",
+                            "y",
+                            "z",
+                          ],
+                          "type": "object",
+                        },
+                        "bands": {
+                          "anyOf": [
+                            {
+                              "items": {
+                                "additionalProperties": false,
+                                "properties": {
+                                  "color": {
+                                    "pattern": "^#[0-9a-f]{6}$",
+                                    "type": "string",
+                                  },
+                                  "from": {
+                                    "maximum": 1,
+                                    "minimum": 0,
+                                    "type": "number",
+                                  },
+                                  "to": {
+                                    "maximum": 1,
+                                    "minimum": 0,
+                                    "type": "number",
+                                  },
+                                },
+                                "required": [
+                                  "from",
+                                  "to",
+                                  "color",
+                                ],
+                                "type": "object",
+                              },
+                              "type": "array",
+                            },
+                            {
+                              "type": "null",
+                            },
+                          ],
+                        },
+                        "color": {
+                          "pattern": "^#[0-9a-f]{6}$",
+                          "type": "string",
+                        },
+                        "id": {
+                          "maxLength": 24,
+                          "minLength": 1,
+                          "type": "string",
+                        },
+                        "material": {
+                          "enum": [
+                            "matte",
+                            "gloss",
+                            "metal",
+                            "glass",
+                            "fabric",
+                            "wood",
+                          ],
+                          "type": "string",
+                        },
+                        "outline": {
+                          "anyOf": [
+                            {
+                              "items": {
+                                "additionalProperties": false,
+                                "properties": {
+                                  "x": {
+                                    "maximum": 1,
+                                    "minimum": 0,
+                                    "type": "number",
+                                  },
+                                  "y": {
+                                    "maximum": 1,
+                                    "minimum": 0,
+                                    "type": "number",
+                                  },
+                                },
+                                "required": [
+                                  "x",
+                                  "y",
+                                ],
+                                "type": "object",
+                              },
+                              "type": "array",
+                            },
+                            {
+                              "type": "null",
+                            },
+                          ],
+                        },
+                        "path": {
+                          "anyOf": [
+                            {
+                              "items": {
+                                "additionalProperties": false,
+                                "properties": {
+                                  "x": {
+                                    "maximum": 1,
+                                    "minimum": 0,
+                                    "type": "number",
+                                  },
+                                  "y": {
+                                    "maximum": 1,
+                                    "minimum": 0,
+                                    "type": "number",
+                                  },
+                                  "z": {
+                                    "maximum": 1,
+                                    "minimum": 0,
+                                    "type": "number",
+                                  },
+                                },
+                                "required": [
+                                  "x",
+                                  "y",
+                                  "z",
+                                ],
+                                "type": "object",
+                              },
+                              "type": "array",
+                            },
+                            {
+                              "type": "null",
+                            },
+                          ],
+                        },
+                        "profile": {
+                          "anyOf": [
+                            {
+                              "items": {
+                                "additionalProperties": false,
+                                "properties": {
+                                  "r": {
+                                    "maximum": 1,
+                                    "minimum": 0,
+                                    "type": "number",
+                                  },
+                                  "z": {
+                                    "maximum": 1,
+                                    "minimum": 0,
+                                    "type": "number",
+                                  },
+                                },
+                                "required": [
+                                  "r",
+                                  "z",
+                                ],
+                                "type": "object",
+                              },
+                              "type": "array",
+                            },
+                            {
+                              "type": "null",
+                            },
+                          ],
+                        },
+                        "radius": {
+                          "type": [
+                            "number",
+                            "null",
+                          ],
+                        },
+                        "rough": {
+                          "type": [
+                            "number",
+                            "null",
+                          ],
+                        },
+                        "shape": {
+                          "enum": [
+                            "lathe",
+                            "rbox",
+                            "tube",
+                            "extrude",
+                            "blob",
+                          ],
+                          "type": "string",
+                        },
+                        "size": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "d": {
+                              "type": "number",
+                            },
+                            "h": {
+                              "type": "number",
+                            },
+                            "w": {
+                              "type": "number",
+                            },
+                          },
+                          "required": [
+                            "w",
+                            "d",
+                            "h",
+                          ],
+                          "type": "object",
+                        },
+                      },
+                      "required": [
+                        "id",
+                        "shape",
+                        "at",
+                        "size",
+                        "color",
+                        "material",
+                        "profile",
+                        "path",
+                        "outline",
+                        "radius",
+                        "rough",
+                        "bands",
+                      ],
+                      "type": "object",
+                    },
+                    "maxItems": 20,
+                    "type": "array",
+                  },
+                },
+                "required": [
+                  "parts",
+                  "note",
+                ],
+                "type": "object",
+              },
+              "strict": true,
+              "type": "json_schema",
+            },
+          },
+        },
+        "url": "https://api.meta.ai/v1/responses",
+      },
+      "spend": 0.0003375,
+    },
+    "setupInventory": {
+      "request": {
+        "body": {
+          "input": [
+            {
+              "content": [
+                {
+                  "text": 
+"List the furniture and objects in this photo so they can be drawn as a small isometric scene.
+Templates: desk (desk), table (table), chair (chair), shelf (bookshelf), cabinet (cabinet), fridge (fridge), plant (plant), rug (rug), wall (wall).
+Object models: monitor, keyboard, laptop, mug, cup, bottle, can, book, box, plant, lamp, device, cat, generic.
+Surfaces people put things on: desk, table, cabinet, shelf.
+For each thing give: a short id (lowercase, like desk or mug-1); a short grounded label from what you see (no names, owners or brands); as, the closest template or object model; role: surface for what things stand on (a desk, a table, a cabinet top, a shelf), furniture for anything else that stands on the floor, object for small movable things; on, the id of what it stands on, or floor; box, a loose box around it as x1, y1, x2, y2 from 0 to 1000 across and down the photo; sizeCm, its real size in whole centimetres (w across its front, d from front to back, h its height), judged from things of known size (a desk is about 75 cm high, a mug about 10 cm); color, its main colour as lowercase #rrggbb; and material, what it is mostly made of.
+Include the main surface if there is one. Use at most 16 things, only what is clearly visible, biggest first. Summarise the scene in one short sentence.
+The photo is from a camera mounted high in one corner of the room, looking across at the far corner. Estimate the room in whole centimetres from things of known size (a desk is about 75 cm high, a door about 200 cm, a floor tile or board): rightWallCm, the length of the wall running to the right from the far corner; leftWallCm, the length of the wall running to the left from it; and cameraHeightCm, how high the camera is above the floor."
+,
+                  "type": "input_text",
+                },
+                {
+                  "detail": "auto",
+                  "image_url": "data:image/png;base64,AAAA",
+                  "type": "input_image",
+                },
+              ],
+              "role": "user",
+            },
+          ],
+          "max_output_tokens": 16384,
+          "model": "muse-spark-1.3",
+          "store": false,
+          "text": {
+            "format": {
+              "name": "photo_inventory",
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "additionalProperties": false,
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "desk",
+                      "office",
+                      "fridge",
+                      "room",
+                    ],
+                    "type": "string",
+                  },
+                  "room": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "cameraHeightCm": {
+                        "maximum": 400,
+                        "minimum": 100,
+                        "type": "integer",
+                      },
+                      "leftWallCm": {
+                        "maximum": 480,
+                        "minimum": 60,
+                        "type": "integer",
+                      },
+                      "rightWallCm": {
+                        "maximum": 480,
+                        "minimum": 60,
+                        "type": "integer",
+                      },
+                    },
+                    "required": [
+                      "rightWallCm",
+                      "leftWallCm",
+                      "cameraHeightCm",
+                    ],
+                    "type": "object",
+                  },
+                  "summary": {
+                    "maxLength": 200,
+                    "type": "string",
+                  },
+                  "things": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "as": {
+                          "enum": [
+                            "desk",
+                            "table",
+                            "chair",
+                            "shelf",
+                            "cabinet",
+                            "fridge",
+                            "plant",
+                            "rug",
+                            "wall",
+                            "lamp",
+                            "monitor",
+                            "keyboard",
+                            "book",
+                            "bottle",
+                            "jar",
+                            "carton",
+                            "mug",
+                            "cup",
+                            "can",
+                            "box",
+                            "device",
+                            "cat",
+                            "generic",
+                            "laptop",
+                          ],
+                          "type": "string",
+                        },
+                        "box": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "x1": {
+                              "maximum": 1000,
+                              "minimum": 0,
+                              "type": "integer",
+                            },
+                            "x2": {
+                              "maximum": 1000,
+                              "minimum": 0,
+                              "type": "integer",
+                            },
+                            "y1": {
+                              "maximum": 1000,
+                              "minimum": 0,
+                              "type": "integer",
+                            },
+                            "y2": {
+                              "maximum": 1000,
+                              "minimum": 0,
+                              "type": "integer",
+                            },
+                          },
+                          "required": [
+                            "x1",
+                            "y1",
+                            "x2",
+                            "y2",
+                          ],
+                          "type": "object",
+                        },
+                        "color": {
+                          "pattern": "^#[0-9a-f]{6}$",
+                          "type": "string",
+                        },
+                        "id": {
+                          "maxLength": 24,
+                          "minLength": 1,
+                          "type": "string",
+                        },
+                        "label": {
+                          "maxLength": 40,
+                          "minLength": 1,
+                          "type": "string",
+                        },
+                        "material": {
+                          "enum": [
+                            "matte",
+                            "gloss",
+                            "metal",
+                            "glass",
+                            "fabric",
+                            "wood",
+                          ],
+                          "type": "string",
+                        },
+                        "on": {
+                          "maxLength": 24,
+                          "minLength": 1,
+                          "type": "string",
+                        },
+                        "role": {
+                          "enum": [
+                            "furniture",
+                            "surface",
+                            "object",
+                          ],
+                          "type": "string",
+                        },
+                        "sizeCm": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "d": {
+                              "exclusiveMinimum": 0,
+                              "maximum": 600,
+                              "type": "number",
+                            },
+                            "h": {
+                              "exclusiveMinimum": 0,
+                              "maximum": 400,
+                              "type": "number",
+                            },
+                            "w": {
+                              "exclusiveMinimum": 0,
+                              "maximum": 600,
+                              "type": "number",
+                            },
+                          },
+                          "required": [
+                            "w",
+                            "d",
+                            "h",
+                          ],
+                          "type": "object",
+                        },
+                      },
+                      "required": [
+                        "id",
+                        "label",
+                        "as",
+                        "role",
+                        "on",
+                        "box",
+                        "sizeCm",
+                        "color",
+                        "material",
+                      ],
+                      "type": "object",
+                    },
+                    "maxItems": 16,
+                    "minItems": 1,
+                    "type": "array",
+                  },
+                },
+                "required": [
+                  "kind",
+                  "things",
+                  "summary",
+                  "room",
+                ],
+                "type": "object",
+              },
+              "strict": true,
+              "type": "json_schema",
+            },
+          },
+        },
+        "url": "https://api.meta.ai/v1/responses",
+      },
+      "spend": 0.0003375,
+    },
+    "text": {
+      "request": {
+        "body": {
+          "input": "Reply with exactly: LivingLayer connection ready.",
+          "max_output_tokens": 1024,
+          "model": "muse-spark-1.3",
+          "store": false,
+        },
+        "url": "https://api.meta.ai/v1/responses",
+      },
+      "spend": 0.0003375,
+    },
+  },
+}
+`;

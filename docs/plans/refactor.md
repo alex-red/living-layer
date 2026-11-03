@@ -108,6 +108,7 @@ _Landed:_ one `Jobs` per `buildApp`, passed to the routes that start jobs; stale
 **C7. later: fitting and rendering off the event loop.** After B, measure a scan again. If one still holds the loop for more than about 200 ms, run `fitItem` and `renderRoom` in a small Bun Worker pool: domain is pure, and the RGBA buffers can be transferred.
 
 **C8. later: one Spark call in `meta.ts`.** Thirteen methods repeat the same 45 lines (`meta.ts:400-1091`). Replace them with one `structured(kind, …)` that takes its tokens and effort from `SPARK_CALLS`. Today `reasoningOf` is applied for only three kinds, so an effort set for any other kind does nothing. `lookupProduct` should use the same reserve and settle, and `SPARK_BUDGET` should be derived. Check with `tests/calls.test.ts` and `bench:intent`.
+_Landed:_ `meta.ts` went from 1304 to 965 lines. One private `structured()` serves every Spark method, and `lookupProduct` shares its reserve and settle. `SPARK_BUDGET` is derived, and `classifyCause` uses `isTimeout` from `errors.ts`. `tests/meta-requests.test.ts` snapshots every kind's request, taken before the change and unchanged after. No effort setting was dead: only `fixtureScan` and `productLookup` set one, and both were applied.
 
 **C9. later: route helpers.** Five small helpers would replace about 60 repeated blocks:
 
