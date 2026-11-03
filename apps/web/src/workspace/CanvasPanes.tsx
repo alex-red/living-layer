@@ -3,6 +3,7 @@ import {
   CROP_MIN,
   DEMO_POSITIONS,
   ISO_PRESETS,
+  cameraFitsScene,
   isoSceneKindSchema,
   type DemoPosition,
 } from '@livinglayer/domain';
@@ -804,6 +805,11 @@ export function SceneBottom() {
       : []),
   ];
   const chosenStream = lab.network.streams.find((s) => s.id === lab.cameraSource);
+  // Cameras locked to another room aren't offered here; the one chosen stays listed.
+  const room = lab.workScene === 'custom-desk' ? 'custom' : lab.workScene;
+  const streams = lab.network.streams.filter(
+    (s) => s.id === lab.cameraSource || cameraFitsScene(s, room),
+  );
   // A zoomed view inside the open one, as shares of the camera's whole frame: too small has too few pixels.
   const zoomRect = lab.zooming?.rect;
   const zoomOk =
@@ -943,7 +949,7 @@ export function SceneBottom() {
                   </Later>
                 )}
               </Popover>
-              {lab.network.streams.length > 0 && (
+              {streams.length > 0 && (
                 <select
                   aria-label="Camera source"
                   value={lab.cameraSource}
@@ -951,7 +957,7 @@ export function SceneBottom() {
                   onChange={(e) => lab.setCameraSource(e.target.value)}
                 >
                   <option value="">This device</option>
-                  {lab.network.streams.map((s) => (
+                  {streams.map((s) => (
                     <option key={s.id} value={s.id}>
                       {s.name} · {s.host}
                       {s.scene ? ` · ${rooms.find((r) => r.value === s.scene)?.label}` : ''}
