@@ -149,6 +149,8 @@ export class FfmpegSource implements FrameSource {
    * about 0.7 s before the first frame: an RTSP camera's description already
    * gives its codec and size, unless it leaves out the H.264 parameters, when
    * ffmpeg gives up at once and the caller opens it again without `fast`.
+   * Frames are handed on as they are decoded, not buffered: on the office
+   * camera that put each about 0.5 s sooner (its printed clock read both ways).
    */
   private input(fast = false) {
     // `auto` decodes on the GPU where there is one (VideoToolbox on a Mac) and falls back.
@@ -157,6 +159,10 @@ export class FfmpegSource implements FrameSource {
           '-hwaccel',
           'auto',
           ...(fast ? ['-analyzeduration', '0', '-probesize', '32'] : []),
+          '-fflags',
+          'nobuffer',
+          '-flags',
+          'low_delay',
           '-rtsp_transport',
           'tcp',
           '-i',
