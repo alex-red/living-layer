@@ -38,7 +38,7 @@ import { assistRoutes } from './assist.js';
 import { roomRoutes } from './room.js';
 import { jobRoutes, Jobs, runningJobs } from './jobs.js';
 import { listStreams, streamRoutes, type NetworkStream } from './streams.js';
-import { CameraRegistry, cameraRoutes } from './cameras.js';
+import { CameraRegistry, cameraRoutes, streamCrop } from './cameras.js';
 import type { Relay } from './relay.js';
 import { Watcher, setWatching, watchRoutes, type WatcherDeps } from './watcher.js';
 import { Appearance } from './appearance.js';
@@ -331,9 +331,6 @@ export async function buildApp(
   const cameras = new CameraRegistry(store, options.relay ?? null);
   remote.crop = cameras.phoneCrop();
   const knownStreams = () => [...remote.streams(), ...cameras.streams()];
-  app.register((scope) => streamRoutes(scope, config, options.browseCameras, knownStreams), {
-    prefix: '/api/streams',
-  });
   app.get('/api/runs', async () => store.list());
   jobs.keepIn(store);
   app.register((scope) => jobRoutes(scope, jobs, store), { prefix: '/api/jobs' });
@@ -448,18 +445,22 @@ export async function buildApp(
         watchers[mode].stop();
       }
     },
-    // A new view is a new frame: watching it starts again, and the phone's next connection is cut to it.
-    onCropped: (streamId) => {
-      if (streamId === 'phone') remote.crop = cameras.phoneCrop();
-      for (const mode of ['demo', 'live'] as const) {
-        const memory = store.memory(mode);
-        if (memory.watch?.on && memory.watch.camera?.id === streamId) void watchers[mode].start();
-      }
-    },
     ...(options.snapshots ? { source: options.snapshots } : {}),
     ...(options.previews ? { preview: options.previews } : {}),
   };
-  app.register((scope) => cameraRoutes(scope, cameras, cameraOptions), { prefix: '/api' });
+  app.register((scope) => cameraRoutes(scope, cameras, cameraOptions), { prefix: '/api/cameras' });
+  // A new view is a new frame: watching it starts again, and the phone's next connection is cut to it.
+  const cropStream = streamCrop(cameras, (streamId) => {
+    if (streamId === 'phone') remote.crop = cameras.phoneCrop();
+    for (const mode of ['demo', 'live'] as const) {
+      const memory = store.memory(mode);
+      if (memory.watch?.on && memory.watch.camera?.id === streamId) void watchers[mode].start();
+    }
+  });
+  app.register(
+    (scope) => streamRoutes(scope, config, options.browseCameras, knownStreams, cropStream),
+    { prefix: '/api/streams' },
+  );
   // Entities shown in Home Assistant, worked out from desk memory and what the watchers see.
   const exposers: Record<Mode, Exposer> = {
     demo: new Exposer({

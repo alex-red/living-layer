@@ -1,7 +1,7 @@
 import { createSocket, type RemoteInfo } from 'node:dgram';
 import { networkInterfaces } from 'node:os';
-import type { FastifyInstance } from 'fastify';
-import type { NetworkStream } from '@livinglayer/domain';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
+import type { CameraCrop, NetworkStream } from '@livinglayer/domain';
 import type { Config } from './config.js';
 
 /** What `scripts/share-camera.sh` advertises. */
@@ -248,6 +248,9 @@ export async function streamRoutes(
   browse: () => Promise<NetworkStream[]> = browseCameras,
   /** Cameras the lab already knows of, like a paired phone or a saved camera. */
   known: () => NetworkStream[] = () => [],
+  /** `POST /crop`: a saved camera's or the phone's zoomed view (`streamCrop`, in cameras.ts). */
+  crop?: (request: FastifyRequest) => Promise<{ crop: CameraCrop | null }>,
 ) {
   app.get('', async () => ({ streams: await listStreams(config, browse, known) }));
+  if (crop) app.post('/crop', crop);
 }

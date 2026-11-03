@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import {
   cameraIdOnlySchema,
@@ -154,51 +154,12 @@ export class CameraRegistry {
 }
 
 /**
- * Adding, changing and removing saved cameras, a still from one, and a
- * camera's zoomed view. Live only in effect: the demo never opens a stream.
- * `onRemoved` lets watching stop when its camera goes, and `onCropped` lets
- * it start again on the new view.
+ * A saved camera or the phone keeps its zoomed view, and every later connection opens on it.
+ * Served as `POST /api/streams/crop`; `onCropped` lets watching start again on the new view
+ * (saved camera stream ids, or `phone`).
  */
-export async function cameraRoutes(
-  app: FastifyInstance,
-  cameras: CameraRegistry,
-  {
-    onRemoved,
-    onCropped = () => {},
-    onSaved = () => {},
-    source = (url, crop) => new FfmpegSource(url, 'ffmpeg', crop),
-    preview = (url, crop) => new FfmpegSource(url, 'ffmpeg', crop).preview(),
-  }: {
-    onRemoved: (streamId: string) => void;
-    /** A camera's zoomed view changed: saved camera stream ids, or `phone`. */
-    onCropped?: (streamId: string) => void;
-    /** A camera was added or changed. */
-    onSaved?: () => void;
-    /** Frames for a stream URL; tests pass their own. */
-    source?: (url: string, crop: CameraCrop | null) => Pick<FrameSource, 'snapshot'>;
-    /** A stream URL as MJPEG; tests pass their own. */
-    preview?: (
-      url: string,
-      crop: CameraCrop | null,
-    ) => { stream: ReadableStream<Uint8Array>; stop: () => void };
-  },
-) {
-  const all = () => ({ cameras: cameras.list().map(cameraView) });
-  app.get('/cameras', async () => all());
-  app.post('/cameras/save', async (request) => {
-    const input = parseInput(cameraInputSchema, request.body);
-    const camera = cameraView(cameras.save(input));
-    onSaved();
-    return { camera, ...all() };
-  });
-  app.post('/cameras/delete', async (request) => {
-    const { id } = parseInput(camerasDeleteBodySchema, request.body);
-    if (!cameras.remove(id)) throw new LabError('camera_missing', 'That camera is gone.', 404);
-    onRemoved(savedStreamId(id));
-    return all();
-  });
-  // A saved camera or the phone keeps its zoomed view, and every later connection opens on it.
-  app.post('/streams/crop', async (request) => {
+export function streamCrop(cameras: CameraRegistry, onCropped: (streamId: string) => void) {
+  return async (request: FastifyRequest) => {
     const { streamId, crop } = parseInput(streamsCropBodySchema, request.body);
     const id = savedIdOf(streamId);
     if (streamId.startsWith('phone:')) cameras.setPhoneCrop(crop);
@@ -211,8 +172,50 @@ export async function cameraRoutes(
       throw new LabError('camera_missing', 'That camera is gone.', 404);
     onCropped(id === null ? 'phone' : streamId);
     return { crop };
+  };
+}
+
+/**
+ * Adding, changing and removing saved cameras, a still from one, and its
+ * live picture, under `/api/cameras`. Live only in effect: the demo never
+ * opens a stream. `onRemoved` lets watching stop when its camera goes.
+ */
+export async function cameraRoutes(
+  app: FastifyInstance,
+  cameras: CameraRegistry,
+  {
+    onRemoved,
+    onSaved = () => {},
+    source = (url, crop) => new FfmpegSource(url, 'ffmpeg', crop),
+    preview = (url, crop) => new FfmpegSource(url, 'ffmpeg', crop).preview(),
+  }: {
+    onRemoved: (streamId: string) => void;
+    /** A camera was added or changed. */
+    onSaved?: () => void;
+    /** Frames for a stream URL; tests pass their own. */
+    source?: (url: string, crop: CameraCrop | null) => Pick<FrameSource, 'snapshot'>;
+    /** A stream URL as MJPEG; tests pass their own. */
+    preview?: (
+      url: string,
+      crop: CameraCrop | null,
+    ) => { stream: ReadableStream<Uint8Array>; stop: () => void };
+  },
+) {
+  const all = () => ({ cameras: cameras.list().map(cameraView) });
+  app.get('', async () => all());
+  app.post('/save', async (request) => {
+    const input = parseInput(cameraInputSchema, request.body);
+    const camera = cameraView(cameras.save(input));
+    onSaved();
+    return { camera, ...all() };
   });
-  app.get('/cameras/:id/snapshot', async (request, reply) => {
+  app.post('/delete', async (request) => {
+    const { id } = parseInput(camerasDeleteBodySchema, request.body);
+    if (!cameras.remove(id)) throw new LabError('camera_missing', 'That camera is gone.', 404);
+    onRemoved(savedStreamId(id));
+    return all();
+  });
+  app.get('/:id/snapshot', async (request, reply) => {
     const { id } = parseInput(cameraIdOnlySchema, request.params);
     const camera = cameras.get(id);
     if (!camera) throw new LabError('camera_missing', 'That camera is gone.', 404);
@@ -243,7 +246,7 @@ export async function cameraRoutes(
       throw new LabError('relay_off', `${camera.name} isn’t relayed; use its preview.`, 409);
     return { id, whep };
   };
-  app.post('/cameras/:id/whep', async (request, reply) => {
+  app.post('/:id/whep', async (request, reply) => {
     const { id, whep } = relayed(request.params);
     const offer = z.string().min(1).max(60_000).safeParse(request.body);
     if (!offer.success) throw new LabError('whep_offer', 'Send an SDP offer.');
@@ -265,7 +268,7 @@ export async function cameraRoutes(
       .header('content-type', answer.headers.get('content-type') ?? 'application/sdp')
       .send(await answer.text());
   });
-  app.delete('/cameras/:id/whep/:session', async (request, reply) => {
+  app.delete('/:id/whep/:session', async (request, reply) => {
     const { session, ...params } = request.params as { session: string; id: string };
     const { whep } = relayed(params);
     if (!/^[\w-]{1,80}$/.test(session)) throw new LabError('whep_session', 'No such session.');
@@ -273,7 +276,7 @@ export async function cameraRoutes(
     return reply.status(200).send();
   });
   // The camera as a live picture for a tab, for as long as the tab reads it.
-  app.get('/cameras/:id/stream', async (request, reply) => {
+  app.get('/:id/stream', async (request, reply) => {
     const { id } = parseInput(cameraIdOnlySchema, request.params);
     const camera = cameras.get(id);
     if (!camera) throw new LabError('camera_missing', 'That camera is gone.', 404);
