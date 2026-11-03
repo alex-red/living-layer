@@ -68,7 +68,7 @@ import { NOT_CALIBRATED } from './photo.js';
 import { around } from './fixture.js';
 import { validateImage } from './images.js';
 import type { Runner } from './item.js';
-import { following, jobs } from './jobs.js';
+import { following, type Jobs } from './jobs.js';
 import { SEARCH_CEILING, SPARK_BUDGET, type MetaAdapter } from './meta.js';
 import { BUNDLED_CATALOG, Catalog, research, type Researcher } from './research.js';
 import { selectionRoom } from './select.js';
@@ -133,10 +133,12 @@ export function assistRoutes(
     run,
     entities,
     productsDir,
+    jobs,
   }: {
     store: EvidenceStore;
     meta: MetaAdapter;
     run: Runner;
+    jobs: Jobs;
     entities: (mode: Mode) => string[];
     /** Where accepted products are saved (`DATA_DIR/products`); live reads it before the web. */
     productsDir: string;

@@ -45,7 +45,7 @@ import { selectRoutes } from './select.js';
 import { assistRoutes } from './assist.js';
 import { roomRoutes } from './room.js';
 import { illustrationRoutes } from './illustration.js';
-import { jobRoutes, jobs, runningJobs } from './jobs.js';
+import { jobRoutes, Jobs, runningJobs } from './jobs.js';
 import { listStreams, streamRoutes, type NetworkStream } from './streams.js';
 import { CameraRegistry, cameraRoutes } from './cameras.js';
 import type { Relay } from './relay.js';
@@ -97,6 +97,8 @@ export async function buildApp(
 ) {
   const app = Fastify({ logger: false, bodyLimit: 7_100_000, requestTimeout: 130000 });
   const store = new EvidenceStore(config.dataDir);
+  // Long AI jobs the page follows: one set per app, so apps in one process don't share them.
+  const jobs = new Jobs();
   const meta = new MetaAdapter(config, store, options.fetcher);
   const lamp = new ControlAdapter(config, options.fetcher, undefined, {
     allowed: () => [...haLights(), ...haSwitches()],
@@ -305,6 +307,7 @@ export async function buildApp(
     store,
     meta,
     run,
+    jobs,
     control: async (mode, entityId, action) =>
       mode === 'demo' ? demoLampFor(entityId, action) : switchLive(entityId, action),
     entities,
@@ -328,7 +331,7 @@ export async function buildApp(
   streamRoutes(app, config, options.browseCameras, knownStreams);
   app.get('/api/runs', async () => store.list());
   jobs.keepIn(store);
-  jobRoutes(app, store);
+  jobRoutes(app, jobs, store);
   app.get('/api/evidence', async (_request, reply) =>
     reply.header('Content-Disposition', 'attachment; filename="livinglayer-evidence.json"').send({
       project: 'LivingLayer',
@@ -477,13 +480,20 @@ export async function buildApp(
     });
   });
   itemRoutes(app, { store, meta, run });
-  photoRoutes(app, { store, meta, run, config });
+  photoRoutes(app, { store, meta, run, jobs, config });
   sceneFitRoutes(app, { store, meta, run });
   pinRoutes(app, { store });
   selectRoutes(app, { store });
-  assistRoutes(app, { store, meta, run, entities, productsDir: join(config.dataDir, 'products') });
+  assistRoutes(app, {
+    store,
+    meta,
+    run,
+    jobs,
+    entities,
+    productsDir: join(config.dataDir, 'products'),
+  });
   roomRoutes(app, { store, meta, run });
-  illustrationRoutes(app, { store, meta, run });
+  illustrationRoutes(app, { store, meta, run, jobs });
   /** One SAM segmentation, recorded and billed as a run: the lab's button, or the watcher. */
   function segment(
     input: {

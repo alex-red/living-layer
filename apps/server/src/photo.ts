@@ -49,7 +49,7 @@ import { maskedCrop, validateImage, type ValidatedImage } from './images.js';
 import { demoPhoto, type Runner } from './item.js';
 import { SPARK_BUDGET, type MetaAdapter } from './meta.js';
 import type { EvidenceStore } from './store.js';
-import { following, jobs, type JobTracker } from './jobs.js';
+import { following, type JobTracker, type Jobs } from './jobs.js';
 import { calibrateRoom, findFloorMarks, fitRoom } from './room.js';
 import { listedPreview, outlinedPreview } from './scan-preview.js';
 
@@ -141,7 +141,12 @@ function addUsage(a: Usage | null, b: Usage | null | undefined): Usage | null {
  */
 export function photoRoutes(
   app: FastifyInstance,
-  { store, meta, run }: { store: EvidenceStore; meta: MetaAdapter; run: Runner; config: Config },
+  {
+    store,
+    meta,
+    run,
+    jobs,
+  }: { store: EvidenceStore; meta: MetaAdapter; run: Runner; jobs: Jobs; config: Config },
 ) {
   /** Save the box-prompted segmentation as a segment run, like any other. */
   function saveSegment(

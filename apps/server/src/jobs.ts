@@ -47,6 +47,8 @@ export class Jobs {
       touched: Date.now(),
     };
     const tracker = new JobTracker(job, (ended) => {
+      // An ended job can't be stopped, so its tracker (and abort controller) goes now.
+      if (id) this.trackers.delete(id);
       if (!id || !this.history) return;
       const { touched: _t, ...kept } = ended;
       this.history.saveJob(structuredClone(kept));
@@ -73,7 +75,11 @@ export class Jobs {
   }
   private prune() {
     const old = Date.now() - KEEP_MS;
-    for (const [id, job] of this.jobs) if (job.touched < old) this.jobs.delete(id);
+    for (const [id, job] of this.jobs)
+      if (job.touched < old) {
+        this.jobs.delete(id);
+        this.trackers.delete(id);
+      }
   }
 }
 
@@ -200,11 +206,21 @@ async function thumbnail(png: Buffer, size = THUMB): Promise<string> {
   return `data:image/png;base64,${small.toString('base64')}`;
 }
 
-/** Long jobs the page is following, shared by every route that reports steps. */
-export const jobs = new Jobs();
-
 /** The jobs that have ended, newest first, for the page's history of AI runs. */
-export function jobRoutes(app: FastifyInstance, history: JobHistory) {
+export function jobRoutes(app: FastifyInstance, jobs: Jobs, history: JobHistory) {
+  /** Where a long job the page follows has got to. */
+  app.get('/api/jobs/:id', async (request) => {
+    const { id } = parseInput(z.object({ id: z.string().uuid() }).strict(), request.params);
+    const job = jobs.get(id);
+    if (!job) throw new LabError('job_missing', 'That job isn’t running here.', 404);
+    return job;
+  });
+  /** Stop a job the page is following: its running call is aborted and nothing more is saved. */
+  app.post('/api/jobs/:id/stop', async (request) => {
+    const { id } = parseInput(z.object({ id: z.string().uuid() }).strict(), request.params);
+    if (!jobs.stop(id)) throw new LabError('job_missing', 'That job isn’t running here.', 404);
+    return jobs.get(id);
+  });
   app.get('/api/jobs', async (request) => {
     const { pictures } = parseInput(
       z.object({ pictures: z.enum(['0', '1']).default('0') }).strict(),
