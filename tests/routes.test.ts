@@ -69,6 +69,7 @@ const ROUTES = [
   '/api/jobs/:id/stop [POST]',
   '/api/lamp [POST]',
   '/api/remote [GET, DELETE]',
+  '/api/remote/events [GET]',
   '/api/remote/:token/whep [POST, DELETE]',
   '/api/remote/pair [POST]',
   '/api/room/calibrate [POST]',

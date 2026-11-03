@@ -582,6 +582,34 @@ export const remoteAnswerSchema = z
   .strict();
 export type RemoteAnswer = z.input<typeof remoteAnswerSchema>;
 
+/** POST /r/:token/stats */
+const measure = z.number().finite().nonnegative().max(1e9).nullable();
+
+/** What the phone's encoder did lately, as its page reports it. */
+export const phoneStatsSchema = z
+  .object({
+    codec: z.string().max(60).nullable(),
+    encoder: z.string().max(60).nullable(),
+    powerEfficient: z.boolean().nullable(),
+    width: measure,
+    height: measure,
+    fps: measure,
+    kbps: measure,
+    targetKbps: measure,
+    /** Why the encoder sent less than it could, and for how long, in seconds, by reason. */
+    limitedBy: z.string().max(20).nullable(),
+    limitedS: z
+      .record(z.string().max(20), z.number().nonnegative())
+      .refine((r) => Object.keys(r).length <= 8),
+    rttMs: measure,
+    /** What the camera captures at, before the encoder. */
+    capture: z.object({ width: measure, height: measure, fps: measure }).strict(),
+    /** Exposure, focus and colour held where they were. */
+    held: z.boolean(),
+  })
+  .strict();
+export type PhoneStats = z.infer<typeof phoneStatsSchema>;
+
 /** POST /api/room/floor, POST /api/room/keep */
 export const modeImageSchema = z
   .object({ mode: modeSchema, imageDataUrl: z.string().max(7_000_000).optional() })

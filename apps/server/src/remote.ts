@@ -1,4 +1,9 @@
-import { remoteAnswerSchema, remoteTokenParamsSchema } from '@livinglayer/domain';
+import {
+  phoneStatsSchema,
+  remoteAnswerSchema,
+  remoteTokenParamsSchema,
+  type PhoneStats,
+} from '@livinglayer/domain';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { execFile } from 'node:child_process';
@@ -12,6 +17,7 @@ import type { Config } from './config.js';
 import { LabError, parseInput } from './errors.js';
 import type { NetworkStream } from './streams.js';
 import { phonePage } from './remote-page.js';
+import { appendStreamStats } from './store.js';
 
 /**
  * A phone as the lab's camera. The lab shows a QR code for a page on the LAN;
@@ -31,6 +37,8 @@ const SEEN_MS = POLL_MS + 10_000;
 const UNCLAIMED_MS = 15 * 60_000;
 /** How long the lab waits for the phone to answer an offer. */
 const ANSWER_MS = 7_000;
+/** The phone reports every 10 s; one report in three is kept in the log. */
+const STATS_LOG_MS = 30_000;
 
 interface Pairing {
   token: string;
@@ -41,6 +49,9 @@ interface Pairing {
   events: PhoneEvent[];
   waiter: ((event: PhoneEvent | null) => void) | null;
   answers: Map<string, (sdp: string) => void>;
+  /** The phone's latest report, and when one was last logged. */
+  sending: PhoneStats | null;
+  loggedAt: number;
 }
 
 /** What kind of phone, from its user agent; nothing else of it is kept. */
@@ -56,8 +67,21 @@ export class RemoteCamera {
   private pairing: Pairing | null = null;
   /** The phone's zoomed view, kept across pairings; the lab cuts the phone's frames to it. */
   crop: CameraCrop | null = null;
+  /** Where the phone's reports are logged; the lab sets it to its stream log. */
+  log: ((record: { source: 'phone' } & Record<string, unknown>) => void) | null = null;
+
+  private listeners = new Set<() => void>();
 
   constructor(private now = () => Date.now()) {}
+
+  /** Calls `listener` whenever the pairing, the phone's presence or its report changes. */
+  subscribe(listener: () => void) {
+    this.listeners.add(listener);
+    return () => void this.listeners.delete(listener);
+  }
+  private changed() {
+    for (const listener of this.listeners) listener();
+  }
 
   pair() {
     this.end();
@@ -69,7 +93,10 @@ export class RemoteCamera {
       events: [],
       waiter: null,
       answers: new Map(),
+      sending: null,
+      loggedAt: 0,
     };
+    this.changed();
     return this.pairing.token;
   }
 
@@ -86,6 +113,7 @@ export class RemoteCamera {
     const p = this.pairing;
     this.pairing = null;
     p?.waiter?.(null);
+    if (p) this.changed();
   }
 
   phoneState(): 'waiting' | 'ready' {
@@ -156,11 +184,13 @@ export class RemoteCamera {
   /** Phone side: the next thing for the phone to do, or null after `waitMs` of nothing. */
   next(token: string, phone: { name: string; address: string }, waitMs = POLL_MS) {
     const p = this.find(token);
+    const arrived = this.phoneState() !== 'ready';
     p.seenAt = this.now();
     p.phone = phone;
     // A second tab on the phone takes over from the first.
     p.waiter?.(null);
     p.waiter = null;
+    if (arrived) this.changed();
     const queued = p.events.shift();
     if (queued) return Promise.resolve(queued);
     return new Promise<PhoneEvent | null>((resolve) => {
@@ -176,6 +206,16 @@ export class RemoteCamera {
       };
       p.waiter = finish;
     });
+  }
+
+  /** Phone side: what its encoder did lately. Kept for the lab, and logged now and then. */
+  noteStats(token: string, stats: PhoneStats) {
+    const p = this.find(token);
+    p.sending = stats;
+    this.changed();
+    if (this.now() - p.loggedAt < STATS_LOG_MS) return;
+    p.loggedAt = this.now();
+    this.log?.({ source: 'phone', phone: p.phone.name, ...stats });
   }
 
   /** Phone side: the answer to offer `id`. */
@@ -296,6 +336,11 @@ export function phoneApp(remote: RemoteCamera, https?: { cert: Buffer; key: Buff
     remote.answer(token, id, sdp);
     return reply.code(204).send();
   });
+  app.post('/r/:token/stats', async (request, reply) => {
+    const { token } = parseInput(remoteTokenParamsSchema, request.params);
+    remote.noteStats(token, parseInput(phoneStatsSchema, request.body));
+    return reply.code(204).send();
+  });
   app.setNotFoundHandler((_request, reply) => {
     void reply.code(404).send({ error: { code: 'not_found', message: 'Route not found.' } });
   });
@@ -307,6 +352,7 @@ export function phoneApp(remote: RemoteCamera, https?: { cert: Buffer; key: Buff
  * server only starts listening on the network with the first pairing.
  */
 export function remoteRoutes(app: FastifyInstance, config: Config, remote: RemoteCamera) {
+  remote.log ??= (record) => appendStreamStats(config.dataDir, record);
   let phones: Promise<FastifyInstance> | null = null;
   const listen = () => {
     phones ??= (async () => {
@@ -352,10 +398,32 @@ export function remoteRoutes(app: FastifyInstance, config: Config, remote: Remot
         qr: await QRCode.toString(url, { type: 'svg', margin: 1, errorCorrectionLevel: 'M' }),
         phone: remote.phoneState(),
         stream: remote.streams()[0] ?? null,
+        sending: p.sending,
       },
     };
   };
   app.get('/api/remote', describe);
+  // The pairing as it changes; resent every few seconds, since a phone that goes away
+  // is only noticed by the time since its last poll.
+  app.get('/api/remote/events', (request, reply) => {
+    reply.hijack();
+    reply.raw.writeHead(200, {
+      'content-type': 'text/event-stream',
+      'cache-control': 'no-cache',
+      connection: 'keep-alive',
+    });
+    const send = () =>
+      void describe()
+        .then((view) => reply.raw.write(`data: ${JSON.stringify(view)}\n\n`))
+        .catch(() => {});
+    send();
+    const off = remote.subscribe(send);
+    const again = setInterval(send, 5_000);
+    request.raw.on('close', () => {
+      off();
+      clearInterval(again);
+    });
+  });
   app.post('/api/remote/pair', async () => {
     await listen();
     remote.pair();

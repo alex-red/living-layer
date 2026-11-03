@@ -1,9 +1,13 @@
 import { afterEach, describe, expect, it } from 'bun:test';
-import { rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { buildApp } from '../apps/server/src/app.js';
 import { testApp } from './lib/app.js';
 import { parseConfig } from '../apps/server/src/config.js';
 import { RemoteCamera, phoneApp, phoneName } from '../apps/server/src/remote.js';
 import type { NetworkStream } from '../apps/server/src/streams.js';
+import { STREAM_STATS_FILE } from '../apps/server/src/store.js';
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -12,6 +16,21 @@ afterEach(() => {
 
 const phone = { name: 'iPhone', address: '192.168.1.30' };
 const OFFER = 'v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\n';
+const STATS = {
+  codec: 'video/H264',
+  encoder: 'VideoToolbox',
+  powerEfficient: true,
+  width: 1280,
+  height: 720,
+  fps: 30,
+  kbps: 4100,
+  targetKbps: 5000,
+  limitedBy: 'none',
+  limitedS: { none: 60, bandwidth: 2 },
+  rttMs: 4,
+  capture: { width: 1280, height: 720, fps: 30 },
+  held: false,
+};
 
 describe('remote phone camera', () => {
   it('relays the lab offer to a waiting phone and the answer back', async () => {
@@ -128,6 +147,87 @@ describe('remote phone camera', () => {
       });
       expect((await lab.inject({ method: 'DELETE', url: '/api/remote' })).statusCode).toBe(200);
       expect((await phones.inject({ url: `/r/${token}/next` })).statusCode).toBe(404);
+    } finally {
+      await lab.close();
+      await phones.close();
+    }
+  });
+
+  it('tells listeners when the pairing, the phone or its report changes', async () => {
+    const remote = new RemoteCamera(() => 1_000);
+    let changes = 0;
+    remote.subscribe(() => changes++);
+    const token = remote.pair();
+    expect(changes).toBe(1);
+    await remote.next(token, phone, 1);
+    expect(changes).toBe(2);
+    // Polling again while it's there is no news.
+    await remote.next(token, phone, 1);
+    expect(changes).toBe(2);
+    remote.noteStats(token, STATS);
+    expect(changes).toBe(3);
+    remote.end();
+    expect(changes).toBe(4);
+  });
+
+  it('logs what the tab played and what the phone sent', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'livinglayer-remote-'));
+    dirs.push(dataDir);
+    const remote = new RemoteCamera();
+    const lab = await buildApp(parseConfig({ DATA_DIR: dataDir }), { serveWeb: false, remote });
+    const phones = phoneApp(remote);
+    try {
+      const token = remote.pair();
+      await remote.next(token, phone, 1);
+      for (const fps of [30, 29]) {
+        const sent = await phones.inject({
+          method: 'POST',
+          url: `/r/${token}/stats`,
+          payload: { ...STATS, fps },
+        });
+        expect(sent.statusCode).toBe(204);
+      }
+      const bad = await phones.inject({
+        method: 'POST',
+        url: `/r/${token}/stats`,
+        payload: { ...STATS, sdp: 'v=0' },
+      });
+      expect(bad.statusCode).toBe(400);
+      // The lab sees the latest report; the log keeps one in three.
+      expect((await lab.inject({ url: '/api/remote' })).json().pairing.sending.fps).toBe(29);
+
+      const played = await lab.inject({
+        method: 'POST',
+        url: '/api/streams/stats',
+        payload: {
+          stream: '/api/remote/…/whep',
+          outcome: 'closed',
+          connectMs: 120,
+          firstFrameMs: 180,
+          durationMs: 60_000,
+          frames: 1790,
+          fps: 29.8,
+          kbps: 4200,
+          jitterMs: 12.5,
+          freezes: 0,
+          freezeMs: 0,
+          decodeMs: 1.2,
+          width: 1280,
+          height: 720,
+          codec: 'video/H264',
+          decoder: 'VideoToolbox',
+        },
+      });
+      expect(played.statusCode).toBe(204);
+      const log = readFileSync(join(dataDir, STREAM_STATS_FILE), 'utf8')
+        .trim()
+        .split('\n')
+        .map((l) => JSON.parse(l));
+      expect(log.map((r) => [r.source, r.fps])).toEqual([
+        ['phone', 30],
+        ['tab', 29.8],
+      ]);
+      expect(log[0].phone).toBe('iPhone');
     } finally {
       await lab.close();
       await phones.close();

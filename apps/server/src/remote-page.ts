@@ -2,7 +2,9 @@
  * The page a phone opens from the pairing QR code. It is self-contained (the
  * phone server serves nothing else) and finds its pairing from its own URL.
  * It shares the back camera, keeps the screen awake, and answers the lab's
- * offers until the pairing ends.
+ * offers until the pairing ends. It asks its encoder for detail over frame
+ * rate, can hold exposure, focus and colour where the camera lets
+ * it, and reports what its encoder did every 10 s.
  */
 export function phonePage(nonce: string, paired: boolean) {
   return `<!doctype html>
@@ -43,13 +45,16 @@ export function phonePage(nonce: string, paired: boolean) {
 <div class="row">
   <button id="start" hidden>Share camera</button>
   <button id="flip" disabled>Switch camera</button>
+  <button id="hold" hidden aria-pressed="false">Hold exposure</button>
 </div>
 <script nonce="${nonce}">
 (() => {
   const base = location.pathname.replace(/\\/$/, '');
   const $ = (id) => document.getElementById(id);
-  const video = $('video'), status = $('status'), start = $('start'), flip = $('flip');
-  let stream = null, pc = null, listening = false, facing = 'environment', ended = ${paired ? 'false' : 'true'}, wake = null;
+  const video = $('video'), status = $('status'), start = $('start'), flip = $('flip'), hold = $('hold');
+  let stream = null, pc = null, listening = false, facing = 'environment', ended = ${paired ? 'false' : 'true'}, wake = null, held = false;
+  // What a still camera needs: every pixel sharp, on a LAN with room to spare.
+  const MAX_BITRATE = 5_000_000, MAX_FPS = 30, STATS_MS = 10_000;
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const show = (text, tone = '') => {
     status.textContent = text;
@@ -73,8 +78,92 @@ export function phonePage(nonce: string, paired: boolean) {
     video.srcObject = stream;
     const track = stream.getVideoTracks()[0];
     track.addEventListener('ended', () => { if (!ended) show('The camera stopped. Tap Share camera to start it again.', 'bad'); start.hidden = false; });
+    // Detail over motion: the encoder keeps edges and drops frames first when short of bits.
+    if ('contentHint' in track) track.contentHint = 'detail';
+    held = false;
+    showHold();
     await pc?.getSenders()[0]?.replaceTrack(track);
   }
+
+  /** Which of exposure, white balance and focus this camera can hold, from its capabilities. */
+  function holdable(track) {
+    const caps = track?.getCapabilities?.() ?? {};
+    return ['exposureMode', 'whiteBalanceMode', 'focusMode'].filter((k) => caps[k]?.includes('manual'));
+  }
+  function showHold() {
+    const can = holdable(stream?.getVideoTracks()[0]);
+    hold.hidden = can.length === 0;
+    hold.textContent = held ? 'Let exposure adjust' : 'Hold exposure';
+    hold.setAttribute('aria-pressed', String(held));
+  }
+  /**
+   * Holds exposure, white balance and focus where they are now, so a lamp
+   * switching on or a passing shadow doesn't change every pixel the lab
+   * compares; or lets them adjust again.
+   */
+  async function setHeld(on) {
+    const track = stream?.getVideoTracks()[0];
+    const settings = track.getSettings();
+    const keep = { exposureMode: 'exposureTime', whiteBalanceMode: 'colorTemperature', focusMode: 'focusDistance' };
+    const caps = track.getCapabilities();
+    const advanced = {};
+    for (const mode of holdable(track)) {
+      advanced[mode] = on ? 'manual' : (caps[mode].find((m) => m !== 'manual') ?? 'continuous');
+      if (on && settings[keep[mode]] != null) advanced[keep[mode]] = settings[keep[mode]];
+    }
+    await track.applyConstraints({ advanced: [advanced] });
+    held = on;
+    showHold();
+  }
+
+  async function tuneSender(sender) {
+    try {
+      const params = sender.getParameters();
+      params.degradationPreference = 'maintain-resolution';
+      for (const e of params.encodings ?? []) Object.assign(e, { maxBitrate: MAX_BITRATE, maxFramerate: MAX_FPS });
+      await sender.setParameters(params);
+    } catch { /* Not offered here: the stats show what the encoder did instead. */ }
+  }
+
+  /** What the encoder did over the last while, for the lab's log. */
+  let sentBytes = 0, sentAt = 0;
+  async function sendStats() {
+    const peer = pc;
+    if (!peer || peer.connectionState !== 'connected') return;
+    const report = await peer.getStats().catch(() => null);
+    if (!report) return;
+    let out = null, pair = null;
+    report.forEach((s) => {
+      if (s.type === 'outbound-rtp' && s.kind === 'video') out = s;
+      if (s.type === 'candidate-pair' && s.nominated && s.state === 'succeeded') pair = s;
+    });
+    if (!out) return;
+    const now = performance.now();
+    const kbps = sentAt && out.bytesSent >= sentBytes ? Math.round(((out.bytesSent - sentBytes) * 8) / (now - sentAt)) : null;
+    sentBytes = out.bytesSent; sentAt = now;
+    const track = stream?.getVideoTracks()[0];
+    const settings = track?.getSettings() ?? {};
+    const num = (n) => (typeof n === 'number' && Number.isFinite(n) ? n : null);
+    const limited = out.qualityLimitationDurations ?? {};
+    const stats = {
+      codec: report.get(out.codecId)?.mimeType ?? null,
+      encoder: out.encoderImplementation ?? null,
+      powerEfficient: typeof out.powerEfficientEncoder === 'boolean' ? out.powerEfficientEncoder : null,
+      width: num(out.frameWidth), height: num(out.frameHeight), fps: num(out.framesPerSecond),
+      kbps, targetKbps: num(out.targetBitrate) === null ? null : Math.round(out.targetBitrate / 1000),
+      limitedBy: out.qualityLimitationReason ?? null,
+      limitedS: Object.fromEntries(Object.entries(limited).filter(([, v]) => typeof v === 'number').map(([k, v]) => [k, Math.round(v)])),
+      rttMs: num(pair?.currentRoundTripTime) === null ? null : Math.round(pair.currentRoundTripTime * 1000),
+      capture: { width: num(settings.width), height: num(settings.height), fps: num(settings.frameRate) },
+      held,
+    };
+    await fetch(base + '/stats', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(stats),
+    }).catch(() => {});
+  }
+  setInterval(() => void sendStats(), STATS_MS);
 
   function hangUp() {
     pc?.close();
@@ -91,8 +180,11 @@ export function phonePage(nonce: string, paired: boolean) {
     });
     await peer.setRemoteDescription({ type: 'offer', sdp: offer.sdp });
     // Takes the receive-only transceiver the lab offered, so the answer is send-only.
-    peer.addTrack(stream.getVideoTracks()[0], stream);
+    // The codec is the lab's choice: a sender follows the offer's order, not its own answer's.
+    const sender = peer.addTrack(stream.getVideoTracks()[0], stream);
     await peer.setLocalDescription(await peer.createAnswer());
+    sentBytes = 0; sentAt = 0;
+    void tuneSender(sender);
     await new Promise((resolve) => {
       if (peer.iceGatheringState === 'complete') return resolve();
       peer.addEventListener('icegatheringstatechange', () => peer.iceGatheringState === 'complete' && resolve());
@@ -123,6 +215,7 @@ export function phonePage(nonce: string, paired: boolean) {
         stream?.getTracks().forEach((t) => t.stop());
         wake?.release().catch(() => {});
         flip.disabled = true;
+        hold.hidden = true;
         show('This pairing has ended. Scan the new QR code in Living Layer.', 'bad');
         return;
       }
@@ -154,6 +247,11 @@ export function phonePage(nonce: string, paired: boolean) {
   }
 
   start.addEventListener('click', () => void begin());
+  hold.addEventListener('click', async () => {
+    hold.disabled = true;
+    try { await setHeld(!held); } catch { show('This camera would not hold its exposure.', 'bad'); }
+    hold.disabled = false;
+  });
   flip.addEventListener('click', async () => {
     flip.disabled = true;
     facing = facing === 'environment' ? 'user' : 'environment';

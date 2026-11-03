@@ -12,7 +12,7 @@ interface Pairing {
   stream: NetworkStream | null;
 }
 
-/** How often the panel asks whether the phone has opened the page. */
+/** Where the panel can't hear the server's events, how often it asks instead. */
 const POLL_MS = 1500;
 
 /**
@@ -60,14 +60,25 @@ export function PhonePairing({ onUse }: { onUse: (stream: NetworkStream) => void
 
   const waiting = pairing?.phone === 'waiting';
   const paired = Boolean(pairing);
+  // The server says the moment the phone opens the page; polling is the fallback.
   useEffect(() => {
     if (!paired) return;
-    const timer = window.setInterval(() => {
-      void api('remote')
-        .then((r) => setPairing(r.pairing))
-        .catch(() => null);
-    }, POLL_MS);
-    return () => window.clearInterval(timer);
+    let timer = 0;
+    const events = new EventSource('/api/remote/events');
+    events.onmessage = (e) =>
+      setPairing((JSON.parse(e.data) as { pairing: Pairing | null }).pairing);
+    events.onerror = () => {
+      events.close();
+      timer ||= window.setInterval(() => {
+        void api('remote')
+          .then((r) => setPairing(r.pairing))
+          .catch(() => null);
+      }, POLL_MS);
+    };
+    return () => {
+      events.close();
+      window.clearInterval(timer);
+    };
   }, [paired]);
 
   return (
