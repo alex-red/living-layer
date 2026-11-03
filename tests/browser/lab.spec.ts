@@ -633,8 +633,12 @@ test('saves an exposed Home Assistant entity, inspects demo publish log, and che
 
   await expect(outline(page, 'Desk report')).toContainText('Home Assistant only');
   await expect(page.locator('.rule-sentence')).toContainText('tell Home Assistant only.');
+  // Earlier tests leave a confirmed lamp run in the log (a reset keeps evidence), so the lamp may
+  // already glow; a report-only rule must leave it exactly as it is.
+  const lit = page.locator('[data-prop="lamp"] .iso-lamp.lit');
+  const litBefore = await lit.count();
   await page.getByRole('button', { name: 'Check rules', exact: true }).click();
   await expect(page.locator('.feedback')).toContainText('Desk report: inside');
   await expect(page.locator('.feedback')).not.toContainText('light');
-  await expect(page.locator('[data-prop="lamp"] .iso-lamp.lit')).toHaveCount(0);
+  await expect(lit).toHaveCount(litBefore);
 });
