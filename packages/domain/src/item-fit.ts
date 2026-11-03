@@ -20,7 +20,7 @@ import {
   type LatheFit,
 } from './iso-archetypes.js';
 import type { Decal, IsoItem, ItemMaterial, Swatch } from './iso-item.js';
-import { renderView, voxelize } from './iso-voxel.js';
+import { renderView, voxelize, type VoxelGrid } from './iso-voxel.js';
 
 /**
  * Fit a model to one masked crop: measure the silhouette and colours, build
@@ -906,20 +906,26 @@ function shrink(
 /**
  * Render a model from the photo's camera and compare: silhouette overlap,
  * and colour error where both cover. The render is aligned to the photo's
- * bottom left, since both are cropped to their own bounds.
+ * bottom left, since both are cropped to their own bounds. `grids` keeps the
+ * voxelized shapes between calls: the camera angle moves without the shape.
  */
 export function scoreItem(
   item: IsoItem,
   target: { w: number; h: number; mask: Uint8Array; lab: Float32Array },
   ppu: number,
   elevation: number,
+  grids?: Map<string, VoxelGrid>,
 ): FitScore {
   const flat = scoreFromAbove(item, target);
   if (flat) return flat;
-  const view = renderView(voxelize(item.parts, { resolution: scoringResolution(item) }), {
-    elevation,
-    ppu,
-  });
+  const resolution = scoringResolution(item);
+  const key = grids && JSON.stringify([item.parts, resolution]);
+  let grid = key === undefined ? undefined : grids!.get(key);
+  if (!grid) {
+    grid = voxelize(item.parts, { resolution });
+    if (key !== undefined) grids!.set(key, grid);
+  }
+  const view = renderView(grid, { elevation, ppu });
   const W = Math.max(target.w, view.width);
   const H = Math.max(target.h, view.height);
   const dyT = H - target.h;
@@ -1067,7 +1073,8 @@ export function refineFit(
   const cost = (s: FitScore) => 1 - s.iou + s.deltaE * 0.001;
   let best = start;
   let bestE = elevation;
-  let bestScore = scoreItem(buildItem(label, best), target, ppu, bestE);
+  const grids = new Map<string, VoxelGrid>();
+  let bestScore = scoreItem(buildItem(label, best), target, ppu, bestE, grids);
   let renders = 1;
   // A flat thing's outline is read straight off the mask; only the camera angle is refined.
   const knobs = start.family === 'lathe' ? latheKnobs : start.family === 'box' ? boxKnobs : [];
@@ -1090,7 +1097,7 @@ export function refineFit(
               )
             : bestE;
         if (!fit) continue;
-        const score = scoreItem(buildItem(label, fit), target, ppu, e);
+        const score = scoreItem(buildItem(label, fit), target, ppu, e, grids);
         renders++;
         if (cost(score) < cost(bestScore) - 1e-4) {
           best = fit;
