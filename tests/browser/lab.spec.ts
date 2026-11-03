@@ -1,6 +1,26 @@
 import { test, expect } from '@playwright/test';
 import sharp from 'sharp';
-import { addObject, chooseScene, freshDesk, outline, readiness, waitForAiTask } from './helpers';
+import {
+  addFixture,
+  addObject,
+  addZone,
+  chooseScene,
+  freshDesk,
+  homeAssistant,
+  openRoom,
+  outline,
+  readiness,
+  sceneTab,
+  setupStep,
+  trackingAi,
+  waitForAiTask,
+} from './helpers';
+
+test.beforeEach(({ page }) => trackingAi(page));
+
+/** The mug's id in a desk memory: the thing the camera places that is a mug. */
+const mugId = (memory: { fixtures?: { id: string; place?: string; type?: string }[] }) =>
+  memory.fixtures?.find((f) => f.place === 'sightings' && f.type === 'mug')?.id;
 
 test('demo desk completes discovery, mask, absent target, lamp and export without external requests', async ({
   page,
@@ -114,8 +134,8 @@ test('remembers a mug, draws a zone, verifies one virtual action, and retains ev
   await page.getByRole('button', { name: 'Confirm mug mask #7', exact: true }).click();
   await expect(page.locator('.feedback')).toContainText('Mug identity manually confirmed');
   const before = await page.request.get('/api/desk/demo');
-  const objectId = (await before.json()).object.id;
-  await outline(page, 'Main zone').click();
+  const objectId = mugId(await before.json());
+  await setupStep(page, 'Zone and light').click();
   await page.getByRole('button', { name: 'Draw zone', exact: true }).click();
   const overlay = page.getByLabel('Draw placement zone');
   await overlay.scrollIntoViewIfNeeded();
@@ -158,7 +178,7 @@ test('remembers a mug, draws a zone, verifies one virtual action, and retains ev
   await expect(
     page.getByRole('button', { name: 'Verify placement · virtual lamp', exact: true }),
   ).toBeDisabled();
-  expect((await (await page.request.get('/api/desk/demo')).json()).object.id).toBe(objectId);
+  expect(mugId(await (await page.request.get('/api/desk/demo')).json())).toBe(objectId);
   await page.setViewportSize({ width: 390, height: 844 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: '.data/screenshots/placement-mobile.png', fullPage: true });
@@ -178,21 +198,21 @@ test('draws the remembered mug in the isometric desk and follows it to a new fra
   // Before it is modelled, the mug is drawn as the stock mug's sprite.
   const mug = page.locator('[data-object="tracked"] .iso-item image');
   // The office desk is the office's desk, so its pin places the mug in the office too.
-  await outline(page, 'Office').click();
+  await sceneTab(page, 'Whole room');
   await expect(mug).toBeVisible();
-  await outline(page, 'Office desk').click();
+  await sceneTab(page, 'Office desk');
   await expect(page.locator('[data-prop="lamp"]')).toBeVisible();
   await expect(mug).toBeVisible();
   const before = Number(await mug.getAttribute('x'));
   await page.getByRole('button', { name: 'Right', exact: true }).click();
-  await page.getByRole('button', { name: /^Open My desk mug/ }).click();
+  await outline(page, 'My desk mug').click();
   await page.getByRole('button', { name: 'Track the mug', exact: true }).click();
   await expect(page.locator('.feedback')).toContainText('Tracked');
   // The demo moves the mug 100 px right, which is towards +x on the desk.
   await expect.poll(async () => Number(await mug.getAttribute('x'))).toBeGreaterThan(before);
   await expect(page.locator('.iso-trail')).toBeVisible();
   await page.getByRole('button', { name: /^Edit model/ }).click();
-  await page.getByRole('button', { name: 'Sample a draft', exact: true }).click();
+  await page.getByRole('button', { name: 'Fit one on this machine', exact: true }).click();
   // The fitter measures a turned body and a handle from the demo mug.
   await expect(page.getByRole('listbox', { name: 'Item parts' }).getByRole('option')).toHaveCount(
     2,
@@ -226,7 +246,11 @@ test('finds the office desk’s corners from the photo, lets one be dragged, and
   await chooseScene(page);
   // The room's camera sees the desktop: the demo desk comes pinned, and finding it again
   // measures the corners from SAM's outline.
-  await outline(page, 'Desktop').click();
+  await sceneTab(page, 'Office desk');
+  await page
+    .getByRole('complementary', { name: 'Scene outline' })
+    .getByRole('button', { name: /^Desk · desktop/ })
+    .click();
   await page.getByRole('button', { name: 'Find it again', exact: true }).click();
   await expect(page.locator('.feedback')).toContainText('Found the desktop');
   const corners = page.getByRole('slider', { name: /corner$/ });
@@ -256,7 +280,7 @@ test('drafts a custom room offline, saves it, and lights a rule’s lamp', async
   await page.getByRole('button', { name: 'Segment object', exact: true }).click();
   await page.getByRole('button', { name: 'Confirm mug mask #7', exact: true }).click();
   await page.getByRole('button', { name: 'Iso', exact: true }).click();
-  await outline(page, 'Office').click();
+  await openRoom(page);
   await page.getByRole('button', { name: 'Edit layout', exact: true }).click();
   await page.getByRole('button', { name: 'Layout', exact: true }).click();
   await page.getByText('More ways', { exact: true }).click();
@@ -279,14 +303,16 @@ test('drafts a custom room offline, saves it, and lights a rule’s lamp', async
   await page.getByLabel('Lamp light').selectOption('light.demo_shelf');
   await page.getByRole('button', { name: 'Save', exact: true }).click();
   // The saved scene is the room now, with its own office desk close view.
-  await expect(outline(page, 'Drafted room')).toHaveAttribute('aria-current', 'true');
-  await expect(outline(page, 'Office desk')).toBeVisible();
+  await expect(outline(page, 'Change scene')).toContainText('Drafted room');
+  await expect(page.getByRole('tab', { name: 'Office desk', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Room', exact: true }).click();
+  // The room's surfaces are listed in its inspector, each pinned or not.
   await page
-    .getByRole('complementary', { name: 'Scene outline' })
-    .locator('.ol-row')
+    .getByRole('complementary', { name: 'Inspector' })
+    .getByRole('listitem')
     .filter({ hasText: 'not pinned' })
     .first()
+    .getByRole('button')
     .click();
   await page.getByRole('button', { name: 'Pin surface', exact: true }).click();
   const pin = page.locator('.pin-overlay');
@@ -299,7 +325,8 @@ test('drafts a custom room offline, saves it, and lights a rule’s lamp', async
   ])
     await page.mouse.click(box.x + u! * box.width, box.y + v! * box.height);
   await expect(page.locator('.feedback')).toContainText('Surface pinned');
-  await outline(page, 'Add rule').click();
+  await sceneTab(page, 'Office desk');
+  await addZone(page);
   await page.getByLabel('Rule light').selectOption('light.demo_shelf');
   await page.getByLabel('Rule name').fill('Whole desk');
   const hit = (await page.locator('.iso-hit').boundingBox())!;
@@ -359,9 +386,7 @@ test('drafts a scene from the demo camera, reviews the pin and objects, and save
   await expect(page.locator('.feedback')).toContainText(
     'Scene saved from the photo, pinned, tracking 2 objects',
   );
-  await expect(
-    page.getByRole('complementary', { name: 'Scene outline' }).getByText('from your photo'),
-  ).toBeVisible();
+  await expect(outline(page, 'Change scene')).toContainText('From the room camera');
   await expect(page.locator('[data-object="tracked"] .iso-item image')).toBeVisible();
 });
 
@@ -405,7 +430,7 @@ test('a fixture is drafted from the demo mouse, placed on the office desk and se
 }) => {
   await page.goto('/');
   await chooseScene(page);
-  await outline(page, 'Add fixture').click();
+  await addFixture(page);
   await expect(
     page.getByRole('heading', { name: 'Start from a photo of the thing' }),
   ).toBeVisible();
@@ -415,7 +440,9 @@ test('a fixture is drafted from the demo mouse, placed on the office desk and se
     'aria-pressed',
     'true',
   );
-  await page.getByLabel('Room').selectOption({ label: 'Office desk' });
+  await page
+    .getByRole('combobox', { name: 'Room', exact: true })
+    .selectOption({ label: 'Office desk' });
   await page.getByRole('button', { name: 'Place it' }).click();
   const hit = page.getByLabel('Place the computer mouse');
   await expect(hit).toBeVisible();
@@ -449,7 +476,7 @@ test('a fixture is drafted from the demo mouse, placed on the office desk and se
   await expect(marker).toHaveCount(0);
 
   // Draft the demo cat, place it, switch between idle and sleeping poses, and add a custom state.
-  await outline(page, 'Add fixture').click();
+  await addFixture(page);
   await page.getByRole('button', { name: /Cat/ }).click();
   await expect(page.getByRole('heading', { name: 'Cat' })).toBeVisible();
   await page.getByRole('button', { name: 'Place it' }).click();
@@ -490,7 +517,7 @@ test('the layout editor zooms like the room, and picks a prop for the AI brush',
   await page.goto('/');
   await chooseScene(page);
   await page.getByRole('button', { name: 'Iso', exact: true }).click();
-  await outline(page, 'Office').click();
+  await openRoom(page);
   await page.getByRole('button', { name: 'Edit layout', exact: true }).click();
   const canvas = page.locator('.scene-canvas');
   await expect(canvas.locator('.zoom-controls')).toBeAttached();
@@ -513,13 +540,13 @@ test('the layout editor shows the room’s fixtures, to hide or move without lea
 }) => {
   await page.goto('/');
   await chooseScene(page);
-  await outline(page, 'Add fixture').click();
+  await addFixture(page);
   await page.getByRole('button', { name: /Computer mouse/ }).click();
-  await page.getByLabel('Room').selectOption({ label: 'Office' });
+  await page.getByRole('combobox', { name: 'Room', exact: true }).selectOption({ label: 'Office' });
   await page.getByRole('button', { name: 'Place it' }).click();
   await page.getByLabel('Place the computer mouse').click();
   await expect(outline(page, 'Computer mouse')).toBeVisible();
-  await outline(page, 'Office').click();
+  await openRoom(page);
   await page.getByRole('button', { name: 'Edit layout', exact: true }).click();
   const fixtures = page.getByRole('list', { name: 'Fixtures in the room' });
   await expect(fixtures).toContainText('Computer mouse');
@@ -597,6 +624,7 @@ test('saves an exposed Home Assistant entity, inspects demo publish log, and che
   await page.getByRole('button', { name: 'Confirm mug mask #7', exact: true }).click();
   await expect(page.locator('.feedback')).toContainText('Mug identity manually confirmed');
 
+  await homeAssistant(page);
   await outline(page, 'Show in Home Assistant').click();
   await expect(page.getByRole('heading', { name: 'Show in Home Assistant' })).toBeVisible();
   await page.getByRole('button', { name: /^Watching On/ }).click();
@@ -620,7 +648,9 @@ test('saves an exposed Home Assistant entity, inspects demo publish log, and che
   await expect(page.locator('.ws-inspector')).toContainText('livinglayer/watching/state');
 
   await page.getByRole('button', { name: 'Iso', exact: true }).click();
-  await outline(page, 'Add rule').click();
+  // The mug stands on the office desk, so its zones are the desk's.
+  await sceneTab(page, 'Office desk');
+  await addZone(page);
   await page.getByLabel('Rule light').selectOption({ label: 'nothing: tell Home Assistant only' });
   await page.getByLabel('Rule name').fill('Desk report');
   const hit = (await page.locator('.iso-hit').boundingBox())!;

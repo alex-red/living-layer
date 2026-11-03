@@ -18,8 +18,34 @@ export const outline = (page: Page, name: string) =>
   page
     .getByRole('complementary', { name: 'Scene outline' })
     .getByRole('button', { name, exact: true });
+/** Add a thing from the outline's menu: one the camera follows, or a fixture placed by hand. */
+async function addThing(page: Page, how: string) {
+  await outline(page, 'Add a thing').click();
+  await page.getByRole('menuitem', { name: how, exact: true }).click();
+}
 /** Open the inspector's Add an object panel. */
-export const addObject = (page: Page) => outline(page, 'Add object').click();
+export const addObject = (page: Page) => addThing(page, 'Follow it with the camera');
+/** Open the inspector's new fixture panel. */
+export const addFixture = (page: Page) => addThing(page, 'Place a fixture by hand');
+/** Start a new zone from the outline. */
+export const addZone = (page: Page) => outline(page, 'Add a zone').click();
+/** A step of the outline's setup card. */
+export const setupStep = (page: Page, name: string) =>
+  page
+    .getByRole('region', { name: 'Setting up this scene' })
+    .getByRole('button', { name, exact: true });
+/** Work in the whole room or its close view, from the outline's tabs. */
+export const sceneTab = (page: Page, name: string) =>
+  page
+    .getByRole('complementary', { name: 'Scene outline' })
+    .getByRole('tab', { name, exact: true })
+    .click();
+/** Select the room itself, from the breadcrumb's first step. */
+export const openRoom = (page: Page) =>
+  page.getByRole('navigation', { name: 'You are here' }).getByRole('button').first().click();
+/** Unfold Home Assistant at the foot of the outline. */
+export const homeAssistant = (page: Page) =>
+  page.getByRole('complementary', { name: 'Scene outline' }).locator('.ol-ha > summary').click();
 export const readiness = (page: Page) =>
   page.getByRole('button', { name: 'Readiness and spending' }).click();
 
@@ -36,6 +62,14 @@ export async function freshDesk(page: Page) {
     expect(
       (await page.request.post(`/api/${path}`, { data: { mode: 'demo', ...data } })).ok(),
     ).toBe(true);
+}
+
+/**
+ * Let tracking call SAM and Spark (_Let tracking call AI_), as the unit tests'
+ * `testApp` does: finding objects by name is refused without it, in demo mode too.
+ */
+export async function trackingAi(page: Page, on = true) {
+  expect((await page.request.post('/api/settings/tracking-ai', { data: { on } })).ok()).toBe(true);
 }
 
 /** The AI steps dialog of a task, by its title. */

@@ -7,6 +7,14 @@
   height: 100dvh;
   isolation: isolate;
 }
+/* Phone: the page scrolls, one column, not the shell. Here rather than in
+   styles.css, which loads first and would lose to the height above. */
+@media (max-width: 767px) {
+  .shell {
+    height: auto;
+    min-height: 100vh;
+  }
+}
 .shell::before,
 .shell::after {
   content: '';

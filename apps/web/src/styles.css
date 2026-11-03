@@ -198,10 +198,6 @@ p {
 
 /* Phone: one scrolling column with the scene first. */
 @media (max-width: 767px) {
-  .shell {
-    height: auto;
-    min-height: 100vh;
-  }
   .topbar {
     grid-template-columns: minmax(0, 1fr) auto;
     padding: 8px 16px;
