@@ -707,6 +707,81 @@ export function catItem(label = 'Cat', pose: CatPose = 'idle', colors: string[] 
   return buildItem(label, { ...base, pose });
 }
 
+/**
+ * A cat tree, about 50 × 50 × 120 cm: a plush base, a cubby with its door,
+ * two sisal posts holding a low platform and a top bed, and a toy on a string.
+ * One unit is its base's width. `colors` are the plush, then the sisal.
+ */
+export function catTreeItem(label = 'Cat tree', colors: string[] = []): IsoItem {
+  const plush = colors[0] ?? '#8d8f94';
+  const sisal = colors[1] ?? '#c9b48f';
+  const straight = [
+    { r: 1, z: 0 },
+    { r: 1, z: 1 },
+  ];
+  const part = (
+    id: string,
+    shape: 'rbox' | 'lathe',
+    at: [number, number, number],
+    size: [number, number, number],
+    color: string,
+    extra: Record<string, unknown> = {},
+  ) =>
+    ({
+      id,
+      shape,
+      at: { x: at[0], y: at[1], z: at[2] },
+      size: { w: size[0], d: size[1], h: size[2] },
+      color,
+      taper: 1,
+      material: 'fabric' as const,
+      ...(shape === 'lathe' ? { profile: straight } : { radius: 0.15 }),
+      ...extra,
+    }) as ItemPart;
+  return {
+    label,
+    parts: [
+      part('base', 'rbox', [0, 0, 0], [1, 1, 0.08], plush),
+      // The room sees the +x and +y sides: the cubby, its door and the low platform face it.
+      part('cubby', 'rbox', [0.5, 0.5, 0.08], [0.46, 0.46, 0.44], plush),
+      part('door', 'rbox', [0.94, 0.6, 0.16], [0.04, 0.26, 0.28], '#2b2d33', { radius: 0.5 }),
+      part('post-high', 'lathe', [0.62, 0.12, 0.08], [0.16, 0.16, 1.94], sisal),
+      part('post-low', 'lathe', [0.14, 0.66, 0.08], [0.16, 0.16, 1.0], sisal),
+      part('platform', 'rbox', [0.02, 0.5, 1.08], [0.46, 0.46, 0.06], plush),
+      part('perch', 'rbox', [0.5, 0.0, 1.3], [0.46, 0.4, 0.06], plush),
+      part('bed', 'lathe', [0.42, 0.0, 2.02], [0.58, 0.58, 0.16], plush, {
+        profile: [
+          { r: 0.85, z: 0 },
+          { r: 1, z: 0.4 },
+          { r: 1, z: 1 },
+        ],
+        wall: 0.22,
+      }),
+      {
+        id: 'string',
+        shape: 'tube' as const,
+        at: { x: 0.4, y: 0.88, z: 0.82 },
+        size: { w: 0.04, d: 0.04, h: 0.26 },
+        color: '#e9e4d8',
+        taper: 1,
+        material: 'matte' as const,
+        path: [
+          { x: 0.5, y: 0.5, z: 1 },
+          { x: 0.5, y: 0.5, z: 0 },
+        ],
+        radius: 0.008,
+      },
+      part('toy', 'lathe', [0.37, 0.85, 0.72], [0.1, 0.1, 0.1], '#d9534f', {
+        profile: [
+          { r: 0.2, z: 0 },
+          { r: 1, z: 0.5 },
+          { r: 0.2, z: 1 },
+        ],
+      }),
+    ],
+  };
+}
+
 /** A floor lamp's height in its own units: one unit is its bowl's width, about 36 cm. */
 const FLOOR_LAMP_H = 4.85;
 /**

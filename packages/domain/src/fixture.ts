@@ -5,6 +5,7 @@ import {
   archetypeSchema,
   buildItem,
   catItem,
+  catTreeItem,
   defaultFit,
   floorLampItem,
   monitorItem,
@@ -69,6 +70,7 @@ export const STARTER_TEMPLATES = [
   'book',
   'device',
   'box',
+  'cat-tree',
 ] as const;
 export type StarterTemplate = (typeof STARTER_TEMPLATES)[number];
 /** The illustrated reference pictures demo mode can draft fixtures from. */
@@ -815,6 +817,15 @@ const STARTER_META: Record<
     sizeCm: { w: 18, d: 14, h: 14 },
     colors: ['#5f7c88', '#4a5164'],
   },
+  'cat-tree': {
+    label: 'Cat tree',
+    archetype: 'box',
+    suggested: 'none',
+    description:
+      'A cat tree with a cubby, a perch and a bed on top: keeps whether the cat is on it.',
+    sizeCm: { w: 50, d: 50, h: 120 },
+    colors: ['#8d8f94', '#c9b48f'],
+  },
 };
 
 export function starterMeta(template: StarterTemplate) {
@@ -844,7 +855,9 @@ export function starterTemplateModel(
           }
         : template === 'floor-lamp'
           ? floorLampItem(label, colors)
-          : buildItem(label, defaultFit(meta.archetype, colors));
+          : template === 'cat-tree'
+            ? catTreeItem(label, colors)
+            : buildItem(label, defaultFit(meta.archetype, colors));
   const saved: SavedItem = {
     ...base,
     source: 'placeholder',
@@ -900,6 +913,7 @@ export function fixtureType(f: Pick<Fixture, 'model'> & Partial<Pick<Fixture, 't
   const ids = new Set(f.model.parts.map((p) => p.id));
   if (ids.has('shade-bowl')) return 'floor-lamp';
   if (ids.has('screen')) return 'monitor';
+  if (ids.has('cubby') && ids.has('perch')) return 'cat-tree';
   const archetype = f.model.fit?.archetype;
   return (archetype && TYPE_OF_ARCHETYPE[archetype]) ?? null;
 }

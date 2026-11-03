@@ -129,6 +129,7 @@ export function SceneEditor({
   hand = false,
   brushTool = false,
   onAiEdit,
+  onMakeThing,
   fixtures = [],
   onMoveFixture,
   onFixtureMenu,
@@ -174,6 +175,8 @@ export function SceneEditor({
   brushTool?: boolean;
   /** Pick a prop of the saved room for the AI brush. */
   onAiEdit?: (scene: Scene, group: string) => void;
+  /** Make a prop a thing of its own, out of the layout: it can then be named, followed and keep stats. */
+  onMakeThing?: (scene: Scene, group: string) => void;
   /** The room's fixtures, drawn where they stand; saved as they move, apart from the layout. */
   fixtures?: IsoFixture[];
   onMoveFixture?: (id: string, to: { x: number; y: number; surfaceId: string | null }) => void;
@@ -832,6 +835,19 @@ export function SceneEditor({
                 onClick={() => onAiEdit(draft, selected)}
               >
                 Edit with AI
+              </Button>
+            )}
+            {onMakeThing && (
+              <Button
+                size="sm"
+                disabled={busy || drafting}
+                title="Take it out of the layout as a thing of its own, drawn the same: it can be named, moved and followed, and keep stats such as occupied"
+                onClick={() => {
+                  onMakeThing(draft, selected);
+                  setSelected(undefined);
+                }}
+              >
+                Make it a thing
               </Button>
             )}
             <IconButton

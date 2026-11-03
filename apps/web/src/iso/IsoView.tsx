@@ -37,6 +37,7 @@ import {
   type ZoneOnSurface,
   type LightLook,
   type ZoneRect,
+  promoteGroup,
 } from '@livinglayer/domain';
 import { runOutput } from '@livinglayer/domain';
 import { apiAt } from '../api';
@@ -546,6 +547,31 @@ function IsoViewOf({
     }
   }
   const off = busy || asking;
+  /**
+   * A prop of the layout as a thing of its own: the layout saved without it,
+   * then a fixture drawn the same where it stood. Only once the layout has
+   * let go of it, so a failure never leaves it twice.
+   */
+  async function makeThing(draft: Scene, group: string) {
+    const made = promoteGroup(draft, group);
+    if (!made) return onError('That prop has nothing to draw as a thing.');
+    let removed = false;
+    await send<DeskMemory>('scene/save', { scene: made.scene }, (m) => {
+      setMemory(m);
+      removed = true;
+    });
+    if (!removed) return;
+    await send<DeskMemory>('fixtures/save', { fixture: made.fixture }, (m) => {
+      setMemory(m);
+      onKind('custom');
+      onPanel('room');
+      const thing = m.fixtures?.at(-1);
+      if (thing) select({ kind: 'fixture', id: thing.id });
+      setMessage(
+        `The ${made.fixture.label.toLowerCase()} is a thing of its own now. Find it in the camera, or keep a stat for it.`,
+      );
+    });
+  }
 
   return (
     <div className="iso-view">
@@ -646,6 +672,7 @@ function IsoViewOf({
               {...(tool === 'select' ? { onMoveFixture } : {})}
               onFixtureMenu={onFixtureMenu}
               onAiEdit={onAiEdit}
+              onMakeThing={(d, g) => void makeThing(d, g)}
               onCalibrateByHand={onCalibrateByHand}
               onCalibrateHere={onCalibrateHere}
               follow={follow}
