@@ -8,12 +8,7 @@ import { parseConfig, type Fetcher } from '../apps/server/src/config.js';
 import { demoIntent } from '../apps/server/src/demo-intent.js';
 import { demoPng } from '../apps/server/src/demo.js';
 import { syntheticStream } from '../apps/server/src/sam.js';
-import {
-  DEMO_CALIBRATION,
-  selectionMask,
-  type DeskMemory,
-  type Mode,
-} from '../packages/domain/src/index.js';
+import { DEMO_CALIBRATION, selectionMask, type DeskMemory, type Mode } from '@livinglayer/domain';
 import {
   BRUSH_TARGETS,
   brushOverlay,

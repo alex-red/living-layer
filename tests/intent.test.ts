@@ -13,7 +13,7 @@ import {
   readIntent,
   sparkIntentSchema,
   type SparkIntent,
-} from '../packages/domain/src/index.js';
+} from '@livinglayer/domain';
 import {
   ALEX,
   INTENT_CASES,
