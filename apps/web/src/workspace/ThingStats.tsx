@@ -131,7 +131,9 @@ function StatRow({
               ? 'ITS LIGHT'
               : now?.source === 'sam'
                 ? 'SAM'
-                : 'CAMERA'}
+                : now?.source === 'person'
+                  ? 'BY HAND'
+                  : 'CAMERA'}
         </span>
       </header>
       {now?.reason && <p className="micro stat-reason">{now.reason}</p>}

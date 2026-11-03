@@ -45,6 +45,15 @@
   text-decoration: none;
   background: var(--control-bg-hover);
 }
+/* Sample values for the food things, centred under the room. */
+.layer-chips.iso.sample {
+  left: 50%;
+  transform: translateX(-50%);
+}
+.layer-chips.sample .layer-chip {
+  text-decoration: none;
+  color: var(--text-2);
+}
 /* The fridge's angles, one of them always on: in the other corner, never struck through. */
 .layer-chips.iso.angles {
   left: auto;

@@ -192,6 +192,21 @@ export const thingsLearnBodySchema = z
   .strict();
 export type ThingsLearnBody = z.input<typeof thingsLearnBodySchema>;
 
+/** POST /api/things/used: the person says when a thing was last used (its Last used stat). */
+export const thingsUsedBodySchema = z
+  .object({
+    mode: modeSchema,
+    id: z.string().min(1).max(64),
+    /** When, ms; not in the future (a minute's leeway for clocks). */
+    at: z
+      .number()
+      .int()
+      .positive()
+      .refine((at) => at <= Date.now() + 60_000, { message: 'That time is still to come.' }),
+  })
+  .strict();
+export type ThingsUsedBody = z.input<typeof thingsUsedBodySchema>;
+
 /** GET /api/things/:mode/:id/stats?days=7 */
 export const thingStatsQuerySchema = z
   .object({

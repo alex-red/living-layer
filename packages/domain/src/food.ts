@@ -16,6 +16,8 @@ export const foodSchema = z
     expires: daySchema.optional(),
     /** The day it was opened. */
     opened: daySchema.optional(),
+    /** The day it came into the fridge (was made a thing): where its keeping time starts until opened. */
+    added: daySchema.optional(),
     left: z.enum(FOOD_LEFT).optional(),
   })
   .strict();
@@ -31,7 +33,10 @@ const KEEPS: [RegExp, { open: number; bought: number }][] = [
   [/\bleftover|\btub\b|\bcontainer\b/i, { open: 3, bought: 3 }],
   [/\bbutter\b/i, { open: 30, bought: 60 }],
   [/\begg/i, { open: 21, bought: 28 }],
-  [/\bpickle|\bjar\b|\bsauce\b|\bketchup\b|\bmustard\b|\bmayo/i, { open: 60, bought: 180 }],
+  [
+    /\bpickle|\bjar\b|\bsauce\b|\bketchup\b|\bmustard\b|\bmayo|\bjam\b|\bdressing\b|\bsyrup\b/i,
+    { open: 60, bought: 180 },
+  ],
   [/\bjuice\b/i, { open: 7, bought: 14 }],
   [/\byog(h)?urt\b|\bcheese\b/i, { open: 7, bought: 21 }],
 ];
@@ -46,7 +51,26 @@ export function foodKeeps(label: string): number | null {
  */
 export function foodDefaults(label: string, today: string): Food | null {
   const keeps = KEEPS.find(([re]) => re.test(label))?.[1];
-  return keeps ? { expires: addDays(today, keeps.bought) } : null;
+  return keeps ? { added: today, expires: addDays(today, keeps.bought) } : null;
+}
+
+/**
+ * Believable sample values for a food thing, for a demo: in the fridge some
+ * share of its usual keeping time, opened more often than not (then with
+ * some of it gone), its use-by day its usual one from then. Null when the
+ * name isn't food. `random` gives 0–1, for tests.
+ */
+export function sampleFood(label: string, today: string, random = Math.random): Food | null {
+  const keeps = KEEPS.find(([re]) => re.test(label))?.[1];
+  if (!keeps) return null;
+  const days = (n: number) => Math.floor(random() * (n + 1));
+  const added = addDays(today, -days(Math.max(1, Math.round(keeps.bought * 0.9))));
+  const since = -daysUntil(added, today);
+  if (random() < 0.35 || keeps.open === keeps.bought)
+    return { added, expires: addDays(added, keeps.bought) };
+  const opened = addDays(added, days(since));
+  const left = (['most', 'half', 'low', 'low', 'empty'] as const)[Math.floor(random() * 4.4)]!;
+  return { added, opened, expires: addDays(opened, keeps.open), left };
 }
 
 const DAY_MS = 86_400_000;
@@ -85,5 +109,20 @@ export function foodNow(food: Food | undefined, now = Date.now()): FoodNow | nul
     text: left ? `${when} · ${left}` : when,
     tone: n < 0 ? 'bad' : n <= 2 ? 'soon' : 'ok',
   };
+}
+/**
+ * How fresh it is, 0 to 1: the share of its keeping time still to go, from
+ * when it was opened, else from when it came in, to its use-by day, today
+ * counted as a day still good. Empty or past its day is 0; null without a
+ * use-by day.
+ */
+export function foodHealth(food: Food | undefined, now = Date.now()): number | null {
+  if (!food?.expires) return null;
+  if (food.left === 'empty') return 0;
+  const left = daysUntil(food.expires, dayOf(now));
+  if (left < 0) return 0;
+  const start = food.opened ?? food.added;
+  const total = start ? daysUntil(food.expires, start) : left;
+  return Math.min(1, (left + 1) / (Math.max(0, total) + 1));
 }
 const cap = (s: string) => s[0]!.toUpperCase() + s.slice(1);

@@ -23,6 +23,7 @@ import {
   settled,
   usedStep,
   thingsLearnBodySchema,
+  thingsUsedBodySchema,
   thingsStatsBodySchema,
   thingStatsQuerySchema,
   type Activity,
@@ -626,6 +627,19 @@ export class StatRunner {
     this.tell();
     return r.now;
   }
+  /**
+   * The person says when a thing was last used: its Last used takes that
+   * time, as one use (counted today when it is today). Null when the thing
+   * doesn't keep Last used.
+   */
+  used(thingId: string, at: number): StatNow | null {
+    const r = this.running.get(`${thingId}:lastUsed`);
+    if (!r) return null;
+    this.set(r, at, 'person', 1, at, true);
+    if (dayOf(at) === dayOf(this.now)) this.add(r, 1, this.now);
+    this.tell();
+    return r.now;
+  }
   /** A thing's stats now, its last day of changes and its day totals. */
   view(thingId: string, days: number): ThingStatsView {
     this.flush();
@@ -666,6 +680,12 @@ export async function statRoutes(
   app.post('/learn', async (request) => {
     const { mode, id, key, look } = parseInput(thingsLearnBodySchema, request.body);
     return { now: await runners[mode].learn(id, key, look), stats: runners[mode].current() };
+  });
+  app.post('/used', async (request) => {
+    const { mode, id, at } = parseInput(thingsUsedBodySchema, request.body);
+    const now = runners[mode].used(id, at);
+    if (!now) throw new LabError('stat_off', 'Switch on its Last used stat first.', 409);
+    return { now, stats: runners[mode].current() };
   });
   app.get('/:mode/:id/stats', async (request) => {
     const { mode, id, days } = parseInput(thingStatsQuerySchema, {

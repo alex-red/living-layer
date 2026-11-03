@@ -60,7 +60,10 @@ const fixtureLightSchema = z
   .object({ part: z.string().min(1).max(24), entityId: entityIdSchema })
   .strict();
 const MAX_FIXTURE_LIGHTS = 4;
-export const MAX_FIXTURES = 12;
+/** Things placed in all scenes together: a room's, and a fridge's food. */
+export const MAX_FIXTURES = 24;
+/** Things one scan may leave in its scene, those already there included. */
+export const MAX_SCENE_FIXTURES = 12;
 /** Templates the Fixture Studio and Add Fixture panel can start from without a photo. */
 export const STARTER_TEMPLATES = [
   'cat',
