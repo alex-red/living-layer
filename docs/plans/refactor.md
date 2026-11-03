@@ -239,7 +239,7 @@ _Landed:_ `index.ts` is re-exports. Code went to `api.ts` (wire types, limits, `
 
 Use one key light for `iso-voxel.ts:697` and `room-render.ts:35`, which must agree.
 
-_Landed:_ `math.ts` (not re-exported from the index) holds `Vec3` and its ops, `clamp`, `quantile`/`median`, `bezier`, `pointInPolygon` and `KEY_LIGHT`. Left alone because they differ in behaviour: `item-sculpt.ts` `clamp` (maps NaN to the low bound) and `splat.ts` `quantile` (index by `q·(n−1)`, 0 when empty).
+_Landed:_ `math.ts` (not re-exported from the index) holds `Vec3` and its ops, `clamp`, `quantile`/`median`, `bezier`, `pointInPolygon` and `KEY_LIGHT`. The two that differ in behaviour moved in under their own names: `clampFiniteOrLow` (NaN and ±Infinity give the low bound; was `item-sculpt.ts` `clamp`) and `quantileAt` (sorted input, index by `q·(n−1)`, 0 when empty; was `splat.ts` `quantile`).
 
 **E3. Bench cases out of `room-scan.ts`.** Lines 823–1126 move into `room-cases.ts`.
 
