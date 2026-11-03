@@ -63,6 +63,7 @@ import {
   useView,
 } from '../workspace/LabContext';
 import { IsoScene, type IsoFixture, type IsoObject, type IsoZone } from './IsoScene';
+import { FRIDGE_ANGLES, fromAngle, type FridgeAngle } from './fridgeAngle';
 import { Later } from '../Later';
 import { LayerChips } from '../workspace/LayerChips';
 import { SculptFixture } from '../workspace/FixturePanel';
@@ -503,6 +504,16 @@ function IsoViewOf({
       onPlace,
     };
   }, [placing, kind, onPlace]);
+  // The fridge from the corner chosen; drawing and placing stay in its usual one.
+  const held = Boolean(placing || drawing || ruleDraft);
+  const angle: FridgeAngle = kind === 'fridge' && !held ? lab.fridgeAngle : 'right';
+  const view = useMemo(
+    () => fromAngle(angle, { scene, objects, fixtures, zones, trail }),
+    [angle, scene, objects, fixtures, zones, trail],
+  );
+  const viewSurface = view.scene.surfaces.find((s) => s.id === surface?.id) ?? surface;
+  // Turned, a fixture's box isn't where it stands: it is moved and sized from the usual corner.
+  const turned = angle === 'left';
   // Dragging on the room draws a zone: a rule's draft, or the mug's.
   const onDrag = useCallback(
     (a: { x: number; y: number }, b: { x: number; y: number }) => {
@@ -730,7 +741,7 @@ function IsoViewOf({
             className="iso-zoom"
             hand={hand}
             store="iso"
-            resetKey={`${kind} ${picture ? 'picture' : 'model'}`}
+            resetKey={`${kind} ${picture ? 'picture' : 'model'} ${angle}`}
           >
             {picture && memory && pin ? (
               <Later>
@@ -753,17 +764,17 @@ function IsoViewOf({
               </Later>
             ) : (
               <IsoScene
-                scene={scene}
-                surface={surface}
-                objects={objects}
-                fixtures={fixtures}
+                scene={view.scene}
+                surface={viewSurface}
+                objects={view.objects}
+                fixtures={view.fixtures}
                 onFixture={onFixture}
-                onMoveFixture={tool === 'select' ? onMoveFixture : undefined}
+                onMoveFixture={tool === 'select' && !turned ? onMoveFixture : undefined}
                 onFixtureMenu={onFixtureMenu}
-                onResizeFixture={tool === 'scale' ? onResizeFixture : undefined}
+                onResizeFixture={tool === 'scale' && !turned ? onResizeFixture : undefined}
                 placing={isoPlacing}
-                trail={trail}
-                zones={zones}
+                trail={view.trail}
+                zones={view.zones}
                 onZone={tool === 'select' && !hand && !ruleDraft ? onZone : undefined}
                 litLights={lit}
                 defaultLight={defaultLight}
@@ -784,6 +795,23 @@ function IsoViewOf({
               : `ISO · ${scene.label.toUpperCase()} · ${surface?.label.toUpperCase() ?? 'NO SURFACE'}${pinned ? (memory?.surface ? ' · PINNED' : ' · DEMO') : ''}`}
         </span>
         {panel === 'room' && <LayerChips view="iso" />}
+        {panel === 'room' && kind === 'fridge' && !picture && (
+          <div className="layer-chips iso angles" role="group" aria-label="Fridge seen from">
+            {(Object.keys(FRIDGE_ANGLES) as FridgeAngle[]).map((a) => (
+              <button
+                key={a}
+                type="button"
+                className="layer-chip"
+                aria-pressed={angle === a}
+                disabled={held}
+                title={FRIDGE_ANGLES[a].hint}
+                onClick={() => lab.setFridgeAngle(a)}
+              >
+                {FRIDGE_ANGLES[a].label}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
       {panel === 'room' && (
         <p className="iso-note" role="status">

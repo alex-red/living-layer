@@ -108,10 +108,11 @@ export const PROP_TEMPLATES = {
     build: modelled('Cabinet', 'cabinet', 'wood', 'Cabinet top'),
   },
   // A French-door fridge over a freezer drawer, as photographed: 91 cm wide,
-  // 178 tall, its cabinet 74 deep. It opens toward +y with its left door open
-  // square to the front, showing its bins. The right door is left out: from
-  // the room's corner it folds across the right of the shelves at any angle,
-  // and hides what the fridge camera follows there (the milk).
+  // 178 tall, its cabinet 74 deep. It opens toward +y with both doors open
+  // square to the front, showing their bins. From either front corner the
+  // near door folds across that side of the shelves, so the fridge is seen
+  // from either corner or cut away (`FRIDGE_SHELL`). Its sides and doors are
+  // steel outside and lined inside, so each corner sees the right finish.
   fridge: {
     label: 'Fridge',
     size: { w: cm(91), d: cm(74) },
@@ -120,6 +121,7 @@ export const PROP_TEMPLATES = {
       const top = z0 + cm(178);
       const wall = cm(4.5);
       const door = cm(6);
+      const liner = cm(1);
       const bin = cm(11);
       const leaf = w / 2;
       // The fridge's floor is the freezer drawer's top; heights inside are from it.
@@ -217,7 +219,15 @@ export const PROP_TEMPLATES = {
             'left',
             'Fridge side',
             [x, y + wall, floor],
-            [wall, d - wall, top - floor],
+            [wall - liner, d - wall, top - floor],
+            'steel',
+          ),
+          prism(
+            g,
+            'left-liner',
+            'Fridge side',
+            [x + wall - liner, y + wall, floor],
+            [liner, d - wall, top - floor],
             'appliance',
           ),
           ...pantry,
@@ -252,19 +262,52 @@ export const PROP_TEMPLATES = {
           ),
           prism(
             g,
-            'right',
+            'right-liner',
             'Fridge side',
             [x + w - wall, y + wall, floor],
-            [wall, d - wall, top - wall - floor],
+            [liner, d - wall, top - wall - floor],
+            'appliance',
+          ),
+          prism(
+            g,
+            'right',
+            'Fridge side',
+            [x + w - wall + liner, y + wall, floor],
+            [wall - liner, d - wall, top - wall - floor],
             'steel',
           ),
+          // Each door: its steel outside, then its lining and bins toward the middle.
           prism(
             g,
             'door',
             'Left door',
             [x - door, y + d, floor],
-            [door, leaf, top - floor],
+            [door - liner, leaf, top - floor],
+            'steel',
+          ),
+          prism(
+            g,
+            'door-liner',
+            'Left door',
+            [x - liner, y + d, floor],
+            [liner, leaf, top - floor],
             'appliance',
+          ),
+          prism(
+            g,
+            'door-right-liner',
+            'Right door',
+            [x + w, y + d, floor],
+            [liner, leaf, top - floor],
+            'appliance',
+          ),
+          prism(
+            g,
+            'door-right',
+            'Right door',
+            [x + w + liner, y + d, floor],
+            [door - liner, leaf, top - floor],
+            'steel',
           ),
           prism(
             g,
@@ -274,7 +317,7 @@ export const PROP_TEMPLATES = {
             [cm(8), leaf - cm(10), cm(18)],
             'appliance',
           ),
-          ...bins.map(([at, tall], i) =>
+          ...bins.flatMap(([at, tall], i) => [
             prism(
               g,
               `bin-left-${i + 1}`,
@@ -283,7 +326,15 @@ export const PROP_TEMPLATES = {
               [bin, leaf - cm(6), cm(tall)],
               'glass',
             ),
-          ),
+            prism(
+              g,
+              `bin-right-${i + 1}`,
+              'Door bin',
+              [x + w - bin, y + d + cm(3), floor + cm(at)],
+              [bin, leaf - cm(6), cm(tall)],
+              'glass',
+            ),
+          ]),
         ],
         surfaces: [
           ...shelves.map((s) => s.surface),
@@ -659,6 +710,46 @@ export function resizeRoom(scene: IsoScene, grid: { w: number; d: number }): Iso
   return next;
 }
 
+/** The fridge's top, right side and doors: what its cut-away view leaves out. */
+const FRIDGE_SHELL = /^(top|right|right-liner|door(-right)?(-liner)?|ice)$/;
+/** A door bin, and which door it is on. */
+const FRIDGE_BIN = /^bin-(left|right)-\d$/;
+/**
+ * A scene with each fridge's shell left out, so its shelves show from the
+ * room's corner. A door's bins stay when something stands in one of them:
+ * a thing of the scene, or one of `also` (fixtures, remembered objects).
+ */
+export function cutAway(scene: IsoScene, also: IsoBox[] = []): IsoScene {
+  const partOf = (p: IsoProp) => (p.template === 'fridge' ? p.id.slice(p.group.length + 1) : null);
+  const things = [...scene.props.filter((p) => p.template !== 'fridge'), ...also];
+  // A thing is in a bin when its middle is over the bin and its base inside it.
+  const holds = (bin: IsoBox) =>
+    things.some((t) => {
+      const x = t.at.x + t.size.w / 2;
+      const y = t.at.y + t.size.d / 2;
+      return (
+        x >= bin.at.x &&
+        x <= bin.at.x + bin.size.w &&
+        y >= bin.at.y &&
+        y <= bin.at.y + bin.size.d &&
+        t.at.z >= bin.at.z - 1e-6 &&
+        t.at.z < bin.at.z + bin.size.h
+      );
+    });
+  const full = new Set<string>();
+  for (const p of scene.props) {
+    const side = partOf(p)?.match(FRIDGE_BIN)?.[1];
+    if (side && holds(p)) full.add(`${p.group} ${side}`);
+  }
+  const shown = (p: IsoProp) => {
+    const part = partOf(p);
+    if (part === null) return true;
+    const side = part.match(FRIDGE_BIN)?.[1];
+    if (side) return full.has(`${p.group} ${side}`);
+    return !FRIDGE_SHELL.test(part);
+  };
+  return { ...scene, props: scene.props.filter(shown) };
+}
 /**
  * Turn the whole room a quarter clockwise (seen from above), about its floor
  * inside the walls, so it can be made to face the way its camera sees it.

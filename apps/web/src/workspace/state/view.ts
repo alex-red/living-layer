@@ -15,6 +15,7 @@ import { prefsOf, readSession, type StageView } from '../../session';
 import { parseSelection, selectionHash, type Selection, type WorkScene } from '../progress';
 import type { Tool } from '../ToolStrip';
 import type { FridgeView } from '../demoFridge';
+import type { FridgeAngle } from '../../iso/fridgeAngle';
 import { useStableSlice } from './stable';
 import type { Prefs, SessionSave } from '../../session';
 import type { Dispatch, RefObject, SetStateAction } from 'react';
@@ -43,6 +44,8 @@ export function useViewSlice(): ViewSlice {
   );
   // Which of the fridge's placeholder photos the picture pane shows.
   const [fridgeView, setFridgeView] = useState<FridgeView>('open');
+  // Which corner the fridge's model is seen from, or cut away.
+  const [fridgeAngle, setFridgeAngle] = useState<FridgeAngle>('right');
   const [overlay, setOverlay] = useState(boot.prefs.overlay);
   const [showTrail, setShowTrail] = useState(boot.prefs.trail);
   const [showPicture, setShowPicture] = useState(boot.prefs.picture);
@@ -135,6 +138,7 @@ export function useViewSlice(): ViewSlice {
     drawer,
     drawing,
     fixtureLook,
+    fridgeAngle,
     fridgeView,
     guess,
     isoPanel,
@@ -153,6 +157,7 @@ export function useViewSlice(): ViewSlice {
     setChoosingScene,
     setConcept,
     setDemoPosition,
+    setFridgeAngle,
     setFridgeView,
     setDraftZone,
     setDrawer,
@@ -213,6 +218,7 @@ export interface ViewSlice {
   drawer: boolean;
   drawing: boolean;
   fixtureLook: 'model' | 'picture';
+  fridgeAngle: FridgeAngle;
   fridgeView: FridgeView;
   guess: {
     kind: 'desk' | 'fridge' | 'office';
@@ -250,6 +256,7 @@ export interface ViewSlice {
   setChoosingScene: Dispatch<SetStateAction<boolean>>;
   setConcept: Dispatch<SetStateAction<string>>;
   setDemoPosition: Dispatch<SetStateAction<'centre' | 'front' | 'right'>>;
+  setFridgeAngle: Dispatch<SetStateAction<FridgeAngle>>;
   setFridgeView: Dispatch<SetStateAction<FridgeView>>;
   setDraftZone: Dispatch<SetStateAction<DraftZone>>;
   setDrawer: Dispatch<SetStateAction<boolean>>;

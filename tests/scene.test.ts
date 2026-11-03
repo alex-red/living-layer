@@ -10,6 +10,7 @@ import {
   buildScene,
   closeViewOf,
   closeViewShift,
+  cutAway,
   depthOrder,
   groupBounds,
   isoSceneSchema,
@@ -30,6 +31,7 @@ import {
   type PlacementDecision,
   type Segmentation,
 } from '@livinglayer/domain';
+import { fromAngle } from '../apps/web/src/iso/fridgeAngle.js';
 
 const asCustom = (s: IsoScene): IsoScene => ({ ...s, kind: 'custom' });
 function deskWithBook() {
@@ -153,6 +155,74 @@ describe('scene templates', () => {
       expect(p.size.w).toBeCloseTo(q.size.w);
       expect(p.turns ?? 0).toBe(q.turns ?? 0);
     });
+  });
+  it('draws both French doors, and cut away leaves the shelves and what is on them', () => {
+    const fridge = ISO_PRESETS.fridge;
+    const ids = new Set(fridge.props.map((p) => p.id));
+    for (const id of [
+      'fridge:door',
+      'fridge:door-right',
+      'fridge:bin-left-1',
+      'fridge:bin-right-1',
+    ])
+      expect(ids.has(id)).toBe(true);
+    const cut = cutAway(fridge);
+    const kept = new Set(cut.props.map((p) => p.id));
+    for (const id of [
+      'fridge:door',
+      'fridge:door-right',
+      'fridge:top',
+      'fridge:right',
+      'fridge:ice',
+    ])
+      expect(kept.has(id)).toBe(false);
+    for (const id of ['fridge', 'fridge:shelf-1', 'fridge:left', 'fridge:back', 'milk', 'eggs'])
+      expect(kept.has(id)).toBe(true);
+    expect(cut.surfaces).toEqual(fridge.surfaces);
+    expect([...kept].some((id) => id.startsWith('fridge:bin-'))).toBe(false);
+    // A sauce in the right door's bottom bin keeps that door's bins, not the door.
+    const bin = fridge.props.find((p) => p.id === 'fridge:bin-right-1')!;
+    const sauce = placeTemplate(
+      'bottle',
+      'sauce',
+      bin.at.x + 0.05,
+      bin.at.y + 0.3,
+      bin.at.z + 0.05,
+    );
+    const withSauce = cutAway({ ...fridge, props: [...fridge.props, ...sauce.props] });
+    const shown = withSauce.props.map((p) => p.id);
+    expect(shown).toContain('sauce');
+    expect(shown).toEqual(expect.arrayContaining(['fridge:bin-right-1', 'fridge:bin-right-3']));
+    expect(shown).not.toContain('fridge:bin-left-1');
+    expect(shown).not.toContain('fridge:door-right');
+    // A fixture there does the same.
+    const fixture = cutAway(fridge, [sauce.props[0]!]).props.map((p) => p.id);
+    expect(fixture).toContain('fridge:bin-right-2');
+  });
+  it('sees the fridge from its left corner, its things turned with it', () => {
+    const fridge = ISO_PRESETS.fridge;
+    const milk = fridge.props.find((p) => p.id === 'milk')!;
+    const item = { label: 'Milk', parts: [] };
+    const left = fromAngle('left', {
+      scene: fridge,
+      objects: [],
+      fixtures: [{ id: 'milk', label: 'Milk', box: milk, item, glow: false }],
+      zones: [],
+      trail: [{ x: 0.25, y: 0.75 }],
+    });
+    // A fixture lands where the turned scene puts the prop in its place.
+    const turned = left.scene.props.find((p) => p.id === 'milk')!;
+    expect(left.fixtures[0]!.box.at.x).toBeCloseTo(turned.at.x);
+    expect(left.fixtures[0]!.box.at.y).toBeCloseTo(turned.at.y);
+    expect(left.fixtures[0]!.box.size.w).toBeCloseTo(turned.size.w);
+    // The front (+y) faces +x: the back is at the low x, the open doors past the cabinet.
+    const at = (id: string) => left.scene.props.find((p) => p.id === id)!;
+    expect(at('fridge:back').at.x).toBeLessThan(at('fridge:shelf-1').at.x);
+    expect(at('fridge:door-right').at.x).toBeGreaterThan(
+      at('fridge:shelf-1').at.x + at('fridge:shelf-1').size.w - 1e-9,
+    );
+    // A point on a surface turns with the surface it is on.
+    expect(left.trail[0]).toEqual({ x: 0.75, y: 0.75 });
   });
   it('resizes the room, its walls stretched and the furniture kept inside', () => {
     const office = asCustom(ISO_PRESETS.office);
