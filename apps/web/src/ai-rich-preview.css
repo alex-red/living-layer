@@ -80,7 +80,7 @@
   box-shadow: 0 0 10px var(--aip-tone-glow);
 }
 .aip-dialog.running .aip-kicker-dot {
-  animation: aip-pulse 1.4s ease-in-out infinite;
+  animation: breathe 1.4s ease-in-out infinite;
 }
 .aip-clock {
   color: var(--text-3);
@@ -221,13 +221,13 @@
 .aip-caption {
   display: grid;
   gap: 2px;
-  font-size: 13px;
+  font-size: var(--fs-13);
   font-weight: 600;
 }
 .aip-caption small {
   color: var(--text-2);
   font-weight: 400;
-  font-size: 12px;
+  font-size: var(--fs-12);
 }
 .aip-follow {
   padding: 1px 6px;
@@ -251,7 +251,7 @@
 }
 .aip-step {
   position: relative;
-  animation: aip-rise var(--t-slow) var(--ease-out) backwards;
+  animation: rise-in var(--t-slow) var(--ease-out) backwards;
 }
 .aip-step:nth-child(2) {
   animation-delay: 40ms;
@@ -353,7 +353,7 @@ button.aip-step-row:hover {
   min-width: 0;
 }
 .aip-step-text strong {
-  font-size: 13px;
+  font-size: var(--fs-13);
   font-weight: 500;
   color: var(--text-2);
   transition: color var(--t-base);
@@ -369,7 +369,7 @@ button.aip-step-row:hover {
 .aip-step-text small {
   overflow: hidden;
   color: var(--text-3);
-  font-size: 12px;
+  font-size: var(--fs-12);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -406,7 +406,7 @@ button.aip-step-row:hover {
   border-radius: var(--r-card);
   background: var(--blocked-wash);
   color: var(--blocked);
-  font-size: 13px;
+  font-size: var(--fs-13);
 }
 
 /* Foot */
@@ -473,12 +473,6 @@ button.aip-step-row:hover {
     opacity: 0;
   }
 }
-@keyframes aip-rise {
-  from {
-    opacity: 0;
-    transform: translateY(6px);
-  }
-}
 @keyframes aip-pop {
   0% {
     transform: scale(0.6);
@@ -489,11 +483,6 @@ button.aip-step-row:hover {
     opacity: 0;
     filter: blur(8px) saturate(0.4);
     transform: scale(1.02);
-  }
-}
-@keyframes aip-pulse {
-  50% {
-    opacity: 0.35;
   }
 }
 @keyframes aip-breathe {
@@ -574,7 +563,7 @@ button.aip-step-row:hover {
 }
 .aip-runs .text-button {
   min-height: 24px;
-  font-size: 12px;
+  font-size: var(--fs-12);
 }
 .aip-runs code {
   color: var(--text-3);
@@ -604,7 +593,7 @@ button.aip-step-row:hover {
   border-radius: var(--r-card);
   background: rgb(255 255 255 / 2%);
   color: var(--text-2);
-  font-size: 12px;
+  font-size: var(--fs-12);
   text-align: left;
   transition:
     background var(--t-fast),

@@ -7,14 +7,6 @@
   height: 100%;
   min-height: 0;
 }
-.iso-surface-pick {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-}
-.iso-surface-pick select {
-  min-height: var(--control-h);
-}
 .iso-actions {
   display: inline-flex;
   flex-wrap: wrap;
@@ -177,7 +169,7 @@
 .iso-note {
   margin: 0;
   min-height: 18px;
-  font-size: 12px;
+  font-size: var(--fs-12);
   color: var(--text-2);
 }
 
@@ -204,7 +196,7 @@
 .pin-tag {
   z-index: 5;
   padding: 4px 8px;
-  border-radius: 2px;
+  border-radius: var(--r-chip);
   background: rgb(17 20 29 / 72%);
   color: var(--chosen);
   backdrop-filter: blur(12px) saturate(140%);
@@ -279,7 +271,7 @@
 }
 .studio-state-card strong {
   display: block;
-  font-size: 12px;
+  font-size: var(--fs-12);
   line-height: 14px;
 }
 .studio-state-card small {
@@ -301,7 +293,7 @@
   border-radius: var(--r-button);
   background: var(--surface-2);
   color: var(--text);
-  font-size: 12px;
+  font-size: var(--fs-12);
 }
 .studio-tools {
   display: flex;
@@ -353,7 +345,7 @@
   border-radius: var(--r-button);
   background: var(--surface-2);
   color: var(--text);
-  font-size: 12px;
+  font-size: var(--fs-12);
 }
 .studio-onion-ghost image {
   filter: saturate(0.3) drop-shadow(0 0 1px var(--seen));
@@ -443,7 +435,7 @@
   image-rendering: pixelated;
 }
 .starter-card strong {
-  font-size: 12px;
+  font-size: var(--fs-12);
   line-height: 15px;
 }
 .starter-card small {
@@ -473,7 +465,7 @@
 .item-editor small {
   margin: 0;
   color: var(--text-2);
-  font-size: 12px;
+  font-size: var(--fs-12);
 }
 .item-parts {
   display: flex;
@@ -504,7 +496,7 @@
   min-height: var(--control-h);
   padding: 0 8px;
   border: 1px solid transparent;
-  border-radius: 2px;
+  border-radius: var(--r-chip);
   background: none;
   color: var(--text-2);
   font: 500 12px/1 var(--mono);
@@ -522,7 +514,7 @@
   flex: none;
   width: 14px;
   height: 14px;
-  border-radius: 2px;
+  border-radius: var(--r-chip);
   border: 1px solid var(--line-strong);
 }
 .item-add,
@@ -673,7 +665,7 @@
   margin: 0;
   padding-left: 16px;
   color: var(--text-2);
-  font-size: 12px;
+  font-size: var(--fs-12);
 }
 @media (max-width: 767px) {
   .item-editor {
@@ -748,7 +740,7 @@
 }
 .layer-value {
   min-width: 2.5ch;
-  font-size: 12px;
+  font-size: var(--fs-12);
   font-variant-numeric: tabular-nums;
   color: var(--text-2);
   text-align: center;
@@ -756,7 +748,7 @@
 .scene-picked-name {
   max-width: 14ch;
   overflow: hidden;
-  font-size: 13px;
+  font-size: var(--fs-13);
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -801,7 +793,7 @@
 .scene-more > summary {
   width: fit-content;
   color: var(--text-2);
-  font-size: 12px;
+  font-size: var(--fs-12);
   cursor: pointer;
 }
 .scene-more > summary:hover {
@@ -848,7 +840,7 @@
 }
 .prop-picker-search {
   min-height: var(--control-h);
-  font-size: 12px;
+  font-size: var(--fs-12);
 }
 .prop-picker-shelves {
   display: flex;
@@ -965,7 +957,7 @@
   transform: scale(1.08) translateY(-2px);
 }
 .prop-card-label {
-  font-size: 12px;
+  font-size: var(--fs-12);
   font-weight: 600;
   white-space: nowrap;
   overflow: hidden;
@@ -1037,7 +1029,7 @@
   grid-column: 1 / -1;
   margin: 8px 0;
   color: var(--text-3);
-  font-size: 12px;
+  font-size: var(--fs-12);
 }
 @media (prefers-reduced-motion: reduce) {
   .prop-card,
@@ -1090,7 +1082,7 @@
   padding: 3px 0;
   overflow: hidden;
   color: var(--text-2);
-  font-size: 12px;
+  font-size: var(--fs-12);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1115,7 +1107,7 @@
   background: none;
   color: var(--text-2);
   font: inherit;
-  font-size: 12px;
+  font-size: var(--fs-12);
   text-align: left;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1139,7 +1131,7 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 12px;
+  font-size: var(--fs-12);
   color: var(--text-2);
 }
 .photo-review {
@@ -1212,7 +1204,7 @@
 .photo-things {
   width: 100%;
   border-collapse: collapse;
-  font-size: 13px;
+  font-size: var(--fs-13);
 }
 .photo-things th {
   text-align: left;
@@ -1230,7 +1222,7 @@
 .photo-things td small {
   display: block;
   color: var(--text-3);
-  font-size: 11px;
+  font-size: var(--fs-11);
 }
 .photo-things select {
   max-width: 140px;
@@ -1244,7 +1236,7 @@
 .photo-assists ol {
   margin: 6px 0 0;
   padding-left: 18px;
-  font-size: 12px;
+  font-size: var(--fs-12);
   color: var(--text-2);
 }
 @media (max-width: 767px) {
@@ -1257,67 +1249,7 @@
   }
 }
 
-/* Objects and rules */
-.rules-panel {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 16px;
-}
-.rules-panel section {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  min-width: 0;
-}
-.rules-list {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-.rules-list li {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 8px;
-  padding: 6px 8px;
-  border: 1px solid var(--line);
-  border-radius: 2px;
-  font-size: 13px;
-}
-.rules-actions,
-.rules-add,
-.rules-new {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-}
-.rules-add input,
-.rules-new input {
-  min-height: var(--control-h);
-  width: 120px;
-}
-.rules-panel .link {
-  border: 0;
-  background: none;
-  padding: 0;
-  color: var(--text-2);
-  font-size: 12px;
-  text-decoration: underline;
-  text-underline-offset: 3px;
-}
-.rules-panel .link:disabled {
-  opacity: 0.4;
-}
-.rules-panel small {
-  color: var(--text-3);
-  font-size: 12px;
-}
 @media (max-width: 767px) {
-  .rules-panel,
   .scene-editor-body {
     grid-template-columns: 1fr;
   }
@@ -1356,7 +1288,7 @@
 .scene-card-text {
   display: grid;
   gap: 2px;
-  font-size: 12px;
+  font-size: var(--fs-12);
 }
 .scene-card-text strong {
   font-size: 14px;
@@ -1404,7 +1336,7 @@
 }
 .pin-tag.pin-review button {
   min-height: var(--control-h);
-  font-size: 12px;
+  font-size: var(--fs-12);
 }
 /* Calibrating the room camera: the floor's tiles drawn through the camera the marks imply. */
 .calibrate-overlay .calibrate-grid {
@@ -1489,7 +1421,7 @@
 }
 .calibrate-panel button {
   min-height: var(--control-h);
-  font-size: 12px;
+  font-size: var(--fs-12);
 }
 .calibrate-tag input[type='number'] {
   width: 64px;
@@ -1675,7 +1607,7 @@
 /* Whether the model in the editor is saved, and what Save needs. */
 .item-save-state {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--fs-12);
   line-height: 16px;
   color: var(--text-3);
 }

@@ -37,6 +37,9 @@
   /* Type */
   --ui: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter Variable', system-ui, sans-serif;
   --mono: ui-monospace, 'SF Mono', 'JetBrains Mono Variable', Menlo, monospace;
+  --fs-11: 11px;
+  --fs-12: 12px;
+  --fs-13: 13px;
 
   /* Shape: nearly square, so the scene reads as an instrument, not an app. */
   --r-chip: 2px;

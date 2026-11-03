@@ -78,7 +78,7 @@
 :is(.primary, .secondary, .physical, .ghost).sm {
   min-height: var(--control-h-sm);
   padding: 0 8px;
-  font-size: 12px;
+  font-size: var(--fs-12);
 }
 .block {
   width: 100%;
@@ -94,7 +94,7 @@
   border: 0;
   background: none;
   color: var(--text-2);
-  font-size: 13px;
+  font-size: var(--fs-13);
   text-align: left;
   transition: color var(--t-fast);
 }
@@ -143,7 +143,7 @@
 .icon-button.sm {
   width: var(--control-h-sm);
   height: var(--control-h-sm);
-  font-size: 13px;
+  font-size: var(--fs-13);
 }
 .icon-button svg {
   width: 16px;
@@ -245,7 +245,7 @@ input[type='radio'] {
   gap: 8px;
   min-height: var(--control-h);
   color: var(--text-2);
-  font-size: 13px;
+  font-size: var(--fs-13);
   cursor: pointer;
 }
 .ui-check:hover {
@@ -274,7 +274,7 @@ input[type='radio'] {
   bottom: 2px;
   left: 2px;
   width: calc((100% - 4px) / var(--n));
-  border-radius: 2px;
+  border-radius: var(--r-chip);
   background: var(--surface-3);
   box-shadow:
     var(--glass-edge),
@@ -291,7 +291,7 @@ input[type='radio'] {
   border: 0;
   background: none;
   color: var(--text-2);
-  font-size: 12px;
+  font-size: var(--fs-12);
   font-weight: 600;
   white-space: nowrap;
   transition: color var(--t-fast);
@@ -328,11 +328,6 @@ input[type='radio'] {
   align-items: center;
   gap: 4px;
   margin-left: auto;
-}
-.ui-toolbar .divider {
-  width: 1px;
-  height: 16px;
-  background: var(--line-strong);
 }
 
 @media (prefers-reduced-motion: reduce) {
