@@ -9,6 +9,7 @@ import {
   keyFromName,
   objectById,
   ruleWho,
+  THING_ZONE,
   type DeskMemory,
   type ZoneStep,
   type ZoneActions,
@@ -51,6 +52,7 @@ import { watchStore } from '../watch';
 import { ScanFixtures } from './ScanFixtures';
 import { BoxOnlyNote, LocalOutline } from './LocalOutline';
 import { ChooseDevicesLink } from './ChooseDevicesLink';
+import { ThingZoneLink } from './ThingZoneLink';
 import { ZoneActionsEditor, actionsProblem, type ZoneThing } from './ZoneActions';
 import { Later } from '../Later';
 import { mainSurface, roomLabel, surfaceRows, type LabRead } from './labels';
@@ -1207,6 +1209,7 @@ function OtherPanel({ id }: { id: string }) {
             Add a rule for it →
           </Button>
         )}
+        {o.observation && <ThingZoneLink id={o.id} />}
         <Button variant="text" disabled={off} onClick={() => lab.openModel(o.id)}>
           Edit model →
         </Button>
@@ -1632,10 +1635,19 @@ function RulePanel({ id }: { id: string }) {
                 : who.charAt(0).toUpperCase() + who.slice(1)}
             </span>
             <Button variant="text" size="sm" disabled={off} onClick={() => lab.editRule(r.id)}>
-              Redraw or change →
+              {r.anchor ? 'Change →' : 'Redraw or change →'}
             </Button>
           </div>
         </div>
+        {r.anchor && (
+          <div className="zone-section">
+            <span className="tiny">Area</span>
+            <div className="zone-area drawn">
+              The {memory?.fixtures?.find((f) => f.id === r.anchor!.thingId)?.label ?? 'thing'} and{' '}
+              {r.anchor.padCm} cm round it, wherever it is
+            </div>
+          </div>
+        )}
         <SavedZoneActions ruleId={r.id} who={who} />
       </div>
       <LastRun decision={d} />
@@ -1729,7 +1741,12 @@ function NewRulePanel() {
   const { memory, ruleDraft: draft, entities } = lab;
   const { call, off } = useCall();
   if (!draft) return <SetupPanel />;
-  const things = zoneThings(memory);
+  // The thing a zone is can't stand in it.
+  const anchor = draft.anchor;
+  const things = zoneThings(memory).filter((t) => t.id !== anchor?.thingId);
+  const anchorLabel = anchor
+    ? (memory?.fixtures?.find((f) => f.id === anchor.thingId)?.label ?? 'thing')
+    : null;
   const set = (patch: Partial<typeof draft>) => lab.setRuleDraft({ ...draft, ...patch });
   const picked = (id: string) => draft.objects !== 'any' && draft.objects.includes(id);
   const toggle = (id: string) => {
@@ -1759,7 +1776,7 @@ function NewRulePanel() {
   };
   const problem = !draft.label.trim()
     ? 'Name the zone to save it.'
-    : !draft.rect
+    : !draft.rect && !anchor
       ? 'Draw the zone to save it.'
       : actionsProblem(draft.actions, motion ? [] : draft.objects);
   const where = motion ? 'the camera picture' : 'the room';
@@ -1768,15 +1785,17 @@ function NewRulePanel() {
       tiny={editing ? 'EDIT ZONE' : 'NEW ZONE'}
       title={draft.label.trim() || 'New zone'}
       status={
-        draft.rect
-          ? `Drawn. Drag again on ${where} to redraw it.`
-          : motion
-            ? 'Drag a rectangle on the camera picture around what should be watched for motion.'
-            : mainSurface(lab) || lab.progress.pinned
-              ? 'Drag a rectangle on the room to draw the zone.'
-              : 'Pin a surface first, so the zone can be drawn on it.'
+        anchor
+          ? `The ${anchorLabel}: the zone goes wherever it does.`
+          : draft.rect
+            ? `Drawn. Drag again on ${where} to redraw it.`
+            : motion
+              ? 'Drag a rectangle on the camera picture around what should be watched for motion.'
+              : mainSurface(lab) || lab.progress.pinned
+                ? 'Drag a rectangle on the room to draw the zone.'
+                : 'Pin a surface first, so the zone can be drawn on it.'
       }
-      tone={draft.rect ? 'chosen' : 'seen'}
+      tone={draft.rect || anchor ? 'chosen' : 'seen'}
     >
       <div className="zone-form">
         <div className="zone-section">
@@ -1868,11 +1887,42 @@ function NewRulePanel() {
         )}
         <div className="zone-section">
           <span className="tiny">Area</span>
-          <div className={`zone-area ${draft.rect ? 'drawn' : ''}`}>
-            {draft.rect
-              ? `${Math.round(draft.rect.width * 100)} × ${Math.round(draft.rect.height * 100)}% of the frame`
-              : `Not drawn yet: drag on ${motion ? 'the camera picture' : 'the room view'}`}
-          </div>
+          {anchor ? (
+            <>
+              <label className="zone-area drawn">
+                <span>The {anchorLabel}, and</span>
+                <input
+                  type="number"
+                  aria-label="Margin round it, cm"
+                  min={0}
+                  max={THING_ZONE.maxPadCm}
+                  step={0.5}
+                  value={anchor.padCm}
+                  onChange={(e) => {
+                    const padCm = Number(e.target.value);
+                    if (Number.isFinite(padCm))
+                      set({
+                        anchor: {
+                          ...anchor,
+                          padCm: Math.min(Math.max(padCm, 0), THING_ZONE.maxPadCm),
+                        },
+                      });
+                  }}
+                />
+                <span>cm round it</span>
+              </label>
+              <p className="micro">
+                Something counts as on it while it stands over the {anchorLabel} or this close to
+                its edge. Hidden under what stands on it, it keeps its last place.
+              </p>
+            </>
+          ) : (
+            <div className={`zone-area ${draft.rect ? 'drawn' : ''}`}>
+              {draft.rect
+                ? `${Math.round(draft.rect.width * 100)} × ${Math.round(draft.rect.height * 100)}% of the frame`
+                : `Not drawn yet: drag on ${motion ? 'the camera picture' : 'the room view'}`}
+            </div>
+          )}
         </div>
         <div className="zone-section">
           <span className="tiny">Actions</span>
@@ -1901,8 +1951,12 @@ function NewRulePanel() {
                     entityId: null,
                     actions: draft.actions,
                     ...(motion ? { motion } : {}),
-                    rect: draft.rect,
-                    ...(draft.onSurface ? { onSurface: draft.onSurface } : {}),
+                    ...(anchor
+                      ? { anchor }
+                      : {
+                          rect: draft.rect!,
+                          ...(draft.onSurface ? { onSurface: draft.onSurface } : {}),
+                        }),
                   },
                 },
                 (m) => {

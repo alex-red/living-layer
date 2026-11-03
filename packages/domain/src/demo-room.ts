@@ -31,6 +31,24 @@ const desk = DEMO_ROOM.surfaces.find((s) => s.id === 'desk:top')!;
 /** A cream mug about 8.5 cm across and 9.5 cm tall, coffee in it, its handle to the right. */
 export const DEMO_MUG = { r: cm(4.25), h: cm(9.5), color: '#e3d9c6', coffee: '#6b5443' } as const;
 
+/** A cork coaster about 10 cm across, under where the mug stands on the right. */
+const DEMO_COASTER = {
+  x: DEMO_POSITIONS.right.x,
+  y: DEMO_POSITIONS.right.y,
+  r: cm(5),
+  h: cm(0.5),
+  color: '#a9825a',
+} as const;
+const coasterSolid: RoomSolid = {
+  id: 'coaster',
+  box: {
+    at: { x: DEMO_COASTER.x - DEMO_COASTER.r, y: DEMO_COASTER.y - DEMO_COASTER.r, z: desk.z },
+    size: { w: 2 * DEMO_COASTER.r, d: 2 * DEMO_COASTER.r, h: DEMO_COASTER.h },
+  },
+  shape: 'cylinder',
+  color: hexLab(DEMO_COASTER.color),
+};
+
 /** The mug's solids at a position: its body and handle, on the desk top. */
 function demoMugSolids(position: DemoPosition): RoomSolid[] {
   const { x, y } = DEMO_POSITIONS[position];
@@ -73,6 +91,7 @@ export function demoFrame(position: DemoPosition = 'centre') {
     picture = renderRoom(DEMO_CAMERA, [
       floorSolid(DEMO_ROOM.grid),
       ...sceneSolids(DEMO_ROOM),
+      coasterSolid,
       ...demoMugSolids(position),
     ]);
     frames.set(position, picture);
@@ -99,6 +118,7 @@ export function demoCloseUp(position: DemoPosition = 'centre') {
     picture = renderRoom(camera, [
       floorSolid(DEMO_ROOM.grid),
       ...sceneSolids(DEMO_ROOM),
+      coasterSolid,
       ...demoMugSolids(position),
     ]);
     closeUps.set(position, picture);

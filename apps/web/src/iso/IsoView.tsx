@@ -21,6 +21,9 @@ import {
   ruleSighting,
   actionsColor,
   MAIN_RULE,
+  anchoredZone,
+  type ZoneAnchor,
+  type Quad,
   pinFits,
   rotateItem,
   projectBox,
@@ -124,6 +127,8 @@ export interface RuleDraft {
   rect: ZoneRect | null;
   /** Where in the room it was drawn, when it was drawn here. */
   onSurface?: ZoneOnSurface;
+  /** Set for a zone that is a thing: it isn't drawn, it is wherever the thing is. */
+  anchor?: ZoneAnchor;
 }
 /** A zone being drawn: its frame rectangle, and where in the room when drawn in the room. */
 export type DraftZone = ZoneRect & { onSurface?: ZoneOnSurface };
@@ -439,6 +444,8 @@ function IsoViewOf({
       });
     for (const rule of memory?.rules ?? []) {
       const map = pinned && pin ? surfaceMap(pin, rule.zone.frame) : null;
+      // A zone that is a thing is its footprint on the surface; the box round it in the frame is bigger.
+      const on = rule.anchor && rule.zone.onSurface?.surfaceId === pin?.surfaceId;
       // A rule being changed shows as its draft only; the main one, once, as above when it can be.
       const shown = rule.id === MAIN_RULE && zones.some((z) => z.id === 'main');
       if (map && rule.id !== ruleDraft?.id && !shown) {
@@ -448,16 +455,27 @@ function IsoViewOf({
           kind: 'rule',
           label: rule.label,
           inside: rule.placement === 'inside',
-          quad: zoneOnSurface(
-            rule.motion ? footBand(rule.zone.rect) : rule.zone.rect,
-            rule.zone.frame,
-            map.toSurface,
-          ),
+          quad: on
+            ? cornersOf(rule.zone.onSurface!)
+            : zoneOnSurface(
+                rule.motion ? footBand(rule.zone.rect) : rule.zone.rect,
+                rule.zone.frame,
+                map.toSurface,
+              ),
           ...(rgb ? { color: `rgb(${rgb.join(' ')})` } : {}),
           ...(rule.motion ? { motion: true } : {}),
         });
       }
     }
+    // A thing's zone being set up shows where the thing is now.
+    const anchored = ruleDraft?.anchor && memory ? anchoredZone(memory, ruleDraft.anchor) : null;
+    if (anchored?.onSurface && anchored.onSurface.surfaceId === pin?.surfaceId)
+      zones.push({
+        id: 'draft',
+        kind: 'draft',
+        label: ruleDraft!.label.trim() || 'New zone',
+        quad: cornersOf(anchored.onSurface),
+      });
     // A rule's zone is drawn on the frame of the newest sighting of what it counts.
     const ruleTarget = ruleDraft && memory ? ruleSighting(memory, ruleDraft.objects) : null;
     const ruleMap = ruleTarget && pinned && pin ? surfaceMap(pin, ruleTarget.frame) : null;
@@ -512,7 +530,8 @@ function IsoViewOf({
           // The main zone's old empty entity is the main lamp, lit by `lampOn`.
           if (s.kind === 'switch' && s.to === 'on' && s.entityId) lit.add(s.entityId);
     // A motion zone is drawn on the camera's picture: a plushie stands above the surface.
-    const drawingRule = Boolean(ruleDraft && ruleMap && !ruleDraft.motion);
+    // A zone that is a thing isn't drawn: it is wherever the thing is.
+    const drawingRule = Boolean(ruleDraft && ruleMap && !ruleDraft.motion && !ruleDraft.anchor);
     return { objects, note, o, mug, trail, zones, ruleTarget, ruleMap, lit, drawingRule };
   }, [
     memory,
@@ -974,4 +993,9 @@ function IsoViewOf({
       )}
     </div>
   );
+}
+
+/** A zone's two corners on a surface, as its four, round the way a drawn zone's go. */
+function cornersOf({ a, b }: Pick<ZoneOnSurface, 'a' | 'b'>): Quad {
+  return [a, { x: b.x, y: a.y }, b, { x: a.x, y: b.y }];
 }

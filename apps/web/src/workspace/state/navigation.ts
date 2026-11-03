@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ISO_PRESETS, ruleActions } from '@livinglayer/domain';
+import { ISO_PRESETS, THING_ZONE, ruleActions } from '@livinglayer/domain';
 import { api } from '../../api';
 import type { RuleDraft } from '../../iso/IsoView';
 import {
@@ -162,19 +162,34 @@ export function useNavigationSlice(
     const taken = new Set(memory?.rules?.map((r) => r.label));
     let n = (memory?.rules?.length ?? 0) + 1;
     while (taken.has(`Zone ${n}`)) n++;
-    const light = entities[0];
     openRule({
       objects: objectId ? [objectId] : 'any',
-      // A zone's light follows it to start with: on when it fills, off when it empties.
-      actions: light
-        ? {
-            onEnter: [{ kind: 'switch', entityId: light, to: 'on' }],
-            onLeave: [{ kind: 'switch', entityId: light, to: 'off' }],
-          }
-        : { onEnter: [], onLeave: [] },
+      actions: lightActions(),
       label: `Zone ${n}`,
       rect: null,
     });
+  }
+  /** Set up a zone that is a thing: anything stood on it, wherever it is. */
+  function startThingZone(thingId: string) {
+    const thing = memory?.fixtures?.find((f) => f.id === thingId);
+    if (!thing) return;
+    openRule({
+      objects: 'any',
+      actions: lightActions(),
+      label: `On the ${thing.label}`.slice(0, 40),
+      rect: null,
+      anchor: { thingId, padCm: THING_ZONE.padCm },
+    });
+  }
+  /** A zone's light follows it to start with: on when it fills, off when it empties. */
+  function lightActions(): RuleDraft['actions'] {
+    const light = entities[0];
+    return light
+      ? {
+          onEnter: [{ kind: 'switch', entityId: light, to: 'on' }],
+          onLeave: [{ kind: 'switch', entityId: light, to: 'off' }],
+        }
+      : { onEnter: [], onLeave: [] };
   }
   /** Open a saved rule in the rule builder: its zone dragged again, anything else changed. */
   function editRule(id: string) {
@@ -187,8 +202,12 @@ export function useNavigationSlice(
       actions: ruleActions(r),
       ...(r.motion ? { motion: r.motion } : {}),
       label: r.label,
-      rect: r.zone.rect,
-      ...(r.zone.onSurface ? { onSurface: r.zone.onSurface } : {}),
+      ...(r.anchor
+        ? { rect: null, anchor: { thingId: r.anchor.thingId, padCm: r.anchor.padCm } }
+        : {
+            rect: r.zone.rect,
+            ...(r.zone.onSurface ? { onSurface: r.zone.onSurface } : {}),
+          }),
     });
   }
   function openRule(draft: RuleDraft) {
@@ -238,6 +257,7 @@ export function useNavigationSlice(
     sceneLabel,
     select,
     startRule,
+    startThingZone,
   });
 }
 /** What the Navigation slice of the lab offers: its state, derived values and actions. */
@@ -253,4 +273,5 @@ export interface NavigationSlice {
   sceneLabel: string | null;
   select: (next: Selection | null) => void;
   startRule: (objectId?: string) => void;
+  startThingZone: (thingId: string) => void;
 }

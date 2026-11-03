@@ -63,6 +63,7 @@ import { Ago, Details, Panel, useCall } from './panel';
 import { useStore } from './state/store';
 import { watchStore } from '../watch';
 import { ChooseDevicesLink } from './ChooseDevicesLink';
+import { ThingZoneLink } from './ThingZoneLink';
 import { ScanFixtures } from './ScanFixtures';
 import { BoxOnlyNote, LocalOutline } from './LocalOutline';
 import { useScenes, type WorkScene } from './fixture-scenes';
@@ -925,6 +926,7 @@ export function FixturePanel({ id }: { id: string }) {
         <a className="text-button" href={`/studio?thing=${encodeURIComponent(f.id)}`}>
           Studio ↗
         </a>
+        <ThingZoneLink id={f.id} />
       </div>
       <Details summary="States" open={stateNames.length > 0}>
         {stateNames.length > 0 && (

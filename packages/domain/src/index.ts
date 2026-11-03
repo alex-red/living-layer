@@ -2,6 +2,7 @@ export * from './api.js';
 export * from './cost.js';
 export * from './memory.js';
 export * from './rules.js';
+export * from './thing-zone.js';
 export * from './zone-actions.js';
 export * from './motion-zone.js';
 export * from './fixture.js';

@@ -185,6 +185,7 @@ const DEMO_CONCEPTS: [RegExp, (name: string) => boolean][] = [
   [/\bkeyboards?\b/, (n) => n === 'keyboard'],
   [/\b(book|notebook)s?\b/, (n) => n === 'book'],
   [/\bbottles?\b/, (n) => n === 'bottle'],
+  [/\bcoasters?\b/, (n) => n === 'coaster'],
   [/\blamps?\b/, (n) => n === 'lamp'],
   [/\bchairs?\b/, (n) => n === 'chair'],
   [/\b(plant|pot)s?\b/, (n) => n === 'plant'],

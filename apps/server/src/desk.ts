@@ -39,6 +39,8 @@ import {
   ruleObjects,
   ruleSighting,
   withoutThings,
+  anchoredZone,
+  placeAnchor,
   MAX_OTHER_OBJECTS,
   MAX_RULES,
   placeSeen,
@@ -361,8 +363,8 @@ export function createDesk(
     };
   }
   /**
-   * Check the extra rules, all of them or only those counting one object.
-   * Each rule keeps its own occupied/empty story, switches its entity on only
+   * Check the extra rules, all of them or only those counting one object or
+   * that are it, a zone that is a thing moved first to where it is. Each rule keeps its own occupied/empty story, switches its entity on only
    * when the zone fills (and off when it empties, if asked), and can act at
    * most once per segmentation each way, like the main zone.
    */
@@ -382,9 +384,14 @@ export function createDesk(
     // Each rule is judged and saved against the memory as it is then; none is held over an await.
     for (const ruleId of ruleLabels.keys()) {
       const step = store.updateMemory(mode, (memory) => {
-        const rule = memory.rules?.find((r) => r.id === ruleId);
-        if (!rule || (objectId && !ruleObjects(memory, rule).includes(objectId))) return null;
+        const was = memory.rules?.find((r) => r.id === ruleId);
+        const moves = Boolean(objectId && was?.anchor?.thingId === objectId);
+        if (!was || (objectId && !moves && !ruleObjects(memory, was).includes(objectId)))
+          return null;
         const judged = local ? withSighting(memory, local.objectId, local) : memory;
+        // A zone that is a thing goes where the thing is now, before anything is judged in it.
+        const rule = placeAnchor(judged, was);
+        if (rule !== was) memory.rules = memory.rules!.map((r) => (r.id === ruleId ? rule : r));
         const { inside, objectId: by, ...gate } = ruleGate(judged, rule);
         const o = by ? (objectById(judged, by)?.observation ?? null) : null;
         const decision: PlacementDecision = {
@@ -1010,7 +1017,8 @@ export async function deskRoutes(
   /**
    * Save an extra zone that counts some things, or any, and one light or
    * switch, or none. Like the main zone, it belongs to the image of the
-   * newest sighting among the things it counts.
+   * newest sighting among the things it counts; a zone that is a thing is
+   * wherever that thing is now.
    */
   app.post('/rules/save', async (request) => {
     const { mode, rule: input } = parseInput(deskRulesSaveBodySchema, request.body);
@@ -1028,6 +1036,18 @@ export async function deskRoutes(
       throw new LabError(
         'not_calibrated',
         'Calibrate the camera first: a motion zone is drawn on its frames.',
+        409,
+      );
+    const anchor = input.anchor && memory.fixtures?.find((f) => f.id === input.anchor!.thingId);
+    if (input.anchor && !anchor)
+      throw new LabError('zone_anchor', 'That thing is gone. Refresh and try again.', 409);
+    const anchored = input.anchor ? anchoredZone(memory, input.anchor) : null;
+    if (input.anchor && !anchored)
+      throw new LabError(
+        'zone_anchor',
+        anchor?.track
+          ? `The ${anchor.label} can’t be placed yet: confirm it in the camera’s view.`
+          : `The ${anchor?.label ?? 'thing'} isn’t on the surface zones are drawn on. Put it there, or pin its surface.`,
         409,
       );
     if (input.entityId !== null && !entities(mode).includes(input.entityId))
@@ -1056,9 +1076,17 @@ export async function deskRoutes(
       ...(input.look && input.entityId?.startsWith('light.') ? { look: input.look } : {}),
       ...(input.actions ? { actions: input.actions } : {}),
       ...(input.motion ? { motion: input.motion } : {}),
-      zone: {
+      ...(input.anchor
+        ? {
+            anchor: {
+              ...input.anchor,
+              ...(anchor?.track ? { seenAt: anchor.track.observation.observedAt } : {}),
+            },
+          }
+        : {}),
+      zone: anchored ?? {
         sourceKey: o?.sourceKey ?? 'camera',
-        rect: input.rect,
+        rect: input.rect!,
         frame,
         ...(input.onSurface ? { onSurface: input.onSurface } : {}),
       },

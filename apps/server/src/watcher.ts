@@ -97,12 +97,17 @@ export function watchedThings(memory: DeskMemory): Seen[] {
     concept: f.track.concept,
   }));
 }
-/** A thing's zones as shares of the frame, each with SAM's last verdict. */
+/**
+ * A thing's zones as shares of the frame, each with SAM's last verdict. A
+ * zone that is the thing is one it stands inside: moved off where it was, it
+ * crosses that edge, and judging it there moves the zone after it.
+ */
 function zonesOf(memory: DeskMemory, objectId: string): WatchSubject['zones'] {
   const zones: WatchSubject['zones'] = [];
   // A zone counting several things is crossed by each on its own.
   for (const r of memory.rules ?? [])
-    if (ruleObjects(memory, r).includes(objectId))
+    if (r.anchor?.thingId === objectId) zones.push({ id: r.id, rect: r.zone.rect, inside: true });
+    else if (ruleObjects(memory, r).includes(objectId))
       zones.push({ id: r.id, rect: r.zone.rect, inside: r.inside?.includes(objectId) ?? false });
   return zones;
 }

@@ -11,6 +11,7 @@ import { entityIdSchema, fixtureEntities } from './fixture.js';
 import { stepEntities, zoneActionsSchema, type ZoneActions } from './zone-actions.js';
 import { motionTriggerSchema, type MotionTrigger } from './motion-zone.js';
 import { isoSurface, projectBox, surfaceMap } from './iso.js';
+import { anchoredZone, zoneAnchorSchema, type ZoneAnchor } from './thing-zone.js';
 import {
   MAIN_RULE,
   calibrationOf,
@@ -237,6 +238,12 @@ export interface PlacementRule {
    * move in it on the watched camera (`nextMotion`). Its `objects` is `any`.
    */
   motion?: MotionTrigger;
+  /**
+   * Set for a zone that is a thing (a coaster): `zone` is then where that
+   * thing was last seen or put (`anchoredZone`), moved as it moves, and
+   * `seenAt` the sighting it was placed from. The thing never counts itself.
+   */
+  anchor?: ZoneAnchor & { seenAt?: string };
   zone: {
     sourceKey: string;
     rect: ZoneRect;
@@ -266,10 +273,21 @@ export const ruleInputSchema = z
     look: lightLookSchema.optional(),
     actions: zoneActionsSchema.optional(),
     motion: motionTriggerSchema.optional(),
-    rect: zoneRectSchema,
+    /** Where it is drawn; none for a zone that is a thing. */
+    rect: zoneRectSchema.optional(),
     onSurface: zoneOnSurfaceSchema.optional(),
+    anchor: zoneAnchorSchema.optional(),
   })
   .strict()
+  .refine((r) => Boolean(r.rect) !== Boolean(r.anchor), {
+    message: 'A zone is drawn or is a thing, not both.',
+  })
+  .refine((r) => !r.anchor || (!r.onSurface && !r.motion), {
+    message: 'A zone that is a thing is wherever the thing is.',
+  })
+  .refine((r) => !r.anchor || r.objects === 'any' || !r.objects.includes(r.anchor.thingId), {
+    message: 'A thing can’t stand on itself.',
+  })
   .refine((r) => r.entityId || !r.fixtureId, { message: 'A fixture needs its entity.' })
   .refine((r) => r.entityId || !r.offWhenEmpty, {
     message: 'Nothing to switch off.',
@@ -285,8 +303,9 @@ export const ruleInputSchema = z
     'label' | 'objects' | 'entityId' | 'fixtureId' | 'offWhenEmpty' | 'look' | 'actions' | 'motion'
   > & {
     id?: string;
-    rect: ZoneRect;
+    rect?: ZoneRect;
     onSurface?: ZoneOnSurface;
+    anchor?: ZoneAnchor;
   }
 >;
 /** Everything the camera follows: each thing with a sighting. */
@@ -295,7 +314,8 @@ function followedIds(memory: DeskMemory): string[] {
 }
 /**
  * The things a rule counts that are still remembered. A fixture never counts
- * toward the entity it switches: it can't switch itself on by moving.
+ * toward the entity it switches: it can't switch itself on by moving. Nor
+ * does the thing a zone is count in it.
  */
 export function ruleObjects(memory: DeskMemory, rule: PlacementRule): string[] {
   // A motion zone is judged by pixels, not by things.
@@ -311,14 +331,16 @@ export function ruleObjects(memory: DeskMemory, rule: PlacementRule): string[] {
     const f = switched.length ? memory.fixtures?.find((x) => x.id === id) : undefined;
     return Boolean(f && fixtureEntities(f).some((e) => switched.includes(e)));
   };
-  return ids.filter((id) => id !== rule.fixtureId && !switches(id));
+  return ids.filter((id) => id !== rule.fixtureId && id !== rule.anchor?.thingId && !switches(id));
 }
 /**
  * Rules once things are forgotten: each stops counting them, and one left
- * counting nothing goes, since it can't be checked any more.
+ * counting nothing goes, since it can't be checked any more, as does a zone
+ * that was one of them.
  */
 export function withoutThings(rules: PlacementRule[] | undefined, gone: string[]): PlacementRule[] {
   return (rules ?? []).flatMap((r) => {
+    if (r.anchor && gone.includes(r.anchor.thingId)) return [];
     if (r.objects === 'any')
       return [{ ...r, inside: r.inside?.filter((id) => !gone.includes(id)) }];
     const objects = r.objects.filter((id) => !gone.includes(id));
@@ -327,6 +349,22 @@ export function withoutThings(rules: PlacementRule[] | undefined, gone: string[]
       ? [r]
       : [{ ...r, objects, inside: r.inside?.filter((id) => objects.includes(id)) }];
   });
+}
+/**
+ * A zone that is a thing, moved to where the thing is now: when it has been
+ * seen since the zone was placed, or always for a thing put by hand. A thing
+ * not seen since holds its zone, as it is most often only covered by what
+ * stands on it. Any other rule, or one whose thing can't be placed, as it is.
+ */
+export function placeAnchor(memory: DeskMemory, rule: PlacementRule): PlacementRule {
+  const anchor = rule.anchor;
+  if (!anchor) return rule;
+  const thing = memory.fixtures?.find((f) => f.id === anchor.thingId);
+  const seenAt = thing?.track?.observation.observedAt;
+  if (seenAt && anchor.seenAt && Date.parse(seenAt) <= Date.parse(anchor.seenAt)) return rule;
+  const zone = anchoredZone(memory, anchor);
+  if (!zone) return rule;
+  return { ...rule, zone, anchor: seenAt ? { ...anchor, seenAt } : anchor };
 }
 /** What a rule counts, in words: "anything", "the mug", "the mug or the book". */
 export function ruleWho(
