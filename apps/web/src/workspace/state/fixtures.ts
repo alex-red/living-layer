@@ -6,7 +6,15 @@ import type {
   FixtureInput,
   SelectionShape,
 } from '@livinglayer/domain';
-import { closeViewOf, fixtureAt, fixtureBox, inRoomView, fixtureInput } from '@livinglayer/domain';
+import {
+  DEMO_SURFACE,
+  closeViewOf,
+  fixtureAt,
+  fixtureBox,
+  fixtureOutlineBox,
+  inRoomView,
+  fixtureInput,
+} from '@livinglayer/domain';
 import { api } from '../../api';
 import type { FixturePlacing } from '../../iso/IsoView';
 import { SHORTCUTS } from '../../shortcuts';
@@ -271,6 +279,9 @@ export function useFixturesSlice(
     replace: boolean,
     addNew: boolean,
   ): Promise<MappedThing[] | null> {
+    return (await scan(scene, replace, addNew))?.mapped ?? null;
+  }
+  async function scan(scene: IsoSceneKind | 'custom', replace: boolean, addNew: boolean) {
     if (busy) return null;
     // What the camera shows now, which is the frame the pin was set on, not the last one captured.
     const photo = frameNow();
@@ -310,13 +321,67 @@ export function useFixturesSlice(
           : 'The scan found nothing that stays put.',
       );
       void refresh().catch(() => {});
-      return result.mapped;
+      return { ...result, photo };
     } catch (e) {
       setError(e instanceof Error ? e : 'The scan failed.');
       return null;
     } finally {
       // A stop has already freed the lab for the next call.
       if (!aiRun.current) setBusy((b) => (b === 'scan' ? '' : b));
+    }
+  }
+  /**
+   * Everything on the desk from one look: a scan that adds what it hasn't got
+   * yet, then each scanned thing the camera sees followed from where the scan
+   * saw it, outlined on this machine in the frame it scanned (no model call
+   * past the scan's own) and confirmed. A thing already followed keeps its
+   * track.
+   */
+  async function findOnDesk(scene: IsoSceneKind | 'custom') {
+    const scanned = await scan(scene, true, true);
+    if (!scanned) return;
+    const saved = scanned.memory;
+    const pin = mode === 'live' ? saved.surface : DEMO_SURFACE;
+    if (!pin) return;
+    const todo = (saved.fixtures ?? []).flatMap((f) => {
+      if (f.scene !== scene || !f.scanned || f.track) return [];
+      const shape = fixtureOutlineBox(f, pin, saved.scene ?? null);
+      return shape ? [{ fixture: f, shape }] : [];
+    });
+    if (!todo.length) return;
+    setBusy('follow-desk');
+    let next = saved;
+    const missed: string[] = [];
+    try {
+      for (const { fixture, shape } of todo) {
+        const run = await api('segment', {
+          mode,
+          concept: fixture.label.trim().toLowerCase(),
+          shape,
+          ...(mode === 'demo' ? { demoPosition } : { imageDataUrl: scanned.photo }),
+        });
+        if (!run.output.detections.length) {
+          missed.push(fixture.label);
+          continue;
+        }
+        next = await api('fixtures/anchor', {
+          mode,
+          id: fixture.id,
+          segmentRunId: run.id,
+          detectionId: run.output.detections[0]!.objectId,
+        });
+      }
+      setMemory(next);
+      const followed = todo.length - missed.length;
+      setMessage(
+        `Following ${followed} thing${followed === 1 ? '' : 's'} on the desk, outlined on this machine${missed.length ? `; couldn’t outline ${missed.join(', ').toLowerCase()}: draw round ${missed.length === 1 ? 'it' : 'them'} in ${missed.length === 1 ? 'its' : 'their'} panel` : ''}.${watching ? '' : ' Watch on the server to keep following them.'}`,
+      );
+    } catch (e) {
+      setMemory(next);
+      setError(e instanceof Error ? e : 'Could not follow what the scan found.');
+    } finally {
+      setBusy('');
+      void refresh().catch(() => {});
     }
   }
   /**
@@ -573,6 +638,7 @@ export function useFixturesSlice(
       chooseFixtureDraft,
       deleteFixtures,
       findFixture,
+      findOnDesk,
       illustrate,
       inRoomViewOf,
       outlineFixture,
@@ -595,6 +661,7 @@ export interface FixturesSlice {
   chooseFixtureDraft: (id: string, draft: number) => Promise<void>;
   deleteFixtures: (ids: string[], dismiss?: boolean) => Promise<void>;
   findFixture: (id: string) => Promise<void>;
+  findOnDesk: (scene: IsoSceneKind | 'custom') => Promise<void>;
   illustrate: (view?: 'room' | 'desk', note?: string) => Promise<void>;
   inRoomViewOf: (f: Pick<Fixture, 'scene'>) => boolean;
   outlineFixture: (

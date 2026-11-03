@@ -1,4 +1,5 @@
 import { pointInPolygon } from './math.js';
+import type { SelectionShape } from './selection.js';
 import { z } from 'zod';
 import {
   CONTROL_KINDS,
@@ -1050,4 +1051,29 @@ export function fixtureInFrame(
   // Less than a few pixels in view isn't something SAM can be pointed at.
   if (right - left < 4 || bottom - top < 4) return null;
   return { x: left, y: top, width: right - left, height: bottom - top };
+}
+
+/**
+ * A box drawn round where the pinned camera should see a fixture, grown by
+ * `grow` of its size each way, as if a person had drawn it: outlining inside
+ * it on this machine follows the fixture with no model call. Null when the
+ * camera can't see it.
+ */
+export function fixtureOutlineBox(
+  fixture: Parameters<typeof fixtureInFrame>[0],
+  pin: SurfacePin,
+  custom: IsoScene | null,
+  grow = 0.15,
+): SelectionShape | null {
+  const b = fixtureInFrame(fixture, pin, custom);
+  if (!b) return null;
+  const { width: W, height: H } = pin.frame;
+  const milli = (v: number, of: number) => Math.round(Math.max(0, Math.min(1, v / of)) * 1000);
+  const box = {
+    x1: milli(b.x - b.width * grow, W),
+    y1: milli(b.y - b.height * grow, H),
+    x2: milli(b.x + b.width * (1 + grow), W),
+    y2: milli(b.y + b.height * (1 + grow), H),
+  };
+  return box.x2 > box.x1 && box.y2 > box.y1 ? { kind: 'rect', box } : null;
 }

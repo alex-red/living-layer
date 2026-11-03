@@ -524,6 +524,7 @@ function SurfacePanel({ id, closeView }: { id: string; closeView?: boolean }) {
     useNavigation(),
     useCalibration(),
     useProbes(),
+    useFixtures(),
   );
   const { memory, mode, image, busy, progress, pinning } = lab;
   const rows = surfaceRows(lab);
@@ -546,6 +547,8 @@ function SurfacePanel({ id, closeView }: { id: string; closeView?: boolean }) {
   const title = closeView && progress.view ? viewLabel(progress.view) : row.surface.label;
   // The room's calibrated camera sees every surface of the room; a close view has its own camera.
   const findable = !closeView && Boolean(memory?.camera || mode === 'demo');
+  // A close view's scene, which one look can scan and follow.
+  const deskScene = closeView && progress.view ? pinScene(progress.view) : null;
   return (
     <Panel
       tiny={
@@ -565,14 +568,41 @@ function SurfacePanel({ id, closeView }: { id: string; closeView?: boolean }) {
       }
       tone={row.pinned ? 'ok' : 'seen'}
     >
+      {row.pinned && deskScene && (
+        <>
+          <Button
+            variant="primary"
+            disabled={Boolean(busy) || (mode === 'live' && !image && !lab.camera)}
+            onClick={() => void lab.findOnDesk(deskScene)}
+          >
+            {busy === 'scan'
+              ? 'Scanning…'
+              : busy === 'follow-desk'
+                ? 'Following…'
+                : 'Find what’s on the desk'}
+            <Glyph type="arrow" />
+          </Button>
+          <p className="micro">
+            Scans what the camera shows, adds what the room hasn’t got, and follows each one,
+            outlined on this machine. A mug or anything else that moves isn’t a fixture: add it by
+            hand.
+          </p>
+          {mode === 'live' && <Cost>1 Spark and 1 SAM call for the scan; following is free.</Cost>}
+        </>
+      )}
       {row.pinned ? (
         <Button
-          variant="primary"
+          variant={deskScene ? 'secondary' : 'primary'}
           onClick={() =>
             lab.select(memory?.object ? { kind: 'object', id: 'main' } : { kind: 'add' })
           }
         >
-          {memory?.object ? `Open ${memory.object.label}` : 'Find objects'} <Glyph type="arrow" />
+          {memory?.object
+            ? `Open ${memory.object.label}`
+            : deskScene
+              ? 'Add one by hand'
+              : 'Find objects'}{' '}
+          <Glyph type="arrow" />
         </Button>
       ) : needPhoto ? (
         <div className="save-actions">
