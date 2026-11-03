@@ -93,6 +93,9 @@ describe('the AI brush in the demo', () => {
     }>();
     expect(job.done).toBe(true);
     expect(job.steps.map((x) => x.state)).toEqual(Array(7).fill('done'));
+    // The monitor and keyboard on the desk hide its back from the corner camera: its depth isn't judged.
+    expect(job.steps.find((x) => x.id === 'lookup')?.detail).toContain('hides its back');
+    expect(d.disagreement.map((x) => x.axis)).not.toContain('d');
     // Shaping it from the photo is Spark's, live: the demo keeps the model built from its form.
     expect(job.steps.find((x) => x.id === 'shape')?.detail).toBe(
       'Demo: built from its form, with no model calls',

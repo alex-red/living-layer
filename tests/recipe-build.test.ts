@@ -14,6 +14,7 @@ import {
   DEMO_CAMERA,
   DEMO_ROOM,
   demoFrame,
+  floorSolid,
   groupBounds,
   hexLab,
   photoBox,
@@ -23,7 +24,9 @@ import {
   recipeFromForm,
   refineRecipe,
   RECIPE_TARGET,
+  renderRoom,
   roomMask,
+  sceneSolids,
   type FixtureRecipe,
   type RecipeCheck,
 } from '../packages/domain/src/index.js';
@@ -100,6 +103,21 @@ describe("sizing a thing from the camera's outline", () => {
       expect(Math.abs(box.h / (truth.size.h * 30) - 1)).toBeLessThan(0.1);
       expect(Math.abs(box.cx - (truth.at.x + truth.size.w / 2))).toBeLessThan(0.2);
     }
+  });
+
+  it('says when the thing runs out of the top of the picture, so its height isn’t measured', () => {
+    expect(photoBox(DEMO_CAMERA, roomMask(frame, 'shelf'), DEMO_ROOM.grid)!.cutTop).toBe(false);
+    // The same camera looking lower: the shelf's top is above the frame.
+    const full = roomMask(frame, 'shelf')!;
+    let top = 0;
+    while (!full.data.subarray(top * full.width, (top + 1) * full.width).includes(1)) top++;
+    const lower = { ...DEMO_CAMERA, cy: DEMO_CAMERA.cy - top - 40 };
+    const seen = roomMask(
+      renderRoom(lower, [floorSolid(DEMO_ROOM.grid), ...sceneSolids(DEMO_ROOM)], { labels: true }),
+      'shelf',
+    )!;
+    const box = photoBox(lower, seen, DEMO_ROOM.grid)!;
+    expect(box.cutTop).toBe(true);
   });
 
   it('gives nothing for a thing that stands on another', () => {

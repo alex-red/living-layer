@@ -295,23 +295,33 @@ const FIT_SCALE = 4;
  * counts as the box's). A coordinate search from a small box where the
  * outline's bottom meets the floor, kept inside the room's `grid`. Depth
  * is the least sure: from a high corner the back of a thing is mostly
- * hidden. Only for things on the floor, seen whole. In cm; its middle in tiles.
+ * hidden. Only for things on the floor. In cm; its middle in tiles.
+ * `cutTop` when the outline reaches the frame's top edge: the thing runs on
+ * out of the picture, where a box's drawing costs nothing, so `h` isn't measured.
  */
 export function photoBox(
   camera: RoomCamera,
   mask: Bits,
   grid?: IsoScene['grid'],
-): { w: number; d: number; h: number; cx: number; cy: number; iou: number } | null {
+): {
+  w: number;
+  d: number;
+  h: number;
+  cx: number;
+  cy: number;
+  iou: number;
+  cutTop: boolean;
+} | null {
   const W = Math.ceil(mask.width / FIT_SCALE);
   const H = Math.ceil(mask.height / FIT_SCALE);
   const points: { x: number; y: number }[] = [];
-  let [x0, x1, y1] = [Infinity, -1, -1];
+  let [x0, x1, y0, y1] = [Infinity, -1, Infinity, -1];
   for (let i = 0; i < mask.data.length; i++)
     if (mask.data[i]) {
       const x = i % mask.width;
       const y = Math.floor(i / mask.width);
       points.push({ x: x / FIT_SCALE, y: y / FIT_SCALE });
-      [x0, x1, y1] = [Math.min(x0, x), Math.max(x1, x), Math.max(y1, y)];
+      [x0, x1, y0, y1] = [Math.min(x0, x), Math.max(x1, x), Math.min(y0, y), Math.max(y1, y)];
     }
   if (points.length < 20) return null;
   const target = newBits(W, H);
@@ -362,7 +372,7 @@ export function photoBox(
   // Nothing on the floor fits it: it stands on something, or is mostly hidden.
   if (bestScore < 0.5) return null;
   const [cx, cy, w, d, h] = best as [number, number, number, number, number];
-  return { w: toCm(w), d: toCm(d), h: toCm(h), cx, cy, iou: bestScore };
+  return { w: toCm(w), d: toCm(d), h: toCm(h), cx, cy, iou: bestScore, cutTop: y0 <= 1 };
 }
 
 /** Where a new model stands for the check: in place of the selected group, else on the outline's footing. */

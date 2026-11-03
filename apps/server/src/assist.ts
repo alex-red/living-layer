@@ -26,6 +26,8 @@ import {
   photoBox,
   photoColor,
   placeOfGroup,
+  groupBounds,
+  ridersOf,
   RECIPE_OPS,
   readIntent,
   resolveSelection,
@@ -38,6 +40,7 @@ import {
   sparkCeiling,
   demoFrame,
   filledRows,
+  furnitureSpec,
   type Bits,
   type BuildRound,
   type FixtureRecipe,
@@ -732,15 +735,27 @@ export async function finishDraft(
   const targetProp = draft.target?.kind === 'prop' ? draft.target.id : null;
   steps.run('lookup');
   const create = intent.ops.find((o) => o.op === 'create' || o.op === 'rebase');
-  const box = modelAxes(
-    photoBox(room.camera, outline, room.scene.grid),
-    (draft.place ?? (targetProp ? placeOfGroup(room.scene, targetProp) : null))?.turns ?? 0,
-  );
+  const turns =
+    (draft.place ?? (targetProp ? placeOfGroup(room.scene, targetProp) : null))?.turns ?? 0;
+  const box = modelAxes(photoBox(room.camera, outline, room.scene.grid), turns);
   const color = photoColor(rgba, outline);
   draft.photo = {
     sizeCm: box ? { w: box.w, d: box.d, h: box.h } : null,
     color,
   };
+  const form: PropForm =
+    create?.form ??
+    room.scene.props.find((p) => p.group === targetProp && p.form)?.form ??
+    'cabinet';
+  // A thing running out of the top of the picture has no height the camera can measure: the camera
+  // gives its footprint, and its height comes from a lookup or, failing one, its template.
+  const seenH = box?.cutTop ? null : (box?.h ?? null);
+  // From high in a corner, what stands on a thing (a monitor, a laptop, toys on a desk) hides its
+  // back, and SAM's outline of it stops short: its depth isn't the camera's, but the room's own.
+  const drawn = targetProp ? groupBounds(room.scene, targetProp) : null;
+  const hidden = Boolean(targetProp && drawn && ridersOf(room.scene, targetProp).length);
+  const seenD = hidden ? null : (box?.d ?? null);
+  const drawnD = drawn && Math.round(modelAxes(drawn.size, turns)!.d * ISO_TILE_CM);
   if (create) {
     const query = intent.product ?? draft.target?.label ?? 'furniture';
     const camera: Researcher = {
@@ -749,7 +764,11 @@ export async function finishDraft(
         box
           ? {
               query,
-              sizeCm: { w: box.w, d: box.d, h: box.h },
+              sizeCm: {
+                w: box.w,
+                d: seenD ?? drawnD ?? box.d,
+                h: seenH ?? furnitureSpec(form).heightCm,
+              },
               sources: [{ kind: 'photo', title: 'The room’s camera' }],
               confidence: Math.min(0.5, box.iou / 2),
             }
@@ -762,10 +781,34 @@ export async function finishDraft(
       { ...(signal ? { signal } : {}) },
     );
     draft.facts = found.facts;
-    draft.disagreement = sizeDisagreement(found.facts.sizeCm, draft.photo.sizeCm);
+    draft.disagreement = sizeDisagreement(
+      found.facts.sizeCm,
+      box
+        ? {
+            w: box.w,
+            ...(seenD === null ? {} : { d: seenD }),
+            ...(seenH === null ? {} : { h: seenH }),
+          }
+        : null,
+    );
+    const fromPhoto = found.facts.origin.size === 'photo';
+    const unseen = [
+      ...(box?.cutTop
+        ? [
+            `its top is out of the picture, so its height isn’t the camera’s (${fromPhoto ? `the template’s ${furnitureSpec(form).heightCm} cm` : 'the lookup’s'})`,
+          ]
+        : []),
+      ...(box && hidden
+        ? [
+            `what stands on it hides its back, so its depth isn’t the camera’s (${fromPhoto ? `the room’s ${drawnD} cm` : 'the lookup’s'})`,
+          ]
+        : []),
+    ];
     await steps.done(
       'lookup',
-      found.asked.map((a) => `${a.kind}${a.found ? ' ✓' : ' –'}`).join(' · '),
+      [found.asked.map((a) => `${a.kind}${a.found ? ' ✓' : ' –'}`).join(' · '), ...unseen].join(
+        ' · ',
+      ),
     );
   } else await steps.done('lookup', 'Not needed');
   steps.check();
@@ -774,10 +817,6 @@ export async function finishDraft(
   steps.run('build');
   let recipe = draft.recipe;
   if (create) {
-    const form: PropForm =
-      create.form ??
-      room.scene.props.find((p) => p.group === targetProp && p.form)?.form ??
-      'cabinet';
     recipe = assembleRecipe(
       form,
       {
