@@ -134,7 +134,7 @@ const usedAll = new Set<string>(); // modules imported whole (namespace or dynam
 function mark(fromFile: string, spec: string, clause: string) {
   const target = resolveSpec(fromFile, spec);
   if (!target) return;
-  const star = /^\*/.test(clause.trim());
+  const star = /^\*/.test(clause.trim().replace(/^type\s+/, ''));
   if (star) {
     // `import * as ns` or `export * as ns` uses all; a bare `export * from` only re-exports.
     if (!/\bas\b/.test(clause)) return;
