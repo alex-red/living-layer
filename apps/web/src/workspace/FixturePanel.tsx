@@ -7,6 +7,7 @@ import {
   calibrationOf,
   linkedFixtures,
   pinFits,
+  removeGroup,
   fixtureEntity,
   fixtureInput,
   fixtureModel,
@@ -47,7 +48,8 @@ import {
 import { itemSprite } from '../iso/sprites';
 import type { FixturePlacing } from '../iso/IsoView';
 import { useLab } from './LabContext';
-import { ago, builtInLamps, controlLabel, roomLabel } from './labels';
+import type { Lab } from './useLabState';
+import { ago, builtInLamps, builtInThings, controlLabel, ownLayout, roomLabel } from './labels';
 import { pinScene } from './progress';
 import { Cost, Details, Panel, useCall } from './panel';
 import { ChooseDevicesLink } from './DevicesPanel';
@@ -1141,6 +1143,64 @@ function FixtureCamera({ fixture: f, disabled }: { fixture: Fixture; disabled: b
   );
 }
 
+/**
+ * Take a built-in thing (the office's book, bottle or lamp) out of the
+ * person's own layout, in the room and its close view at once.
+ */
+export function removeFromLayout(
+  lab: Lab,
+  call: ReturnType<typeof useCall>['call'],
+  group: string,
+  label: string,
+) {
+  const scene = lab.memory?.scene;
+  if (!scene) return Promise.resolve();
+  return call<DeskMemory>('scene/save', { scene: removeGroup(scene, group) }, (m) => {
+    lab.setMemory(m);
+    const s = lab.selection;
+    if ((s?.kind === 'lamp' || s?.kind === 'built-in') && s.id.endsWith(`~${group}`))
+      lab.select(null);
+    lab.setMessage(`Removed the ${label.toLowerCase()} from the room.`);
+  });
+}
+
+/** A small thing drawn as part of a room's layout: the office's book or bottle. */
+export function BuiltInPanel({ id }: { id: string }) {
+  const lab = useLab();
+  const { call, off } = useCall();
+  const thing = builtInThings(lab).find((t) => t.id === id);
+  if (!thing) return <Panel tiny="BUILT IN" title="Gone" status="It is no longer in the room." />;
+  const sceneLabel = roomLabel(thing.scene, lab.memory);
+  return (
+    <Panel
+      tiny="BUILT IN"
+      title={thing.prop.label}
+      status={`Part of the ${sceneLabel.toLowerCase()} layout`}
+    >
+      {ownLayout(thing.scene) ? (
+        <>
+          <p className="micro">
+            Drawn with the room, it isn’t followed or switched. Remove it if it isn’t on your desk.
+          </p>
+          <div className="save-actions">
+            <Button
+              className="destructive"
+              disabled={off}
+              onClick={() => void removeFromLayout(lab, call, thing.prop.group, thing.prop.label)}
+            >
+              Remove from the room
+            </Button>
+          </div>
+        </>
+      ) : (
+        <p className="micro">
+          A preset room’s things can’t be removed. Edit a layout of your own to leave it out.
+        </p>
+      )}
+    </Panel>
+  );
+}
+
 export function LampPanel({ id }: { id: string }) {
   const lab = useLab();
   const { call, off } = useCall();
@@ -1267,7 +1327,7 @@ export function LampPanel({ id }: { id: string }) {
         </p>
       )}
       {/* The close view is cut from the room, so its lamp is the room's too. */}
-      {(lamp.scene === 'custom' || lamp.scene === 'custom-desk') && parts.length ? (
+      {ownLayout(lamp.scene) && parts.length ? (
         <>
           <p className="micro">
             Built in, it’s part of the layout: it can’t be moved on its own, and only a desk lamp is
@@ -1288,6 +1348,13 @@ export function LampPanel({ id }: { id: string }) {
                 Make it a {starterMeta(t).label.toLowerCase()}
               </Button>
             ))}
+            <Button
+              className="destructive"
+              disabled={off}
+              onClick={() => void removeFromLayout(lab, call, group, lamp.prop.label)}
+            >
+              Remove from the room
+            </Button>
           </div>
         </>
       ) : (

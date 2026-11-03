@@ -10,11 +10,14 @@ import {
 import { Button, IconButton } from '../ui/controls';
 import { ContextMenu, type MenuItem } from './ContextMenu';
 import { stateLabel } from './ExposePanel';
+import { removeFromLayout } from './FixturePanel';
 import { useLab } from './LabContext';
 import {
   builtInLamps,
+  builtInThings,
   controlLabel,
   mainSurface,
+  ownLayout,
   roomLabel,
   selectionLabel,
   surfaceRows,
@@ -341,6 +344,27 @@ function FixtureRows() {
   const [confirming, setConfirming] = useState<'delete' | 'dismiss' | null>(null);
   const [menu, setMenu] = useState<{ x: number; y: number; fixture: Fixture } | null>(null);
   const closeMenu = useCallback(() => setMenu(null), []);
+  /** The menu of a thing drawn with the room: its group and name. */
+  const [builtMenu, setBuiltMenu] = useState<{
+    x: number;
+    y: number;
+    target: Selection;
+    group: string;
+    label: string;
+  } | null>(null);
+  const closeBuiltMenu = useCallback(() => setBuiltMenu(null), []);
+  const built = [
+    ...builtInLamps(lab).map((l) => ({
+      ...l,
+      target: { kind: 'lamp', id: l.id } as Selection,
+      detail: `built in · ${l.entity ? `light · ${lab.lightsOn.has(l.entity) ? 'on' : 'off'}` : 'no light'}`,
+    })),
+    ...builtInThings(lab).map((t) => ({
+      ...t,
+      target: { kind: 'built-in', id: t.id } as Selection,
+      detail: 'built in · just a thing',
+    })),
+  ];
   // Fixtures deleted elsewhere drop out of the selection.
   const chosen = fixtures.filter((f) => picked.has(f.id));
   const leave = useCallback(() => {
@@ -468,15 +492,28 @@ function FixtureRows() {
         )}
       </div>
       <ul className={`ol-tree ${selecting ? 'selecting' : ''}`}>
-        {builtInLamps(lab).map((l) => (
+        {built.map((b) => (
           <Row
-            key={l.id}
-            label={l.prop.label}
-            detail={`built in · ${l.entity ? `light · ${lab.lightsOn.has(l.entity) ? 'on' : 'off'}` : 'no light'}`}
+            key={b.id}
+            label={b.prop.label}
+            detail={b.detail}
             tone="fixture"
-            target={{ kind: 'lamp', id: l.id }}
+            target={b.target}
             disabled={selecting}
-            title={selecting ? 'Built into the room: it can’t be deleted.' : undefined}
+            title={selecting ? 'Built into the room: open it to remove it.' : undefined}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              if (!ownLayout(b.scene)) return;
+              const box = e.currentTarget.getBoundingClientRect();
+              const keyboard = e.clientX === 0 && e.clientY === 0;
+              setBuiltMenu({
+                x: keyboard ? box.left + 24 : e.clientX,
+                y: keyboard ? box.bottom : e.clientY,
+                target: b.target,
+                group: b.prop.group,
+                label: b.prop.label,
+              });
+            }}
           />
         ))}
         {fixtures.map((f) => (
@@ -572,6 +609,22 @@ function FixtureRows() {
           label={`${menu.fixture.label} actions`}
           items={menuFor(menu.fixture)}
           onClose={closeMenu}
+        />
+      )}
+      {builtMenu && (
+        <ContextMenu
+          at={builtMenu}
+          label={`${builtMenu.label} actions`}
+          items={[
+            { label: 'Open', onSelect: () => lab.select(builtMenu.target) },
+            {
+              label: 'Remove from the room',
+              destructive: true,
+              separated: true,
+              onSelect: () => void removeFromLayout(lab, call, builtMenu.group, builtMenu.label),
+            },
+          ]}
+          onClose={closeBuiltMenu}
         />
       )}
     </>

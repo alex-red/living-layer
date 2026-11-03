@@ -1624,7 +1624,8 @@ export function useLabState() {
     if (next?.kind !== 'new-rule') setRuleDraft(null);
     if (next?.kind !== 'new-fixture' && next?.kind !== 'fixture') setPlacing(null);
     if (next?.kind !== 'new-fixture') setBoxing(null);
-    if (next?.kind === 'lamp') setWorkScene(next.id.split('~')[0] as WorkScene);
+    if (next?.kind === 'lamp' || next?.kind === 'built-in')
+      setWorkScene(next.id.split('~')[0] as WorkScene);
     if (next?.kind === 'fixture') {
       const f = memory?.fixtures?.find((x) => x.id === next.id);
       if (f) setWorkScene(f.scene);

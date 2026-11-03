@@ -35,6 +35,8 @@ export type Selection =
   | { kind: 'new-fixture' }
   /** A lamp that is part of a room's layout: `scene~propId`. */
   | { kind: 'lamp'; id: string }
+  /** A small thing that is part of a room's layout (a book, a bottle): `scene~group`. */
+  | { kind: 'built-in'; id: string }
   /** An entity shown in Home Assistant over MQTT. */
   | { kind: 'entity'; id: string }
   | { kind: 'new-entity' }
@@ -199,6 +201,7 @@ export function selectionHash(s: Selection | null): string {
     case 'rule':
     case 'fixture':
     case 'lamp':
+    case 'built-in':
     case 'entity':
       return `#${s.kind}/${encodeURIComponent(s.id)}`;
     case 'suggested':
@@ -224,6 +227,7 @@ export function parseSelection(hash: string): Selection | null {
     case 'rule':
     case 'fixture':
     case 'lamp':
+    case 'built-in':
     case 'entity':
       return id ? { kind, id } : null;
     case 'suggested': {

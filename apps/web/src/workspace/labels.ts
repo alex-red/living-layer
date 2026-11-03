@@ -99,6 +99,8 @@ export function selectionLabel(lab: Lab, s: Selection): string {
       return 'Add a fixture';
     case 'lamp':
       return builtInLamps(lab).find((l) => l.id === s.id)?.prop.label ?? 'Lamp';
+    case 'built-in':
+      return builtInThings(lab).find((t) => t.id === s.id)?.prop.label ?? 'Built-in thing';
     case 'entity':
       return memory?.exposed?.find((e) => e.id === s.id)?.name ?? 'Entity';
     case 'new-entity':
@@ -175,3 +177,33 @@ export function builtInLamps(lab: Lab): BuiltInLamp[] {
     }
   return lamps;
 }
+/** The small templates drawn standing on a desk or shelf: a book, a bottle. */
+const DESK_THINGS = new Set(['book', 'bottle', 'jar', 'carton']);
+/** A small thing drawn as part of a room's layout, such as the office's book. */
+export interface BuiltInThing {
+  /** `scene~group`, the outline's id for it. */
+  id: string;
+  scene: WorkScene;
+  /** Its main prop, whose label names it. */
+  prop: IsoProp;
+}
+/**
+ * The small things in the room and its close view that aren't lamps, listed
+ * once when both scenes draw the same one.
+ */
+export function builtInThings(lab: Lab): BuiltInThing[] {
+  const { progress, memory } = lab;
+  const kinds = [progress.view, progress.room].filter((k): k is WorkScene => Boolean(k));
+  const seen = new Set<string>();
+  const things: BuiltInThing[] = [];
+  for (const scene of kinds)
+    for (const prop of sceneOf(scene, memory)?.props ?? []) {
+      if (prop.id !== prop.group || !prop.template || !DESK_THINGS.has(prop.template)) continue;
+      if (seen.has(prop.group)) continue;
+      seen.add(prop.group);
+      things.push({ id: `${scene}~${prop.group}`, scene, prop });
+    }
+  return things;
+}
+/** Whether a built-in thing's scene is the person's own, whose layout can lose it. */
+export const ownLayout = (scene: WorkScene) => scene === 'custom' || scene === 'custom-desk';
