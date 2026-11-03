@@ -25,6 +25,8 @@ const part = (id: string, at: SculptPart['at'], size: SculptPart['size'], color:
     outline: null,
     radius: 0.05,
     rough: null,
+    wall: null,
+    inside: null,
     bands: null,
   }) satisfies SculptPart;
 

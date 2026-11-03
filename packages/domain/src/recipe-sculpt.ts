@@ -51,6 +51,8 @@ export function recipeToSculpt(recipe: FixtureRecipe): SculptPart[] {
     outline: null,
     radius: p.shape === 'tube' ? (p.tubeCm ?? 1) / L : (p.radius ?? null),
     rough: p.rough ?? null,
+    wall: null,
+    inside: null,
     bands: null,
   }));
 }

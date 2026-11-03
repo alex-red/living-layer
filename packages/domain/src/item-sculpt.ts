@@ -24,6 +24,18 @@ const sculptPartSchema = z
     outline: z.array(z.object({ x: unit, y: unit }).strict()).nullable(),
     radius: z.number().nullable(),
     rough: z.number().nullable(),
+    wall: z.number().nullable(),
+    inside: z
+      .object({
+        wall: z.string().regex(/^#[0-9a-f]{6}$/),
+        liquid: z
+          .string()
+          .regex(/^#[0-9a-f]{6}$/)
+          .nullable(),
+        level: unit,
+      })
+      .strict()
+      .nullable(),
     bands: z
       .array(z.object({ from: unit, to: unit, color: z.string().regex(/^#[0-9a-f]{6}$/) }).strict())
       .nullable(),
@@ -74,6 +86,9 @@ export function fromSculpt(label: string, sculpt: Sculpt): IsoItem | null {
       ...(s.outline ? { outline: s.outline.slice(0, 12) } : {}),
       ...(s.radius !== null ? { radius: clampFiniteOrLow(s.radius, 0, 0.5) } : {}),
       ...(s.rough !== null ? { rough: clampFiniteOrLow(s.rough, 0, 1) } : {}),
+      // An open top, and what shows inside it: only a lathe has one.
+      ...(s.shape === 'lathe' && s.wall ? { wall: clampFiniteOrLow(s.wall, 0.02, 0.9) } : {}),
+      ...(s.shape === 'lathe' && s.wall && s.inside ? { inside: s.inside } : {}),
       ...(s.bands?.length
         ? {
             paint: s.bands
@@ -110,6 +125,8 @@ export function toSculpt(item: IsoItem): SculptPart[] {
           ? (p.radius ?? null)
           : null,
       rough: p.shape === 'blob' ? (p.rough ?? null) : null,
+      wall: p.shape === 'lathe' ? (p.wall ?? null) : null,
+      inside: p.shape === 'lathe' ? (p.inside ?? null) : null,
       bands:
         p.paint?.flatMap((q) =>
           q.kind === 'band' ? [{ from: q.from, to: q.to, color: q.color }] : [],
@@ -122,7 +139,7 @@ export function toSculpt(item: IsoItem): SculptPart[] {
 export const SCULPT_FORMAT = [
   'Coordinates: x left to right and y back to front across the footprint, from 0 to 1; z up, in the same units. Each part has a box: at is its back-left-bottom corner, size its width, depth and height.',
   'Shapes:',
-  '- lathe: a side profile turned about the box’s vertical axis, for round bodies, pots, cups and bases. profile: points r, z from bottom to top, z a share of the box’s height and r a share of its half-width, so r = 1 reaches the box’s sides: a plain cylinder filling its box is [{r: 1, z: 0}, {r: 1, z: 1}]. The box sets the size; keep r near 1 unless the shape narrows.',
+  '- lathe: a side profile turned about the box’s vertical axis, for round bodies, pots, cups and bases. profile: points r, z from bottom to top, z a share of the box’s height and r a share of its half-width, so r = 1 reaches the box’s sides: a plain cylinder filling its box is [{r: 1, z: 0}, {r: 1, z: 1}]. The box sets the size; keep r near 1 unless the shape narrows. wall opens its top, with walls that thick as a share of the radius (a mug or cup about 0.1, a bowl or pot 0.05 to 0.1); null closes it. inside, for an open lathe: wall is the colour of the inner wall, liquid the colour of what fills it (null for empty) and level how full it is, a share of its height. A mug of coffee is an open lathe with its coffee as inside, not a separate part.',
   '- rbox: a box with rounded edges, for screens, books and panels. radius: a share of its smallest side.',
   '- tube: a round tube along a Bézier curve, for stands, cables, arms, handles and rings. path: 2 to 4 points as shares of the box; the tube starts at the first point and ends at the last, and the middle points only pull the curve toward them (it does not pass through them). radius in item units. A curve pulled toward a point gets about three quarters of the way there, so a tube’s box should be a little larger than the tube looks. A closed ring or loop is two tubes that start at the same point and end at the same point, bulging to opposite sides: a tall upright loop is [{x: 0.5, y: 0.5, z: 0}, {x: 0, y: 0.5, z: 0.15}, {x: 0, y: 0.5, z: 0.85}, {x: 0.5, y: 0.5, z: 1}] and the same with x 1 for the other half, which reaches out to about an eighth of the box from each side.',
   '- extrude: a footprint outline as shares of the box, pushed up, for flat odd shapes.',

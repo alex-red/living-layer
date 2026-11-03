@@ -3891,6 +3891,44 @@ Parts:
                           "minLength": 1,
                           "type": "string",
                         },
+                        "inside": {
+                          "anyOf": [
+                            {
+                              "additionalProperties": false,
+                              "properties": {
+                                "level": {
+                                  "maximum": 1,
+                                  "minimum": 0,
+                                  "type": "number",
+                                },
+                                "liquid": {
+                                  "anyOf": [
+                                    {
+                                      "pattern": "^#[0-9a-f]{6}$",
+                                      "type": "string",
+                                    },
+                                    {
+                                      "type": "null",
+                                    },
+                                  ],
+                                },
+                                "wall": {
+                                  "pattern": "^#[0-9a-f]{6}$",
+                                  "type": "string",
+                                },
+                              },
+                              "required": [
+                                "wall",
+                                "liquid",
+                                "level",
+                              ],
+                              "type": "object",
+                            },
+                            {
+                              "type": "null",
+                            },
+                          ],
+                        },
                         "material": {
                           "enum": [
                             "matte",
@@ -4040,6 +4078,12 @@ Parts:
                           ],
                           "type": "object",
                         },
+                        "wall": {
+                          "type": [
+                            "number",
+                            "null",
+                          ],
+                        },
                       },
                       "required": [
                         "id",
@@ -4053,6 +4097,8 @@ Parts:
                         "outline",
                         "radius",
                         "rough",
+                        "wall",
+                        "inside",
                         "bands",
                       ],
                       "type": "object",
@@ -4190,6 +4236,44 @@ Parts:
                           "minLength": 1,
                           "type": "string",
                         },
+                        "inside": {
+                          "anyOf": [
+                            {
+                              "additionalProperties": false,
+                              "properties": {
+                                "level": {
+                                  "maximum": 1,
+                                  "minimum": 0,
+                                  "type": "number",
+                                },
+                                "liquid": {
+                                  "anyOf": [
+                                    {
+                                      "pattern": "^#[0-9a-f]{6}$",
+                                      "type": "string",
+                                    },
+                                    {
+                                      "type": "null",
+                                    },
+                                  ],
+                                },
+                                "wall": {
+                                  "pattern": "^#[0-9a-f]{6}$",
+                                  "type": "string",
+                                },
+                              },
+                              "required": [
+                                "wall",
+                                "liquid",
+                                "level",
+                              ],
+                              "type": "object",
+                            },
+                            {
+                              "type": "null",
+                            },
+                          ],
+                        },
                         "material": {
                           "enum": [
                             "matte",
@@ -4339,6 +4423,12 @@ Parts:
                           ],
                           "type": "object",
                         },
+                        "wall": {
+                          "type": [
+                            "number",
+                            "null",
+                          ],
+                        },
                       },
                       "required": [
                         "id",
@@ -4352,6 +4442,8 @@ Parts:
                         "outline",
                         "radius",
                         "rough",
+                        "wall",
+                        "inside",
                         "bands",
                       ],
                       "type": "object",

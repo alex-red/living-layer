@@ -59,6 +59,8 @@ export function promoteGroup(
               ? (q.radius ?? null)
               : null,
         rough: q.shape === 'blob' ? (q.rough ?? null) : null,
+        wall: null,
+        inside: null,
         bands: null,
         volume: q.size.w * q.size.d * q.size.h,
       });

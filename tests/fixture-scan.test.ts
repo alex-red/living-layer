@@ -758,6 +758,8 @@ describe('scanning live, with a mocked Meta API', () => {
               outline: null,
               radius: null,
               rough: null,
+              wall: null,
+              inside: null,
               bands: null,
             },
             {
@@ -775,6 +777,8 @@ describe('scanning live, with a mocked Meta API', () => {
               outline: null,
               radius: 0.03,
               rough: null,
+              wall: null,
+              inside: null,
               bands: null,
             },
           ],

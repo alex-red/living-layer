@@ -13,6 +13,8 @@ const part = (over: Partial<Sculpt['parts'][number]> = {}): Sculpt['parts'][numb
   outline: null,
   radius: 0.1,
   rough: null,
+  wall: null,
+  inside: null,
   bands: null,
   ...over,
 });
@@ -55,11 +57,61 @@ describe('a model Spark writes in our parts', () => {
       null,
     );
   });
-  it('writes our model out in the same form it reads back', () => {
+  it('writes our model out in the same form it reads back, an open top and its coffee too', () => {
     const mug = mugItem();
     const back = fromSculpt(mug.label, { note: '', parts: toSculpt(mug) })!;
     expect(back.parts.length).toBe(mug.parts.length);
     expect(back.parts.map((p) => p.id)).toEqual(mug.parts.map((p) => p.id));
+    const coffee = { wall: '#f2ede1', liquid: '#1a1410', level: 0.85 };
+    const open = fromSculpt('Mug', {
+      note: '',
+      parts: [
+        part({
+          shape: 'lathe',
+          radius: null,
+          profile: [
+            { r: 1, z: 0 },
+            { r: 1, z: 1 },
+          ],
+          wall: 0.1,
+          inside: coffee,
+        }),
+      ],
+    })!;
+    expect(toSculpt(open)[0]).toMatchObject({ wall: 0.1, inside: coffee });
+  });
+  it('keeps an open top only on a lathe, and its inside only when it is open', () => {
+    const coffee = { wall: '#f2ede1', liquid: '#1a1410', level: 0.85 };
+    const item = fromSculpt('Mug', {
+      note: '',
+      parts: [
+        part({
+          shape: 'lathe',
+          radius: null,
+          profile: [
+            { r: 1, z: 0 },
+            { r: 1, z: 1 },
+          ],
+          wall: 0.1,
+          inside: coffee,
+        }),
+        part({
+          id: 'closed',
+          shape: 'lathe',
+          radius: null,
+          profile: [
+            { r: 1, z: 0 },
+            { r: 1, z: 1 },
+          ],
+          inside: coffee,
+        }),
+        part({ id: 'box', wall: 0.1, inside: coffee }),
+      ],
+    })!;
+    expect(isoItemSchema.safeParse(item).success).toBe(true);
+    expect(item.parts[0]).toMatchObject({ wall: 0.1, inside: coffee });
+    expect(item.parts[1]).not.toHaveProperty('inside');
+    expect(item.parts[2]).not.toHaveProperty('wall');
   });
 });
 
