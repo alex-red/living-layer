@@ -29,7 +29,7 @@ export function PhonePairing({ onUse }: { onUse: (stream: NetworkStream) => void
     setBusy(true);
     setError('');
     try {
-      setPairing((await api<{ pairing: Pairing | null }>('remote/pair', {})).pairing);
+      setPairing((await api('remote/pair', {})).pairing);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not start pairing.');
     } finally {
@@ -39,14 +39,14 @@ export function PhonePairing({ onUse }: { onUse: (stream: NetworkStream) => void
 
   async function unpair() {
     setBusy(true);
-    await fetch('/api/remote', { method: 'DELETE' }).catch(() => null);
+    await api('remote', undefined, { method: 'DELETE' }).catch(() => null);
     setPairing(null);
     setBusy(false);
   }
 
   useEffect(() => {
     let live = true;
-    void api<{ pairing: Pairing | null }>('remote')
+    void api('remote')
       .then((r) => {
         if (!live) return;
         if (r.pairing) setPairing(r.pairing);
@@ -63,7 +63,7 @@ export function PhonePairing({ onUse }: { onUse: (stream: NetworkStream) => void
   useEffect(() => {
     if (!paired) return;
     const timer = window.setInterval(() => {
-      void api<{ pairing: Pairing | null }>('remote')
+      void api('remote')
         .then((r) => setPairing(r.pairing))
         .catch(() => null);
     }, POLL_MS);

@@ -34,7 +34,7 @@ import {
   type ZoneOnSurface,
   type ZoneRect,
 } from '@livinglayer/domain';
-import { api } from '../api';
+import { apiAt } from '../api';
 import { ZoomPan } from '../ZoomPan';
 import type { BaseRect } from './BaseHandles';
 import {
@@ -504,7 +504,7 @@ function IsoViewOf({
   async function send<T>(path: string, body: object, done: (r: T) => void) {
     setAsking(true);
     try {
-      done(await api<T>(path, { mode, ...body }));
+      done(await apiAt<T>(path, { mode, ...body }));
     } catch (e) {
       onError(e instanceof Error ? e : 'The request failed.');
     } finally {

@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react';
-import { api } from '../api';
+import { apiAt } from '../api';
 import { readUi, writeUi } from '../session';
 import { useDesk, useFeedback, useLabParts, useView } from './LabContext';
 
@@ -88,7 +88,7 @@ export function useCall() {
     setPending(true);
     lab.setError('');
     try {
-      done(await api<T>(path, { mode: lab.mode, ...body }));
+      done(await apiAt<T>(path, { mode: lab.mode, ...body }));
       void lab.refresh().catch(() => {});
     } catch (e) {
       lab.setError(e instanceof Error ? e : 'The request failed.');

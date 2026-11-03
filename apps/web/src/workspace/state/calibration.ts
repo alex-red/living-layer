@@ -1,14 +1,6 @@
-import type {
-  EvidenceRun,
-  RoomMarks,
-  Segmentation,
-  DeskMemory,
-  ZoneRect,
-  IsoSceneKind,
-  Quad,
-} from '@livinglayer/domain';
+import type { ZoneRect, IsoSceneKind, Quad } from '@livinglayer/domain';
 import { ISO_PRESETS, cropWithin } from '@livinglayer/domain';
-import { api } from '../../api';
+import { api, ApiError, apiBlob } from '../../api';
 import { aiTaskStore, setAiTask } from './ai-task-store';
 import type { CalibrationDraft } from '../../iso/RoomCalibrate';
 import type { HandCalibration } from './helpers';
@@ -91,10 +83,7 @@ export function useCalibrationSlice(
     setError('');
     setDrawing(false);
     try {
-      const result = await api<{
-        run: EvidenceRun<Segmentation> | null;
-        pin: { corners: Quad; iou: number; frame: { width: number; height: number } } | null;
-      }>('desk/auto-pin', { mode, surfaceId: target.surfaceId });
+      const result = await api('desk/auto-pin', { mode, surfaceId: target.surfaceId });
       const cost = ' through the calibrated camera';
       const fits =
         result.pin &&
@@ -128,11 +117,10 @@ export function useCalibrationSlice(
     setDrawing(false);
     setPinning(null);
     try {
-      const result = await api<{
-        run: EvidenceRun<Segmentation>;
-        marks: RoomMarks | null;
-        frame: { width: number; height: number };
-      }>('room/floor', { mode, ...(mode === 'live' ? { imageDataUrl: image } : {}) });
+      const result = await api('room/floor', {
+        mode,
+        ...(mode === 'live' ? { imageDataUrl: image } : {}),
+      });
       const { width, height } = result.frame;
       const marks = result.marks ?? {
         corner: { x: width / 2, y: height * 0.3 },
@@ -266,7 +254,7 @@ export function useCalibrationSlice(
       if (mode === 'live' && !imageDataUrl)
         throw new Error('Start the camera or add a photo of the room first.');
       setMemory(
-        await api<DeskMemory>('room/keep', {
+        await api('room/keep', {
           mode,
           ...(imageDataUrl ? { imageDataUrl } : {}),
         }),
@@ -286,10 +274,7 @@ export function useCalibrationSlice(
     try {
       const scene =
         workScene === 'custom' || workScene === 'custom-desk' ? 'custom' : (workScene ?? 'office');
-      const result = await api<{
-        memory: DeskMemory;
-        fit: { error: number; heightCm: number; hfovDeg: number };
-      }>('room/calibrate', {
+      const result = await api('room/calibrate', {
         mode,
         ...(mode === 'live' ? { imageDataUrl: image, crop: imageCrop.current } : {}),
         ...draft,
@@ -390,13 +375,12 @@ export function useCalibrationSlice(
         return;
       }
       try {
-        const res = await fetch(`/api/scene/photo?mode=${mode}`);
-        if (!res.ok)
+        const photo = await apiBlob(`scene/photo?mode=${mode}`).catch((e: unknown) => {
           throw new Error(
-            (await res.json().catch(() => null))?.error?.message ??
-              'This room has no photo of its own kept.',
+            e instanceof ApiError && e.code ? e.message : 'This room has no photo of its own kept.',
           );
-        const bitmap = await createImageBitmap(await res.blob());
+        });
+        const bitmap = await createImageBitmap(photo);
         try {
           captureCanvas(bitmap, bitmap.width, bitmap.height);
         } finally {

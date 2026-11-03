@@ -141,7 +141,7 @@ function DraftReview({
   async function save() {
     setSaving(true);
     try {
-      const saved = await api<DeskMemory>('scene/from-photo/save', {
+      const saved = await api('scene/from-photo/save', {
         mode,
         runId: run.id,
         scene: sceneForSave(layout, tracked),

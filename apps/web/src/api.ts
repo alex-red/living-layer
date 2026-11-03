@@ -1,45 +1,97 @@
-import type { EvidenceRun } from '@livinglayer/domain';
+import type {
+  ApiBody,
+  ApiPath,
+  ApiResponse,
+  EvidenceRun,
+  ProviderFailure,
+} from '@livinglayer/domain';
 import { ApiError, endCall, startCall } from './activity';
 
 export { ApiError };
 
-export async function api<T>(
+export interface ApiOptions {
+  signal?: AbortSignal;
+  /** POST when there is a body, else GET; say it for a bodiless POST or a DELETE. */
+  method?: 'GET' | 'POST' | 'DELETE';
+}
+
+/**
+ * Call a route the lab's server has (`ApiRoutes` in domain): the body and the
+ * answer take the route's types. A path built at run time goes through `apiAt`.
+ */
+export function api<P extends ApiPath>(
+  path: P,
+  body?: ApiBody<P>,
+  options?: ApiOptions,
+): Promise<ApiResponse<P>>;
+export function api(path: string, body?: unknown, options?: ApiOptions): Promise<unknown> {
+  return apiAt(path, body, options);
+}
+
+/** `api` for a path built at run time, whose answer the caller types. */
+export async function apiAt<T>(path: string, body?: unknown, options: ApiOptions = {}): Promise<T> {
+  const { data } = await send(path, body, options, async (response) => {
+    const data = await response.json().catch(() => ({}));
+    return { data, run: (data?.kind ? data : data?.run) as EvidenceRun | undefined };
+  });
+  return data as T;
+}
+
+/** A route that answers with a file, not JSON (a stored photo): the bytes, with `api`'s error handling. */
+export async function apiBlob(path: string, options: ApiOptions = {}): Promise<Blob> {
+  const { data } = await send(path, undefined, options, async (response) => ({
+    data: await response.blob(),
+  }));
+  return data;
+}
+
+async function send<D>(
   path: string,
-  body?: unknown,
-  { signal }: { signal?: AbortSignal } = {},
-): Promise<T> {
+  body: unknown,
+  { signal, method }: ApiOptions,
+  read: (response: Response) => Promise<{ data: D; run?: EvidenceRun | undefined }>,
+): Promise<{ data: D; run?: EvidenceRun | undefined }> {
   const call = body ? startCall(path, body as Record<string, unknown>) : null;
   try {
     const response = await fetch(
-      `/api/${path}`,
+      // A path the server gave (a camera's `snapshot`) already starts with /api/.
+      path.startsWith('/api/') ? path : `/api/${path}`,
       body
         ? {
-            method: 'POST',
+            method: method ?? 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body),
             signal,
           }
-        : { signal },
+        : { method: method ?? 'GET', signal },
     );
-    const data = await response.json().catch(() => ({}));
-    // A gateway error with no answer of the server's own is the dev proxy's: the server went
-    // away mid-request (it reloads when its code changes). Say so, and whether it is back.
-    if (!response.ok && !data.error && [502, 503, 504].includes(response.status))
-      throw await serverGone();
-    // The server's error code rides along, so callers can tell e.g. a lost mug from a failure.
-    if (!response.ok)
+    if (!response.ok) {
+      const failed = (await response.json().catch(() => ({}))) as {
+        error?: {
+          message?: string;
+          code?: string;
+          detail?: ProviderFailure;
+          runId?: string;
+          data?: Record<string, unknown>;
+        };
+      };
+      // A gateway error with no answer of the server's own is the dev proxy's: the server went
+      // away mid-request (it reloads when its code changes). Say so, and whether it is back.
+      if (!failed.error && [502, 503, 504].includes(response.status)) throw await serverGone();
+      // The server's error code rides along, so callers can tell e.g. a lost mug from a failure.
       throw new ApiError(
-        data.error?.message ??
+        failed.error?.message ??
           `The local server could not complete this request (HTTP ${response.status}).`,
-        data.error?.code,
-        data.error?.detail,
-        data.error?.runId,
-        data.error?.data,
+        failed.error?.code,
+        failed.error?.detail,
+        failed.error?.runId,
+        failed.error?.data,
       );
+    }
+    const result = await read(response);
     // A provider route answers with its run, or with a run inside a bigger result.
-    const run = (data?.kind ? data : data?.run) as EvidenceRun | undefined;
-    endCall(call, { run });
-    return data as T;
+    endCall(call, { run: result.run });
+    return result;
   } catch (e) {
     const error =
       e instanceof ApiError

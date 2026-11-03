@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useMemo } from 'react';
-import type { EvidenceRun, LabStatus, Mode, DeskMemory } from '@livinglayer/domain';
+import type { LabStatus, Mode, DeskMemory } from '@livinglayer/domain';
 import { DEMO_LIGHTS, DEMO_SWITCHES } from '@livinglayer/domain';
 import { api } from '../../api';
 import { usd } from '../../cost';
@@ -44,10 +44,10 @@ export function useDeskSlice(deps: ViewSlice & FeedbackSlice & RunLogSlice): Des
   const refresh = async () => {
     const started = ++memoryWrites.current;
     const [nextStatus, nextRuns, demoDesk, liveDesk] = await Promise.all([
-      api<LabStatus>('status'),
-      api<EvidenceRun[]>('runs'),
-      api<DeskMemory>('desk/demo'),
-      api<DeskMemory>('desk/live'),
+      api('status'),
+      api('runs'),
+      api('desk/demo'),
+      api('desk/live'),
     ]);
     setStatus(nextStatus);
     setRuns(nextRuns);
@@ -59,7 +59,7 @@ export function useDeskSlice(deps: ViewSlice & FeedbackSlice & RunLogSlice): Des
   const [deskReady, setDeskReady] = useState(false);
   /** Put a whole desk on the server, for an import, an undo or redo, or the demo. */
   async function restoreDesk(next: DeskMemory) {
-    const saved = await api<DeskMemory>('desk/restore', { mode: next.mode, memory: next });
+    const saved = await api('desk/restore', { mode: next.mode, memory: next });
     memoryWrites.current++;
     setMemories((current) => ({ ...current, [saved.mode]: saved }));
     return saved;
@@ -81,7 +81,7 @@ export function useDeskSlice(deps: ViewSlice & FeedbackSlice & RunLogSlice): Des
   }, [spendLimit]);
   async function saveSpendLimit(usdLimit: number | null) {
     try {
-      const saved = await api<{ spendLimit: number }>('settings/spend-limit', { usd: usdLimit });
+      const saved = await api('settings/spend-limit', { usd: usdLimit });
       setMessage(`Daily Meta spending limit set to ${usd(saved.spendLimit)}.`);
       setError('');
       void refresh().catch(() => {});

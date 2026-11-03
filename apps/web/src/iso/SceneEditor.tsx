@@ -19,7 +19,6 @@ import {
   type IsoSceneKind,
   type Mode,
   type SceneDraft,
-  type SceneFit,
   type DeskMemory,
   type CameraCrop,
   type RoomMarks,
@@ -276,9 +275,9 @@ export function SceneEditor({
                   ? `Spark lists what is in the frame, SAM outlines it, and each thing is placed through the room’s camera${sparkCheck ? ', then Spark compares the draft with the frame' : ''}.`
                   : 'Demo: the office from its corner camera, no model calls.',
             },
-            (jobId, signal) => api<PhotoRun>('scene/from-photo', { ...body, jobId }, { signal }),
+            (jobId, signal) => api('scene/from-photo', { ...body, jobId }, { signal }),
           )
-        : await api<PhotoRun>('scene/from-photo', body);
+        : await api('scene/from-photo', body);
       if (!run) return;
       setPhoto({ run, url: mode === 'live' ? url! : demoFrameUrl() });
       onDrafted(run);
@@ -298,7 +297,7 @@ export function SceneEditor({
     if (mode === 'live' && !url) return;
     setRunning('fit');
     try {
-      const r = await api<SceneFit>('scene/fit', {
+      const r = await api('scene/fit', {
         mode,
         scene: draft,
         group: g,
@@ -351,11 +350,11 @@ export function SceneEditor({
                   ? `Spark lists the room and estimates its size, SAM finds the floor and walls, the corner camera is fitted and saved, then each thing is placed through it${sparkCheck ? ' and Spark compares the draft with the frame' : ''}.`
                   : 'Demo: the office from its corner camera, no model calls.',
             },
-            (jobId, signal) => api<PhotoRun>('scene/setup', { ...body, jobId }, { signal }),
+            (jobId, signal) => api('scene/setup', { ...body, jobId }, { signal }),
           )
-        : await api<PhotoRun>('scene/setup', body);
+        : await api('scene/setup', body);
       // Calibrated even when the draft was then stopped: the room's memory has the camera.
-      onCalibrated?.(await api<DeskMemory>(`desk/${mode}`));
+      onCalibrated?.(await api(`desk/${mode}`));
       if (!run) return;
       setPhoto({ run, url: mode === 'live' ? url! : demoFrameUrl() });
       onDrafted(run);
@@ -389,7 +388,7 @@ export function SceneEditor({
     if (mode === 'live' && !url) return;
     setRunning('spark');
     try {
-      const run = await api<LayoutRun>('scene/draft', {
+      const run = await api('scene/draft', {
         mode,
         ...(mode === 'live' ? { imageDataUrl: url } : {}),
       });

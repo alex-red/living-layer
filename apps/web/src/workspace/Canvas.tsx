@@ -4,7 +4,6 @@ import {
   DEMO_POSITIONS,
   ISO_PRESETS,
   isoSceneKindSchema,
-  type EvidenceRun,
   type DemoPosition,
 } from '@livinglayer/domain';
 import { api } from '../api';
@@ -923,7 +922,7 @@ export function Canvas() {
               .refresh()
               .catch(() => null)
               .then(() =>
-                api<EvidenceRun[]>('runs').then((all) => {
+                api('runs').then((all) => {
                   const run = all.find((x) => x.id === runId);
                   if (run) lab.inspect(run);
                 }),

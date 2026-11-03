@@ -44,7 +44,7 @@ export function CameraSetup({
   const [preview, setPreview] = useState<{ id: string; n: number; failed?: boolean } | null>(null);
 
   useEffect(() => {
-    void api<{ cameras: CameraView[] }>('cameras')
+    void api('cameras')
       .then((r) => setCameras(r.cameras))
       .catch((e) => setError(e instanceof Error ? e.message : 'Could not list cameras.'));
   }, []);
@@ -54,7 +54,7 @@ export function CameraSetup({
     setBusy(true);
     setError('');
     try {
-      const r = await api<{ camera: CameraView; cameras: CameraView[] }>('cameras/save', {
+      const r = await api('cameras/save', {
         ...(draft.id ? { id: draft.id } : {}),
         name: draft.name.trim(),
         ...(draft.url.trim() ? { url: draft.url.trim() } : {}),
@@ -76,9 +76,7 @@ export function CameraSetup({
     setBusy(true);
     setError('');
     try {
-      setCameras(
-        (await api<{ cameras: CameraView[] }>('cameras/delete', { id: camera.id })).cameras,
-      );
+      setCameras((await api('cameras/delete', { id: camera.id })).cameras);
       if (preview?.id === camera.id) setPreview(null);
       onChange();
     } catch (e) {

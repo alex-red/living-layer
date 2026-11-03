@@ -1,17 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import type { EvidenceRun, LampResult } from '@livinglayer/domain';
+import type { EvidenceRun, HaEntity, LampResult } from '@livinglayer/domain';
 import { api } from '../api';
 import { Button, Check, Field } from '../ui/controls';
 import { useDesk, useFeedback, useLabParts, useNavigation, useView } from './LabContext';
 import { Details, Panel, useCall, type Tone } from './panel';
 
-/** One device Home Assistant has that Living Layer could switch (`GET /api/ha/entities`). */
-interface HaEntity {
-  entityId: string;
-  name: string;
-  domain: 'light' | 'switch' | 'fan' | 'input_boolean';
-  state: string;
-}
 const DOMAIN_LABEL: Record<HaEntity['domain'], string> = {
   light: 'Lights',
   switch: 'Switches',
@@ -40,7 +33,7 @@ export function DevicesPanel() {
     setLoading(true);
     setListError('');
     try {
-      setList((await api<{ entities: HaEntity[] }>('ha/entities')).entities);
+      setList((await api('ha/entities')).entities);
     } catch (e) {
       setList(null);
       setListError(e instanceof Error ? e.message : 'Home Assistant could not be reached.');

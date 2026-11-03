@@ -8,6 +8,7 @@ import {
   useNetworkStreams,
   type NetworkStream,
 } from '../../streams';
+import { apiBlob } from '../../api';
 import { demoFrameUrl } from '../demoFrame';
 import { REOPEN_TRIES } from './helpers';
 import type { ViewSlice } from './view';
@@ -174,13 +175,7 @@ export function useCameraSlice(
     // A camera only the server reads, with no live relay: grab one frame of it instead.
     if (remote && !remote.whep && !remote.preview && remote.snapshot) {
       try {
-        const response = await fetch(remote.snapshot);
-        if (!response.ok)
-          throw new Error(
-            ((await response.json().catch(() => ({}))) as { error?: { message?: string } }).error
-              ?.message ?? `Could not get a picture from ${remote.name}.`,
-          );
-        const blob = await response.blob();
+        const blob = await apiBlob(remote.snapshot);
         if (mounted.current && generation === cameraGeneration.current) {
           await upload(new File([blob], 'camera.png', { type: 'image/png' }), remote.crop ?? null);
           setMessage(`A frame from ${remote.name}. Grab another whenever the room changes.`);

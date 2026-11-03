@@ -18,7 +18,7 @@ export function followJob(
   let ended = false;
   const poll = async () => {
     if (stopped) return;
-    const job = await api<Job>(`jobs/${jobId}`).catch(() => null);
+    const job = await api(`jobs/${jobId}`).catch(() => null);
     if (job && !stopped) onJob(job);
     if (!stopped) timer = setTimeout(() => void poll(), pollMs);
   };

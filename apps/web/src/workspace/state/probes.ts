@@ -7,7 +7,7 @@ import type {
   DeskMemory,
   PlacementDecision,
 } from '@livinglayer/domain';
-import { api } from '../../api';
+import { apiAt } from '../../api';
 import { isProbe } from './helpers';
 import type { ViewSlice } from './view';
 import type { FeedbackSlice } from './feedback';
@@ -74,7 +74,7 @@ export function useProbesSlice(
     setBusy(kind);
     setError('');
     try {
-      const run = await api<EvidenceRun>(kind, {
+      const run = await apiAt<EvidenceRun>(kind, {
         mode,
         ...(photo ? { imageDataUrl: photo } : {}),
         ...(kind === 'segment' ? { concept: overrideConcept ?? concept } : {}),
@@ -110,7 +110,7 @@ export function useProbesSlice(
     setBusy(path);
     setError('');
     try {
-      const result = await api<DeskMemory | EvidenceRun<PlacementDecision>>(`desk/${path}`, {
+      const result = await apiAt<DeskMemory | EvidenceRun<PlacementDecision>>(`desk/${path}`, {
         mode,
         ...fields,
       });

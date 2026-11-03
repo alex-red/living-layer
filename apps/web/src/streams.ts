@@ -19,7 +19,7 @@ export function useNetworkStreams() {
   const scan = useCallback(async () => {
     setScanning(true);
     try {
-      setStreams((await api<{ streams: NetworkStream[] }>('streams')).streams);
+      setStreams((await api('streams')).streams);
     } catch {
       setStreams([]);
     } finally {

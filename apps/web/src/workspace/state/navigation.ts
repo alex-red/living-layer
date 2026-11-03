@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react';
-import type { EvidenceRun, SceneGuess } from '@livinglayer/domain';
 import { ISO_PRESETS } from '@livinglayer/domain';
 import { api } from '../../api';
 import type { RuleDraft } from '../../iso/IsoView';
@@ -202,7 +201,7 @@ export function useNavigationSlice(
     setAsking(true);
     setError('');
     try {
-      const run = await api<EvidenceRun<SceneGuess>>('scene/classify', {
+      const run = await api('scene/classify', {
         mode,
         ...(mode === 'live' ? { imageDataUrl: image } : {}),
       });

@@ -67,7 +67,7 @@ export function useAiSlice(
   const [aiHistory, setAiHistory] = useState<Job[]>([]);
   const loadAiHistory = useCallback(
     () =>
-      api<Job[]>('jobs')
+      api('jobs')
         .then((list) => mounted.current && setAiHistory(list))
         .catch(() => {}),
     [mounted],
@@ -79,7 +79,7 @@ export function useAiSlice(
   async function reviewAiRun(jobId: string) {
     if (aiRun.current) return;
     clearTimeout(aiClose.current);
-    const job = await api<Job>(`jobs/${jobId}`).catch(() => null);
+    const job = await api(`jobs/${jobId}`).catch(() => null);
     if (!job) return setError('That AI run is no longer kept.');
     setAiTask({
       title: job.title ?? 'AI run',
@@ -101,10 +101,7 @@ export function useAiSlice(
     setBusy('reapply');
     setError('');
     try {
-      const result = await api<{ memory: DeskMemory; fixtureId: string; label: string }>(
-        'fixtures/sculpt/reapply',
-        { mode, jobId },
-      );
+      const result = await api('fixtures/sculpt/reapply', { mode, jobId });
       setMemory(result.memory);
       closeAiTask();
       setMessage(
@@ -165,17 +162,17 @@ export function useAiSlice(
     // yet in the first moments, so the stop is tried again briefly.
     void (async () => {
       for (let tries = 0; tries < 5; tries++) {
-        const response = await fetch(`/api/jobs/${jobId}/stop`, { method: 'POST' }).catch(
+        // A stop the server hasn't registered yet answers 404, which throws: try again.
+        const job = await api(`jobs/${jobId}/stop`, undefined, { method: 'POST' }).catch(
           () => null,
         );
-        if (response?.ok) {
-          const job = (await response.json().catch(() => null)) as Job | null;
-          if (job?.done && !job.stopped) {
+        if (job) {
+          if (job.done && !job.stopped) {
             // It had already finished: what it saved stays, so show it.
             updateAiTask(jobId, { job, status: 'done' });
             setMessage('It had already finished, so the result was kept.');
             void refresh().catch(() => {});
-          } else if (job) updateAiTask(jobId, { job });
+          } else updateAiTask(jobId, { job });
           break;
         }
         await new Promise((r) => setTimeout(r, 400));
@@ -281,7 +278,7 @@ export function useAiSlice(
       if (current()) {
         aiRun.current = null;
         // The last word on every step, success or not.
-        const job = await api<Job>(`jobs/${jobId}`).catch(() => null);
+        const job = await api(`jobs/${jobId}`).catch(() => null);
         setAiTask((t) =>
           t?.jobId !== jobId
             ? t
