@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import { renderRoomAsync } from './workers/compute.js';
 import { z } from 'zod';
 import {
   calibrationOf,
@@ -12,7 +13,6 @@ import {
   ISO_TILE_CM,
   isoSceneSchema,
   modeSchema,
-  renderRoom,
   roomMask,
   sceneSolids,
   type IsoScene,
@@ -66,7 +66,7 @@ export function sceneFitRoutes(
     const outlined = await run('segment', mode, async (id) => {
       if (mode === 'demo') {
         // The demo's frame is its own room drawn through its camera.
-        const picture = renderRoom(
+        const picture = await renderRoomAsync(
           DEMO_CAMERA,
           [floorSolid(DEMO_ROOM.grid), ...sceneSolids(DEMO_ROOM)],
           { labels: true },

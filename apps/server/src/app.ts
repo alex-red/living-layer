@@ -29,6 +29,7 @@ import {
 } from '@livinglayer/domain';
 import { type Config, type Fetcher, PROJECT_ROOT } from './config.js';
 import { EvidenceStore } from './store.js';
+import { closeCompute } from './workers/compute.js';
 import { MetaAdapter, type ProviderResult } from './meta.js';
 import { ControlAdapter } from './control.js';
 import { chosenEntities, haConnection, haRoutes, type OpenSocket } from './ha.js';
@@ -121,6 +122,7 @@ export async function buildApp(
   pruneTimer.unref();
   app.addHook('onClose', async () => {
     clearInterval(pruneTimer);
+    closeCompute();
     store.close();
   });
   // MQTT: one install id names our device and entities in Home Assistant across restarts.

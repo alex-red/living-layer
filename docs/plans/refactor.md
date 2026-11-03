@@ -106,6 +106,8 @@ _Landed:_ one `Jobs` per `buildApp`, passed to the routes that start jobs; stale
 
 **C7. later: fitting and rendering off the event loop.** After B, measure a scan again. If one still holds the loop for more than about 200 ms, run `fitItem` and `renderRoom` in a small Bun Worker pool: domain is pure, and the RGBA buffers can be transferred.
 
+_Landed:_ measured on the demo: `fitItem` held the loop 150–300 ms per thing (the scan's longest stretch 213 ms warm-ish, 300 ms under load); `renderRoom` 70–150 ms. `apps/server/src/workers/compute.ts` runs both in a pool of up to 2 Bun Workers (`COMPUTE_WORKERS=<n>`; 0, and the default under `bun test`, runs in place), with rendered buffers transferred. The longest block of a demo scan is now 1–5 ms; results are byte-identical (`tests/compute-workers.test.ts`). A failed worker falls back to running in place.
+
 **C8. later: one Spark call in `meta.ts`.** Thirteen methods repeat the same 45 lines (`meta.ts:400-1091`). Replace them with one `structured(kind, …)` that takes its tokens and effort from `SPARK_CALLS`. Today `reasoningOf` is applied for only three kinds, so an effort set for any other kind does nothing. `lookupProduct` should use the same reserve and settle, and `SPARK_BUDGET` should be derived. Check with `tests/calls.test.ts` and `bench:intent`.
 
 **C9. later: route helpers.** Five small helpers would replace about 60 repeated blocks:
@@ -120,7 +122,11 @@ _Landed:_ one `Jobs` per `buildApp`, passed to the routes that start jobs; stale
 
 **C11. later, needs a decision: hot reads and retention.** `/api/status` (`store.ts:237`) and `/api/jobs` (`jobs.ts:208`) each parse about 11 MB per call. Index mode, kind and status as generated columns, and strip job pictures in SQL. A retention rule for old evidence deletes data, so agree on it first.
 
+_Landed:_ migration 2 adds generated `mode`, `kind`, `status` columns and an index; `latestSegment`, `liveEvidence` and the cost estimates read those instead of parsing every run; `/api/jobs` drops pictures with `json_remove` (7 ms for 200 jobs either way: SQLite still parses the JSON, the gain is not building the pictures in JS). Retention: `EVIDENCE_RETENTION_DAYS` (default 30, 0 off) prunes runs, jobs and `evidence/<run>` at startup and daily, keeping any run named in desk memory, settings or a newer run (and what those name). `.data/rooms` is never touched. `tests/store-prune.test.ts`.
+
 **C12. later, needs a decision: JPEG frames.** Every upload is stored and sent as PNG (`images.ts:33`). For a 1280 × 960 frame, PNG is 1.76 MB and 36 ms; JPEG at q92 is 228 KB and 8 ms. That is 7.7 times fewer bytes to Spark and SAM, but it changes the pixels SAM sees. Check with `bench:rooms`, `bench:brush` and one billed live comparison.
+
+_Landed:_ stored uploads are lossless WebP (`source.webp`; `FRAME_FORMAT=png` reverts), old `source.png` still read. On a 1280 × 960 frame: PNG 1876 KB / 40 ms, lossless WebP effort 1 1316 KB / 373 ms (effort 0: 1564 KB / 120 ms), lossy q90 46 KB / 51 ms (not used: it changes pixels). Spark is sent WebP (documented as accepted); SAM and Muse Image are sent PNG converted at send time, since their docs don't name WebP. The zone key is still a SHA-256 of the stored bytes, so zones saved before keep their keys; a new upload of an image first uploaded as PNG gets a different key.
 
 **C13. later: dead code.** `webResearcher` (`research.ts:116`) and `/api/fixtures/track` (`desk.ts:670`) are unused, and `convexHull` (`layers.ts:28`) duplicates `photo-scene.ts:273`.
 _Landed:_ `webResearcher`, `/api/fixtures/track` and `layers.ts`'s hull are gone (the domain's `convexHull` gives the same outline). Done early, with the C items.

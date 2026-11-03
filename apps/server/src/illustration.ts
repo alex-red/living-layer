@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import { renderRoomAsync } from './workers/compute.js';
 import sharp from 'sharp';
 import { z } from 'zod';
 import {
@@ -17,7 +18,6 @@ import {
   modeSchema,
   calibrationOf,
   floorSolid,
-  renderRoom,
   sceneSolids,
   type DeskMemory,
   type EvidenceRun,
@@ -70,7 +70,7 @@ const LIFT_STEPS = [
 ];
 /** The room as its camera sees it, drawn from the scene: the demo's picture of it. */
 async function roomPicture(scene: IsoScene, camera: RoomCamera) {
-  const { width, height, rgba } = renderRoom(camera, [
+  const { width, height, rgba } = await renderRoomAsync(camera, [
     floorSolid(scene.grid),
     ...sceneSolids(scene),
   ]);

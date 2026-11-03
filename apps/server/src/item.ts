@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import { fitItemAsync } from './workers/compute.js';
 import sharp from 'sharp';
 import { z } from 'zod';
 import {
@@ -8,7 +9,6 @@ import {
   archetypeOf,
   buildItem,
   describeFit,
-  fitItem,
   fuseFits,
   isMugConcept,
   isoItemSchema,
@@ -220,7 +220,7 @@ export async function draftModel(
     parts,
     knownHeight,
   };
-  const fitted = fitItem(input);
+  const fitted = await fitItemAsync(input);
   let params = fitted.params;
   let item = fitted.item;
   let score = fitted.score;
@@ -409,7 +409,7 @@ export function itemRoutes(
     const input = { ...(await cropInput(png, target.label)), archetype: fit.archetype, material };
     // A flat thing's height can't be measured from above: keep the one it has.
     const knownHeight = fit.params.family === 'flat' ? fit.params.h : null;
-    const fitted = fitItem({ ...input, elevation: fit.elevation, knownHeight });
+    const fitted = await fitItemAsync({ ...input, elevation: fit.elevation, knownHeight });
     const refitted = keepLocked(fitted.item, item ?? target.item);
     const score = scoreAgainst(refitted, input, fitted.elevation);
     const memory = store.memory(mode);

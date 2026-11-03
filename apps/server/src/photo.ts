@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import { renderRoomAsync } from './workers/compute.js';
 import { createHash, randomUUID } from 'node:crypto';
 import sharp from 'sharp';
 import { z } from 'zod';
@@ -22,7 +23,6 @@ import {
   floorSolid,
   layoutRoom,
   refineWalls,
-  renderRoom,
   sceneSolids,
   thingSolids,
   type LayoutInput,
@@ -94,7 +94,7 @@ async function renderScene(
   calibration: RoomCalibration,
   things: PhotoLayout['things'] = [],
 ) {
-  const picture = renderRoom(calibration.camera, [
+  const picture = await renderRoomAsync(calibration.camera, [
     floorSolid(scene.grid),
     ...sceneSolids(scene),
     ...thingSolids(things.filter((t) => t.status === 'object')),
