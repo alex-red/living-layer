@@ -18,7 +18,13 @@ import { Glyph } from '../Glyph';
 import { Button, Check, Field, Select } from '../ui/controls';
 import { useLab } from './LabContext';
 import { Cost, Details, Panel, useCall } from './panel';
-import { FixturePanel, LampPanel, NewFixturePanel, ScanFixtures } from './FixturePanel';
+import {
+  BuiltInPanel,
+  FixturePanel,
+  LampPanel,
+  NewFixturePanel,
+  ScanFixtures,
+} from './FixturePanel';
 import { EntityPanel, NewEntityPanel } from './ExposePanel';
 import { ChooseDevicesLink, DevicesPanel } from './DevicesPanel';
 import { ago, mainSurface, roomLabel, surfaceRows } from './labels';
@@ -1450,6 +1456,8 @@ function body(lab: ReturnType<typeof useLab>, s: Selection | null) {
       return <NewFixturePanel />;
     case 'lamp':
       return <LampPanel key={s.id} id={s.id} />;
+    case 'built-in':
+      return <BuiltInPanel key={s.id} id={s.id} />;
     case 'entity':
       return <EntityPanel key={s.id} id={s.id} />;
     case 'new-entity':
