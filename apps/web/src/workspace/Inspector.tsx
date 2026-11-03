@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { lazy, useEffect, useRef, useState } from 'react';
 import { useNow } from '../useNow';
 import {
   MAX_OTHER_OBJECTS,
@@ -36,19 +36,32 @@ import {
 } from './LabContext';
 import { useFollowStats, useFollowView } from './state/follow-store';
 import { Cost, Details, Panel, useCall } from './panel';
-import {
-  BuiltInPanel,
-  FixturePanel,
-  LampPanel,
-  NewFixturePanel,
-  ScanFixtures,
-} from './FixturePanel';
-import { EntityPanel, NewEntityPanel } from './ExposePanel';
-import { ChooseDevicesLink, DevicesPanel } from './DevicesPanel';
+import { ScanFixtures } from './ScanFixtures';
+import { ChooseDevicesLink } from './ChooseDevicesLink';
+import { Later } from '../Later';
 import { ago, mainSurface, roomLabel, surfaceRows, type LabRead } from './labels';
 import { pinScene, viewLabel, type Selection } from './progress';
 import { TRANSITION, centre, type Lab } from './useLabState';
 import './inspector.css';
+
+// The fixture, entity and Home Assistant panels load when first shown.
+const FixturePanel = lazy(() =>
+  import('./FixturePanel').then((m) => ({ default: m.FixturePanel })),
+);
+const NewFixturePanel = lazy(() =>
+  import('./FixturePanel').then((m) => ({ default: m.NewFixturePanel })),
+);
+const LampPanel = lazy(() => import('./FixturePanel').then((m) => ({ default: m.LampPanel })));
+const BuiltInPanel = lazy(() =>
+  import('./FixturePanel').then((m) => ({ default: m.BuiltInPanel })),
+);
+const EntityPanel = lazy(() => import('./ExposePanel').then((m) => ({ default: m.EntityPanel })));
+const NewEntityPanel = lazy(() =>
+  import('./ExposePanel').then((m) => ({ default: m.NewEntityPanel })),
+);
+const DevicesPanel = lazy(() =>
+  import('./DevicesPanel').then((m) => ({ default: m.DevicesPanel })),
+);
 
 type Events = { memory: DeskMemory; events: EvidenceRun<PlacementDecision>[] };
 
@@ -1705,19 +1718,47 @@ function body(lab: LabRead & Pick<Lab, 'workScene'>, s: Selection | null) {
     case 'new-rule':
       return <NewRulePanel />;
     case 'fixture':
-      return <FixturePanel key={s.id} id={s.id} />;
+      return (
+        <Later>
+          <FixturePanel key={s.id} id={s.id} />
+        </Later>
+      );
     case 'new-fixture':
-      return <NewFixturePanel />;
+      return (
+        <Later>
+          <NewFixturePanel />
+        </Later>
+      );
     case 'lamp':
-      return <LampPanel key={s.id} id={s.id} />;
+      return (
+        <Later>
+          <LampPanel key={s.id} id={s.id} />
+        </Later>
+      );
     case 'built-in':
-      return <BuiltInPanel key={s.id} id={s.id} />;
+      return (
+        <Later>
+          <BuiltInPanel key={s.id} id={s.id} />
+        </Later>
+      );
     case 'entity':
-      return <EntityPanel key={s.id} id={s.id} />;
+      return (
+        <Later>
+          <EntityPanel key={s.id} id={s.id} />
+        </Later>
+      );
     case 'new-entity':
-      return <NewEntityPanel />;
+      return (
+        <Later>
+          <NewEntityPanel />
+        </Later>
+      );
     case 'devices':
-      return <DevicesPanel />;
+      return (
+        <Later>
+          <DevicesPanel />
+        </Later>
+      );
   }
 }
 

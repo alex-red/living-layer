@@ -9,8 +9,8 @@ import {
 } from '@livinglayer/domain';
 import { Button, IconButton } from '../ui/controls';
 import { ContextMenu, type MenuItem } from './ContextMenu';
-import { stateLabel } from './ExposePanel';
-import { removeFromLayout } from './FixturePanel';
+import { stateLabel } from './stateLabel';
+import { removeFromLayout } from './removeFromLayout';
 import {
   useCamera,
   useDesk,

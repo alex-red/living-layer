@@ -192,6 +192,8 @@ _Landed (D5):_ the Playground, `ItemEditor`, `SceneEditor`, `IllustrationView`, 
 
 _Landed (D5 sideEffects):_ `"sideEffects": false` in `packages/domain/package.json`. No domain module runs anything at import: top-level statements are declarations, plus a few `Set`s and memo `Map`s (`demo-room.ts` frames, `iso-prop-sprite.ts` recent grids) that fill when called. `bunx vite build` before/after: the 223 KB domain chunk is gone, its used parts now split as `iso` 128 KB, `fixture` 40 KB and `iso-presets` 2 KB, with the main chunk at 297.5 to 328.7 KB (95.6 to 107.2 KB gzip) as the rest merged in; the first load (main, React and those) was 739 KB raw and is 717 KB (-3%). The sprite worker, which bundles the same domain, went from 167.6 KB to 134.6 KB (-20%).
 
+_Landed (D5 panels):_ `FixturePanel`, `ExposePanel` and `DevicesPanel` are `React.lazy` behind `Later` in `Inspector.tsx` (the fixture, new-fixture, lamp and built-in panes, the entity and new-entity panes, and Home Assistant). The values `Inspector` and `Outline` took from them moved to modules of their own: `ScanFixtures.tsx` (with `fixture-scenes.ts`, the `WorkScene` type and `useScenes` it shares with `NewFixturePanel`), `ChooseDevicesLink.tsx`, `removeFromLayout.ts` and `stateLabel.ts`. None of the three imports a stylesheet, so the cascade is unchanged. `bunx vite build` into a scratch directory: the main chunk was 334.72 KB raw / 109.46 KB gzip and is 258.21 KB / 85.23 KB (-23% raw, -22% gzip); the panels are chunks of 31.06 KB / 10.21 KB (fixture), 15.50 KB / 5.27 KB (expose) and 10.25 KB / 3.90 KB (devices).
+
 **D6. later: a typed API.**
 
 - A route table in domain, sharing the server's request schemas.

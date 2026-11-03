@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { EvidenceRun, HaEntity, LampResult } from '@livinglayer/domain';
 import { api } from '../api';
 import { Button, Check, Field } from '../ui/controls';
-import { useDesk, useFeedback, useLabParts, useNavigation, useView } from './LabContext';
+import { useDesk, useFeedback, useLabParts, useView } from './LabContext';
 import { Details, Panel, useCall, type Tone } from './panel';
 
 const DOMAIN_LABEL: Record<HaEntity['domain'], string> = {
@@ -448,16 +448,3 @@ function TryStep({ names }: { names: Map<string, string> }) {
 }
 
 const count = (n: number) => `${n} device${n === 1 ? '' : 's'}`;
-
-/** Where a panel with nothing to switch sends someone: the Home Assistant panel. */
-export function ChooseDevicesLink({ why }: { why: string }) {
-  const lab = useLabParts(useNavigation());
-  return (
-    <p className="micro">
-      {why}{' '}
-      <Button variant="text" onClick={() => lab.select({ kind: 'devices' })}>
-        Set up Home Assistant →
-      </Button>
-    </p>
-  );
-}
