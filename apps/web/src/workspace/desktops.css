@@ -1,0 +1,43 @@
+/* Desktop nodes: the Desktops panel's cards and the controls the monitor's panel shares */
+.dn-list {
+  display: grid;
+  gap: 10px;
+  margin: 0 0 8px;
+  padding: 0;
+  list-style: none;
+}
+.dn-card {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-chip);
+}
+.dn-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  align-items: baseline;
+}
+.dn-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--unsure);
+  align-self: center;
+}
+.dn-card.online .dn-dot {
+  background: var(--ok);
+}
+.dn-controls {
+  display: grid;
+  gap: 8px;
+}
+.dn-row {
+  display: flex;
+  gap: 6px;
+}
+.dn-row input {
+  flex: 1;
+  min-width: 0;
+}

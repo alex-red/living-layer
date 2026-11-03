@@ -41,6 +41,9 @@ function runner(holds: (c: unknown) => boolean = () => true) {
         switched.push(`${s.entityId} ${s.to}`);
         return lamp(s.entityId, s.to);
       },
+      desktop: async (s: Extract<ZoneStep, { kind: 'desktop' }>) => {
+        switched.push(`${s.nodeId} ${s.message.kind}`);
+      },
       sleep: async (ms: number): Promise<void> => {
         waits.push(ms);
       },
@@ -108,6 +111,35 @@ describe('zone steps', () => {
     );
     expect(stopped.cancelled).toBe(true);
     expect(s.switched).toEqual([]);
+  });
+
+  it('sends a desktop its banner between switches', async () => {
+    const r = runner();
+    const out = await runSteps(
+      [
+        { kind: 'switch', entityId: 'switch.node_ab12_display', to: 'on' },
+        { kind: 'desktop', nodeId: 'ab12', message: { kind: 'banner', title: 'Coffee’s here' } },
+      ],
+      r.run,
+    );
+    expect(r.switched).toEqual(['switch.node_ab12_display on', 'ab12 banner']);
+    expect(out.failed).toBeNull();
+  });
+
+  it('stops at a desktop that doesn’t answer', async () => {
+    const r = runner();
+    r.run.desktop = async () => {
+      throw Object.assign(new Error('The desktop didn’t answer.'), { code: 'node_unreachable' });
+    };
+    const out = await runSteps(
+      [
+        { kind: 'desktop', nodeId: 'ab12', message: { kind: 'open', url: 'https://example.com' } },
+        { kind: 'switch', entityId: 'light.a', to: 'on' },
+      ],
+      r.run,
+    );
+    expect(out.failed?.code).toBe('node_unreachable');
+    expect(r.switched).toEqual([]);
   });
 
   it('reads an older rule as one switch each way', () => {

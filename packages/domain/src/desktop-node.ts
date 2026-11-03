@@ -23,17 +23,24 @@ const httpUrlSchema = z
   .url()
   .refine((u) => /^https?:$/.test(new URL(u).protocol), { message: 'Only http and https pages.' });
 
+const openSchema = z
+  .object({ kind: z.literal('open'), url: httpUrlSchema, kiosk: z.boolean().optional() })
+  .strict();
+const bannerSchema = z
+  .object({
+    kind: z.literal('banner'),
+    title: z.string().trim().min(1).max(80),
+    text: z.string().trim().max(400).optional(),
+    seconds: z.number().int().min(1).max(120).optional(),
+  })
+  .strict();
+/** What a zone step may send a node: the display is switched as an entity, by a `switch` step. */
+export const desktopNodeMessageSchema = z.discriminatedUnion('kind', [openSchema, bannerSchema]);
+export type DesktopNodeMessage = z.infer<typeof desktopNodeMessageSchema>;
 export const desktopNodeCommandSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('display'), to: z.enum(['on', 'off']) }).strict(),
-  z.object({ kind: z.literal('open'), url: httpUrlSchema, kiosk: z.boolean().optional() }).strict(),
-  z
-    .object({
-      kind: z.literal('banner'),
-      title: z.string().trim().min(1).max(80),
-      text: z.string().trim().max(400).optional(),
-      seconds: z.number().int().min(1).max(120).optional(),
-    })
-    .strict(),
+  openSchema,
+  bannerSchema,
 ]);
 export type DesktopNodeCommand = z.infer<typeof desktopNodeCommandSchema>;
 
@@ -55,3 +62,46 @@ export interface DesktopNodeStatus {
 }
 
 export const desktopNodePairSchema = z.object({ by: z.string().trim().min(1).max(80) }).strict();
+
+/** A node's id as the server keeps it: what `/info` says, at most 64 characters. */
+export const desktopNodeIdSchema = z.string().regex(/^[\w-]{1,64}$/);
+
+/** The switch a node's display is, for fixtures, rules and Home Assistant. */
+export function desktopNodeEntity(id: string): string {
+  return `switch.node_${id
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '')
+    .slice(0, 12)}_display`;
+}
+
+/** Whether an entity is a desktop node's display, which needs no Home Assistant to switch. */
+export const isDesktopNodeEntity = (entity: string) =>
+  /^switch\.node_[a-z0-9]+_display$/.test(entity);
+
+/** The node demo mode has: virtual, it makes no network calls and keeps what it was sent. */
+export const DEMO_DESKTOP_NODE = {
+  id: 'demo-desktop',
+  name: 'Office desktop',
+  desktop: 'kde',
+  caps: ['display', 'open', 'banner'],
+} as const satisfies Pick<DesktopNodeInfo, 'id' | 'name' | 'desktop' | 'caps'>;
+
+/** A node as the lab shows it: found on the network, adopted, or both. Never its token. */
+export interface DesktopNodeView {
+  id: string;
+  name: string;
+  /** Where it answers, as `host:port`; `virtual` for the demo's. */
+  address: string;
+  desktop: DesktopKind;
+  caps: DesktopNodeCap[];
+  /** This lab holds its token. */
+  adopted: boolean;
+  /** Answered just now: on the network, or its status. */
+  online: boolean;
+  /** Adopted by another lab: it can't be adopted here until it is unpaired. */
+  taken: boolean;
+  entityId: string;
+  /** The Thing its display is, once attached to a monitor. */
+  fixtureId: string | null;
+  status: DesktopNodeStatus | null;
+}

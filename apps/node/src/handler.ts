@@ -5,6 +5,7 @@
  *   POST /pair     the first caller gets the token (trust on first use)
  *   GET  /status   what it last did; needs the token
  *   POST /command  display, open or banner; needs the token
+ *   POST /unpair   forgets the lab that adopted it; needs the token
  */
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import {
@@ -114,11 +115,18 @@ export function createNode(options: NodeOptions) {
         });
         return json({ token: identity.token, info: info() });
       }
-      if (route !== 'GET /status' && route !== 'POST /command') return refuse(404, 'Nothing here.');
+      if (!['GET /status', 'POST /command', 'POST /unpair'].includes(route))
+        return refuse(404, 'Nothing here.');
       const given = request.headers.get('authorization')?.replace(/^Bearer /, '') ?? '';
       if (!identity.token || !sameToken(given, identity.token))
         return refuse(401, 'That token is not this node’s.');
       if (route === 'GET /status') return json(status);
+      if (route === 'POST /unpair') {
+        identity.token = null;
+        identity.adoptedBy = null;
+        options.save(identity);
+        return json({ ok: true });
+      }
       const parsed = desktopNodeCommandSchema.safeParse(await body(request));
       if (!parsed.success) return refuse(400, parsed.error.issues[0]?.message ?? 'Bad command.');
       const result = await carry(parsed.data);

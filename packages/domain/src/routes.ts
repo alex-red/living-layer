@@ -1,7 +1,15 @@
 import type { z } from 'zod';
-import type { EvidenceRun, imageRequestSchema, LabStatus, Scene, Segmentation } from './api.js';
+import type {
+  EvidenceRun,
+  imageRequestSchema,
+  LabStatus,
+  LampResult,
+  Scene,
+  Segmentation,
+} from './api.js';
 import type { AssistDraft, SelectResolve } from './assist.js';
 import type { CameraView, cameraInputSchema, NetworkStream } from './camera.js';
+import type { DesktopNodeView } from './desktop-node.js';
 import type { FixtureDraft } from './fixture.js';
 import type { MappedThing, MovingThing } from './fixture-scan.js';
 import type { IsoScene } from './iso.js';
@@ -200,6 +208,19 @@ interface ApiRoutes {
     response: { camera: CameraView; cameras: CameraView[] };
   };
   'cameras/delete': { body: R.CamerasDeleteBody; response: { cameras: CameraView[] } };
+  'nodes/list': { body: R.ModeOnly; response: { nodes: DesktopNodeView[] } };
+  'nodes/adopt': {
+    body: R.NodesAdoptBody;
+    response: { nodes: DesktopNodeView[]; memory: DeskMemory; fixtureId: string };
+  };
+  'nodes/forget': {
+    body: R.NodesForgetBody;
+    response: { nodes: DesktopNodeView[]; memory: DeskMemory };
+  };
+  'nodes/command': {
+    body: R.NodesCommandBody;
+    response: { memory: DeskMemory; lamp: LampResult | null };
+  };
   streams: { body: undefined; response: { streams: NetworkStream[] } };
   'streams/crop': { body: R.StreamsCropBody; response: unknown };
   remote: { body: undefined; response: { pairing: PairingView | null } };

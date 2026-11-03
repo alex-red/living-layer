@@ -197,7 +197,12 @@ export interface LabStatus {
    * `lights`: every light entity rules may switch, the main one first.
    * `switches`: every switch entity fixtures and rules may turn on and off.
    */
-  lamp: Readiness & { lights: string[]; switches: string[] };
+  lamp: Readiness & {
+    lights: string[];
+    switches: string[];
+    /** Adopted desktop nodes' displays, switched by the node, not Home Assistant. */
+    desktops: string[];
+  };
   /**
    * Home Assistant, for switching: `connected` once `.env` has its URL and a
    * token or someone signed in from the lab, `enabled` unless switching is off. `fromEnv` are the devices

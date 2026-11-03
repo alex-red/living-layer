@@ -1,6 +1,11 @@
 import { useEffect, useRef, useState, useMemo } from 'react';
 import type { HaView, LabStatus, Mode, DeskMemory } from '@livinglayer/domain';
-import { DEMO_LIGHTS, DEMO_SWITCHES } from '@livinglayer/domain';
+import {
+  DEMO_DESKTOP_NODE,
+  DEMO_LIGHTS,
+  DEMO_SWITCHES,
+  desktopNodeEntity,
+} from '@livinglayer/domain';
 import { api, apiIfChanged } from '../../api';
 import { usd } from '../../cost';
 import { lightStates } from '../labels';
@@ -162,8 +167,14 @@ export function useDeskSlice(deps: ViewSlice & FeedbackSlice & RunLogSlice): Des
   }, [memory, runs, mode, haStates]);
   /** What a rule or a fixture may switch: the lights, then the switches. */
   const entities = useMemo(
-    () => [...lights, ...(mode === 'demo' ? DEMO_SWITCHES : (status?.lamp.switches ?? []))],
-    [lights, mode, status?.lamp.switches],
+    () => [
+      ...lights,
+      ...(mode === 'demo' ? DEMO_SWITCHES : (status?.lamp.switches ?? [])),
+      ...(mode === 'demo'
+        ? [desktopNodeEntity(DEMO_DESKTOP_NODE.id)]
+        : (status?.lamp.desktops ?? [])),
+    ],
+    [lights, mode, status?.lamp.switches, status?.lamp.desktops],
   );
   return useStableSlice({
     deskReady,

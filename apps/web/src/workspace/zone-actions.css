@@ -91,6 +91,9 @@
 .za-mark.wait {
   --za-tone: var(--seen);
 }
+.za-mark.desktop {
+  --za-tone: var(--chosen);
+}
 .za-mark.if {
   --za-tone: var(--unsure);
 }

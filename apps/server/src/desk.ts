@@ -48,6 +48,7 @@ import {
   calibrationOf,
   type PlacementRule,
   type ZoneStep,
+  type DesktopNodeMessage,
   ruleActions,
   runSteps,
   stepEntities,
@@ -145,9 +146,14 @@ export function createDesk(
         const timer = setTimeout(resolve, ms);
         signal.addEventListener('abort', () => (clearTimeout(timer), resolve()), { once: true });
       }),
+    desktop = async () => {
+      throw new LabError('node_unknown', 'No desktop nodes here.', 404);
+    },
   }: {
     /** How a zone's `wait` step waits; ends early when the run is stopped. */
     sleep?: (ms: number, signal: AbortSignal) => Promise<void>;
+    /** Sends a desktop node a zone step's banner or page (`DesktopNodes.send`). */
+    desktop?: (mode: Mode, nodeId: string, message: DesktopNodeMessage) => Promise<unknown>;
   } = {},
 ) {
   const active = new Set<Mode>();
@@ -600,6 +606,9 @@ export function createDesk(
         decision.lamp = lamp;
         store.updateMemory(mode, (memory) => noteControl(memory, lamp));
         return lamp;
+      },
+      desktop: async (s) => {
+        await desktop(mode, s.nodeId, s.message);
       },
       holds: (c) => {
         const rule = store.memory(mode).rules?.find((r) => r.id === ruleId);

@@ -44,6 +44,7 @@ import {
   type ThingRow,
 } from './sceneOutline';
 import { useThingStats } from './state/stats';
+import { useDesktopNodes } from './state/nodes';
 
 const GLYPH: Record<StepState, string> = { done: '✓', current: '●', todo: '◌', locked: '–' };
 
@@ -166,6 +167,7 @@ export function Outline() {
             <Things outline={outline} />
             <Zones outline={outline} />
             <HomeAssistant />
+            <Desktops />
           </>
         )}
       </aside>
@@ -768,6 +770,59 @@ function Zones({ outline }: { outline: SceneOutline }) {
         )}
       </ul>
     </>
+  );
+}
+
+/** How often the outline looks for desktops again: slower than their panel, which looks every few seconds. */
+const DESKTOPS_POLL_MS = 15_000;
+
+/** Desktop nodes, shared by every scene: found, adopted, and whether they answer. */
+function Desktops() {
+  const { mode } = useView();
+  const nodes = useDesktopNodes(mode, DESKTOPS_POLL_MS);
+  const adopted = nodes.filter((n) => n.adopted);
+  return (
+    <details className="ol-ha" open={nodes.length > 0}>
+      <summary>
+        <span className="tiny">DESKTOPS</span>
+        <small className="ol-broker">
+          {adopted.length
+            ? `${adopted.length} adopted`
+            : nodes.length
+              ? `${nodes.length} found`
+              : 'none found'}
+        </small>
+      </summary>
+      <ul className="ol-tree">
+        {nodes.map((n) => (
+          <Row
+            key={n.id}
+            label={n.name}
+            detail={
+              !n.adopted
+                ? n.taken
+                  ? 'another lab’s'
+                  : 'found · adopt it'
+                : !n.online
+                  ? 'not answering'
+                  : `display ${n.status?.display ?? 'unknown'}`
+            }
+            glyph={n.adopted ? (n.online ? '▭' : '◌') : '＋'}
+            className={n.adopted ? (n.online ? 'done' : 'missing') : 'current'}
+            target={{ kind: 'desktops' }}
+          />
+        ))}
+        {!nodes.length && (
+          <Row
+            label="Drive a desktop’s screen"
+            detail="run living-layer-node on it"
+            glyph="＋"
+            className="add"
+            target={{ kind: 'desktops' }}
+          />
+        )}
+      </ul>
+    </details>
   );
 }
 

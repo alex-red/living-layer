@@ -68,7 +68,9 @@ import { ScanFixtures } from './ScanFixtures';
 import { BoxOnlyNote, LocalOutline } from './LocalOutline';
 import { useScenes, type WorkScene } from './fixture-scenes';
 import { removeFromLayout, type LayoutLab } from './removeFromLayout';
-import { controlKindOf } from '@livinglayer/domain';
+import { controlKindOf, isDesktopNodeEntity } from '@livinglayer/domain';
+import { DesktopControls } from './DesktopsPanel';
+import { nodeOfEntity, useDesktopNodes } from './state/nodes';
 
 const KIND_LABEL: Record<ControlKind, string> = {
   light: 'Light',
@@ -805,7 +807,9 @@ export function FixturePanel({ id }: { id: string }) {
   const entityId = fixtureEntity(f);
   const stateNames = fixtureStateNames(f);
   const where = `${f.scene === 'custom' ? roomLabel('custom', memory) : ISO_PRESETS[f.scene].label}${f.surfaceId ? '' : ', on the floor'}`;
-  const liveBlocked = mode === 'live' && !lab.lampReady;
+  // A desktop's display is switched by the desktop itself, not Home Assistant.
+  const desktop = Boolean(entityId && isDesktopNodeEntity(entityId));
+  const liveBlocked = mode === 'live' && !lab.lampReady && !desktop;
   const save = (next: FixtureInput, done: string) =>
     void call<DeskMemory>('fixtures/save', { fixture: next }, (m) => {
       lab.setMemory(m);
@@ -866,6 +870,7 @@ export function FixturePanel({ id }: { id: string }) {
             </Button>
           </div>
           {liveBlocked && <ChooseDevicesLink why="Home Assistant isn’t ready to switch it." />}
+          {desktop && <MonitorDesktop entityId={entityId!} disabled={off} />}
           {result && (
             <p className="micro">
               {result.accepted ? 'Accepted' : 'Not accepted'} ·{' '}
@@ -1769,5 +1774,17 @@ export function SculptFixture({ fixture, disabled }: { fixture: Fixture; disable
           `Spark rebuilds its model in editable parts from its ${lifted ? 'cut-out' : sighted ? 'last sighting' : 'photo'}, keeping locked parts${note.trim() ? ', and looks up what you name meanwhile (catalog, then the web)' : ''} · ${note.trim() ? '4' : '3'} Spark calls at once, ~$0.05–${note.trim() ? '0.15' : '0.10'}, under a minute.`}
       </p>
     </div>
+  );
+}
+
+/** A monitor that is a desktop's display: its banner and page, beside its on and off. */
+function MonitorDesktop({ entityId, disabled }: { entityId: string; disabled: boolean }) {
+  const { mode } = useView();
+  const node = nodeOfEntity(useDesktopNodes(mode), entityId);
+  if (!node) return null;
+  return (
+    <Details summary={`On ${node.name}`} open>
+      <DesktopControls node={node} disabled={disabled || !node.online} display={false} />
+    </Details>
   );
 }

@@ -7,6 +7,11 @@
  */
 import { z } from 'zod';
 import { lightLookSchema, type LampResult, type LightLook } from './api.js';
+import {
+  desktopNodeIdSchema,
+  desktopNodeMessageSchema,
+  type DesktopNodeMessage,
+} from './desktop-node.js';
 import { entityIdSchema } from './fixture.js';
 import type { PlacementRule } from './rules.js';
 
@@ -29,6 +34,8 @@ export type ZoneStep =
       look?: LightLook;
     }
   | { kind: 'wait'; seconds: number }
+  /** Shows a banner on a desktop node, or opens a page there; its display is a `switch`. */
+  | { kind: 'desktop'; nodeId: string; message: DesktopNodeMessage }
   | { kind: 'if'; condition: ZoneCondition; then: ZoneStep[]; else: ZoneStep[] }
   | { kind: 'repeat'; times: number; steps: ZoneStep[] };
 
@@ -64,6 +71,13 @@ const stepSchema: z.ZodType<ZoneStep> = z.lazy(() =>
       .strict(),
     z
       .object({ kind: z.literal('wait'), seconds: z.number().int().min(1).max(MAX_ZONE_WAIT_S) })
+      .strict(),
+    z
+      .object({
+        kind: z.literal('desktop'),
+        nodeId: desktopNodeIdSchema,
+        message: desktopNodeMessageSchema,
+      })
       .strict(),
     z
       .object({
@@ -179,6 +193,10 @@ export function stepsWords(
           return `turn ${s.to} ${s.entityId || 'the main lamp'}`;
         case 'wait':
           return `wait ${waitWords(s.seconds)}`;
+        case 'desktop':
+          return s.message.kind === 'banner'
+            ? `show “${s.message.title}” on the desktop`
+            : `open ${s.message.url} on the desktop`;
         case 'if': {
           const then = stepsWords(s.then, thingName) || 'nothing';
           const otherwise = s.else.length ? `, otherwise ${stepsWords(s.else, thingName)}` : '';
@@ -204,6 +222,8 @@ export function inTimeWindow(now: Date, from: string, to: string): boolean {
 /** What running steps can do; the server switches, the tests pretend. */
 interface StepRunner {
   switch: (step: Extract<ZoneStep, { kind: 'switch' }>) => Promise<LampResult>;
+  /** Sends a desktop node its banner or page; throws when it can't. */
+  desktop: (step: Extract<ZoneStep, { kind: 'desktop' }>) => Promise<void>;
   /** Asked when an `if` is reached, against the zone as it is then. */
   holds: (condition: ZoneCondition) => boolean;
   /** Resolves after the wait, or early once `signal` aborts. */
@@ -249,6 +269,22 @@ export async function runSteps(steps: ZoneStep[], run: StepRunner): Promise<Step
             run.log(
               `Couldn’t turn ${s.to} ${s.entityId || 'the main lamp'}: ${out.failed.message}`,
             );
+            return false;
+          }
+          break;
+        }
+        case 'desktop': {
+          const what = s.message.kind === 'banner' ? `“${s.message.title}”` : s.message.url;
+          try {
+            await run.desktop(s);
+            run.log(`Sent ${what} to the desktop.`);
+          } catch (error) {
+            const e = error as { code?: unknown; message?: unknown };
+            out.failed = {
+              code: typeof e.code === 'string' ? e.code : 'desktop_failed',
+              message: typeof e.message === 'string' ? e.message : 'The desktop didn’t answer.',
+            };
+            run.log(`Couldn’t send ${what} to the desktop: ${out.failed.message}`);
             return false;
           }
           break;

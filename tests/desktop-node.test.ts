@@ -157,6 +157,13 @@ describe('the node’s API', () => {
     expect((await n.call('POST', '/command', off, token)).status).toBe(502);
     expect(n.ran).toHaveLength(ran);
   });
+  it('forgets its lab on unpair, so another may adopt it', async () => {
+    const n = node();
+    const token = await n.pair();
+    expect((await n.call('POST', '/unpair', {}, token)).status).toBe(200);
+    expect((await n.call('POST', '/command', off, token)).status).toBe(401);
+    expect((await n.call('POST', '/pair', { by: 'other' })).status).toBe(200);
+  });
 });
 
 describe('advertising and installing', () => {

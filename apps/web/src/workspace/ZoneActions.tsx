@@ -13,8 +13,11 @@ import {
   type ZoneActions,
   type ZoneCondition,
   type ZoneStep,
+  desktopNodeMessageSchema,
 } from '@livinglayer/domain';
-import { Button, IconButton, NumberInput, Segmented, Select } from '../ui/controls';
+import { Button, Check, IconButton, NumberInput, Segmented, Select } from '../ui/controls';
+import { useView } from './LabContext';
+import { useDesktopNodes } from './state/nodes';
 import './zone-actions.css';
 
 /** A thing the zone counts, for an `if` that asks about it. */
@@ -88,15 +91,34 @@ function LookPicker({
 export function actionsProblem(actions: ZoneActions, watches: 'any' | string[]): string | null {
   const all = [...actions.onEnter, ...actions.onLeave];
   if (stepEntities(all).includes('')) return 'Choose a device for each switch step.';
+  const desktops = desktopSteps(all);
+  if (desktops.some((s) => !s.nodeId)) return 'Choose a desktop for each desktop step.';
+  if (desktops.some((s) => !desktopNodeMessageSchema.safeParse(s.message).success))
+    return 'Give each desktop step its words, or a page starting with https://.';
   if (watches !== 'any' && stepThings(all).some((id) => !watches.includes(id)))
     return 'A step asks about a thing this zone doesn’t watch.';
   return null;
+}
+
+/** Every desktop step, nested ones included. */
+function desktopSteps(steps: ZoneStep[]): Extract<ZoneStep, { kind: 'desktop' }>[] {
+  return steps.flatMap((s) =>
+    s.kind === 'desktop'
+      ? [s]
+      : s.kind === 'if'
+        ? desktopSteps([...s.then, ...s.else])
+        : s.kind === 'repeat'
+          ? desktopSteps(s.steps)
+          : [],
+  );
 }
 
 /** What every step list in one editor shares. */
 interface Ctx {
   entities: string[];
   things: ZoneThing[];
+  /** Adopted desktop nodes, for a desktop step. */
+  desktops: { id: string; name: string }[];
   disabled: boolean;
   /** Steps left before the zone's limit. */
   room: number;
@@ -106,12 +128,14 @@ interface Ctx {
 
 const KIND_LABEL: Record<ZoneStep['kind'], string> = {
   switch: 'Switch',
+  desktop: 'Desktop',
   wait: 'Wait',
   if: 'If',
   repeat: 'Repeat',
 };
 const KIND_MARK: Record<ZoneStep['kind'], string> = {
   switch: '⏻',
+  desktop: '▭',
   wait: '◷',
   if: '⑂',
   repeat: '↻',
@@ -121,6 +145,12 @@ function newStep(kind: ZoneStep['kind'], ctx: Ctx): ZoneStep {
   switch (kind) {
     case 'switch':
       return { kind, entityId: ctx.entities[0] ?? '', to: 'on' };
+    case 'desktop':
+      return {
+        kind,
+        nodeId: ctx.desktops[0]?.id ?? '',
+        message: { kind: 'banner', title: 'Hello' },
+      };
     case 'wait':
       return { kind, seconds: 60 };
     case 'if':
@@ -151,9 +181,12 @@ export function ZoneActionsEditor({
   motion?: { quietS: number };
 }) {
   const used = countSteps(value.onEnter) + countSteps(value.onLeave);
+  const { mode } = useView();
+  const nodes = useDesktopNodes(mode);
   const ctx: Ctx = {
     entities,
     things,
+    desktops: nodes.filter((n) => n.adopted).map((n) => ({ id: n.id, name: n.name })),
     disabled,
     room: MAX_ZONE_STEPS - used,
     motion: Boolean(motion),
@@ -293,6 +326,11 @@ function AddStep({
       kind: 'switch',
       hint: 'Turn a light or switch on or off',
       ...(ctx.entities.length ? {} : { off: 'No devices to switch yet.' }),
+    },
+    {
+      kind: 'desktop',
+      hint: 'Show a banner or open a page on a desktop',
+      ...(ctx.desktops.length ? {} : { off: 'No desktops adopted yet.' }),
     },
     { kind: 'wait', hint: 'Pause before the next step' },
     {
@@ -502,6 +540,8 @@ function StepFields({
         </>
       );
     }
+    case 'desktop':
+      return <DesktopFields step={step} ctx={ctx} onChange={onChange} />;
     case 'wait': {
       const { n, unit } = waitParts(step.seconds);
       const max = unit === 'min' ? MAX_ZONE_WAIT_S / 60 : MAX_ZONE_WAIT_S;
@@ -631,6 +671,90 @@ function ConditionFields({
           />
         </div>
       )}
+    </>
+  );
+}
+
+/** A desktop step: which desktop, then a banner's words or a page. */
+function DesktopFields({
+  step,
+  ctx,
+  onChange,
+}: {
+  step: Extract<ZoneStep, { kind: 'desktop' }>;
+  ctx: Ctx;
+  onChange: (step: ZoneStep) => void;
+}) {
+  const { disabled } = ctx;
+  const known = ctx.desktops.some((d) => d.id === step.nodeId);
+  const m = step.message;
+  return (
+    <>
+      <div className="za-row">
+        <Segmented
+          label="Banner or page"
+          disabled={disabled}
+          value={m.kind}
+          onChange={(kind) =>
+            onChange({
+              ...step,
+              message: kind === 'banner' ? { kind, title: 'Hello' } : { kind, url: 'https://' },
+            })
+          }
+          options={[
+            { value: 'banner', label: 'Show a banner' },
+            { value: 'open', label: 'Open a page' },
+          ]}
+        />
+        <Select
+          aria-label="Desktop"
+          disabled={disabled}
+          value={step.nodeId}
+          onChange={(nodeId) => onChange({ ...step, nodeId })}
+          options={[
+            ...(known
+              ? []
+              : [
+                  {
+                    value: step.nodeId,
+                    label: step.nodeId ? 'a forgotten desktop' : 'Choose a desktop',
+                  },
+                ]),
+            ...ctx.desktops.map((d) => ({ value: d.id, label: `on ${d.name}` })),
+          ]}
+        />
+      </div>
+      <div className="za-row">
+        {m.kind === 'banner' ? (
+          <input
+            aria-label="Banner"
+            disabled={disabled}
+            maxLength={80}
+            value={m.title}
+            onChange={(e) => onChange({ ...step, message: { ...m, title: e.target.value } })}
+          />
+        ) : (
+          <>
+            <input
+              aria-label="Page"
+              disabled={disabled}
+              inputMode="url"
+              value={m.url}
+              onChange={(e) => onChange({ ...step, message: { ...m, url: e.target.value } })}
+            />
+            <Check
+              checked={Boolean(m.kiosk)}
+              disabled={disabled}
+              onChange={(kiosk) => {
+                const { kiosk: _, ...rest } = m;
+                onChange({ ...step, message: kiosk ? { ...rest, kiosk } : rest });
+              }}
+            >
+              full screen
+            </Check>
+          </>
+        )}
+      </div>
     </>
   );
 }

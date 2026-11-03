@@ -118,6 +118,8 @@ export function selectionLabel(lab: LabRead, s: Selection): string {
       return 'Show in Home Assistant';
     case 'devices':
       return 'Devices it can switch';
+    case 'desktops':
+      return 'Desktops it can drive';
   }
 }
 /** What a fixture is and, for a light or switch, its last confirmed state. */

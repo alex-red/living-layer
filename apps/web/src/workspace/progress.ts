@@ -44,7 +44,9 @@ export type Selection =
   | { kind: 'entity'; id: string }
   | { kind: 'new-entity' }
   /** Connecting Home Assistant and choosing the devices it may switch. */
-  | { kind: 'devices' };
+  | { kind: 'devices' }
+  /** Desktop nodes: finding, adopting, and driving their screens. */
+  | { kind: 'desktops' };
 
 export type StepId = 'office' | 'desk' | 'objects' | 'rule' | 'run';
 export type StepState = 'done' | 'current' | 'todo' | 'locked';
@@ -224,6 +226,7 @@ export function parseSelection(hash: string): Selection | null {
     case 'new-fixture':
     case 'new-entity':
     case 'devices':
+    case 'desktops':
       return { kind };
     case 'surface':
     case 'object':

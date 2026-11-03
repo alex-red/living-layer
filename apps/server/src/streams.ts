@@ -102,8 +102,22 @@ export function decodeRecords(buf: Buffer): DnsRecord[] {
   return records;
 }
 
-/** Turns what the browse heard into streams. `from` is the responder's address per instance, used when no A record arrived. */
-export function assemble(records: DnsRecord[], from: Map<string, string> = new Map()) {
+/** One advertised instance of `service`: where it answers and its TXT record, keys lower case. */
+interface MdnsInstance {
+  instance: string;
+  /** The instance name without the service, as a fallback display name. */
+  label: string;
+  host: string;
+  port: number;
+  text: Record<string, string>;
+}
+
+/** The instances of `service` in what a browse heard. `from` is the responder's address per instance, used when no A record arrived. */
+export function mdnsInstances(
+  records: DnsRecord[],
+  service: string,
+  from: Map<string, string> = new Map(),
+): MdnsInstance[] {
   const lower = (s: string) => s.toLowerCase();
   const pick = <T extends DnsRecord['type']>(type: T, name: string) =>
     records.find(
@@ -111,37 +125,59 @@ export function assemble(records: DnsRecord[], from: Map<string, string> = new M
     );
   const instances = new Set(
     records
-      .filter((r) => r.type === TYPE.PTR && lower(r.name) === CAMERA_SERVICE)
+      .filter((r) => r.type === TYPE.PTR && lower(r.name) === service)
       .map((r) => (r as { target: string }).target),
   );
-  const streams: NetworkStream[] = [];
+  const out: MdnsInstance[] = [];
   for (const instance of instances) {
     const srv = pick(TYPE.SRV, instance);
     const host = (srv && pick(TYPE.A, srv.target)?.address) ?? from.get(lower(instance));
     if (!srv || !host) continue;
-    const text = pick(TYPE.TXT, instance)?.text ?? {};
-    const path = /^[\w-]+$/.test(text.path ?? '') ? text.path! : 'cam';
-    const rtsp = Number(text.rtsp);
-    streams.push({
-      id: instance,
-      name: (text.name || instance.slice(0, -CAMERA_SERVICE.length - 1)).slice(0, 80),
+    out.push({
+      instance,
+      label: instance.slice(0, -service.length - 1),
       host,
-      whep: `http://${host}:${srv.port}/${path}/whep`,
-      ...(Number.isInteger(rtsp) && rtsp > 0 && rtsp < 65536
-        ? { rtsp: `rtsp://${host}:${rtsp}/${path}` }
-        : {}),
-      source: 'mdns',
+      port: srv.port,
+      text: pick(TYPE.TXT, instance)?.text ?? {},
     });
   }
+  return out;
+}
+
+/** Turns what the browse heard into streams. `from` is the responder's address per instance, used when no A record arrived. */
+export function assemble(records: DnsRecord[], from: Map<string, string> = new Map()) {
+  const streams: NetworkStream[] = mdnsInstances(records, CAMERA_SERVICE, from).map(
+    ({ instance, label, host, port, text }) => {
+      const path = /^[\w-]+$/.test(text.path ?? '') ? text.path! : 'cam';
+      const rtsp = Number(text.rtsp);
+      return {
+        id: instance,
+        name: (text.name || label).slice(0, 80),
+        host,
+        whep: `http://${host}:${port}/${path}/whep`,
+        ...(Number.isInteger(rtsp) && rtsp > 0 && rtsp < 65536
+          ? { rtsp: `rtsp://${host}:${rtsp}/${path}` }
+          : {}),
+        source: 'mdns' as const,
+      };
+    },
+  );
   return streams.sort((a, b) => a.name.localeCompare(b.name));
 }
 
+/** Shared cameras on the LAN, over mDNS. */
+const browseCameras = (): Promise<NetworkStream[]> =>
+  browseMdns(CAMERA_SERVICE).then(({ records, from }) => assemble(records, from));
+
 /**
- * Asks the LAN for shared cameras over mDNS and collects answers for `timeoutMs`.
+ * Asks the LAN for `service` over mDNS and collects answers for `timeoutMs`.
  * Asks again for SRV/TXT/A when a responder leaves them out. Never throws: no
- * network means no streams.
+ * network means nothing heard.
  */
-function browseCameras(timeoutMs = 1200): Promise<NetworkStream[]> {
+export function browseMdns(
+  service: string,
+  timeoutMs = 1200,
+): Promise<{ records: DnsRecord[]; from: Map<string, string> }> {
   return new Promise((resolve) => {
     const records: DnsRecord[] = [];
     const from = new Map<string, string>();
@@ -177,7 +213,7 @@ function browseCameras(timeoutMs = 1200): Promise<NetworkStream[]> {
       } catch {
         // Already closed.
       }
-      resolve(assemble(records, from));
+      resolve({ records, from });
     };
     const timer = setTimeout(finish, timeoutMs);
     socket.on('error', finish);
@@ -191,7 +227,7 @@ function browseCameras(timeoutMs = 1200): Promise<NetworkStream[]> {
       records.push(...heard);
       const follow: [string, number][] = [];
       for (const r of heard) {
-        if (r.type !== TYPE.PTR || r.name.toLowerCase() !== CAMERA_SERVICE) continue;
+        if (r.type !== TYPE.PTR || r.name.toLowerCase() !== service) continue;
         from.set(r.target.toLowerCase(), remote.address);
         if (
           !records.some((s) => s.type === TYPE.SRV && s.name === r.target) &&
@@ -213,7 +249,7 @@ function browseCameras(timeoutMs = 1200): Promise<NetworkStream[]> {
           // Already joined through another address, or no multicast here.
         }
       }
-      void send([[CAMERA_SERVICE, TYPE.PTR]]);
+      void send([[service, TYPE.PTR]]);
     });
   });
 }

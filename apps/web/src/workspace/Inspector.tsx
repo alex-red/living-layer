@@ -81,6 +81,9 @@ const NewEntityPanel = lazy(() =>
 const DevicesPanel = lazy(() =>
   import('./DevicesPanel').then((m) => ({ default: m.DevicesPanel })),
 );
+const DesktopsPanel = lazy(() =>
+  import('./DesktopsPanel').then((m) => ({ default: m.DesktopsPanel })),
+);
 
 type Events = { memory: DeskMemory; events: EvidenceRun<PlacementDecision>[] };
 
@@ -2034,6 +2037,12 @@ function body(lab: LabRead & Pick<Lab, 'workScene'>, s: Selection | null) {
       return (
         <Later>
           <DevicesPanel />
+        </Later>
+      );
+    case 'desktops':
+      return (
+        <Later>
+          <DesktopsPanel />
         </Later>
       );
   }

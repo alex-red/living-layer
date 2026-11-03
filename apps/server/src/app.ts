@@ -2,6 +2,7 @@ import Fastify from 'fastify';
 import staticFiles from '@fastify/static';
 import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { hostname } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import {
   runOutput,
@@ -56,6 +57,13 @@ import { Exposer, exposeRoutes } from './expose.js';
 import { statRoutes } from './stats.js';
 import { MqttLink, type MqttConnect } from './mqtt.js';
 import { MqttControl } from './mqtt-control.js';
+import {
+  DesktopNodes,
+  httpNodeClient,
+  nodeRoutes,
+  type FoundNode,
+  type NodeClient,
+} from './nodes.js';
 import { demoLamp, demoLampFor } from './demo.js';
 
 const watching = new WeakMap<object, Record<Mode, Watcher>>();
@@ -85,6 +93,8 @@ export async function buildApp(
     relay?: Relay | null;
     /** SAM 3D on a crop; tests pass their own, null turns it off. */
     sam3d?: ((crop: Buffer, signal?: AbortSignal) => Promise<Buffer>) | null;
+    /** Desktop nodes: how they are found and talked to; tests pass their own. */
+    desktopNodes?: { client?: NodeClient; browse?: () => Promise<FoundNode[]> };
   } = {},
 ) {
   const app = Fastify({ logger: false, bodyLimit: 7_100_000, requestTimeout: 130000 });
@@ -298,6 +308,7 @@ export async function buildApp(
         configured: liveLights().length + liveSwitches().length > 0,
         lights: liveLights(),
         switches: liveSwitches(),
+        desktops: nodes.entities('live'),
         enabled: config.haEnabled || Boolean(link && config.mqtt.devices.length),
         note: lampNote(),
       },
@@ -340,8 +351,18 @@ export async function buildApp(
       return `${devices} chosen, but switching is off: HA_LIVE_ENABLED=false is in .env.`;
     return `${devices} ready; switched only when a rule or a button asks.`;
   }
-  const entities = (mode: Mode) =>
-    mode === 'demo' ? [...DEMO_LIGHTS, ...DEMO_SWITCHES] : [...liveLights(), ...liveSwitches()];
+  const nodes = new DesktopNodes(
+    store,
+    options.desktopNodes?.client ?? httpNodeClient(options.fetcher),
+    options.desktopNodes?.browse,
+    `Living Layer on ${hostname().split('.')[0]}`,
+  );
+  const entities = (mode: Mode) => [
+    ...(mode === 'demo'
+      ? [...DEMO_LIGHTS, ...DEMO_SWITCHES]
+      : [...liveLights(), ...liveSwitches()]),
+    ...nodes.entities(mode),
+  ];
   /** Switch a live device: over MQTT when it is an MQTT device, else through Home Assistant. */
   const switchLive = (
     entity: string | undefined,
@@ -363,11 +384,24 @@ export async function buildApp(
     fetcher: options.fetcher,
     openSocket: options.haSocket,
   });
-  const desk = createDesk(store, async (mode, entityId, action = 'on', look, options) =>
-    mode === 'demo'
-      ? demoLampFor(entityId ?? demoLamp.entityId, action, look)
-      : switchLive(entityId, action, look, options),
+  const desk = createDesk(
+    store,
+    async (mode, entityId, action = 'on', look, options) =>
+      nodes.owns(mode, entityId)
+        ? nodes.switchDisplay(mode, entityId, action)
+        : mode === 'demo'
+          ? demoLampFor(entityId ?? demoLamp.entityId, action, look)
+          : switchLive(entityId, action, look, options),
+    { desktop: (mode, nodeId, message) => nodes.send(mode, nodeId, message) },
   );
+  /** Switches one entity for a fixture or by hand: a desktop's display, the demo's, or a live one. */
+  const control = async (mode: Mode, entityId: string, action: 'on' | 'off') =>
+    nodes.owns(mode, entityId)
+      ? nodes.switchDisplay(mode, entityId, action)
+      : mode === 'demo'
+        ? demoLampFor(entityId, action)
+        : switchLive(entityId, action);
+  app.register(nodeRoutes, { prefix: '/api/nodes', nodes, store, entities, control });
   app.register(deskRoutes, { prefix: '/api/desk', store, desk, entities });
   app.register(fixtureRoutes, {
     prefix: '/api/fixtures',
@@ -376,8 +410,7 @@ export async function buildApp(
     run,
     jobs,
     desk,
-    control: async (mode, entityId, action) =>
-      mode === 'demo' ? demoLampFor(entityId, action) : switchLive(entityId, action),
+    control,
     entities,
     productsDir: join(config.dataDir, 'products'),
     sam3d:
@@ -569,16 +602,16 @@ export async function buildApp(
   // Assistant follow. A root hook, so it covers every plugin's routes.
   app.addHook('onResponse', async (request, reply) => {
     if (request.method !== 'POST' || reply.statusCode >= 400) return;
-    if (/^\/api\/(desk|fixtures|scene|item|expose)\//.test(request.url)) {
+    if (/^\/api\/(desk|fixtures|scene|item|expose|nodes)\//.test(request.url)) {
       void watchers.demo.sync();
       void watchers.live.sync();
     }
     // Stats follow too when nobody is watching: a light switched by hand still counts.
-    if (/^\/api\/(desk|fixtures|scene|item|lamp)\b/.test(request.url)) {
+    if (/^\/api\/(desk|fixtures|scene|item|lamp|nodes)\b/.test(request.url)) {
       statRunners.demo.sync();
       statRunners.live.sync();
     }
-    if (/^\/api\/(desk|fixtures|scene|item|expose|watch|things)\b/.test(request.url)) {
+    if (/^\/api\/(desk|fixtures|scene|item|expose|watch|things|nodes)\b/.test(request.url)) {
       exposers.demo.sync();
       exposers.live.sync();
     }

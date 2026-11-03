@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { demoPositionSchema, lightLookSchema, modeSchema, segmentRequestSchema } from './api.js';
 import { cameraCropSchema } from './camera.js';
+import { desktopNodeCommandSchema, desktopNodeIdSchema } from './desktop-node.js';
 import { MAX_EXPOSED, exposedInputSchema } from './expose.js';
 import {
   DEMO_REFERENCES,
@@ -837,3 +838,32 @@ export const haChosenBodySchema = z
   .object({ mode: modeSchema.optional(), entityIds: z.array(entityIdSchema).max(MAX_CHOSEN) })
   .strict();
 export type HaChosenBody = z.input<typeof haChosenBodySchema>;
+
+/** POST /api/nodes/adopt: a node found over mDNS, by id, or one at an address typed in. */
+export const nodesAdoptBodySchema = z
+  .object({
+    mode: modeSchema,
+    id: desktopNodeIdSchema.optional(),
+    host: z
+      .string()
+      .regex(/^[\w.-]{1,253}$/)
+      .optional(),
+    port: z.number().int().min(1).max(65535).optional(),
+  })
+  .strict()
+  .refine((x) => Boolean(x.id) !== Boolean(x.host), {
+    message: 'Name a desktop found here, or its address, not both.',
+  });
+export type NodesAdoptBody = z.input<typeof nodesAdoptBodySchema>;
+
+/** POST /api/nodes/forget */
+export const nodesForgetBodySchema = z
+  .object({ mode: modeSchema, id: desktopNodeIdSchema })
+  .strict();
+export type NodesForgetBody = z.input<typeof nodesForgetBodySchema>;
+
+/** POST /api/nodes/command */
+export const nodesCommandBodySchema = z
+  .object({ mode: modeSchema, id: desktopNodeIdSchema, command: desktopNodeCommandSchema })
+  .strict();
+export type NodesCommandBody = z.input<typeof nodesCommandBodySchema>;
