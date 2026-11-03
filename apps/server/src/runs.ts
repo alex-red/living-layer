@@ -1,11 +1,11 @@
 import { randomUUID } from 'node:crypto';
-import type {
-  EvidenceRun,
-  LampResult,
-  Mode,
-  RunFailure,
-  RunKind,
-  Segmentation,
+import {
+  isRun,
+  type EvidenceRun,
+  type Mode,
+  type RunFailure,
+  type RunKind,
+  type RunKindOutput,
 } from '@livinglayer/domain';
 import { safeError } from './errors.js';
 import type { ProviderResult } from './meta.js';
@@ -16,16 +16,16 @@ import type { EvidenceStore } from './store.js';
  * time are saved, whether it succeeds or fails, and a failure carries the run's
  * id so the page can open it in the inspector.
  */
-export type Runner = (
-  kind: RunKind,
+export type Runner = <K extends RunKind>(
+  kind: K,
   mode: Mode,
   operation: (
     id: string,
     signal?: AbortSignal,
-  ) => Promise<Partial<ProviderResult<unknown>> & { output: unknown; assets?: string[] }>,
+  ) => Promise<Partial<ProviderResult<unknown>> & { output: RunKindOutput<K>; assets?: string[] }>,
   /** Aborts the operation's model calls, such as when the client goes away. */
   signal?: AbortSignal,
-) => Promise<EvidenceRun>;
+) => Promise<EvidenceRun<RunKindOutput<K>>>;
 
 export function createRunner(store: EvidenceStore): Runner {
   return async function run(kind, mode, operation, signal) {
@@ -44,20 +44,20 @@ export function createRunner(store: EvidenceStore): Runner {
     };
     try {
       const result = await operation(id, signal);
-      let status: EvidenceRun['status'] = 'completed';
-      if (kind === 'segment' && !(result.output as Segmentation).detections.length)
-        status = 'no_match';
-      if (kind === 'lamp' && !(result.output as LampResult).stateConfirmed) status = 'unconfirmed';
-      const evidence: EvidenceRun = {
+      const evidence: EvidenceRun<RunKindOutput<typeof kind>> = {
         ...base,
         output: result.output,
         assets: result.assets ?? [],
         model: result.model ?? null,
         requestId: result.requestId ?? null,
         usage: result.usage ?? null,
-        status,
+        status: 'completed',
         durationMs: Math.round(performance.now() - start),
       };
+      if (isRun(evidence, 'segment') && !evidence.output.detections.length)
+        evidence.status = 'no_match';
+      if (isRun(evidence, 'lamp') && !evidence.output.stateConfirmed)
+        evidence.status = 'unconfirmed';
       store.save(evidence);
       return evidence;
     } catch (error) {
