@@ -4,6 +4,7 @@ import { Button, IconButton, Segmented } from '../ui/controls';
 import { estimateLabel, usd } from '../cost';
 import { SHORTCUTS } from '../shortcuts';
 import { useLab } from './LabContext';
+import { SAVE_NAME_MAX, type NamedSave } from '../session';
 import { Popover } from './Popover';
 import { BUSY } from './useLabState';
 import { roomLabel as labelOfRoom, selectionLabel } from './labels';
@@ -166,13 +167,169 @@ function Readiness() {
   );
 }
 
+/** One named save: load it, keep the desks in it, rename, export or delete it. */
+function SaveRow({ entry }: { entry: NamedSave }) {
+  const lab = useLab();
+  const active = lab.activeSave?.id === entry.id;
+  const [state, setState] = useState<'idle' | 'renaming' | 'deleting' | 'loading'>('idle');
+  const [draft, setDraft] = useState(entry.name);
+  const when = new Date(entry.save.savedAt).toLocaleString(undefined, {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  });
+  return (
+    <li className={active ? 'active' : undefined} aria-label={entry.name}>
+      {state === 'renaming' ? (
+        <form
+          className="save-name"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (lab.renameSave(entry.id, draft)) setState('idle');
+          }}
+        >
+          <input
+            aria-label="New name"
+            value={draft}
+            maxLength={SAVE_NAME_MAX}
+            autoFocus
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') {
+                e.stopPropagation();
+                setState('idle');
+              }
+            }}
+          />
+          <Button size="sm" type="submit" disabled={!draft.trim()}>
+            Rename
+          </Button>
+          <Button size="sm" variant="text" type="button" onClick={() => setState('idle')}>
+            Cancel
+          </Button>
+        </form>
+      ) : (
+        <div className="save-title">
+          <strong>{entry.name}</strong>
+          {active && <span className="micro">{lab.unsaved ? 'in use · edited' : 'in use'}</span>}
+        </div>
+      )}
+      <span className="micro">{when}</span>
+      {state === 'deleting' ? (
+        <div className="save-actions">
+          <span className="micro unsure">Delete this save? Export it first to keep a copy.</span>
+          <Button variant="danger" size="sm" onClick={() => lab.deleteSave(entry.id)}>
+            Delete
+          </Button>
+          <Button variant="text" size="sm" onClick={() => setState('idle')}>
+            Keep it
+          </Button>
+        </div>
+      ) : state === 'loading' ? (
+        <div className="save-actions">
+          <span className="micro unsure">
+            {lab.activeSave
+              ? `Edits since “${lab.activeSave.name}” was saved will be lost.`
+              : 'What’s on the desks now isn’t in a named save and will be replaced.'}
+          </span>
+          <Button
+            variant="danger"
+            size="sm"
+            disabled={Boolean(lab.busy)}
+            onClick={() => {
+              setState('idle');
+              void lab.loadSave(entry.id);
+            }}
+          >
+            Load anyway
+          </Button>
+          <Button variant="text" size="sm" onClick={() => setState('idle')}>
+            Cancel
+          </Button>
+        </div>
+      ) : (
+        state === 'idle' && (
+          <div className="save-actions">
+            <Button
+              variant="text"
+              size="sm"
+              disabled={Boolean(lab.busy)}
+              onClick={() => (lab.unsaved ? setState('loading') : void lab.loadSave(entry.id))}
+            >
+              Load
+            </Button>
+            {active && (
+              <Button
+                variant="text"
+                size="sm"
+                disabled={!lab.unsaved}
+                onClick={() => {
+                  if (lab.updateSave(entry.id)) lab.setMessage(`Saved “${entry.name}”.`);
+                }}
+              >
+                Save changes
+              </Button>
+            )}
+            <Button
+              variant="text"
+              size="sm"
+              onClick={() => {
+                setDraft(entry.name);
+                setState('renaming');
+              }}
+            >
+              Rename
+            </Button>
+            <Button variant="text" size="sm" onClick={() => lab.exportSave(entry.id)}>
+              Export
+            </Button>
+            <Button variant="danger" size="sm" onClick={() => setState('deleting')}>
+              Delete
+            </Button>
+          </div>
+        )
+      )}
+    </li>
+  );
+}
+
 /** Saves, history, shortcuts and starting over. */
 function MoreMenu({ close }: { close: () => void }) {
   const lab = useLab();
   const { undo, redo, mode, busy } = lab;
   const [resetting, setResetting] = useState(false);
+  const [name, setName] = useState('');
   return (
     <section className="saves" aria-label="Saves">
+      <span className="tiny">NAMED SAVES</span>
+      <form
+        className="save-name"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (lab.saveAs(name)) setName('');
+        }}
+      >
+        <input
+          aria-label="Save name"
+          placeholder="Name this save"
+          value={name}
+          maxLength={SAVE_NAME_MAX}
+          onChange={(e) => setName(e.target.value)}
+        />
+        <Button size="sm" type="submit" disabled={!name.trim()}>
+          Save as
+        </Button>
+      </form>
+      {lab.saves.length > 0 ? (
+        <ul className="save-list" aria-label="Named saves">
+          {lab.saves.map((entry) => (
+            <SaveRow key={entry.id} entry={entry} />
+          ))}
+        </ul>
+      ) : (
+        <p className="micro">
+          Name a save to keep this room as it is now and come back to it later.
+        </p>
+      )}
       <span className="tiny">SAVED IN THIS BROWSER</span>
       <p className={lab.storageOk ? '' : 'unsure'}>
         {!lab.storageOk
@@ -186,17 +343,10 @@ function MoreMenu({ close }: { close: () => void }) {
         Photos and the evidence log stay out of saves.
       </p>
       <div className="save-actions">
-        <Button
-          size="sm"
-          onClick={() =>
-            lab.setMessage(
-              lab.saveNow() ? 'Saved to this browser.' : 'This browser would not store the save.',
-            )
-          }
-        >
+        <Button size="sm" onClick={lab.saveEverything}>
           Save now
         </Button>
-        <Button size="sm" onClick={lab.exportSave}>
+        <Button size="sm" onClick={() => lab.exportSave()}>
           Export save
         </Button>
         <Button size="sm" disabled={Boolean(busy)} onClick={() => lab.importFile.current?.click()}>
@@ -229,7 +379,7 @@ function MoreMenu({ close }: { close: () => void }) {
         <>
           <p className="micro unsure">
             Both desks, your scene, pins, rules and models are cleared, and this browser’s save is
-            replaced. The evidence log is kept. Export a save first to keep a copy.
+            replaced. Named saves and the evidence log are kept.
           </p>
           <div className="save-actions">
             <Button

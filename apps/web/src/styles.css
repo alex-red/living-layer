@@ -1443,6 +1443,57 @@ button svg {
   flex-wrap: wrap;
   gap: 8px;
 }
+.save-actions .micro {
+  flex-basis: 100%;
+}
+.save-name {
+  display: flex;
+  gap: 8px;
+}
+.save-name input {
+  flex: 1;
+  min-width: 0;
+  min-height: var(--control-h);
+  padding: 0 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-button);
+  background: var(--surface-1);
+  color: var(--text);
+  font: inherit;
+}
+.save-list {
+  display: grid;
+  gap: 4px;
+  max-height: 260px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+.save-list li {
+  display: grid;
+  gap: 2px;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-button);
+}
+.save-list li.active {
+  border-color: var(--seen);
+}
+.save-title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.save-title strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.save-list .save-actions {
+  gap: 4px 12px;
+}
 
 /* Keyboard shortcut help. */
 .keys-backdrop {

@@ -74,8 +74,15 @@ import {
   emptyDesk,
   parseSave,
   prefsOf,
+  readSaves,
   readSession,
+  readUi,
+  saveName,
+  withSave,
+  writeSaves,
   writeSession,
+  writeUi,
+  type NamedSave,
   type Prefs,
   type SessionSave,
   type StageView,
@@ -523,12 +530,15 @@ export function useLabState() {
   const undo = useRef<Record<Mode, DeskMemory[]>>({ demo: [], live: [] });
   const redo = useRef<Record<Mode, DeskMemory[]>>({ demo: [], live: [] });
   const [, setHistoryTick] = useState(0);
+  /** Edits, undos and redos so far; a named save notes the count it was saved or loaded at. */
+  const edits = useRef(0);
   /** A new desk memory; an edit can be undone, a sighting (`undoable` false) can't. */
   const setMemory = (next: DeskMemory, undoable = true) => {
     const before = memories[next.mode];
     if (undoable && before && JSON.stringify(before) !== JSON.stringify(next)) {
       undo.current[next.mode] = [...undo.current[next.mode], before].slice(-UNDO_LIMIT);
       redo.current[next.mode] = [];
+      edits.current++;
       setHistoryTick((t) => t + 1);
     }
     memoryWrites.current++;
@@ -621,6 +631,7 @@ export function useLabState() {
       await restoreDesk(target);
       from.current[mode] = from.current[mode].slice(0, -1);
       to.current[mode] = [...to.current[mode], current].slice(-UNDO_LIMIT);
+      edits.current++;
       setHistoryTick((t) => t + 1);
       setDrawing(false);
       setPinning(null);
@@ -633,21 +644,101 @@ export function useLabState() {
       setBusy('');
     }
   }
-  function exportSave() {
-    saveNow();
-    downloadSave({
+  function currentSave(name?: string): SessionSave {
+    return {
       app: 'livinglayer',
       version: 1,
       savedAt: new Date().toISOString(),
+      ...(name ? { name } : {}),
       prefs,
       desks: memories,
-    });
+    };
+  }
+  // Named saves: the person's own copies in this browser, and the one they last saved or loaded.
+  const [saves, setSaves] = useState<NamedSave[]>(readSaves);
+  const [activeSaveId, setActiveSaveId] = useState(() => {
+    const id = readUi('activeSave');
+    return typeof id === 'string' ? id : '';
+  });
+  const activeSave = saves.find((s) => s.id === activeSaveId) ?? null;
+  const savedEdits = useRef(0);
+  /** Whether there are edits no named save holds, so loading another would lose them. */
+  const unsaved = !activeSave || edits.current !== savedEdits.current;
+  function markActive(entry: NamedSave | null) {
+    setActiveSaveId(entry?.id ?? '');
+    writeUi('activeSave', entry?.id ?? '');
+    savedEdits.current = edits.current;
+  }
+  function storeSaves(list: NamedSave[]) {
+    const ok = writeSaves(list);
+    if (ok) setSaves(list);
+    else
+      setError(
+        'This browser would not store the save. Delete an old save or export this one to a file.',
+      );
+    return ok;
+  }
+  /** Keep what's on the desks under a name; a name already used updates that save. */
+  function saveAs(name: string) {
+    const clean = saveName(name);
+    if (!clean) return false;
+    saveNow();
+    const same = saves.find((s) => s.name.toLowerCase() === clean.toLowerCase());
+    const entry: NamedSave = {
+      id: same?.id ?? crypto.randomUUID(),
+      name: clean,
+      save: currentSave(clean),
+    };
+    if (!storeSaves(withSave(saves, entry))) return false;
+    markActive(entry);
+    setMessage(same ? `Updated “${clean}”.` : `Saved as “${clean}”.`);
+    return true;
+  }
+  /** Put what's on the desks into an existing named save. */
+  function updateSave(id: string) {
+    const entry = saves.find((s) => s.id === id);
+    if (!entry) return false;
+    saveNow();
+    const next = { ...entry, save: currentSave(entry.name) };
+    if (!storeSaves(withSave(saves, next))) return false;
+    markActive(next);
+    return true;
+  }
+  function renameSave(id: string, name: string) {
+    const clean = saveName(name);
+    const entry = saves.find((s) => s.id === id);
+    if (!clean || !entry) return false;
+    const taken = saves.some((s) => s.id !== id && s.name.toLowerCase() === clean.toLowerCase());
+    if (taken) {
+      setError(`There is already a save called “${clean}”.`);
+      return false;
+    }
+    return storeSaves(
+      saves.map((s) => (s.id === id ? { ...s, name: clean, save: { ...s.save, name: clean } } : s)),
+    );
+  }
+  function deleteSave(id: string) {
+    const entry = saves.find((s) => s.id === id);
+    if (!entry || !storeSaves(saves.filter((s) => s.id !== id))) return;
+    if (id === activeSaveId) markActive(null);
+    setMessage(`Deleted “${entry.name}”.`);
+  }
+  async function loadSave(id: string) {
+    const entry = saves.find((s) => s.id === id);
+    if (!entry) return;
+    if (await applySave(entry.save, `Loaded “${entry.name}”.`)) markActive(entry);
+  }
+  function exportSave(id?: string) {
+    saveNow();
+    const entry = saves.find((s) => s.id === (id ?? activeSaveId));
+    // The active save's name goes with what's on the desks now; another save goes as it was kept.
+    downloadSave(id && entry ? entry.save : currentSave(entry?.name));
     setMessage(
       'Save exported. Import it here or in another browser to pick up where you left off.',
     );
   }
   const importFile = useRef<HTMLInputElement>(null);
-  /** Load a save: its desks go to the server, its choices to this page. */
+  /** Load a save: its desks go to the server, its choices to this page. False when it failed. */
   async function applySave(save: SessionSave, note: string) {
     stopCamera();
     setBusy('restore');
@@ -689,16 +780,28 @@ export function useLabState() {
       setHistoryTick((t) => t + 1);
       setMessage(note);
       void refresh().catch(() => {});
+      return true;
     } catch (e) {
       setError(e instanceof Error ? e : 'The save could not be loaded.');
+      return false;
     } finally {
       setBusy('');
     }
   }
+  /** Load a save file, and keep it among the named saves under its own name or the file's. */
   async function importSave(chosen: File) {
     try {
       const save = parseSave(await chosen.text());
-      await applySave(save, `Save from ${new Date(save.savedAt).toLocaleString()} imported.`);
+      const taken = new Set(saves.map((s) => s.name.toLowerCase()));
+      const base = save.name || saveName(chosen.name.replace(/\.json$/i, '')) || 'Imported save';
+      let name = base;
+      for (let n = 2; taken.has(name.toLowerCase()); n++) name = saveName(`${base} (${n})`);
+      const entry: NamedSave = { id: crypto.randomUUID(), name, save: { ...save, name } };
+      if (!(await applySave(save, `Imported “${name}”.`))) return;
+      if (writeSaves(withSave(saves, entry))) {
+        setSaves(withSave(saves, entry));
+        markActive(entry);
+      }
     } catch (e) {
       setError(e instanceof Error ? e : 'The save could not be read.');
     } finally {
@@ -724,10 +827,7 @@ export function useLabState() {
       if (tool !== 'select') return setTool('select');
       return false;
     }
-    if (action === 'save') {
-      setMessage(saveNow() ? 'Saved to this browser.' : 'This browser would not store the save.');
-      return;
-    }
+    if (action === 'save') return saveEverything();
     if (action === 'export') return exportSave();
     if (action === 'import') return importFile.current?.click();
     if (action === 'undo' || action === 'redo') return void stepHistory(action === 'undo');
@@ -747,9 +847,16 @@ export function useLabState() {
     if (action === 'select' || action === 'scale' || action === 'hand') setTool(action);
     if (action === 'brush') chooseTool('brush');
   });
-  /** Clear both desks and this browser's save; the menu asks first, as embedded browsers block confirm(). */
+  /** The autosave, and the named save in use if there is one. */
+  function saveEverything() {
+    if (!saveNow()) return setMessage('This browser would not store the save.');
+    if (activeSave && updateSave(activeSave.id)) return setMessage(`Saved “${activeSave.name}”.`);
+    setMessage('Saved to this browser. Name a save to keep a copy you can load again.');
+  }
+  /** Clear both desks and this browser's autosave, keeping named saves; the menu asks first, as embedded browsers block confirm(). */
   async function resetToDemo() {
     clearSession();
+    markActive(null);
     await applySave(
       { app: 'livinglayer', version: 1, savedAt: new Date().toISOString(), prefs: {}, desks: {} },
       'Reset to the demo. Choose a room to begin.',
@@ -2788,6 +2895,15 @@ export function useLabState() {
     savedAt,
     storageOk,
     saveNow,
+    saveEverything,
+    saves,
+    activeSave,
+    unsaved,
+    saveAs,
+    updateSave,
+    renameSave,
+    deleteSave,
+    loadSave,
     stepHistory,
     exportSave,
     importFile,

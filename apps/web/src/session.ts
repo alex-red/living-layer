@@ -48,6 +48,8 @@ export interface SessionSave {
   app: 'livinglayer';
   version: 1;
   savedAt: string;
+  /** What the person called it, for a named save or a file exported from one. */
+  name?: string;
   prefs: Partial<Prefs>;
   desks: Partial<Record<Mode, DeskMemory>>;
 }
@@ -208,10 +210,12 @@ export function parseSave(text: string): SessionSave {
   if ('fixturePosition' in prefs && !('demoPosition' in prefs))
     prefs.demoPosition = prefs.fixturePosition;
   delete prefs.fixturePosition;
+  const name = typeof save.name === 'string' ? saveName(save.name) : '';
   return {
     app: 'livinglayer',
     version: 1,
     savedAt: typeof save.savedAt === 'string' ? save.savedAt : new Date().toISOString(),
+    ...(name ? { name } : {}),
     prefs: prefs as Partial<Prefs>,
     desks,
   };
@@ -222,9 +226,72 @@ export function downloadSave(save: SessionSave) {
   );
   const a = document.createElement('a');
   a.href = url;
-  a.download = `livinglayer-save-${save.savedAt.slice(0, 19).replace(/[:T]/g, '-')}.json`;
+  const stamp = save.savedAt.slice(0, 19).replace(/[:T]/g, '-');
+  const slug = (save.name ?? '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, 40);
+  a.download = `livinglayer-${slug || 'save'}-${stamp}.json`;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+/**
+ * Saves the person named, kept in this browser beside the autosave: each one
+ * a whole save, so loading one puts both desks and the view back as they were.
+ */
+export interface NamedSave {
+  id: string;
+  name: string;
+  save: SessionSave;
+}
+const SAVES_KEY = 'livinglayer.saves';
+export const SAVE_NAME_MAX = 60;
+/** A name tidied for a save: one line, trimmed, not too long; '' when nothing is left. */
+export function saveName(name: string) {
+  return name.replace(/\s+/g, ' ').trim().slice(0, SAVE_NAME_MAX);
+}
+/** Named saves from storage's text, newest first, dropping any that no longer read. */
+export function parseSaves(text: string | null): NamedSave[] {
+  let data: unknown;
+  try {
+    data = JSON.parse(text ?? '[]');
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(data)) return [];
+  const out: NamedSave[] = [];
+  for (const entry of data as Partial<NamedSave>[]) {
+    const name = typeof entry?.name === 'string' ? saveName(entry.name) : '';
+    if (typeof entry?.id !== 'string' || !name) continue;
+    try {
+      out.push({ id: entry.id, name, save: { ...parseSave(JSON.stringify(entry.save)), name } });
+    } catch {
+      /* not a save any more: leave it out */
+    }
+  }
+  return out.sort((a, b) => b.save.savedAt.localeCompare(a.save.savedAt));
+}
+/** The list with this save added, or put in place of the one with its id. */
+export function withSave(list: NamedSave[], entry: NamedSave): NamedSave[] {
+  return [entry, ...list.filter((s) => s.id !== entry.id)];
+}
+export function readSaves(): NamedSave[] {
+  try {
+    return parseSaves(localStorage.getItem(SAVES_KEY));
+  } catch {
+    return [];
+  }
+}
+/** False when the browser refused: private mode, blocked storage, or full. */
+export function writeSaves(list: NamedSave[]): boolean {
+  try {
+    localStorage.setItem(SAVES_KEY, JSON.stringify(list));
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** A desk with nothing remembered: the demo as it ships. */
