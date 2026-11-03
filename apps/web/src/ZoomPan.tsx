@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type PointerEvent, type ReactNode } from '
 import { readUi, writeUi } from './session';
 import { typing } from './shortcuts';
 import { Button, IconButton } from './ui/controls';
+import './zoom-pan.css';
 
 const MAX = 8;
 const STEP = 1.25;

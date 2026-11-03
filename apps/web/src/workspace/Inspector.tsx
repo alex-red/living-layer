@@ -45,6 +45,7 @@ import { ChooseDevicesLink, DevicesPanel } from './DevicesPanel';
 import { ago, mainSurface, roomLabel, surfaceRows, type LabRead } from './labels';
 import { pinScene, viewLabel, type Selection } from './progress';
 import { TRANSITION, centre, type Lab } from './useLabState';
+import './inspector.css';
 
 type Events = { memory: DeskMemory; events: EvidenceRun<PlacementDecision>[] };
 

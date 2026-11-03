@@ -1,0 +1,96 @@
+/* The inspector card: head, facts, actions. */
+/* Inspector */
+.inspector {
+  border-radius: var(--r-card);
+  background: var(--glass-thick);
+  overflow: hidden;
+}
+.inspector code {
+  font: 500 12px/16px var(--mono);
+  color: var(--seen);
+}
+.inspector p {
+  padding: 0 10px 8px;
+  color: var(--text-2);
+  font-size: var(--fs-13);
+}
+.inspector pre {
+  margin: 0;
+  max-height: 420px;
+  overflow: auto;
+  padding: 10px;
+  border-top: 1px solid var(--line);
+  background: rgb(5 6 10 / 60%);
+  font: 400 12px/18px var(--mono);
+  color: var(--text-2);
+}
+
+/* Inspector, laid out */
+.inspector-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 10px 6px;
+}
+.inspector-head > div {
+  display: grid;
+  gap: 2px;
+  margin-right: auto;
+}
+.inspector-head h3 {
+  font: 600 14px/20px var(--ui);
+}
+.inspector-kind {
+  display: inline-block;
+}
+.inspector-kind::first-letter {
+  text-transform: uppercase;
+}
+.inspector-head .result {
+  font: 500 12px/16px var(--mono);
+}
+.inspector-detail {
+  color: var(--text) !important;
+}
+.inspector-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 12px 16px;
+  padding: 4px 10px 10px;
+}
+.inspector-facts > div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.inspector-facts dt {
+  font: 500 11px/14px var(--mono);
+  letter-spacing: 0.08em;
+  color: var(--text-3);
+}
+.inspector-facts dd {
+  overflow-wrap: anywhere;
+  font: 500 12px/16px var(--mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+.inspector-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px 8px;
+}
+.inspector > .micro {
+  padding: 0 10px 8px;
+}
+.inspector details summary {
+  display: flex;
+  align-items: center;
+  min-height: var(--control-h);
+  padding: 0 10px;
+  border-top: 1px solid var(--line);
+  cursor: pointer;
+  font-size: var(--fs-12);
+  color: var(--text-2);
+}

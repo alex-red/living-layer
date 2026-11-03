@@ -1,0 +1,54 @@
+/* Zoom and pan. */
+/* Zoom and pan: the view clips, its content moves; the controls stay put. */
+.zoom-pan {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  touch-action: pinch-zoom;
+}
+.zoom-pan-content {
+  position: absolute;
+  inset: 0;
+  transform-origin: 0 0;
+}
+.zoom-pan.zoomed [data-pan] {
+  cursor: grab;
+}
+.zoom-pan.grab,
+.zoom-pan.grab * {
+  cursor: grab !important;
+}
+.zoom-pan.panning,
+.zoom-pan.panning * {
+  cursor: grabbing !important;
+}
+.zoom-controls {
+  position: absolute;
+  top: 10px;
+  right: 36px;
+  z-index: var(--z-controls);
+  display: flex;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: rgb(17 20 29 / 72%);
+  backdrop-filter: blur(12px) saturate(140%);
+  opacity: 0.55;
+  transition: opacity 120ms;
+}
+.zoom-pan:hover > .zoom-controls,
+.zoom-pan.zoomed > .zoom-controls,
+.zoom-controls:focus-within {
+  opacity: 1;
+}
+.zoom-controls .zoom-level {
+  min-width: 46px;
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+.iso-zoom > .zoom-pan-content {
+  display: grid;
+  place-items: center;
+}
+.iso-zoom > .zoom-controls {
+  right: 10px;
+}

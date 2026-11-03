@@ -1,6 +1,7 @@
 // Tokens and shared controls first: every screen's own styles come after and may refine them.
 import './tokens.css';
 import './ui/controls.css';
+import './ui/surfaces.css';
 import { lazy, StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { App } from './App';
