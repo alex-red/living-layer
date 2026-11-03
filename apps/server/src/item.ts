@@ -34,10 +34,11 @@ import {
   type SavedItem,
   type Segmentation,
   type Usage,
+  addUsage,
 } from '@livinglayer/domain';
 import { demoMugCloseUp, demoPng } from './demo.js';
 import { LabError, parseInput } from './errors.js';
-import { detectionBits, findSource, maskedCrop } from './images.js';
+import { detectionBits, findSource, maskedCrop, toDataUrl } from './images.js';
 import type { MetaAdapter, ProviderResult } from './meta.js';
 import { requestSignal } from './request-signal.js';
 import type { EvidenceStore } from './store.js';
@@ -107,15 +108,6 @@ export function pinElevation(memory: DeskMemory, mode: Mode): number | null {
   return (Math.asin(Math.max(0.1, Math.min(1, sin))) * 180) / Math.PI;
 }
 
-function addUsage(a: Usage | null, b: Usage | null | undefined): Usage | null {
-  if (!b) return a;
-  if (!a) return b;
-  return {
-    inputTokens: a.inputTokens + b.inputTokens,
-    outputTokens: a.outputTokens + b.outputTokens,
-    totalTokens: a.totalTokens + b.totalTokens,
-  };
-}
 /** The model drawn from the photo's camera in flat colours, as a PNG for Spark to compare. */
 export async function viewPng(item: IsoItem, elevation: number, width: number): Promise<Buffer> {
   const view = renderView(voxelize(item.parts, { resolution: 48 }), { elevation, ppu: width });
@@ -228,11 +220,7 @@ export async function draftModel(
   if (live) {
     const render = await viewPng(item, fitted.elevation, crop.width);
     assets.push(store.asset(runId, 'item-render.png', render));
-    const check = await meta.itemCheck(
-      cropUrl,
-      `data:image/png;base64,${render.toString('base64')}`,
-      describeFit(params),
-    );
+    const check = await meta.itemCheck(cropUrl, toDataUrl(render), describeFit(params));
     usage = addUsage(usage, check.usage);
     const nudged = applyCheck(params, check.output);
     const nudgedItem = buildItem(label, nudged);
@@ -302,7 +290,7 @@ export function itemRoutes(
         const crop = await itemCrop(store, mode, segment, detection);
         const cropAsset = store.asset(id, 'item-crop.png', crop.png);
         const assets = [cropAsset];
-        const cropUrl = `data:image/png;base64,${crop.png.toString('base64')}`;
+        const cropUrl = toDataUrl(crop.png);
         const assists: string[] = [];
         let usage: Usage | null = null;
         let model: string | undefined;

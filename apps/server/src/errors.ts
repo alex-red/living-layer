@@ -15,6 +15,12 @@ export class LabError extends Error {
   }
 }
 
+export const DEMO_IMAGE = 'Demo mode uses only the demo room’s camera.';
+/** Demo mode draws its own picture: an uploaded image there is a mistake, not something to ignore. */
+export function liveImage(mode: string, imageDataUrl: string | undefined, message = DEMO_IMAGE) {
+  if (mode !== 'live' && imageDataUrl) throw new LabError('demo_image', message);
+}
+
 /**
  * A provider's code or type when it is an identifier (insufficient_quota,
  * model_not_found…). Free text never passes: it can echo keys or inputs.

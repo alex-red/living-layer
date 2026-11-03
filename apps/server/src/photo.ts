@@ -41,14 +41,17 @@ import {
   type Segmentation,
   type Usage,
   type PhotoCheck,
+  addUsage,
 } from '@livinglayer/domain';
 import type { Config } from './config.js';
-import { LabError, parseInput } from './errors.js';
+import { LabError, liveImage, parseInput } from './errors.js';
 import { demoPhotoCheck, demoPhotoInventory, demoPhotoSegmentation } from './demo.js';
 import {
   maskedCrop,
   mediaTypeOf,
   samDataUrl,
+  toDataUrl,
+  requireFrame,
   validateImage,
   type ValidatedImage,
 } from './images.js';
@@ -125,16 +128,6 @@ const photoDraftCeiling = (check: boolean) =>
   (check ? sparkCeiling(SPARK_BUDGET.photoCheck, 2) + META_PRICES.samPerImage : 0);
 /** At most this many objects get a fitted model in one draft; the rest can be modelled later. */
 export type { PhotoDraft };
-
-function addUsage(a: Usage | null, b: Usage | null | undefined): Usage | null {
-  if (!b) return a;
-  if (!a) return b;
-  return {
-    inputTokens: a.inputTokens + b.inputTokens,
-    outputTokens: a.outputTokens + b.outputTokens,
-    totalTokens: a.totalTokens + b.totalTokens,
-  };
-}
 
 /**
  * A scene from one frame of the room's calibrated corner camera. Spark lists
@@ -314,12 +307,7 @@ export function photoRoutes(
       let result: { output: PhotoCheck; usage: Usage | null } | null = null;
       try {
         result = image
-          ? await meta.photoCheck(
-              image.dataUrl,
-              `data:image/png;base64,${drawn.toString('base64')}`,
-              listing,
-              job.signal,
-            )
+          ? await meta.photoCheck(image.dataUrl, toDataUrl(drawn), listing, job.signal)
           : { output: demoPhotoCheck, usage: null };
       } catch (e) {
         // Stopped by the person: stop here, as any step does.
@@ -478,17 +466,11 @@ export function photoRoutes(
     );
     const { mode } = input;
     const live = mode === 'live';
-    if (!live && input.imageDataUrl)
-      throw new LabError('demo_image', 'Demo mode uses only the demo room’s camera.');
+    liveImage(mode, input.imageDataUrl);
     if (!calibrationOf(store.memory(mode)))
       throw new LabError('not_calibrated', NOT_CALIBRATED, 409);
     // Refuse up front rather than stop halfway, with the inventory already paid for.
-    if (live && !meta.canAfford(photoDraftCeiling(Boolean(input.check))))
-      throw new LabError(
-        'spend_limit',
-        `A photo draft could cost up to $${photoDraftCeiling(Boolean(input.check)).toFixed(3)}, which would pass today's Meta spending limit. Raise the limit in Setup, or wait for the next UTC day.`,
-        429,
-      );
+    if (live) meta.mustAfford(photoDraftCeiling(Boolean(input.check)), 'A photo draft');
     const job = jobs.start(input.jobId, draftSteps(Boolean(input.check)), {
       title: 'Drafting the room',
       mode,
@@ -508,12 +490,11 @@ export function photoRoutes(
         const calibration = calibrationOf(store.memory(mode));
         if (!calibration) throw new LabError('not_calibrated', NOT_CALIBRATED, 409);
         const { width, height } = calibration.camera.frame;
-        if (width !== frame.width || height !== frame.height)
-          throw new LabError(
-            'not_calibrated',
-            `This frame is ${frame.width} × ${frame.height}, but the room’s camera was calibrated on ${width} × ${height} frames. Send a frame from that camera, or calibrate again.`,
-            409,
-          );
+        requireFrame(
+          frame,
+          { width, height },
+          `This frame is ${frame.width} × ${frame.height}, but the room’s camera was calibrated on ${width} × ${height} frames. Send a frame from that camera, or calibrate again.`,
+        );
         const assets = image ? [store.asset(id, `source.${image.ext}`, image.bytes)] : [];
         await job.done(
           'photo',
@@ -589,15 +570,9 @@ export function photoRoutes(
     );
     const { mode } = input;
     const live = mode === 'live';
-    if (!live && input.imageDataUrl)
-      throw new LabError('demo_image', 'Demo mode uses only the demo room’s camera.');
+    liveImage(mode, input.imageDataUrl);
     const ceiling = photoDraftCeiling(Boolean(input.check)) + 2 * META_PRICES.samPerImage;
-    if (live && !meta.canAfford(ceiling))
-      throw new LabError(
-        'spend_limit',
-        `Setting the room up could cost up to $${ceiling.toFixed(3)}, which would pass today's Meta spending limit. Raise the limit in Setup, or wait for the next UTC day.`,
-        429,
-      );
+    if (live) meta.mustAfford(ceiling, 'Setting the room up');
     const job = jobs.start(input.jobId, setupSteps(Boolean(input.check)), {
       title: 'Setting up the room',
       mode,

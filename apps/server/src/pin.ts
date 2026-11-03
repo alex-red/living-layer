@@ -9,7 +9,7 @@ import {
   type Quad,
   type Segmentation,
 } from '@livinglayer/domain';
-import { LabError, parseInput } from './errors.js';
+import { LabError, liveImage, parseInput } from './errors.js';
 import { NOT_CALIBRATED } from './photo.js';
 import type { EvidenceStore } from './store.js';
 
@@ -38,8 +38,7 @@ export function pinRoutes(app: FastifyInstance, { store }: { store: EvidenceStor
         .strict(),
       request.body,
     );
-    if (input.mode !== 'live' && input.imageDataUrl)
-      throw new LabError('demo_image', 'Demo mode uses only the demo room’s camera.');
+    liveImage(input.mode, input.imageDataUrl);
     const memory = store.memory(input.mode);
     const calibration = calibrationOf(memory);
     if (!calibration) throw new LabError('not_calibrated', NOT_CALIBRATED, 409);

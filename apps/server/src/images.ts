@@ -42,6 +42,23 @@ export async function samDataUrl(image: Pick<ValidatedImage, 'bytes'>): Promise<
       : await sharp(image.bytes).png().toBuffer();
   return toDataUrl(png);
 }
+/**
+ * Refuse, with 409 `not_calibrated`, a frame that isn't the size the room's
+ * camera was calibrated on. `message` replaces the usual wording.
+ */
+export function requireFrame(
+  image: { width: number; height: number },
+  frame: { width: number; height: number },
+  message?: string,
+) {
+  if (image.width !== frame.width || image.height !== frame.height)
+    throw new LabError(
+      'not_calibrated',
+      message ??
+        `This frame is ${image.width} × ${image.height}, but the room’s camera was calibrated on ${frame.width} × ${frame.height} frames.`,
+      409,
+    );
+}
 /** The stored source photo among a run's assets: `source.webp`, or `source.png` on older runs. */
 export const findSource = (assets: string[]) => assets.find((a) => /\/source\.(webp|png)$/.test(a));
 export const SOURCE_ASSET = /^[a-z0-9-]{1,64}\/source\.(webp|png)$/;

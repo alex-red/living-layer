@@ -75,8 +75,9 @@ import {
   type ProductFacts,
   type Usage,
   withoutThings,
+  addUsage,
 } from '@livinglayer/domain';
-import { LabError, parseInput } from './errors.js';
+import { LabError, liveImage, parseInput } from './errors.js';
 import { following, type Jobs } from './jobs.js';
 import { listedPreview, outlinedPreview, placedPreview } from './scan-preview.js';
 import sharp from 'sharp';
@@ -88,7 +89,7 @@ import {
   demoPhotoSegmentation,
   demoReference,
 } from './demo.js';
-import { maskedCrop, samDataUrl, validateImage } from './images.js';
+import { maskedCrop, samDataUrl, toDataUrl, validateImage } from './images.js';
 import {
   cropInput,
   demoPhoto,
@@ -250,16 +251,6 @@ function sculptRunOf(job: Job | null, getRun: (id: string) => EvidenceRun | unde
   }
   return null;
 }
-const sumUsage = (a: Usage | null, b: Usage | null | undefined): Usage | null =>
-  !b
-    ? a
-    : !a
-      ? b
-      : {
-          inputTokens: a.inputTokens + b.inputTokens,
-          outputTokens: a.outputTokens + b.outputTokens,
-          totalTokens: a.totalTokens + b.totalTokens,
-        };
 
 /**
  * The most a live draft can cost: Spark names the thing, SAM outlines it,
@@ -313,9 +304,7 @@ export function roomPhotoBytes(memory: DeskMemory, store: EvidenceStore): Buffer
 async function roomPhoto(memory: DeskMemory, store: EvidenceStore): Promise<string | undefined> {
   const bytes = roomPhotoBytes(memory, store);
   // A saved PNG can be large; Spark needs no more than a good JPEG.
-  return bytes
-    ? `data:image/jpeg;base64,${(await sharp(bytes).jpeg({ quality: 90 }).toBuffer()).toString('base64')}`
-    : undefined;
+  return bytes ? toDataUrl(await sharp(bytes).jpeg({ quality: 90 }).toBuffer()) : undefined;
 }
 
 /**
@@ -479,12 +468,7 @@ export function fixtureRoutes(
         409,
       );
     // Refuse up front rather than stop halfway, with Spark's answer already paid for.
-    if (live && !meta.canAfford(fixtureDraftCeiling()))
-      throw new LabError(
-        'spend_limit',
-        `A fixture draft could cost up to $${fixtureDraftCeiling().toFixed(3)}, which would pass today's Meta spending limit. Raise the limit in Setup, or wait for the next UTC day.`,
-        429,
-      );
+    if (live) meta.mustAfford(fixtureDraftCeiling(), 'A fixture draft');
     const event = await run('fixture', mode, async (id) => {
       let usage: Usage | null = null;
       let model: string | undefined;
@@ -516,10 +500,7 @@ export function fixtureRoutes(
         const box = promptBox({ box: input.box }, frame);
         if (!box) throw new LabError('fixture_none', 'The box is too small to outline.', 422);
         shown = await around(png, box);
-        const named = await meta.fixtureClass(
-          `data:image/png;base64,${shown.toString('base64')}`,
-          input.label,
-        );
+        const named = await meta.fixtureClass(toDataUrl(shown), input.label);
         cls = named.output;
         usage = named.usage;
         model = named.model;
@@ -582,7 +563,7 @@ export function fixtureRoutes(
       // 3. The same modelling as objects: part masks and Spark's check when live.
       const drafted = await draftModel(meta, store, id, {
         crop,
-        cropUrl: `data:image/png;base64,${crop.png.toString('base64')}`,
+        cropUrl: toDataUrl(crop.png),
         label,
         archetype: cls.archetype,
         material: cls.material,
@@ -591,14 +572,7 @@ export function fixtureRoutes(
         live,
         knownHeight: cls.sizeCm.h / Math.max(cls.sizeCm.w, cls.sizeCm.d),
       });
-      if (drafted.usage)
-        usage = usage
-          ? {
-              inputTokens: usage.inputTokens + drafted.usage.inputTokens,
-              outputTokens: usage.outputTokens + drafted.usage.outputTokens,
-              totalTokens: usage.totalTokens + drafted.usage.totalTokens,
-            }
-          : drafted.usage;
+      usage = addUsage(usage, drafted.usage);
       const isMonitor = /\b(monitor|display|screen)\b/i.test(label);
       const draftedItem = isMonitor ? monitorItem(label, false) : uniqueParts(drafted.item);
       const savedModel: SavedItem = {
@@ -690,8 +664,7 @@ export function fixtureRoutes(
       request.body,
     );
     const live = mode === 'live';
-    if (!live && imageDataUrl)
-      throw new LabError('demo_image', 'Demo mode scans only the demo room’s camera.');
+    liveImage(mode, imageDataUrl, 'Demo mode scans only the demo room’s camera.');
     const before = store.memory(mode);
     const pin = live ? before.surface : DEMO_SURFACE;
     if (!pin || (pin.scene === 'custom' && !before.scene))
@@ -708,12 +681,7 @@ export function fixtureRoutes(
         409,
       );
     const ceiling = sparkCeiling(SPARK_BUDGET.fixtureScan, 1) + META_PRICES.samPerImage;
-    if (live && !meta.canAfford(ceiling))
-      throw new LabError(
-        'spend_limit',
-        `A scan could cost up to $${ceiling.toFixed(3)}, which would pass today's Meta spending limit. Raise the limit in Setup, or wait for the next UTC day.`,
-        429,
-      );
+    if (live) meta.mustAfford(ceiling, 'A scan');
     const job = jobs.start(jobId, SCAN_STEPS, { title: 'Scanning and mapping', mode });
     return following(job, async () => {
       job.run('photo');
@@ -833,7 +801,7 @@ export function fixtureRoutes(
           // 30 s a thing and timed out on all six of one room's. "Model with AI" refines one.
           const request = {
             crop,
-            cropUrl: `data:image/png;base64,${crop.png.toString('base64')}`,
+            cropUrl: toDataUrl(crop.png),
             label,
             archetype: thing.archetype,
             material: thing.material,
@@ -842,7 +810,7 @@ export function fixtureRoutes(
           };
           const drafted = await draftModel(meta, store, id, { ...request, live: false });
           models.push(drafted.item);
-          usage = sumUsage(usage, drafted.usage);
+          usage = addUsage(usage, drafted.usage);
           assets.push(...drafted.assets);
           fits[i] = {
             fit: {
@@ -1053,12 +1021,7 @@ export function fixtureRoutes(
         ? sparkCeiling(SPARK_BUDGET.productLookup, 0) +
           SEARCH_CEILING * META_PRICES.webSearchPerQuery
         : 0);
-    if (!meta.canAfford(ceiling))
-      throw new LabError(
-        'spend_limit',
-        `Modelling it could cost up to $${ceiling.toFixed(3)}, which would pass today's Meta spending limit. Raise the limit in Setup, or wait for the next UTC day.`,
-        429,
-      );
+    meta.mustAfford(ceiling, 'Modelling it');
     const png = pictured.png;
     const { elevation } = pictured;
     const input = await cropInput(png, fixture.label);
@@ -1073,7 +1036,7 @@ export function fixtureRoutes(
           width: Math.max(1, width) * Math.ceil((SCULPT_SMALL_PX * 3) / Math.max(width, height)),
           kernel: 'lanczos3',
         });
-      return `data:image/png;base64,${(await image.png().toBuffer()).toString('base64')}`;
+      return toDataUrl(await image.png().toBuffer());
     };
     // Its proportions: the fixture's, until a lookup gives the product's own.
     const proportions = (s: { w: number; d: number; h: number }) => {
@@ -1111,7 +1074,7 @@ export function fixtureRoutes(
         kind: 'web',
         lookup: async (q, need) => {
           const r = await meta.lookupProduct(q, need, job.signal);
-          usage = sumUsage(usage, r.usage);
+          usage = addUsage(usage, r.usage);
           return r.output.facts;
         },
       };
@@ -1168,7 +1131,7 @@ export function fixtureRoutes(
       const drafts: { item: IsoItem; iou: number; note: string }[] = [];
       for (const answer of answers) {
         if (answer.status !== 'fulfilled') continue;
-        usage = sumUsage(usage, answer.value.usage);
+        usage = addUsage(usage, answer.value.usage);
         model = answer.value.model;
         requestId = answer.value.requestId;
         const item = fromSculpt(activeModel.label, answer.value.output);
@@ -1325,12 +1288,7 @@ export function fixtureRoutes(
     const memory = store.memory(mode);
     const fixture = memory.fixtures?.find((f) => f.id === fixtureId);
     if (!fixture) throw new LabError('fixture_missing', 'That fixture is gone.', 404);
-    if (live && !meta.canAfford(fixtureDraftCeiling()))
-      throw new LabError(
-        'spend_limit',
-        `Fitting another photo could cost up to $${fixtureDraftCeiling().toFixed(3)}, which would pass today's Meta spending limit. Raise the limit in Setup, or wait for the next UTC day.`,
-        429,
-      );
+    if (live) meta.mustAfford(fixtureDraftCeiling(), 'Fitting another photo');
     const active = fixtureModel(fixture);
     const previous = active.fit ?? null;
     const event = await run('fixture', mode, async (id) => {
@@ -1391,7 +1349,7 @@ export function fixtureRoutes(
       const size = fixtureSize(fixture);
       const drafted = await draftModel(meta, store, id, {
         crop,
-        cropUrl: `data:image/png;base64,${crop.png.toString('base64')}`,
+        cropUrl: toDataUrl(crop.png),
         label: fixture.label,
         archetype,
         material: cls?.material ?? null,
@@ -1399,7 +1357,7 @@ export function fixtureRoutes(
         live,
         knownHeight: size.h / Math.max(size.w, size.d),
       });
-      usage = sumUsage(usage, drafted.usage);
+      usage = addUsage(usage, drafted.usage);
       assets.push(...drafted.assets);
       let { params, item, score } = drafted;
       let views = 1;
@@ -1847,8 +1805,7 @@ export function fixtureRoutes(
     const concept = fixture.label.trim().toLowerCase();
     if (mode === 'live' && !imageDataUrl)
       throw new LabError('fixture_frame', 'Send a camera frame to look in.', 400);
-    if (mode === 'demo' && imageDataUrl)
-      throw new LabError('demo_image', 'Demo mode uses only the demo room’s camera.');
+    liveImage(mode, imageDataUrl);
     return run('segment', mode, async (runId) => {
       // Grown by half its size each way: the place is a guess, SAM finds the edge.
       const grow = (b: typeof expected, sx: number, sy: number, w: number, h: number) => {

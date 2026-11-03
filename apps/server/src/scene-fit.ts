@@ -20,8 +20,8 @@ import {
   type Segmentation,
 } from '@livinglayer/domain';
 import { samWhole } from './assist.js';
-import { LabError, parseInput } from './errors.js';
-import { samDataUrl, validateImage } from './images.js';
+import { LabError, liveImage, parseInput } from './errors.js';
+import { samDataUrl, requireFrame, validateImage } from './images.js';
 import type { Runner } from './item.js';
 import type { MetaAdapter } from './meta.js';
 import { NOT_CALIBRATED } from './photo.js';
@@ -56,8 +56,7 @@ export function sceneFitRoutes(
       throw new LabError('fit_group', 'That prop isn’t in the scene.', 404);
     if (mode === 'live' && !imageDataUrl)
       throw new LabError('fit_frame', 'Send a frame of the room’s camera to fit it to.', 400);
-    if (mode === 'demo' && imageDataUrl)
-      throw new LabError('demo_image', 'Demo mode uses only the demo room’s camera.');
+    liveImage(mode, imageDataUrl);
     const { width, height } = camera.frame;
     // Its drawing's box, grown by a quarter each way: where it stands is the guess being corrected.
     const box = groupInFrame(camera, scene as IsoScene, group, 1 / 4);
@@ -76,12 +75,7 @@ export function sceneFitRoutes(
         return { output };
       }
       const image = await validateImage(imageDataUrl!);
-      if (image.width !== width || image.height !== height)
-        throw new LabError(
-          'not_calibrated',
-          `This frame is ${image.width} × ${image.height}, but the room’s camera was calibrated on ${width} × ${height} frames.`,
-          409,
-        );
+      requireFrame(image, { width, height });
       const result = await meta.segmentBoxes(
         await samDataUrl(image),
         [{ id: 1, box }],

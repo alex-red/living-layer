@@ -35,8 +35,8 @@ import { ControlAdapter } from './control.js';
 import { chosenEntities, haConnection, haRoutes, type OpenSocket } from './ha.js';
 import { fixtureRoutes } from './fixture.js';
 import { requestSignal, watchRequest } from './request-signal.js';
-import { LabError, logError, parseInput, safeError } from './errors.js';
-import { findSource, samDataUrl, validateImage } from './images.js';
+import { LabError, logError, liveImage, parseInput, safeError } from './errors.js';
+import { findSource, samDataUrl, toDataUrl, validateImage } from './images.js';
 import { deskRoutes } from './desk.js';
 import { itemRoutes } from './item.js';
 import { photoRoutes } from './photo.js';
@@ -449,8 +449,7 @@ export async function buildApp(
     const input = parseInput(imageRequestSchema, request.body);
     return run('discover', input.mode, async (id) => {
       if (input.mode === 'demo') {
-        if (input.imageDataUrl)
-          throw new LabError('demo_image', 'Demo mode uses only the demo room’s camera.');
+        liveImage(input.mode, input.imageDataUrl);
         return { output: demoScene };
       }
       const image = await validateImage(input.imageDataUrl);
@@ -467,8 +466,7 @@ export async function buildApp(
     const input = parseInput(imageRequestSchema, request.body);
     return run('layout', input.mode, async (id) => {
       if (input.mode === 'demo') {
-        if (input.imageDataUrl)
-          throw new LabError('demo_image', 'Demo mode uses only the demo room’s camera.');
+        liveImage(input.mode, input.imageDataUrl);
         return { output: drafted(demoSceneDraft) };
       }
       const image = await validateImage(input.imageDataUrl);
@@ -490,8 +488,7 @@ export async function buildApp(
     const input = parseInput(imageRequestSchema, request.body);
     return run('scene', input.mode, async (id) => {
       if (input.mode === 'demo') {
-        if (input.imageDataUrl)
-          throw new LabError('demo_image', 'Demo mode uses only the demo room’s camera.');
+        liveImage(input.mode, input.imageDataUrl);
         return { output: demoSceneGuess };
       }
       const image = await validateImage(input.imageDataUrl);
@@ -529,8 +526,7 @@ export async function buildApp(
       input.mode,
       async (id) => {
         if (input.mode === 'demo') {
-          if (input.imageDataUrl)
-            throw new LabError('demo_image', 'Demo mode uses only the demo room’s camera.');
+          liveImage(input.mode, input.imageDataUrl);
           const result = await demoSegmentation(input.concept, input.demoPosition);
           return {
             output: { ...result.output, sourceKey: demoSourceKey(input.demoPosition) },
@@ -607,7 +603,7 @@ export async function buildApp(
           mode: m,
           concept,
           ...('png' in picture
-            ? { imageDataUrl: `data:image/png;base64,${picture.png.toString('base64')}` }
+            ? { imageDataUrl: toDataUrl(picture.png) }
             : { demoPosition: picture.demoPosition }),
         },
         signal,

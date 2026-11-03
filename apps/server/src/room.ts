@@ -30,10 +30,10 @@ import {
   type RoomMarks,
   type Segmentation,
 } from '@livinglayer/domain';
-import { LabError, parseInput } from './errors.js';
+import { LabError, liveImage, parseInput } from './errors.js';
 import { demoPng, demoSegmentation } from './demo.js';
 import { lumaOf } from './frames.js';
-import { samDataUrl, validateImage, type ValidatedImage } from './images.js';
+import { samDataUrl, requireFrame, validateImage, type ValidatedImage } from './images.js';
 import type { Runner } from './item.js';
 import type { MetaAdapter } from './meta.js';
 import type { EvidenceStore } from './store.js';
@@ -256,13 +256,12 @@ export function roomRoutes(
       request.body,
     );
     const live = input.mode === 'live';
-    if (!live && input.imageDataUrl)
-      throw new LabError('demo_image', 'Demo mode uses only the demo room’s camera.');
-    if (live && !meta.canAfford(2 * META_PRICES.samPerImage))
-      throw new LabError(
-        'spend_limit',
+    liveImage(input.mode, input.imageDataUrl);
+    if (live)
+      meta.mustAfford(
+        2 * META_PRICES.samPerImage,
+        'Finding the floor and walls',
         "Finding the floor and walls would pass today's Meta spending limit. Raise the limit, or place the marks by hand.",
-        429,
       );
     const image = live ? await validateImage(input.imageDataUrl) : null;
     return findFloorMarks({ store, meta, run }, input.mode, image);
@@ -285,8 +284,7 @@ export function roomRoutes(
       request.body,
     );
     const live = input.mode === 'live';
-    if (!live && input.imageDataUrl)
-      throw new LabError('demo_image', 'Demo mode uses only the demo room’s camera.');
+    liveImage(input.mode, input.imageDataUrl);
     const image = live ? await validateImage(input.imageDataUrl) : null;
     const { imageDataUrl: _, ...rest } = input;
     return calibrateRoom(store, { ...rest, image });
@@ -303,19 +301,18 @@ export function roomRoutes(
       request.body,
     );
     const live = input.mode === 'live';
-    if (!live && input.imageDataUrl)
-      throw new LabError('demo_image', 'Demo mode uses only the demo room’s camera.');
+    liveImage(input.mode, input.imageDataUrl);
     const memory = store.memory(input.mode);
     const calibration = memory.camera;
     if (!calibration)
       throw new LabError('not_calibrated', 'Calibrate the room’s camera first.', 409);
     const image = live ? await validateImage(input.imageDataUrl) : null;
     const { frame } = calibration.camera;
-    if (image && (image.width !== frame.width || image.height !== frame.height))
-      throw new LabError(
-        'not_calibrated',
+    if (image)
+      requireFrame(
+        image,
+        frame,
         `This frame is ${image.width}×${image.height}, but the camera was calibrated at ${frame.width}×${frame.height}. Calibrate it again.`,
-        409,
       );
     const luma = await lumaOf(image ? image.bytes : await demoPng());
     const { moved: _, ...kept } = calibration;

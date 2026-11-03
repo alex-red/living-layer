@@ -58,15 +58,16 @@ import {
   type SelectionShape,
   type Usage,
   type AssistDraft,
+  addUsage,
 } from '@livinglayer/domain';
 import { sparkRefiner } from './build.js';
 import { shapeFromPhoto, type Shaped } from './brush-sculpt.js';
 import { demoPng } from './demo.js';
 import { demoIntent } from './demo-intent.js';
-import { LabError, parseInput } from './errors.js';
+import { LabError, liveImage, parseInput } from './errors.js';
 import { NOT_CALIBRATED } from './photo.js';
 import { around } from './fixture.js';
-import { validateImage } from './images.js';
+import { toDataUrl, requireFrame, validateImage } from './images.js';
 import type { Runner } from './item.js';
 import { following, type Jobs } from './jobs.js';
 import { SEARCH_CEILING, SPARK_BUDGET, type MetaAdapter } from './meta.js';
@@ -113,15 +114,7 @@ export async function pngMask(png: Buffer): Promise<Bits> {
   for (let i = 0; i < bits.data.length; i++) bits.data[i] = data[i * info.channels]! > 127 ? 1 : 0;
   return bits;
 }
-const dataUrl = (png: Buffer) => `data:image/png;base64,${png.toString('base64')}`;
-const addUsage = (a: Usage | null, b: Usage | null | undefined): Usage | null =>
-  !b
-    ? a
-    : {
-        inputTokens: (a?.inputTokens ?? 0) + b.inputTokens,
-        outputTokens: (a?.outputTokens ?? 0) + b.outputTokens,
-        totalTokens: (a?.totalTokens ?? 0) + b.totalTokens,
-      };
+const dataUrl = toDataUrl;
 /** Ops that change a model's shape: after them the camera check runs again. */
 const SHAPES: RecipeOp['op'][] = ['resize', 'add_part', 'remove_part'];
 
@@ -171,17 +164,11 @@ export function assistRoutes(
       throw new LabError('assist_previous', 'That earlier request didn’t finish.', 409);
     const shape = input.shape ?? last?.shape;
     if (!shape) throw new LabError('invalid_request', 'Select something first.', 400);
-    if (!live && input.imageDataUrl)
-      throw new LabError('demo_image', 'Demo mode uses only the demo room’s camera.');
+    liveImage(mode, input.imageDataUrl);
     if (live && !last && !input.imageDataUrl)
       throw new LabError('invalid_request', 'Send the frame the selection was drawn on.', 400);
     const room = selectionRoom(store.memory(mode));
-    if (live && !meta.canAfford(assistCeiling()))
-      throw new LabError(
-        'spend_limit',
-        `This request could cost up to $${assistCeiling().toFixed(3)}, which would pass today's Meta spending limit. Raise the limit in Setup, or wait for the next UTC day.`,
-        429,
-      );
+    if (live) meta.mustAfford(assistCeiling(), 'This request');
     const job = jobs.start(input.jobId, STEPS, {
       title: 'Working on your selection',
       mode,
@@ -207,12 +194,7 @@ export function assistRoutes(
           if (!png) throw new LabError('assist_previous', 'The earlier frame is gone.', 409);
         } else if (live) {
           const image = await validateImage(input.imageDataUrl);
-          if (image.width !== room.frame.width || image.height !== room.frame.height)
-            throw new LabError(
-              'not_calibrated',
-              `This frame is ${image.width} × ${image.height}, but the room’s camera was calibrated on ${room.frame.width} × ${room.frame.height} frames.`,
-              409,
-            );
+          requireFrame(image, room.frame);
           png = image.bytes;
         } else png = await demoPng();
         assets.push(store.asset(id, 'frame.png', png));

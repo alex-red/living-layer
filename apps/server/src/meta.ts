@@ -264,6 +264,19 @@ export class MetaAdapter {
       this.store.addSpend(actualUsd);
     };
   }
+  /**
+   * Refuse up front, with 429 `spend_limit`, a request whose ceiling would pass
+   * today's limit. `message` replaces the usual wording.
+   */
+  mustAfford(usd: number, what: string, message?: string): void {
+    if (this.canAfford(usd)) return;
+    throw new LabError(
+      'spend_limit',
+      message ??
+        `${what} could cost up to $${usd.toFixed(3)}, which would pass today's Meta spending limit. Raise the limit in Setup, or wait for the next UTC day.`,
+      429,
+    );
+  }
   /** Whether calls costing up to `usd` would still fit under today's limit. */
   canAfford(usd: number): boolean {
     return (
