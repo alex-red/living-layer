@@ -16,6 +16,7 @@ export * from './selection.js';
 export * from './facts.js';
 export * from './intent.js';
 export * from './recipe-build.js';
+export * from './thing-variant.js';
 export * from './assist.js';
 export * from './color.js';
 export * from './iso-voxel.js';

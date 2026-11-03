@@ -172,14 +172,17 @@ describe('desk placement', () => {
     ).toBe('outside');
     await s.app.close();
   });
-  it('counts a thing as inside where it stands: its bottom centre, even when taller than the zone', () => {
+  it('counts a thing as inside where it stands: near its bottom centre, even when taller than the zone', () => {
     const frame = { width: 200, height: 100 };
     const zone = { x: 0.25, y: 0.2, width: 0.5, height: 0.6 };
     // Touching down on the zone's bottom edge, its top far above the zone.
     expect(footInZone({ x: 60, y: 0, width: 20, height: 80 }, frame, zone)).toBe(true);
     // Its box crosses the side, but it stands inside.
     expect(footInZone({ x: 40, y: 30, width: 40, height: 40 }, frame, zone)).toBe(true);
-    expect(footInZone({ x: 60, y: 30, width: 20, height: 51 }, frame, zone)).toBe(false);
+    // A strip of shadow under it reaches past the edge: it still stands inside.
+    expect(footInZone({ x: 60, y: 30, width: 20, height: 51 }, frame, zone)).toBe(true);
+    // Standing below the zone.
+    expect(footInZone({ x: 60, y: 45, width: 20, height: 48 }, frame, zone)).toBe(false);
     expect(footInZone({ x: 140, y: 30, width: 22, height: 40 }, frame, zone)).toBe(false);
   });
   it('reserves before dispatch and suppresses concurrent/restarted retries even when an action fails', async () => {

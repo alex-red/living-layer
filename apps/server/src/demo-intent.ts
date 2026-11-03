@@ -83,6 +83,9 @@ const op = (o: Partial<SparkIntentOp> & Pick<SparkIntentOp, 'op'>): SparkIntentO
   as: null,
   control: null,
   question: null,
+  subject: null,
+  occupant: null,
+  state: null,
   ...o,
 });
 /** The parts a phrase names, and those after "but not". */
@@ -95,7 +98,9 @@ function partsOf(text: string): SparkIntentOp['parts'] {
   return { names: [], roles, materials: [], exceptNames: [], exceptRoles };
 }
 const DEMO_QUESTION =
-  'In the demo I can make it its own fixture, change its colour, material or size, rename it, or tie it to a light. Which would you like?';
+  'In the demo I can make it its own fixture, change its colour, material or size, rename it, tie it to a light, or make a variant of what it stands on. Which would you like?';
+/** Words for a thing in use: a variant named by them is `occupied`. */
+const IN_USE = /\b(occupied|taken|in use|sleeping|asleep|sat on|sitting|lying)\b/;
 
 export function demoIntent(sentence: string): SparkIntent {
   const text = sentence.toLowerCase().replace(/[’']/g, "'");
@@ -137,6 +142,14 @@ export function demoIntent(sentence: string): SparkIntent {
     size[AXES[m[3]!]!] = Number(m[1]) * UNITS[m[2]!]!;
   if (Object.values(size).some((v) => v !== null))
     ops.push(op({ op: 'resize', parts: partsOf(text), sizeCm: size }));
+  // "A variant of the tree that's occupied", "show the chair taken": the furniture in another state.
+  const variant = text.match(
+    /\b(?:variant|version)\b(?:.*?\b(?:that's|that is|where it's|when it's|while it's)\s+([a-z]+))?/,
+  );
+  if (variant || (IN_USE.test(text) && /\b(make|show|add)\b/.test(text))) {
+    const state = IN_USE.test(text) ? 'occupied' : (variant?.[1] ?? 'variant');
+    ops.push(op({ op: 'add_state', state }));
+  }
   if (entity) {
     const [id, kind] = [entity[0], entity[1] as 'light' | 'switch'];
     ops.push(op({ op: 'set_control', control: { kind, entityId: id } }));

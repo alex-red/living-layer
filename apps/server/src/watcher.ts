@@ -21,6 +21,12 @@ import {
   missed,
   placed,
   patchWeights,
+  patchTemplate,
+  candidatePlaces,
+  closeMatch,
+  closeRegion,
+  closeFit,
+  closeSure,
   prototypeOf,
   refound,
   startLocalTrack,
@@ -50,6 +56,7 @@ import {
   type Mode,
   type Segmentation,
   type UnitBox,
+  type PatchTemplate,
   type WatchCamera,
   type CameraCrop,
   type WatchSubject,
@@ -60,6 +67,7 @@ import {
   ruleObjects,
   followedThings,
   mugOf,
+  followOccupied,
 } from '@livinglayer/domain';
 import type { Appearance } from './appearance.js';
 import type { DeskTracking } from './desk.js';
@@ -157,6 +165,8 @@ export class Watcher {
   /** Things last seeded from a whole drawn box, not an outline: learned with their background. */
   private boxOnly = new Set<string>();
   private prototypes = new Map<string, Float32Array[]>();
+  /** Each thing's own patches up close, from the same sightings: what a candidate place is checked against. */
+  private templates = new Map<string, PatchTemplate[]>();
   private listeners = new Set<(view: WatchView) => void>();
   private checking = false;
   private pending: { id: string; ask: 'reanchor' }[] = [];
@@ -214,7 +224,23 @@ export class Watcher {
       ...(deps.now ? { now: deps.now } : {}),
     });
     this.statRunner.confirm = (concept, region) => this.askSeen(concept, region);
-    this.statRunner.subscribe(() => this.emit());
+    this.statRunner.subscribe(() => {
+      this.emit();
+      this.followVariants();
+    });
+  }
+  /** Things with an occupied variant show it while their occupied stat is on (`followOccupied`). */
+  private followVariants() {
+    const now = this.statRunner.current();
+    const occupied = (id: string) => {
+      const v = now[id]?.occupied?.value;
+      return typeof v === 'boolean' ? v : null;
+    };
+    const fixtures = this.memory().fixtures ?? [];
+    if (followOccupied(fixtures, occupied) === fixtures) return;
+    this.deps.store.updateMemory(this.deps.mode, (m) => {
+      if (m.fixtures) m.fixtures = followOccupied(m.fixtures, occupied);
+    });
   }
   get mode() {
     return this.deps.mode;
@@ -620,32 +646,39 @@ export class Watcher {
     if (this.model && detection)
       void this.track(this.learn(subject.id, photo, detection, seen.observation.frame));
   }
-  /** Add a prototype of how the thing looks, from SAM's mask on its photo. */
+  /** Add a prototype of how the thing looks, and its close template, from SAM's mask on its photo. */
   private async learn(
     id: string,
     photo: Buffer,
     detection: Segmentation['detections'][number],
     frame: Segmentation['frame'],
   ) {
+    const box = {
+      x: detection.box.x / frame.width,
+      y: detection.box.y / frame.height,
+      width: detection.box.width / frame.width,
+      height: detection.box.height / frame.height,
+    };
+    const bits = maskBits(detection, frame, 1);
     try {
       // A square around the thing, so a small one still spans a few patches.
-      const region = appearanceRegion(
-        {
-          x: detection.box.x / frame.width,
-          y: detection.box.y / frame.height,
-          width: detection.box.width / frame.width,
-          height: detection.box.height / frame.height,
-        },
-        frame,
-      );
+      const region = appearanceRegion(box, frame);
       const grid = await this.model!.embed(photo, region);
-      const mask = cropMask(maskBits(detection, frame, 1), region);
+      const mask = cropMask(bits, region);
       const proto = prototypeOf(grid, patchWeights(mask, grid.cols, grid.rows));
       if (!proto) return;
       this.prototypes.set(
         id,
         [proto, ...(this.prototypes.get(id) ?? [])].slice(0, APPEARANCE.maxPrototypes),
       );
+      const near = closeRegion(box, frame);
+      const close = await this.model!.embed(photo, near, APPEARANCE.side);
+      const template = patchTemplate(close, near, box, cropMask(bits, near));
+      if (template)
+        this.templates.set(
+          id,
+          [template, ...(this.templates.get(id) ?? [])].slice(0, APPEARANCE.maxPrototypes),
+        );
     } catch {
       // Without a prototype, a lost thing goes straight to SAM or the whole-frame search.
     }
@@ -760,6 +793,20 @@ export class Watcher {
     );
   }
   /**
+   * A close look at `box` in `shot`: how like the thing it is there (its best
+   * template), and its box lined up with that template, finer than the box given.
+   */
+  private async closeLook(
+    shot: { png: Buffer; width: number; height: number },
+    box: UnitBox,
+    templates: PatchTemplate[],
+  ) {
+    const near = closeRegion(box, shot);
+    const close = await this.model!.embed(shot.png, near, APPEARANCE.side);
+    const fits = templates.map((t) => closeFit(t, close, near, box));
+    return fits.reduce((a, b) => (b.score > a.score ? b : a));
+  }
+  /**
    * Look for lost things by how they look: around where each was last
    * (`searchRegion`), all in one embedding of the region holding them, or the
    * whole frame (`whole`, when nothing else may look). Followed things' boxes
@@ -787,24 +834,44 @@ export class Watcher {
       const followed = [...this.things.values()]
         .filter((t) => t.status === 'following' || t.status === 'entangled')
         .map((t) => intoRegion(t.track.box, region));
-      const matches = wanted.map((w) => ({
-        id: w.id,
-        match: findByAppearance(grid, w.protos, intoRegion(w.thing.track.box, region), {
+      const matches: { id: string; box: UnitBox | null }[] = [];
+      for (const w of wanted) {
+        const size = intoRegion(w.thing.track.box, region);
+        const templates = this.templates.get(w.id);
+        if (templates?.length) {
+          // The wide search's best few places, each looked at closely against the thing's own patches.
+          const scored = [];
+          // Each at the thing's own size: the wide search's windows are whole patches.
+          const { width, height } = w.thing.track.box;
+          for (const place of candidatePlaces(grid, w.protos, size, followed))
+            scored.push(
+              await this.closeLook(
+                shot,
+                { ...outOfRegion(place, region), width, height },
+                templates,
+              ),
+            );
+          const match = closeMatch(scored);
+          matches.push({ id: w.id, box: closeSure(match) ? match.box : null });
+          continue;
+        }
+        const match = findByAppearance(grid, w.protos, size, {
           exclude: followed,
           rivals: wanted.filter((o) => o !== w && alike(o.thing, w.thing)).flatMap((o) => o.protos),
-        }),
-      }));
-      for (const { id, match } of matches) {
-        if (!appearanceSure(match)) continue;
+        });
+        matches.push({
+          id: w.id,
+          box: appearanceSure(match) ? outOfRegion(match.box, region) : null,
+        });
+      }
+      for (const { id, box } of matches) {
+        if (!box) continue;
         const clash = matches.some(
-          (o) =>
-            o.id !== id &&
-            appearanceSure(o.match) &&
-            boxIoU(o.match.box, match.box) >= LOCAL_TRACK.claimIoU,
+          (o) => o.id !== id && o.box && boxIoU(o.box, box) >= LOCAL_TRACK.claimIoU,
         );
         const thing = this.things.get(id);
         if (clash || !thing) continue;
-        this.things.set(id, refound(thing, outOfRegion(match.box, region)));
+        this.things.set(id, refound(thing, box, this.lastFrame ?? undefined));
         found.add(id);
       }
       this.stats.refinds += found.size;
@@ -881,13 +948,42 @@ export class Watcher {
       .finally(() => this.judging.delete(id));
     void this.track(this.placing);
   }
+  /**
+   * Where a thing about to have its zones judged really stands: its followed
+   * box, lined up by a close look with its own patches when the feature model
+   * has them. Null when that look says it isn't there (the grey match drifted
+   * onto the desk): it counts as lost, and is looked for again.
+   */
+  private async closeCheck(id: string, thing: WatchThing): Promise<UnitBox | null> {
+    const templates = this.templates.get(id);
+    if (!this.model || !this.source || !templates?.length) return thing.track.box;
+    const shot = await this.source.snapshot();
+    const look = await this.closeLook(shot, thing.track.box, templates);
+    if (look.score >= APPEARANCE.closeMinScore) {
+      const now = this.things.get(id);
+      if (now) this.things.set(id, { ...now, track: { ...now.track, box: look.box } });
+      return look.box;
+    }
+    const now = this.things.get(id);
+    if (now)
+      this.things.set(id, {
+        ...now,
+        status: 'unsure',
+        crossingSteps: 0,
+        track: { ...now.track, lostSteps: WATCH.lostSteps },
+      });
+    this.refind(id);
+    return null;
+  }
   private async judge(id: string) {
     const thing = this.things.get(id);
     if (!thing) return;
     const { mode, tracking } = this.deps;
     const start = this.now;
     try {
-      const { memory, event, rules } = await tracking.placeLocally(mode, id, thing.track.box);
+      const box = await this.closeCheck(id, thing);
+      if (!box) return;
+      const { memory, event, rules } = await tracking.placeLocally(mode, id, box);
       const decisions = [...(event ? [event] : []), ...rules].map((e) => e.output);
       const blocked = decisions.every((d) => d.decision === 'blocked');
       this.stats.places++;

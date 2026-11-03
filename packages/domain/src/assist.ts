@@ -3,8 +3,9 @@ import type { MergedFacts, sizeDisagreement } from './facts.js';
 import type { EditIntent } from './intent.js';
 import type { RecipeCheck, RecipePlace } from './recipe-build.js';
 import type { RecipeOp } from './recipe-ops.js';
+import type { IsoItem } from './iso-item.js';
 import type { FixtureRecipe } from './recipe.js';
-import type { Resolved, SelectionShape } from './selection.js';
+import type { RelatedThing, Resolved, SelectionShape, SelectionTarget } from './selection.js';
 
 /**
  * What the AI brush's routes answer, shared by the server and the page
@@ -16,6 +17,8 @@ export interface SelectResolve extends Resolved {
   frame: Segmentation['frame'];
   /** The target already has a model to edit (a saved recipe), so edits make sense from the start. */
   hasModel: boolean;
+  /** What the target stands on and what stands on it. */
+  related: RelatedThing[];
 }
 
 /** `POST /api/assist`: an `assist` run's output, a draft for the person to review. */
@@ -58,4 +61,22 @@ export interface AssistDraft {
   check: RecipeCheck | null;
   /** Refinement rounds after the first check, and the ops each applied. */
   rounds: RecipeOp[][];
+  /**
+   * Set when the request makes a variant of a thing (`add_state`): its model
+   * with the occupant drawn in, kept as one of the thing's states, not in the
+   * room in its place. `recipe` and `place` stay unset.
+   */
+  variant?: {
+    subject: SelectionTarget;
+    state: string;
+    occupant: SelectionTarget | null;
+    /** The variant's model, in the thing's own frame before its turns. */
+    model: IsoItem;
+    /** Its footprint and height in tiles before turning, as `Fixture.size`. */
+    size: { w: number; d: number; h: number };
+    /** The subject is furniture of the layout, made a thing when this is kept (`promoteGroup`). */
+    promotes: boolean;
+    /** Shown while the thing's occupied stat is on, which keeping it turns on. */
+    follows: boolean;
+  } | null;
 }

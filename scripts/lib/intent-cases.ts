@@ -31,6 +31,17 @@ const fixture: IntentContext = {
   entities: ['light.study'],
 };
 const nothing: IntentContext = { target: null, recipe: null, entities: [] };
+const catTree = { kind: 'fixture' as const, id: 'cat-tree', label: 'Cat tree' };
+const cat = { kind: 'object' as const, id: 'cat', label: 'Cat' };
+/** The cat selected, seen asleep on the cat tree's top: both Things. */
+const catOnTree: IntentContext = {
+  target: cat,
+  recipe: null,
+  entities: [],
+  related: [{ target: catTree, relation: 'holds', surfaceId: null }],
+};
+/** The tree selected, with nothing on it. */
+const bareTree: IntentContext = { target: catTree, recipe: null, entities: [] };
 
 export interface IntentCase {
   name: string;
@@ -72,6 +83,18 @@ export function checkIntentCase(c: IntentCase): string[] {
   }
   return problems;
 }
+/**
+ * Ops the demo's reader can't produce, so no case here can check them
+ * offline. Each needs a reason; one that gets a case leaves this list
+ * (`tests/op-coverage.test.ts` holds both to it).
+ */
+export const DEMO_GAPS: Partial<Record<IntentOp['op'], string>> = {
+  add_part:
+    'Spark measures the part to add from the crop; the demo has no pattern for sizes and places.',
+  remove_part: 'Naming which part to remove needs the model’s parts; no demo pattern yet.',
+  rebase: 'Read live only: “it is a table, not a desk” has no demo pattern yet.',
+  match_photo: 'Shaping from the photo is live only (Spark reads the picture).',
+};
 export const INTENT_CASES: IntentCase[] = [
   {
     name: 'own fixture from a product',
@@ -143,6 +166,25 @@ export const INTENT_CASES: IntentCase[] = [
     name: 'edit with no model yet',
     sentence: 'make it green',
     ctx: desk,
+    ops: [{ op: 'clarify' }],
+  },
+  {
+    name: 'occupied variant of what the cat is on',
+    sentence: "let's make a variant of the tree that's occupied",
+    ctx: catOnTree,
+    ops: [{ op: 'add_state', subject: catTree, occupant: cat, state: 'occupied' }],
+    product: null,
+  },
+  {
+    name: 'taken, said another way',
+    sentence: 'show the tree taken when the cat sleeps on it',
+    ctx: catOnTree,
+    ops: [{ op: 'add_state', subject: catTree, state: 'occupied' }],
+  },
+  {
+    name: 'occupied with nothing on it',
+    sentence: 'make a variant of the tree that is occupied',
+    ctx: bareTree,
     ops: [{ op: 'clarify' }],
   },
   {

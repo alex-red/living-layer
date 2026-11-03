@@ -189,6 +189,34 @@ export function cutTemplate(frame: LumaFrame, box: UnitBox, mask?: Uint8Array): 
   return whole && { ...whole, masked: false };
 }
 
+/**
+ * The same pixels of `template` read again at `box` in `frame`: its shape
+ * (the mask's pixels) kept, its values the thing's look now. For a thing
+ * found again somewhere else, so it is followed from there, not matched to
+ * the desk it stood on before. Null when the box doesn't hold the template or
+ * the pixels there are too plain to follow.
+ */
+export function recutTemplate(template: Template, frame: LumaFrame, box: UnitBox): Template | null {
+  const r = pixelRect(frame, box);
+  if (r.x + template.width > frame.width || r.y + template.height > frame.height) return null;
+  const count = template.values.length;
+  const values = new Float32Array(count);
+  let sum = 0;
+  for (let k = 0; k < count; k++) {
+    values[k] = frame.data[(r.y + template.rows[k]!) * frame.width + r.x + template.cols[k]!]!;
+    sum += values[k]!;
+  }
+  const mean = sum / count;
+  let squares = 0;
+  for (let k = 0; k < count; k++) {
+    values[k]! -= mean;
+    squares += values[k]! ** 2;
+  }
+  const norm = Math.sqrt(squares);
+  if (norm / Math.sqrt(count) < 2) return null;
+  return { ...template, values, norm };
+}
+
 function build(
   frame: LumaFrame,
   r: ReturnType<typeof pixelRect>,

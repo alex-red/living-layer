@@ -250,6 +250,9 @@ describe('the AI brush live, against a mocked Meta API', () => {
     as: null,
     control: null,
     question: null,
+    subject: null,
+    occupant: null,
+    state: null,
   };
 
   async function live(

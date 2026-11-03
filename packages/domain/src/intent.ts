@@ -5,7 +5,7 @@ import { PROP_FORMS, type PropForm } from './iso-furniture.js';
 import { hexColorSchema, ITEM_MATERIALS } from './iso-item.js';
 import { RECIPE_OPS, recipeOpSchema, type RecipeOp } from './recipe-ops.js';
 import { RECIPE_ROLES, recipePartSchema, type FixtureRecipe } from './recipe.js';
-import type { SelectionTarget } from './selection.js';
+import { sameThing, thingRef, type RelatedThing, type SelectionTarget } from './selection.js';
 
 /**
  * What a sentence typed beside a selection asks for
@@ -16,7 +16,14 @@ import type { SelectionTarget } from './selection.js';
  * so a strict schema holds it, and `readIntent` turns that into typed ops,
  * keeping only what can be done and saying why the rest can't.
  */
-const INTENT_KINDS = ['create', 'rebase', 'match_photo', 'set_control', 'clarify'] as const;
+export const INTENT_KINDS = [
+  'create',
+  'rebase',
+  'match_photo',
+  'set_control',
+  'add_state',
+  'clarify',
+] as const;
 type IntentKind = (typeof INTENT_KINDS)[number];
 const MAX_INTENT_OPS = 4;
 
@@ -29,8 +36,14 @@ const INTENT_ABOUT: Record<IntentKind, string> = {
     'Rebuild the model’s parts and colours from the camera’s picture of it, keeping its size, when the request is about how it looks overall ("make it look like the photo", "it is an open shelf with white shelves"). What the person describes is passed on with it, so use it instead of many small ops.',
   set_control:
     'Say what the fixture switches: none, or a light or switch entity from the list (control).',
+  add_state:
+    'Make a variant of a thing, kept as one of its states beside its own model and shown when it is in that state ("a variant of the tree that is occupied", the cat on it selected). Furniture is made a thing first. subject: the thing, by its ref from the list; occupant: what stands on it to draw into the variant where the camera sees it now, by ref, or null; state: the variant’s name, one or two words ("occupied").',
   clarify: 'Ask one short question back when the request is unclear. Never guess instead.',
 };
+/** A variant's name: lowercase words joined by -, as a fixture's states are named. */
+const STATE_NAME = /^[a-z0-9-]{1,24}$/;
+/** States a thing switches by its entity, not by a variant. */
+const RESERVED = new Set(['on', 'off']);
 
 export type IntentOp =
   | RecipeOp
@@ -38,6 +51,14 @@ export type IntentOp =
   | { op: 'rebase'; form: PropForm }
   | { op: 'match_photo' }
   | { op: 'set_control'; control: FixtureControl }
+  | {
+      op: 'add_state';
+      /** The thing that gets the variant; furniture is made a thing when it is kept. */
+      subject: SelectionTarget;
+      state: string;
+      /** What stands on it, drawn into the variant where the camera sees it now. */
+      occupant: SelectionTarget | null;
+    }
   | { op: 'clarify'; question: string };
 
 export interface EditIntent {
@@ -85,6 +106,10 @@ const sparkIntentOpSchema = z
       .strict()
       .nullable(),
     question: z.string().min(1).max(200).nullable(),
+    /** add_state: the things it is about, by ref (`prop:cat-tree`, `fixture:<id>`), and its name. */
+    subject: z.string().min(1).max(80).nullable(),
+    occupant: z.string().min(1).max(80).nullable(),
+    state: z.string().min(1).max(24).nullable(),
   })
   .strict();
 export type SparkIntentOp = z.infer<typeof sparkIntentOpSchema>;
@@ -105,6 +130,8 @@ export interface IntentContext {
   recipe: FixtureRecipe | null;
   /** Light and switch entities a fixture may be tied to. */
   entities: string[];
+  /** What the target stands on and what stands on it (`relatedTargets`). */
+  related?: RelatedThing[];
 }
 
 /**
@@ -191,9 +218,58 @@ function readOp(o: SparkIntentOp, ctx: IntentContext, creating: boolean): Intent
         return 'Only a fixture can switch something.';
       return { op: 'set_control', control: checked.data };
     }
+    case 'add_state':
+      return readAddState(o, ctx);
     case 'clarify':
       return { op: 'clarify', question: o.question ?? 'What would you like it to do?' };
   }
+}
+
+/**
+ * A variant as a typed op, or why it can't be made. With no subject named it
+ * is what the target stands on, else the target; with no occupant named it
+ * is the target when that stands on the subject. The occupant must stand on
+ * the subject, by the room's surfaces, not by where it looks to be.
+ */
+function readAddState(o: SparkIntentOp, ctx: IntentContext): IntentOp | string {
+  const related = ctx.related ?? [];
+  const known = [...(ctx.target ? [ctx.target] : []), ...related.map((r) => r.target)];
+  const find = (ref: string) => known.find((t) => thingRef(t) === ref) ?? null;
+  const same = sameThing;
+  const holder = related.find((r) => r.relation === 'holds')?.target ?? null;
+  const subject = o.subject ? find(o.subject) : (holder ?? ctx.target);
+  if (!subject)
+    return o.subject
+      ? `${o.subject} isn't the selection or anything on or under it.`
+      : 'There is nothing selected to make a variant of.';
+  const occupant = o.occupant
+    ? find(o.occupant)
+    : ctx.target && !same(ctx.target, subject)
+      ? ctx.target
+      : null;
+  if (o.occupant && !occupant)
+    return `${o.occupant} isn't the selection or anything on or under it.`;
+  if (
+    occupant &&
+    !(
+      (same(subject, ctx.target) &&
+        related.some((r) => r.relation === 'on' && same(r.target, occupant))) ||
+      (same(occupant, ctx.target) &&
+        related.some((r) => r.relation === 'holds' && same(r.target, subject)))
+    )
+  )
+    return `The ${occupant.label} isn't on the ${subject.label}.`;
+  const state = (o.state ?? (occupant ? 'occupied' : ''))
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '');
+  if (!STATE_NAME.test(state)) return 'The variant’s name was missing.';
+  if (RESERVED.has(state))
+    return `"${state}" is what the ${subject.label} switches: call the variant something else.`;
+  if (state === 'occupied' && !occupant)
+    return `Nothing stands on the ${subject.label} to show it occupied: select what sits on it.`;
+  return { op: 'add_state', subject, state, occupant };
 }
 
 /** A name as a label: "the standing desk" is the standing desk's name without its article. */
@@ -211,8 +287,13 @@ export function readIntent(
   const dropped: string[] = [];
   let ops: IntentOp[] = [];
   const creating = raw.ops.some((o) => o.op === 'create');
+  // A variant is a thing's model, not a recipe: its edits are made on its card once it is kept.
+  const variant = raw.ops.some((o) => o.op === 'add_state');
   for (const o of raw.ops) {
-    const read = readOp(o, ctx, creating);
+    const read =
+      variant && o.op in RECIPE_OPS
+        ? `Change the variant on its card once it is kept: the ${o.op} was left out.`
+        : readOp(o, ctx, creating);
     if (typeof read === 'string') dropped.push(read);
     else ops.push(read);
   }
@@ -236,9 +317,15 @@ export function readIntent(
 export function describeContext(ctx: IntentContext): string {
   const lines = [
     ctx.target
-      ? `The selection is the room's ${ctx.target.kind} "${ctx.target.label}".`
+      ? `The selection is the room's ${ctx.target.kind} "${ctx.target.label}" (ref ${thingRef(ctx.target)}).`
       : 'The selection is of something the room has no model of yet.',
   ];
+  for (const r of ctx.related ?? [])
+    lines.push(
+      r.relation === 'holds'
+        ? `It stands on the ${r.target.kind} "${r.target.label}" (ref ${thingRef(r.target)}).`
+        : `The ${r.target.kind} "${r.target.label}" (ref ${thingRef(r.target)}) stands on it.`,
+    );
   if (ctx.recipe) {
     const { w, d, h } = ctx.recipe.sizeCm;
     lines.push(`Its model "${ctx.recipe.label}" is ${w} × ${d} × ${h} cm, with parts:`);

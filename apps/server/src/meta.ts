@@ -446,6 +446,7 @@ export class MetaAdapter {
         'Fill only the fields an op needs and leave the others null or empty. parts picks parts of the model by names, roles and materials it has (empty lists for no filter), minus exceptNames and exceptRoles; parts null means the whole model.',
         'color is a hex value (#rrggbb) for the colour asked for. sizeCm is in centimetres; leave axes not mentioned null.',
         `form is one of: ${PROP_FORMS.join(', ')}.`,
+        'subject and occupant name things by their ref from the description (prop:…, fixture:…); state is a variant’s short name. Leave all three null unless the op is add_state.',
         'product: the product named, with its brand, model and kind (“IKEA Alex desk”), or null.',
         'needs: what must be looked up to build it: size, parts, colors, materials. Empty unless the request makes a model.',
         'targetDisagrees: if the crop clearly shows something other than the selection named above, what it shows; else null.',

@@ -1107,10 +1107,12 @@ The ops you may use:
 - rebase: Build the model again from another built-in form ("it is a table, not a desk").
 - match_photo: Rebuild the model’s parts and colours from the camera’s picture of it, keeping its size, when the request is about how it looks overall ("make it look like the photo", "it is an open shelf with white shelves"). What the person describes is passed on with it, so use it instead of many small ops.
 - set_control: Say what the fixture switches: none, or a light or switch entity from the list (control).
+- add_state: Make a variant of a thing, kept as one of its states beside its own model and shown when it is in that state ("a variant of the tree that is occupied", the cat on it selected). Furniture is made a thing first. subject: the thing, by its ref from the list; occupant: what stands on it to draw into the variant where the camera sees it now, by ref, or null; state: the variant’s name, one or two words ("occupied").
 - clarify: Ask one short question back when the request is unclear. Never guess instead.
 Fill only the fields an op needs and leave the others null or empty. parts picks parts of the model by names, roles and materials it has (empty lists for no filter), minus exceptNames and exceptRoles; parts null means the whole model.
 color is a hex value (#rrggbb) for the colour asked for. sizeCm is in centimetres; leave axes not mentioned null.
 form is one of: desk, table, chair, bookcase, cabinet, pot, foliage, lamp-stand, lamp-shade, monitor, keyboard, book, bottle, jar, carton, eggs, butter, tub.
+subject and occupant name things by their ref from the description (prop:…, fixture:…); state is a variant’s short name. Leave all three null unless the op is add_state.
 product: the product named, with its brand, model and kind (“IKEA Alex desk”), or null.
 needs: what must be looked up to build it: size, parts, colors, materials. Empty unless the request makes a model.
 targetDisagrees: if the crop clearly shows something other than the selection named above, what it shows; else null.
@@ -1275,6 +1277,18 @@ If the request is unclear, or asks for anything the ops can’t do, answer one c
                             },
                           ],
                         },
+                        "occupant": {
+                          "anyOf": [
+                            {
+                              "maxLength": 80,
+                              "minLength": 1,
+                              "type": "string",
+                            },
+                            {
+                              "type": "null",
+                            },
+                          ],
+                        },
                         "op": {
                           "enum": [
                             "recolor",
@@ -1287,6 +1301,7 @@ If the request is unclear, or asks for anything the ops can’t do, answer one c
                             "rebase",
                             "match_photo",
                             "set_control",
+                            "add_state",
                             "clarify",
                           ],
                           "type": "string",
@@ -1549,6 +1564,30 @@ If the request is unclear, or asks for anything the ops can’t do, answer one c
                             },
                           ],
                         },
+                        "state": {
+                          "anyOf": [
+                            {
+                              "maxLength": 24,
+                              "minLength": 1,
+                              "type": "string",
+                            },
+                            {
+                              "type": "null",
+                            },
+                          ],
+                        },
+                        "subject": {
+                          "anyOf": [
+                            {
+                              "maxLength": 80,
+                              "minLength": 1,
+                              "type": "string",
+                            },
+                            {
+                              "type": "null",
+                            },
+                          ],
+                        },
                       },
                       "required": [
                         "op",
@@ -1562,6 +1601,9 @@ If the request is unclear, or asks for anything the ops can’t do, answer one c
                         "as",
                         "control",
                         "question",
+                        "subject",
+                        "occupant",
+                        "state",
                       ],
                       "type": "object",
                     },
@@ -1635,10 +1677,12 @@ The ops you may use:
 - rebase: Build the model again from another built-in form ("it is a table, not a desk").
 - match_photo: Rebuild the model’s parts and colours from the camera’s picture of it, keeping its size, when the request is about how it looks overall ("make it look like the photo", "it is an open shelf with white shelves"). What the person describes is passed on with it, so use it instead of many small ops.
 - set_control: Say what the fixture switches: none, or a light or switch entity from the list (control).
+- add_state: Make a variant of a thing, kept as one of its states beside its own model and shown when it is in that state ("a variant of the tree that is occupied", the cat on it selected). Furniture is made a thing first. subject: the thing, by its ref from the list; occupant: what stands on it to draw into the variant where the camera sees it now, by ref, or null; state: the variant’s name, one or two words ("occupied").
 - clarify: Ask one short question back when the request is unclear. Never guess instead.
 Fill only the fields an op needs and leave the others null or empty. parts picks parts of the model by names, roles and materials it has (empty lists for no filter), minus exceptNames and exceptRoles; parts null means the whole model.
 color is a hex value (#rrggbb) for the colour asked for. sizeCm is in centimetres; leave axes not mentioned null.
 form is one of: desk, table, chair, bookcase, cabinet, pot, foliage, lamp-stand, lamp-shade, monitor, keyboard, book, bottle, jar, carton, eggs, butter, tub.
+subject and occupant name things by their ref from the description (prop:…, fixture:…); state is a variant’s short name. Leave all three null unless the op is add_state.
 product: the product named, with its brand, model and kind (“IKEA Alex desk”), or null.
 needs: what must be looked up to build it: size, parts, colors, materials. Empty unless the request makes a model.
 targetDisagrees: if the crop clearly shows something other than the selection named above, what it shows; else null.
@@ -1798,6 +1842,18 @@ If the request is unclear, or asks for anything the ops can’t do, answer one c
                             },
                           ],
                         },
+                        "occupant": {
+                          "anyOf": [
+                            {
+                              "maxLength": 80,
+                              "minLength": 1,
+                              "type": "string",
+                            },
+                            {
+                              "type": "null",
+                            },
+                          ],
+                        },
                         "op": {
                           "enum": [
                             "recolor",
@@ -1810,6 +1866,7 @@ If the request is unclear, or asks for anything the ops can’t do, answer one c
                             "rebase",
                             "match_photo",
                             "set_control",
+                            "add_state",
                             "clarify",
                           ],
                           "type": "string",
@@ -2072,6 +2129,30 @@ If the request is unclear, or asks for anything the ops can’t do, answer one c
                             },
                           ],
                         },
+                        "state": {
+                          "anyOf": [
+                            {
+                              "maxLength": 24,
+                              "minLength": 1,
+                              "type": "string",
+                            },
+                            {
+                              "type": "null",
+                            },
+                          ],
+                        },
+                        "subject": {
+                          "anyOf": [
+                            {
+                              "maxLength": 80,
+                              "minLength": 1,
+                              "type": "string",
+                            },
+                            {
+                              "type": "null",
+                            },
+                          ],
+                        },
                       },
                       "required": [
                         "op",
@@ -2085,6 +2166,9 @@ If the request is unclear, or asks for anything the ops can’t do, answer one c
                         "as",
                         "control",
                         "question",
+                        "subject",
+                        "occupant",
+                        "state",
                       ],
                       "type": "object",
                     },
@@ -3266,7 +3350,7 @@ confidence: how sure you are that these are facts of this exact product, 0 to 1.
                 {
                   "text": 
 "A model of a piece of furniture was drawn through the room camera and compared with the outline of the real thing in its picture.
-The selection is the room's fixture "desk".
+The selection is the room's fixture "desk" (ref fixture:draft).
 Its model "desk" is 100 × 50 × 75 cm, with parts:
 No light or switch entities are configured.
 missed
@@ -3281,6 +3365,7 @@ Suggest at most four ops that bring the model closer to the real thing: resize t
 - rebase: Build the model again from another built-in form ("it is a table, not a desk").
 - match_photo: Rebuild the model’s parts and colours from the camera’s picture of it, keeping its size, when the request is about how it looks overall ("make it look like the photo", "it is an open shelf with white shelves"). What the person describes is passed on with it, so use it instead of many small ops.
 - set_control: Say what the fixture switches: none, or a light or switch entity from the list (control).
+- add_state: Make a variant of a thing, kept as one of its states beside its own model and shown when it is in that state ("a variant of the tree that is occupied", the cat on it selected). Furniture is made a thing first. subject: the thing, by its ref from the list; occupant: what stands on it to draw into the variant where the camera sees it now, by ref, or null; state: the variant’s name, one or two words ("occupied").
 - clarify: Ask one short question back when the request is unclear. Never guess instead.
 Fill only the fields an op needs and leave the others null or empty. Sizes are in centimetres, parts measured from the back-left-bottom corner, facing the room. If nothing would help, answer one clarify op.
 product: null. needs: empty. targetDisagrees: null."
@@ -3444,6 +3529,18 @@ product: null. needs: empty. targetDisagrees: null."
                             },
                           ],
                         },
+                        "occupant": {
+                          "anyOf": [
+                            {
+                              "maxLength": 80,
+                              "minLength": 1,
+                              "type": "string",
+                            },
+                            {
+                              "type": "null",
+                            },
+                          ],
+                        },
                         "op": {
                           "enum": [
                             "recolor",
@@ -3456,6 +3553,7 @@ product: null. needs: empty. targetDisagrees: null."
                             "rebase",
                             "match_photo",
                             "set_control",
+                            "add_state",
                             "clarify",
                           ],
                           "type": "string",
@@ -3718,6 +3816,30 @@ product: null. needs: empty. targetDisagrees: null."
                             },
                           ],
                         },
+                        "state": {
+                          "anyOf": [
+                            {
+                              "maxLength": 24,
+                              "minLength": 1,
+                              "type": "string",
+                            },
+                            {
+                              "type": "null",
+                            },
+                          ],
+                        },
+                        "subject": {
+                          "anyOf": [
+                            {
+                              "maxLength": 80,
+                              "minLength": 1,
+                              "type": "string",
+                            },
+                            {
+                              "type": "null",
+                            },
+                          ],
+                        },
                       },
                       "required": [
                         "op",
@@ -3731,6 +3853,9 @@ product: null. needs: empty. targetDisagrees: null."
                         "as",
                         "control",
                         "question",
+                        "subject",
+                        "occupant",
+                        "state",
                       ],
                       "type": "object",
                     },
