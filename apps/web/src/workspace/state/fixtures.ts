@@ -1,5 +1,6 @@
 import { useRef, useCallback } from 'react';
 import type {
+  DeskMemory,
   Fixture,
   MappedThing,
   IsoSceneKind,
@@ -428,9 +429,10 @@ export function useFixturesSlice(
       setError(e instanceof Error ? e : 'SAM 3D could not refine it.');
     }
   }
-  async function sculptFixture(id: string, note?: string) {
+  /** `saved` is the memory a save just returned, when it is called before the lab has it. */
+  async function sculptFixture(id: string, note?: string, saved?: DeskMemory) {
     if (busy) return;
-    const f = memory?.fixtures?.find((x) => x.id === id);
+    const f = (saved ?? memory)?.fixtures?.find((x) => x.id === id);
     if (!f) return;
     setBusy('sculpt');
     setError('');
@@ -582,7 +584,7 @@ export function useFixturesSlice(
       void refresh().catch(() => {});
       if (sculptNext.current && saved && !placing.id) {
         sculptNext.current = false;
-        void sculptFixture(saved.id);
+        void sculptFixture(saved.id, undefined, m);
       }
     } catch (e) {
       setError(e instanceof Error ? e : 'The fixture could not be placed.');
@@ -638,7 +640,7 @@ export interface FixturesSlice {
     replace: boolean,
     addNew: boolean,
   ) => Promise<MappedThing[] | null>;
-  sculptFixture: (id: string, note?: string) => Promise<void>;
+  sculptFixture: (id: string, note?: string, saved?: DeskMemory) => Promise<void>;
   separate: (back?: boolean) => Promise<void>;
   startPlacing: (
     next: FixturePlacing,

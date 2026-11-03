@@ -326,6 +326,18 @@ export const fixturesSaveBodySchema = z
   .strict();
 export type FixturesSaveBody = z.input<typeof fixturesSaveBodySchema>;
 
+/** POST /api/fixtures/promote */
+export const fixturesPromoteBodySchema = z
+  .object({
+    mode: modeSchema,
+    /** The room the thing is drawn with: a preset's built-in thing, or the person's own layout. */
+    scene: z.union([isoSceneKindSchema, z.literal('custom')]),
+    /** Its group in that room's layout. */
+    group: z.string().min(1).max(48),
+  })
+  .strict();
+export type FixturesPromoteBody = z.input<typeof fixturesPromoteBodySchema>;
+
 /** GET /api/fixtures/reference */
 export const fixturesReferenceQuerySchema = z.object({ runId: z.string().uuid() }).strict();
 export type FixturesReferenceQuery = z.input<typeof fixturesReferenceQuerySchema>;

@@ -2,14 +2,20 @@ import { describe, expect, it } from 'bun:test';
 import { testApp } from './lib/app.js';
 import {
   ISO_PRESETS,
+  cornerCamera,
   fixtureType,
+  groupBounds,
+  projectRoom,
   occupantOf,
   promoteGroup,
   starterFixtureDraft,
   suggestedStats,
   type DeskMemory,
+  type IsoBox,
   type IsoScene,
+  type PhotoDraft,
 } from '@livinglayer/domain';
+import { draftCropOf } from '../apps/server/src/fixture/promote.js';
 
 const office = (): IsoScene => ({ ...ISO_PRESETS.office, kind: 'custom' });
 
@@ -69,5 +75,86 @@ describe('making a prop a thing', () => {
     expect(fixtureType({ model: tree.model })).toBe('cat-tree');
     expect(suggestedStats({ type: 'cat-tree', label: tree.label })).toEqual(['occupied']);
     expect(occupantOf(tree.label)).toBe('cat');
+  });
+});
+
+describe('making a thing drawn with the room a thing of its own', () => {
+  it('stands a preset’s built-in thing in for it, once', async () => {
+    const { post } = await testApp({ name: 'promote-built-in', appearance: async () => null });
+    const res = await post('fixtures/promote', { scene: 'fridge', group: 'milk' });
+    expect(res.statusCode, res.body).toBe(200);
+    const made = res.json<{ memory: DeskMemory; fixtureId: string; pictured: boolean }>();
+    const milk = made.memory.fixtures!.find((f) => f.id === made.fixtureId)!;
+    expect(milk).toMatchObject({ scene: 'fridge', builtIn: 'milk' });
+    // A preset's photo isn't kept, so there is nothing to model it from.
+    expect(made.pictured).toBe(false);
+    const again = await post('fixtures/promote', { scene: 'fridge', group: 'milk' });
+    expect(again.statusCode).toBe(409);
+  });
+
+  it('takes a group out of the person’s own layout, and refuses one that isn’t there', async () => {
+    const { post } = await testApp({ name: 'promote-own', appearance: async () => null });
+    expect((await post('scene/save', { scene: office() })).statusCode).toBe(200);
+    const res = await post('fixtures/promote', { scene: 'custom', group: 'monitor' });
+    expect(res.statusCode, res.body).toBe(200);
+    const { memory, fixtureId } = res.json<{ memory: DeskMemory; fixtureId: string }>();
+    expect(memory.scene!.props.some((p) => p.group === 'monitor')).toBe(false);
+    expect(memory.fixtures!.find((f) => f.id === fixtureId)).toMatchObject({
+      scene: 'custom',
+      surfaceId: 'desk:top',
+    });
+    const gone = await post('fixtures/promote', { scene: 'custom', group: 'monitor' });
+    expect(gone.statusCode).toBe(422);
+  });
+
+  it('pictures it by the room draft’s crop of the thing named like it, where the camera sees it', () => {
+    const scene = office();
+    const camera = cornerCamera(scene.grid, { frame: { width: 960, height: 640 } });
+    const seen = (box: IsoBox) => {
+      const pts = [0, 1].flatMap((u) =>
+        [0, 1].flatMap((v) =>
+          [0, 1].map((t) =>
+            projectRoom(camera, {
+              x: box.at.x + u * box.size.w,
+              y: box.at.y + v * box.size.d,
+              z: box.at.z + t * box.size.h,
+            })!,
+          ),
+        ),
+      );
+      const x = Math.min(...pts.map((p) => p.x));
+      const y = Math.min(...pts.map((p) => p.y));
+      return {
+        x,
+        y,
+        width: Math.max(...pts.map((p) => p.x)) - x,
+        height: Math.max(...pts.map((p) => p.y)) - y,
+      };
+    };
+    const monitor = groupBounds(scene, 'monitor')!;
+    // Spark's id isn't the group's, and a plant stands just where the monitor is.
+    const things = [
+      { id: 'screen', label: 'Black monitor', as: 'monitor' },
+      { id: 'plant', label: 'Potted plant', as: 'plant' },
+    ];
+    const draft = {
+      inventory: { things },
+      detections: { screen: 'o1', plant: 'o2' },
+      crops: { screen: 'run/crop-screen.png', plant: 'run/crop-plant.png' },
+      segmentation: {
+        frame: camera.frame,
+        detections: [
+          { objectId: 'o1', box: seen(monitor) },
+          { objectId: 'o2', box: seen(monitor) },
+        ],
+      },
+    } as unknown as PhotoDraft;
+    const name = { label: 'Monitor', template: 'monitor' };
+    expect(draftCropOf(draft, camera, monitor, name)).toBe('run/crop-screen.png');
+    // Named like nothing the draft cropped, it has no picture.
+    expect(draftCropOf(draft, camera, monitor, { label: 'Bookcase' })).toBeNull();
+    // Nor has a thing the camera sees somewhere else.
+    const away = { ...monitor, at: { ...monitor.at, x: monitor.at.x + 4 } };
+    expect(draftCropOf(draft, camera, away, name)).toBeNull();
   });
 });

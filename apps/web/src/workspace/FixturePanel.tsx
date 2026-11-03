@@ -16,10 +16,8 @@ import {
   fixtureSize,
   fixtureStateNames,
   fixtureType,
-  dayOf,
   foodKeeps,
   lightSources,
-  promoteBuiltIn,
   retypeFixture,
   starterFixtureDraft,
   SCULPT_FIRST,
@@ -1289,42 +1287,76 @@ export function BuiltInPanel({ id }: { id: string }) {
     useCamera(),
     useObservation(),
     useNavigation(),
+    useFixtures(),
   );
   const { call, off } = useCall();
+  /** Model it with AI once it is a thing: ticked, as that is why most are made things. */
+  const [sculpt, setSculpt] = useState(true);
   const thing = builtInThings(lab).find((t) => t.id === id);
   if (!thing) return <Panel tiny="BUILT IN" title="Gone" status="It is no longer in the room." />;
   const sceneLabel = roomLabel(thing.scene, lab.memory);
   const { scene, prop } = thing;
-  /** A preset's built-in thing as a fixture standing in for it, where it stood. */
+  const own = ownLayout(scene);
+  // Modelling with AI needs Spark and a picture: the room draft's crop, so only the person's own room.
+  const sculptable = own && lab.mode === 'live' && lab.metaReady;
+  /**
+   * The thing as a fixture of its own, where it stood: a preset's stands in
+   * for it, the person's own layout lets go of it. Then modelled with AI
+   * from the room draft's crop of it, when ticked.
+   */
   async function makeThing() {
-    if (scene === 'custom' || scene === 'custom-desk') return;
-    const fixture = promoteBuiltIn(scene, prop.group, dayOf(Date.now()));
     // "The leftovers are", "the butter is".
     const are = /[^s]s$/i.test(prop.label) ? 'are' : 'is';
-    if (!fixture) return lab.setError('That thing has nothing to draw as a thing.');
-    await call<DeskMemory>('fixtures/save', { fixture }, (m) => {
-      lab.setMemory(m);
-      const made = m.fixtures?.find((f) => f.scene === scene && f.builtIn === prop.group);
-      if (made) lab.select({ kind: 'fixture', id: made.id });
-      lab.setMessage(
-        fixture.food?.expires
-          ? `The ${prop.label.toLowerCase()} ${are} a thing of its own now, good until ${fixture.food.expires} as bought. Change its use-by day on its card.`
-          : `The ${prop.label.toLowerCase()} ${are} a thing of its own now. Keep stats for it, or find it in the camera.`,
-      );
-    });
+    const name = `The ${prop.label.toLowerCase()} ${are}`;
+    await call<{ memory: DeskMemory; fixtureId: string; pictured: boolean }>(
+      'fixtures/promote',
+      { scene: own ? 'custom' : scene, group: prop.group },
+      ({ memory, fixtureId, pictured }) => {
+        lab.setMemory(memory);
+        lab.select({ kind: 'fixture', id: fixtureId });
+        const made = memory.fixtures?.find((f) => f.id === fixtureId);
+        if (sculptable && sculpt && pictured) {
+          lab.setMessage(`${name} a thing of its own now. Modelling it with AI…`);
+          void lab.sculptFixture(fixtureId, undefined, memory);
+          return;
+        }
+        lab.setMessage(
+          made?.food?.expires
+            ? `${name} a thing of its own now, good until ${made.food.expires} as bought. Change its use-by day on its card.`
+            : sculptable && sculpt
+              ? `${name} a thing of its own now, but the room’s draft has no picture of it to model it from. Draft it from a photo on its card.`
+              : `${name} a thing of its own now. Keep stats for it, or find it in the camera.`,
+        );
+      },
+    );
   }
+  const make = (
+    <Button variant={own ? 'secondary' : 'primary'} disabled={off} onClick={() => void makeThing()}>
+      Make it a thing
+    </Button>
+  );
   return (
     <Panel
       tiny="BUILT IN"
       title={thing.prop.label}
       status={`Part of the ${sceneLabel.toLowerCase()} layout`}
     >
-      {ownLayout(thing.scene) ? (
+      {own ? (
         <>
           <p className="micro">
-            Drawn with the room, it isn’t followed or switched. Remove it if it isn’t on your desk.
+            Drawn with the room, it isn’t followed or switched. Make it a thing of its own to model
+            it, keep stats for it or find it in the camera; remove it if it isn’t on your desk.
           </p>
+          {sculptable && (
+            <Check checked={sculpt} onChange={setSculpt}>
+              Then model it with AI.{' '}
+              <span className="micro">
+                Spark rebuilds it in parts from the room’s photo · 3 calls, ~$0.05–0.10.
+              </span>
+            </Check>
+          )}
           <div className="save-actions">
+            {make}
             {lab.memory?.scene && (
               <LayerButtons
                 layer={groupLayer(lab.memory.scene, thing.prop.group)}
@@ -1350,11 +1382,7 @@ export function BuiltInPanel({ id }: { id: string }) {
             keep {foodKeeps(prop.label) !== null ? 'its use-by day and stats' : 'stats for it'}, or
             to find it in the camera.
           </p>
-          <div className="save-actions">
-            <Button disabled={off} onClick={() => void makeThing()}>
-              Make it a thing
-            </Button>
-          </div>
+          <div className="save-actions">{make}</div>
         </>
       )}
     </Panel>

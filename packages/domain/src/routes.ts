@@ -153,6 +153,10 @@ interface ApiRoutes {
   };
   'fixtures/choose': { body: R.FixturesChooseBody; response: DeskMemory };
   'fixtures/save': { body: R.FixturesSaveBody; response: DeskMemory };
+  'fixtures/promote': {
+    body: R.FixturesPromoteBody;
+    response: { memory: DeskMemory; fixtureId: string; pictured: boolean };
+  };
   'fixtures/delete': { body: R.FixturesDeleteBody; response: DeskMemory };
   'fixtures/anchor': { body: R.FixturesAnchorBody; response: DeskMemory };
   'fixtures/untrack': { body: R.ModeId; response: DeskMemory };

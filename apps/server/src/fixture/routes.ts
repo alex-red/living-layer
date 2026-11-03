@@ -7,6 +7,7 @@ import {
   fixturesDraftBodySchema,
   fixturesFindBodySchema,
   fixturesPhotoBodySchema,
+  fixturesPromoteBodySchema,
   fixturesReferenceQuerySchema,
   fixturesRefine3dBodySchema,
   fixturesReleaseBodySchema,
@@ -26,6 +27,7 @@ import type { RouteDeps } from '../route-deps.js';
 import { controlFixture } from './control.js';
 import { draftFixture, refitFixture } from './draft.js';
 import { findFixture } from './find.js';
+import { promoteFixture } from './promote.js';
 import { refineFixture } from './refine.js';
 import { chooseDraft, saveFixture, setFixtureState } from './save.js';
 import { scanFixtures } from './scan.js';
@@ -88,6 +90,10 @@ export async function fixtureRoutes(
   );
   app.post('/save', async (request) =>
     saveFixture(deps, parseInput(fixturesSaveBodySchema, request.body)),
+  );
+  /** Make a thing drawn with the room a thing of its own, pictured by the room draft's crop of it. */
+  app.post('/promote', async (request) =>
+    promoteFixture(deps, parseInput(fixturesPromoteBodySchema, request.body)),
   );
   /** The reference photo a fixture was drafted from, for review and the inspector. */
   app.get('/reference', async (request, reply) => {
