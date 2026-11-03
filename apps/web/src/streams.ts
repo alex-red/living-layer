@@ -55,10 +55,14 @@ export function useNetworkStreams() {
   return { streams, scanning, loaded, scan };
 }
 
+/** How long a connected stream may go without a frame before it counts as lost. */
+const STALL_MS = 8000;
+
 /**
  * Plays a WHEP endpoint as a receive-only WebRTC stream. The offer goes out once
  * ICE gathering is done (instant on a LAN), so no trickle PATCHes are needed.
- * `onLost` fires once if the connection drops after it was up.
+ * `onLost` fires once if the connection drops after it was up, or stops
+ * bringing frames.
  */
 export async function openStream(
   endpoint: string,
@@ -68,7 +72,9 @@ export async function openStream(
   const whep = new URL(endpoint, window.location.href).href;
   const pc = new RTCPeerConnection();
   let session = '';
+  let watch = 0;
   const close = () => {
+    window.clearInterval(watch);
     pc.getReceivers().forEach((r) => r.track.stop());
     pc.close();
     if (session) void fetch(session, { method: 'DELETE' }).catch(() => {});
@@ -109,9 +115,30 @@ export async function openStream(
     });
     const media = new MediaStream([await track]);
     await connected;
+    let lost = false;
+    const lose = () => {
+      if (lost) return;
+      lost = true;
+      window.clearInterval(watch);
+      onLost();
+    };
     pc.addEventListener('connectionstatechange', () => {
-      if (['failed', 'closed'].includes(pc.connectionState)) onLost();
+      if (['failed', 'closed'].includes(pc.connectionState)) lose();
     });
+    // A relay whose camera stops can keep the connection up with no frames in it, and the
+    // last frame then stands in for the camera's view: count what arrives instead.
+    let frames = -1;
+    let framesAt = performance.now();
+    watch = window.setInterval(async () => {
+      let received = 0;
+      (await pc.getStats().catch(() => new Map())).forEach((s) => {
+        if (s.type === 'inbound-rtp' && s.kind === 'video') received = s.framesReceived ?? 0;
+      });
+      if (received !== frames) {
+        frames = received;
+        framesAt = performance.now();
+      } else if (performance.now() - framesAt > STALL_MS) lose();
+    }, 2000);
     return { media, close };
   } catch (e) {
     close();
@@ -201,12 +228,19 @@ export async function cropStream(
     window.clearInterval(timer);
     if (frameCallback) video.cancelVideoFrameCallback(frameCallback);
     frameCallback = 0;
+    document.removeEventListener('visibilitychange', resume);
     video.srcObject = null;
     media?.getTracks().forEach((t) => t.stop());
     opened.close();
   };
+  // A browser pauses a video outside the page while the page is hidden, and doesn't
+  // play it again: the cut would keep drawing that old frame as if it were live.
+  const resume = () => {
+    if (video.paused && document.visibilityState === 'visible') void video.play().catch(() => {});
+  };
   try {
     await video.play();
+    document.addEventListener('visibilitychange', resume);
     const context = canvas.getContext('2d')!;
     const draw = () => {
       const w = video.videoWidth;
@@ -232,11 +266,15 @@ export async function cropStream(
       frameCallback = video.requestVideoFrameCallback(next);
       // A browser may hold back frame callbacks for a video outside the page: draw anyway.
       timer = window.setInterval(() => {
+        resume();
         if (performance.now() - drawnAt > 2000 / fps) draw();
       }, 1000 / fps);
     } else {
       media = canvas.captureStream(fps);
-      timer = window.setInterval(draw, 1000 / fps);
+      timer = window.setInterval(() => {
+        resume();
+        draw();
+      }, 1000 / fps);
     }
     return { media, close };
   } catch (e) {
