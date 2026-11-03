@@ -147,6 +147,12 @@ export function withGroupLayer<S extends Pick<IsoScene, 'props'>>(
     }),
   };
 }
+/**
+ * How far a box's base may sink into the box under it and still stand on it,
+ * in tiles (about a centimetre): a recipe desk's top part can end a millimetre
+ * below its box, and a keyboard on that top was drawn under the desk.
+ */
+const RESTS_ON = 0.03;
 function backToFront<T extends IsoBox>(boxes: T[]): T[] {
   const span = (b: IsoBox): [number, number] => [
     b.at.x - b.at.y - b.size.d,
@@ -155,7 +161,7 @@ function backToFront<T extends IsoBox>(boxes: T[]): T[] {
   const behind = (a: IsoBox, b: IsoBox) =>
     a.at.x + a.size.w <= b.at.x + 1e-9 ||
     a.at.y + a.size.d <= b.at.y + 1e-9 ||
-    a.at.z + a.size.h <= b.at.z + 1e-9;
+    a.at.z + a.size.h <= b.at.z + RESTS_ON;
   const before = boxes.map(() => [] as number[]);
   boxes.forEach((a, i) =>
     boxes.forEach((b, j) => {

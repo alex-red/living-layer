@@ -75,6 +75,12 @@ describe('isometric projection', () => {
     expect(order.indexOf(desk)).toBeLessThan(order.indexOf(mug));
     expect(order.indexOf(mug)).toBeLessThan(order.indexOf(front));
   });
+  it('draws a thing over the top it stands on when its base is a hair inside it', () => {
+    // A recipe desk's top part ends at 75.9 cm, its box at 76.
+    const desk = box(0.23, 1.63, 0, 2, 4.37, 76 / 30);
+    const keyboard = box(1.42, 2.9, 2.53, 0.47, 1.47, 0.1);
+    expect(depthOrder([keyboard, desk])).toEqual([desk, keyboard]);
+  });
   it('draws a higher layer over a lower one, whatever stands in front', () => {
     const desk = box(1, 1, 2.2, 6, 4, 0.2);
     const mug = box(3, 2, 2.4, 0.5, 0.5, 0.6);
