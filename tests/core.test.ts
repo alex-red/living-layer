@@ -7,7 +7,13 @@ import { parseConfig, type Fetcher } from '../apps/server/src/config.js';
 import { EvidenceStore } from '../apps/server/src/store.js';
 import { demoSegmentation } from '../apps/server/src/demo.js';
 import { decodeSegmentation, syntheticStream } from '../apps/server/src/sam.js';
-import { findSource, mediaTypeOf, samDataUrl, validateImage } from '../apps/server/src/images.js';
+import {
+  findSource,
+  mediaTypeOf,
+  samDataUrl,
+  samReadyPng,
+  validateImage,
+} from '../apps/server/src/images.js';
 import { buildApp } from '../apps/server/src/app.js';
 import { ControlAdapter } from '../apps/server/src/control.js';
 import { MetaAdapter } from '../apps/server/src/meta.js';
@@ -138,6 +144,25 @@ describe('configuration, budget, and images', () => {
     expect(mediaTypeOf(png)).toBe('image/png');
     expect(findSource(['a/sam-output.txt', 'a/source.png'])).toBe('a/source.png');
     expect(findSource(['a/source.webp'])).toBe('a/source.webp');
+  });
+  it('lets SAM take a plain PNG as it came, with the pixels the stored frame keeps', async () => {
+    const raw = Buffer.alloc(40 * 30 * 3);
+    for (let i = 0; i < raw.length; i++) raw[i] = (i * 37) % 251;
+    const png = await sharp(raw, { raw: { width: 40, height: 30, channels: 3 } })
+      .png()
+      .toBuffer();
+    const url = `data:image/png;base64,${png.toString('base64')}`;
+    expect(await samReadyPng(url)).toEqual({ width: 40, height: 30 });
+    // What the slow path would have sent SAM is the same picture.
+    const sent = (await samDataUrl(await validateImage(url))).split(',')[1]!;
+    const pixels = (b: Buffer) => sharp(b).removeAlpha().raw().toBuffer();
+    expect(Buffer.compare(await pixels(Buffer.from(sent, 'base64')), await pixels(png))).toBe(0);
+    // Anything else takes the slow path: a JPEG, a turned PNG, or no image.
+    const jpeg = await sharp(png).jpeg().toBuffer();
+    expect(await samReadyPng(`data:image/jpeg;base64,${jpeg.toString('base64')}`)).toBeNull();
+    const turned = await sharp(png).withMetadata({ orientation: 6 }).png().toBuffer();
+    expect(await samReadyPng(`data:image/png;base64,${turned.toString('base64')}`)).toBeNull();
+    expect(await samReadyPng(undefined)).toBeNull();
   });
   it('validates bounded scene structure', () => {
     expect(

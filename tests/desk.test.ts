@@ -352,20 +352,30 @@ describe('desk tracking', () => {
     expect(placementGate(memory)).toMatchObject({ decision: 'blocked' });
     expect(placementGate({ ...memory, camera: DEMO_CALIBRATION }).decision).toBe('inside');
   });
-  it('carries the zone on a fixed camera and fires the lamp only on entering', async () => {
+  it('carries the zone on a fixed camera, turns the lamp on entering and off leaving', async () => {
     const s = await setup();
     await s.zone();
     await s.post('desk/camera', { fixed: true });
     const steps: Tracked[] = [];
     for (const spot of ['right', 'centre', 'centre', 'front', 'centre'])
       steps.push((await track(s, spot)).json<Tracked>());
-    expect(steps.map((t) => [t.event.output.transition, t.event.output.action])).toEqual([
-      ['stayed_outside', 'none'],
-      ['entered', 'confirmed'],
-      ['stayed_inside', 'none'],
-      ['left', 'none'],
-      ['entered', 'confirmed'],
+    expect(
+      steps.map((t) => [
+        t.event.output.transition,
+        t.event.output.action,
+        t.event.output.lamp?.action,
+      ]),
+    ).toEqual([
+      ['stayed_outside', 'none', undefined],
+      ['entered', 'confirmed', 'on'],
+      ['stayed_inside', 'none', undefined],
+      ['left', 'confirmed', 'off'],
+      ['entered', 'confirmed', 'on'],
     ]);
+    // Told to keep the light on, leaving switches nothing.
+    expect((await s.post('desk/zone/off', { offWhenEmpty: false })).statusCode).toBe(200);
+    const kept = (await track(s, 'front')).json<Tracked>();
+    expect([kept.event.output.transition, kept.event.output.action]).toEqual(['left', 'none']);
     expect(steps[0]!.event.output.assumedFixedCamera).toBe(true);
     const last = steps.at(-1)!.memory;
     expect(last.observation).toMatchObject({ identity: 'tracked' });

@@ -166,9 +166,10 @@ export function deskRoutes(
     store.save(evidence('observation', memory.mode, memory.observation));
   }
   /**
-   * Check the current observation against the zone. The lamp fires only when
-   * the mug enters: inside now, and not inside at the last check. Each
-   * segmentation can still attempt the lamp at most once.
+   * Check the current observation against the zone. The lamp turns on only
+   * when the mug enters (inside now, not at the last check) and off when it
+   * leaves, unless the zone keeps it on. Each segmentation can attempt each
+   * at most once.
    */
   async function verify(mode: Mode, memory: DeskMemory): Promise<EvidenceRun<PlacementDecision>> {
     const o = memory.observation!;
@@ -203,8 +204,17 @@ export function deskRoutes(
     }
     if (decision.transition === 'stayed_inside')
       decision.reason = `Still inside since the last check, so no lamp action. It fires again once the mug leaves and comes back. ${decision.reason}`;
-    const fire = decision.transition === 'entered';
-    if (fire && !store.claimPlacement(o.segmentRunId)) {
+    // On when the mug enters; off when it leaves, unless the zone says to leave the light on.
+    const switching: 'on' | 'off' | null =
+      decision.transition === 'entered'
+        ? 'on'
+        : decision.transition === 'left' && memory.zone?.offWhenEmpty !== false
+          ? 'off'
+          : null;
+    if (
+      switching &&
+      !store.claimPlacement(`${o.segmentRunId}${switching === 'off' ? ':left' : ''}`)
+    ) {
       decision.decision = 'blocked';
       decision.transition = undefined;
       decision.reason =
@@ -212,7 +222,7 @@ export function deskRoutes(
     }
     const event = evidence('placement', mode, decision);
     const start = performance.now();
-    if (decision.decision === 'inside' && fire) {
+    if (switching && decision.transition) {
       decision.action = 'pending';
       event.status = 'unconfirmed';
     }
@@ -223,7 +233,7 @@ export function deskRoutes(
     if (decision.action === 'pending') {
       active.add(mode);
       try {
-        decision.lamp = await turnOn(mode);
+        decision.lamp = await turnOn(mode, undefined, switching!);
         decision.action = decision.lamp.stateConfirmed ? 'confirmed' : 'unconfirmed';
         event.status = decision.lamp.stateConfirmed ? 'completed' : 'unconfirmed';
       } catch (error) {
@@ -252,8 +262,11 @@ export function deskRoutes(
   function logZone(mode: Mode, zone: string, d: PlacementDecision) {
     if (d.transition !== 'entered' && d.transition !== 'left' && d.action === 'none') return;
     const what = d.transition ?? d.decision;
+    const timing = d.lamp?.ms
+      ? ` (switched in ${d.lamp.ms.switch} ms, confirmed ${d.lamp.ms.confirm} ms later)`
+      : '';
     const entity = d.lamp
-      ? ` · ${d.lamp.entityId} ${d.lamp.action ?? 'on'}: ${d.action}`
+      ? ` · ${d.lamp.entityId} ${d.lamp.action ?? 'on'}: ${d.action}${timing}`
       : d.action !== 'none'
         ? ` · ${d.action}`
         : ' · no entity switched';
@@ -457,6 +470,19 @@ export function deskRoutes(
       request.body,
     );
     return trackMug(mode, segmentRunId);
+  });
+  /** Whether the main zone's light goes off when the mug leaves (it does unless told not to). */
+  app.post('/api/desk/zone/off', async (request) => {
+    const { mode, offWhenEmpty } = parseInput(
+      z.object({ mode: modeSchema, offWhenEmpty: z.boolean() }).strict(),
+      request.body,
+    );
+    available(mode);
+    const memory = store.memory(mode);
+    if (!memory.zone) throw new LabError('zone_missing', 'Draw and save the zone first.', 409);
+    memory.zone = { ...memory.zone, offWhenEmpty };
+    store.saveMemory(memory);
+    return memory;
   });
   app.post('/api/desk/camera', async (request) => {
     const { mode, fixed } = parseInput(

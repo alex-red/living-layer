@@ -25,6 +25,13 @@ export interface HaConnection {
  * Home Assistant lights and switches. Every action is one explicit request,
  * then a short poll of the entity's state; nothing is retried.
  */
+/**
+ * Home Assistant is asked for the state this often after an action, for about
+ * 3 s in all. The light changes when the action is taken; this only decides
+ * how soon the check that switched it is done.
+ */
+const CONFIRM_POLL_MS = 100;
+const CONFIRM_POLLS = 30;
 export class ControlAdapter {
   constructor(
     private config: Config,
@@ -184,9 +191,16 @@ export class ControlAdapter {
       if (Number.isFinite(min) && Number.isFinite(max) && min > 0 && max >= min)
         desired.color_temp_kelvin = Math.round(Math.max(min, Math.min(max, 2700)));
     }
+    const asked = performance.now();
     await request(`services/${domain}/turn_${action}`, { entity_id: entity, ...desired });
+    const switched = performance.now();
+    // How long Home Assistant took to take the action, then to report the state asked for.
+    const ms = () => ({
+      switch: Math.round(switched - asked),
+      confirm: Math.round(performance.now() - switched),
+    });
     let latest = before;
-    for (let i = 0; i < 6; i++) {
+    for (let i = 0; i < CONFIRM_POLLS; i++) {
       try {
         latest = (await (await request(statePath)).json()) as State;
         if (!latest || typeof latest.state !== 'string' || !latest.attributes)
@@ -198,6 +212,7 @@ export class ControlAdapter {
           accepted: true,
           stateConfirmed: false,
           physicalEffectVerified: false,
+          ms: ms(),
           state: 'unknown',
           desired,
           explanation: `Home Assistant accepted the action, but state verification failed. The ${thing} may have changed; inspect it before retrying. No action retry was made.`,
@@ -218,11 +233,12 @@ export class ControlAdapter {
           accepted: true,
           stateConfirmed: true,
           physicalEffectVerified: false,
+          ms: ms(),
           state: latest.state,
           desired,
           explanation: `Home Assistant reports the requested state. Observe the physical ${thing} separately; this does not prove a visible change.`,
         };
-      if (i < 5) await this.sleep(500);
+      if (i < CONFIRM_POLLS - 1) await this.sleep(CONFIRM_POLL_MS);
     }
     return {
       entityId: entity,
@@ -230,6 +246,7 @@ export class ControlAdapter {
       accepted: true,
       stateConfirmed: false,
       physicalEffectVerified: false,
+      ms: ms(),
       state: latest.state,
       desired,
       explanation:

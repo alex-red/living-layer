@@ -15,9 +15,13 @@ export const LUMA_WIDTH = 320;
 export const LUMA_FPS = 10;
 /** Snapshots for SAM are scaled to fit this, like a frame the lab captures. */
 const SNAPSHOT_SIDE = 1280;
-/** How often the running ffmpeg keeps a full picture, and how old one may be to stand in for now. */
-const STILL_FPS = 2;
-const STILL_FRESH_MS = 1500;
+/**
+ * How often the running ffmpeg keeps a full picture, and how old one may be to
+ * stand in for now. Five a second keeps SAM's picture newer than the watcher's
+ * quiet wait (`WATCH.quietSteps`), so a hand just gone isn't in it.
+ */
+const STILL_FPS = 5;
+const STILL_FRESH_MS = 1000;
 
 /**
  * Where the watcher's frames come from. Grey frames arrive continuously for

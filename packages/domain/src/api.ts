@@ -54,6 +54,8 @@ export interface LampResult {
   accepted: boolean;
   stateConfirmed: boolean;
   physicalEffectVerified: false;
+  /** Milliseconds Home Assistant took to take the action, then to report the state asked for. */
+  ms?: { switch: number; confirm: number };
   state: string;
   desired: { brightness_pct?: number; color_temp_kelvin?: number };
   explanation: string;
