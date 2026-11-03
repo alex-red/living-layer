@@ -40,3 +40,4 @@ export * from './wall-refine.js';
 export * from './iso-presets.js';
 export * from './iso-templates.js';
 export * from './iso-furniture.js';
+export * from './room-cases.js';
