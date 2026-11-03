@@ -23,6 +23,7 @@ import {
   watchThing,
   missed,
   asked,
+  placed,
   WATCH,
   DEMO_SURFACE,
   maskBits,
@@ -74,15 +75,27 @@ function start(inside = true): WatchThing {
 /** Feed `frames` to `thing` at 100 ms a frame, collecting what each step asked for. */
 function run(thing: WatchThing, frames: LumaFrame[], from = 10_000) {
   const asks: (string | null)[] = [];
+  const places: boolean[] = [];
   let refinds = 0;
   frames.forEach((f, i) => {
-    const step = watchStep(thing, f, from + i * 100);
+    const now = from + i * 100;
+    const step = watchStep(thing, f, now);
     // The watcher marks every ask it sends to SAM.
-    thing = step.ask ? asked(step.thing, step.ask, from + i * 100) : step.thing;
+    thing = step.ask ? asked(step.thing, step.ask, now) : step.thing;
+    // A judgement flips the crossed zones' verdicts, as desk memory would.
+    if (step.place)
+      thing = {
+        ...placed(thing, now, false),
+        subject: {
+          ...thing.subject,
+          zones: thing.subject.zones.map((z) => ({ ...z, inside: !z.inside })),
+        },
+      };
     asks.push(step.ask);
+    places.push(step.place);
     if (step.refind) refinds++;
   });
-  return { thing, asks, refinds };
+  return { thing, asks, places, refinds };
 }
 
 describe('watching one thing', () => {
@@ -112,11 +125,13 @@ describe('watching one thing', () => {
     expect(back.track.lostSteps).toBe(0);
     expect(back.track.box.x).toBeCloseTo(70 / W, 3);
   });
-  it('asks SAM to confirm a crossing only once the thing has settled on the other side', () => {
+  it('judges a crossing where it follows the thing, once settled, asking SAM nothing', () => {
     const r = run(start(), Array(12).fill(scene(110, 40)));
-    expect(r.asks.filter(Boolean)).toEqual(['confirm']);
-    // Settled means still for `quietSteps` frames, then the crossing counted for `settleSteps`.
-    expect(r.asks.indexOf('confirm')).toBeGreaterThanOrEqual(WATCH.quietSteps - 1);
+    expect(r.asks.filter(Boolean)).toEqual([]);
+    // Settled means still for `quietSteps` frames, then the crossing counted for `settleSteps`;
+    // judged once, then not again before the gap even while it stays across.
+    expect(r.places.filter(Boolean)).toHaveLength(1);
+    expect(r.places.indexOf(true)).toBeGreaterThanOrEqual(WATCH.quietSteps - 1);
     expect(r.thing.layer).toBe('local');
     expect(r.thing.track.box.x).toBeCloseTo(110 / W, 2);
   });
@@ -216,7 +231,7 @@ async function setup() {
 }
 
 describe('the server watching the demo desk', () => {
-  it('follows the mug with no tab open, and fires the lamp only on SAM’s answer', async () => {
+  it('follows the mug with no tab open, and switches the lamp where it follows it, asking SAM nothing', async () => {
     const s = await setup();
     const segment = (await s.post('segment', { concept: 'mug' })).json<EvidenceRun<Segmentation>>();
     const selected = (
@@ -242,24 +257,30 @@ describe('the server watching the demo desk', () => {
     const runs = async () => (await s.app.inject('/api/runs')).json<EvidenceRun[]>();
     const segments = (await runs()).filter((r) => r.kind === 'segment').length;
 
-    // Moving it out of the zone: followed locally, then SAM confirms the crossing.
+    // Moving it out of the zone: followed and judged locally, the lamp off; SAM isn't asked,
+    // and its sighting stays the remembered one.
     await s.move('right');
     let memory = await s.memory();
     expect(memory.placement).toBe('outside');
-    expect(memory.lastDecision?.output.transition).toBe('left');
-    expect(memory.observation!.identity).toBe('tracked');
-    expect((await runs()).filter((r) => r.kind === 'segment').length).toBe(segments + 1);
+    expect(memory.lastDecision?.output).toMatchObject({
+      transition: 'left',
+      action: 'confirmed',
+      segmentRunId: null,
+      lamp: { action: 'off' },
+    });
+    expect(memory.observation!.identity).toBe('manual');
+    expect((await runs()).filter((r) => r.kind === 'segment').length).toBe(segments);
     view = s.watcher.view();
-    expect(view.checks).toBe(1);
+    expect(view.checks).toBe(0);
 
-    // Back in: the lamp fires on SAM's observation.
+    // Back in: the lamp turns on, again with no SAM call.
     await s.move('centre');
     memory = await s.memory();
     expect(memory.lastDecision?.output).toMatchObject({
       transition: 'entered',
       action: 'confirmed',
     });
-    expect(s.watcher.view().checks).toBe(2);
+    expect((await runs()).filter((r) => r.kind === 'segment').length).toBe(segments);
 
     // The mug moving counts as motion in its zone, for entities in Home Assistant.
     expect(s.watcher.exposeWatch().motionAt.main).toBeGreaterThan(0);
@@ -314,7 +335,7 @@ describe('the server watching the demo desk', () => {
     expect(await occupied()).toMatchObject({ state: 'ON', attributes: { method: 'pixels' } });
     await s.move('centre');
     expect((await occupied()).state).toBe('OFF');
-    // Not opted in: no SAM call was spent on presence (the moves' own zone checks aside).
+    // Not opted in: no SAM call was spent on presence.
     expect(
       (await runs()).filter(
         (r) => r.kind === 'segment' && (r.output as Segmentation).concept === 'person',
@@ -328,7 +349,7 @@ describe('the server watching the demo desk', () => {
     await s.app.close();
   });
 
-  it('follows a fixture confirmed in the camera, moving it in the room', async () => {
+  it('follows a fixture confirmed in the camera, judging its zone where it is followed', async () => {
     const s = await setup();
     const saved = (
       await s.post('fixtures/save', {
@@ -384,9 +405,10 @@ describe('the server watching the demo desk', () => {
     ]);
     await s.move('right');
     fixture = (await s.memory()).fixtures![0]!;
-    expect(fixture.track!.status).toBe('moved');
-    expect(fixture.at).not.toEqual(placed);
     expect((await s.memory()).rules![0]!.placement).toBe('outside');
+    // No SAM call, so the room keeps it where SAM last saw it.
+    expect(fixture.track!.status).toBe('seen');
+    expect(fixture.at).toEqual(placed);
     // Moving it by hand stops the camera following it.
     const {
       id: _i,

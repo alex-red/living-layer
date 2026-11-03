@@ -25,6 +25,8 @@ import {
   FIXTURE_MOVED,
   type Fixture,
   objectById,
+  withSighting,
+  type UnitBox,
   ruleGate,
   ruleObjects,
   ruleSighting,
@@ -68,6 +70,7 @@ export function createDesk(
   turnOn: (mode: Mode, entityId?: string, action?: 'on' | 'off') => Promise<LampResult>,
 ) {
   const active = new Set<Mode>();
+  const LOCALLY = 'Seen where the watcher follows it, without a SAM call.';
   function available(mode: Mode) {
     if (active.has(mode))
       throw new LabError('placement_busy', 'A placement check is already running.', 409);
@@ -149,13 +152,19 @@ export function createDesk(
    * Check the current observation against the zone. The lamp turns on only
    * when the mug enters (inside now, not at the last check) and off when it
    * leaves, unless the zone keeps it on. Each segmentation can attempt each
-   * at most once.
+   * at most once. `local` is where the watcher follows the mug now, judged in
+   * place of its sighting, which stays SAM's.
    */
-  async function verify(mode: Mode, memory: DeskMemory): Promise<EvidenceRun<PlacementDecision>> {
-    const o = memory.observation!;
+  async function verify(
+    mode: Mode,
+    memory: DeskMemory,
+    local?: DeskObservation,
+  ): Promise<EvidenceRun<PlacementDecision>> {
+    const o = local ?? memory.observation!;
     const zoneId = memory.zone?.id ?? null;
-    const gate =
-      store.latestSegment(mode) !== o.segmentRunId
+    const gate = local
+      ? placementGate(withSighting(memory, local.objectId, local))
+      : store.latestSegment(mode) !== o.segmentRunId
         ? {
             decision: 'blocked' as const,
             reason:
@@ -164,9 +173,10 @@ export function createDesk(
         : placementGate(memory);
     const decision: PlacementDecision = {
       ...gate,
+      ...(local ? { reason: `${gate.reason} ${LOCALLY}` } : {}),
       observationId: o.id,
       objectId: o.objectId,
-      segmentRunId: o.segmentRunId,
+      segmentRunId: local ? null : o.segmentRunId,
       zoneId,
       action: 'none',
     };
@@ -193,7 +203,7 @@ export function createDesk(
           : null;
     if (
       switching &&
-      !store.claimPlacement(`${o.segmentRunId}${switching === 'off' ? ':left' : ''}`)
+      !store.claimPlacement(`${claimOf(o, local)}${switching === 'off' ? ':left' : ''}`)
     ) {
       decision.decision = 'blocked';
       decision.transition = undefined;
@@ -255,12 +265,49 @@ export function createDesk(
   }
 
   /**
+   * What an action is claimed against, so it is tried at most once: the
+   * segmentation a sighting came from, or the watcher's own sighting.
+   */
+  const claimOf = (o: DeskObservation, local?: DeskObservation) =>
+    o === local ? `local:${o.id}` : o.segmentRunId;
+  /**
+   * Judge one thing's zones where the watcher follows it now, and switch what
+   * that changes: no SAM call. Its remembered sighting stays SAM's (the
+   * watcher learns its look from that photo); a copy at the followed box, on
+   * a frame of the same size, is what the zones judge. A new frame, so a zone
+   * drawn on another one applies only to a fixed or calibrated camera.
+   */
+  async function placeLocally(mode: Mode, objectId: string, box: UnitBox) {
+    available(mode);
+    const memory = store.memory(mode);
+    const last = objectById(memory, objectId)?.observation;
+    if (!last) throw new LabError('track_identity', 'Confirm it in a segmentation first.', 409);
+    const { width, height } = last.frame;
+    const local: DeskObservation = {
+      ...last,
+      id: randomUUID(),
+      observedAt: new Date().toISOString(),
+      sourceKey: 'local',
+      box: {
+        x: Math.round(box.x * width),
+        y: Math.round(box.y * height),
+        width: Math.round(box.width * width),
+        height: Math.round(box.height * height),
+      },
+      identity: 'tracked',
+    };
+    const event =
+      memory.object?.id === objectId && memory.zone ? await verify(mode, memory, local) : null;
+    const rules = await verifyRules(mode, objectId, local);
+    return { memory: store.memory(mode), event, rules };
+  }
+  /**
    * Check the extra rules, all of them or only those counting one object.
    * Each rule keeps its own occupied/empty story, switches its entity on only
    * when the zone fills (and off when it empties, if asked), and can act at
    * most once per segmentation each way, like the main zone.
    */
-  async function verifyRules(mode: Mode, objectId?: string) {
+  async function verifyRules(mode: Mode, objectId?: string, local?: DeskObservation) {
     const events: EvidenceRun<PlacementDecision>[] = [];
     const ruleLabels = new Map((store.memory(mode).rules ?? []).map((r) => [r.id, r.label]));
     // Each rule is judged and saved against the memory as it is then; none is held over an await.
@@ -268,13 +315,15 @@ export function createDesk(
       const step = store.updateMemory(mode, (memory) => {
         const rule = memory.rules?.find((r) => r.id === ruleId);
         if (!rule || (objectId && !ruleObjects(memory, rule).includes(objectId))) return null;
-        const { inside, objectId: by, ...gate } = ruleGate(memory, rule);
-        const o = by ? (objectById(memory, by)?.observation ?? null) : null;
+        const judged = local ? withSighting(memory, local.objectId, local) : memory;
+        const { inside, objectId: by, ...gate } = ruleGate(judged, rule);
+        const o = by ? (objectById(judged, by)?.observation ?? null) : null;
         const decision: PlacementDecision = {
           ...gate,
+          ...(local && o === local ? { reason: `${gate.reason} ${LOCALLY}` } : {}),
           observationId: o?.id ?? null,
           objectId: by,
-          segmentRunId: o?.segmentRunId ?? null,
+          segmentRunId: o && o !== local ? o.segmentRunId : null,
           zoneId: rule.id,
           ruleId: rule.id,
           action: 'none',
@@ -301,7 +350,7 @@ export function createDesk(
               : decision.transition === 'left' && rule.offWhenEmpty
                 ? 'off'
                 : null;
-        const claim = `${o?.segmentRunId}:${rule.id}${switching === 'off' ? ':left' : ''}`;
+        const claim = `${o ? claimOf(o, local) : undefined}:${rule.id}${switching === 'off' ? ':left' : ''}`;
         if (switching && !store.claimPlacement(claim)) {
           decision.decision = 'blocked';
           decision.transition = undefined;
@@ -547,6 +596,7 @@ export function createDesk(
     anchorFixture,
     loseFixture,
     verifyRules,
+    placeLocally,
     latestMugSegmentation,
     latestSegmentation,
     verify,

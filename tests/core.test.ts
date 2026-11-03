@@ -281,6 +281,7 @@ describe('lamp acceptance vs observation', () => {
       entity_id: 'light.desk',
       brightness_pct: 85,
       color_temp_kelvin: 3000,
+      transition: 0,
     });
     expect(fetcher.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(1);
   });
@@ -293,6 +294,7 @@ describe('lamp acceptance vs observation', () => {
     expect(result.stateConfirmed).toBe(false);
     expect(JSON.parse(String(fetcher.mock.calls[1]?.[1]?.body))).toEqual({
       entity_id: 'light.desk',
+      transition: 0,
     });
     expect(fetcher.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(1);
   });

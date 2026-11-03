@@ -200,6 +200,25 @@ export function adoptPreset(memory: DeskMemory, kind: IsoSceneKind): DeskMemory 
     ...(memory.fixtures ? { fixtures: memory.fixtures.map(own) } : {}),
   };
 }
+/**
+ * Desk memory as it would be with one thing seen somewhere else: the mug,
+ * another object or a followed fixture. A copy, for judging zones at a box
+ * that isn't a remembered sighting (the watcher's own following).
+ */
+export function withSighting(
+  memory: DeskMemory,
+  objectId: string,
+  observation: DeskObservation,
+): DeskMemory {
+  if (memory.object?.id === objectId) return { ...memory, observation };
+  return {
+    ...memory,
+    others: memory.others?.map((o) => (o.id === objectId ? { ...o, observation } : o)),
+    fixtures: memory.fixtures?.map((f) =>
+      f.id === objectId && f.track ? { ...f, track: { ...f.track, observation } } : f,
+    ),
+  };
+}
 /** The observation and name of the mug or another remembered object, by id. */
 export function objectById(
   memory: DeskMemory,

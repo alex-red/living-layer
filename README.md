@@ -15,7 +15,7 @@ The lab is scene first: it keeps a small map of your room, and every object, zon
 3. **Objects.** SAM outlines what you name, or what Spark suggests. You confirm which outline is your mug; identity is always your call.
 4. **A rule.** _When the mug is inside this zone, turn on the desk lamp._ Draw the zone on the photo or the iso desk.
 5. **Run it.** Move the mug and track it. When it stands in the zone (where it touches down, so a mug taller than the zone counts), Living Layer turns on one Home Assistant light, and the decision is saved with its reason.
-6. **Leave it watching.** `Watch on the server` follows the mug, other objects and fixtures found in the camera with no tab open. Frames are matched locally, a lost thing is looked for by how it looks, and SAM is asked only to confirm a zone crossing or find what nothing else can. Rules still fire only on SAM's answer.
+6. **Leave it watching.** `Watch on the server` follows the mug, other objects and fixtures found in the camera with no tab open. Frames are matched locally, and a zone crossing is judged where the match has it, so lights switch with no SAM call; a lost thing is looked for by how it looks, and SAM is asked only to find what nothing else can.
 
 The scene outline on the left doubles as the setup checklist. The inspector on the right shows whatever you select, with one main action. Every model call and decision is in the activity drawer below, with what it cost.
 

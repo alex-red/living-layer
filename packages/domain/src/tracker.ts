@@ -84,7 +84,21 @@ export const LOCAL_TRACK = {
   pixelDelta: 24,
   /** The area around the mug is moving when more than this share of it changed, as in the playground. */
   motionShare: 0.015,
+  /**
+   * A place overlapping another followed thing's box at least this much (IoU)
+   * belongs to that thing, so a search doesn't settle there.
+   */
+  claimIoU: 0.3,
 };
+
+/** Intersection over union of two boxes, 0–1. */
+export function boxIoU(a: UnitBox, b: UnitBox): number {
+  const w = Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x);
+  const h = Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y);
+  if (w <= 0 || h <= 0) return 0;
+  const inter = w * h;
+  return inter / (a.width * a.height + b.width * b.height - inter);
+}
 
 /**
  * Share of pixels within `region` that changed between two frames, 0–1. A
@@ -192,13 +206,16 @@ function build(
 /**
  * Find the template near `near`. Returns the best-correlated box, its score
  * (-1 to 1) and its lead over the best match away from it, or null when the
- * template no longer fits the frame.
+ * template no longer fits the frame. Places on an `exclude` box (other
+ * things' boxes) are neither a match nor a runner-up: a look-alike already
+ * followed there is that thing, not a rival.
  */
 export function matchTemplate(
   frame: LumaFrame,
   template: Template,
   near: UnitBox,
   radius = LOCAL_TRACK.searchRadius,
+  exclude: UnitBox[] = [],
 ): LocalMatch | null {
   const { width: tw, height: th, rows, cols, values, norm } = template;
   if (tw > frame.width || th > frame.height) return null;
@@ -215,8 +232,21 @@ export function matchTemplate(
   const ranked = new Float32Array((x1 - x0 + 1) * (y1 - y0 + 1)).fill(-Infinity);
   const scores = new Float32Array(ranked.length);
   let best = -1;
+  // Only boxes reaching into the searched area can claim a place in it.
+  const taken = exclude
+    .map((e) => pixelRect(frame, e))
+    .filter((e) => e.x < x1 + tw && e.x + e.width > x0 && e.y < y1 + th && e.y + e.height > y0);
+  const claimed = (x: number, y: number) =>
+    taken.some((e) => {
+      const w = Math.min(x + tw, e.x + e.width) - Math.max(x, e.x);
+      const h = Math.min(y + th, e.y + e.height) - Math.max(y, e.y);
+      return (
+        w > 0 && h > 0 && (w * h) / (tw * th + e.width * e.height - w * h) >= LOCAL_TRACK.claimIoU
+      );
+    });
   for (let y = y0; y <= y1; y++)
     for (let x = x0; x <= x1; x++) {
+      if (taken.length && claimed(x, y)) continue;
       let dot = 0;
       let sum = 0;
       let squares = 0;
@@ -306,7 +336,7 @@ export function stepLocalTrack(
   track: LocalTrack,
   frame: LumaFrame,
   zone: UnitBox | null,
-  { settleSteps = 3, lostSteps = 3, quietSteps = 8 } = {},
+  { settleSteps = 3, lostSteps = 3, quietSteps = 8, exclude = [] as UnitBox[] } = {},
 ): { track: LocalTrack; verdict: LocalVerdict } {
   const motion = frameMotion(track.previous, frame, around(track.box));
   const still = {
@@ -316,7 +346,7 @@ export function stepLocalTrack(
   };
   const settled = still.stillSteps >= quietSteps;
   const radius = Math.min(1, LOCAL_TRACK.searchRadius * (1 + track.lostSteps));
-  const match = matchTemplate(frame, track.template, track.box, radius);
+  const match = matchTemplate(frame, track.template, track.box, radius, exclude);
   if (!match || match.score < LOCAL_TRACK.lostScore || match.lead < LOCAL_TRACK.minLead) {
     const next = {
       ...track,

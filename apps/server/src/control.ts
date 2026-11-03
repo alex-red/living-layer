@@ -192,7 +192,12 @@ export class ControlAdapter {
         desired.color_temp_kelvin = Math.round(Math.max(min, Math.min(max, 2700)));
     }
     const asked = performance.now();
-    await request(`services/${domain}/turn_${action}`, { entity_id: entity, ...desired });
+    // A light switches at once rather than fading in (Hue's default is 0.4 s).
+    await request(`services/${domain}/turn_${action}`, {
+      entity_id: entity,
+      ...desired,
+      ...(domain === 'light' ? { transition: 0 } : {}),
+    });
     const switched = performance.now();
     // How long Home Assistant took to take the action, then to report the state asked for.
     const ms = () => ({

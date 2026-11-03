@@ -5,6 +5,11 @@
  *   bun run bench:track capture --seconds 60 --name evening
  *   bun run bench:track                    the latest clip: cost per layer and per thing
  *   bun run bench:track <name> --things 1,5,17
+ *   bun run bench:track truth <name> …     mark where each thing really is (scripts/track-truth.ts)
+ *
+ * A clip with marks (`<name>.tracks.json`) is also replayed for identity:
+ * the watcher over every frame, SAM answered from the marks, and each thing
+ * scored on the marked keyframes (switches, IDF1, sure of the wrong thing).
  *
  * A clip is the watcher's own input: grey frames 320 px wide at 10 a second,
  * cut to the camera's zoomed view, read through the relay when it runs, plus
@@ -15,7 +20,7 @@
  * model, and only when its weights are there.
  */
 import { Database } from 'bun:sqlite';
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   LOCAL_TRACK,
@@ -28,7 +33,7 @@ import {
   savedIdOf,
   searchRegion,
   startLocalTrack,
-  watchStep,
+  watchFrame,
   watchThing,
   type LumaFrame,
   type SavedCamera,
@@ -40,19 +45,21 @@ import { FfmpegSource, LUMA_FPS } from '../apps/server/src/frames.js';
 import { watchedThings } from '../apps/server/src/watcher.js';
 import { flag, parseArgs } from './lib/args.js';
 import { dataDir, openEvidence } from './lib/evidence.js';
+import {
+  TRACK_TARGETS,
+  idf1,
+  loadClip,
+  replayClip,
+  scoreReplay,
+  totalScore,
+  truthOf,
+  type ClipInfo,
+  type ThingScore,
+} from './lib/track-truth.js';
 
 const args = parseArgs();
 const clips = join(dataDir(), 'clips');
 const ms = (n: number) => (n < 0.1 ? n.toFixed(3) : n < 10 ? n.toFixed(2) : n.toFixed(0));
-
-interface ClipInfo {
-  width: number;
-  height: number;
-  fps: number;
-  frames: number;
-  camera: string;
-  takenAt: string;
-}
 
 /** The camera the live desk watches, read as the watcher reads it. */
 function watchedSource() {
@@ -113,31 +120,6 @@ async function capture() {
   );
 }
 
-function load(name?: string) {
-  const all = existsSync(clips)
-    ? readdirSync(clips)
-        .filter((f) => f.endsWith('.json'))
-        .sort()
-    : [];
-  const file = name ? `${name}.json` : all.at(-1);
-  if (!file || !existsSync(join(clips, file)))
-    throw new Error('No clip. Record one with `bun run bench:track capture`.');
-  const base = file.slice(0, -5);
-  const info = JSON.parse(readFileSync(join(clips, file), 'utf8')) as ClipInfo & {
-    snapshotMs?: number;
-  };
-  const raw = readFileSync(join(clips, `${base}.luma`));
-  const size = info.width * info.height;
-  const frames: LumaFrame[] = [];
-  for (let k = 0; k + size <= raw.length; k += size)
-    frames.push({
-      width: info.width,
-      height: info.height,
-      data: new Uint8Array(raw.subarray(k, k + size)),
-    });
-  return { base, info, frames, still: readFileSync(join(clips, `${base}.png`)) };
-}
-
 /** The live desk's watched things as boxes, then textured made-up ones to make up `count`. */
 function boxes(frame: LumaFrame, count: number): { label: string; box: UnitBox }[] {
   const store = openEvidence();
@@ -176,7 +158,7 @@ function timeOver(frames: LumaFrame[], run: (frame: LumaFrame, k: number) => voi
 }
 
 async function bench() {
-  const { base, info, frames, still } = load(args.positional[0]);
+  const { base, info, frames, still } = loadClip(clips, args.positional[0]);
   const counts = (flag(args, 'things') ?? '1,5,10,17').split(',').map(Number);
   const first = frames[0]!;
   const moving =
@@ -223,8 +205,9 @@ async function bench() {
     let refinds = 0;
     const per = timeOver(frames.slice(1), (f, k) => {
       const now = (k + 1) * (1000 / info.fps);
+      const steps = watchFrame(watched, f, now);
       watched = watched.map((thing) => {
-        const step = watchStep(thing, f, now);
+        const step = steps.get(thing.subject.id)!;
         if (step.refind) refinds++;
         if (!step.ask) return step.thing;
         // As the watcher does: the next ask waits, and a re-anchor here finds nothing.
@@ -265,8 +248,55 @@ async function bench() {
   console.log(
     '  SAM (layer 3)                     a billed call, seconds; only on a settled zone crossing or a loss nothing local can fix',
   );
+  identity(base, frames, info);
 }
 
-await (args.positional[0] === 'capture' ? capture() : bench());
+/** The watcher replayed over a marked clip: does each thing stay itself? */
+function identity(base: string, frames: LumaFrame[], info: ClipInfo) {
+  const truth = truthOf(clips, base);
+  if (!truth?.things.length) {
+    console.log(
+      `\nNo marks for ${base}: \`bun run bench:track truth ${base}\` to score identities.`,
+    );
+    return;
+  }
+  const replay = replayClip(frames, info.fps, truth);
+  const scores = scoreReplay(truth, replay);
+  const all = totalScore(scores);
+  // The same clip stepped one thing at a time, as the watcher did before `watchFrame`.
+  const alone = totalScore(
+    scoreReplay(truth, replayClip(frames, info.fps, truth, { alone: true })),
+  );
+  console.log(
+    `\nIdentity over ${replay.seen.size} marked keyframes (SAM answered from the marks, no feature model):`,
+  );
+  console.log(
+    '  thing           keys  IDF1  switches  false sure  honest unsure  needless  asks  wrong picks  zones judged  on another',
+  );
+  const row = (s: ThingScore) =>
+    console.log(
+      `  ${s.id.slice(0, 14).padEnd(14)}  ${String(s.keys).padStart(4)}  ${idf1(s).toFixed(2)}  ${String(s.switches).padStart(8)}  ${String(s.falseSure).padStart(10)}  ${String(s.honestUnsure).padStart(13)}  ${String(s.needlessUnsure).padStart(8)}  ${String(s.asks).padStart(4)}  ${String(s.wrongPicks).padStart(11)}  ${String(s.places).padStart(12)}  ${String(s.wrongPlaces).padStart(10)}`,
+    );
+  scores.forEach(row);
+  row(all);
+  row({ ...alone, id: 'all, one by one' });
+  if (replay.unseeded.length)
+    console.log(
+      `  not followed (too little texture where first marked): ${replay.unseeded.join(', ')}`,
+    );
+  console.log(`  refinds asked: ${replay.refinds} (no feature model here; each goes on to SAM)`);
+  const misses = (Object.keys(TRACK_TARGETS) as (keyof typeof TRACK_TARGETS)[]).filter(
+    (key) => all[key] > TRACK_TARGETS[key],
+  );
+  console.log(
+    misses.length
+      ? `  misses its targets: ${misses.map((key) => `${key} ${all[key]} (wants ${TRACK_TARGETS[key]})`).join(', ')}`
+      : '  meets its targets',
+  );
+}
+
+const command = args.positional[0];
+if (command === 'truth') await import('./track-truth.js');
+else await (command === 'capture' ? capture() : bench());
 // ffmpeg's pipe can keep the loop alive after the clip is written.
 process.exit(0);
