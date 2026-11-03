@@ -51,6 +51,9 @@ export const PROP_FORMS = [
   'bottle',
   'jar',
   'carton',
+  'eggs',
+  'butter',
+  'tub',
 ] as const;
 export type PropForm = (typeof PROP_FORMS)[number];
 
@@ -196,6 +199,11 @@ export const FURNITURE_SPECS = {
   bottle: { heightCm: 26 },
   jar: { heightCm: 12 },
   carton: { heightCm: 24 },
+  /** A dozen in an open carton, 2 × 6; the carton's cups come this far up the eggs. */
+  eggs: { heightCm: 7, rows: 2, cols: 6, cupCm: 3.5 },
+  butter: { heightCm: 5 },
+  /** A lidded tub of leftovers, filled this far. */
+  tub: { heightCm: 9, lidCm: 1.5, fill: 0.6 },
 } satisfies Record<PropForm, { heightCm: number } & Record<string, number | boolean>>;
 type FurnitureSpecs = typeof FURNITURE_SPECS;
 export type FurnitureOverrides = { [F in PropForm]?: Partial<FurnitureSpecs[F]> };
@@ -689,6 +697,52 @@ const BUILDS: { [F in PropForm]: Build<F> } = {
     box(w * 0.04, d * 0.2, h * 0.84, w * 0.92, d * 0.6, h * 0.1, 'paper', { radius: 0.3 }),
     box(0, d * 0.44, h * 0.9, w, d * 0.12, h * 0.1, 'paper', { radius: 0.2 }),
   ],
+  // An open carton: its cups, an egg standing in each.
+  eggs: (w, d, h, { spec }) => {
+    const cup = Math.min(cm(spec.cupCm), h / 2);
+    const cellW = w / spec.cols;
+    const cellD = d / spec.rows;
+    const parts: PropPart[] = [box(0, 0, 0, w, d, cup, 'paper', { radius: 0.15 })];
+    for (let r = 0; r < spec.rows; r++)
+      for (let c = 0; c < spec.cols; c++)
+        parts.push(
+          turned(
+            c * cellW + cellW * 0.1,
+            r * cellD + cellD * 0.1,
+            cup * 0.4,
+            cellW * 0.8,
+            cellD * 0.8,
+            h - cup * 0.4,
+            'wood',
+            [
+              { r: 0.55, z: 0 },
+              { r: 0.95, z: 0.25 },
+              { r: 1, z: 0.45 },
+              { r: 0.85, z: 0.7 },
+              { r: 0.5, z: 0.92 },
+              { r: 0.15, z: 1 },
+            ],
+          ),
+        );
+    return parts;
+  },
+  // A wrapped block, its fold along the top.
+  butter: (w, d, h) => [
+    box(0, 0, 0, w, d, h * 0.94, 'paper', { radius: 0.12 }),
+    box(0, d * 0.4, h * 0.9, w, d * 0.2, h * 0.1, 'paper', { radius: 0.3 }),
+  ],
+  // A clear tub, the food showing through, under a coloured lid.
+  tub: (w, d, h, { spec }) => {
+    const lid = Math.min(cm(spec.lidCm), h / 4);
+    const wall = cm(0.4);
+    return [
+      box(wall, wall, 0, w - 2 * wall, d - 2 * wall, h - lid, 'glass', { radius: 0.15 }),
+      box(w * 0.1, d * 0.1, cm(0.3), w * 0.8, d * 0.8, (h - lid) * spec.fill, 'soil', {
+        radius: 0.3,
+      }),
+      box(0, 0, h - lid, w, d, lid, 'fabric', { radius: 0.25 }),
+    ];
+  },
 };
 
 /**

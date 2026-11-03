@@ -212,7 +212,11 @@ export function useCameraSlice(
       const opened = remote
         ? remote.whep
           ? remote.preview
-            ? await webrtc(remote.whep).catch(() => openMjpeg(remote.preview!, lost))
+            ? await webrtc(remote.whep).catch((e: unknown) => {
+                // Dropped while WebRTC was failing (another room was opened): no fallback.
+                if (generation !== cameraGeneration.current) throw e;
+                return openMjpeg(remote.preview!, lost);
+              })
             : await webrtc(remote.whep)
           : await openMjpeg(remote.preview!, lost)
         : {
@@ -332,7 +336,8 @@ export function useCameraSlice(
     void startCamera();
   }
   // A room with a camera assigned to it uses that camera, unless the one chosen is assigned there too.
-  // A camera locked to another room closes, still wanted, so it opens again back in its room.
+  // A camera locked to another room closes, still wanted, so it opens again back in its room;
+  // one still opening is dropped too, so it neither opens nor reports a failure here.
   // It looks again when the room or the camera list changes, not when the person picks a camera.
   const pickedCamera = useRef({ camera, cameraSource, dropCamera });
   pickedCamera.current = { camera, cameraSource, dropCamera };
@@ -342,7 +347,7 @@ export function useCameraSlice(
     if (cameraForScene(current, room)) return;
     const elsewhere = current.some((s) => !cameraFitsScene(s, room));
     if (camera && !elsewhere) return;
-    if (camera) dropCamera();
+    if (camera || elsewhere) dropCamera();
     const assigned = cameraForScene(network.streams, room);
     if (assigned) setCameraSource(assigned.id);
     if (camera || assigned) setReopenTries(0);

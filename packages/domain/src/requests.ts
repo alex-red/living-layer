@@ -55,6 +55,45 @@ export const settingsTrackingAiBodySchema = z.object({ on: z.boolean() }).strict
 export type SettingsTrackingAiBody = z.input<typeof settingsTrackingAiBodySchema>;
 
 /**
+ * A named save as the server keeps it, beside each browser's own copy: the
+ * whole save file the lab exports. Its desks are checked when one is loaded
+ * (`desk/restore`), so here they are only objects.
+ */
+export const SAVE_NAME_MAX = 60;
+const saveIdSchema = z.string().regex(/^[\w-]{1,64}$/);
+const saveNameSchema = z.string().trim().min(1).max(SAVE_NAME_MAX);
+export const sessionSaveSchema = z
+  .object({
+    app: z.literal('livinglayer'),
+    version: z.literal(1),
+    savedAt: z.string().max(40),
+    name: z.string().max(SAVE_NAME_MAX).optional(),
+    prefs: z.record(z.string(), z.unknown()),
+    desks: z.object({ demo: z.unknown().optional(), live: z.unknown().optional() }).strict(),
+  })
+  .strict();
+export type StoredSession = z.output<typeof sessionSaveSchema>;
+export interface StoredSave {
+  id: string;
+  name: string;
+  save: StoredSession;
+}
+
+/** POST /api/saves/save: keep a save under its name; a name another save has updates that one. */
+export const savesSaveBodySchema = z
+  .object({ id: saveIdSchema, name: saveNameSchema, save: sessionSaveSchema })
+  .strict();
+export type SavesSaveBody = z.input<typeof savesSaveBodySchema>;
+
+/** POST /api/saves/rename */
+export const savesRenameBodySchema = z.object({ id: saveIdSchema, name: saveNameSchema }).strict();
+export type SavesRenameBody = z.input<typeof savesRenameBodySchema>;
+
+/** POST /api/saves/delete */
+export const savesDeleteBodySchema = z.object({ id: saveIdSchema }).strict();
+export type SavesDeleteBody = z.input<typeof savesDeleteBodySchema>;
+
+/**
  * POST /api/segment. With `shape`, the thing inside it is outlined on the
  * server with no model call (`outlineIn`); without, SAM outlines every match
  * of `concept`, which tracking allows only once AI is turned on for it.

@@ -48,9 +48,15 @@ const officeScene = compose('office', 'Office', { w: 10, d: 8 }, [
 
 const fridgeScene = compose('fridge', 'Fridge', { w: 7, d: 7 }, [
   ['fridge', 'fridge', 1.5, 1, 0],
-  // The milk on the crisper lid, a jar on the top shelf (see the fridge's shelves).
-  ['carton', 'milk', 3.6, 1.5, cm(66 + 40), { label: 'Milk carton', optional: true }],
-  ['jar', 'jar', 2.1, 1.6, cm(66 + 86), { optional: true }],
+  // The things the fridge camera can follow, in its photo's order, each forward
+  // and left enough for the room's corner to see it through the open front:
+  // on the crisper lid (66 + 40 cm) the pickles, the leftovers and the milk,
+  // the butter on the middle shelf (+ 68), the eggs in the pantry drawer (+ 1.5).
+  ['jar', 'jar', 2, 2.1, cm(66 + 40), { label: 'Pickle jar', optional: true }],
+  ['tub', 'leftovers', 2.55, 2.8, cm(66 + 40), { label: 'Leftovers', optional: true }],
+  ['carton', 'milk', 3.3, 3, cm(66 + 40), { label: 'Milk carton', optional: true }],
+  ['butter', 'butter', 2.6, 2.7, cm(66 + 68), { optional: true }],
+  ['eggs', 'eggs', 1.95, 2.7, cm(66 + 1.5), { optional: true }],
 ]);
 
 export const ISO_PRESETS: Record<IsoSceneKind, IsoScene> = {

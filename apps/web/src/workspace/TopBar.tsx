@@ -195,6 +195,24 @@ function Readiness() {
   );
 }
 
+/** Where a save is kept: on the server for every browser, or so far only in this one. */
+function SaveWhere({ shared }: { shared: boolean }) {
+  return shared ? (
+    <span
+      className="save-where shared"
+      title="Kept on the server (SQLite) for every browser and device, with a copy in this browser (localStorage)."
+    >
+      Server
+    </span>
+  ) : (
+    <span
+      className="save-where local"
+      title="Only in this browser (localStorage) so far. It goes to the server the next time the server can be reached."
+    >
+      This browser
+    </span>
+  );
+}
 /** One named save: load it, keep the desks in it, rename, export or delete it. */
 function SaveRow({ entry }: { entry: NamedSave }) {
   const lab = useLabParts(useFeedback(), useSaves());
@@ -241,7 +259,10 @@ function SaveRow({ entry }: { entry: NamedSave }) {
           {active && <span className="micro">{lab.unsaved ? 'in use · edited' : 'in use'}</span>}
         </div>
       )}
-      <span className="micro">{when}</span>
+      <span className="micro save-meta">
+        {when}
+        <SaveWhere shared={Boolean(entry.onServer)} />
+      </span>
       {state === 'deleting' ? (
         <div className="save-actions">
           <span className="micro unsure">Delete this save? Export it first to keep a copy.</span>
@@ -329,6 +350,13 @@ function MoreMenu({ close }: { close: () => void }) {
   return (
     <section className="saves" aria-label="Saves">
       <span className="tiny">NAMED SAVES</span>
+      <p className={`micro${lab.savesServer === 'away' ? ' unsure' : ''}`}>
+        {lab.savesServer === 'away'
+          ? 'The server can’t be reached, so saves are kept in this browser for now. They go to the server when it’s back.'
+          : lab.savesServer === 'shared'
+            ? 'Kept on the server, so every browser and device on it sees them, with a copy in this browser.'
+            : 'Checking the server for saves…'}
+      </p>
       <form
         className="save-name"
         onSubmit={(e) => {
@@ -358,7 +386,7 @@ function MoreMenu({ close }: { close: () => void }) {
           Name a save to keep this room as it is now and come back to it later.
         </p>
       )}
-      <span className="tiny">SAVED IN THIS BROWSER</span>
+      <span className="tiny">AUTOSAVE · THIS BROWSER</span>
       <p className={lab.storageOk ? '' : 'unsure'}>
         {!lab.storageOk
           ? 'This browser won’t store the session (private window or storage blocked). Export a save to keep your work.'
@@ -367,8 +395,9 @@ function MoreMenu({ close }: { close: () => void }) {
             : 'Saved as you go, once the desks have loaded.'}
       </p>
       <p className="micro">
-        Your scene, view, camera source, filters and both desks: pins, rules, scenes and models.
-        Photos and the evidence log stay out of saves.
+        Your scene, view, camera source and filters stay in this browser (localStorage). Both desks
+        (pins, rules, scenes and models) are on the server too. Photos and the evidence log stay out
+        of saves.
       </p>
       <div className="save-actions">
         <Button size="sm" onClick={lab.saveEverything}>

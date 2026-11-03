@@ -59,6 +59,10 @@ interface ApiRoutes {
   [path: `jobs/${string}/stop`]: { body: undefined; response: Job };
   'settings/spend-limit': { body: R.SettingsSpendLimitBody; response: { spendLimit: number } };
   'settings/tracking-ai': { body: R.SettingsTrackingAiBody; response: { on: boolean } };
+  saves: { body: undefined; response: R.StoredSave[] };
+  'saves/save': { body: R.SavesSaveBody; response: { save: R.StoredSave; saves: R.StoredSave[] } };
+  'saves/rename': { body: R.SavesRenameBody; response: R.StoredSave[] };
+  'saves/delete': { body: R.SavesDeleteBody; response: R.StoredSave[] };
 
   'desk/demo': { body: undefined; response: DeskMemory };
   'desk/live': { body: undefined; response: DeskMemory };

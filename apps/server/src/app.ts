@@ -27,6 +27,7 @@ import { LabError, logError } from './errors.js';
 import { findSource, toDataUrl } from './images.js';
 import { createDesk, deskRoutes } from './desk.js';
 import { settingsRoutes } from './settings.js';
+import { savesRoutes } from './saves.js';
 import { textRoutes } from './text.js';
 import { discoverRoutes } from './discover.js';
 import { createSegment, segmentRoutes } from './segment.js';
@@ -353,6 +354,7 @@ export async function buildApp(
     }),
   );
   app.register(settingsRoutes, { prefix: '/api/settings', store, config });
+  app.register(savesRoutes, { prefix: '/api/saves', store });
   app.register(textRoutes, { prefix: '/api/text', meta, run });
   app.register(discoverRoutes, { prefix: '/api/discover', store, meta, run });
   const segment = createSegment({ store, meta, run });
