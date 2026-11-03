@@ -18,7 +18,7 @@
     "packages/*"
   ],
   "scripts": {
-    "dev": "bun run --filter './apps/*' dev",
+    "dev": "bun scripts/dev.ts",
     "build": "bun run typecheck && bun run --filter @livinglayer/web build",
     "start": "bun apps/server/src/index.ts",
     "typecheck": "bun scripts/typecheck.ts",

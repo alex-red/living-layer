@@ -17,9 +17,13 @@ async function shutdown() {
 for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const)
   process.once(signal, () => void shutdown());
 // In dev, `bun run dev` can go without telling its children (a closed terminal, a kill -9): go
-// with it. Reloading keeps the process, so one already orphaned starts under PID 1. Only under
-// --watch: a server run by a service manager has PID 1 for a parent by design.
-if (process.execArgv.some((a) => a === '--watch' || a === '--hot')) {
+// with it. Reloading keeps the process, so one already orphaned starts under PID 1. Only in dev
+// (`scripts/dev.ts` sets LIVING_LAYER_DEV, or --watch): a server run by a service manager has PID 1
+// for a parent by design.
+if (
+  process.env.LIVING_LAYER_DEV === '1' ||
+  process.execArgv.some((a) => a === '--watch' || a === '--hot')
+) {
   const parent = process.ppid;
   if (parent === 1) void shutdown();
   setInterval(() => {

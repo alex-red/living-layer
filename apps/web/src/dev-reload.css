@@ -1,0 +1,38 @@
+/* In development only: the `Reload now` notice, above everything but out of the way. */
+.dev-reload {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 100;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  max-width: min(420px, calc(100vw - 32px));
+  padding: 8px 8px 8px 12px;
+  border: 1px solid var(--warm-glow);
+  border-radius: var(--r-panel);
+  background: var(--glass-thick);
+  backdrop-filter: blur(12px);
+  color: var(--text);
+  font: 12px var(--ui);
+}
+
+.dev-reload-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.dev-reload-text strong {
+  color: var(--warm);
+  font-weight: 600;
+}
+
+.dev-reload-files {
+  overflow: hidden;
+  color: var(--text-3);
+  font-family: var(--mono);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

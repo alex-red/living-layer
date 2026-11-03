@@ -4,6 +4,7 @@ import './ui/controls.css';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { App } from './App';
+import { DevReload } from './DevReload';
 import { Playground } from './playground/Playground';
 import '@fontsource-variable/inter';
 import '@fontsource-variable/jetbrains-mono';
@@ -12,4 +13,9 @@ import './styles.css';
 const page =
   window.location.pathname.replace(/\/$/, '') === '/playground' ? <Playground /> : <App />;
 
-createRoot(document.getElementById('root')!).render(<StrictMode>{page}</StrictMode>);
+createRoot(document.getElementById('root')!).render(
+  <StrictMode>
+    {page}
+    {import.meta.env.DEV && <DevReload />}
+  </StrictMode>,
+);

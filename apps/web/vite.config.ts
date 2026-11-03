@@ -16,10 +16,17 @@ const endWithParent: Plugin = {
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, resolve('../..'), 'PORT');
+  // `bun run dev` watches for changes and the page offers to reload (`DevReload.tsx`).
+  const control = process.env.LIVING_LAYER_DEV_CONTROL;
   return {
     plugins: [react(), endWithParent],
     server: {
-      proxy: { '/api': `http://127.0.0.1:${env.PORT || '43431'}` },
+      // No hot reload: an edit, often another session's half-done one, would reload the page under you.
+      hmr: false,
+      proxy: {
+        '/api': `http://127.0.0.1:${env.PORT || '43431'}`,
+        ...(control ? { '/__dev': control } : {}),
+      },
       fs: { allow: [resolve('../..')] },
     },
     build: { outDir: 'dist', emptyOutDir: true },

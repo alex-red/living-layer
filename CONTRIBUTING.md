@@ -11,6 +11,8 @@ bun run dev
 
 You don't need any API keys. Demo mode covers the whole workflow offline.
 
+Nothing reloads by itself while you edit: once code changes, the page shows `Reload now`, which restarts the API server if its code changed and reloads the page.
+
 ## Before you open a PR
 
 ```sh
