@@ -2319,8 +2319,8 @@ export function useLabState() {
         {
           title: `Modelling the ${f.label.toLowerCase()}`,
           description: note
-            ? `Looks up “${note}”, then Spark rebuilds its model in parts from its picture and checks its own draft. Three Spark calls, about $0.05 to $0.15.`
-            : 'Spark rebuilds its model in parts from its picture, then checks its own draft. Two Spark calls, about $0.05 to $0.10.',
+            ? `Spark drafts its model in parts from its picture three ways at once and the best is kept, while “${note}” is looked up. Four Spark calls, about $0.05 to $0.15.`
+            : 'Spark drafts its model in parts from its picture three ways at once, and the best is kept. Three Spark calls, about $0.05 to $0.10.',
         },
         (jobId, signal) =>
           api<{ run: EvidenceRun; memory: DeskMemory }>(

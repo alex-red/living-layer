@@ -905,7 +905,9 @@ describe('scanning live, with a mocked Meta API', () => {
         return samResponse(`<0f>1${sam.wire.replace(/^<0f>7/, '')}`);
       }
       if (body.text?.format?.name === 'sculpt') {
-        calls.push(`sculpt: ${body.input[0].content[0].text}`);
+        calls.push(
+          `sculpt (${body.reasoning?.effort ?? 'default'}): ${body.input[0].content[0].text}`,
+        );
         return sparkResponse({
           note: 'A shade on a thin stand.',
           parts: [
@@ -1033,7 +1035,7 @@ describe('scanning live, with a mocked Meta API', () => {
     expect([base.info.width, base.info.height]).toEqual([960, 640]);
     expect([...base.data.subarray(0, 4)]).toEqual([255, 0, 255, 255]);
 
-    // Modelled with AI from its cut-out: Spark twice, from its model, then from its own draft.
+    // Modelled with AI from its cut-out: three drafts from its model at once, at low effort.
     const lamp = res
       .json<{ memory: DeskMemory }>()
       .memory.fixtures!.find((f) => f.label === 'Desk lamp')!;
@@ -1048,19 +1050,21 @@ describe('scanning live, with a mocked Meta API', () => {
       ['picture', 'done'],
       ['current', 'done'],
       ['draft', 'done'],
-      ['check', 'done'],
       ['keep', 'done'],
       ['save', 'done'],
     ]);
     expect(job.steps.filter((x) => x.image?.startsWith('data:image/png')).map((x) => x.id)).toEqual(
-      ['picture', 'current', 'draft', 'check', 'keep'],
+      ['picture', 'current', 'draft', 'keep'],
     );
-    expect(job.steps[2]!.detail).toMatch(/^2 parts, \d+% overlap with the picture\. A shade/);
+    expect(job.steps[2]!.detail).toMatch(
+      /^2 parts, \d+% overlap with the picture, the best of 3\. A shade/,
+    );
     expect((await s.app.inject(`/api/jobs/${crypto.randomUUID()}`)).statusCode).toBe(404);
-    expect(calls).toEqual([
-      expect.stringMatching(/^sculpt: Model the desk lamp in the first image/),
-      expect.stringMatching(/^sculpt: The first image is the desk lamp/),
-    ]);
+    expect(calls).toEqual(
+      Array(3).fill(
+        expect.stringMatching(/^sculpt \(low\): Model the desk lamp in the first image/),
+      ),
+    );
     const after = sculpted.json<{ memory: DeskMemory; run: EvidenceRun }>();
     const sculpture = after.memory.fixtures!.find((f) => f.id === lamp.id)!.model;
     expect(sculpture.source).toBe('spark');
@@ -1069,7 +1073,7 @@ describe('scanning live, with a mocked Meta API', () => {
       ['stand', 'tube'],
     ]);
     expect(after.run.assets).toContain(`${after.run.id}/render-final.png`);
-    // A note is looked up first (the catalog knows this one, so no web search) and told to Spark.
+    // A note is looked up (the catalog knows this one, so no web search) and told to Spark.
     calls.length = 0;
     const noted = crypto.randomUUID();
     const withNote = await s.post('fixtures/sculpt', {
@@ -1085,7 +1089,7 @@ describe('scanning live, with a mocked Meta API', () => {
       'done',
       'IKEA ALEX desk (catalog ✓)',
     ]);
-    expect(calls).toHaveLength(2);
+    expect(calls).toHaveLength(3);
     for (const call of calls) {
       expect(call).toContain('The person says about it: "It’s an IKEA Alex desk"');
       expect(call).toContain('What is known of the product: It is the IKEA ALEX desk.');
@@ -1110,41 +1114,17 @@ describe('scanning live, with a mocked Meta API', () => {
     await s.app.close();
     // Drawing, lifting and modelling with image work: slow on a busy machine.
   }, 20_000);
-  it('fits a thing locally when Spark’s check of it fails, and scans on', async () => {
-    const s = await live();
-    await pin(s);
-    s.fetcher.mockImplementation(async (_url, init) => {
-      const body = JSON.parse(String(init?.body));
-      if (body.model === 'sam-3.1') return samResponse(`<0f>1${sam.wire.replace(/^<0f>7/, '')}`);
-      if (body.text.format.name === 'item_check') return sparkResponse({ nonsense: true });
-      return sparkResponse({
-        things: [
-          thing({
-            label: 'desk lamp',
-            archetype: 'lamp',
-            control: 'light',
-            box: { x1: 360, y1: 270, x2: 640, y2: 730 },
-          }),
-        ],
-      });
-    });
-    const res = await s.scan();
-    expect(res.statusCode, res.body).toBe(200);
-    const lamp = res.json<Scanned>().memory.fixtures![0]!;
-    expect(lamp.model.fit!.assists.at(-1)).toMatch(/^Spark's check failed .*: fitted locally$/);
-  });
   it('asks Spark once, leaving out what the camera follows, and maps what it finds', async () => {
     const s = await live();
     await pin(s);
     const res = await s.scan();
     expect(res.statusCode, res.body).toBe(200);
     const r = res.json<Scanned>();
-    // Spark's list, SAM's outlines, then Spark's check of the lamp's fit.
-    expect(s.prompts).toHaveLength(3);
+    // Spark's list and SAM's outlines; each thing is fitted locally, with no check of its own.
+    expect(s.prompts).toHaveLength(2);
     expect(s.prompts[0]).toMatch(/^fixture_scan: /);
     expect(s.prompts[0]).toContain('followed separately: Mug');
     expect(s.prompts[1]).toBe('sam');
-    expect(s.prompts[2]).toMatch(/^item_check: /);
     expect(r.run).toMatchObject({ kind: 'fixture', mode: 'live', status: 'completed' });
     expect(r.run.assets).toEqual(
       expect.arrayContaining([
@@ -1186,11 +1166,7 @@ describe('scanning live, with a mocked Meta API', () => {
     const res = await s.post('fixtures/scan', { mode: 'live' });
     expect(res.statusCode, res.body).toBe(200);
     expect(res.json<Scanned>().memory.fixtures![0]).toMatchObject({ scene: 'custom' });
-    expect(s.prompts).toEqual([
-      expect.stringMatching(/^fixture_scan/),
-      'sam',
-      expect.stringMatching(/^item_check/),
-    ]);
+    expect(s.prompts).toEqual([expect.stringMatching(/^fixture_scan/), 'sam']);
   });
   it('says the room’s photo is the wrong shape when it scans that and not a frame', async () => {
     const s = await live();

@@ -177,9 +177,16 @@ export interface SculptContext {
   facts?: ProductFacts | null;
   /** The picture has no colour (a night or infrared camera): colours come from the words. */
   greyscale?: boolean;
+  /** The picture is a few dozen pixels across, cut from a photo of a whole room. */
+  small?: boolean;
 }
-function contextLines({ note, facts, greyscale }: SculptContext = {}): string[] {
+function contextLines({ note, facts, greyscale, small }: SculptContext = {}): string[] {
   const lines: string[] = [];
+  // From across a room a computer mouse is a small blob, and its name alone once made an animal.
+  if (small)
+    lines.push(
+      'It was cut from a photo of a room, so it is small and blurry: it is a thing found on a desk, a shelf or the floor, and its name means that thing (a mouse is a computer mouse). Model the object, not a creature or a toy, unless its name says so.',
+    );
   if (greyscale)
     lines.push(
       'The first image is greyscale, from a night or infrared camera: use it for shape only, and take colours from what the person says or what is known of the product, else plain neutral ones.',
@@ -216,16 +223,6 @@ export function sculptPrompt(
     'Say in note what you changed.',
   ].join('\n');
 }
-/** What Spark is asked on its second look: its own model rendered beside the picture. */
-export function sculptCheckPrompt(label: string, context?: SculptContext): string {
-  return [
-    `The first image is the ${label.toLowerCase()}; the second is your model of it rendered from the same angle, with its parts below as JSON. Correct the parts so the render matches the first image better: proportions, widths, positions, colours and any missing or unclosed piece.`,
-    ...contextLines(context),
-    ...SCULPT_FORMAT,
-    'Say in note what you changed.',
-  ].join('\n');
-}
-
 /** One step of a long job, as the page shows it while the job runs. */
 export interface JobStep {
   id: string;

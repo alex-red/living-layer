@@ -1491,7 +1491,7 @@ function SculptFixture({ fixture, disabled }: { fixture: Fixture; disabled: bool
       </form>
       <p className="micro">
         {why ??
-          `Spark rebuilds its model in editable parts from its ${lifted ? 'cut-out' : 'photo'}, keeping locked parts${note.trim() ? ', and looks up what you name first (catalog, then the web)' : ''} · ${note.trim() ? '3' : '2'} Spark calls, ~$0.05–${note.trim() ? '0.15' : '0.10'}, a minute or two.`}
+          `Spark rebuilds its model in editable parts from its ${lifted ? 'cut-out' : 'photo'}, keeping locked parts${note.trim() ? ', and looks up what you name meanwhile (catalog, then the web)' : ''} · ${note.trim() ? '4' : '3'} Spark calls at once, ~$0.05–${note.trim() ? '0.15' : '0.10'}, under a minute.`}
       </p>
     </div>
   );

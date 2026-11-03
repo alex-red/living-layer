@@ -71,20 +71,30 @@ export const SPARK_CALLS = {
   itemClass: { tokens: 4096, timeoutMs: DEFAULT_SPARK_TIMEOUT_MS },
   fixtureClass: { tokens: 8192, timeoutMs: DEFAULT_SPARK_TIMEOUT_MS },
   // A whole busy frame: Spark's one finished scan took 27 s, and the next two ran past 30.
-  fixtureScan: { tokens: 12288, timeoutMs: 90_000 },
+  fixtureScan: { tokens: 12288, timeoutMs: 90_000, effort: 'low' },
   pictureFind: { tokens: 6144, timeoutMs: DEFAULT_SPARK_TIMEOUT_MS },
   sculpt: { tokens: 16384, timeoutMs: 150_000 },
   itemCheck: { tokens: 4096, timeoutMs: DEFAULT_SPARK_TIMEOUT_MS },
   photoInventory: { tokens: 16384, timeoutMs: DEFAULT_SPARK_TIMEOUT_MS },
   // Spark's checks of a whole photo have taken 18 to 26 s, and three ran past 30.
   photoCheck: { tokens: 12288, timeoutMs: 90_000 },
-  productLookup: { tokens: 8192, timeoutMs: 90_000 },
+  productLookup: { tokens: 8192, timeoutMs: 90_000, effort: 'low' },
   // Spark's answers with a crop have taken 7 to 51 s for 2,000 to 5,000 tokens, and once ran past 60.
   intent: { tokens: 8192, timeoutMs: 90_000 },
   // Spark reasons over the photo and the model's parts first: 8192 ran out before it answered.
   refine: { tokens: 16384, timeoutMs: 150_000 },
 } as const;
 export type SparkCallKind = keyof typeof SPARK_CALLS;
+/**
+ * How hard Spark thinks before answering, where a call sets it. Nearly all of
+ * its time is reasoning: a one-line answer took 16 s by default, 7 s at low and
+ * 3 s at minimal, with the same answer.
+ */
+const reasoningOf = (kind: SparkCallKind) => {
+  const limit: { tokens: number; effort?: 'minimal' | 'low' | 'medium' | 'high' } =
+    SPARK_CALLS[kind];
+  return limit.effort ? { reasoning: { effort: limit.effort } } : {};
+};
 export const CALL_LIMITS = {
   ...SPARK_CALLS,
   segment: { tokens: null, timeoutMs: DEFAULT_SPARK_TIMEOUT_MS },
@@ -334,6 +344,7 @@ export class MetaAdapter {
             model: this.config.sparkModel,
             store: false,
             max_output_tokens: SPARK_CALLS.productLookup.tokens,
+            ...reasoningOf('productLookup'),
             tools: [{ type: 'web_search' }],
             include: ['web_search_call.results'] as OpenAI.Responses.ResponseIncludable[],
             input: [
@@ -754,6 +765,7 @@ export class MetaAdapter {
           model: this.config.sparkModel,
           store: false,
           max_output_tokens: SPARK_CALLS.fixtureScan.tokens,
+          ...reasoningOf('fixtureScan'),
           input: [
             {
               role: 'user',
@@ -804,6 +816,8 @@ export class MetaAdapter {
     signal?: AbortSignal,
     /** The most parts the answer may have: a fixture's 12, more for furniture. */
     maxParts = 12,
+    /** How hard Spark thinks first: a fixture's model asks for low, to answer in seconds. */
+    effort?: 'low' | 'medium',
   ) {
     const schema = sculptSchemaOf(maxParts);
     return this.executeCall('sculpt', async (timeoutMs) => {
@@ -813,6 +827,7 @@ export class MetaAdapter {
           model: this.config.sparkModel,
           store: false,
           max_output_tokens: SPARK_CALLS.sculpt.tokens,
+          ...(effort ? { reasoning: { effort } } : reasoningOf('sculpt')),
           input: [
             {
               role: 'user',

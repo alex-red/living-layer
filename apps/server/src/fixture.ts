@@ -52,7 +52,6 @@ import {
   type LatheFit,
   fuseFits,
   scoreAgainst,
-  sculptCheckPrompt,
   sculptPrompt,
   toSculpt,
   type SavedItem,
@@ -87,7 +86,6 @@ import { maskedCrop, validateImage } from './images.js';
 import {
   cropInput,
   demoPhoto,
-  PART_CONCEPTS,
   draftModel,
   keepLocked,
   pinElevation,
@@ -117,13 +115,24 @@ const REFINE_STEPS = [
  * the fitter's own scores 0.83–0.95 (it bends its shape to the outline).
  */
 const REFINE_FLOOR = 0.55;
+/**
+ * Spark's drafts of a fixture's model, asked at once and at low effort: each
+ * answers in 25–55 s instead of 90–120, and the best of three matched the
+ * picture about as well as one at full effort (the mouse 0.73 against 0.75, a
+ * cat tower 0.39 against 0.40; a fan 0.36 against 0.57). A second look at its
+ * own draft added a few points for another 45–90 s, so there is none.
+ */
+const SCULPT_DRAFTS = 3;
+/** Under this overlap with the picture, Spark's draft is of something else, and isn't saved. */
+const SCULPT_FLOOR = 0.15;
+/** A picture narrower than this is a room camera's crop; Spark is shown it larger. */
+const SCULPT_SMALL_PX = 128;
 /** What modelling a fixture with AI shows while it runs, in order. */
 const SCULPT_STEPS = [
   { id: 'picture', label: 'The picture of it' },
   { id: 'current', label: 'Its model as it is' },
-  { id: 'draft', label: 'Spark drafts it in parts' },
-  { id: 'check', label: 'Spark checks its draft' },
-  { id: 'keep', label: 'Keep the better draft' },
+  { id: 'draft', label: `Spark drafts it ${SCULPT_DRAFTS} ways` },
+  { id: 'keep', label: 'Keep the best draft' },
   { id: 'save', label: 'Save it' },
 ];
 /** A scan's steps, as the page follows them. */
@@ -170,8 +179,6 @@ function withModel(fixtures: Fixture[], fixture: Fixture, model: SavedItem): Fix
     };
   });
 }
-/** A crop at least this wide is worth Spark's check in a scan; smaller wants a close photo. */
-const CHECKED_CROP_PX = 40;
 const sumUsage = (a: Usage | null, b: Usage | null | undefined): Usage | null =>
   !b
     ? a
@@ -187,10 +194,6 @@ const sumUsage = (a: Usage | null, b: Usage | null | undefined): Usage | null =>
  * The most a live draft can cost: Spark names the thing, SAM outlines it,
  * SAM looks for up to two parts, and Spark checks one render.
  */
-/** The most modelling one crop live can cost: SAM per part it looks for, and Spark's check. */
-const modelCeiling = (archetype: FixtureClass['archetype']) =>
-  Object.keys(PART_CONCEPTS[archetype] ?? {}).length * META_PRICES.samPerImage +
-  sparkCeiling(SPARK_BUDGET.itemCheck, 2);
 const fixtureDraftCeiling = () =>
   sparkCeiling(SPARK_BUDGET.fixtureClass, 1) +
   3 * META_PRICES.samPerImage +
@@ -713,12 +716,8 @@ export function fixtureRoutes(
           job.run('model', `${label} (${i + 1} of ${scan.things.length})`);
           await job.show('model', crop.png);
           job.check();
-          // Live help (part masks, Spark's check) for what is big enough to judge, while
-          // today's limit covers it; a thing a few pixels across wants a close photo instead.
-          const helped =
-            Boolean(image) &&
-            Math.max(crop.width, crop.height) >= CHECKED_CROP_PX &&
-            meta.canAfford(modelCeiling(thing.archetype));
+          // Fitted locally, in about a second: Spark's check of each crop took the scan
+          // 30 s a thing and timed out on all six of one room's. "Model with AI" refines one.
           const request = {
             crop,
             cropUrl: `data:image/png;base64,${crop.png.toString('base64')}`,
@@ -728,19 +727,7 @@ export function fixtureRoutes(
             elevation: pinElevation(memory, mode),
             knownHeight: thing.sizeCm.h / Math.max(thing.sizeCm.w, thing.sizeCm.d),
           };
-          // The help only helps: when it fails, this thing is fitted locally and the scan goes on.
-          const drafted = helped
-            ? await draftModel(meta, store, id, { ...request, live: true }).catch(
-                async (e: unknown) => {
-                  job.check();
-                  const local = await draftModel(meta, store, id, { ...request, live: false });
-                  local.assists.push(
-                    `Spark's check failed (${e instanceof Error ? e.message : 'it failed'}): fitted locally`,
-                  );
-                  return local;
-                },
-              )
-            : await draftModel(meta, store, id, { ...request, live: false });
+          const drafted = await draftModel(meta, store, id, { ...request, live: false });
           models.push(drafted.item);
           usage = sumUsage(usage, drafted.usage);
           assets.push(...drafted.assets);
@@ -946,7 +933,7 @@ export function fixtureRoutes(
       );
     // A note is looked up as a product first: the catalog, then the web.
     const ceiling =
-      2 * sparkCeiling(SPARK_BUDGET.sculpt, 2) +
+      SCULPT_DRAFTS * sparkCeiling(SPARK_BUDGET.sculpt, 2) +
       (note
         ? sparkCeiling(SPARK_BUDGET.productLookup, 0) +
           SEARCH_CEILING * META_PRICES.webSearchPerQuery
@@ -961,8 +948,18 @@ export function fixtureRoutes(
     const { elevation } = pictured;
     const input = await cropInput(png, fixture.label);
     const greyscale = await isGreyscale(png);
-    const shown = async (b: Buffer) =>
-      `data:image/png;base64,${(await sharp(b).flatten({ background: SCULPT_BACKDROP }).png().toBuffer()).toString('base64')}`;
+    const { width = 0, height = 0 } = await sharp(png).metadata();
+    const small = Math.max(width, height) < SCULPT_SMALL_PX;
+    // A room camera's crop is shown at least 3× larger, so Spark doesn't read it as a speck.
+    const shown = async (b: Buffer, enlarge = false) => {
+      let image = sharp(b).flatten({ background: SCULPT_BACKDROP });
+      if (enlarge && small)
+        image = image.resize({
+          width: Math.max(1, width) * Math.ceil((SCULPT_SMALL_PX * 3) / Math.max(width, height)),
+          kernel: 'lanczos3',
+        });
+      return `data:image/png;base64,${(await image.png().toBuffer()).toString('base64')}`;
+    };
     // Its proportions: the fixture's, until a lookup gives the product's own.
     const proportions = (s: { w: number; d: number; h: number }) => {
       const longest = Math.max(s.w, s.d);
@@ -991,109 +988,135 @@ export function fixtureRoutes(
       let requestId: string | null = null;
       let facts: MergedFacts | null = null;
       let productTiles: { w: number; d: number; h: number } | null = null;
+      // A note is looked up alongside the drafts, not before them (the web took 48 s): what
+      // the catalog knows goes into Spark's prompt at once; what the web finds sizes the
+      // saved model and is kept, so the same thing next time comes from the catalog.
+      const catalog = new Catalog([productsDir, BUNDLED_CATALOG]);
+      const web: Researcher = {
+        kind: 'web',
+        lookup: async (q, need) => {
+          const r = await meta.lookupProduct(q, need, job.signal);
+          usage = sumUsage(usage, r.usage);
+          return r.output.facts;
+        },
+      };
+      const need = ['parts', 'colors'] as const;
       if (note) {
         job.run('lookup');
-        const web: Researcher = {
-          kind: 'web',
-          lookup: async (q, need) => {
-            const r = await meta.lookupProduct(q, need, job.signal);
-            usage = sumUsage(usage, r.usage);
-            return r.output.facts;
-          },
-        };
-        // The lookup only helps: when it fails, Spark models from the note and the picture.
-        let failed: string | null = null;
-        const found = await research(
-          note,
-          ['parts', 'colors'],
-          [new Catalog([productsDir, BUNDLED_CATALOG]), web],
-          { signal: job.signal },
-        ).catch((e: unknown) => {
-          job.check();
-          failed = e instanceof Error ? e.message : 'It failed.';
-          return null;
-        });
-        job.check();
-        facts = found?.facts.sources.length ? found.facts : null;
-        // What the web found is kept, so the same thing next time comes from the catalog.
-        if (facts?.origin.name === 'web' || facts?.origin.size === 'web')
-          try {
-            new Catalog([productsDir, BUNDLED_CATALOG]).save({ ...facts, query: note });
-          } catch {
-            /* keeping it is a convenience; the model doesn't depend on it */
-          }
+        const known = await research(note, need, [catalog], { signal: job.signal }).catch(
+          () => null,
+        );
+        facts = known?.facts.sources.length ? known.facts : null;
         const real = facts && productSize(facts, activeSize);
         if (real) {
           productTiles = real;
           size = proportions(real);
         }
-        await job.done(
-          'lookup',
-          facts && found
-            ? `${facts.name ?? 'Found it'} (${found.asked.map((a) => `${a.kind}${a.found ? ' ✓' : ' –'}`).join(' · ')})`
-            : failed
-              ? `Couldn’t look it up (${failed}); modelling from your note and the picture`
-              : 'Nothing found; modelling from your note and the picture',
-        );
       }
-      const context = { note: note ?? null, facts, greyscale };
-      const drafts: { item: IsoItem; iou: number; note: string; round: number }[] = [];
-      let from: IsoItem = { label: activeModel.label, parts: activeModel.parts };
+      // The lookup only helps: when it fails, Spark models from the note and the picture.
+      const looked = note
+        ? research(note, need, [catalog, web], { signal: job.signal }).then(
+            (found) => ({ found, failed: null }),
+            (e: unknown) => ({
+              found: null,
+              failed: e instanceof Error ? e.message : 'It failed.',
+            }),
+          )
+        : null;
+      const context = { note: note ?? null, facts, greyscale, small };
+      const from: IsoItem = { label: activeModel.label, parts: activeModel.parts };
       job.run('current');
-      let render = await viewPng(from, elevation, input.width);
+      const render = await viewPng(from, elevation, input.width);
       assets.push(store.asset(id, 'render-1.png', render));
       await job.done(
         'current',
         `${parts(from.parts.length)}, ${overlap(scoreAgainst(from, input, elevation).iou)}`,
         render,
       );
-      for (const round of [1, 2]) {
-        const step = round === 1 ? 'draft' : 'check';
-        job.run(step);
-        const answer = await meta.sculpt(
-          await shown(png),
-          await shown(render),
-          round === 1
-            ? sculptPrompt(fixture.label, size, context)
-            : sculptCheckPrompt(fixture.label, context),
-          JSON.stringify(toSculpt(from)),
-          job.signal,
-        );
-        job.check();
-        usage = sumUsage(usage, answer.usage);
-        model = answer.model;
-        requestId = answer.requestId;
-        const item = fromSculpt(activeModel.label, answer.output);
-        if (!item) {
-          await job.done(step, 'No usable parts came back');
-          break;
-        }
-        const iou = scoreAgainst(item, input, elevation).iou;
-        drafts.push({ item, iou, note: answer.output.note, round });
-        from = item;
-        render = await viewPng(item, elevation, input.width);
-        assets.push(store.asset(id, `render-${round + 1}.png`, render));
-        await job.done(
-          step,
-          `${parts(item.parts.length)}, ${overlap(iou)}. ${answer.output.note}`,
-          render,
-        );
+      job.run('draft');
+      const [picture, current] = await Promise.all([shown(png, true), shown(render)]);
+      const prompt = sculptPrompt(fixture.label, size, context);
+      const answers = await Promise.allSettled(
+        Array.from({ length: SCULPT_DRAFTS }, () =>
+          meta.sculpt(
+            picture,
+            current,
+            prompt,
+            JSON.stringify(toSculpt(from)),
+            job.signal,
+            12,
+            'low',
+          ),
+        ),
+      );
+      job.check();
+      const drafts: { item: IsoItem; iou: number; note: string }[] = [];
+      for (const answer of answers) {
+        if (answer.status !== 'fulfilled') continue;
+        usage = sumUsage(usage, answer.value.usage);
+        model = answer.value.model;
+        requestId = answer.value.requestId;
+        const item = fromSculpt(activeModel.label, answer.value.output);
+        if (item)
+          drafts.push({
+            item,
+            iou: scoreAgainst(item, input, elevation).iou,
+            note: answer.value.output.note,
+          });
       }
-      job.run('keep');
-      const best = [...drafts].sort((a, b) => b.iou - a.iou)[0];
-      if (!best)
+      const best = drafts.sort((a, b) => b.iou - a.iou)[0];
+      if (!best) {
+        const failed = answers.find((a) => a.status === 'rejected');
+        if (failed) throw failed.reason;
         throw new LabError(
           'sculpt_empty',
           `Spark’s model of the ${fixture.label.toLowerCase()} had no usable parts. Try again.`,
           502,
         );
+      }
+      const drafted = await viewPng(best.item, elevation, input.width);
+      assets.push(store.asset(id, 'render-2.png', drafted));
+      await job.done(
+        'draft',
+        `${parts(best.item.parts.length)}, ${overlap(best.iou)}, the best of ${drafts.length}. ${best.note}`,
+        drafted,
+      );
+      if (best.iou < SCULPT_FLOOR)
+        throw new LabError(
+          'sculpt_miss',
+          `Spark’s best model of the ${fixture.label.toLowerCase()} overlaps the picture by ${Math.round(best.iou * 100)}%, so it is something else; its model is kept as it was. Say what it is and try again.`,
+          502,
+        );
+      if (looked && note) {
+        const { found, failed } = await looked;
+        job.check();
+        const product = found?.facts.sources.length ? found.facts : null;
+        if (product?.origin.name === 'web' || product?.origin.size === 'web')
+          try {
+            catalog.save({ ...product, query: note });
+          } catch {
+            /* keeping it is a convenience; the model doesn't depend on it */
+          }
+        facts = product ?? facts;
+        const real = facts && productSize(facts, activeSize);
+        if (real) productTiles = real;
+        await job.done(
+          'lookup',
+          product && found
+            ? `${product.name ?? 'Found it'} (${found.asked.map((a) => `${a.kind}${a.found ? ' ✓' : ' –'}`).join(' · ')})`
+            : failed
+              ? `Couldn’t look it up (${failed}); modelled from your note and the picture`
+              : 'Nothing found; modelled from your note and the picture',
+        );
+      }
+      job.run('keep');
       const item = keepLocked(best.item, activeModel);
       const final = await viewPng(item, elevation, input.width);
       assets.push(store.asset(id, 'render-final.png', final));
       const kept = item.parts.length - best.item.parts.length;
       await job.done(
         'keep',
-        `${best.round === 1 ? 'The first draft' : 'The checked draft'}, ${overlap(best.iou)}` +
+        `The best of ${drafts.length} drafts, ${overlap(best.iou)}` +
           (kept > 0 ? `, with ${parts(kept)} you locked` : ''),
         final,
       );
