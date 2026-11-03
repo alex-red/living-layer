@@ -427,6 +427,9 @@ function MoreMenu({ close }: { close: () => void }) {
         >
           Keyboard shortcuts
         </Button>
+        <a className="text-button" href="/studio">
+          Fixture Studio ↗
+        </a>
         <a className="text-button" href="/playground">
           Camera playground ↗
         </a>
@@ -500,7 +503,8 @@ export function KeysDialog() {
  * Where you are (a breadcrumb of the selection), what is happening (the status
  * capsule), and the session: data source, undo, spend and the menu.
  */
-export function TopBar() {
+/** `place` stands for the crumbs on a page of its own (the studio), which has no outline either. */
+export function TopBar({ place }: { place?: string[] } = {}) {
   const lab = useLabParts(
     useView(),
     useFeedback(),
@@ -513,17 +517,20 @@ export function TopBar() {
   const { mode, busy, camera, cameraPending, status, undo, redo, progress } = lab;
   const roomLabel = labelOfRoom(progress.room, lab.memory);
   const crumbs: { label: string; onClick?: () => void }[] = [];
-  if (roomLabel) crumbs.push({ label: roomLabel, onClick: () => lab.select({ kind: 'room' }) });
+  if (place) crumbs.push(...place.map((label) => ({ label })));
+  else if (roomLabel)
+    crumbs.push({ label: roomLabel, onClick: () => lab.select({ kind: 'room' }) });
   const inView =
     lab.workScene === progress.view ||
     ['view', 'object', 'suggested', 'add'].includes(lab.selection?.kind ?? '');
-  if (progress.view && inView)
+  if (!place && progress.view && inView)
     crumbs.push({
       label: viewLabel(progress.view),
       onClick: () => lab.select({ kind: 'view' }),
     });
   const leaf = lab.selection && selectionLabel(lab, lab.selection);
-  if (leaf && !['room', 'view'].includes(lab.selection!.kind)) crumbs.push({ label: leaf });
+  if (!place && leaf && !['room', 'view'].includes(lab.selection!.kind))
+    crumbs.push({ label: leaf });
   return (
     <header className="topbar">
       <div className="topbar-id">
@@ -552,7 +559,7 @@ export function TopBar() {
           </nav>
         )}
       </div>
-      {progress.room && (
+      {progress.room && !place && (
         <button
           className="outline-toggle"
           aria-label="Scene outline"

@@ -14,11 +14,13 @@ const Playground = lazy(() =>
   import('./playground/Playground').then((m) => ({ default: m.Playground })),
 );
 const App = lazy(() => import('./App').then((m) => ({ default: m.App })));
+const Studio = lazy(() => import('./studio/Studio').then((m) => ({ default: m.Studio })));
 // Development only: in a production build this and its styles are left out.
 const DevReload = import.meta.env.DEV
   ? lazy(() => import('./DevReload').then((m) => ({ default: m.DevReload })))
   : null;
-const Page = window.location.pathname.replace(/\/$/, '') === '/playground' ? Playground : App;
+const PAGES: Record<string, typeof App> = { '/playground': Playground, '/studio': Studio };
+const Page = PAGES[window.location.pathname.replace(/\/$/, '')] ?? App;
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

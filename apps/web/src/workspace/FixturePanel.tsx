@@ -922,6 +922,9 @@ export function FixturePanel({ id }: { id: string }) {
         <Button size="sm" disabled={off || moving} onClick={() => lab.openModel(f.id)}>
           {f.state ? `Edit “${f.state}” model` : 'Edit model'}
         </Button>
+        <a className="text-button" href={`/studio?thing=${encodeURIComponent(f.id)}`}>
+          Studio ↗
+        </a>
       </div>
       <Details summary="States" open={stateNames.length > 0}>
         {stateNames.length > 0 && (

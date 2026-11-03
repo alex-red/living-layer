@@ -77,7 +77,7 @@ import { Later } from '../Later';
 import { LayerChips } from '../workspace/LayerChips';
 import { DESK_THINGS } from '../workspace/labels';
 import type { IsoCallout } from './Callouts';
-import { SculptFixture } from '../workspace/FixturePanel';
+import { ThingEditor } from './ThingEditor';
 import { pinScene, type WorkScene as Kind } from '../workspace/progress';
 import './iso.css';
 import type { SceneView } from './SceneEditor';
@@ -86,7 +86,6 @@ import { clock, dayAt, type MugSpot } from '../workspace/demoDay';
 import { useReplay } from '../workspace/state/replay';
 
 // The editors and the room's picture load when first shown.
-const ItemEditor = lazy(() => import('./ItemEditor').then((m) => ({ default: m.ItemEditor })));
 const SceneEditor = lazy(() => import('./SceneEditor').then((m) => ({ default: m.SceneEditor })));
 const IllustrationView = lazy(() =>
   import('./IllustrationView').then((m) => ({ default: m.IllustrationView })),
@@ -676,10 +675,6 @@ function IsoViewOf({
   const targetFixture = target?.fixture
     ? memory?.fixtures?.find((f) => f.id === target.id)
     : undefined;
-  // A thing the camera follows is modelled with AI from its last sighting, as a fixture is from its photo.
-  const sighted = target
-    ? memory?.fixtures?.find((f) => f.id === target.id && f.place === 'sightings')
-    : undefined;
 
   // The food things the stats layer shows here: what Randomize gives sample values.
   const foodThings = callouts.flatMap((c) =>
@@ -754,73 +749,7 @@ function IsoViewOf({
     <div className="iso-view">
       <div className={`iso-frame ${panel === 'item' || panel === 'scene' ? 'editing' : ''}`}>
         {panel === 'item' ? (
-          <Later>
-            <ItemEditor
-              key={target?.id}
-              item={target?.item}
-              fixture={targetFixture}
-              label={target?.label ?? 'thing'}
-              busy={off}
-              fitNote={
-                mode === 'demo'
-                  ? 'Demo: fits the demo mug’s own pixels, from a close photo of it.'
-                  : 'Free: the fitter measures its shape, colours and print from the same masked crop, on this machine.'
-              }
-              modelWithAi={sighted && <SculptFixture fixture={sighted} disabled={off} />}
-              cropUrl={
-                target?.item?.fit?.crop
-                  ? `/api/item/crop?mode=${mode}${modelOf ? `&objectId=${modelOf}` : ''}&v=${encodeURIComponent(target.item.fit.crop)}`
-                  : null
-              }
-              onRefit={(item) =>
-                void send<DeskMemory>(
-                  'item/refit',
-                  { item, ...(modelOf ? { objectId: modelOf } : {}) },
-                  onMemory,
-                )
-              }
-              onDraft={
-                target?.fixture
-                  ? undefined
-                  : () =>
-                      void send<{ run: EvidenceRun<SavedItem>; memory: DeskMemory }>(
-                        'item/draft',
-                        { source: 'sampled', ...(modelOf ? { objectId: modelOf } : {}) },
-                        (r) => {
-                          onMemory(r.memory);
-                          onRun(r.run);
-                        },
-                      )
-              }
-              onSave={(item) =>
-                void send<DeskMemory>(
-                  'item/save',
-                  { item, ...(modelOf ? { objectId: modelOf } : {}) },
-                  onMemory,
-                )
-              }
-              onFixtureState={
-                targetFixture
-                  ? (payload) =>
-                      void send<DeskMemory>(
-                        'fixtures/state',
-                        { fixtureId: targetFixture.id, ...payload },
-                        onMemory,
-                      )
-                  : undefined
-              }
-              onFixtureSize={
-                targetFixture
-                  ? (size) =>
-                      void send<DeskMemory>(
-                        'fixtures/save',
-                        { fixture: { ...fixtureInput(targetFixture), size } },
-                        onMemory,
-                      )
-                  : undefined
-              }
-            />
-          </Later>
+          <ThingEditor objectId={modelOf} />
         ) : panel === 'scene' ? (
           <Later>
             <SceneEditor

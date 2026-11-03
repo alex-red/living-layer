@@ -567,6 +567,36 @@ test('the layout editor shows the room’s fixtures, to hide or move without lea
   await expect(page.locator('.scene-editor')).toBeVisible();
 });
 
+test('the studio page lists the things and opens one’s model, kept in its link', async ({
+  page,
+}) => {
+  await freshDesk(page);
+  await page.goto('/');
+  await chooseScene(page);
+  await addFixture(page);
+  // Scoped: an earlier test's mouse may still be in the outline and the activity drawer.
+  await page
+    .getByRole('complementary', { name: 'Inspector' })
+    .getByRole('button', { name: /Computer mouse/ })
+    .click();
+  await page.getByRole('combobox', { name: 'Room', exact: true }).selectOption({ label: 'Office' });
+  await page.getByRole('button', { name: 'Place it' }).click();
+  await page.getByLabel('Place the computer mouse').click();
+  await expect(outline(page, 'Computer mouse')).toBeVisible();
+  await page.goto('/studio');
+  // Earlier tests may leave mice of their own: this one is the newest, last among equals.
+  const mouse = page
+    .getByRole('navigation', { name: 'Things' })
+    .getByRole('button', { name: /Computer mouse/ })
+    .last();
+  await mouse.click();
+  await expect(page).toHaveURL(/\/studio\?thing=/);
+  await expect(page.getByRole('region', { name: 'Fixture Studio States' })).toBeVisible();
+  await page.reload();
+  await expect(mouse).toHaveAttribute('aria-current', 'true');
+  await expect(page.getByRole('listbox', { name: 'Item parts' })).toBeVisible();
+});
+
 test('the AI brush turns the office desk into an Alex desk, follows up, and puts it in the room', async ({
   page,
 }) => {

@@ -1,0 +1,76 @@
+/* The Fixture Studio page: things on the left, the model editor beside them. */
+.studio-page {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  gap: 12px;
+  min-height: 0;
+  padding: 12px;
+}
+.studio-things {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+  overflow-y: auto;
+}
+.studio-things ul {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.studio-things li button {
+  display: grid;
+  grid-template-columns: 32px 1fr;
+  grid-template-rows: auto auto;
+  column-gap: 8px;
+  align-items: center;
+  width: 100%;
+  padding: 4px 6px;
+  border: 1px solid transparent;
+  border-radius: var(--r-button);
+  background: none;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.studio-things li button:hover {
+  background: var(--control-bg-hover);
+}
+.studio-things li button.active {
+  border-color: var(--chosen);
+  background: var(--chosen-wash);
+}
+.studio-thing-thumb {
+  grid-row: span 2;
+  width: 32px;
+  height: 32px;
+  object-fit: contain;
+  image-rendering: pixelated;
+}
+.studio-thing-name {
+  font-size: var(--fs-13);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.studio-editor {
+  padding-top: 12px;
+}
+.studio-editor > .micro {
+  margin: auto;
+}
+
+/* Phone: the things above the editor, the page scrolling. */
+@media (max-width: 767px) {
+  .studio-page {
+    grid-template-columns: 1fr;
+  }
+  .studio-things {
+    max-height: 40vh;
+  }
+}
