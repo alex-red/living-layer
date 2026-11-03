@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Button } from './ui/controls';
+import { usePageVisible } from './visible';
 import './dev-reload.css';
 
 /** What `scripts/dev.ts` has seen change since it started. */
@@ -27,7 +28,10 @@ export function DevReload() {
   const loadedWith = useRef<number | null>(null);
   const [asked, setAsked] = useState(false);
 
+  // Only while the page shows: see `usePageVisible`.
+  const visible = usePageVisible();
   useEffect(() => {
+    if (!visible) return;
     const events = new EventSource('/__dev/events');
     events.onmessage = (e) => {
       const next = JSON.parse(e.data as string) as DevState;
@@ -35,7 +39,7 @@ export function DevReload() {
       setState(next);
     };
     return () => events.close();
-  }, []);
+  }, [visible]);
 
   if (!state) return null;
   const web = state.web !== loadedWith.current;
