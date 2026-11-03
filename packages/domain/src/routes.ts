@@ -147,6 +147,9 @@ interface ApiRoutes {
       mapped: MappedThing[];
       memory: DeskMemory;
       moving: MovingThing[];
+      /** What it now follows from its outline, and what SAM didn't outline, when asked to follow. */
+      followed: string[];
+      missed: string[];
     };
   };
   'fixtures/sculpt': {

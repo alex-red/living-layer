@@ -73,4 +73,6 @@ export type Scanned = {
   mapped: MappedThing[];
   memory: DeskMemory;
   moving: MovingThing[];
+  followed: string[];
+  missed: string[];
 };
