@@ -2,13 +2,18 @@ import type { FixtureInput } from './fixture.js';
 import type { IsoProp, IsoScene, IsoSceneKind, IsoTone } from './iso.js';
 import { ISO_PRESETS } from './iso-presets.js';
 import { foodDefaults } from './food.js';
-import { propModel, type PropPart } from './iso-furniture.js';
+import { cm, propModel, type PropPart } from './iso-furniture.js';
 import type { ItemMaterial } from './iso-item.js';
 import { PROP_TONES } from './iso-prop-sprite.js';
 import { fromSculpt, type SculptPart } from './item-sculpt.js';
 
 /** The most parts an item model holds; a promoted prop keeps its biggest. */
 const ITEM_PARTS = 12;
+/**
+ * A tube's least radius as a thing: a floor lamp's pole (2.5 cm), so a scanned
+ * lamp's pole and arm still show a voxel wide in its sprite.
+ */
+const THIN_TUBE = cm(2.5);
 const TONE_MATERIAL: Partial<Record<IsoTone, ItemMaterial>> = {
   wood: 'wood',
   steel: 'metal',
@@ -45,7 +50,7 @@ export function promoteGroup(
     for (const q of propModel(p) ?? [plainPart(p)]) {
       const at = { x: p.at.x + q.at.x - x0, y: p.at.y + q.at.y - y0, z: p.at.z + q.at.z - z0 };
       parts.push({
-        id: `${q.shape}-${parts.length + 1}`,
+        id: shadeId(q.name) ?? `${q.shape}-${parts.length + 1}`,
         shape: q.shape,
         at: { x: at.x / L, y: at.y / L, z: at.z / L },
         size: { w: q.size.w / L, d: q.size.d / L, h: q.size.h / L },
@@ -56,7 +61,7 @@ export function promoteGroup(
         outline: null,
         radius:
           q.shape === 'tube'
-            ? (q.radius ?? 0.05) / L
+            ? Math.max(q.radius ?? 0.05, THIN_TUBE) / L
             : q.shape === 'rbox'
               ? (q.radius ?? null)
               : null,
@@ -139,6 +144,21 @@ export function withoutPromoted(
     props: scene.props.filter((p) => !gone.has(p.id)),
     surfaces: scene.surfaces.filter((s) => !gone.has(s.propId)),
   };
+}
+
+/**
+ * A scanned part named as a shade (`top-shade`, `shade`) as a light source's
+ * id (`shade-top`, `shade`), so each of a lamp's shades can switch its own light.
+ */
+function shadeId(name: string | undefined): string | null {
+  const words =
+    name
+      ?.toLowerCase()
+      .split(/[^a-z0-9]+/)
+      .filter(Boolean) ?? [];
+  if (!words.includes('shade')) return null;
+  const rest = words.filter((w) => w !== 'shade');
+  return (rest.length ? `shade-${rest.join('-')}` : 'shade').slice(0, 24);
 }
 
 /** A prop with no model of its own: its box, or a straight lathe for a cylinder. */

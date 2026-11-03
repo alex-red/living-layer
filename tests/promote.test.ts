@@ -2,15 +2,19 @@ import { describe, expect, it } from 'bun:test';
 import { testApp } from './lib/app.js';
 import {
   ISO_PRESETS,
+  cm,
   cornerCamera,
+  fixtureModel,
   fixtureType,
   groupBounds,
+  lightSources,
   projectRoom,
   occupantOf,
   promoteGroup,
   starterFixtureDraft,
   suggestedStats,
   type DeskMemory,
+  type FixtureRecipe,
   type IsoBox,
   type IsoScene,
   type PhotoDraft,
@@ -18,6 +22,107 @@ import {
 import { draftCropOf } from '../apps/server/src/fixture/promote.js';
 
 const office = (): IsoScene => ({ ...ISO_PRESETS.office, kind: 'custom' });
+
+/** A floor lamp as a room scan built it: a top bowl, and a side shade on an arm at 90 cm. */
+const SCANNED_LAMP: FixtureRecipe = {
+  label: 'floor lamp',
+  sizeCm: { w: 30.94, d: 15.47, h: 172.5 },
+  parts: [
+    {
+      name: 'base',
+      role: 'shelf',
+      shape: 'lathe',
+      atCm: { x: 4.6, y: 0, z: 0 },
+      sizeCm: { w: 15.5, d: 15.47, h: 3.4 },
+      tone: 'steel',
+      color: '#141417',
+      material: 'metal',
+      profile: [
+        { r: 1, z: 0 },
+        { r: 1, z: 0.4 },
+        { r: 0.85, z: 1 },
+      ],
+    },
+    {
+      name: 'pole',
+      role: 'body',
+      shape: 'tube',
+      atCm: { x: 11.1, y: 6.5, z: 2.8 },
+      sizeCm: { w: 2.5, d: 2.5, h: 154.7 },
+      tone: 'steel',
+      color: '#131316',
+      material: 'metal',
+      path: [
+        { x: 0.5, y: 0.5, z: 0 },
+        { x: 0.5, y: 0.5, z: 1 },
+      ],
+      tubeCm: 0.6,
+    },
+    {
+      name: 'top-shade',
+      role: 'top',
+      shape: 'lathe',
+      atCm: { x: 4.6, y: 0, z: 164.8 },
+      sizeCm: { w: 15.5, d: 15.47, h: 7.69 },
+      tone: 'glass',
+      color: '#f5f5f0',
+      material: 'glass',
+      profile: [
+        { r: 0.28, z: 0 },
+        { r: 0.32, z: 0.2 },
+        { r: 0.85, z: 0.7 },
+        { r: 1, z: 1 },
+      ],
+    },
+    {
+      name: 'side-arm',
+      role: 'rail',
+      shape: 'tube',
+      atCm: { x: 12.4, y: 6.5, z: 89.1 },
+      sizeCm: { w: 11.8, d: 2.5, h: 5.6 },
+      tone: 'steel',
+      color: '#131316',
+      material: 'metal',
+      path: [
+        { x: 0.05, y: 0.5, z: 0.2 },
+        { x: 0.5, y: 0.5, z: 0.9 },
+        { x: 0.95, y: 0.5, z: 0.55 },
+      ],
+      tubeCm: 0.6,
+    },
+    {
+      name: 'side-shade',
+      role: 'rail',
+      shape: 'tube',
+      atCm: { x: 21.7, y: 5, z: 90.3 },
+      sizeCm: { w: 8.7, d: 5.6, h: 5.6 },
+      tone: 'paper',
+      color: '#f2f2ec',
+      material: 'matte',
+      path: [
+        { x: 0.1, y: 0.5, z: 0.55 },
+        { x: 0.9, y: 0.5, z: 0.35 },
+      ],
+      tubeCm: 2.3,
+    },
+  ],
+};
+const scannedLamp = (): IsoScene => ({
+  ...office(),
+  props: [
+    {
+      id: 'floor-lamp',
+      label: 'floor lamp',
+      shape: 'prism',
+      at: { x: 0.9, y: 6.4, z: 0 },
+      size: { w: cm(30.94), d: cm(15.47), h: cm(172.5) },
+      tone: 'steel',
+      group: 'floor-lamp',
+      recipe: SCANNED_LAMP,
+    },
+  ],
+  surfaces: [],
+});
 
 describe('making a prop a thing', () => {
   it('takes a chair out of the layout as a fixture drawn the same, on the floor', () => {
@@ -52,6 +157,40 @@ describe('making a prop a thing', () => {
     const lamp = promoteGroup(scene, 'lamp')!;
     expect(lamp.scene.props.some((p) => p.group === 'lamp')).toBe(false);
     expect(promoteGroup(scene, 'nothing')).toBeNull();
+  });
+
+  it('keeps a scanned lamp’s shades as light sources, each lit by its own entity', () => {
+    const { model } = promoteGroup(scannedLamp(), 'floor-lamp')!.fixture;
+    expect(lightSources(model)).toEqual([
+      { part: 'shade-top', label: 'Top shade' },
+      { part: 'shade-side', label: 'Side shade' },
+    ]);
+    const lights = [
+      { part: 'shade-top', entityId: 'light.light_bulb_color_hue_1' },
+      { part: 'shade-side', entityId: 'light.light_bulb_color_hue_2' },
+    ];
+    const warm = (lit: Record<string, boolean>, id: string) =>
+      Boolean(
+        fixtureModel({
+          model: { ...model, source: 'demo', segmentRunId: null, swatches: [], updatedAt: '' },
+          lights,
+          lit,
+        })
+          .parts.find((p) => p.id === id)!
+          .paint?.some((b) => 'color' in b && b.color === '#ffe299'),
+      );
+    expect(warm({ 'shade-side': true }, 'shade-side')).toBe(true);
+    expect(warm({ 'shade-side': true }, 'shade-top')).toBe(false);
+    expect(warm({ 'shade-top': true }, 'shade-top')).toBe(true);
+  });
+
+  it('draws a scanned lamp’s 1 cm pole as thick as a floor lamp’s, so its sprite still shows it', () => {
+    const lamp = scannedLamp().props[0]!;
+    const { model } = promoteGroup(scannedLamp(), 'floor-lamp')!.fixture;
+    const L = Math.max(lamp.size.w, lamp.size.d);
+    const tubes = model.parts.filter((p) => p.shape === 'tube');
+    expect(tubes).toHaveLength(3);
+    for (const t of tubes) expect((t.radius ?? 0) * L).toBeGreaterThanOrEqual(cm(2.5) - 1e-9);
   });
 
   it('saves as the room without it and a fixture in its place, which can keep stats', async () => {

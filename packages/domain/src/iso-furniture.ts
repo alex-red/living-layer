@@ -65,6 +65,8 @@ interface PropPartBase {
   /** A colour of its own (a recipe's part); otherwise the tone's. */
   color?: string;
   material?: ItemMaterial;
+  /** A recipe part's name (`top-shade`), so a thing made of it can find its shades. */
+  name?: string;
 }
 /** One part of a model, in tiles, relative to the prop's corner; each shape has its own fields. */
 export type PropPart = PropPartBase &
@@ -761,6 +763,7 @@ export function recipeModel(recipe: FixtureRecipe, w: number, d: number, h: numb
       tone: p.tone,
       ...(p.color ? { color: p.color } : {}),
       ...(p.material ? { material: p.material } : {}),
+      name: p.name,
     };
     switch (p.shape) {
       case 'rbox':

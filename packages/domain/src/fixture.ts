@@ -405,10 +405,20 @@ export function stateVariantModel(
 }
 
 type ItemPart = SavedItem['parts'][number];
-/** A shade lit or not: the bowl glows from inside, any other shade at its mouth. */
+const isBowl = (p: ItemPart) =>
+  p.id === 'shade-bowl' ||
+  (p.shape === 'lathe' && p.profile.length > 1 && p.profile.at(-1)!.r > p.profile[0]!.r);
+/**
+ * A shade lit or not: a bowl (one that opens upward) glows from inside and at
+ * its rim, a tube all along, any other shade at its mouth.
+ */
 function glowShade(p: ItemPart, lit: boolean): ItemPart {
   const rest = (p.paint ?? []).filter((b) => !(b.kind === 'band' && b.color === WARM));
-  const glow = p.id === 'shade-bowl' ? { from: 0.7, to: 1 } : { from: 0, to: 0.3 };
+  const glow = isBowl(p)
+    ? { from: 0.7, to: 1 }
+    : p.shape === 'tube'
+      ? { from: 0, to: 1 }
+      : { from: 0, to: 0.3 };
   return {
     ...p,
     paint: lit ? [...rest, { kind: 'band' as const, ...glow, color: WARM }].slice(0, 6) : rest,
