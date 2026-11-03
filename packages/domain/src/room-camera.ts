@@ -669,6 +669,8 @@ export function marksFromFloor(
 export const CAMERA_CHECK = {
   /** Thumbnail width, in pixels. */
   width: 80,
+  /** Thumbnail height at most, in pixels: it is stored in one byte. */
+  maxHeight: 255,
   /** How far, in thumbnail pixels, another offset is tried. */
   reach: 3,
   /** Under this correlation at no offset the view has changed too much to trust. */
@@ -676,10 +678,16 @@ export const CAMERA_CHECK = {
   /** Another offset must line up this much better to count as a move. */
   minGain: 0.08,
 };
+/** The longest `cameraEdges` string: base64 of the size bytes and the tallest thumbnail. */
+export const CAMERA_EDGES_MAX =
+  Math.ceil((2 + CAMERA_CHECK.width * CAMERA_CHECK.maxHeight) / 3) * 4;
 /** The edge thumbnail a frame is compared by, as base64 of one byte per pixel. */
 export function cameraEdges(frame: { width: number; height: number; data: Uint8Array }): string {
   const w = CAMERA_CHECK.width;
-  const h = Math.max(8, Math.round((frame.height / frame.width) * w));
+  const h = Math.min(
+    CAMERA_CHECK.maxHeight,
+    Math.max(8, Math.round((frame.height / frame.width) * w)),
+  );
   const small = new Float32Array(w * h);
   for (let y = 0; y < h; y++)
     for (let x = 0; x < w; x++) {

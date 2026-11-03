@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import {
+  CAMERA_EDGES_MAX,
   cameraEdges,
   cameraFromMarks,
   cameraMoved,
@@ -299,5 +300,14 @@ describe('telling whether the camera moved', () => {
   it('notices the camera knocked aside', () => {
     const moved = cameraMoved(reference, cameraEdges(grey(36)));
     expect(moved.moved).toBe(true);
+  });
+  it("keeps a tall frame's edges within what a save may hold", () => {
+    for (const height of [640, 1600, 4000]) {
+      const edges = cameraEdges({ width: 240, height, data: new Uint8Array(240 * height) });
+      expect(edges.length).toBeLessThanOrEqual(CAMERA_EDGES_MAX);
+      // The height byte matches the pixels that follow, rather than wrapping past 255.
+      const raw = atob(edges);
+      expect(raw.length - 2).toBe(80 * raw.charCodeAt(1));
+    }
   });
 });
