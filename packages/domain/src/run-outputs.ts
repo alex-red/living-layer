@@ -79,6 +79,9 @@ interface RunOutputs {
   placement: PlacementDecision;
 }
 
+/** What a run of this kind outputs: its named shape, else `unknown`. */
+export type RunKindOutput<K extends RunKind> = K extends keyof RunOutputs ? RunOutputs[K] : unknown;
+
 /** A run of one kind, with its output typed. */
 export type RunOf<K extends keyof RunOutputs> = EvidenceRun<RunOutputs[K]> & { kind: K };
 
@@ -126,7 +129,8 @@ export const fixtureOutput = {
 
 /** Why a failed run failed: the error the runner stored as its output. */
 export function runFailure(run: EvidenceRun | null | undefined): RunFailure['error'] | undefined {
+  const out = run?.status === 'failed' ? run.output : null;
+  if (typeof out !== 'object' || out === null || !('error' in out)) return undefined;
   // A failed run's output is a `RunFailure` by construction (createRunner), whatever its kind.
-  const out = run?.status === 'failed' ? (run.output as Partial<RunFailure> | null) : null;
-  return out?.error;
+  return out.error as RunFailure['error'];
 }
