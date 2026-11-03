@@ -23,6 +23,7 @@ import {
   ISO_TILE_CM,
   cameraFromMarks,
   projectRoom,
+  runOutput,
   roomSizeFor,
   uprightAt,
   type IsoScene,
@@ -221,8 +222,8 @@ function frameFor(src: Source) {
         .find(
           (r) =>
             r.status === 'completed' &&
-            (r.output as PhotoDraft).calibration?.camera.frame.width === camera.frame.width &&
-            (r.output as PhotoDraft).calibration?.camera.frame.height === camera.frame.height,
+            runOutput(r, 'photo')?.calibration?.camera.frame.width === camera.frame.width &&
+            runOutput(r, 'photo')?.calibration?.camera.frame.height === camera.frame.height,
         );
   const frame = draft ? store.asset(`${draft.id}/source.png`) : null;
   return { frame, from: frame ? `draft ${draft!.id.slice(0, 8)}` : null };

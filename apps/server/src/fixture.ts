@@ -1,6 +1,9 @@
 import type { FastifyInstance } from 'fastify';
 import { createHash, randomUUID } from 'node:crypto';
 import {
+  runOutput,
+  fixtureOutput,
+  type FixtureSculptOutput,
   fixturesChooseBodySchema,
   fixturesControlBodySchema,
   fixturesDeleteBodySchema,
@@ -63,7 +66,6 @@ import {
   latheFromSplat,
   latheProportions,
   readSplat,
-  type LatheFit,
   fuseFits,
   scoreAgainst,
   sculptPrompt,
@@ -198,12 +200,6 @@ function withModel(fixtures: Fixture[], fixture: Fixture, model: SavedItem): Fix
     };
   });
 }
-/** What a sculpt run keeps: the model it drew and, when it looked the product up, its size. */
-interface SculptOutput {
-  sculpted: string;
-  item: IsoItem;
-  size?: FixtureInput['size'];
-}
 /**
  * The fixtures with a sculpt's model saved on this one and its linked copies,
  * sized as the product it looked up: where each view keeps its size now,
@@ -212,7 +208,7 @@ interface SculptOutput {
 function withSculpt(
   fixtures: Fixture[],
   fixture: Fixture,
-  out: SculptOutput,
+  out: FixtureSculptOutput,
   swatches: SavedItem['swatches'],
 ): Fixture[] {
   const group = new Set([fixture.id, ...linkedFixtures(fixtures, fixture).map((f) => f.id)]);
@@ -257,9 +253,8 @@ function withSculpt(
 function sculptRunOf(job: Job | null, getRun: (id: string) => EvidenceRun | undefined) {
   for (const id of job?.runIds ?? []) {
     const run = getRun(id);
-    const out = run?.output as Partial<SculptOutput> | undefined;
-    if (run?.status === 'completed' && out?.sculpted && out.item?.parts?.length)
-      return { run, out: out as SculptOutput };
+    const out = fixtureOutput.sculpt(run);
+    if (run?.status === 'completed' && out?.item?.parts?.length) return { run, out };
   }
   return null;
 }
@@ -617,7 +612,7 @@ export async function draftFixture(
       requestId,
     };
   });
-  return { run: event, draft: event.output as FixtureDraft };
+  return { run: event, draft: fixtureOutput.draft(event)! };
 }
 
 /** What each fitted model was fitted to, by its place in the scan. */
@@ -970,7 +965,7 @@ export async function scanFixtures(
     // Stopped while the last step ran: nothing is saved.
     job.check();
     job.run('save');
-    const { mapped } = event.output as { scan: FixtureScan; mapped: MappedThing[] };
+    const { mapped } = fixtureOutput.scan(event)!;
     const { memory, count } = saveScanned(store, mode, target, mapped, fits);
     await job.done('save', `${count} fixture${count === 1 ? '' : 's'} in the workspace`);
     job.finish();
@@ -1302,7 +1297,7 @@ export async function sculptFixture(
     const event = await run('fixture', mode, (id) => sculptSteps(id));
     // Stopped while the last step ran: nothing is saved.
     job.check();
-    const out = event.output as SculptOutput;
+    const out = fixtureOutput.sculpt(event)!;
     const fresh = store.memory(mode);
     fresh.fixtures = withSculpt(fresh.fixtures ?? [], fixture, out, activeModel.swatches);
     store.saveMemory(fresh);
@@ -1513,7 +1508,7 @@ export async function fixtureRoutes(
         requestId,
       };
     });
-    const saved = (event.output as { model: SavedItem }).model;
+    const saved = fixtureOutput.fuse(event)!.model;
     const fresh = store.memory(mode);
     fresh.fixtures = withModel(fresh.fixtures ?? [], fixture, saved);
     store.saveMemory(fresh);
@@ -1598,13 +1593,7 @@ export async function fixtureRoutes(
       });
       job.check();
       job.run('save');
-      const out = event.output as {
-        kept: boolean;
-        iou: number;
-        deltaE: number;
-        item: IsoItem;
-        shaped: LatheFit;
-      };
+      const out = fixtureOutput.refine(event)!;
       if (!out.kept) {
         await job.done('save', 'Nothing saved: the model is as it was');
         job.finish();
@@ -1714,9 +1703,7 @@ export async function fixtureRoutes(
     const room = roomInput === undefined ? previous?.room : roomInput;
     // What the model was drafted as: the fixture before, or the draft it came from.
     const drafted =
-      referenceRun?.kind === 'fixture' && referenceRun.status === 'completed'
-        ? (referenceRun.output as FixtureDraft)
-        : undefined;
+      referenceRun?.status === 'completed' ? fixtureOutput.draft(referenceRun) : undefined;
     const base = previous?.model ?? drafted?.model;
     const savedModel: SavedItem = {
       ...uniqueParts(model),
@@ -2090,7 +2077,7 @@ export async function fixtureRoutes(
     }));
     // Read again: the action took a while, and the memory may have changed meanwhile.
     const memory = store.memory(mode);
-    noteControl(memory, event.output as LampResult);
+    noteControl(memory, runOutput(event, 'lamp')!);
     store.saveMemory(memory);
     return { memory, event };
   });

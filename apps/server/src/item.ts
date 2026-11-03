@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { fitItemAsync } from './workers/compute.js';
 import sharp from 'sharp';
 import {
+  runOutput,
   itemCropQuerySchema,
   itemDraftBodySchema,
   itemSaveBodySchema,
@@ -32,7 +33,6 @@ import {
   type ItemFitRecord,
   type Mode,
   type SavedItem,
-  type Segmentation,
   type Usage,
   addUsage,
 } from '@livinglayer/domain';
@@ -68,8 +68,8 @@ export async function itemCrop(
   detection: Detection,
 ) {
   if (mode === 'demo') {
-    const output = segment.output as Segmentation & { sourceKey?: string };
-    const position = (output.sourceKey?.split('@')[1] ?? 'centre') as DemoPosition;
+    const sourceKey = runOutput(segment, 'segment')?.sourceKey;
+    const position = (sourceKey?.split('@')[1] ?? 'centre') as DemoPosition;
     // The demo mug is modelled from a close photo of it, as a person would take one.
     const close = await demoMugCloseUp(DEMO_POSITIONS[position] ? position : 'centre');
     return maskedCrop(close.png, close.detection);
@@ -283,7 +283,7 @@ export async function itemRoutes(
       mode,
       async (id, signal) => {
         const segment = store.getRun(sighting.segmentRunId);
-        const segmentation = segment?.output as Segmentation | undefined;
+        const segmentation = runOutput(segment, 'segment');
         const detection = segmentation?.detections.find((d) => d.objectId === sighting.detectionId);
         if (!segment || !segmentation || !detection)
           throw new LabError(
@@ -372,7 +372,7 @@ export async function itemRoutes(
     );
     const latest = store.memory(mode);
     if (modelTarget(latest, object.id)) {
-      setModel(latest, object.id, event.output as SavedItem);
+      setModel(latest, object.id, runOutput(event, 'item')!);
       store.saveMemory(latest);
     }
     return { run: event, memory: latest };

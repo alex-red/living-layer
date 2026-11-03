@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { renderRoomAsync } from './workers/compute.js';
 import sharp from 'sharp';
 import {
+  runOutput,
   modeOnlySchema,
   sceneIllustrateBodySchema,
   sceneIllustrationQuerySchema,
@@ -46,6 +47,19 @@ import { roomPhotoBytes } from './fixture.js';
 import { following } from './jobs.js';
 import { listedPreview, outlinedPreview } from './scan-preview.js';
 import { SPARK_BUDGET } from './meta.js';
+
+/** The picture a drawing run saved. */
+function drawnAsset(run: EvidenceRun): string {
+  const out = runOutput(run, 'illustration');
+  if (!out || !('asset' in out)) throw new Error('The drawing run kept no picture.');
+  return out.asset;
+}
+/** The base a separating run saved. */
+function drawnBase(run: EvidenceRun): string {
+  const out = runOutput(run, 'illustration');
+  if (!out || !('base' in out)) throw new Error('The separating run kept no base.');
+  return out.base;
+}
 
 /** What drawing the room reports while it runs, and how big its previews are. */
 const ROOM_STEPS = [
@@ -185,7 +199,7 @@ export async function illustrationRoutes(
           assets: [asset, ...(image ? [store.asset(id, `source.${image.ext}`, image.bytes)] : [])],
         };
       });
-      const asset = (drawn.output as { asset: string }).asset;
+      const asset = drawnAsset(drawn);
       await job.done('draw', `${from.width} × ${from.height}`, png, PREVIEW);
       // Past here nothing more is spent; a stop still keeps the old picture.
       job.check();
@@ -265,7 +279,7 @@ export async function illustrationRoutes(
       job.check();
       job.run('save');
       const illustration: SceneIllustration = {
-        asset: (drawn.output as { asset: string }).asset,
+        asset: drawnAsset(drawn),
         frame: { width: size.width!, height: size.height! },
         surfaceId,
         desk: null,
@@ -511,7 +525,7 @@ export async function illustrationRoutes(
         };
       });
       const layers = {
-        base: (drawn.output as { base: string }).base,
+        base: drawnBase(drawn),
         sprites,
         createdAt: new Date().toISOString(),
       };

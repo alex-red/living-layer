@@ -1,7 +1,7 @@
 import { Database } from 'bun:sqlite';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import type { EvidenceRun, Job } from '@livinglayer/domain';
+import { runFailure, type EvidenceRun, type Job } from '@livinglayer/domain';
 import { CALL_LIMITS, type CallKind } from '../../apps/server/src/meta.js';
 import type { MetaCallRecord } from '../../apps/server/src/store.js';
 import { dataDir } from './evidence.js';
@@ -179,9 +179,7 @@ export function loadCalls(dbOrDir?: Database | string): MetaCallRecord[] {
           const kind = singleKinds[run.kind]!;
           if (!hasCallNear(kind, timeMs)) {
             const limit = CALL_LIMITS[kind];
-            const outErr = (
-              run.output as { error?: { code?: string; detail?: { reason?: string } } }
-            )?.error;
+            const outErr = runFailure(run);
             const cause =
               run.status === 'failed' ? (outErr?.detail?.reason ?? outErr?.code ?? 'failed') : null;
             calls.push({
@@ -198,9 +196,7 @@ export function loadCalls(dbOrDir?: Database | string): MetaCallRecord[] {
           if (run.status === 'failed') {
             const inJob = jobs.some((j) => JSON.stringify(j).includes(run.id));
             if (!inJob) {
-              const outErr = (
-                run.output as { error?: { code?: string; detail?: { reason?: string } } }
-              )?.error;
+              const outErr = runFailure(run);
               const code = outErr?.code ?? '';
               const isMetaSpark = ['incomplete_response', 'timeout', 'upstream_failure'].includes(
                 code,

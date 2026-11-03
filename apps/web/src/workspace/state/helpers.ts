@@ -11,7 +11,7 @@ import type {
   LumaFrame,
   UnitBox,
 } from '@livinglayer/domain';
-import { isRun, toLuma } from '@livinglayer/domain';
+import { isRun, runFailure, toLuma } from '@livinglayer/domain';
 
 export const BUSY: Record<string, string> = {
   text: 'Checking the connection',
@@ -167,11 +167,7 @@ export const isProbe = (kind: RunKind): kind is ProbeKind =>
 
 /** One short line on what a run returned, for the log and the inspector. */
 export function runDetail(run: EvidenceRun): string {
-  if (run.status === 'failed')
-    return (
-      ((run.output as Record<string, unknown> | null)?.error as { message?: string } | undefined)
-        ?.message ?? 'Failed'
-    );
+  if (run.status === 'failed') return runFailure(run)?.message ?? 'Failed';
   if (isRun(run, 'segment')) {
     const s = run.output;
     return `"${s.concept}" · ${s.detections.length} mask${s.detections.length === 1 ? '' : 's'}`;

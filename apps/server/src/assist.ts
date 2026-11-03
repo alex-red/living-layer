@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import sharp from 'sharp';
 import {
+  runOutput,
   assistBodySchema,
   assistSaveBodySchema,
   adoptPreset,
@@ -132,7 +133,7 @@ export async function assistRoutes(
     const before = input.previous ? store.getRun(input.previous) : undefined;
     if (input.previous && (!before || before.kind !== 'assist' || before.mode !== mode))
       throw new LabError('assist_previous', 'That earlier request isn’t one of this mode’s.', 404);
-    const last = before?.status === 'completed' ? (before.output as AssistDraft) : null;
+    const last = before?.status === 'completed' ? (runOutput(before, 'assist') ?? null) : null;
     if (input.previous && !last)
       throw new LabError('assist_previous', 'That earlier request didn’t finish.', 409);
     const shape = input.shape ?? last?.shape;
@@ -352,7 +353,7 @@ export async function assistRoutes(
     const done = store.getRun(runId);
     if (!done || done.kind !== 'assist' || done.mode !== mode || done.status !== 'completed')
       throw new LabError('assist_previous', 'That request isn’t one of this mode’s.', 404);
-    const draft = done.output as AssistDraft;
+    const draft = runOutput(done, 'assist')!;
     if (!draft.recipe || !draft.place)
       throw new LabError('assist_nothing', 'That request has no model to put in the room.', 409);
     let memory = store.memory(mode);

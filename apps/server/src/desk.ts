@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { randomUUID } from 'node:crypto';
 import {
+  runOutput,
   deskZoneOffBodySchema,
   deskCameraBodySchema,
   deskObjectsForgetBodySchema,
@@ -102,7 +103,7 @@ export function createDesk(
       store.latestSegment(mode) !== segmentRunId
     )
       throw new LabError('observation_source', 'Choose a completed segmentation from this mode.');
-    const segmentation = run.output as Segmentation;
+    const segmentation = runOutput(run, 'segment')!;
     if (!isMugConcept(segmentation.concept) || !segmentation.sourceKey)
       throw new LabError('mug_selection', 'Segment the mug in a new frame first.');
     if (Date.now() - Date.parse(run.createdAt) > OBSERVATION_MAX_AGE_MS)
@@ -356,7 +357,7 @@ export function createDesk(
       store.latestSegment(mode) !== segmentRunId
     )
       throw new LabError('observation_source', 'Choose the newest segmentation from this mode.');
-    const segmentation = run.output as Segmentation;
+    const segmentation = runOutput(run, 'segment')!;
     if (!segmentation.sourceKey || Date.now() - Date.parse(run.createdAt) > OBSERVATION_MAX_AGE_MS)
       throw new LabError('stale_observation', 'This segmentation is stale. Segment a new frame.');
     return { run, segmentation };

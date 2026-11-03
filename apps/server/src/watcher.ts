@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import sharp from 'sharp';
 import {
+  runOutput,
   modeOnlySchema,
   watchBodySchema,
   watchDemoBodySchema,
@@ -558,7 +559,7 @@ export class Watcher {
   private async seed(seen: Seen, memory: DeskMemory, picture?: Buffer, keep?: WatchThing) {
     const run = this.deps.store.getRun(seen.observation.segmentRunId);
     const photo = picture ?? (run ? await this.deps.photoOf(run) : null);
-    const detection = (run?.output as Segmentation | undefined)?.detections.find(
+    const detection = runOutput(run, 'segment')?.detections.find(
       (d) => d.objectId === seen.observation.detectionId,
     );
     const subject = this.subjectOf(seen, memory);

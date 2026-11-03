@@ -1,10 +1,11 @@
-import type { EvidenceRun, LampResult, RunKind, Scene, Segmentation } from './api.js';
+import type { EvidenceRun, LampResult, RunFailure, RunKind, Scene, Segmentation } from './api.js';
 import type { AssistDraft } from './assist.js';
-import type { FixtureDraft } from './fixture.js';
+import type { FixtureDraft, FixtureInput } from './fixture.js';
 import type { FixtureScan, MappedThing } from './fixture-scan.js';
 import type { PictureFind } from './illustration.js';
 import type { IsoScene } from './iso.js';
-import type { SavedItem } from './iso-item.js';
+import type { LatheFit } from './iso-archetypes.js';
+import type { IsoItem, SavedItem } from './iso-item.js';
 import type { SceneGuess } from './iso-presets.js';
 import type { SceneDraft } from './iso-templates.js';
 import type { PlacementDecision } from './memory.js';
@@ -22,20 +23,26 @@ export interface FixtureSculptOutput {
   parts: number;
   iou: number;
   note?: string;
+  /** The model itself, and the size in tiles it was given when a product was looked up. */
+  item: IsoItem;
+  size?: FixtureInput['size'];
+  asked?: string;
   product?: string | null;
 }
 /** A fixture run that fused another photo into the model. */
 export interface FixtureFuseOutput {
+  fixtureId: string;
   model: SavedItem;
   views: number;
   iou: number;
 }
 /** A fixture run where SAM 3D reshaped it. */
 export interface FixtureRefineOutput {
-  item: SavedItem;
-  shaped: unknown;
+  item: IsoItem;
+  shaped: LatheFit;
   kept: boolean;
   iou: number;
+  deltaE: number;
 }
 /**
  * What a `fixture` run holds, by the field that tells them apart: a draft has
@@ -49,6 +56,11 @@ export type FixtureRunOutput =
   | FixtureFuseOutput
   | FixtureRefineOutput;
 
+/** An illustration run: the drawn picture, or the base and sprites cut from it. */
+export type IllustrationRunOutput =
+  | { asset: string }
+  | { base: string; sprites: number; skipped: string[] };
+
 /**
  * What a run's `output` holds, by its kind. A kind not listed has no single
  * shape worth naming (its output stays `unknown`).
@@ -59,6 +71,7 @@ export interface RunOutputs {
   scene: SceneGuess;
   layout: { draft: SceneDraft; scene: IsoScene };
   photo: PhotoDraft;
+  illustration: IllustrationRunOutput;
   item: SavedItem;
   fixture: FixtureRunOutput;
   assist: AssistDraft;
@@ -83,4 +96,37 @@ export function runOutput<K extends keyof RunOutputs>(
   kind: K,
 ): RunOutputs[K] | undefined {
   return isRun(run, kind) ? run.output : undefined;
+}
+
+/** What a fixture run kept, narrowed by the field that tells the shapes apart. */
+export const fixtureOutput = {
+  draft(run: EvidenceRun | null | undefined): FixtureDraft | undefined {
+    const o = runOutput(run, 'fixture');
+    return o && !('scan' in o || 'found' in o || 'sculpted' in o || 'views' in o || 'shaped' in o)
+      ? o
+      : undefined;
+  },
+  scan(run: EvidenceRun | null | undefined): FixtureScanOutput | undefined {
+    const o = runOutput(run, 'fixture');
+    return o && 'scan' in o ? o : undefined;
+  },
+  sculpt(run: EvidenceRun | null | undefined): FixtureSculptOutput | undefined {
+    const o = runOutput(run, 'fixture');
+    return o && 'sculpted' in o ? o : undefined;
+  },
+  fuse(run: EvidenceRun | null | undefined): FixtureFuseOutput | undefined {
+    const o = runOutput(run, 'fixture');
+    return o && 'views' in o && 'model' in o ? o : undefined;
+  },
+  refine(run: EvidenceRun | null | undefined): FixtureRefineOutput | undefined {
+    const o = runOutput(run, 'fixture');
+    return o && 'shaped' in o ? o : undefined;
+  },
+};
+
+/** Why a failed run failed: the error the runner stored as its output. */
+export function runFailure(run: EvidenceRun | null | undefined): RunFailure['error'] | undefined {
+  // A failed run's output is a `RunFailure` by construction (createRunner), whatever its kind.
+  const out = run?.status === 'failed' ? (run.output as Partial<RunFailure> | null) : null;
+  return out?.error;
 }
