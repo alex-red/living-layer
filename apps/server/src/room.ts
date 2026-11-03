@@ -6,6 +6,7 @@ import {
   META_PRICES,
   cameraCropSchema,
   cameraEdges,
+  MOVED_CAMERA,
   cameraFromMarks,
   fitLimit,
   convexHull,
@@ -313,7 +314,15 @@ export function roomRoutes(
       );
     const luma = await lumaOf(image ? image.bytes : await demoPng());
     const { moved: _, ...kept } = calibration;
-    store.saveMemory({ ...memory, camera: { ...kept, reference: cameraEdges(luma) } });
+    // A check blocked only by the move no longer stands.
+    const stale = (d: DeskMemory['lastDecision'] | undefined) =>
+      d?.output.reason === MOVED_CAMERA ? null : (d ?? null);
+    store.saveMemory({
+      ...memory,
+      camera: { ...kept, reference: cameraEdges(luma) },
+      lastDecision: stale(memory.lastDecision),
+      rules: memory.rules?.map((r) => ({ ...r, lastDecision: stale(r.lastDecision) })),
+    });
     return store.memory(input.mode);
   });
 

@@ -15,7 +15,7 @@ import {
 } from './memory.js';
 
 export const OBSERVATION_MAX_AGE_MS = 5 * 60 * 1000;
-const MOVED_CAMERA =
+export const MOVED_CAMERA =
   'The camera has moved since it was calibrated, so zones no longer line up. Calibrate it again, or keep the calibration if it still fits and redraw the zones.';
 /** True when the whole box (in frame pixels) fits inside the normalized zone. */
 export function boxInZone(
