@@ -104,7 +104,25 @@ export async function buildApp(
     allowed: () => [...haLights(), ...haSwitches()],
     connection: () => haConnection(config, store),
   });
-  app.addHook('onClose', async () => store.close());
+  const pruneEvidence = () => {
+    if (!(config.evidenceRetentionDays > 0)) return;
+    try {
+      const gone = store.prune(config.evidenceRetentionDays * 86_400_000);
+      if (gone.runs || gone.jobs)
+        app.log.info(
+          `Pruned evidence older than ${config.evidenceRetentionDays} days: ${gone.runs} runs, ${gone.jobs} jobs, ${(gone.bytes / 1e6).toFixed(1)} MB of files.`,
+        );
+    } catch (error) {
+      app.log.warn(`Pruning evidence failed: ${error instanceof Error ? error.message : error}`);
+    }
+  };
+  pruneEvidence();
+  const pruneTimer = setInterval(pruneEvidence, 86_400_000);
+  pruneTimer.unref();
+  app.addHook('onClose', async () => {
+    clearInterval(pruneTimer);
+    store.close();
+  });
   // MQTT: one install id names our device and entities in Home Assistant across restarts.
   let installId = store.setting('install_id');
   if (!installId) store.setSetting('install_id', (installId = randomUUID().replace(/-/g, '')));
@@ -210,7 +228,7 @@ export async function buildApp(
   });
   app.get('/api/busy', async () => ({ jobs: runningJobs(), requests: changing }));
   app.get('/api/status', async () => {
-    const history = store.list();
+    const history = store.costHistory();
     return {
       meta: {
         configured: Boolean(config.modelApiKey),

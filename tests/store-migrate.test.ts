@@ -16,9 +16,11 @@ const tmp = () => {
 describe('store migrations', () => {
   it('rename the old mode once, then leave later rows alone', () => {
     const dir = tmp();
-    new EvidenceStore(dir).close();
-    const raw = new Database(join(dir, 'livinglayer.sqlite'), { strict: true });
-    raw.run('PRAGMA user_version = 0');
+    // A database from before migrations: the old table, no generated columns.
+    const raw = new Database(join(dir, 'livinglayer.sqlite'), { strict: true, create: true });
+    raw.run(
+      'CREATE TABLE evidence (id TEXT PRIMARY KEY, created_at TEXT NOT NULL, payload TEXT NOT NULL)',
+    );
     raw.run("INSERT INTO evidence VALUES ('a', 'now', '{\"mode\":\"fixture\"}')");
     raw.close();
     const first = new EvidenceStore(dir);

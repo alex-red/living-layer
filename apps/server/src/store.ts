@@ -1,5 +1,13 @@
 import { Database } from 'bun:sqlite';
-import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import {
+  appendFileSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { join } from 'node:path';
 import {
   isMugConcept,
@@ -51,7 +59,7 @@ export class EvidenceStore {
   }
   /** Each migration runs once, in order; `PRAGMA user_version` is how many have. */
   private migrate(): void {
-    const migrations = [() => this.renameDemoMode()];
+    const migrations = [() => this.renameDemoMode(), () => this.indexEvidence()];
     const done = this.db.query<{ user_version: number }, []>('PRAGMA user_version').get()!;
     for (let v = done.user_version; v < migrations.length; v++) {
       this.db.transaction(() => {
@@ -59,6 +67,18 @@ export class EvidenceStore {
         this.db.run(`PRAGMA user_version = ${v + 1}`);
       })();
     }
+  }
+  /**
+   * Mode, kind and status as generated columns with an index, so the hot reads
+   * (`/api/status`, the latest segment) don't parse every run's payload.
+   */
+  private indexEvidence(): void {
+    for (const column of ['mode', 'kind', 'status'])
+      this.db.run(
+        `ALTER TABLE evidence ADD COLUMN ${column} TEXT GENERATED ALWAYS AS (json_extract(payload, '$.${column}')) VIRTUAL`,
+      );
+    this.db.run('CREATE INDEX evidence_mode_kind_status ON evidence (mode, kind, status)');
+    this.db.run('CREATE INDEX evidence_created ON evidence (created_at)');
   }
   /**
    * The offline mode used to be called `fixture`. Payloads are compact JSON, so
@@ -78,7 +98,7 @@ export class EvidenceStore {
     })();
   }
   save(run: EvidenceRun): void {
-    this.db.run('INSERT INTO evidence VALUES (?, ?, ?)', [
+    this.db.run('INSERT INTO evidence (id, created_at, payload) VALUES (?, ?, ?)', [
       run.id,
       run.createdAt,
       JSON.stringify(run),
@@ -93,7 +113,7 @@ export class EvidenceStore {
   latestSegment(mode: Mode): string | undefined {
     const row = this.db
       .query<{ id: string }, [Mode]>(
-        "SELECT id FROM evidence WHERE json_extract(payload, '$.mode') = ? AND json_extract(payload, '$.kind') = 'segment' ORDER BY rowid DESC LIMIT 1",
+        "SELECT id FROM evidence WHERE mode = ? AND kind = 'segment' ORDER BY rowid DESC LIMIT 1",
       )
       .get(mode);
     return row ? row.id : undefined;
@@ -139,6 +159,20 @@ export class EvidenceStore {
       .all()
       .map((row) => JSON.parse(row.payload) as EvidenceRun);
   }
+  /**
+   * What `estimateCost` needs of the latest 200 runs (kind, mode, usage), read
+   * without parsing their outputs.
+   */
+  costHistory(): EvidenceRun[] {
+    return this.db
+      .query<{ kind: string; mode: string; usage: string | null }, []>(
+        "SELECT kind, mode, json_extract(payload, '$.usage') AS usage FROM (SELECT rowid, kind, mode, payload FROM evidence ORDER BY rowid DESC LIMIT 200)",
+      )
+      .all()
+      .map(
+        (r) => ({ ...r, usage: r.usage ? JSON.parse(r.usage) : null }) as unknown as EvidenceRun,
+      );
+  }
   /** An AI job that ended: its steps, timings, pictures and the runs it made. */
   saveJob(job: Job): void {
     this.db.run(
@@ -151,9 +185,15 @@ export class EvidenceStore {
     return row ? (JSON.parse(row.payload) as Job) : undefined;
   }
   /** The latest jobs, newest first, as many as the run log keeps. */
-  listJobs(): Job[] {
+  listJobs(options: { pictures?: boolean } = {}): Job[] {
+    // Without pictures they are dropped in SQL: they are most of a job's bytes.
+    const payload = options.pictures
+      ? 'payload'
+      : "json_set(payload, '$.steps', (SELECT json_group_array(json_remove(s.value, '$.image')) FROM json_each(payload, '$.steps') s))";
     return this.db
-      .query<Payload, []>('SELECT payload FROM jobs ORDER BY created_at DESC LIMIT 200')
+      .query<Payload, []>(
+        `SELECT ${payload} AS payload FROM jobs ORDER BY created_at DESC LIMIT 200`,
+      )
       .all()
       .map((row) => JSON.parse(row.payload) as Job);
   }
@@ -258,29 +298,92 @@ export class EvidenceStore {
     }
   }
   liveEvidence(): LabStatus['liveEvidence'] {
-    const runs = this.db
-      .query<Payload, []>(
-        "SELECT payload FROM evidence WHERE json_extract(payload, '$.mode') = 'live' AND json_extract(payload, '$.status') = 'completed'",
+    const kinds = this.db
+      .query<
+        {
+          kind: string;
+          concept: string | null;
+          entity: string | null;
+          action: string | null;
+          confirmed: number | null;
+        },
+        []
+      >(
+        `SELECT kind,
+          json_extract(payload, '$.output.concept') AS concept,
+          json_extract(payload, '$.output.entityId') AS entity,
+          json_extract(payload, '$.output.action') AS action,
+          json_extract(payload, '$.output.lamp.stateConfirmed') AS confirmed
+        FROM evidence
+        WHERE mode = 'live' AND status = 'completed'
+          AND kind IN ('text', 'discover', 'segment', 'lamp', 'placement')`,
       )
-      .all()
-      .map((row) => JSON.parse(row.payload) as EvidenceRun);
+      .all();
     return {
-      text: runs.some((r) => r.kind === 'text'),
-      discover: runs.some((r) => r.kind === 'discover'),
-      segment: runs.some(
-        (r) =>
-          r.kind === 'segment' && isMugConcept(String((r.output as { concept?: string }).concept)),
-      ),
+      text: kinds.some((r) => r.kind === 'text'),
+      discover: kinds.some((r) => r.kind === 'discover'),
+      segment: kinds.some((r) => r.kind === 'segment' && isMugConcept(String(r.concept))),
       // Proof of the lamp: a light turned on, not a switch, a fan or a light turned off.
-      lamp: runs.some(
+      lamp: kinds.some(
         (r) =>
-          (r.kind === 'lamp' &&
-            String((r.output as { entityId?: string }).entityId).startsWith('light.') &&
-            (r.output as { action?: string }).action !== 'off') ||
-          (r.kind === 'placement' &&
-            (r.output as { lamp?: { stateConfirmed?: boolean } }).lamp?.stateConfirmed === true),
+          (r.kind === 'lamp' && String(r.entity).startsWith('light.') && r.action !== 'off') ||
+          (r.kind === 'placement' && r.confirmed === 1),
       ),
     };
+  }
+  /**
+   * Delete evidence runs, jobs and their files older than `maxAgeMs`, except any
+   * run the desk still leans on: a run whose id appears in desk memory or a
+   * setting is kept, and so is whatever a kept run names in turn (an item's
+   * segment, a brush's previous frame). Only `<dir>/evidence/<run>` is removed;
+   * captured rooms live elsewhere and are never touched.
+   */
+  prune(maxAgeMs: number, now = Date.now()): { runs: number; jobs: number; bytes: number } {
+    const cutoff = new Date(now - maxAgeMs).toISOString();
+    const uuid = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g;
+    const idsIn = (text: string) => text.match(uuid) ?? [];
+    const keep = new Set<string>();
+    const queue: string[] = [];
+    const hold = (text: string) => {
+      for (const id of idsIn(text)) if (!keep.has(id)) (keep.add(id), queue.push(id));
+    };
+    for (const sql of ['SELECT payload AS v FROM desk_memory', 'SELECT value AS v FROM settings'])
+      for (const row of this.db.query<{ v: string }, []>(sql).all()) hold(row.v);
+    // What a newer run names stays too (a follow-up's previous run).
+    for (const row of this.db
+      .query<Payload, [string]>('SELECT payload FROM evidence WHERE created_at >= ?')
+      .all(cutoff))
+      hold(row.payload);
+    const named = this.db.query<Payload, [string]>('SELECT payload FROM evidence WHERE id = ?');
+    for (let id = queue.pop(); id; id = queue.pop()) {
+      const row = named.get(id);
+      if (row) hold(row.payload);
+    }
+    const old = this.db
+      .query<{ id: string }, [string]>('SELECT id FROM evidence WHERE created_at < ?')
+      .all(cutoff)
+      .map((r) => r.id)
+      .filter((id) => !keep.has(id));
+    let bytes = 0;
+    const sizeOf = (path: string): number => {
+      try {
+        const info = statSync(path);
+        return info.isDirectory()
+          ? readdirSync(path).reduce((sum, name) => sum + sizeOf(join(path, name)), 0)
+          : info.size;
+      } catch {
+        return 0;
+      }
+    };
+    for (const id of old) {
+      if (!/^[a-z0-9-]+$/.test(id)) continue;
+      const path = join(this.dir, 'evidence', id);
+      bytes += sizeOf(path);
+      rmSync(path, { recursive: true, force: true });
+      this.db.run('DELETE FROM evidence WHERE id = ?', [id]);
+    }
+    const jobs = this.db.run('DELETE FROM jobs WHERE created_at < ?', [cutoff]).changes;
+    return { runs: old.length, jobs, bytes };
   }
   close(): void {
     this.db.close();
