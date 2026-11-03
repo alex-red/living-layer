@@ -152,8 +152,7 @@ export function useNavigationSlice(
     if (stageView === 'photo') setStageView('iso');
   }
   function editLayout() {
-    // The layout is edited in the whole room, never in its desk view.
-    if (workScene === 'custom-desk') setWorkScene('custom');
+    // A desk view edits the room through itself (`SceneView`).
     setIsoPanel('scene');
     if (stageView === 'photo') setStageView('iso');
   }

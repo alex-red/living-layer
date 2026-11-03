@@ -59,6 +59,7 @@ import { IsoScene, type IsoFixture, type IsoObject, type IsoZone } from './IsoSc
 import { Later } from '../Later';
 import { pinScene, type WorkScene as Kind } from '../workspace/progress';
 import './iso.css';
+import type { SceneView } from './SceneEditor';
 
 // The editors and the room's picture load when first shown.
 const ItemEditor = lazy(() => import('./ItemEditor').then((m) => ({ default: m.ItemEditor })));
@@ -424,6 +425,20 @@ function IsoViewOf({
   // fixture; the desk shows them where its camera puts them, moved into its view.
   const shift =
     custom && (kind === 'custom' || kind === 'custom-desk') ? closeViewShift(custom) : null;
+  // The layout is edited in the whole room; from the desk's view, through that view.
+  const sceneView: SceneView | null = useMemo(
+    () =>
+      kind === 'custom-desk' && shift
+        ? {
+            label: scene.label,
+            groups: new Set(shift.props.map((p) => p.group)),
+            dx: shift.dx,
+            dy: shift.dy,
+            grid: scene.grid,
+          }
+        : null,
+    [kind, shift, scene],
+  );
   const shown = useCallback(
     (f: Fixture) => (kind === 'custom' && shift ? inRoomView(f) : f),
     [kind, shift],
@@ -601,7 +616,8 @@ function IsoViewOf({
             <SceneEditor
               mode={mode}
               saved={custom}
-              base={scene}
+              base={sceneView && custom ? custom : scene}
+              {...(sceneView ? { view: sceneView } : {})}
               image={image}
               lights={lights}
               busy={off}

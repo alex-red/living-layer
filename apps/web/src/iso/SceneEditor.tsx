@@ -70,6 +70,36 @@ export interface CalibrateByHand {
   frame: { width: number; height: number };
 }
 
+/** A close view of the room to edit through: its groups, drawn moved by dx, dy on its own grid. */
+export interface SceneView {
+  label: string;
+  groups: ReadonlySet<string>;
+  dx: number;
+  dy: number;
+  grid: Scene['grid'];
+}
+/** The room as its close view draws it, with the groups added while editing there. */
+function throughView(scene: Scene, view: SceneView, added: ReadonlySet<string>): Scene {
+  const at = <T extends { x: number; y: number }>(p: T): T => ({
+    ...p,
+    x: p.x + view.dx,
+    y: p.y + view.dy,
+  });
+  const props = scene.props
+    .filter((p) => view.groups.has(p.group) || added.has(p.group))
+    .map((p) => ({ ...p, at: at(p.at) }));
+  const own = new Set(props.map((p) => p.id));
+  return {
+    ...scene,
+    label: view.label,
+    grid: view.grid,
+    props,
+    surfaces: scene.surfaces
+      .filter((s) => own.has(s.propId))
+      .map((s) => ({ ...s, rect: at(s.rect) })),
+  };
+}
+
 /**
  * Build a scene from the template palette: start from a preset, an empty
  * floor or a Spark draft, then add, drag, turn and remove whole groups.
@@ -102,6 +132,7 @@ export function SceneEditor({
   fixtures = [],
   onMoveFixture,
   onFixtureMenu,
+  view,
 }: {
   mode: Mode;
   /** The person's saved scene, if any. */
@@ -147,6 +178,8 @@ export function SceneEditor({
   fixtures?: IsoFixture[];
   onMoveFixture?: (id: string, to: { x: number; y: number; surfaceId: string | null }) => void;
   onFixtureMenu?: (id: string, at: { x: number; y: number }) => void;
+  /** Edit the room through its close view: only what the view shows is drawn and listed. */
+  view?: SceneView;
 }) {
   // The room the view shows, not whatever was saved last: editing the office starts from the office.
   const showsSaved = Boolean(saved) && base === saved;
@@ -155,6 +188,8 @@ export function SceneEditor({
   const [selected, setSelected] = useState<string>();
   // Groups left out of the drawing while editing, to see and reach what they cover; never saved.
   const [hidden, setHidden] = useState<ReadonlySet<string>>(new Set());
+  // Props added from the close view, shown there wherever they are dropped.
+  const [added, setAdded] = useState<ReadonlySet<string>>(new Set());
   const [summary, setSummary] = useState('');
   // Which camera action is running, so only its button says so.
   const [running, setRunning] = useState<Running>();
@@ -233,7 +268,9 @@ export function SceneEditor({
     return () => window.removeEventListener('keydown', onKey);
   }, []);
   const flagged = overlappingGroups(draft);
-  const groups = [...new Set(draft.props.map((p) => p.group))];
+  const shown = view ? throughView(draft, view, added) : draft;
+  const groups = [...new Set(shown.props.map((p) => p.group))];
+  const overlapping = groups.filter((g) => flagged.has(g)).length;
   const hide = (gs: string[], off: boolean) =>
     setHidden((h) => {
       const next = new Set(h);
@@ -407,8 +444,8 @@ export function SceneEditor({
   const metres = (tiles: number) => ((tiles * ISO_TILE_CM) / 100).toFixed(1);
   const note = !check.success
     ? (check.error.issues[0]?.message ?? 'This scene does not fit its grid.')
-    : flagged.size
-      ? `${flagged.size} props cut into each other and may draw out of order. Move them apart.`
+    : overlapping
+      ? `${overlapping} props cut into each other and may draw out of order. Move them apart.`
       : turned % 2 && memory?.camera
         ? 'Turned. The camera was calibrated for the room the other way round: save, then calibrate it again.'
         : summary
@@ -486,7 +523,7 @@ export function SceneEditor({
         <div className="scene-canvas">
           <ZoomPan className="iso-zoom" hand={hand} store="scene-editor" resetKey={room}>
             <IsoScene
-              scene={draft}
+              scene={shown}
               hidden={hidden}
               fixtures={fixtures.filter((f) => !hidden.has(`fixture:${f.id}`))}
               {...(onMoveFixture ? { onMoveFixture } : {})}
@@ -737,7 +774,22 @@ export function SceneEditor({
           label="+ Prop"
           onAdd={(id) => {
             const next = addTemplate(draft, id);
-            edit(next.scene);
+            const b = view && groupBounds(next.scene, next.group);
+            // From a close view, a new prop starts in the middle of it, settled on what is there.
+            edit(
+              view && b
+                ? settleGroup(
+                    moveGroup(
+                      next.scene,
+                      next.group,
+                      view.grid.w / 2 - view.dx - (b.at.x + b.size.w / 2),
+                      view.grid.d / 2 - view.dy - (b.at.y + b.size.d / 2),
+                    ),
+                    next.group,
+                  )
+                : next.scene,
+            );
+            if (view) setAdded((a) => new Set(a).add(next.group));
             setSelected(next.group);
           }}
         />

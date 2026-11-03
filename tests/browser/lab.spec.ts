@@ -175,21 +175,21 @@ test('draws the remembered mug in the isometric desk and follows it to a new fra
   await page.getByRole('button', { name: 'Confirm mug mask #7', exact: true }).click();
   await expect(page.locator('.feedback')).toContainText('Mug identity manually confirmed');
   await page.getByRole('button', { name: 'Iso', exact: true }).click();
-  // The first ellipse is the top of the mug, plain marker or model body.
-  const mug = page.locator('[data-object="tracked"] ellipse').first();
+  // Before it is modelled, the mug is drawn as the stock mug's sprite.
+  const mug = page.locator('[data-object="tracked"] .iso-item image');
   // The office desk is the office's desk, so its pin places the mug in the office too.
   await outline(page, 'Office').click();
   await expect(mug).toBeVisible();
   await outline(page, 'Office desk').click();
   await expect(page.locator('[data-prop="lamp"]')).toBeVisible();
   await expect(mug).toBeVisible();
-  const before = Number(await mug.getAttribute('cx'));
+  const before = Number(await mug.getAttribute('x'));
   await page.getByRole('button', { name: 'Right', exact: true }).click();
   await page.getByRole('button', { name: /^Open My desk mug/ }).click();
   await page.getByRole('button', { name: 'Track the mug', exact: true }).click();
   await expect(page.locator('.feedback')).toContainText('Tracked');
   // The demo moves the mug 100 px right, which is towards +x on the desk.
-  await expect.poll(async () => Number(await mug.getAttribute('cx'))).toBeGreaterThan(before);
+  await expect.poll(async () => Number(await mug.getAttribute('x'))).toBeGreaterThan(before);
   await expect(page.locator('.iso-trail')).toBeVisible();
   await page.getByRole('button', { name: /^Edit model/ }).click();
   await page.getByRole('button', { name: 'Sample a draft', exact: true }).click();

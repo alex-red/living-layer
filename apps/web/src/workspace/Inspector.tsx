@@ -419,13 +419,7 @@ function RoomPanel() {
       }
       tone="ok"
     >
-      {lab.isoPanel === 'scene' && lab.stageView !== 'photo' ? (
-        <Button onClick={() => lab.setIsoPanel('room')}>Done editing</Button>
-      ) : (
-        <Button variant="primary" disabled={!workScene} onClick={lab.editLayout}>
-          Edit layout
-        </Button>
-      )}
+      <LayoutToggle primary disabled={!workScene} />
       {room === 'custom' && <PictureControls />}
       {memory?.surface && pinScene(room) === memory.surface.scene && (
         <Button
@@ -501,6 +495,21 @@ function RoomPanel() {
   );
 }
 
+/** Open the layout editor in the canvas, in the room or the view it shows, or close it. */
+function LayoutToggle({ primary = false, disabled = false }) {
+  const lab = useLabParts(useView(), useNavigation());
+  return lab.isoPanel === 'scene' && lab.stageView !== 'photo' ? (
+    <Button onClick={() => lab.setIsoPanel('room')}>Done editing</Button>
+  ) : (
+    <Button
+      variant={primary ? 'primary' : 'secondary'}
+      disabled={disabled}
+      onClick={lab.editLayout}
+    >
+      Edit layout
+    </Button>
+  );
+}
 /** Pin a surface to the camera frame: the bridge between the photo and the iso room. */
 function SurfacePanel({ id, closeView }: { id: string; closeView?: boolean }) {
   const lab = useLabParts(
@@ -612,6 +621,7 @@ function SurfacePanel({ id, closeView }: { id: string; closeView?: boolean }) {
         >
           {row.pinned && memory?.surface ? 'Re-pin surface' : 'Pin surface'}
         </Button>
+        <LayoutToggle />
         {memory?.surface && row.pinned && (
           <Button
             variant="text"
