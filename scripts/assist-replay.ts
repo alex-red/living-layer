@@ -181,6 +181,14 @@ console.log(
   `  IoU     ${(was.check?.iou.toFixed(3) ?? '–').padEnd(26)} ${draft.check?.iou.toFixed(3) ?? '–'}`,
 );
 console.log(`  ΔE      ${'–'.padEnd(26)} ${draft.check?.deltaE?.toFixed(1) ?? '–'}`);
+const seen = (d: AssistDraft) => {
+  const s = d.photo.sizeCm;
+  const off = d.disagreement.map((x) => x.axis).join(', ');
+  return s
+    ? `${Math.round(s.w)} × ${Math.round(s.d)} × ${Math.round(s.h)} cm${off ? `, off on ${off}` : ''}`
+    : '–';
+};
+console.log(`  camera  ${seen(was).padEnd(26)} ${seen(draft)}`);
 if (spent.length)
   console.log(`  Spark   ${spent.length} calls, ${spent.reduce((a, b) => a + b, 0)} tokens`);
 if (was.rounds.length) console.log(`  (then refined ${was.rounds.length}× by Spark; not replayed)`);

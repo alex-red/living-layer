@@ -673,6 +673,15 @@ export function fitNewModel(
   };
 }
 
+/**
+ * The camera's box in the model's own axes: it is measured across the room,
+ * and a model standing a quarter turned has its width along the room's depth
+ * (a desk along the left wall), so its sizes are compared and used swapped.
+ */
+export function modelAxes<B extends { w: number; d: number }>(box: B | null, turns: number) {
+  return box && turns % 2 ? { ...box, w: box.d, d: box.w } : box;
+}
+
 /** How a draft's steps are reported: the job live, the console in a replay. */
 export interface DraftSteps {
   run(id: string, detail?: string): void;
@@ -723,7 +732,10 @@ export async function finishDraft(
   const targetProp = draft.target?.kind === 'prop' ? draft.target.id : null;
   steps.run('lookup');
   const create = intent.ops.find((o) => o.op === 'create' || o.op === 'rebase');
-  const box = photoBox(room.camera, outline, room.scene.grid);
+  const box = modelAxes(
+    photoBox(room.camera, outline, room.scene.grid),
+    (draft.place ?? (targetProp ? placeOfGroup(room.scene, targetProp) : null))?.turns ?? 0,
+  );
   const color = photoColor(rgba, outline);
   draft.photo = {
     sizeCm: box ? { w: box.w, d: box.d, h: box.h } : null,

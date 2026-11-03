@@ -6,7 +6,13 @@ import { buildApp } from '../apps/server/src/app.js';
 import { parseConfig, type Fetcher } from '../apps/server/src/config.js';
 import { demoIntent } from '../apps/server/src/demo-intent.js';
 import { demoPng, demoSegmentation } from '../apps/server/src/demo.js';
-import { fitNewModel, keepOutline, namedOutline, samConcept } from '../apps/server/src/assist.js';
+import {
+  fitNewModel,
+  keepOutline,
+  modelAxes,
+  namedOutline,
+  samConcept,
+} from '../apps/server/src/assist.js';
 import { syntheticStream } from '../apps/server/src/sam.js';
 import {
   cm,
@@ -15,11 +21,13 @@ import {
   floorSolid,
   ISO_PRESETS,
   mirrorRecipe,
+  photoBox,
   placeOfGroup,
   renderRoom,
   roomMask,
   sceneSolids,
   sceneWithRecipe,
+  sizeDisagreement,
   type AssistDraft,
   type DeskMemory,
   type EvidenceRun,
@@ -445,5 +453,14 @@ describe('where a new model stands', () => {
     expect(fitted.fit).toMatchObject({ mirrored: false, turned: false });
     expect(fitted.recipe).toBe(alex);
     expect(fitted.place.cx).toBeCloseTo(at.cx + 1, 1);
+  });
+  it('reads the camera’s size of a thing standing a quarter turned in its own axes', () => {
+    const turned = { ...at, turns: (at.turns + 1) % 4 };
+    const box = photoBox(room.camera, seen(alex, turned), room.scene.grid)!;
+    // Across the room it is 60 wide and 131 deep; as the desk, 131 wide and 60 deep.
+    expect(box.d).toBeGreaterThan(box.w);
+    const own = modelAxes(box, turned.turns)!;
+    expect(sizeDisagreement(alex.sizeCm, { w: own.w }).length).toBe(0);
+    expect(modelAxes(box, at.turns + 2)).toBe(box);
   });
 });
