@@ -70,12 +70,14 @@ export const SPARK_CALLS = {
   layout: { tokens: 16384, timeoutMs: DEFAULT_SPARK_TIMEOUT_MS },
   itemClass: { tokens: 4096, timeoutMs: DEFAULT_SPARK_TIMEOUT_MS },
   fixtureClass: { tokens: 8192, timeoutMs: DEFAULT_SPARK_TIMEOUT_MS },
-  fixtureScan: { tokens: 12288, timeoutMs: DEFAULT_SPARK_TIMEOUT_MS },
+  // A whole busy frame: Spark's one finished scan took 27 s, and the next two ran past 30.
+  fixtureScan: { tokens: 12288, timeoutMs: 90_000 },
   pictureFind: { tokens: 6144, timeoutMs: DEFAULT_SPARK_TIMEOUT_MS },
   sculpt: { tokens: 16384, timeoutMs: 150_000 },
   itemCheck: { tokens: 4096, timeoutMs: DEFAULT_SPARK_TIMEOUT_MS },
   photoInventory: { tokens: 16384, timeoutMs: DEFAULT_SPARK_TIMEOUT_MS },
-  photoCheck: { tokens: 12288, timeoutMs: DEFAULT_SPARK_TIMEOUT_MS },
+  // Spark's checks of a whole photo have taken 18 to 26 s, and three ran past 30.
+  photoCheck: { tokens: 12288, timeoutMs: 90_000 },
   productLookup: { tokens: 8192, timeoutMs: 90_000 },
   // Spark's answers with a crop have taken 7 to 51 s for 2,000 to 5,000 tokens, and once ran past 60.
   intent: { tokens: 8192, timeoutMs: 90_000 },
