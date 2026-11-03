@@ -1,4 +1,4 @@
-import { useEffect, useState, type RefObject } from 'react';
+import { useEffect, useMemo, useState, type RefObject } from 'react';
 import { statBadge, statTone } from './iso/StatBadges';
 import { useNow } from './useNow';
 import { statsStore } from './workspace/state/stats';
@@ -47,6 +47,18 @@ export function sightings({
   segmentation?: Segmentation;
   aspect: number;
 }): Sighting[] {
+  return withRemembered(
+    liveSightings(memory, watch, follow),
+    remembered(memory, segmentation, aspect),
+  );
+}
+
+/** What is followed now: the follow loop's mug, then the watcher's things. */
+function liveSightings(
+  memory: DeskMemory | null | undefined,
+  watch: WatchView | null | undefined,
+  follow: { track: LocalTrack; verdict: LocalVerdict } | null | undefined,
+): Sighting[] {
   const out: Sighting[] = [];
   const mugId = mugOf(memory)?.id;
   if (follow)
@@ -73,17 +85,36 @@ export function sightings({
             : t.status.toUpperCase(),
     });
   }
-  const remembered: { label: string; o: DeskObservation | null | undefined; missing?: boolean }[] =
-    [
-      { label: mugOf(memory)?.label ?? 'Mug', o: mugSighting(memory) },
-      ...(otherObjects(memory) ?? []).map((t) => ({ label: t.label, o: t.observation })),
-      ...placedFixtures(memory).map((f) => ({
-        label: f.label,
-        o: f.track?.observation,
-        missing: f.track?.status === 'missing',
-      })),
-    ];
-  for (const { label, o, missing } of remembered) {
+  return out;
+}
+
+/** The live sightings, then each remembered one of a thing they don't show. */
+function withRemembered(live: Sighting[], past: Sighting[]): Sighting[] {
+  if (!past.length) return live;
+  const ids = new Set(live.map((s) => s.id));
+  return [...live, ...past.filter((s) => !ids.has(s.id))];
+}
+
+/**
+ * Each remembered thing's last SAM sighting, from a frame shaped like this
+ * camera's. It changes with memory, not with each followed frame.
+ */
+function remembered(
+  memory: DeskMemory | null | undefined,
+  segmentation: Segmentation | undefined,
+  aspect: number,
+): Sighting[] {
+  const out: Sighting[] = [];
+  const things: { label: string; o: DeskObservation | null | undefined; missing?: boolean }[] = [
+    { label: mugOf(memory)?.label ?? 'Mug', o: mugSighting(memory) },
+    ...(otherObjects(memory) ?? []).map((t) => ({ label: t.label, o: t.observation })),
+    ...placedFixtures(memory).map((f) => ({
+      label: f.label,
+      o: f.track?.observation,
+      missing: f.track?.status === 'missing',
+    })),
+  ];
+  for (const { label, o, missing } of things) {
     // A sighting from a differently shaped frame is from another camera or a photo.
     if (!o || out.some((s) => s.id === o.objectId)) continue;
     if (Math.abs(o.frame.width / o.frame.height - aspect) > aspect * 0.02) continue;
@@ -103,8 +134,8 @@ export function sightings({
   }
   return out;
 }
-const clock = (iso: string) =>
-  new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+const clockFormat = new Intl.DateTimeFormat([], { hour: '2-digit', minute: '2-digit' });
+const clock = (iso: string) => clockFormat.format(new Date(iso));
 
 /** The video's own size, kept as it loads or its source changes size. */
 function useVideoSize(video: RefObject<HTMLVideoElement | null>) {
@@ -137,8 +168,15 @@ export function TrackingOverlay({
   'aspect'
 >) {
   const { width, height } = useVideoSize(video);
+  const { memory, watch, follow, segmentation } = from;
+  const aspect = width && height ? width / height : 0;
+  // The remembered part changes with memory; only the followed boxes change each tick.
+  const past = useMemo(
+    () => (aspect ? remembered(memory, segmentation, aspect) : []),
+    [memory, segmentation, aspect],
+  );
   if (!width || !height) return null;
-  const seen = sightings({ ...from, aspect: width / height });
+  const seen = withRemembered(liveSightings(memory, watch, follow), past);
   const font = Math.max(10, Math.round(width / 70));
   return (
     <svg

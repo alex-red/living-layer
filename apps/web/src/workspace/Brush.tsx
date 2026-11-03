@@ -10,6 +10,7 @@ import { useItemSprite, usePropSprite } from '../iso/sprites';
 import { typing } from '../shortcuts';
 import { Button, IconButton } from '../ui/controls';
 import { CLOSE_SHARE, inSentence, type Brush, type BrushStroke, type Share } from './useBrush';
+import { useStore } from './state/store';
 
 /** Points of a shape or a stroke on the 0–1000 overlay. */
 const pts = (points: Share[]) => points.map((p) => `${p.x * 1000},${p.y * 1000}`).join(' ');
@@ -37,29 +38,36 @@ export function BrushOverlay({
   label = 'AI brush: drag a box, or click points around a thing',
 }: {
   /** The brush, or anything else drawn the same way (a thing outlined on this machine). */
-  brush: Pick<Brush, 'stroke' | 'setStroke' | 'finish' | 'shape'>;
+  brush: Pick<Brush, 'stroke' | 'finish' | 'shape'>;
   point: (e: PointerEvent<SVGSVGElement>) => Share;
   label?: string;
 }) {
   const down = useRef<{ at: Share; dragging: boolean } | null>(null);
   const [hover, setHover] = useState<Share | null>(null);
-  const { stroke, setStroke, finish, shape } = brush;
+  const { stroke: strokes, finish, shape } = brush;
+  // The stroke is in a store: this overlay alone renders as it is drawn.
+  const stroke = useStore(strokes);
+  const setStroke = strokes.set;
   const polygon = stroke?.kind === 'polygon' ? stroke.points : null;
   const close = () => polygon && polygon.length >= 3 && void finish(stroke!);
-
+  // The keys read the newest polygon through a ref, so the listener is added once a polygon.
+  const latest = useRef({ polygon, close });
+  latest.current = { polygon, close };
+  const drawingPolygon = Boolean(polygon);
   useEffect(() => {
-    if (!polygon) return;
+    if (!drawingPolygon) return;
     const onKey = (e: KeyboardEvent) => {
-      if (typing(e.target)) return;
+      const { polygon, close } = latest.current;
+      if (!polygon || typing(e.target)) return;
       if (e.key === 'Enter') close();
       else if (e.key === 'Backspace') {
         e.preventDefault();
-        setStroke(polygon.length > 1 ? { kind: 'polygon', points: polygon.slice(0, -1) } : null);
+        strokes.set(polygon.length > 1 ? { kind: 'polygon', points: polygon.slice(0, -1) } : null);
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  });
+  }, [drawingPolygon, strokes]);
 
   return (
     <svg
@@ -73,7 +81,8 @@ export function BrushOverlay({
       }}
       onPointerMove={(e) => {
         const p = point(e);
-        setHover(p);
+        // Only an open polygon draws a line to the pointer.
+        if (polygon) setHover(p);
         const d = down.current;
         if (!d || polygon) return;
         if (!d.dragging && Math.hypot(p.x - d.at.x, p.y - d.at.y) > DRAG) d.dragging = true;
@@ -83,7 +92,8 @@ export function BrushOverlay({
         const d = down.current;
         down.current = null;
         if (!d) return;
-        if (d.dragging && stroke?.kind === 'rect') return void finish(stroke);
+        const now = strokes.get();
+        if (d.dragging && now?.kind === 'rect') return void finish(now);
         // A click: start a polygon, add to it, or close it on its first point.
         const p = point(e);
         if (!polygon) return setStroke({ kind: 'polygon', points: [p] });

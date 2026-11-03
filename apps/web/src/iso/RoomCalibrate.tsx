@@ -1,5 +1,13 @@
-import { useEffect, useMemo, useState, type PointerEvent, type ReactNode } from 'react';
+import {
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useState,
+  type PointerEvent,
+  type ReactNode,
+} from 'react';
 import { createPortal } from 'react-dom';
+import { useFrameQueue } from './frame';
 import {
   cameraFromMarks,
   projectRoom,
@@ -103,6 +111,8 @@ export function RoomCalibrate({
     const end = (i - handles.length) % 2 ? 'top' : 'foot';
     setLines(lines.map((l, j) => (j === k ? { ...l, [end]: p } : l)));
   };
+  // A dragged handle moves once a frame, to where the pointer is last.
+  const handleQueue = useFrameQueue(({ i, p }: { i: number; p: Point }) => moveHandle(i, p));
 
   const marks: RoomMarks = useMemo(() => {
     const [corner, back, left] = handles as [Point, Point, Point];
@@ -122,11 +132,13 @@ export function RoomCalibrate({
     };
   }, [handles, ends, lines, uprights]);
   const heightCm = Number(height) || undefined;
+  // The camera's search trails the marks a beat while a handle is dragged, so the handle keeps up.
+  const fitMarks = useDeferredValue(marks);
   // The camera these marks imply, and the floor's tiles drawn through it.
   const fit = useMemo(() => {
     if (!(room.w >= 60 && room.d >= 60)) return null;
     const tiles = { w: room.w / 30, d: room.d / 30 };
-    const f = cameraFromMarks(marks, frame, tiles, { ...(heightCm ? { heightCm } : {}), crop });
+    const f = cameraFromMarks(fitMarks, frame, tiles, { ...(heightCm ? { heightCm } : {}), crop });
     const lines: string[] = [];
     const draw = (a: { x: number; y: number }, b: { x: number; y: number }) => {
       const p = projectRoom(f.camera, { ...a, z: 0 });
@@ -136,19 +148,19 @@ export function RoomCalibrate({
     for (let x = 0; x <= tiles.w; x += 1) draw({ x, y: 0 }, { x, y: tiles.d });
     for (let y = 0; y <= tiles.d; y += 1) draw({ x: 0, y }, { x: tiles.w, y });
     // Where the camera puts each height line's top: on its mark when the size and height agree.
-    const tops = (marks.heights ?? []).map((m) => {
+    const tops = (fitMarks.heights ?? []).map((m) => {
       const foot = unprojectRoom(f.camera, m.foot, 0);
       return foot && projectRoom(f.camera, { x: foot.x, y: foot.y, z: m.cm / 30 });
     });
     // The camera's upright through each vertical line's middle, as long as the line.
-    const ups = (marks.verticals ?? []).map((m) => {
+    const ups = (fitMarks.verticals ?? []).map((m) => {
       const mid = { x: (m.a.x + m.b.x) / 2, y: (m.a.y + m.b.y) / 2 };
       const u = uprightAt(f.camera, mid);
       const half = Math.hypot(m.b.x - m.a.x, m.b.y - m.a.y) / 2;
       return `M${mid.x - u.x * half} ${mid.y - u.y * half}L${mid.x + u.x * half} ${mid.y + u.y * half}`;
     });
     return { ...f, path: lines.join(''), tops, ups };
-  }, [marks, room, heightCm, frame, crop]);
+  }, [fitMarks, room, heightCm, frame, crop]);
 
   // Marks pin the room's shape, not its size: when the grid misses them, the
   // shape is wrong, so say which length of either wall would fit, keeping the
@@ -216,10 +228,16 @@ export function RoomCalibrate({
         }}
         onPointerMove={(e) => {
           if (dragging === null) return;
-          moveHandle(dragging, at(e));
+          handleQueue.push({ i: dragging, p: at(e) });
         }}
-        onPointerUp={() => setDragging(null)}
-        onPointerCancel={() => setDragging(null)}
+        onPointerUp={() => {
+          handleQueue.flush();
+          setDragging(null);
+        }}
+        onPointerCancel={() => {
+          handleQueue.flush();
+          setDragging(null);
+        }}
       >
         {fit && <path className="calibrate-grid" d={fit.path} vectorEffect="non-scaling-stroke" />}
         <polyline

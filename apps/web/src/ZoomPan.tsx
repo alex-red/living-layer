@@ -56,8 +56,6 @@ export function ZoomPan({
 }) {
   const box = useRef<HTMLDivElement>(null);
   const [view, setView] = useState<View>(FIT);
-  const latest = useRef(view);
-  latest.current = view;
   const offRef = useRef(off);
   offRef.current = off;
   const [space, setSpace] = useState(false);
@@ -143,18 +141,31 @@ export function ZoomPan({
   useEffect(() => {
     const b = box.current;
     if (!b) return;
+    // The box's place, read once per gesture: a pinch sends many steps a frame,
+    // and reading it on each would lay the page out again each time.
+    let rect: DOMRect | null = null;
+    let gestureEnd = 0;
     const onWheel = (e: WheelEvent) => {
       if (offRef.current) return;
       e.preventDefault();
-      const r = b.getBoundingClientRect();
+      rect ??= b.getBoundingClientRect();
+      window.clearTimeout(gestureEnd);
+      gestureEnd = window.setTimeout(() => (rect = null), 150);
       // Line and page deltas (some mouse wheels) come in far fewer, larger steps than pixels.
       const dy = e.deltaMode ? e.deltaY * 16 : e.deltaY;
       // A pinch arrives as small Ctrl + wheel steps; a wheel notch is about 100 pixels.
       const rate = e.ctrlKey ? 0.01 : 0.002;
-      setView(zoomAt(latest.current, Math.exp(-dy * rate), e.clientX - r.left, e.clientY - r.top));
+      const factor = Math.exp(-dy * rate);
+      const px = e.clientX - rect.left;
+      const py = e.clientY - rect.top;
+      // From the view as the last step left it, even if it isn't drawn yet, so no step is lost.
+      setView((v) => zoomAt(v, factor, px, py));
     };
     b.addEventListener('wheel', onWheel, { passive: false });
-    return () => b.removeEventListener('wheel', onWheel);
+    return () => {
+      b.removeEventListener('wheel', onWheel);
+      window.clearTimeout(gestureEnd);
+    };
   }, []);
 
   // Space held over the view pans with any button, as in drawing tools.

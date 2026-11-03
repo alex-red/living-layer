@@ -1,7 +1,9 @@
-import { useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { apiAt } from '../api';
 import { readUi, writeUi } from '../session';
-import { useDesk, useFeedback, useLabParts, useView } from './LabContext';
+import { useNow } from '../useNow';
+import { useFeedback, useLabCalls, useView } from './LabContext';
+import { ago } from './labels';
 
 export type Tone = 'ok' | 'seen' | 'chosen' | 'unsure' | 'blocked' | 'warm' | 'idle';
 const TONE_GLYPH: Record<Tone, string> = {
@@ -80,23 +82,57 @@ export function Details({
     </details>
   );
 }
-/** One request from the inspector, with its own busy flag. */
+/**
+ * One request from the inspector, with its own busy flag. It reads only the
+ * lab's busy flag and its fixed calls, so the panel renders for neither the
+ * view nor the desk changing; its busy flag isn't set after the panel closed.
+ */
 export function useCall() {
-  const lab = useLabParts(useView(), useFeedback(), useDesk());
+  const { busy } = useFeedback();
+  const calls = useLabCalls();
   const [pending, setPending] = useState(false);
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
   async function call<T>(path: string, body: object, done: (r: T) => void) {
     setPending(true);
-    lab.setError('');
+    calls.setError('');
     try {
-      done(await apiAt<T>(path, { mode: lab.mode, ...body }));
-      void lab.refresh().catch(() => {});
+      done(await apiAt<T>(path, { mode: calls.mode(), ...body }));
+      void calls.refresh().catch(() => {});
     } catch (e) {
-      lab.setError(e instanceof Error ? e : 'The request failed.');
+      calls.setError(e instanceof Error ? e : 'The request failed.');
     } finally {
-      setPending(false);
+      if (mounted.current) setPending(false);
     }
   }
-  return { pending, call, off: pending || Boolean(lab.busy) };
+  return { pending, call, off: pending || Boolean(busy) };
+}
+/** How long ago `at` was, as words, ticking once a second in this text alone. */
+export function Ago({ at }: { at: string }) {
+  const now = useNow();
+  return <>{ago(at, now)}</>;
+}
+/**
+ * Whether `at` is more than `ms` ago. It renders its caller once more when
+ * that time comes, not every second meanwhile.
+ */
+export function useOlderThan(at: string | undefined, ms: number): boolean {
+  const due = at ? Date.parse(at) + ms : Number.NaN;
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (Number.isNaN(due)) return;
+    const wait = due - Date.now();
+    // Already past: say so on the next render, not a second later.
+    if (wait <= 0) return void setNow(Date.now());
+    const timer = window.setTimeout(() => setNow(Date.now()), wait + 1);
+    return () => window.clearTimeout(timer);
+  }, [due]);
+  return !Number.isNaN(due) && now > due;
 }
 /** Prices only matter when they are spent: live mode only. */
 export function Cost({ children }: { children: string }) {

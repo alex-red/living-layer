@@ -6,7 +6,7 @@ import { api } from '../../api';
 import { useBrush, type Brush } from '../useBrush';
 import { aiTaskStore, setAiTask, updateAiTask, type AiTask } from './ai-task-store';
 import { SHORTCUTS } from '../../shortcuts';
-import { UNDO_LIMIT, stoppedJob } from './helpers';
+import { pushHistory, stoppedJob } from './helpers';
 import type { ViewSlice } from './view';
 import type { FeedbackSlice } from './feedback';
 import type { RunLogSlice } from './runlog';
@@ -128,7 +128,7 @@ export function useAiSlice(
     try {
       await restoreDesk(last.desk);
       const m = last.desk.mode;
-      undo.current[m] = [...undo.current[m], current].slice(-UNDO_LIMIT);
+      undo.current[m] = pushHistory(undo.current[m], current);
       redo.current[m] = [];
       edits.current++;
       setHistoryTick((t) => t + 1);
@@ -239,6 +239,8 @@ export function useAiSlice(
     // The desk as it was, for reverting what this action saves.
     const before = memory;
     const abort = new AbortController();
+    // A newer action replaces the one running: its request goes, not just its answer.
+    aiRun.current?.abort.abort();
     aiRun.current = { generation, jobId, abort };
     clearTimeout(aiClose.current);
     setAiTask({ ...task, jobId, job: null, status: 'running', open: true, startedAt: Date.now() });

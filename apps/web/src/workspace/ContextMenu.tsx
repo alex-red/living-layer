@@ -30,8 +30,12 @@ export function ContextMenu({
   const ref = useRef<HTMLDivElement>(null);
   const [place, setPlace] = useState(at);
   const opener = useRef(document.activeElement as HTMLElement | null);
+  // Read through a ref: a caller's new `onClose` each render mustn't re-add the listeners or
+  // move the focus back to the first item.
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
   const close = () => {
-    onClose();
+    closeRef.current();
     opener.current?.focus?.();
   };
   useLayoutEffect(() => {
@@ -46,9 +50,9 @@ export function ContextMenu({
   useEffect(() => {
     ref.current?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus();
     const outside = (e: PointerEvent) => {
-      if (!ref.current?.contains(e.target as Node)) onClose();
+      if (!ref.current?.contains(e.target as Node)) closeRef.current();
     };
-    const away = () => onClose();
+    const away = () => closeRef.current();
     window.addEventListener('pointerdown', outside, true);
     window.addEventListener('resize', away);
     window.addEventListener('blur', away);
@@ -59,7 +63,7 @@ export function ContextMenu({
       window.removeEventListener('blur', away);
       document.removeEventListener('scroll', away, true);
     };
-  }, [onClose]);
+  }, []);
   function onKeyDown(e: KeyboardEvent) {
     const buttons = [
       ...(ref.current?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)') ?? []),

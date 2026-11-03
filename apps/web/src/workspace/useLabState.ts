@@ -51,6 +51,7 @@ export function useLabState(): LabSlices {
   const saves = useSavesSlice(d12);
   const d13 = { ...d12, ...saves };
   const {
+    aiRun,
     boot,
     boxing,
     brush,
@@ -164,6 +165,8 @@ export function useLabState(): LabSlices {
     // Late answers are dropped from here on, and the camera is let go.
     const leave = () => {
       mounted.current = false;
+      // A running AI call is stopped with the lab, not left to answer no one.
+      aiRun.current?.abort.abort();
       followViewStore.set(null);
       aiTaskStore.set(null);
       cameraGeneration.current++;
@@ -171,6 +174,7 @@ export function useLabState(): LabSlices {
     };
     return leave;
   }, [
+    aiRun,
     boot,
     cameraGeneration,
     captureCanvas,

@@ -52,6 +52,9 @@ export function appendStreamStats(
 
 export class EvidenceStore {
   private db: Database;
+  /** Bumped by every write to the runs; with a per-process prefix it tags `list()` for `ETag`. */
+  private runWrites = 0;
+  private readonly runsEpoch = crypto.randomUUID().slice(0, 8);
   constructor(private dir: string) {
     mkdirSync(dir, { recursive: true, mode: 0o700 });
     this.db = new Database(join(dir, 'livinglayer.sqlite'), { create: true, strict: true });
@@ -123,6 +126,7 @@ export class EvidenceStore {
     })();
   }
   save(run: EvidenceRun): void {
+    this.runWrites++;
     this.db.run('INSERT INTO evidence (id, created_at, payload) VALUES (?, ?, ?)', [
       run.id,
       run.createdAt,
@@ -144,6 +148,7 @@ export class EvidenceStore {
     return row ? row.id : undefined;
   }
   updateRun(run: EvidenceRun): void {
+    this.runWrites++;
     this.db.run('UPDATE evidence SET payload = ? WHERE id = ?', [JSON.stringify(run), run.id]);
   }
   memory(mode: Mode): DeskMemory {
@@ -197,6 +202,10 @@ export class EvidenceStore {
         new Date().toISOString(),
       ]).changes === 1
     );
+  }
+  /** Changes whenever what `list()` returns may have: an entity tag for `GET /api/runs`. */
+  runsTag(): string {
+    return `"${this.runsEpoch}.${this.runWrites}"`;
   }
   list(): EvidenceRun[] {
     return this.db
@@ -439,6 +448,7 @@ export class EvidenceStore {
       bytes += sizeOf(path);
       rmSync(path, { recursive: true, force: true });
       this.db.run('DELETE FROM evidence WHERE id = ?', [id]);
+      this.runWrites++;
     }
     const jobs = this.db.run('DELETE FROM jobs WHERE created_at < ?', [cutoff]).changes;
     // A stat's changes go with the evidence; its day totals are kept for good.

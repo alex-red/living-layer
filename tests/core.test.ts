@@ -213,7 +213,17 @@ describe('local API and provenance', () => {
     });
     await app.close();
     app = await buildApp(c);
-    expect((await app.inject('/api/runs')).json()).toHaveLength(4);
+    const runs = await app.inject('/api/runs');
+    expect(runs.json()).toHaveLength(4);
+    // An unchanged log answers 304 to its tag, and a new run changes the tag.
+    const tag = String(runs.headers.etag);
+    const same = await app.inject({ url: '/api/runs', headers: { 'if-none-match': tag } });
+    expect(same.statusCode).toBe(304);
+    expect(same.body).toBe('');
+    await app.inject({ method: 'POST', url: '/api/lamp', payload: { mode: 'demo' } });
+    const after = await app.inject({ url: '/api/runs', headers: { 'if-none-match': tag } });
+    expect(after.statusCode).toBe(200);
+    expect(after.json()).toHaveLength(5);
     expect((await app.inject('/api/evidence')).headers['content-disposition']).toContain(
       'attachment',
     );

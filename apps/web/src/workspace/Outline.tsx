@@ -21,6 +21,8 @@ import { useNow } from '../useNow';
 import { ContextMenu, type MenuItem } from './ContextMenu';
 import { stateLabel } from './stateLabel';
 import { removeFromLayout } from './removeFromLayout';
+import { useStore } from './state/store';
+import { exposeStore } from '../watch';
 import {
   useCamera,
   useDesk,
@@ -28,7 +30,6 @@ import {
   useLabParts,
   useNavigation,
   useObservation,
-  useTracking,
   useView,
 } from './LabContext';
 import { roomLabel } from './labels';
@@ -121,15 +122,7 @@ function Row({
  * Assistant, which every scene shares.
  */
 export function Outline() {
-  const lab = useLabParts(
-    useView(),
-    useFeedback(),
-    useDesk(),
-    useCamera(),
-    useObservation(),
-    useTracking(),
-    useNavigation(),
-  );
+  const lab = useLabParts(useView(), useDesk(), useObservation());
   const { progress, memory, workScene } = lab;
   const outline = useMemo(
     () =>
@@ -597,6 +590,7 @@ function Things({ outline }: { outline: SceneOutline }) {
             <Button
               variant="text"
               aria-haspopup="menu"
+              aria-label="Add a thing"
               disabled={Boolean(busy)}
               onClick={(e) => {
                 const box = e.currentTarget.getBoundingClientRect();
@@ -745,6 +739,7 @@ function Zones({ outline }: { outline: SceneOutline }) {
         <span className="tiny">ZONES</span>
         <Button
           variant="text"
+          aria-label="Add a zone"
           disabled={!canRule || Boolean(busy)}
           title={canRule ? undefined : 'Follow a thing in this scene first.'}
           onClick={() => lab.startRule(first)}
@@ -777,20 +772,19 @@ function Zones({ outline }: { outline: SceneOutline }) {
 
 /** Home Assistant, shared by every scene: the devices it may switch and what it shows there. */
 function HomeAssistant() {
-  const lab = useLabParts(useFeedback(), useDesk(), useTracking(), useNavigation(), useView());
+  const lab = useLabParts(useFeedback(), useDesk(), useView());
   const { memory, busy } = lab;
+  // What Home Assistant shows changes as the watcher reports: only this renders for it.
+  const broker = useStore(exposeStore, (v) => v?.broker.state);
+  const states = useStore(exposeStore, (v) => v?.states);
   const exposed = memory?.exposed ?? [];
   const ready = lab.entities.length && (lab.mode === 'demo' || lab.lampReady);
   return (
     <details className="ol-ha">
       <summary>
         <span className="tiny">HOME ASSISTANT</span>
-        <small className={`ol-broker ${lab.expose?.broker.state ?? ''}`}>
-          {lab.mode === 'demo'
-            ? 'demo'
-            : lab.expose
-              ? `mqtt · ${lab.expose.broker.state}`
-              : 'not connected'}
+        <small className={`ol-broker ${broker ?? ''}`}>
+          {lab.mode === 'demo' ? 'demo' : broker ? `mqtt · ${broker}` : 'not connected'}
           {` · ${lab.entities.length} device${lab.entities.length === 1 ? '' : 's'}`}
         </small>
       </summary>
@@ -810,7 +804,7 @@ function HomeAssistant() {
           <Row
             key={e.id}
             label={e.name}
-            detail={`ll_${e.key} · ${stateLabel(lab.expose?.states.find((s) => s.id === e.id))}`}
+            detail={`ll_${e.key} · ${stateLabel(states?.find((s) => s.id === e.id))}`}
             glyph="◆"
             className="seen"
             target={{ kind: 'entity', id: e.id }}

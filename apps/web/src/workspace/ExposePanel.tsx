@@ -19,16 +19,11 @@ import {
   placedFixtures,
 } from '@livinglayer/domain';
 import { Button, Check } from '../ui/controls';
-import {
-  useDesk,
-  useFeedback,
-  useLabParts,
-  useNavigation,
-  useTracking,
-  useView,
-} from './LabContext';
+import { useDesk, useFeedback, useLabParts, useNavigation, useView } from './LabContext';
 import { Details, Panel, useCall, type Tone } from './panel';
 import { stateLabel } from './stateLabel';
+import { useStore } from './state/store';
+import { exposeStore, watchStore } from '../watch';
 
 /** A ready-made entity: what it is for, and how it starts. */
 interface Preset {
@@ -544,14 +539,15 @@ function EntityEditor({
 
 /** Teach a zone how it looks empty, so an occupied entity can tell when someone is there. */
 function EmptyLook({ zoneId, learned }: { zoneId: string; learned: boolean }) {
-  const lab = useLabParts(useFeedback(), useTracking());
+  const lab = useLabParts(useFeedback());
+  const watching = useStore(watchStore, (w) => Boolean(w?.on));
   const { call, off } = useCall();
   return (
     <div className="save-actions">
       <Button
         variant={learned ? 'secondary' : 'primary'}
-        disabled={off || !lab.watching}
-        title={lab.watching ? undefined : 'Turn on watching first.'}
+        disabled={off || !watching}
+        title={watching ? undefined : 'Turn on watching first.'}
         onClick={() =>
           void call<{ method: 'features' | 'pixels' }>('expose/learn-empty', { zoneId }, (r) =>
             lab.setMessage(
@@ -570,8 +566,8 @@ function EmptyLook({ zoneId, learned }: { zoneId: string; learned: boolean }) {
 
 /** What the broker is doing, in one line; in the demo, what it would have sent. */
 function BrokerNote() {
-  const lab = useLabParts(useView(), useTracking());
-  const view = lab.expose;
+  const lab = useLabParts(useView());
+  const view = useStore(exposeStore);
   if (!view) return null;
   return (
     <>
@@ -671,13 +667,13 @@ export function NewEntityPanel() {
 }
 
 export function EntityPanel({ id }: { id: string }) {
-  const lab = useLabParts(useFeedback(), useDesk(), useTracking(), useNavigation());
+  const lab = useLabParts(useFeedback(), useDesk(), useNavigation());
   const { memory } = lab;
   const { call, off } = useCall();
   const [editing, setEditing] = useState(false);
+  const s = useStore(exposeStore, (v) => v?.states.find((x) => x.id === id));
   const e = memory?.exposed?.find((x) => x.id === id);
   if (!memory || !e) return <NewEntityPanel />;
-  const s = lab.expose?.states.find((x) => x.id === id);
   const entityId = exposedEntityId(e);
   const topic = `livinglayer/${e.key}`;
   return (

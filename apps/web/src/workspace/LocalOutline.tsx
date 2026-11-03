@@ -2,7 +2,9 @@ import { useEffect } from 'react';
 import type { DeskObservation, SelectionShape } from '@livinglayer/domain';
 import { Glyph } from '../Glyph';
 import { Button } from '../ui/controls';
-import { useCamera, useDesk, useFeedback, useLabParts, useTracking, useView } from './LabContext';
+import { useCamera, useDesk, useFeedback, useLabParts, useView } from './LabContext';
+import { useStore } from './state/store';
+import { watchStore } from '../watch';
 import { Cost } from './panel';
 
 /**
@@ -17,9 +19,11 @@ export function BoxOnlyNote({
   id: string;
   seen: DeskObservation | null | undefined;
 }) {
-  const { watch, trackingAi } = useLabParts(useTracking(), useDesk());
-  const watched = watch?.on ? watch.things.find((t) => t.id === id) : undefined;
-  if (!seen?.boxOnly && !watched?.boxOnly) return null;
+  const { trackingAi } = useDesk();
+  const watchedBoxOnly = useStore(watchStore, (w) =>
+    Boolean(w?.on && w.things.find((t) => t.id === id)?.boxOnly),
+  );
+  if (!seen?.boxOnly && !watchedBoxOnly) return null;
   return (
     <p className="micro box-only" role="note">
       Learned from the whole box drawn round it, not its outline, so it’s followed with what’s

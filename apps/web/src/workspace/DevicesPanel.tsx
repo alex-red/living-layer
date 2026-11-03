@@ -29,16 +29,28 @@ export function DevicesPanel() {
   const [list, setList] = useState<HaEntity[] | null>(null);
   const [listError, setListError] = useState('');
   const [loading, setLoading] = useState(false);
+  /** Bumped by each load and when the panel closes: only the newest load's answer is shown. */
+  const loads = useRef(0);
+  useEffect(
+    () => () => {
+      loads.current++;
+    },
+    [],
+  );
   async function load() {
+    const mine = ++loads.current;
+    const newest = () => mine === loads.current;
     setLoading(true);
     setListError('');
     try {
-      setList((await api('ha/entities')).entities);
+      const { entities } = await api('ha/entities');
+      if (newest()) setList(entities);
     } catch (e) {
+      if (!newest()) return;
       setList(null);
       setListError(e instanceof Error ? e.message : 'Home Assistant could not be reached.');
     } finally {
-      setLoading(false);
+      if (newest()) setLoading(false);
     }
   }
   useEffect(() => {

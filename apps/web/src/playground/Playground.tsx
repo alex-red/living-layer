@@ -11,7 +11,14 @@ import { PixelFeed, type PixelPalette } from './PixelFeed';
 import { networkSource, useCamera } from './useCamera';
 import { useNetworkStreams } from '../streams';
 import { Button, Check, Field, Select, type Option } from '../ui/controls';
-import { useMotionGate, type Stillness } from './useMotionGate';
+import {
+  eachScore,
+  HISTORY,
+  useMotionGate,
+  useMotionSample,
+  type MotionGate,
+  type Stillness,
+} from './useMotionGate';
 import './playground.css';
 
 interface Shot {
@@ -51,8 +58,30 @@ const PALETTE_OPTIONS: Option<PixelPalette>[] = [
 ];
 const clamp = (n: number, min = 0, max = 1) => Math.max(min, Math.min(max, n));
 const pct = (n: number) => `${Math.round(n * 100)}%`;
-const time = (d: Date) =>
-  d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+const clockFormat = new Intl.DateTimeFormat([], {
+  hour: '2-digit',
+  minute: '2-digit',
+  second: '2-digit',
+});
+const time = (d: Date) => clockFormat.format(d);
+
+/** A JPEG of what the canvas holds now, encoded off the main thread where the browser can. */
+function jpegDataUrl(canvas: HTMLCanvasElement): Promise<string> {
+  // `toBlob` copies the canvas as it is now, so the canvas may be drawn on again before it ends.
+  return new Promise((resolve, reject) =>
+    canvas.toBlob(
+      (blob) => {
+        if (!blob) return reject(new Error('Could not encode the frame.'));
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = () => reject(reader.error ?? new Error('Could not read the frame.'));
+        reader.readAsDataURL(blob);
+      },
+      'image/jpeg',
+      0.9,
+    ),
+  );
+}
 
 function Brackets() {
   return (
@@ -185,38 +214,62 @@ export function Playground() {
     setShot(undefined);
   }
 
-  /** Draw the current video frame, at most 1280 px on its long side, as a JPEG. */
+  /** One canvas for every grab and opened photo, sized to each as it comes. */
+  const grabCanvas = useRef<HTMLCanvasElement>(null);
+  /** The canvas drawn with `source` at most 1280 px on its long side, or nothing without a 2D context. */
+  function drawScaled(source: CanvasImageSource, width: number, height: number) {
+    const canvas = (grabCanvas.current ??= document.createElement('canvas'));
+    const scale = Math.min(1, 1280 / Math.max(width, height));
+    canvas.width = Math.round(width * scale);
+    canvas.height = Math.round(height * scale);
+    const context = canvas.getContext('2d');
+    if (!context) return;
+    context.drawImage(source, 0, 0, canvas.width, canvas.height);
+    return canvas;
+  }
+  /**
+   * The current video frame as a JPEG. The frame is the one showing when this
+   * is called; only the encoding waits.
+   */
   function grabFrame() {
     const el = camera.video.current;
     if (!el?.videoWidth) return;
-    const scale = Math.min(1, 1280 / Math.max(el.videoWidth, el.videoHeight));
-    const canvas = document.createElement('canvas');
-    canvas.width = Math.round(el.videoWidth * scale);
-    canvas.height = Math.round(el.videoHeight * scale);
-    const context = canvas.getContext('2d');
-    if (!context) return;
     // The preview may be mirrored. The captured frame never is.
-    context.drawImage(el, 0, 0, canvas.width, canvas.height);
-    return { url: canvas.toDataURL('image/jpeg', 0.9), width: canvas.width, height: canvas.height };
+    const canvas = drawScaled(el, el.videoWidth, el.videoHeight);
+    if (!canvas) return;
+    const { width, height } = canvas;
+    return jpegDataUrl(canvas).then((url) => ({ url, width, height }));
   }
 
-  function capture() {
-    const frame = grabFrame();
-    if (!frame) return;
+  const capturing = useRef(false);
+  async function capture() {
+    if (capturing.current) return;
     // A fresh mask from watching belongs to this same still scene, so keep it.
     const carried = sighting && !sighting.stale ? sighting : undefined;
-    const next: Shot = {
-      id: ++shotId.current,
-      ...frame,
-      segmentation: carried?.segmentation,
-      spent: carried?.cost,
-      motion: motion.score,
-      state: motion.state,
-      takenAt: new Date(),
-      source: 'camera',
-    };
-    setShot(next);
+    const { score } = motion.read();
+    const state = motion.state;
+    const takenAt = new Date();
+    const grabbed = grabFrame();
+    if (!grabbed) return;
+    capturing.current = true;
     setFlash((n) => n + 1);
+    try {
+      const frame = await grabbed;
+      setShot({
+        id: ++shotId.current,
+        ...frame,
+        segmentation: carried?.segmentation,
+        spent: carried?.cost,
+        motion: score,
+        state,
+        takenAt,
+        source: 'camera',
+      });
+    } catch (e) {
+      setDetectError(e instanceof Error ? e.message : 'Could not capture the frame.');
+    } finally {
+      capturing.current = false;
+    }
   }
 
   /** A saved desk photo stands in for the camera, so detection and zones work without one. */
@@ -228,20 +281,19 @@ export function Playground() {
       if (!['image/png', 'image/jpeg'].includes(chosen.type) || chosen.size > 10_000_000)
         throw new Error('Choose a PNG or JPEG under 10 MB.');
       const bitmap = await createImageBitmap(chosen, { imageOrientation: 'from-image' });
-      const scale = Math.min(1, 1280 / Math.max(bitmap.width, bitmap.height));
-      const canvas = document.createElement('canvas');
-      canvas.width = Math.round(bitmap.width * scale);
-      canvas.height = Math.round(bitmap.height * scale);
-      canvas.getContext('2d')?.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+      const canvas = drawScaled(bitmap, bitmap.width, bitmap.height);
       bitmap.close();
+      if (!canvas) throw new Error('Could not open that image.');
+      const { width, height } = canvas;
+      const url = await jpegDataUrl(canvas);
       detectRun.current++;
       setDetecting('');
       setDetectError('');
       setShot({
         id: ++shotId.current,
-        url: canvas.toDataURL('image/jpeg', 0.9),
-        width: canvas.width,
-        height: canvas.height,
+        url,
+        width,
+        height,
         motion: 0,
         state: 'still',
         takenAt: new Date(),
@@ -274,13 +326,14 @@ export function Playground() {
   const motionEpoch = useRef(0);
   const lastWatch = useRef(0);
   async function watchDetect() {
-    const frame = grabFrame();
-    if (!frame) return;
+    const grabbed = grabFrame();
+    if (!grabbed) return;
     const epoch = motionEpoch.current;
     lastWatch.current = performance.now();
     setWatchBusy(true);
     setDetectError('');
     try {
+      const frame = await grabbed;
       const run = await api('segment', {
         mode: 'live',
         imageDataUrl: frame.url,
@@ -313,6 +366,11 @@ export function Playground() {
   const sawMotion = useRef(false);
   const watchDue = useRef(true);
   const lastState = useRef<Stillness>('settling');
+  // The page renders when the gate's state changes, not on every sample, so a
+  // still desk that is due a look before the gap has passed asks again once it has.
+  const [, recheck] = useState(0);
+  const recheckTimer = useRef(0);
+  useEffect(() => () => window.clearTimeout(recheckTimer.current), []);
   // It runs after every render on purpose: the refs above decide when a capture is due.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
@@ -324,17 +382,17 @@ export function Playground() {
         setSighting((s) => (s && !s.stale ? { ...s, stale: true } : s));
       }
     }
-    if (
-      watch &&
-      live &&
-      !reviewing &&
-      !watchBusy &&
-      watchDue.current &&
-      motion.state === 'still' &&
-      performance.now() - lastWatch.current > WATCH_GAP_MS
-    ) {
-      watchDue.current = false;
-      void watchDetect();
+    if (watch && live && !reviewing && !watchBusy && watchDue.current && motion.state === 'still') {
+      const left = WATCH_GAP_MS - (performance.now() - lastWatch.current);
+      if (left < 0) {
+        watchDue.current = false;
+        void watchDetect();
+      } else if (!recheckTimer.current) {
+        recheckTimer.current = window.setTimeout(() => {
+          recheckTimer.current = 0;
+          recheck((n) => n + 1);
+        }, left + 1);
+      }
     }
     if (
       autoCapture &&
@@ -345,7 +403,7 @@ export function Playground() {
       lastState.current !== 'still'
     ) {
       sawMotion.current = false;
-      capture();
+      void capture();
     }
     lastState.current = motion.state;
   });
@@ -466,9 +524,6 @@ export function Playground() {
     : camera.info?.width && camera.info.height
       ? camera.info.width / camera.info.height
       : 16 / 9;
-  const peak = Math.max(threshold * 3, ...motion.history);
-  const spark = motion.history.map((s, i) => `${(i / 89) * 180},${36 - (s / peak) * 34}`).join(' ');
-
   return (
     <div className="pg">
       <header className="pg-top">
@@ -615,27 +670,7 @@ export function Playground() {
               </span>
             </div>
             <p>Runs on this device. Models only see a frame once the desk has been still.</p>
-            <div className="pg-meter" aria-hidden="true">
-              <span
-                className={motion.state}
-                style={{ width: `${Math.min(100, (motion.score / peak) * 100)}%` }}
-              />
-              <i style={{ left: `${(threshold / peak) * 100}%` }} />
-            </div>
-            <svg
-              className="pg-spark"
-              viewBox="0 0 180 36"
-              preserveAspectRatio="none"
-              aria-hidden="true"
-            >
-              <line
-                x1="0"
-                x2="180"
-                y1={36 - (threshold / peak) * 34}
-                y2={36 - (threshold / peak) * 34}
-              />
-              {motion.history.length > 1 && <polyline points={spark} />}
-            </svg>
+            <MotionMeter gate={motion} threshold={threshold} />
             <Field
               className="pg-field"
               label={
@@ -734,20 +769,7 @@ export function Playground() {
                 {shot?.segmentation && (
                   <MaskOverlay key={shot.id} segmentation={shot.segmentation} cover />
                 )}
-                {showCells && live && !reviewing && motion.columns > 0 && (
-                  <div
-                    className="pg-cells"
-                    aria-hidden="true"
-                    style={{
-                      gridTemplateColumns: `repeat(${motion.columns}, 1fr)`,
-                      gridTemplateRows: `repeat(${motion.rows}, 1fr)`,
-                    }}
-                  >
-                    {motion.cells.map((on, i) => (
-                      <span key={i} className={on ? 'on' : ''} />
-                    ))}
-                  </div>
-                )}
+                {showCells && live && !reviewing && <MotionCells gate={motion} />}
               </div>
               {live && !reviewing && sighting && (
                 <MaskOverlay
@@ -842,11 +864,7 @@ export function Playground() {
               <span className="pg-hud pg-corner tr">
                 {reviewing ? 'FROZEN' : !live ? '' : flip ? 'MIRRORED' : 'TRUE VIEW'}
               </span>
-              {live && !reviewing && (
-                <span className="pg-hud pg-corner bl">
-                  MOT {motion.score.toFixed(1)}% · STILL {(motion.stillFor / 1000).toFixed(1)}s
-                </span>
-              )}
+              {live && !reviewing && <MotionHud gate={motion} />}
               {flash > 0 && <span key={flash} className="pg-flash" aria-hidden="true" />}
 
               {shot && (
@@ -894,7 +912,7 @@ export function Playground() {
             <button
               className={`pg-shutter ${motion.state}`}
               disabled={!live || reviewing}
-              onClick={capture}
+              onClick={() => void capture()}
               aria-label="Capture frame"
             >
               <span />
@@ -1103,5 +1121,68 @@ export function Playground() {
         </aside>
       </main>
     </div>
+  );
+}
+
+/** The gate's top score: the threshold's three times, or the highest recent score above it. */
+function peakOf(gate: MotionGate, threshold: number) {
+  let peak = threshold * 3;
+  eachScore(gate.read(), (s) => (peak = Math.max(peak, s)));
+  return peak;
+}
+
+/** The motion meter and its sparkline, drawn on each sample without the page around them. */
+function MotionMeter({ gate, threshold }: { gate: MotionGate; threshold: number }) {
+  const sample = useMotionSample(gate);
+  const peak = peakOf(gate, threshold);
+  let spark = '';
+  eachScore(sample, (s, i) => {
+    spark += `${i ? ' ' : ''}${(i / (HISTORY - 1)) * 180},${36 - (s / peak) * 34}`;
+  });
+  return (
+    <>
+      <div className="pg-meter" aria-hidden="true">
+        <span
+          className={gate.state}
+          style={{ width: `${Math.min(100, (sample.score / peak) * 100)}%` }}
+        />
+        <i style={{ left: `${(threshold / peak) * 100}%` }} />
+      </div>
+      <svg className="pg-spark" viewBox="0 0 180 36" preserveAspectRatio="none" aria-hidden="true">
+        <line x1="0" x2="180" y1={36 - (threshold / peak) * 34} y2={36 - (threshold / peak) * 34} />
+        {sample.count > 1 && <polyline points={spark} />}
+      </svg>
+    </>
+  );
+}
+
+/** Where the gate sees motion, as a coarse grid over the preview. */
+function MotionCells({ gate }: { gate: MotionGate }) {
+  const { columns, rows, cells } = useMotionSample(gate);
+  if (!columns) return null;
+  const spans = [];
+  for (let i = 0; i < cells.length; i++)
+    spans.push(<span key={i} className={cells[i] ? 'on' : ''} />);
+  return (
+    <div
+      className="pg-cells"
+      aria-hidden="true"
+      style={{
+        gridTemplateColumns: `repeat(${columns}, 1fr)`,
+        gridTemplateRows: `repeat(${rows}, 1fr)`,
+      }}
+    >
+      {spans}
+    </div>
+  );
+}
+
+/** The live score and how long the desk has been still, in the preview's corner. */
+function MotionHud({ gate }: { gate: MotionGate }) {
+  const { score, stillFor } = useMotionSample(gate);
+  return (
+    <span className="pg-hud pg-corner bl">
+      MOT {score.toFixed(1)}% · STILL {(stillFor / 1000).toFixed(1)}s
+    </span>
   );
 }

@@ -27,7 +27,7 @@ import {
   type SessionSave,
 } from '../../session';
 import { SHORTCUTS } from '../../shortcuts';
-import { RUN_KINDS, UNDO_LIMIT } from './helpers';
+import { RUN_KINDS, deskJson, pushHistory } from './helpers';
 import type { ViewSlice } from './view';
 import type { FeedbackSlice } from './feedback';
 import type { RunLogSlice } from './runlog';
@@ -192,23 +192,39 @@ export function useSavesSlice(
   const seenDesks = useRef<Partial<DeskKeys>>({});
   const writtenPrefs = useRef('');
   /** Write the autosave; unless `always`, only when this tab changed something since it last did. */
+  /**
+   * The desks the autosave holds, as this tab last wrote or read them; read
+   * again only once another tab wrote it (a `storage` event) or at first.
+   */
+  const storedDesks = useRef<{ desks: SessionSave['desks'] | undefined } | null>(null);
   function saveNow(always = true) {
-    const keys = deskKeys(memories);
+    const keys = ourDeskKeys();
     const prefsText = JSON.stringify(prefs);
     const changed =
       keys.demo !== seenDesks.current.demo ||
       keys.live !== seenDesks.current.live ||
       prefsText !== writtenPrefs.current;
     if (!always && !changed) return true;
+    storedDesks.current ??= { desks: readSession()?.desks };
     // A desk this tab didn't change may be older than one another tab saved meanwhile: keep that one.
-    const ok = writeSession(prefs, desksToSave(memories, seenDesks.current, readSession()?.desks));
+    const desks = desksToSave(memories, seenDesks.current, storedDesks.current.desks, keys);
+    const ok = writeSession(prefs, desks);
     setStorageOk(ok);
     if (ok) {
+      storedDesks.current = { desks };
       seenDesks.current = keys;
       writtenPrefs.current = prefsText;
       setSavedAt(new Date().toISOString());
     }
     return ok;
+  }
+  /** `deskKeys` of this tab's desks, each worked out once per desk. */
+  function ourDeskKeys(): DeskKeys {
+    const key = (m: Mode) => {
+      const desk = memories[m];
+      return desk ? deskJson(desk) : 'null';
+    };
+    return { demo: key('demo'), live: key('live') };
   }
   const saveLatest = useRef(saveNow);
   saveLatest.current = saveNow;
@@ -242,7 +258,7 @@ export function useSavesSlice(
     try {
       await restoreDesk(target);
       from.current[mode] = from.current[mode].slice(0, -1);
-      to.current[mode] = [...to.current[mode], current].slice(-UNDO_LIMIT);
+      to.current[mode] = pushHistory(to.current[mode], current);
       edits.current++;
       setHistoryTick((t) => t + 1);
       setDrawing(false);
@@ -278,7 +294,7 @@ export function useSavesSlice(
   catchUp.current = () => {
     if (!deskReady) return;
     const stored = deskKeys(readSession()?.desks ?? {});
-    const ours = deskKeys(memories);
+    const ours = ourDeskKeys();
     if (stored.demo === ours.demo && stored.live === ours.live) return;
     void refresh()
       .then((desks) => {
@@ -290,6 +306,8 @@ export function useSavesSlice(
     let timer = 0;
     const stop = onOtherTabSave((what) => {
       if (what === 'saves') return setSaves(readSaves());
+      // What the autosave holds is another tab's now: read it again before writing.
+      storedDesks.current = null;
       // Another tab autosaves at most every pause, but a burst of them needs one fetch.
       window.clearTimeout(timer);
       timer = window.setTimeout(() => catchUp.current(), 200);
@@ -542,6 +560,7 @@ export function useSavesSlice(
   /** Clear both desks and this browser's autosave, keeping named saves; the menu asks first, as embedded browsers block confirm(). */
   async function resetToDemo() {
     clearSession();
+    storedDesks.current = null;
     markActive(null);
     await applySave(
       { app: 'livinglayer', version: 1, savedAt: new Date().toISOString(), prefs: {}, desks: {} },

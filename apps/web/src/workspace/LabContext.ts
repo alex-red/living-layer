@@ -19,6 +19,25 @@ export const SliceContexts = {
   saves: createContext<LabSlices['saves'] | null>(null),
 } satisfies { [K in keyof LabSlices]: Context<LabSlices[K] | null> };
 
+/**
+ * The lab's few calls a request needs that never change identity, and the
+ * mode read when the call is made: a pane that makes requests renders for
+ * none of the slices they come from.
+ */
+export interface LabCalls {
+  /** The mode shown now, read at the moment of the call. */
+  mode: () => LabSlices['view']['mode'];
+  refresh: LabSlices['desk']['refresh'];
+  setError: LabSlices['feedback']['setError'];
+}
+export const LabCallsContext = createContext<LabCalls | null>(null);
+/** The lab's fixed calls (`LabCalls`). */
+export function useLabCalls(): LabCalls {
+  const calls = useContext(LabCallsContext);
+  if (!calls) throw new Error('The lab hooks must be used inside the lab workspace.');
+  return calls;
+}
+
 function useSlice<K extends keyof LabSlices>(key: K): LabSlices[K] {
   const slice = useContext(SliceContexts[key] as Context<LabSlices[K] | null>);
   if (!slice) throw new Error('The lab hooks must be used inside the lab workspace.');

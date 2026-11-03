@@ -43,12 +43,15 @@ import {
   useView,
 } from './LabContext';
 import { useFollowStats, useFollowView } from './state/follow-store';
-import { Cost, Details, Panel, useCall } from './panel';
+import { Ago, Cost, Details, Panel, useCall, useOlderThan } from './panel';
+import { useStore } from './state/store';
+import { useDragRect } from './state/view';
+import { watchStore } from '../watch';
 import { ScanFixtures } from './ScanFixtures';
 import { BoxOnlyNote, LocalOutline } from './LocalOutline';
 import { ChooseDevicesLink } from './ChooseDevicesLink';
 import { Later } from '../Later';
-import { ago, mainSurface, roomLabel, surfaceRows, type LabRead } from './labels';
+import { mainSurface, roomLabel, surfaceRows, type LabRead } from './labels';
 import { pinScene, viewLabel, type Selection } from './progress';
 import { TRANSITION, centre, type Lab } from './useLabState';
 import './inspector.css';
@@ -95,6 +98,45 @@ function Freshness({ observedAt }: { observedAt: string }) {
         transform="rotate(-90 8 8)"
       />
     </svg>
+  );
+}
+/**
+ * The zone's numbers while it is drawn. A drag on the photo shows here as it
+ * moves (from `dragRectStore`), so only these fields render at its rate.
+ */
+function ZoneFields({
+  draftZone,
+  busy,
+  setDraftZone,
+}: {
+  draftZone: Lab['draftZone'];
+  busy: boolean;
+  setDraftZone: Lab['setDraftZone'];
+}) {
+  const zone = useDragRect('zone') ?? draftZone;
+  return (
+    <div className="zone-fields">
+      {(['x', 'y', 'width', 'height'] as const).map((key) => (
+        <label key={key}>
+          Zone {key} %
+          <input
+            type="number"
+            min="0"
+            max="100"
+            step="1"
+            value={Math.round(zone[key] * 100)}
+            disabled={busy}
+            onChange={(e) =>
+              // A rectangle edited in the frame is no longer the one drawn in the room.
+              setDraftZone(({ onSurface: _, ...z }) => ({
+                ...z,
+                [key]: Number(e.target.value) / 100,
+              }))
+            }
+          />
+        </label>
+      ))}
+    </div>
   );
 }
 const verdictSummary = (memory: DeskMemory | undefined, events: EvidenceRun<PlacementDecision>[]) =>
@@ -885,7 +927,9 @@ const WATCH_STATE = {
  */
 function WatchControl() {
   const lab = useLabParts(useView(), useDesk(), useTracking());
-  const { watch, watching, canWatch, mode, trackingAi } = lab;
+  const { watching, canWatch, mode, trackingAi } = lab;
+  // The watcher's counts change with each frame it reads: this alone renders for them.
+  const watch = useStore(watchStore);
   const stats =
     watch &&
     `${watch.frames} frame${watch.frames === 1 ? '' : 's'} · ${watch.ai ? `${watch.checks} SAM check${watch.checks === 1 ? '' : 's'}` : 'local only, no SAM calls'}${watch.appearance ? ` · ${watch.refinds} found by appearance` : ''}`;
@@ -936,10 +980,8 @@ function MugPanel() {
   );
   const { memory, mode, camera, busy, status, follow, localZone, trackingAi } = lab;
   const { currentObservation, sightings } = lab;
-  const now = useNow();
-  const observationStale = mugSighting(memory)
-    ? now - Date.parse(mugSighting(memory)!.observedAt) > OBSERVATION_MAX_AGE_MS
-    : false;
+  // Turns once, when the sighting expires; the seconds tick in `Ago` and `Freshness` alone.
+  const observationStale = useOlderThan(mugSighting(memory)?.observedAt, OBSERVATION_MAX_AGE_MS);
   if (!memory || !mugOf(memory))
     return (
       <Panel
@@ -954,19 +996,21 @@ function MugPanel() {
       </Panel>
     );
   const o = mugSighting(memory);
-  const seen = o ? ago(o.observedAt, now) : '';
+  const seen = o && <Ago at={o.observedAt} />;
   return (
     <Panel
       tiny="OBJECT · MAIN"
       title={mugOf(memory)!.label}
       status={
-        !o
-          ? 'Remembered, but not seen yet. Track it in a frame.'
-          : currentObservation
-            ? `Confirmed in this frame · seen ${seen}.`
-            : observationStale
-              ? `Seen ${seen}, so it may have moved. Track it in a new frame.`
-              : `Seen ${seen} in an earlier frame. Track it in this frame to continue.`
+        !o ? (
+          'Remembered, but not seen yet. Track it in a frame.'
+        ) : currentObservation ? (
+          <>Confirmed in this frame · seen {seen}.</>
+        ) : observationStale ? (
+          <>Seen {seen}, so it may have moved. Track it in a new frame.</>
+        ) : (
+          <>Seen {seen} in an earlier frame. Track it in this frame to continue.</>
+        )
       }
       tone={currentObservation ? 'chosen' : observationStale ? 'unsure' : 'seen'}
       aside={o && <Freshness observedAt={o.observedAt} />}
@@ -1096,7 +1140,6 @@ function OtherPanel({ id }: { id: string }) {
   );
   const { memory, segmentation, segmentRunId, canVision } = lab;
   const { call, off } = useCall();
-  const now = useNow();
   const o = otherObjects(memory)?.find((x) => x.id === id);
   if (!o) return <SetupPanel />;
   const canTrack =
@@ -1109,9 +1152,13 @@ function OtherPanel({ id }: { id: string }) {
       tiny={`OBJECT · ${o.concept.toUpperCase()}`}
       title={o.label}
       status={
-        o.observation
-          ? `Seen ${ago(o.observation.observedAt, now)} · found as “${o.concept}”.`
-          : `Remembered · found as “${o.concept}”.`
+        o.observation ? (
+          <>
+            Seen <Ago at={o.observation.observedAt} /> · found as “{o.concept}”.
+          </>
+        ) : (
+          `Remembered · found as “${o.concept}”.`
+        )
       }
       tone="chosen"
       aside={o.observation && <Freshness observedAt={o.observation.observedAt} />}
@@ -1283,28 +1330,7 @@ function ZonePanel() {
           <p className="micro">
             Drag a rectangle on the photo or the iso surface, or enter percentages.
           </p>
-          <div className="zone-fields">
-            {(['x', 'y', 'width', 'height'] as const).map((key) => (
-              <label key={key}>
-                Zone {key} %
-                <input
-                  type="number"
-                  min="0"
-                  max="100"
-                  step="1"
-                  value={Math.round(draftZone[key] * 100)}
-                  disabled={Boolean(busy)}
-                  onChange={(e) =>
-                    // A rectangle edited in the frame is no longer the one drawn in the room.
-                    lab.setDraftZone(({ onSurface: _, ...z }) => ({
-                      ...z,
-                      [key]: Number(e.target.value) / 100,
-                    }))
-                  }
-                />
-              </label>
-            ))}
-          </div>
+          <ZoneFields draftZone={draftZone} busy={Boolean(busy)} setDraftZone={lab.setDraftZone} />
           <div className="save-actions">
             <Button
               variant="primary"

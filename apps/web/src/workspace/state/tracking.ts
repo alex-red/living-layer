@@ -10,14 +10,13 @@ import type {
   LocalVerdict,
   SelectionShape,
   UnitBox,
-  WatchView,
 } from '@livinglayer/domain';
 import { mainPlacement, mugSighting } from '@livinglayer/domain';
 import { DEMO_POSITIONS, startLocalTrack, stepLocalTrack } from '@livinglayer/domain';
 import { api } from '../../api';
 import { followStatsStore, followViewStore } from './follow-store';
-import { useWatchStream } from '../../watch';
-import { useFeedStats } from './stats';
+import { useWatchStream, watchStore } from '../../watch';
+import { useStore } from './store';
 import {
   CONFIRM_GAP_MS,
   FOLLOW_MS,
@@ -37,7 +36,6 @@ import type { FollowStateSlice } from './follow-state';
 import type { CameraSlice } from './camera';
 import type { ObservationSlice } from './observation';
 import { useStableSlice } from './stable';
-import type { ExposeView } from '@livinglayer/domain';
 
 /** The Tracking slice of the lab's state. */
 export function useTrackingSlice(
@@ -59,6 +57,7 @@ export function useTrackingSlice(
     demoPosition,
     dropCamera,
     follow,
+    followGen,
     goodSteps,
     image,
     lastCheck,
@@ -96,10 +95,15 @@ export function useTrackingSlice(
     video,
   } = deps;
   // The server's watcher: it follows things and fires rules with no tab open; this shows it,
-  // and the entities shown in Home Assistant over MQTT, with their states.
-  const { watch, expose } = useWatchStream(mode);
-  useFeedStats(watch?.stats);
-  const watching = Boolean(watch?.on);
+  // and the entities shown in Home Assistant over MQTT, with their states. Both are stores
+  // (`watchStore`, `exposeStore`) read where they are shown: the lab keeps only what it
+  // derives from them, each a value that changes only when it does.
+  useWatchStream(mode);
+  const watching = useStore(watchStore, (w) => Boolean(w?.on));
+  const watchHasCamera = useStore(watchStore, (w) => Boolean(w?.camera));
+  const watchCameraId = useStore(watchStore, (w) => w?.camera?.id);
+  /** Each demo move's local step; an older move's frame that loads late is dropped. */
+  const demoStep = useRef(0);
   function moveDemoMug(next: DemoPosition) {
     setDemoPosition(next);
     setScene(undefined);
@@ -225,7 +229,11 @@ export function useTrackingSlice(
     lastCheck.current = Date.now();
     if (verdict === 'reanchor')
       reanchorGap.current = Math.min(REANCHOR_GAP_MS.max, reanchorGap.current * 2);
+    // Following stopped while SAM looked: its answer is for a follow that is gone.
+    const gen = followGen.current;
+    const stale = () => gen !== followGen.current;
     const result = await track({ keepCamera: true, position });
+    if (stale()) return;
     if (!result.ok) {
       // SAM can't see the mug either (covered, or out of frame): stay lost and try again later.
       if (result.code === 'track_lost' && localTrack.current) {
@@ -247,6 +255,7 @@ export function useTrackingSlice(
           result.segmentation,
           mainPlacement(result.memory) === 'inside',
         ));
+      if (stale()) return;
       if (!next) throw new Error('SAM found the mug, but it is too small to keep following.');
       localTrack.current = next;
       goodSteps.current = 0;
@@ -257,6 +266,7 @@ export function useTrackingSlice(
           `${verdict === 'confirm' ? 'Zone crossing checked with SAM' : 'Re-anchored with SAM'}. ${m}`,
       );
     } catch (e) {
+      if (stale()) return;
       stopFollow();
       setError(e instanceof Error ? e : 'Could not keep following.');
     }
@@ -270,22 +280,27 @@ export function useTrackingSlice(
     followStatsStore.set((s) => ({ ...s, frames: s.frames + 1 }));
   }
   async function followDemo(position: DemoPosition) {
+    const step = ++demoStep.current;
+    const gen = followGen.current;
+    // A newer move, or a stop, while this frame loaded: its step would land out of order.
+    const stale = () => step !== demoStep.current || gen !== followGen.current;
     try {
       const frame = lumaOf(await loadImage(sceneUrl(position)));
       const current = localTrack.current;
-      if (!current) return;
+      if (stale() || !current) return;
       // Each demo move is one deliberate frame of a mug already set down, so it needn't settle.
-      const step = stepLocalTrack(current, frame, localZone, {
+      const next = stepLocalTrack(current, frame, localZone, {
         settleSteps: 1,
         lostSteps: 1,
         quietSteps: 0,
       });
-      applyStep(step);
-      if (step.verdict !== 'follow') return void followCheck(step.verdict, position);
+      applyStep(next);
+      if (next.verdict !== 'follow') return void followCheck(next.verdict, position);
       setMessage(
-        `Followed locally to ${DEMO_POSITIONS[position].label.toLowerCase()} · match ${step.track.score.toFixed(2)} · no model call.`,
+        `Followed locally to ${DEMO_POSITIONS[position].label.toLowerCase()} · match ${next.track.score.toFixed(2)} · no model call.`,
       );
     } catch (e) {
+      if (stale()) return;
       stopFollow();
       setError(e instanceof Error ? e : 'Could not follow the mug.');
     }
@@ -313,7 +328,7 @@ export function useTrackingSlice(
   /** The selected network camera, when the server can read it too (it offers RTSP). */
   const watchCamera = network.streams.find((s) => s.id === cameraSource && s.rtsp);
   /** Whether the server can watch this mode's camera: always in the demo, else an RTSP camera. */
-  const canWatch = mode === 'demo' || Boolean(watchCamera) || Boolean(watch?.camera);
+  const canWatch = mode === 'demo' || Boolean(watchCamera) || watchHasCamera;
   async function toggleWatch() {
     setError('');
     try {
@@ -335,10 +350,10 @@ export function useTrackingSlice(
   }
   // Watching shows the camera the server watches, live: once when watching starts or the
   // page loads with it on. A camera the person stops afterwards stays off.
-  const watchedId = mode === 'live' && watching ? watch?.camera?.id : undefined;
-  // What the watcher's effects read when they run: the newest watch, mode and camera.
-  const watchNow = useRef({ watch, mode, camera, cameraSource });
-  watchNow.current = { watch, mode, camera, cameraSource };
+  const watchedId = mode === 'live' && watching ? watchCameraId : undefined;
+  // What the watcher's effects read when they run: the newest mode and camera.
+  const watchNow = useRef({ mode, camera, cameraSource });
+  watchNow.current = { mode, camera, cameraSource };
   useEffect(() => {
     if (!watchedId) return;
     const { camera, cameraSource } = watchNow.current;
@@ -347,46 +362,50 @@ export function useTrackingSlice(
     setCameraWanted(true);
     setReopenTries(0);
   }, [watchedId, dropCamera, setCameraSource, setCameraWanted, setReopenTries]);
-  // What the watcher's SAM checks changed (sightings, verdicts, a lamp) shows once it lands.
+  // What the watcher's SAM checks changed (sightings, verdicts, a lamp) shows once it lands,
+  // and a fixture marked missing (or found again) changes how the room draws it. Both are
+  // read off the store as it changes, so the lab doesn't render for each message.
   const seenChecks = useRef(0);
-  const checks = watch?.checks;
+  const seenMissing = useRef(0);
   useEffect(() => {
-    const { watch, mode } = watchNow.current;
-    if (!watch || watch.checks === seenChecks.current) return;
-    const first = seenChecks.current === 0 && watch.checks > 0 && !watch.on;
-    seenChecks.current = watch.checks;
-    if (first) return;
-    void refresh()
-      .then((desks) => {
-        const action = desks[mode].lastDecision?.output.action;
-        if (action === 'confirmed') light();
-      })
-      .catch(() => {});
-  }, [checks, refresh, light]);
-  // A fixture marked missing (or found again) changes how the room draws it.
-  const missingFixtures = (watch?.things ?? []).filter(
-    (t) => t.kind === 'fixture' && t.status === 'missing',
-  ).length;
-  useEffect(() => {
-    if (watchNow.current.watch) void refresh().catch(() => {});
-  }, [missingFixtures, refresh]);
+    const onWatch = () => {
+      const watch = watchStore.get();
+      const missing = (watch?.things ?? []).filter(
+        (t) => t.kind === 'fixture' && t.status === 'missing',
+      ).length;
+      if (missing !== seenMissing.current) {
+        seenMissing.current = missing;
+        if (watch) void refresh().catch(() => {});
+      }
+      if (!watch || watch.checks === seenChecks.current) return;
+      const first = seenChecks.current === 0 && watch.checks > 0 && !watch.on;
+      seenChecks.current = watch.checks;
+      if (first) return;
+      const { mode } = watchNow.current;
+      void refresh()
+        .then((desks) => {
+          const action = desks[mode].lastDecision?.output.action;
+          if (action === 'confirmed') light();
+        })
+        .catch(() => {});
+    };
+    onWatch();
+    return watchStore.subscribe(onWatch);
+  }, [refresh, light]);
   followLatest.current = { zone: localZone, check: followCheck, step: applyStep };
   return useStableSlice({
     canWatch,
-    expose,
     moveDemoMug,
     placementMessage,
     startFollow,
     toggleWatch,
     track,
-    watch,
     watching,
   });
 }
 /** What the Tracking slice of the lab offers: its state, derived values and actions. */
 export interface TrackingSlice {
   canWatch: boolean;
-  expose: ExposeView | null;
   moveDemoMug: (next: DemoPosition) => void;
   placementMessage: (event: EvidenceRun<PlacementDecision>) => string;
   startFollow: () => Promise<void>;
@@ -409,6 +428,5 @@ export interface TrackingSlice {
         code: string | undefined;
       }
   >;
-  watch: WatchView | null;
   watching: boolean;
 }

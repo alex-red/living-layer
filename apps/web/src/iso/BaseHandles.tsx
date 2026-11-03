@@ -1,4 +1,5 @@
 import { useRef, type PointerEvent } from 'react';
+import { useFrameQueue } from './frame';
 import type { Point } from '@livinglayer/domain';
 
 /** A footprint in scene tiles, as drawn: already turned. */
@@ -71,6 +72,10 @@ export function BaseHandles({
     if (sy > 0) y1 = Math.min(y0 + MAX, Math.max(y0 + MIN, snap(p.y)));
     return { x: x0, y: y0, w: x1 - x0, d: y1 - y0 };
   };
+  // A preview a frame at most, and only when the snapped footprint changes.
+  const preview = useFrameQueue(onPreview);
+  const same = (a: BaseRect, b: BaseRect) =>
+    a.x === b.x && a.y === b.y && a.w === b.w && a.d === b.d;
   return (
     <g className="base-handles">
       {HANDLES.map(([sx, sy]) => {
@@ -98,13 +103,16 @@ export function BaseHandles({
               const d = drag.current;
               const p = d && d.id === e.pointerId ? unproject(e, z) : null;
               if (!d || !p) return;
-              d.now = stretch(d.from, d.side, p);
-              onPreview(d.now);
+              const next = stretch(d.from, d.side, p);
+              if (same(next, d.now)) return;
+              d.now = next;
+              preview.push(next);
             }}
             onPointerUp={(e) => {
               const d = drag.current;
               if (!d || d.id !== e.pointerId) return;
               drag.current = null;
+              preview.flush();
               const moved =
                 Math.abs(d.now.w - d.from.w) > 1e-6 ||
                 Math.abs(d.now.d - d.from.d) > 1e-6 ||
@@ -115,6 +123,7 @@ export function BaseHandles({
             }}
             onPointerCancel={() => {
               drag.current = null;
+              preview.cancel();
               onPreview(null);
             }}
             onClick={(e) => e.stopPropagation()}

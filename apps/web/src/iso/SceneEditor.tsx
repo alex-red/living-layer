@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ISO_PRESETS,
   ISO_TILE_CM,
@@ -51,6 +51,8 @@ const groupLabel = (scene: Scene, g: string) => {
   const props = scene.props.filter((p) => p.group === g);
   return props.find((p) => p.id === g)?.label ?? props[0]?.label ?? g;
 };
+
+const NO_FIXTURES: IsoFixture[] = [];
 
 type Preset = IsoSceneKind | 'empty';
 type Running = 'setup' | 'spark' | 'upload' | 'frame' | 'fit';
@@ -130,7 +132,7 @@ export function SceneEditor({
   brushTool = false,
   onAiEdit,
   onMakeThing,
-  fixtures = [],
+  fixtures = NO_FIXTURES,
   onMoveFixture,
   onFixtureMenu,
   view,
@@ -270,9 +272,12 @@ export function SceneEditor({
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
-  const flagged = overlappingGroups(draft);
-  const shown = view ? throughView(draft, view, added) : draft;
-  const groups = [...new Set(shown.props.map((p) => p.group))];
+  const flagged = useMemo(() => overlappingGroups(draft), [draft]);
+  const shown = useMemo(
+    () => (view ? throughView(draft, view, added) : draft),
+    [draft, view, added],
+  );
+  const groups = useMemo(() => [...new Set(shown.props.map((p) => p.group))], [shown]);
   const overlapping = groups.filter((g) => flagged.has(g)).length;
   const hide = (gs: string[], off: boolean) =>
     setHidden((h) => {
@@ -283,15 +288,44 @@ export function SceneEditor({
       }
       return next;
     });
-  const check = isoSceneSchema.safeParse(draft);
-  const dirty = JSON.stringify(draft) !== JSON.stringify(saved ?? null);
+  const check = useMemo(() => isoSceneSchema.safeParse(draft), [draft]);
+  const draftJson = useMemo(() => JSON.stringify(draft), [draft]);
+  const savedJson = useMemo(() => JSON.stringify(saved ?? null), [saved]);
+  const initialJson = useMemo(
+    () => JSON.stringify(showsSaved ? saved! : asCustom(base)),
+    [showsSaved, saved, base],
+  );
+  const dirty = draftJson !== savedJson;
   // The AI brush reads the room as it is shown, so it waits for the layout's edits to be saved.
   const aiBlocked =
-    JSON.stringify(draft) !== JSON.stringify(initial())
+    draftJson !== initialJson
       ? 'Save the layout first: the AI brush edits the room as saved.'
       : null;
   const groupProps = selected ? draft.props.filter((p) => p.group === selected) : [];
   const lamp = groupProps.find((p) => p.role === 'lamp');
+  // What the scene is handed stays the same object while nothing it shows changes.
+  const sceneFixtures = useMemo(
+    () => fixtures.filter((f) => !hidden.has(`fixture:${f.id}`)),
+    [fixtures, hidden],
+  );
+  const lampLight = lamp?.lightId;
+  const litLights = useMemo(() => new Set(lampLight ? [lampLight] : []), [lampLight]);
+  const latest = useRef({ draft, aiBlocked, brushTool, onAiEdit, edit });
+  latest.current = { draft, aiBlocked, brushTool, onAiEdit, edit };
+  const editing = useMemo(
+    () => ({
+      selected,
+      flagged,
+      onSelect: (g: string) => {
+        setSelected(g);
+        const l = latest.current;
+        if (g && l.brushTool && !l.aiBlocked) l.onAiEdit?.(l.draft, g);
+      },
+      onMove: (g: string, dx: number, dy: number) =>
+        latest.current.edit((d) => settleGroup(moveGroup(d, g, dx, dy), g), `move.${g}`),
+    }),
+    [selected, flagged],
+  );
   const bounds = selected ? groupBounds(draft, selected) : null;
 
   function start(from: IsoSceneKind | 'empty') {
@@ -528,20 +562,11 @@ export function SceneEditor({
             <IsoScene
               scene={shown}
               hidden={hidden}
-              fixtures={fixtures.filter((f) => !hidden.has(`fixture:${f.id}`))}
+              fixtures={sceneFixtures}
               {...(onMoveFixture ? { onMoveFixture } : {})}
               {...(onFixtureMenu ? { onFixtureMenu } : {})}
-              litLights={new Set(lamp?.lightId ? [lamp.lightId] : [])}
-              editing={{
-                selected,
-                flagged,
-                onSelect: (g) => {
-                  setSelected(g);
-                  if (g && brushTool && !aiBlocked) onAiEdit?.(draft, g);
-                },
-                onMove: (g, dx, dy) =>
-                  edit((d) => settleGroup(moveGroup(d, g, dx, dy), g), `move.${g}`),
-              }}
+              litLights={litLights}
+              editing={editing}
             />
           </ZoomPan>
         </div>

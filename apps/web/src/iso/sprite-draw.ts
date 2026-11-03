@@ -38,14 +38,45 @@ export interface Drawn {
   shownHeight: number;
 }
 
+/** A short, deterministic name for a model's parts: two 32-bit hashes of their JSON and its length. */
+function hashText(text: string): string {
+  let a = 0x811c9dc5;
+  let b = 0x9e3779b9;
+  for (let i = 0; i < text.length; i++) {
+    const c = text.charCodeAt(i);
+    a = Math.imul(a ^ c, 0x01000193);
+    b = Math.imul(b ^ c, 0x5bd1e995);
+    b ^= b >>> 15;
+  }
+  return `${(a >>> 0).toString(36)}.${(b >>> 0).toString(36)}.${text.length.toString(36)}`;
+}
+/**
+ * Parts are never changed in place (a change makes a new array), so each
+ * array is stringified once however often its sprite renders.
+ */
+const partsKeys = new WeakMap<IsoItem['parts'], string>();
+function partsKey(parts: IsoItem['parts']): string {
+  let k = partsKeys.get(parts);
+  if (k === undefined) {
+    k = hashText(JSON.stringify(parts));
+    partsKeys.set(parts, k);
+  }
+  return k;
+}
+const propKeys = new WeakMap<IsoProp, [string | undefined, string | undefined]>();
+
 export function spriteKey(r: SpriteRequest): string {
   switch (r.kind) {
     case 'item':
-      return `item|${r.resolution}|${r.scale.toFixed(3)}|${r.select ?? -1}|${r.glow ? 1 : 0}|${JSON.stringify(r.item.parts)}`;
-    case 'prop':
-      return propSpriteKey(r.prop, r.lit);
+      return `item|${r.resolution}|${r.scale.toFixed(3)}|${r.select ?? -1}|${r.glow ? 1 : 0}|${partsKey(r.item.parts)}`;
+    case 'prop': {
+      let ks = propKeys.get(r.prop);
+      if (!ks) propKeys.set(r.prop, (ks = [undefined, undefined]));
+      const i = r.lit ? 1 : 0;
+      return (ks[i] ??= propSpriteKey(r.prop, r.lit));
+    }
     case 'view':
-      return `view|${r.elevation}|${r.ppu}|${JSON.stringify(r.item.parts)}`;
+      return `view|${r.elevation}|${r.ppu}|${partsKey(r.item.parts)}`;
   }
 }
 

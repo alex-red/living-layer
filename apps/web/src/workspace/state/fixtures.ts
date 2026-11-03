@@ -20,6 +20,7 @@ import type { ObservationSlice } from './observation';
 import type { TrackingSlice } from './tracking';
 import type { NavigationSlice } from './navigation';
 import type { AiSlice } from './ai';
+import { jobDone } from './follow-job';
 import { useStableSlice } from './stable';
 
 /** The Fixtures slice of the lab's state. */
@@ -398,6 +399,8 @@ export function useFixturesSlice(
    * lab stays usable meanwhile, and the server saves the result either way.
    */
   async function refineFixture3d(id: string) {
+    // It leaves the lab usable while it runs, but doesn't start over another action.
+    if (busy || aiRun.current) return;
     const f = memory?.fixtures?.find((x) => x.id === id);
     if (!f) return;
     setError('');
@@ -410,15 +413,10 @@ export function useFixturesSlice(
         },
         async (jobId, signal) => {
           await api('fixtures/refine3d', { mode, fixtureId: id, jobId }, { signal });
-          for (;;) {
-            if (signal.aborted) throw new Error('Stopped.');
-            const job = await api(`jobs/${jobId}`, undefined, { signal });
-            if (job.done) {
-              if (job.outcome === 'failed') throw new Error(job.error ?? 'SAM 3D failed.');
-              return job;
-            }
-            await new Promise((r) => setTimeout(r, 2000));
-          }
+          // Its end, heard over the job's event stream (the dialog follows the steps on its own).
+          const job = await jobDone(jobId, signal);
+          if (job.outcome === 'failed') throw new Error(job.error ?? 'SAM 3D failed.');
+          return job;
         },
       );
       if (!job) return;

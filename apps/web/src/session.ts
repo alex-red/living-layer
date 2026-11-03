@@ -162,8 +162,8 @@ export function desksToSave(
   ours: SessionSave['desks'],
   seen: Partial<DeskKeys>,
   stored: SessionSave['desks'] | undefined,
+  keys: DeskKeys = deskKeys(ours),
 ): SessionSave['desks'] {
-  const keys = deskKeys(ours);
   const out: SessionSave['desks'] = {};
   for (const m of ['demo', 'live'] as const) {
     const desk = keys[m] !== seen[m] || !stored?.[m] ? ours[m] : stored[m];

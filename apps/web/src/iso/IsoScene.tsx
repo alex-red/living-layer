@@ -8,7 +8,16 @@ import {
   type CalloutDensity,
   type IsoCallout,
 } from './Callouts';
-import { memo, useEffect, useRef, useState, type MouseEvent, type PointerEvent } from 'react';
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent,
+  type PointerEvent,
+} from 'react';
 import {
   ISO_TILE,
   PROP_FACES,
@@ -30,6 +39,7 @@ import {
   type FoodNow,
 } from '@livinglayer/domain';
 import { BaseHandles, type BaseRect } from './BaseHandles';
+import { useFrameQueue } from './frame';
 import { ItemSprite } from './IsoItem';
 import { TONES, usePropSprite } from './sprites';
 
@@ -174,7 +184,15 @@ interface IsoEditing {
   onSelect: (group: string) => void;
   onMove: (group: string, dx: number, dy: number) => void;
 }
-function ObjectMarker({ box, object, stats }: { box: IsoBox; object: IsoObject; stats: boolean }) {
+const ObjectMarker = memo(function ObjectMarker({
+  box,
+  object,
+  stats,
+}: {
+  box: IsoBox;
+  object: IsoObject;
+  stats: boolean;
+}) {
   const head = toIso({
     x: box.at.x + box.size.w / 2,
     y: box.at.y + box.size.d / 2,
@@ -208,8 +226,9 @@ function ObjectMarker({ box, object, stats }: { box: IsoBox; object: IsoObject; 
       {stats && <StatBadges id={object.thingId ?? object.id} x={head.sx} y={head.sy - 22} />}
     </g>
   );
-}
-function FixtureMarker({
+});
+/** Memoised: the scene passes handlers that take the fixture, so they stay the same across moves. */
+const FixtureMarker = memo(function FixtureMarker({
   fixture,
   onSelect,
   onGrab,
@@ -223,8 +242,8 @@ function FixtureMarker({
   calledOut?: boolean;
   onSelect?: (id: string) => void;
   /** Pressed to drag it; a press that doesn't move selects it instead. */
-  onGrab?: (e: PointerEvent<SVGGElement>) => void;
-  onMenu?: (e: MouseEvent<SVGGElement>) => void;
+  onGrab?: (e: PointerEvent<SVGGElement>, fixture: IsoFixture) => void;
+  onMenu?: (e: MouseEvent<SVGGElement>, id: string) => void;
 }) {
   const { box } = fixture;
   const head = toIso({
@@ -238,8 +257,8 @@ function FixtureMarker({
       className={`iso-fixture ${fixture.focused ? 'focused' : ''} ${fixture.state === 'on' ? 'on' : ''} ${fixture.missing ? 'missing' : ''}`}
       data-fixture={fixture.id}
       onClick={onSelect && !onGrab ? () => onSelect(fixture.id) : undefined}
-      onPointerDown={onGrab}
-      onContextMenu={onMenu}
+      onPointerDown={onGrab ? (e) => onGrab(e, fixture) : undefined}
+      onContextMenu={onMenu ? (e) => onMenu(e, fixture.id) : undefined}
     >
       {fixture.focused && (
         <polygon
@@ -285,7 +304,7 @@ function FixtureMarker({
       )}
     </g>
   );
-}
+});
 /** Where a face texture is served from; a data URL is drawn as it is. */
 const textureUrl = (ref: string) =>
   ref.startsWith('data:') ? ref : `/api/scene/texture?asset=${encodeURIComponent(ref)}`;
@@ -320,7 +339,7 @@ function FaceImage({ prop, face, href }: { prop: IsoProp; face: PropFace; href: 
  * invisible, so picking and dragging follow the prop's shape, not its image.
  * A prop with faces painted from its photo is drawn as those faces instead.
  */
-function PropSprite({ prop, lit }: { prop: IsoProp; lit: boolean }) {
+const PropSprite = memo(function PropSprite({ prop, lit }: { prop: IsoProp; lit: boolean }) {
   const className = `iso-prop tone-${prop.tone} ${prop.role === 'lamp' ? 'iso-lamp' : ''} ${lit ? 'lit' : ''}`;
   const texture = prop.texture;
   const photoFaces = Boolean(texture && Object.keys(texture).length && !prop.form && !prop.recipe);
@@ -355,12 +374,54 @@ function PropSprite({ prop, lit }: { prop: IsoProp; lit: boolean }) {
       <Solid box={prop} color={TONES[prop.tone]} shape={prop.shape} className="iso-hit-shape" />
     </g>
   );
-}
+});
 type Drawable =
   | (IsoBox & { kind: 'prop'; prop: IsoProp })
   | (IsoBox & { kind: 'object'; object: IsoObject })
   | (IsoBox & { kind: 'fixture'; fixture: IsoFixture });
 const SNAP = 0.25;
+// Stable defaults, so the memos below hold when a caller leaves them out.
+const NO_OBJECTS: IsoObject[] = [];
+const NO_FIXTURES: IsoFixture[] = [];
+const NO_POINTS: Point[] = [];
+const NO_ZONES: IsoZone[] = [];
+const NO_CALLOUTS: IsoCallout[] = [];
+type Stand = { at: IsoVec; surfaceId: string | null };
+const sameStand = (a: Stand | null, b: Stand | null) =>
+  a === b ||
+  (!!a &&
+    !!b &&
+    a.surfaceId === b.surfaceId &&
+    a.at.x === b.at.x &&
+    a.at.y === b.at.y &&
+    a.at.z === b.at.z);
+/** The room's own extent on screen: its floor and every prop's corners. */
+function roomBounds(scene: Scene) {
+  const floor: IsoVec[] = [
+    { x: 0, y: 0, z: 0 },
+    { x: scene.grid.w, y: 0, z: 0 },
+    { x: scene.grid.w, y: scene.grid.d, z: 0 },
+    { x: 0, y: scene.grid.d, z: 0 },
+  ];
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minY = Infinity;
+  let maxY = -Infinity;
+  const take = (v: IsoVec) => {
+    const p = toIso(v);
+    if (p.sx < minX) minX = p.sx;
+    if (p.sx > maxX) maxX = p.sx;
+    if (p.sy < minY) minY = p.sy;
+    if (p.sy > maxY) maxY = p.sy;
+  };
+  for (const v of floor) take(v);
+  for (const p of scene.props)
+    for (const i of [0, 1])
+      for (const j of [0, 1])
+        for (const k of [0, 1])
+          take({ x: p.at.x + i * p.size.w, y: p.at.y + j * p.size.d, z: p.at.z + k * p.size.h });
+  return { floor, minX, maxX, minY, maxY };
+}
 
 /**
  * One isometric scene drawn as SVG, with the remembered objects, the mug's
@@ -371,15 +432,15 @@ const SNAP = 0.25;
 function IsoSceneView({
   scene,
   surface,
-  objects = [],
-  fixtures = [],
+  objects = NO_OBJECTS,
+  fixtures = NO_FIXTURES,
   onFixture,
   onMoveFixture,
   onFixtureMenu,
   onResizeFixture,
   placing,
-  trail = [],
-  zones = [],
+  trail = NO_POINTS,
+  zones = NO_ZONES,
   onZone,
   litLights,
   defaultLight = '',
@@ -389,7 +450,7 @@ function IsoSceneView({
   hidden,
   seeThrough,
   stats = false,
-  callouts = [],
+  callouts = NO_CALLOUTS,
 }: {
   scene: Scene;
   surface?: IsoSurface;
@@ -429,7 +490,7 @@ function IsoSceneView({
   const drag = useRef<{ group: string; z: number; last: { x: number; y: number } } | null>(null);
   const [hover, setHover] = useState(false);
   const [density, setDensity] = useState<CalloutDensity>('full');
-  const [ghost, setGhost] = useState<{ at: IsoVec; surfaceId: string | null } | null>(null);
+  const [ghost, setGhost] = useState<Stand | null>(null);
   const [stretching, setStretching] = useState<{ id: string; rect: BaseRect } | null>(null);
   // A fixture being dragged: where the press was, and where it would stand once it has moved.
   const [moving, setMoving] = useState<{
@@ -438,54 +499,52 @@ function IsoSceneView({
     from: { x: number; y: number };
     to: { at: IsoVec; surfaceId: string | null } | null;
   } | null>(null);
+  // Where a dragged fixture would stand now, ahead of the frame that draws it there.
+  const movingTo = useRef<Stand | null>(null);
+  const moveQueue = useFrameQueue((to: Stand) => setMoving((m) => m && { ...m, to }));
+  const ghostQueue = useFrameQueue((to: Stand | null) =>
+    setGhost((g) => (sameStand(g, to) ? g : to)),
+  );
   // A base being stretched is drawn at its new size, and a dragged fixture where it would stand.
-  const shown = fixtures.map((f) =>
-    f.id === stretching?.id
-      ? {
-          ...f,
-          box: {
-            at: { ...f.box.at, x: stretching.rect.x, y: stretching.rect.y },
-            size: { ...f.box.size, w: stretching.rect.w, d: stretching.rect.d },
-          },
-        }
-      : f.id === moving?.id && moving.to
-        ? { ...f, box: { ...f.box, at: moving.to.at } }
-        : f,
+  const movingId = moving?.id;
+  const movedTo = moving?.to;
+  const shown = useMemo(
+    () =>
+      fixtures.map((f) =>
+        f.id === stretching?.id
+          ? {
+              ...f,
+              box: {
+                at: { ...f.box.at, x: stretching.rect.x, y: stretching.rect.y },
+                size: { ...f.box.size, w: stretching.rect.w, d: stretching.rect.d },
+              },
+            }
+          : f.id === movingId && movedTo
+            ? { ...f, box: { ...f.box, at: movedTo.at } }
+            : f,
+      ),
+    [fixtures, stretching, movingId, movedTo],
   );
   const movable = Boolean(onMoveFixture) && !drawing && !placing;
-  const floor: IsoVec[] = [
-    { x: 0, y: 0, z: 0 },
-    { x: scene.grid.w, y: 0, z: 0 },
-    { x: scene.grid.w, y: scene.grid.d, z: 0 },
-    { x: 0, y: scene.grid.d, z: 0 },
-  ];
-  const corners = scene.props.flatMap((p) =>
-    [0, 1].flatMap((i) =>
-      [0, 1].flatMap((j) =>
-        [0, 1].map((k) =>
-          toIso({
-            x: p.at.x + i * p.size.w,
-            y: p.at.y + j * p.size.d,
-            z: p.at.z + k * p.size.h,
-          }),
-        ),
-      ),
-    ),
-  );
-  const all = [...floor.map(toIso), ...corners];
+  const room = useMemo(() => roomBounds(scene), [scene]);
+  const { floor } = room;
   const pad = 24;
   // The stats layer's cards stand in columns beside the room, so the view widens to hold
   // them; in a pane too small to read them, only each thing's health bar shows.
   const showCards = stats && !editing && callouts.length > 0;
   const side = showCards && density !== 'pips' ? CALLOUT_SIDE : 0;
-  const minX = Math.min(...all.map((p) => p.sx)) - pad - side;
-  const maxX = Math.max(...all.map((p) => p.sx)) + pad + side;
-  const roomMinY = Math.min(...all.map((p) => p.sy)) - pad * 2;
-  const roomMaxY = Math.max(...all.map((p) => p.sy)) + pad;
+  const minX = room.minX - pad - side;
+  const maxX = room.maxX + pad + side;
+  const roomMinY = room.minY - pad * 2;
+  const roomMaxY = room.maxY + pad;
   // The cards' columns may reach past the room: the view grows to hold them.
-  const cards = showCards
-    ? layoutCallouts(callouts, { minX, maxX, minY: roomMinY, maxY: roomMaxY }, density)
-    : null;
+  const cards = useMemo(
+    () =>
+      showCards
+        ? layoutCallouts(callouts, { minX, maxX, minY: roomMinY, maxY: roomMaxY }, density)
+        : null,
+    [showCards, callouts, minX, maxX, roomMinY, roomMaxY, density],
+  );
   const minY = side && cards ? cards.extent.minY : roomMinY;
   const maxY = side && cards ? cards.extent.maxY : roomMaxY;
   const viewW = maxX - minX;
@@ -505,13 +564,45 @@ function IsoSceneView({
     watch.observe(el);
     return () => watch.disconnect();
   }, [showCards, viewW, viewH]);
-  const items: Drawable[] = [
-    ...scene.props
-      .filter((p) => !hidden?.has(p.group))
-      .map((prop) => ({ ...prop, kind: 'prop' as const, prop })),
-    ...objects.map((object) => ({ ...object.box, kind: 'object' as const, object })),
-    ...shown.map((fixture) => ({ ...fixture.box, kind: 'fixture' as const, fixture })),
-  ];
+  // Drawn back to front; the order is worked out again only when what is drawn changes.
+  const ordered = useMemo(() => {
+    const items: Drawable[] = [
+      ...scene.props
+        .filter((p) => !hidden?.has(p.group))
+        .map((prop) => ({ ...prop, kind: 'prop' as const, prop })),
+      ...objects.map((object) => ({ ...object.box, kind: 'object' as const, object })),
+      ...shown.map((fixture) => ({ ...fixture.box, kind: 'fixture' as const, fixture })),
+    ];
+    return depthOrder(items);
+  }, [scene.props, hidden, objects, shown]);
+  const calledOut = useMemo(
+    () => (stats ? new Set(callouts.map((c) => c.id)) : null),
+    [stats, callouts],
+  );
+  const grab = useCallback((e: PointerEvent<SVGGElement>, f: IsoFixture) => {
+    if (e.button !== 0) return;
+    movingTo.current = null;
+    setMoving({
+      id: f.id,
+      size: { w: f.box.size.w, d: f.box.size.d },
+      from: { x: e.clientX, y: e.clientY },
+      to: null,
+    });
+    // Synthetic events (tests, assistive tech) may have no pointer to capture.
+    try {
+      svg.current?.setPointerCapture(e.pointerId);
+    } catch {
+      /* dragging still works while the pointer stays over the scene */
+    }
+  }, []);
+  const menuOpen = Boolean(onFixtureMenu && !drawing && !placing);
+  const menu = useCallback(
+    (e: MouseEvent<SVGGElement>, id: string) => {
+      e.preventDefault();
+      onFixtureMenu?.(id, { x: e.clientX, y: e.clientY });
+    },
+    [onFixtureMenu],
+  );
   const lit = (p: IsoProp) =>
     p.role === 'lamp' && Boolean(litLights?.has(p.lightId ?? defaultLight));
   const onSurface = (uv: Point) => (surface ? surfaceWorld(surface, uv) : null);
@@ -572,10 +663,16 @@ function IsoSceneView({
       onPointerMove={(e) => {
         if (moving) {
           // A few pixels of jitter is still a click.
-          if (!moving.to && Math.hypot(e.clientX - moving.from.x, e.clientY - moving.from.y) < 4)
+          if (
+            !movingTo.current &&
+            Math.hypot(e.clientX - moving.from.x, e.clientY - moving.from.y) < 4
+          )
             return;
           const to = standAt(e, moving.size);
-          if (to) setMoving({ ...moving, to });
+          if (to && !sameStand(to, movingTo.current)) {
+            movingTo.current = to;
+            moveQueue.push(to);
+          }
           return;
         }
         const d = drag.current;
@@ -590,8 +687,11 @@ function IsoSceneView({
       onPointerUp={() => {
         drag.current = null;
         if (!moving) return;
+        moveQueue.cancel();
+        const to = movingTo.current;
+        movingTo.current = null;
         setMoving(null);
-        const { id, size, to } = moving;
+        const { id, size } = moving;
         if (to)
           onMoveFixture?.(id, {
             x: to.at.x + size.w / 2,
@@ -602,6 +702,8 @@ function IsoSceneView({
       }}
       onPointerCancel={() => {
         drag.current = null;
+        moveQueue.cancel();
+        movingTo.current = null;
         setMoving(null);
       }}
     >
@@ -628,7 +730,7 @@ function IsoSceneView({
           ])}
         />
       ))}
-      {depthOrder(items).map((item) =>
+      {ordered.map((item) =>
         item.kind === 'prop' ? (
           <g
             key={item.prop.id}
@@ -689,7 +791,7 @@ function IsoSceneView({
         ) : item.kind === 'object' ? (
           <ObjectMarker
             key={`object-${item.object.id}`}
-            box={item}
+            box={item.object.box}
             object={item.object}
             stats={stats}
           />
@@ -697,37 +799,11 @@ function IsoSceneView({
           <FixtureMarker
             key={`fixture-${item.fixture.id}`}
             fixture={item.fixture}
-            stats={stats && !callouts.some((c) => c.id === item.fixture.id)}
-            calledOut={stats && callouts.some((c) => c.id === item.fixture.id)}
+            stats={stats && !calledOut?.has(item.fixture.id)}
+            calledOut={stats && Boolean(calledOut?.has(item.fixture.id))}
             onSelect={drawing || placing ? undefined : onFixture}
-            onGrab={
-              movable
-                ? (e) => {
-                    if (e.button !== 0) return;
-                    const f = item.fixture;
-                    setMoving({
-                      id: f.id,
-                      size: { w: f.box.size.w, d: f.box.size.d },
-                      from: { x: e.clientX, y: e.clientY },
-                      to: null,
-                    });
-                    // Synthetic events (tests, assistive tech) may have no pointer to capture.
-                    try {
-                      svg.current?.setPointerCapture(e.pointerId);
-                    } catch {
-                      /* dragging still works while the pointer stays over the scene */
-                    }
-                  }
-                : undefined
-            }
-            onMenu={
-              onFixtureMenu && !drawing && !placing
-                ? (e) => {
-                    e.preventDefault();
-                    onFixtureMenu(item.fixture.id, { x: e.clientX, y: e.clientY });
-                  }
-                : undefined
-            }
+            onGrab={movable ? grab : undefined}
+            onMenu={menuOpen ? menu : undefined}
           />
         ),
       )}
@@ -830,8 +906,11 @@ function IsoSceneView({
           width={maxX - minX}
           height={maxY - minY}
           aria-label={`Place the ${placing.label.toLowerCase()}`}
-          onPointerMove={(e) => setGhost(standAt(e, placing.size))}
-          onPointerLeave={() => setGhost(null)}
+          onPointerMove={(e) => ghostQueue.push(standAt(e, placing.size))}
+          onPointerLeave={() => {
+            ghostQueue.cancel();
+            setGhost(null);
+          }}
           onClick={(e) => {
             const where = standAt(e, placing.size);
             if (where)

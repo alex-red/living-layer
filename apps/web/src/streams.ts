@@ -189,10 +189,17 @@ export async function openStream(
     await pc.setLocalDescription(await pc.createOffer());
     await new Promise<void>((resolve) => {
       if (pc.iceGatheringState === 'complete') return resolve();
-      pc.addEventListener('icegatheringstatechange', () => {
-        if (pc.iceGatheringState === 'complete') resolve();
-      });
-      setTimeout(resolve, 1500);
+      const gathered = () => {
+        if (pc.iceGatheringState !== 'complete') return;
+        pc.removeEventListener('icegatheringstatechange', gathered);
+        window.clearTimeout(enough);
+        resolve();
+      };
+      pc.addEventListener('icegatheringstatechange', gathered);
+      const enough = window.setTimeout(() => {
+        pc.removeEventListener('icegatheringstatechange', gathered);
+        resolve();
+      }, 1500);
     });
     const response = await fetch(whep, {
       method: 'POST',
@@ -204,17 +211,32 @@ export async function openStream(
     const location = response.headers.get('Location');
     if (location) session = new URL(location, whep).href;
     await pc.setRemoteDescription({ type: 'answer', sdp: await response.text() });
-    const connected = new Promise<void>((resolve, reject) => {
-      const check = () => {
-        if (pc.connectionState === 'connected') resolve();
-        if (pc.connectionState === 'failed') reject(new Error('No media path to the camera.'));
-      };
-      pc.addEventListener('connectionstatechange', check);
-      check();
-      setTimeout(() => reject(new Error('The network camera did not connect in time.')), timeoutMs);
-    });
-    const media = new MediaStream([await track]);
-    await connected;
+    // Both the track and the connection, or a failure: a track that never comes
+    // fails at the deadline too, so the catch below closes the connection and its session.
+    let deadline = 0;
+    let check = () => {};
+    let media: MediaStream;
+    try {
+      const connected = new Promise<void>((resolve, reject) => {
+        check = () => {
+          if (pc.connectionState === 'connected') resolve();
+          if (pc.connectionState === 'failed') reject(new Error('No media path to the camera.'));
+        };
+        pc.addEventListener('connectionstatechange', check);
+        check();
+      });
+      const late = new Promise<never>((_, reject) => {
+        deadline = window.setTimeout(
+          () => reject(new Error('The network camera did not connect in time.')),
+          timeoutMs,
+        );
+      });
+      const [first] = await Promise.race([Promise.all([track, connected]), late]);
+      media = new MediaStream([first]);
+    } finally {
+      window.clearTimeout(deadline);
+      pc.removeEventListener('connectionstatechange', check);
+    }
     connectedAt = performance.now();
     let lost = false;
     const lose = () => {

@@ -1,7 +1,6 @@
 import { ThingStats } from './ThingStats';
 import { FoodCard } from './FoodCard';
 import { useMemo, useRef, useState, type ReactNode } from 'react';
-import { useNow } from '../useNow';
 import {
   DEMO_REFERENCES,
   ISO_PRESETS,
@@ -58,12 +57,13 @@ import {
   useNavigation,
   useObservation,
   useRunLog,
-  useTracking,
   useView,
 } from './LabContext';
-import { ago, builtInLamps, builtInThings, controlLabel, ownLayout, roomLabel } from './labels';
+import { builtInLamps, builtInThings, controlLabel, ownLayout, roomLabel } from './labels';
 import { pinScene } from './progress';
-import { Details, Panel, useCall } from './panel';
+import { Ago, Details, Panel, useCall } from './panel';
+import { useStore } from './state/store';
+import { watchStore } from '../watch';
 import { ChooseDevicesLink } from './ChooseDevicesLink';
 import { ScanFixtures } from './ScanFixtures';
 import { BoxOnlyNote, LocalOutline } from './LocalOutline';
@@ -1184,22 +1184,29 @@ const TRACK_STATUS = {
  * object.
  */
 function FixtureCamera({ fixture: f, disabled }: { fixture: Fixture; disabled: boolean }) {
-  const lab = useLabParts(useFeedback(), useDesk(), useCamera(), useTracking(), useFixtures());
-  const { busy, segmentation, segmentRunId, watch, trackingAi } = lab;
-  const now = useNow();
+  const lab = useLabParts(useFeedback(), useDesk(), useCamera(), useFixtures());
+  const { busy, segmentation, segmentRunId, trackingAi } = lab;
   const found =
     segmentRunId && segmentation?.concept === f.label.trim().toLowerCase()
       ? segmentation.detections
       : [];
-  const watched = watch?.on && watch.things.some((t) => t.id === f.id);
+  const watched = useStore(watchStore, (w) =>
+    Boolean(w?.on && w.things.some((t) => t.id === f.id)),
+  );
   return (
     <Details summary="In the camera" open={Boolean(f.track) || found.length > 0}>
       <p className="micro">
-        {f.track
-          ? `Followed: ${TRACK_STATUS[f.track.status]} · seen ${ago(f.track.observation.observedAt, now)}${watched ? ' · the server is watching it' : ''}.`
-          : trackingAi
-            ? 'Not followed. Find it in the camera so it can follow and decide rules.'
-            : 'Not followed. Draw round it on the camera’s picture so it can follow and decide rules.'}
+        {f.track ? (
+          <>
+            Followed: {TRACK_STATUS[f.track.status]} · seen{' '}
+            <Ago at={f.track.observation.observedAt} />
+            {watched ? ' · the server is watching it' : ''}.
+          </>
+        ) : trackingAi ? (
+          'Not followed. Find it in the camera so it can follow and decide rules.'
+        ) : (
+          'Not followed. Draw round it on the camera’s picture so it can follow and decide rules.'
+        )}
       </p>
       <BoxOnlyNote id={f.id} seen={f.track?.observation} />
       {found.length > 0 && (

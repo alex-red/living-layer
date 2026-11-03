@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ISO_TILE_CM,
   PROP_TEMPLATES,
@@ -11,7 +11,7 @@ import {
 } from '@livinglayer/domain';
 import { Popover } from '../workspace/Popover';
 import { Button } from '../ui/controls';
-import { loadSprite, type SpriteImage } from './sprites';
+import { holdSprite, requestSprite, type SpriteImage } from './sprites';
 
 type Shelf = 'all' | 'furniture' | 'tabletop' | 'room';
 const SHELVES: { id: Shelf; label: string }[] = [
@@ -57,22 +57,26 @@ const SIZES = new Map(
 );
 
 interface Thumb {
-  layers: (SpriteImage & { key: string })[];
+  /** Each layer with the sprite key it is cached under. */
+  layers: (SpriteImage & { key: string; sprite: string })[];
   viewBox: string;
 }
 const thumbs = new Map<TemplateId, Thumb>();
 /**
  * A template drawn by the same kernel as the room, framed tight around its
- * sprites. A big model takes a few hundred milliseconds the first time.
+ * sprites. A big model takes a few hundred milliseconds the first time. Its
+ * sprites stay pinned by the tickets put in `hold`.
  */
-async function thumb(id: TemplateId): Promise<Thumb> {
+async function thumb(id: TemplateId, hold: (() => void)[]): Promise<Thumb> {
   const hit = thumbs.get(id);
   if (hit) return hit;
   const layers = await Promise.all(
     depthOrder(built(id)).map(async (p) => {
-      const s = await loadSprite({ kind: 'prop', prop: p, lit: p.role === 'lamp' });
+      const ticket = requestSprite({ kind: 'prop', prop: p, lit: p.role === 'lamp' });
+      hold.push(ticket.release);
+      const s = await ticket.promise;
       const at = toIso(p.at);
-      return { ...s, x: at.sx + s.x, y: at.sy + s.y, key: p.id };
+      return { ...s, x: at.sx + s.x, y: at.sy + s.y, key: p.id, sprite: ticket.key };
     }),
   );
   const x0 = Math.min(...layers.map((l) => l.x));
@@ -83,15 +87,28 @@ async function thumb(id: TemplateId): Promise<Thumb> {
   thumbs.set(id, t);
   return t;
 }
-/** Draws the thumbnails one at a time in the sprite worker, so opening the editor never stalls on them. */
+/**
+ * Draws the thumbnails one at a time in the sprite worker, so opening the
+ * editor never stalls on them. While the picker is open its thumbnails' sprites
+ * are pinned; one whose sprite the cache let go since is drawn again.
+ */
 function useThumbs(): ReadonlyMap<TemplateId, Thumb> {
   const [, redraw] = useState(0);
   useEffect(() => {
     let live = true;
+    const hold: (() => void)[] = [];
+    for (const [id, t] of thumbs) {
+      const held = t.layers.map((l) => holdSprite(l.sprite));
+      if (held.every(Boolean)) hold.push(...(held as (() => void)[]));
+      else {
+        for (const release of held) release?.();
+        thumbs.delete(id);
+      }
+    }
     const next = async () => {
       const id = TEMPLATE_IDS.find((i) => !thumbs.has(i));
       if (!id || !live) return;
-      await thumb(id);
+      await thumb(id, hold);
       if (!live) return;
       redraw((n) => n + 1);
       void next();
@@ -99,6 +116,7 @@ function useThumbs(): ReadonlyMap<TemplateId, Thumb> {
     void next();
     return () => {
       live = false;
+      for (const release of hold) release();
     };
   }, []);
   return thumbs;
@@ -132,11 +150,14 @@ function PropPicker({
       (shelf === 'all' || shelfOf(id) === shelf) &&
       (!q || PROP_TEMPLATES[id].label.toLowerCase().includes(q) || id.includes(q)),
   );
-  const counts = new Map<string, number>();
-  for (const g of new Set(scene.props.map((p) => p.group))) {
-    const t = scene.props.find((p) => p.group === g)?.template;
-    if (t) counts.set(t, (counts.get(t) ?? 0) + 1);
-  }
+  const counts = useMemo(() => {
+    // A group counts once, as the template of its first prop.
+    const first = new Map<string, string | undefined>();
+    for (const p of scene.props) if (!first.has(p.group)) first.set(p.group, p.template);
+    const n = new Map<string, number>();
+    for (const t of first.values()) if (t) n.set(t, (n.get(t) ?? 0) + 1);
+    return n;
+  }, [scene.props]);
   const hasSurface = scene.surfaces.length > 0;
 
   function add(id: TemplateId) {

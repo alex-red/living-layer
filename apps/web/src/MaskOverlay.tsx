@@ -1,4 +1,4 @@
-import type { CSSProperties } from 'react';
+import { memo, type CSSProperties } from 'react';
 import type { Segmentation } from '@livinglayer/domain';
 
 /**
@@ -6,7 +6,7 @@ import type { Segmentation } from '@livinglayer/domain';
  * flips the shapes to sit on a mirrored preview but keeps the labels readable,
  * and `cover` matches a video that fills its box with `object-fit: cover`.
  */
-export function MaskOverlay({
+export const MaskOverlay = memo(function MaskOverlay({
   segmentation,
   chosenId,
   mirror = false,
@@ -67,4 +67,4 @@ export function MaskOverlay({
       })}
     </svg>
   );
-}
+});

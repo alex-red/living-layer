@@ -1,4 +1,4 @@
-import { useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
+import { useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
 import {
   fixtureBox,
   fixtureGlows,
@@ -64,6 +64,59 @@ interface Area {
   focused: boolean;
 }
 
+const NO_FIXTURES: Fixture[] = [];
+
+/** Where a fixture stands on the picture, its base stretched to `stretch` while one is. */
+function placeFixture(
+  f: Fixture,
+  stretch: BaseRect | null,
+  pin: SurfacePin,
+  illustration: SceneIllustration,
+  custom: IsoScene | null,
+  look: 'picture' | 'model',
+): Placed | null {
+  const box = fixtureBox(f, custom);
+  const at = stretch ? { ...box.at, x: stretch.x, y: stretch.y } : box.at;
+  const size = stretch ? { ...box.size, w: stretch.w, d: stretch.d } : box.size;
+  const to = (x: number, y: number, z: number) =>
+    scenePointInPicture(pin, illustration, custom, { x, y, z });
+  const base = [
+    to(at.x, at.y, at.z),
+    to(at.x + size.w, at.y, at.z),
+    to(at.x + size.w, at.y + size.d, at.z),
+    to(at.x, at.y + size.d, at.z),
+  ];
+  const top = to(at.x + size.w / 2, at.y + size.d / 2, at.z + size.h);
+  const centre = to(at.x + size.w / 2, at.y + size.d / 2, at.z);
+  if (!top || !centre || !base.every(Boolean)) return null;
+  const fit = look === 'model' ? isoToPicture(pin, illustration, custom, { at, size }) : null;
+  const model = fit && {
+    item: rotateItem(fixtureModel(f), f.turns),
+    origin: at,
+    scale: Math.max(size.w, size.d),
+    matrix: `matrix(${fit.map((v) => v.toFixed(4)).join(' ')})`,
+  };
+  const lifted =
+    look === 'picture' ? illustration.layers?.sprites.find((x) => x.fixtureId === f.id) : null;
+  const sprite = lifted && {
+    href: illustrationUrl(lifted.asset),
+    ...spriteBox(lifted, { anchor: centre, w: size.w, d: size.d }),
+  };
+  return {
+    id: f.id,
+    label: f.label,
+    base: base as Point[],
+    centre,
+    top,
+    lit: fixtureGlows(f),
+    focused: false,
+    rect: { x: at.x, y: at.y, w: size.w, d: size.d },
+    z: at.z,
+    ...(sprite ? { sprite } : {}),
+    ...(model ? { model } : {}),
+  };
+}
+
 /**
  * The room as its picture: an image model's isometric drawing of the photo,
  * with what the camera tracks laid on its desk top. A sighting's foot and a
@@ -82,7 +135,7 @@ export function IllustrationView({
   memory,
   focus,
   showZones,
-  fixtures = [],
+  fixtures = NO_FIXTURES,
   custom = null,
   onFixture,
   onMoveFixture,
@@ -162,53 +215,26 @@ export function IllustrationView({
     if (at)
       markers.push({ id: other.id, label: other.label, at, focused: focus?.object === other.id });
   }
-  const placed: Placed[] = fixtures.flatMap((f) => {
-    const box = fixtureBox(f, custom);
-    const s = stretching?.id === f.id ? stretching.rect : null;
-    const at = s ? { ...box.at, x: s.x, y: s.y } : box.at;
-    const size = s ? { ...box.size, w: s.w, d: s.d } : box.size;
-    const to = (x: number, y: number, z: number) =>
-      scenePointInPicture(pin, illustration, custom, { x, y, z });
-    const base = [
-      to(at.x, at.y, at.z),
-      to(at.x + size.w, at.y, at.z),
-      to(at.x + size.w, at.y + size.d, at.z),
-      to(at.x, at.y + size.d, at.z),
-    ];
-    const top = to(at.x + size.w / 2, at.y + size.d / 2, at.z + size.h);
-    const centre = to(at.x + size.w / 2, at.y + size.d / 2, at.z);
-    if (!top || !centre || !base.every(Boolean)) return [];
-    const fit = look === 'model' ? isoToPicture(pin, illustration, custom, { at, size }) : null;
-    const model = fit && {
-      item: rotateItem(fixtureModel(f), f.turns),
-      origin: at,
-      scale: Math.max(size.w, size.d),
-      matrix: `matrix(${fit.map((v) => v.toFixed(4)).join(' ')})`,
-    };
-    const lifted =
-      look === 'picture' ? illustration.layers?.sprites.find((x) => x.fixtureId === f.id) : null;
-    const sprite = lifted && {
-      href: illustrationUrl(lifted.asset),
-      ...spriteBox(lifted, { anchor: centre, w: size.w, d: size.d }),
-    };
-    return [
-      {
-        id: f.id,
-        label: f.label,
-        base: base as Point[],
-        centre,
-        top,
-        lit: fixtureGlows(f),
-        focused: focus?.fixture === f.id,
-        rect: { x: at.x, y: at.y, w: size.w, d: size.d },
-        z: at.z,
-        ...(sprite ? { sprite } : {}),
-        ...(model ? { model } : {}),
-      },
-    ];
-  });
-  // Lifted fixtures overlap like the things they are: the ones further back first.
-  placed.sort((a, b) => a.centre.y - b.centre.y);
+  // Projections and models are kept while only the pointer moves; a stretched
+  // base is placed again alone, and a dragged one is moved by a translate.
+  const still = useMemo(
+    () => fixtures.map((f) => placeFixture(f, null, pin, illustration, custom, look)),
+    [fixtures, pin, illustration, custom, look],
+  );
+  const focusedId = focus?.fixture;
+  const placed: Placed[] = useMemo(() => {
+    const out: Placed[] = [];
+    fixtures.forEach((f, i) => {
+      const p =
+        stretching?.id === f.id
+          ? placeFixture(f, stretching.rect, pin, illustration, custom, look)
+          : still[i];
+      if (p) out.push({ ...p, focused: focusedId === f.id });
+    });
+    // Lifted fixtures overlap like the things they are: the ones further back first.
+    out.sort((a, b) => a.centre.y - b.centre.y);
+    return out;
+  }, [fixtures, still, stretching, focusedId, pin, illustration, custom, look]);
   const areas: Area[] = [];
   if (showZones) {
     const frame = mainZone(memory)?.frame ?? mugSighting(memory)?.frame;

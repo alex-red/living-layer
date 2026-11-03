@@ -129,7 +129,12 @@ export function useCameraSlice(
     const context = canvas.getContext('2d');
     if (!context) throw new Error('This browser cannot prepare the image.');
     context.drawImage(source, 0, 0, canvas.width, canvas.height);
-    const url = canvas.toDataURL('image/png');
+    // A live camera's frame goes as JPEG, a tenth of the PNG's size for a camera's noisy pixels,
+    // as it's taken for every track and check; a chosen photo keeps every pixel.
+    const url =
+      source instanceof HTMLVideoElement
+        ? canvas.toDataURL('image/jpeg', 0.9)
+        : canvas.toDataURL('image/png');
     setImage(url);
     setDimensions({ width: canvas.width, height: canvas.height });
     setScene(undefined);

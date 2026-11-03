@@ -1,15 +1,17 @@
 import { useEffect, useRef, useState, useMemo } from 'react';
 import type { LabStatus, Mode, DeskMemory } from '@livinglayer/domain';
 import { DEMO_LIGHTS, DEMO_SWITCHES } from '@livinglayer/domain';
-import { api } from '../../api';
+import { api, apiIfChanged } from '../../api';
 import { usd } from '../../cost';
 import { lightStates } from '../labels';
-import { UNDO_LIMIT } from './helpers';
+import { pushHistory, sameDesk } from './helpers';
 import type { ViewSlice } from './view';
 import type { FeedbackSlice } from './feedback';
 import type { RunLogSlice } from './runlog';
 import { useStableSlice } from './stable';
 import type { Dispatch, RefObject, SetStateAction } from 'react';
+
+type Desks = { demo: DeskMemory; live: DeskMemory };
 
 /** The Desk slice of the lab's state. */
 export function useDeskSlice(deps: ViewSlice & FeedbackSlice & RunLogSlice): DeskSlice {
@@ -32,8 +34,8 @@ export function useDeskSlice(deps: ViewSlice & FeedbackSlice & RunLogSlice): Des
   /** A new desk memory; an edit can be undone, a sighting (`undoable` false) can't. */
   const setMemory = (next: DeskMemory, undoable = true) => {
     const before = memories[next.mode];
-    if (undoable && before && JSON.stringify(before) !== JSON.stringify(next)) {
-      undo.current[next.mode] = [...undo.current[next.mode], before].slice(-UNDO_LIMIT);
+    if (undoable && before && !sameDesk(before, next)) {
+      undo.current[next.mode] = pushHistory(undo.current[next.mode], before);
       redo.current[next.mode] = [];
       edits.current++;
       setHistoryTick((t) => t + 1);
@@ -41,18 +43,51 @@ export function useDeskSlice(deps: ViewSlice & FeedbackSlice & RunLogSlice): Des
     memoryWrites.current++;
     setMemories((current) => ({ ...current, [next.mode]: next }));
   };
-  const refresh = async () => {
+  /** The runs as last fetched, by the server's tag, so an unchanged log isn't sent again. */
+  const runsTag = useRef<string | undefined>(undefined);
+  const running = useRef<Promise<Desks> | null>(null);
+  const queued = useRef<Promise<Desks> | null>(null);
+  const fetchAll = async (): Promise<Desks> => {
     const started = ++memoryWrites.current;
     const [nextStatus, nextRuns, demoDesk, liveDesk] = await Promise.all([
       api('status'),
-      api('runs'),
+      apiIfChanged('runs', runsTag.current),
       api('desk/demo'),
       api('desk/live'),
     ]);
     setStatus(nextStatus);
-    setRuns(nextRuns);
-    if (started === memoryWrites.current) setMemories({ demo: demoDesk, live: liveDesk });
+    if (nextRuns) {
+      runsTag.current = nextRuns.tag;
+      setRuns(nextRuns.data);
+    }
+    if (started === memoryWrites.current)
+      // A desk that hasn't changed keeps its object, so what is worked out from it isn't again.
+      setMemories((current) => {
+        const demo = current.demo && sameDesk(current.demo, demoDesk) ? current.demo : demoDesk;
+        const live = current.live && sameDesk(current.live, liveDesk) ? current.live : liveDesk;
+        return demo === current.demo && live === current.live ? current : { demo, live };
+      });
     return { demo: demoDesk, live: liveDesk };
+  };
+  /**
+   * Fetch the status, the runs and both desks. Asked while a fetch is under
+   * way, it fetches once more after it (one more for every ask meanwhile), so
+   * an answer is never from before the ask, and a burst of asks costs two fetches.
+   */
+  const refresh = (): Promise<Desks> => {
+    if (!running.current) {
+      running.current = fetchAll().finally(() => {
+        running.current = null;
+      });
+      return running.current;
+    }
+    queued.current ??= running.current
+      .catch(() => {})
+      .then(() => {
+        queued.current = null;
+        return refresh();
+      });
+    return queued.current;
   };
   // Autosave: choices and desks go to this browser as the person works, once
   // the server's desks have loaded so an empty first render never overwrites them.

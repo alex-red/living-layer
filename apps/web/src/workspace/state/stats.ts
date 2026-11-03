@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { Mode, StatsNow, ThingStatsView } from '@livinglayer/domain';
 import { apiAt } from '../../api';
 import { createStore, useStore } from './store';
@@ -10,15 +10,32 @@ import { createStore, useStore } from './store';
  */
 export const statsStore = createStore<StatsNow>({});
 
-/** Keep the store in step with the watch stream, replacing it only when a stat changed. */
-export function useFeedStats(stats: StatsNow | undefined) {
-  const last = useRef('');
-  useEffect(() => {
-    const text = JSON.stringify(stats ?? {});
-    if (text === last.current) return;
-    last.current = text;
-    statsStore.set(stats ?? {});
-  }, [stats]);
+/** Each thing's stats as last fed, as JSON, to tell which ones changed. */
+let fedText = new Map<string, string>();
+
+/**
+ * Keep the store in step with the watch stream. A thing whose stats didn't
+ * change keeps its object, so `useThingStats(id)` renders only for a change
+ * to that thing; the store is replaced only when some stat changed.
+ */
+export function feedStats(stats: StatsNow | undefined) {
+  const before = statsStore.get();
+  const next: StatsNow = {};
+  const text = new Map<string, string>();
+  let changed = false;
+  for (const [id, now] of Object.entries(stats ?? {})) {
+    const json = JSON.stringify(now);
+    text.set(id, json);
+    const kept = before[id];
+    if (kept && fedText.get(id) === json) next[id] = kept;
+    else {
+      next[id] = now;
+      changed = true;
+    }
+  }
+  if (Object.keys(before).length !== text.size) changed = true;
+  fedText = text;
+  if (changed) statsStore.set(next);
 }
 
 /** One thing's stats now. */

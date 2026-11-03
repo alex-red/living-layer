@@ -507,8 +507,10 @@ function IsoViewOf({
   const { objects, note, o, mug, trail, zones, ruleTarget, ruleMap, lit, drawingRule } = model;
   // A photographed room with an office desk keeps its own place for each
   // fixture; the desk shows them where its camera puts them, moved into its view.
-  const shift =
-    custom && (kind === 'custom' || kind === 'custom-desk') ? closeViewShift(custom) : null;
+  const shift = useMemo(
+    () => (custom && (kind === 'custom' || kind === 'custom-desk') ? closeViewShift(custom) : null),
+    [custom, kind],
+  );
   // The layout is edited in the whole room; from the desk's view, through that view.
   const sceneView: SceneView | null = useMemo(
     () =>
@@ -665,6 +667,17 @@ function IsoViewOf({
     !placing
       ? viewPicture
       : null;
+  // The picture's fixtures, kept while only the pointer moves.
+  const pictureScene = picture && memory && pin ? pin.scene : null;
+  const pictureFixtures = useMemo(
+    () =>
+      pictureScene
+        ? placedFixtures({ fixtures: memory?.fixtures })
+            .filter((f) => f.scene === pictureScene && f.id !== placingId)
+            .map(shown)
+        : [],
+    [pictureScene, memory?.fixtures, placingId, shown],
+  );
 
   const target = memory ? modelTarget(memory, modelOf) : null;
   const targetFixture = target?.fixture
@@ -900,9 +913,7 @@ function IsoViewOf({
                   memory={memory}
                   focus={focus}
                   showZones={layers.zones}
-                  fixtures={placedFixtures(memory)
-                    .filter((f) => f.scene === pin.scene && f.id !== placing?.id)
-                    .map(shown)}
+                  fixtures={pictureFixtures}
                   custom={custom}
                   onFixture={onFixture}
                   onFixtureMenu={onFixtureMenu}

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import type {
   AssistDraft,
   DeskMemory,
@@ -9,6 +9,7 @@ import type {
 } from '@livinglayer/domain';
 import { api } from '../api';
 import type { AiTask } from './useLabState';
+import { createStore } from './state/store';
 
 /** A point on the frame, in shares of its width and height. */
 export interface Share {
@@ -76,7 +77,11 @@ export function useBrush({
   setMessage: (message: string) => void;
   setError: (error: string | Error) => void;
 }) {
-  const [stroke, setStroke] = useState<BrushStroke | null>(null);
+  // The stroke being drawn changes on every pointer move: a store only the overlay reads,
+  // so the lab's state (and everything reading the AI slice) renders once, when it ends.
+  const [stroke] = useState(() => createStore<BrushStroke | null>(null));
+  /** Bumped by each finished stroke and by clearing, so an older selection's answer is dropped. */
+  const selecting = useRef(0);
   const [shape, setShape] = useState<SelectionShape | null>(null);
   const [held, setHeld] = useState<string | null>(null);
   const [resolved, setResolved] = useState<SelectResolve | null>(null);
@@ -86,7 +91,8 @@ export function useBrush({
   const last = runs.at(-1) ?? null;
 
   function clear() {
-    setStroke(null);
+    selecting.current++;
+    stroke.set(null);
     setShape(null);
     setHeld(null);
     setResolved(null);
@@ -95,21 +101,24 @@ export function useBrush({
   /** Finish a stroke: hold the frame (live), and ask what the selection is of (free). */
   async function finish(next: BrushStroke) {
     const s = shapeOf(next);
-    setStroke(null);
+    stroke.set(null);
     if (!s) return;
+    const mine = ++selecting.current;
     setShape(s);
     setRuns([]);
     setResolved(null);
     setHeld(mode === 'live' ? (frameNow() ?? null) : null);
     try {
-      setResolved(await api('select/resolve', { mode, shape: s }));
+      const r = await api('select/resolve', { mode, shape: s });
+      if (mine === selecting.current) setResolved(r);
     } catch (e) {
-      setError(e instanceof Error ? e : 'Couldn’t tell what the selection is of.');
+      if (mine === selecting.current)
+        setError(e instanceof Error ? e : 'Couldn’t tell what the selection is of.');
     }
   }
   /** Esc: a polygon being drawn loses its points first, then the selection goes. */
   function escape(): boolean {
-    if (stroke) return (setStroke(null), true);
+    if (stroke.get()) return (stroke.set(null), true);
     if (shape) return (clear(), true);
     return false;
   }
@@ -197,7 +206,6 @@ export function useBrush({
   }
   return {
     stroke,
-    setStroke,
     finish,
     shape,
     held,

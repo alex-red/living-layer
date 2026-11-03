@@ -340,7 +340,13 @@ export async function buildApp(
   const cameras = new CameraRegistry(store, options.relay ?? null);
   remote.crop = cameras.phoneCrop();
   const knownStreams = () => [...remote.streams(), ...cameras.streams()];
-  app.get('/api/runs', async () => store.list());
+  // The lab asks after every action; an unchanged log answers 304 with no body.
+  app.get('/api/runs', async (request, reply) => {
+    const tag = store.runsTag();
+    reply.header('ETag', tag).header('Cache-Control', 'no-store');
+    if (request.headers['if-none-match'] === tag) return reply.code(304).send();
+    return store.list();
+  });
   jobs.keepIn(store);
   app.register((scope) => jobRoutes(scope, jobs, store), { prefix: '/api/jobs' });
   app.get('/api/evidence', async (_request, reply) =>

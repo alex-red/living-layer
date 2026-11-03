@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { memo, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Button, IconButton } from './ui/controls';
 import './ai-rich-preview.css';
 
@@ -98,7 +98,8 @@ export function AIRichPreviewDialog({
   const ref = useRef<HTMLDialogElement>(null);
   const titleId = useId();
   const running = status === 'running' && !review;
-  const now = useClock(open && running);
+  // Only the clocks tick (`Elapsed`), so the dialog and its steps render when the work changes.
+  const ticking = open && running;
   // A step the person picked to look at, until they go back to following.
   const [picked, setPicked] = useState<string | null>(null);
 
@@ -112,20 +113,25 @@ export function AIRichPreviewDialog({
     if (!open) setPicked(null);
   }, [open]);
 
-  const live =
-    steps.find((s) => s.id === currentStepId) ??
-    steps.find((s) => s.state === 'running') ??
-    [...steps].reverse().find((s) => s.image) ??
-    steps.find((s) => s.state === 'failed' || s.state === 'stopped');
-  const shown = steps.find((s) => s.id === picked) ?? live;
-  // The newest picture up to the shown step, so a step without one keeps the last.
-  const upTo = shown ? steps.slice(0, steps.indexOf(shown) + 1) : [];
-  const picture = [...upTo].reverse().find((s) => s.image);
-  const finished = steps.filter((s) => s.state === 'done').length;
-  const index = shown ? steps.indexOf(shown) + 1 : 0;
+  const { live, shown, picture, finished, index, lastEnd } = useMemo(() => {
+    const live =
+      steps.find((s) => s.id === currentStepId) ??
+      steps.find((s) => s.state === 'running') ??
+      steps.findLast((s) => s.image) ??
+      steps.find((s) => s.state === 'failed' || s.state === 'stopped');
+    const shown = steps.find((s) => s.id === picked) ?? live;
+    const index = shown ? steps.indexOf(shown) + 1 : 0;
+    return {
+      live,
+      shown,
+      // The newest picture up to the shown step, so a step without one keeps the last.
+      picture: steps.slice(0, index).findLast((s) => s.image),
+      finished: steps.filter((s) => s.state === 'done').length,
+      index,
+      lastEnd: Math.max(0, ...steps.map((s) => time(s.endedAt) ?? 0)),
+    };
+  }, [steps, currentStepId, picked]);
   const start = time(startedAt) ?? time(steps[0]?.startedAt);
-  const lastEnd = Math.max(0, ...steps.map((s) => time(s.endedAt) ?? 0));
-  const total = start === null ? null : (running ? now : lastEnd || now) - start;
   const announce = running
     ? live
       ? `Step ${steps.indexOf(live) + 1} of ${steps.length}: ${live.label}`
@@ -169,7 +175,11 @@ export function AIRichPreviewDialog({
               <span className="aip-kicker-dot" aria-hidden="true" />
               {review ? `Past run · ${HEADLINE[status]}` : HEADLINE[status]}
               {review && start !== null && <span className="aip-clock">{when(start)}</span>}
-              {total !== null && <span className="aip-clock">{seconds(Math.max(0, total))}s</span>}
+              {start !== null && (
+                <span className="aip-clock">
+                  <Elapsed from={start} to={running ? null : lastEnd || null} live={ticking} />
+                </span>
+              )}
             </span>
             <h2 id={titleId}>{title}</h2>
             {description && <p className="micro">{description}</p>}
@@ -237,58 +247,13 @@ export function AIRichPreviewDialog({
             </figcaption>
           </figure>
 
-          <ol className="aip-steps">
-            {steps.map((s, i) => {
-              const from = time(s.startedAt);
-              const to = time(s.endedAt) ?? (s.state === 'running' ? now : null);
-              const took = from !== null && to !== null ? to - from : null;
-              const body = (
-                <>
-                  <span className="aip-mark" aria-hidden="true">
-                    {s.state === 'done'
-                      ? '✓'
-                      : s.state === 'failed'
-                        ? '✕'
-                        : s.state === 'stopped'
-                          ? '■'
-                          : s.state === 'pending'
-                            ? i + 1
-                            : ''}
-                  </span>
-                  <span className="aip-step-text">
-                    <strong>{s.label}</strong>
-                    {s.detail && <small>{s.detail}</small>}
-                  </span>
-                  <span className="aip-step-side">
-                    {s.image && <img src={s.image} alt="" />}
-                    <span className="aip-step-time">
-                      {took !== null && s.state !== 'pending' ? `${seconds(took)}s` : ''}
-                    </span>
-                  </span>
-                  <span className="aip-sr">, {s.state}</span>
-                </>
-              );
-              return (
-                <li
-                  key={s.id}
-                  className={`aip-step ${s.state} ${shown?.id === s.id ? 'shown' : ''}`}
-                  aria-current={s.state === 'running' ? 'step' : undefined}
-                >
-                  {s.image ? (
-                    <button
-                      className="aip-step-row"
-                      aria-pressed={shown?.id === s.id}
-                      onClick={() => setPicked(s.id === live?.id ? null : s.id)}
-                    >
-                      {body}
-                    </button>
-                  ) : (
-                    <div className="aip-step-row">{body}</div>
-                  )}
-                </li>
-              );
-            })}
-          </ol>
+          <StepList
+            steps={steps}
+            shownId={shown?.id}
+            liveId={live?.id}
+            ticking={ticking}
+            onPick={setPicked}
+          />
         </div>
 
         {status === 'failed' && error && (
@@ -349,6 +314,85 @@ export function AIRichPreviewDialog({
       </div>
     </dialog>
   );
+}
+
+/** The steps, each with its state and time. Drawn again when the work changes, not as the clock ticks. */
+const StepList = memo(function StepList({
+  steps,
+  shownId,
+  liveId,
+  ticking,
+  onPick,
+}: {
+  steps: AIStep[];
+  shownId?: string;
+  liveId?: string;
+  ticking: boolean;
+  onPick: (id: string | null) => void;
+}) {
+  return (
+    <ol className="aip-steps">
+      {steps.map((s, i) => {
+        const from = time(s.startedAt);
+        const to = time(s.endedAt);
+        const body = (
+          <>
+            <span className="aip-mark" aria-hidden="true">
+              {s.state === 'done'
+                ? '✓'
+                : s.state === 'failed'
+                  ? '✕'
+                  : s.state === 'stopped'
+                    ? '■'
+                    : s.state === 'pending'
+                      ? i + 1
+                      : ''}
+            </span>
+            <span className="aip-step-text">
+              <strong>{s.label}</strong>
+              {s.detail && <small>{s.detail}</small>}
+            </span>
+            <span className="aip-step-side">
+              {s.image && <img src={s.image} alt="" />}
+              <span className="aip-step-time">
+                {from !== null &&
+                  s.state !== 'pending' &&
+                  (to !== null || s.state === 'running') && (
+                    <Elapsed from={from} to={to} live={ticking} />
+                  )}
+              </span>
+            </span>
+            <span className="aip-sr">, {s.state}</span>
+          </>
+        );
+        return (
+          <li
+            key={s.id}
+            className={`aip-step ${s.state} ${shownId === s.id ? 'shown' : ''}`}
+            aria-current={s.state === 'running' ? 'step' : undefined}
+          >
+            {s.image ? (
+              <button
+                className="aip-step-row"
+                aria-pressed={shownId === s.id}
+                onClick={() => onPick(s.id === liveId ? null : s.id)}
+              >
+                {body}
+              </button>
+            ) : (
+              <div className="aip-step-row">{body}</div>
+            )}
+          </li>
+        );
+      })}
+    </ol>
+  );
+});
+
+/** Seconds from `from` to `to`, or to now, ticking while `live`, when `to` is null. */
+function Elapsed({ from, to, live }: { from: number; to: number | null; live: boolean }) {
+  const now = useClock(live && to === null);
+  return <>{seconds(Math.max(0, (to ?? now) - from))}s</>;
 }
 
 /** The time now, ticking while `on`, for the running step's clock. */

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { memo, useEffect, useState } from 'react';
 import { runCost, type ProviderFailure } from '@livinglayer/domain';
 import { dismissCall, useProviderCalls, type ProviderCall } from './activity';
 import { usd } from './cost';
@@ -8,11 +8,19 @@ import './provider-ui.css';
 const seconds = (ms: number) => `${(ms / 1000).toFixed(ms < 10_000 ? 1 : 0)}s`;
 const tokens = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n));
 
+/** A running call's time so far, ticking by itself so nothing else in the tray renders with it. */
+function RunningClock({ startedAt }: { startedAt: number }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 100);
+    return () => window.clearInterval(timer);
+  }, []);
+  return <>{seconds(now - startedAt)}</>;
+}
+
 /** One provider call: its steps, a live clock, and how it ended. */
-function CallRow({ call }: { call: ProviderCall }) {
+const CallRow = memo(function CallRow({ call }: { call: ProviderCall }) {
   const running = !call.endedAt;
-  // The tray re-renders while a call runs; the clock reads the time itself so it never starts stale.
-  const elapsed = (call.endedAt ?? Date.now()) - call.startedAt;
   const cost = call.run ? runCost(call.run) : null;
   const usage = call.run?.usage;
   return (
@@ -21,7 +29,13 @@ function CallRow({ call }: { call: ProviderCall }) {
         <span className="ai-dot" aria-hidden="true" />
         <strong>{call.title}</strong>
         <span className={`ai-mode ${call.mode}`}>{call.mode === 'live' ? 'LIVE' : 'DEMO'}</span>
-        <span className="ai-time">{seconds(elapsed)}</span>
+        <span className="ai-time">
+          {call.endedAt ? (
+            seconds(call.endedAt - call.startedAt)
+          ) : (
+            <RunningClock startedAt={call.startedAt} />
+          )}
+        </span>
         {!running && (
           <IconButton label="Dismiss" size="sm" onClick={() => dismissCall(call.id)}>
             ×
@@ -51,7 +65,7 @@ function CallRow({ call }: { call: ProviderCall }) {
       </p>
     </li>
   );
-}
+});
 
 /**
  * Every call to an AI provider in one place, wherever it was started: what
@@ -59,13 +73,6 @@ function CallRow({ call }: { call: ProviderCall }) {
  */
 export function ProviderActivity() {
   const calls = useProviderCalls();
-  const [, setTick] = useState(0);
-  const running = calls.some((c) => !c.endedAt);
-  useEffect(() => {
-    if (!running) return;
-    const timer = window.setInterval(() => setTick((t) => t + 1), 100);
-    return () => window.clearInterval(timer);
-  }, [running]);
   // A finished call fades after a while; a failure lingers longer, and its
   // full story stays in the error card.
   useEffect(() => {

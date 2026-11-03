@@ -13,13 +13,17 @@ export function useFollowStateSlice(): FollowStateSlice {
   const lastCheck = useRef(0);
   const reanchorGap = useRef(REANCHOR_GAP_MS.first);
   const goodSteps = useRef(0);
+  /** Bumped when following stops, so an answer for the following before it is dropped. */
+  const followGen = useRef(0);
   function stopFollow() {
+    followGen.current++;
     localTrack.current = null;
     setFollow(false);
     followViewStore.set(null);
   }
   return useStableSlice({
     follow,
+    followGen,
     goodSteps,
     lastCheck,
     localTrack,
@@ -31,6 +35,7 @@ export function useFollowStateSlice(): FollowStateSlice {
 /** What the FollowState slice of the lab offers: its state, derived values and actions. */
 export interface FollowStateSlice {
   follow: boolean;
+  followGen: RefObject<number>;
   goodSteps: RefObject<number>;
   lastCheck: RefObject<number>;
   localTrack: RefObject<LocalTrack | null>;

@@ -37,6 +37,36 @@ export async function apiAt<T>(path: string, body?: unknown, options: ApiOptions
   return data as T;
 }
 
+/**
+ * A GET that sends the entity tag of the answer the caller already has: the
+ * new answer and its tag, or `null` when the server says nothing changed (304).
+ */
+export async function apiIfChanged<P extends ApiPath>(
+  path: P,
+  tag: string | undefined,
+  options: Pick<ApiOptions, 'signal'> = {},
+): Promise<{ data: ApiResponse<P>; tag: string | undefined } | null> {
+  let response: Response;
+  try {
+    response = await fetch(`/api/${path}`, {
+      signal: options.signal,
+      cache: 'no-store',
+      ...(tag ? { headers: { 'If-None-Match': tag } } : {}),
+    });
+  } catch {
+    throw new ApiError(
+      'The local server could not be reached. Is it running (bun run dev)?',
+      'local_unreachable',
+    );
+  }
+  if (response.status === 304) return null;
+  if (!response.ok) return { data: await apiAt<ApiResponse<P>>(path), tag: undefined };
+  return {
+    data: (await response.json()) as ApiResponse<P>,
+    tag: response.headers.get('ETag') ?? undefined,
+  };
+}
+
 /** A route that answers with a file, not JSON (a stored photo): the bytes, with `api`'s error handling. */
 export async function apiBlob(path: string, options: ApiOptions = {}): Promise<Blob> {
   const { data } = await send(path, undefined, options, async (response) => ({

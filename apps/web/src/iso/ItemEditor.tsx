@@ -1,6 +1,7 @@
 import {
   useDeferredValue,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type KeyboardEvent,
@@ -35,6 +36,7 @@ import {
   ITEM_SPRITES,
 } from '@livinglayer/domain';
 import { ItemSprite } from './IsoItem';
+import { useFrameQueue } from './frame';
 import { useItemSprite, useViewOverlay } from './sprites';
 import { Button, Check, IconButton, Segmented } from '../ui/controls';
 
@@ -227,6 +229,8 @@ function ProfileEditor({
           if (!p) return;
           const lo = profile[active! - 1]?.z ?? 0;
           const hi = profile[active! + 1]?.z ?? 1;
+          const was = profile[active!];
+          if (was && was.r === p.r && was.z === Math.max(lo, Math.min(hi, p.z))) return;
           onChange(
             profile.map((q, i) =>
               i === active ? { r: p.r, z: Math.max(lo, Math.min(hi, p.z)) } : q,
@@ -902,8 +906,11 @@ export function ItemEditor({
     perTileCm,
   ]);
 
-  const dirty = Boolean(draft) && JSON.stringify(draft) !== JSON.stringify(editable(item));
-  const checked = draft ? isoItemSchema.safeParse(draft) : null;
+  // Worked out once per change of the draft or the saved item, not on every render.
+  const draftJson = useMemo(() => JSON.stringify(draft), [draft]);
+  const savedJson = useMemo(() => JSON.stringify(editable(item)), [item]);
+  const dirty = Boolean(draft) && draftJson !== savedJson;
+  const checked = useMemo(() => (draft ? isoItemSchema.safeParse(draft) : null), [draft]);
   const valid = Boolean(checked?.success);
   // What's wrong with the working copy, named by the part it's in, when it can't be saved.
   const problem =
@@ -917,8 +924,35 @@ export function ItemEditor({
       : null;
   const part = draft?.parts.find((p) => p.id === selected);
   // The preview follows the draft a beat behind, so a drag or a slider stays smooth while it redraws.
+  // The state cards' pictures follow it a beat behind too, so a drag asks for one drawing per beat.
   const deferredDraft = useDeferredValue(draft);
-  const deferredShown = deferredDraft ? rotateItem(previewItem(deferredDraft), turns) : null;
+  const preview = useMemo(() => (draft ? previewItem(draft) : null), [draft]);
+  const shownNow = useMemo(() => (preview ? rotateItem(preview, turns) : null), [preview, turns]);
+  const deferredPreview = useMemo(
+    () => (deferredDraft ? previewItem(deferredDraft) : null),
+    [deferredDraft],
+  );
+  const deferredShown = useMemo(
+    () => (deferredPreview ? rotateItem(deferredPreview, turns) : null),
+    [deferredPreview, turns],
+  );
+  // Each fixture state, its model as is (the active one the draft's) and turned to the view.
+  const stateEntries = useMemo(() => {
+    if (!fixture) return [];
+    const active = deferredPreview ?? preview;
+    return [
+      { id: null, label: 'Base', size: fixture.size },
+      ...fixtureStateNames(fixture).map((s) => ({
+        id: s,
+        label: s,
+        size: fixtureSize(fixture, s),
+      })),
+    ].map((entry) => {
+      const isActive = (fixture.state ?? null) === entry.id;
+      const model = isActive && active ? active : fixtureModel(fixture, entry.id);
+      return { ...entry, active: isActive, model, turned: rotateItem(model, turns) };
+    });
+  }, [fixture, deferredPreview, preview, turns]);
   const deferredSelect = deferredShown?.parts.findIndex((p) => p.id === selected) ?? -1;
   const sprite = useItemSprite(deferredShown, {
     ...ITEM_SPRITES.editor,
@@ -930,6 +964,8 @@ export function ItemEditor({
       (d) =>
         d && { ...d, parts: d.parts.map((p) => (p.id === selected ? { ...p, ...change } : p)) },
     );
+  // A part dragged on the canvas moves once a frame, to where the pointer is last.
+  const dragUpdate = useFrameQueue(update);
   const colours = [...new Set([...(item?.swatches.map((s) => s.hex) ?? []), ...MATERIALS])];
   const fit = item?.fit;
 
@@ -960,7 +996,7 @@ export function ItemEditor({
       nextTiles.d !== activeTileSize.d ||
       nextTiles.h !== activeTileSize.h);
 
-  const shown = rotateItem(previewItem(draft), turns);
+  const shown = shownNow!;
   const shownPart = shown.parts.find((p) => p.id === selected);
   const isLitGlow = Boolean(fixture?.control.kind === 'light' && fixture.state === 'on');
   const ghostItem =
@@ -1004,16 +1040,8 @@ export function ItemEditor({
       {fixture && onFixtureState && (
         <div className="studio-bar" role="region" aria-label="Fixture Studio States">
           <div className="studio-states" role="tablist" aria-label="Fixture states">
-            {[
-              { id: null, label: 'Base', size: fixture.size },
-              ...stateNames.map((s) => ({
-                id: s,
-                label: s,
-                size: fixtureSize(fixture, s),
-              })),
-            ].map((entry) => {
-              const active = (fixture.state ?? null) === entry.id;
-              const entryModel = active ? previewItem(draft) : fixtureModel(fixture, entry.id);
+            {stateEntries.map((entry) => {
+              const { active, model: entryModel } = entry;
               const cmText = `${Math.round(entry.size.w * perTileCm)}×${Math.round(entry.size.d * perTileCm)}×${Math.round(entry.size.h * perTileCm)} cm`;
               return (
                 <button
@@ -1536,19 +1564,8 @@ export function ItemEditor({
             <PhotoCompare item={previewItem(draft)} url={cropUrl} elevation={fit.elevation} />
           ) : view === 'states' && fixture ? (
             <div className="studio-compare-grid" role="list" aria-label="All fixture states">
-              {[
-                { id: null, label: 'Base', size: fixture.size },
-                ...stateNames.map((s) => ({
-                  id: s,
-                  label: s,
-                  size: fixtureSize(fixture, s),
-                })),
-              ].map((entry) => {
-                const active = (fixture.state ?? null) === entry.id;
-                const entryModel = rotateItem(
-                  active ? previewItem(draft) : fixtureModel(fixture, entry.id),
-                  turns,
-                );
+              {stateEntries.map((entry) => {
+                const { active, turned: entryModel } = entry;
                 const glow = fixture.control.kind === 'light' && entry.id === 'on';
                 return (
                   <button
@@ -1593,7 +1610,7 @@ export function ItemEditor({
                 const dsy = p1.y - p0.y;
                 if (e.shiftKey) {
                   const dz = -dsy / (ISO_RISE * PREVIEW_SCALE);
-                  update({
+                  dragUpdate.push({
                     at: {
                       ...dragStart.at,
                       z: round(clamp(dragStart.at.z + dz, 0, 6)),
@@ -1607,7 +1624,7 @@ export function ItemEditor({
                   deltaTile.y / PREVIEW_SCALE,
                   turns,
                 );
-                update({
+                dragUpdate.push({
                   at: {
                     ...dragStart.at,
                     x: round(clamp(dragStart.at.x + dx, -0.5, 1.5)),
@@ -1615,8 +1632,14 @@ export function ItemEditor({
                   },
                 });
               }}
-              onPointerUp={() => setDragStart(null)}
-              onPointerLeave={() => setDragStart(null)}
+              onPointerUp={() => {
+                dragUpdate.flush();
+                setDragStart(null);
+              }}
+              onPointerLeave={() => {
+                dragUpdate.flush();
+                setDragStart(null);
+              }}
             >
               {ghostItem && (
                 <g className="studio-onion-ghost" opacity={0.28}>

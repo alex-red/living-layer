@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { IsoView } from '../iso/IsoView';
 import { Button } from '../ui/controls';
 import { useAi, useCamera, useFeedback, useLabParts, useNavigation, useView } from './LabContext';
@@ -76,6 +76,11 @@ export function Canvas() {
     id: string;
     at: { x: number; y: number };
   } | null>(null);
+  const closeFixtureMenu = useCallback(() => setFixtureMenu(null), []);
+  const openFixtureMenu = useCallback(
+    (id: string, at: { x: number; y: number }) => setFixtureMenu({ id, at }),
+    [],
+  );
   const onboarding = (!workScene || choosingScene) && !pinning;
   const showIso = useShowIso();
   // The hand gives way to anything being drawn, pinned or placed.
@@ -96,8 +101,8 @@ export function Canvas() {
       <div className={`stage-fit ${showIso ? stageView : ''}`} hidden={onboarding}>
         <PhotoStage hand={hand} calibratePanel={calibratePanel} />
         <BrushDock />
-        {showIso && <IsoView hand={hand} onFixtureMenu={(id, at) => setFixtureMenu({ id, at })} />}
-        {fixtureMenu && <FixtureMenu menu={fixtureMenu} onClose={() => setFixtureMenu(null)} />}
+        {showIso && <IsoView hand={hand} onFixtureMenu={openFixtureMenu} />}
+        {fixtureMenu && <FixtureMenu menu={fixtureMenu} onClose={closeFixtureMenu} />}
       </div>
       {!onboarding && showIso && <DayDock />}
       {lab.calibrating && !lab.camera && <div className="calibrate-slot" ref={setCalibratePanel} />}

@@ -32,6 +32,8 @@ export function useCamera() {
   const release = () => {
     stream.current?.getTracks().forEach((t) => t.stop());
     stream.current = null;
+    // The element would otherwise hold the stopped stream, and its last frame, until the next one.
+    if (video.current) video.current.srcObject = null;
     closeNetwork.current?.();
     closeNetwork.current = null;
   };
@@ -133,6 +135,7 @@ export function useCamera() {
     return () => {
       el.removeEventListener('loadedmetadata', read);
       el.removeEventListener('resize', read);
+      el.srcObject = null;
     };
   }, [state]);
 

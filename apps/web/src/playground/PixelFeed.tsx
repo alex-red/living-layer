@@ -22,6 +22,22 @@ const PALETTES: Record<Exclude<PixelPalette, 'full'>, string[]> = {
   mono: ['#0a0c12', '#3b4257', '#8a91a8', '#ece9f2'],
 };
 
+/** Each palette as the shader reads it: linear RGBA floats, four to a colour. */
+const PALETTE_FLOATS: Record<PixelPalette, Float32Array> = {
+  full: new Float32Array(0),
+  ...(Object.fromEntries(
+    Object.entries(PALETTES).map(([name, colours]) => [
+      name,
+      Float32Array.from(
+        colours.flatMap((hex) => {
+          const value = parseInt(hex.slice(1), 16);
+          return [(value >> 16) / 255, ((value >> 8) & 255) / 255, (value & 255) / 255, 1];
+        }),
+      ),
+    ]),
+  ) as Record<Exclude<PixelPalette, 'full'>, Float32Array>),
+};
+
 const SHADER = /* wgsl */ `
 struct Params {
   grid: vec2f,
@@ -144,6 +160,7 @@ export function PixelFeed({
         vertex: { module, entryPoint: 'vs' },
         fragment: { module, entryPoint: 'fs', targets: [{ format }] },
       });
+      const layout = pipeline.getBindGroupLayout(0);
       const sampler = gpu.createSampler({ magFilter: 'linear', minFilter: 'linear' });
       const uniforms = new ArrayBuffer(16 * 4 + 16 * 16);
       const floats = new Float32Array(uniforms);
@@ -152,6 +169,8 @@ export function PixelFeed({
         size: uniforms.byteLength,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
       });
+      // What the uniforms were last written for; they're written again only when it changes.
+      const written = { size: 0, name: '', on: false, width: 0, height: 0 };
 
       const draw = () => {
         if (stopped) return;
@@ -162,25 +181,29 @@ export function PixelFeed({
             el.height = source.videoHeight;
           }
           const { blockPx: size, palette: name, dither: on } = settings.current;
-          floats[0] = Math.max(1, Math.round(source.videoWidth / size));
-          floats[1] = Math.max(1, Math.round(source.videoHeight / size));
-          floats[2] = 5;
-          floats[3] = on ? 1 : 0;
-          const colours = name === 'full' ? [] : PALETTES[name];
-          uints[4] = colours.length;
-          colours.forEach((hex, i) => {
-            const value = parseInt(hex.slice(1), 16);
-            floats.set(
-              [(value >> 16) / 255, ((value >> 8) & 255) / 255, (value & 255) / 255, 1],
-              8 + i * 4,
-            );
-          });
-          gpu.queue.writeBuffer(buffer, 0, uniforms);
+          const { videoWidth: width, videoHeight: height } = source;
+          if (
+            size !== written.size ||
+            name !== written.name ||
+            on !== written.on ||
+            width !== written.width ||
+            height !== written.height
+          ) {
+            Object.assign(written, { size, name, on, width, height });
+            floats[0] = Math.max(1, Math.round(width / size));
+            floats[1] = Math.max(1, Math.round(height / size));
+            floats[2] = 5;
+            floats[3] = on ? 1 : 0;
+            const colours = PALETTE_FLOATS[name];
+            uints[4] = colours.length / 4;
+            floats.set(colours, 8);
+            gpu.queue.writeBuffer(buffer, 0, uniforms);
+          }
 
           // An external texture is only valid for the current task, so it is
           // imported, bound and drawn in one go.
           const bindGroup = gpu.createBindGroup({
-            layout: pipeline.getBindGroupLayout(0),
+            layout,
             entries: [
               { binding: 0, resource: sampler },
               { binding: 1, resource: gpu.importExternalTexture({ source }) },

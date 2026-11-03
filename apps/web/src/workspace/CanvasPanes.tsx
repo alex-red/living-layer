@@ -1,4 +1,4 @@
-import { lazy, useRef, useState, type CSSProperties, type RefObject } from 'react';
+import { lazy, useEffect, useRef, useState, type CSSProperties, type RefObject } from 'react';
 import {
   CROP_MIN,
   DEMO_POSITIONS,
@@ -6,6 +6,7 @@ import {
   cameraFitsScene,
   isoSceneKindSchema,
   type DemoPosition,
+  type ZoneRect,
   mainPlacement,
   mugOf,
   mugSighting,
@@ -43,6 +44,9 @@ import {
   useView,
 } from './LabContext';
 import { useFollowView } from './state/follow-store';
+import { createStore, useStore } from './state/store';
+import { dragRectStore, useDragRect } from './state/view';
+import { watchStore } from '../watch';
 import { LayerChips, useLayers, usePicture } from './LayerChips';
 import type { Lab } from './useLabState';
 import { ContextMenu } from './ContextMenu';
@@ -50,7 +54,7 @@ import { Popover } from './Popover';
 import { ToolStrip } from './ToolStrip';
 import { BrushOverlay } from './Brush';
 import { shapeOf, type BrushStroke } from './useBrush';
-import { demoFrameUrl } from './demoFrame';
+import { useDemoFrameUrl } from './demoFrame';
 import { FRIDGE_PHOTO, FRIDGE_VIEWS, fridgeViewUrl, type FridgeView } from './demoFridge';
 
 const PhonePairing = lazy(() =>
@@ -120,10 +124,14 @@ export function useBrushing(): { brushable: boolean; brushing: boolean } {
   return { brushable, brushing: Boolean(brushing) };
 }
 
-/** The main zone over the photo, and the words on its tag. */
-function useZoneView() {
+/**
+ * The main zone over the photo, and the words on its tag. `live` is the zone
+ * being dragged, which stands in for the drawn one until the drag ends.
+ */
+function useZoneView(live?: ZoneRect | null) {
   const lab = useLabParts(useView(), useDesk(), useObservation());
-  const { zoneObservation, visibleZone, drawing, memory, zone } = lab;
+  const { zoneObservation, drawing, memory, zone } = lab;
+  const visibleZone = (drawing && live) || lab.visibleZone;
   // The zone over the photo or, on the running camera, over the frames it gives.
   const zoneShown = Boolean(zoneObservation && visibleZone && (drawing || lab.showZones));
   // The mug stands in the main zone by the last check: said in words on the tag, not by colour alone.
@@ -259,6 +267,7 @@ function Media() {
   const lab = useLabParts(useView(), useCamera());
   const { camera, mode, image } = lab;
   const fridge = useFridgePlaceholder();
+  const demoUrl = useDemoFrameUrl(lab.demoPosition, mode === 'demo');
   if (camera)
     return <video ref={lab.video} data-pan muted playsInline aria-label="Desk camera preview" />;
   if (fridge)
@@ -273,7 +282,7 @@ function Media() {
     return (
       <img
         data-pan
-        src={mode === 'demo' ? demoFrameUrl(lab.demoPosition) : image}
+        src={mode === 'demo' ? demoUrl : image}
         alt={
           mode === 'demo'
             ? 'The demo office seen from its corner camera, with a mug, book and bottle on the desk; synthetic demo'
@@ -339,8 +348,19 @@ function MasksLayer() {
 /** The saved zone over the photo or the camera's frames, and while it is drawn. */
 function ZoneLayer() {
   const lab = useLabParts(useView(), useFeedback(), useCamera(), useObservation(), useDesk());
-  const { camera, cameraSize, visibleZone, drawing, busy, memory } = lab;
-  const { zoneShown, occupied, zoneTag } = useZoneView();
+  const { camera, cameraSize, drawing, busy, memory } = lab;
+  // While it is dragged, the zone lives in a store this reads; the lab gets it on release.
+  const live = useDragRect('zone');
+  const visibleZone = (drawing && live) || lab.visibleZone;
+  const { zoneShown, occupied, zoneTag } = useZoneView(live);
+  const endDrag = () => {
+    lab.zoneStart.current = null;
+    const d = dragRectStore.get();
+    if (d?.kind !== 'zone') return;
+    dragRectStore.set(null);
+    lab.setDraftZone(d.rect);
+  };
+  useEffect(() => () => dragRectStore.set((d) => (d?.kind === 'zone' ? null : d)), []);
   const layer = visibleZone && (
     <svg
       className={`zone-overlay ${drawing ? 'drawing' : ''} ${occupied ? 'inside' : ''}`}
@@ -361,19 +381,18 @@ function ZoneLayer() {
         if (!drawing || !lab.zoneStart.current) return;
         const p = lab.zonePoint(e),
           a = lab.zoneStart.current;
-        lab.setDraftZone({
-          x: Math.min(a.x, p.x),
-          y: Math.min(a.y, p.y),
-          width: Math.abs(a.x - p.x),
-          height: Math.abs(a.y - p.y),
+        dragRectStore.set({
+          kind: 'zone',
+          rect: {
+            x: Math.min(a.x, p.x),
+            y: Math.min(a.y, p.y),
+            width: Math.abs(a.x - p.x),
+            height: Math.abs(a.y - p.y),
+          },
         });
       }}
-      onPointerUp={() => {
-        lab.zoneStart.current = null;
-      }}
-      onPointerCancel={() => {
-        lab.zoneStart.current = null;
-      }}
+      onPointerUp={endDrag}
+      onPointerCancel={endDrag}
     >
       {/* Nested in the camera's fitted layer, the SVG catches presses only where it paints. */}
       {drawing && <rect className="zone-hit" width="1000" height="1000" />}
@@ -421,18 +440,34 @@ function ZoneLayer() {
 
 type Rect = { x: number; y: number; width: number; height: number };
 
-/** Drag a rectangle on the photo: for the box around a thing, and for the camera's zoomed view. */
+/**
+ * Drag a rectangle on the photo: for the box around a thing, and for the
+ * camera's zoomed view. The rectangle being dragged lives in `dragRectStore`,
+ * so only this draws at the pointer's rate; `onRect` gets it on release.
+ */
 function RectDraw({
+  kind,
   label,
-  rect,
+  rect: drawn,
   onRect,
 }: {
+  kind: 'box' | 'zoom';
   label: string;
   rect: Rect | null | undefined;
   onRect: (rect: Rect) => void;
 }) {
   const { zonePoint } = useObservation();
   const start = useRef<{ x: number; y: number } | null>(null);
+  const live = useDragRect(kind);
+  const rect = live ?? drawn;
+  const endDrag = () => {
+    start.current = null;
+    const d = dragRectStore.get();
+    if (d?.kind !== kind) return;
+    dragRectStore.set(null);
+    onRect(d.rect);
+  };
+  useEffect(() => () => dragRectStore.set((d) => (d?.kind === kind ? null : d)), [kind]);
   return (
     <svg
       className="zone-overlay drawing fixture-box"
@@ -447,19 +482,18 @@ function RectDraw({
         const a = start.current;
         if (!a) return;
         const p = zonePoint(e);
-        onRect({
-          x: Math.min(a.x, p.x),
-          y: Math.min(a.y, p.y),
-          width: Math.abs(a.x - p.x),
-          height: Math.abs(a.y - p.y),
+        dragRectStore.set({
+          kind,
+          rect: {
+            x: Math.min(a.x, p.x),
+            y: Math.min(a.y, p.y),
+            width: Math.abs(a.x - p.x),
+            height: Math.abs(a.y - p.y),
+          },
         });
       }}
-      onPointerUp={() => {
-        start.current = null;
-      }}
-      onPointerCancel={() => {
-        start.current = null;
-      }}
+      onPointerUp={endDrag}
+      onPointerCancel={endDrag}
     >
       {rect && (
         <rect
@@ -481,6 +515,7 @@ function DrawLayers() {
     <>
       {boxing && !camera && (mode === 'demo' || image) && (
         <RectDraw
+          kind="box"
           label="Draw a box around the thing"
           rect={boxing.rect}
           onRect={(rect) => lab.setBoxing({ rect })}
@@ -488,6 +523,7 @@ function DrawLayers() {
       )}
       {zooming && camera && (
         <RectDraw
+          kind="zoom"
           label="Draw the camera’s zoomed view"
           rect={zooming.rect}
           onRect={(rect) => lab.setZooming({ rect })}
@@ -519,16 +555,16 @@ function BrushLayer() {
  */
 function OutlineLayer() {
   const lab = useLabParts(useView(), useCamera(), useObservation());
-  const [stroke, setStroke] = useState<BrushStroke | null>(null);
+  // The stroke being drawn, read only by the overlay that draws it.
+  const [stroke] = useState(() => createStore<BrushStroke | null>(null));
   const { outlining, mode, camera, image } = lab;
   if (!outlining || lab.drawing || lab.pinning || !(camera || mode === 'demo' || image))
     return null;
   const draw = {
     stroke,
-    setStroke,
     shape: outlining.shape,
     finish: async (next: BrushStroke) => {
-      setStroke(null);
+      stroke.set(null);
       const shape = shapeOf(next);
       if (shape)
         lab.setOutlining({
@@ -598,14 +634,34 @@ function FollowLayers() {
     useTracking(),
     useObservation(),
   );
-  const { follow, watch, watching, memory, segmentation } = lab;
+  const { follow, watching, memory, segmentation } = lab;
   const { zoneShown } = useZoneView();
   // The tracking layer replaces the follow and watch boxes on the camera with ones fitted to the video.
   const tracked = lab.camera && lab.tracking;
   return (
     <>
       {follow && !tracked && <FollowOverlay localZone={lab.localZone} zoneShown={zoneShown} />}
-      {!follow && !tracked && watching && watch && watch.things.length > 0 && (
+      {!follow && !tracked && watching && <WatchedBoxes />}
+      {tracked && (
+        <WatchedTracking
+          video={lab.video}
+          memory={memory}
+          follow={follow}
+          segmentation={segmentation}
+        />
+      )}
+      {lab.camera && lab.showStats && <WatchedStats video={lab.video} memory={memory} />}
+    </>
+  );
+}
+
+/** The server watcher's boxes and their tags; it renders for each message the watcher sends, alone. */
+function WatchedBoxes() {
+  const watch = useStore(watchStore);
+  if (!watch) return null;
+  return (
+    <>
+      {watch.things.length > 0 && (
         <svg
           className="follow-overlay"
           viewBox="0 0 1000 1000"
@@ -624,38 +680,35 @@ function FollowLayers() {
           ))}
         </svg>
       )}
-      {!follow &&
-        !tracked &&
-        watching &&
-        watch?.things.map((t) => (
-          <span
-            key={t.id}
-            className={`zone-tag follow-tag ${t.status === 'following' ? 'follow' : 'unsure'}`}
-            style={{ left: `${t.box.x * 100}%`, top: `${t.box.y * 100}%` }}
-            aria-hidden="true"
-          >
-            {t.label.toUpperCase()} · {WATCH_LAYER[t.layer]}
-            {t.status === 'following'
-              ? ` · ${t.score.toFixed(2)}`
-              : t.status === 'entangled'
-                ? ' · WHICH ONE?'
-                : ` · ${t.status.toUpperCase()}`}
-          </span>
-        ))}
-      {tracked && (
-        <FollowedTracking
-          video={lab.video}
-          memory={memory}
-          watch={watch}
-          follow={follow}
-          segmentation={segmentation}
-        />
-      )}
-      {lab.camera && lab.showStats && (
-        <StatsOverlay video={lab.video} watch={watch} memory={memory} />
-      )}
+      {watch.things.map((t) => (
+        <span
+          key={t.id}
+          className={`zone-tag follow-tag ${t.status === 'following' ? 'follow' : 'unsure'}`}
+          style={{ left: `${t.box.x * 100}%`, top: `${t.box.y * 100}%` }}
+          aria-hidden="true"
+        >
+          {t.label.toUpperCase()} · {WATCH_LAYER[t.layer]}
+          {t.status === 'following'
+            ? ` · ${t.score.toFixed(2)}`
+            : t.status === 'entangled'
+              ? ' · WHICH ONE?'
+              : ` · ${t.status.toUpperCase()}`}
+        </span>
+      ))}
     </>
   );
+}
+
+/** The tracking layer, given the watcher's newest view from its store. */
+function WatchedTracking(props: Omit<Parameters<typeof FollowedTracking>[0], 'watch'>) {
+  const watch = useStore(watchStore);
+  return <FollowedTracking {...props} watch={watch} />;
+}
+
+/** The stats over the camera, given the watcher's newest view from its store. */
+function WatchedStats(props: Omit<Parameters<typeof StatsOverlay>[0], 'watch'>) {
+  const watch = useStore(watchStore);
+  return <StatsOverlay {...props} watch={watch} />;
 }
 
 /** The calibration's corner, the calibration editor and the surface pin, over the photo. */
@@ -821,16 +874,28 @@ export function FixtureMenu({
   );
 }
 
+/** The buttons that move the demo mug: the only part under the canvas that reads tracking. */
+function DemoMugButtons() {
+  const lab = useLabParts(useView(), useFeedback(), useTracking());
+  return (
+    <div className="capture-actions" role="group" aria-label="Move the demo mug">
+      {(Object.keys(DEMO_POSITIONS) as DemoPosition[]).map((p) => (
+        <button
+          key={p}
+          aria-pressed={lab.demoPosition === p}
+          disabled={Boolean(lab.busy)}
+          onClick={() => lab.moveDemoMug(p)}
+        >
+          {DEMO_POSITIONS[p].label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 /** The line under the canvas, and the buttons that move the demo mug or set up a camera. */
 export function SceneBottom() {
-  const lab = useLabParts(
-    useView(),
-    useFeedback(),
-    useDesk(),
-    useCamera(),
-    useTracking(),
-    useCalibration(),
-  );
+  const lab = useLabParts(useView(), useFeedback(), useDesk(), useCamera(), useCalibration());
   const { mode, busy, camera } = lab;
   const fridge = useFridgePlaceholder();
   /** Take the placeholder photo on show as this frame, to pin and work on like an upload. */
@@ -888,20 +953,7 @@ export function SceneBottom() {
           )}
         </div>
       )}
-      {mode === 'demo' && !fridge && (
-        <div className="capture-actions" role="group" aria-label="Move the demo mug">
-          {(Object.keys(DEMO_POSITIONS) as DemoPosition[]).map((p) => (
-            <button
-              key={p}
-              aria-pressed={lab.demoPosition === p}
-              disabled={Boolean(busy)}
-              onClick={() => lab.moveDemoMug(p)}
-            >
-              {DEMO_POSITIONS[p].label}
-            </button>
-          ))}
-        </div>
-      )}
+      {mode === 'demo' && !fridge && <DemoMugButtons />}
       {mode === 'live' && (
         <div className="capture-actions">
           {camera ? (

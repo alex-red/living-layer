@@ -1,3 +1,4 @@
+import { useMemo, useState } from 'react';
 import { runCost, type Mode, type RunKind } from '@livinglayer/domain';
 import { isRun } from '@livinglayer/domain';
 import { usd } from '../cost';
@@ -120,11 +121,20 @@ function RunInspector() {
       {isProbe(selected.kind) && lab.rerunBlock(selected) && (
         <p className="micro">{lab.rerunBlock(selected)}</p>
       )}
-      <details>
-        <summary>Raw evidence</summary>
-        <pre>{JSON.stringify(selected, null, 2)}</pre>
-      </details>
+      <RawEvidence run={selected} />
     </section>
+  );
+}
+
+/** The run as JSON, written out only while its fold is open: a big run is slow to print. */
+function RawEvidence({ run }: { run: object }) {
+  const [open, setOpen] = useState(false);
+  const text = useMemo(() => (open ? JSON.stringify(run, null, 2) : ''), [open, run]);
+  return (
+    <details open={open} onToggle={(e) => setOpen(e.currentTarget.open)}>
+      <summary>Raw evidence</summary>
+      {open && <pre>{text}</pre>}
+    </details>
   );
 }
 
@@ -296,9 +306,7 @@ export function ActivityDrawer() {
             )}
           </div>
         </div>
-        <div className="drawer-inspect">
-          <RunInspector />
-        </div>
+        <div className="drawer-inspect">{drawer && <RunInspector />}</div>
       </div>
     </section>
   );

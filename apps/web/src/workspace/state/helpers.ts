@@ -151,7 +151,27 @@ export const RUN_KINDS: RunKind[] = [
 ];
 export const LOG_PAGE = 10;
 /** Undo steps kept per mode. */
-export const UNDO_LIMIT = 50;
+const UNDO_LIMIT = 50;
+/** About as many bytes of desk (as JSON) as one mode's undo or redo steps keep, however big a desk gets. */
+const UNDO_BYTES = 24 * 1024 * 1024;
+/** The few desks whose JSON was last worked out. Desks are replaced, never changed in place. */
+const recentJson: { desk: DeskMemory; json: string }[] = [];
+/** A desk as JSON, worked out once for the desks just compared or saved. */
+export function deskJson(desk: DeskMemory): string {
+  const hit = recentJson.find((e) => e.desk === desk);
+  if (hit) return hit.json;
+  const json = JSON.stringify(desk);
+  recentJson.unshift({ desk, json });
+  recentJson.length = Math.min(recentJson.length, 6);
+  return json;
+}
+/** Whether two desks hold the same: by reference first, then by their JSON. */
+export const sameDesk = (a: DeskMemory, b: DeskMemory) => a === b || deskJson(a) === deskJson(b);
+/** `stack` with `desk` on top, keeping at most `UNDO_LIMIT` steps and about `UNDO_BYTES` of them. */
+export function pushHistory(stack: DeskMemory[], desk: DeskMemory): DeskMemory[] {
+  const limit = Math.max(5, Math.min(UNDO_LIMIT, Math.floor(UNDO_BYTES / deskJson(desk).length)));
+  return [...stack, desk].slice(-limit);
+}
 /** Whether a desk holds anything a person made: an object, a pin, a scene, a rule. */
 export const deskIsBlank = (d: DeskMemory) =>
   !mugOf(d) &&

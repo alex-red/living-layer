@@ -17,8 +17,23 @@ import type { Tool } from '../ToolStrip';
 import type { FridgeView } from '../demoFridge';
 import type { FridgeAngle } from '../../iso/fridgeAngle';
 import { useStableSlice } from './stable';
+import { createStore, useStore } from './store';
 import type { Prefs, SessionSave } from '../../session';
 import type { Dispatch, RefObject, SetStateAction } from 'react';
+
+/**
+ * A rectangle being dragged on the picture, as shares of it: the zone, the
+ * box round a thing, or the camera's zoomed view. It changes on every
+ * pointer move, so it lives in a store read by what draws it (and the
+ * zone's readout); the lab's state gets the rectangle once the drag ends.
+ */
+export const dragRectStore = createStore<{
+  kind: 'zone' | 'box' | 'zoom';
+  rect: ZoneRect;
+} | null>(null);
+/** The rectangle being dragged for `kind`, or null when none is. */
+export const useDragRect = (kind: 'zone' | 'box' | 'zoom') =>
+  useStore(dragRectStore, (d) => (d?.kind === kind ? d.rect : null));
 
 /** The View slice of the lab's state. */
 export function useViewSlice(): ViewSlice {
