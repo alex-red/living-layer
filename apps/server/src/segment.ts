@@ -123,7 +123,15 @@ export function createSegment({
     const output: Segmentation = {
       concept: input.concept,
       frame,
-      detections: detection ? [{ ...detection, confidence: null }] : [],
+      detections: detection
+        ? [
+            {
+              ...detection,
+              confidence: null,
+              ...(outline.fallback ? { boxOnly: true as const } : {}),
+            },
+          ]
+        : [],
       sourceKey:
         input.mode === 'demo'
           ? demoSourceKey(input.demoPosition)

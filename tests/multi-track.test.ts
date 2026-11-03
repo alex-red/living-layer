@@ -105,6 +105,34 @@ describe('outlining a thing on this machine', () => {
     const bare = selectionMask({ kind: 'rect', box: { x1: 20, y1: 20, x2: 250, y2: 250 } }, frame);
     expect(outlineIn(image, bare)).toMatchObject({ fallback: true, share: 1 });
   });
+  it('finds a thing the colour of something the box cuts through', () => {
+    const image = picture();
+    const { width } = image;
+    // A white mug, and a white jar the box's top edge crosses.
+    const paint = (x0: number, y0: number, x1: number, y1: number) => {
+      for (let y = y0; y < y1; y++)
+        for (let x = x0; x < x1; x++) image.data.set([235, 230, 225], (y * width + x) * 3);
+    };
+    paint(30, 20, 50, 36);
+    paint(32, 4, 48, 16);
+    const frame = { width, height: image.height };
+    const shape = selectionMask(
+      { kind: 'rect', box: { x1: 300, y1: 200, x2: 700, y2: 700 } },
+      frame,
+    );
+    const found = outlineIn(image, shape)!;
+    expect(found.fallback).toBe(false);
+    let hit = 0;
+    let extra = 0;
+    for (let y = 0; y < frame.height; y++)
+      for (let x = 0; x < width; x++) {
+        const on = found.bits.data[y * width + x] === 1;
+        if (on && x >= 30 && x < 50 && y >= 20 && y < 36) hit++;
+        else if (on) extra++;
+      }
+    expect(hit / (20 * 16)).toBeGreaterThan(0.9);
+    expect(extra).toBeLessThan(20);
+  });
 });
 
 describe('assigning candidates to things together', () => {

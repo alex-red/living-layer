@@ -61,10 +61,23 @@ describe('tracking with no AI calls', () => {
     const selected = await post('desk/select', { segmentRunId: run.id, detectionId: '1' });
     expect(selected.statusCode, selected.body).toBe(200);
     expect(sighting(selected.json<DeskMemory>())!.identity).toBe('manual');
+    expect(sighting(selected.json<DeskMemory>())!.boxOnly).toBeUndefined();
     expect((await post('settings/tracking-ai', { on: true, mode: undefined })).json()).toEqual({
       on: true,
     });
     expect((await post('segment', { concept: 'mug' })).statusCode).toBe(200);
+  });
+
+  it('says when what was drawn is kept as the outline, nothing standing out in it', async () => {
+    const { post } = await testApp({ name: 'local-box-only', trackingAi: false });
+    // A patch of bare wall.
+    const shape = { kind: 'rect', box: { x1: 20, y1: 20, x2: 80, y2: 80 } };
+    const run = (await post('segment', { concept: 'mug', shape })).json<
+      EvidenceRun<Segmentation>
+    >();
+    expect(run.output.detections[0]).toMatchObject({ boxOnly: true });
+    const selected = await post('desk/select', { segmentRunId: run.id, detectionId: '1' });
+    expect(sighting(selected.json<DeskMemory>())).toMatchObject({ boxOnly: true });
   });
 
   it('tracks the confirmed mug in a new frame from a box drawn round it', async () => {

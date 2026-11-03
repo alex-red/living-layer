@@ -97,6 +97,8 @@ export interface DeskObservation {
   identity: 'manual' | 'tracked';
   /** Overlap (IoU) with the previous observation's box, when there was one. */
   overlap?: number | null;
+  /** Its mask was the whole shape drawn round it (`Detection.boxOnly`), not an outline. */
+  boxOnly?: true;
 }
 /**
  * The main zone as it was kept before it became the rule `main`: `frame` is

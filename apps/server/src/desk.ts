@@ -454,6 +454,7 @@ export function createDesk(
       box: detection.box,
       identity,
       overlap,
+      ...(detection.boxOnly ? { boxOnly: true as const } : {}),
     };
   }
   const sameConcept = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();

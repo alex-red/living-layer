@@ -61,7 +61,7 @@ import { pinScene } from './progress';
 import { Details, Panel, useCall } from './panel';
 import { ChooseDevicesLink } from './ChooseDevicesLink';
 import { ScanFixtures } from './ScanFixtures';
-import { LocalOutline } from './LocalOutline';
+import { BoxOnlyNote, LocalOutline } from './LocalOutline';
 import { useScenes, type WorkScene } from './fixture-scenes';
 import { removeFromLayout, type LayoutLab } from './removeFromLayout';
 import { controlKindOf } from '@livinglayer/domain';
@@ -1198,6 +1198,7 @@ function FixtureCamera({ fixture: f, disabled }: { fixture: Fixture; disabled: b
             ? 'Not followed. Find it in the camera so it can follow and decide rules.'
             : 'Not followed. Draw round it on the camera’s picture so it can follow and decide rules.'}
       </p>
+      <BoxOnlyNote id={f.id} seen={f.track?.observation} />
       {!trackingAi && (
         <LocalOutline
           target={f.id}

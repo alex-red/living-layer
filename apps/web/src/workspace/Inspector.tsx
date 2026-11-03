@@ -45,7 +45,7 @@ import {
 import { useFollowStats, useFollowView } from './state/follow-store';
 import { Cost, Details, Panel, useCall } from './panel';
 import { ScanFixtures } from './ScanFixtures';
-import { LocalOutline } from './LocalOutline';
+import { BoxOnlyNote, LocalOutline } from './LocalOutline';
 import { ChooseDevicesLink } from './ChooseDevicesLink';
 import { Later } from '../Later';
 import { ago, mainSurface, roomLabel, surfaceRows, type LabRead } from './labels';
@@ -1000,6 +1000,7 @@ function MugPanel() {
             ? 'Move the mug with the buttons under the canvas, then track it.'
             : 'Move the mug, start the camera, then capture & track.'}
       </p>
+      <BoxOnlyNote id={mugOf(memory)!.id} seen={o} />
       {status && trackingAi && <Cost>{estimateLabel(status.meta.estimates.segment, 'track')}</Cost>}
       <WatchControl />
       {!lab.canWatch && (
@@ -1143,6 +1144,7 @@ function OtherPanel({ id }: { id: string }) {
           onOutline={(d) => void lab.execute('segment', o.concept, d)}
         />
       )}
+      <BoxOnlyNote id={o.id} seen={o.observation} />
       <p className="micro">
         {canTrack
           ? `The newest outlines are of “${o.concept}”. Match one to the ${o.label}.`

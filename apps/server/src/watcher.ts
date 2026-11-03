@@ -154,6 +154,8 @@ export class Watcher {
   private things = new Map<string, WatchThing>();
   /** The sighting each thing was last seeded from, so a person's new confirmation reseeds it. */
   private seededFrom = new Map<string, string>();
+  /** Things last seeded from a whole drawn box, not an outline: learned with their background. */
+  private boxOnly = new Set<string>();
   private prototypes = new Map<string, Float32Array[]>();
   private listeners = new Set<(view: WatchView) => void>();
   private checking = false;
@@ -248,6 +250,7 @@ export class Watcher {
         layer: t.layer,
         box: t.track.box,
         score: Math.round(t.track.score * 100) / 100,
+        ...(this.boxOnly.has(t.subject.id) ? { boxOnly: true as const } : {}),
       })),
     };
   }
@@ -554,6 +557,7 @@ export class Watcher {
     this.source?.stop();
     this.source = null;
     this.things.clear();
+    this.boxOnly.clear();
     this.motionAt.clear();
     this.occupancy.clear();
     this.pending = [];
@@ -604,6 +608,8 @@ export class Watcher {
     if (!track) return;
     // A fresh start has asked SAM nothing yet, so a lost thing can be looked for at once.
     this.seededFrom.set(subject.id, seen.observation.id);
+    if (detection?.boxOnly) this.boxOnly.add(subject.id);
+    else this.boxOnly.delete(subject.id);
     const next = watchThing(subject, track, keep?.lastAsk ?? 0);
     const fixture = memory.fixtures?.find((f) => f.id === subject.id);
     this.things.set(subject.id, {

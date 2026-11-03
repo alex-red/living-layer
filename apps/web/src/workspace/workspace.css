@@ -1870,7 +1870,8 @@ button.ol-group-head:hover {
   color: var(--ok);
 }
 .brush-panel .unsure,
-.brush-warn {
+.brush-warn,
+.box-only {
   color: var(--unsure);
 }
 .brush-sources {
