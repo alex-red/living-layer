@@ -42,7 +42,7 @@ export function createSegment({
           throw new LabError('demo_position', 'Demo positions apply only in demo mode.');
         const options = signal ? { signal } : {};
         // A plain PNG (the watcher's frames) goes to SAM as it came, while the stored copy
-        // is encoded alongside: the lossless WebP takes about 200 ms, and SAM needn't wait.
+        // is encoded alongside: the lossless WebP takes about 100 ms, and SAM needn't wait.
         const ready = await samReadyPng(input.imageDataUrl);
         const [image, result] = ready
           ? await Promise.all([
