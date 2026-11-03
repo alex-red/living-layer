@@ -52,7 +52,10 @@ export const labHex = (lab: Lab) => rgbHex(labRgb(lab));
 
 /** Distance in OKLab, times 100, so about 2 is a just-visible step. */
 export function deltaE(a: Lab, b: Lab): number {
-  return Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]) * 100;
+  const dl = a[0] - b[0];
+  const da = a[1] - b[1];
+  const db = a[2] - b[2];
+  return Math.sqrt(dl * dl + da * da + db * db) * 100;
 }
 /**
  * Two colours that differ mainly in lightness, the way a lit and a shaded
