@@ -9,6 +9,7 @@ import { LabProvider } from './workspace/LabProvider';
 import { Outline } from './workspace/Outline';
 import { KeysDialog, TopBar } from './workspace/TopBar';
 import './workspace/workspace.css';
+import './workspace/shell.css';
 
 /**
  * The workspace: an outline of the scene, the canvas, and an inspector for

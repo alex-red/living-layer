@@ -10,6 +10,7 @@ import { api } from '../api';
 import { Glyph } from '../Glyph';
 import { MaskOverlay } from '../MaskOverlay';
 import { TrackingOverlay } from '../TrackingOverlay';
+import './scene.css';
 import { Later } from '../Later';
 import type { RoomOption } from '../CameraSetup';
 import { ZoomPan } from '../ZoomPan';

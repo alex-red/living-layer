@@ -1,0 +1,151 @@
+/* Discovered objects */
+.scene-summary {
+  margin-bottom: 16px;
+  color: var(--text-2);
+}
+
+.object-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 8px;
+}
+
+.input-label,
+.zone-fields label {
+  font-size: var(--fs-12);
+  color: var(--text-2);
+}
+.concept-input {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-chip);
+  background: var(--surface-2);
+  padding-right: 10px;
+}
+.concept-input:focus-within {
+  border-color: var(--seen);
+}
+.concept-input input,
+.zone-fields input {
+  min-width: 0;
+  min-height: var(--control-h);
+  padding: 0 12px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+}
+.concept-input input {
+  flex: 1;
+}
+.concept-input input:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+.concept-input span {
+  font: 500 11px/14px var(--mono);
+  letter-spacing: 0.08em;
+  color: var(--text-3);
+}
+.zone-editor {
+  display: grid;
+  gap: 8px;
+}
+.zone-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.zone-fields label {
+  display: grid;
+  gap: 4px;
+}
+.zone-fields input {
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-chip);
+  background: var(--surface-2);
+  font-variant-numeric: tabular-nums;
+}
+.placement-result {
+  padding: 8px 10px;
+  border-radius: var(--r-button);
+  background: var(--surface-2);
+  font-size: var(--fs-12);
+  line-height: 18px;
+  color: var(--text-2);
+  box-shadow: inset 2px 0 0 var(--chosen);
+}
+.shell.lamp-live .placement-result,
+.shell.lamp-virtual .placement-result {
+  box-shadow: inset 2px 0 0 var(--warm);
+}
+/* Mask readout */
+.detections {
+  width: 100%;
+  border-collapse: collapse;
+  font: 500 12px/16px var(--mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-2);
+}
+.detections caption {
+  padding-bottom: 6px;
+  text-align: left;
+  font: 400 13px/18px var(--ui);
+  color: var(--text-2);
+}
+.detections th {
+  padding: 4px 6px 4px 0;
+  text-align: left;
+  font-size: var(--fs-11);
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  color: var(--text-3);
+  border-bottom: 1px solid var(--line);
+}
+.detections td {
+  padding: 6px 6px 6px 0;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+.detections td:first-child {
+  color: var(--seen);
+}
+.detections tr.chosen td:first-child {
+  color: var(--chosen);
+}
+
+/* Movement timeline: newest sighting first. Amber marks the lamp-worthy entry. */
+.timeline ol {
+  display: grid;
+  gap: 6px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.timeline li {
+  display: grid;
+  gap: 2px;
+  padding: 8px 12px;
+  border-radius: var(--r-button);
+  background: var(--surface-2);
+}
+.timeline li.current {
+  box-shadow: inset 2px 0 0 var(--seen);
+}
+.timeline .transition {
+  font-size: var(--fs-12);
+  font-weight: 500;
+  color: var(--text-2);
+}
+.timeline .transition.entered {
+  color: var(--warm);
+}
+.timeline .transition.stayed_inside {
+  color: var(--ok);
+}
+.timeline .transition.left,
+.timeline .transition.none {
+  color: var(--unsure);
+}

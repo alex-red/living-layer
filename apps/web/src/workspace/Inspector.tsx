@@ -43,6 +43,7 @@ import { ago, mainSurface, roomLabel, surfaceRows, type LabRead } from './labels
 import { pinScene, viewLabel, type Selection } from './progress';
 import { TRANSITION, centre, type Lab } from './useLabState';
 import './inspector.css';
+import './objects.css';
 
 // The fixture, entity and Home Assistant panels load when first shown.
 const FixturePanel = lazy(() =>

@@ -23,6 +23,8 @@ import { viewLabel } from './progress';
 // The top bar refines the workspace's styles, as it did when both were one sheet.
 import './workspace.css';
 import './top-bar.css';
+import './session.css';
+import './checklist.css';
 
 /** Models, Meta access, spend, the lamp, and the live proof checklist. */
 function Readiness() {

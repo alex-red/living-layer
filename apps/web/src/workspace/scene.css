@@ -1,0 +1,444 @@
+/* Workspace */
+.scene-toolbar,
+.scene-bottom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-height: 32px;
+  font-size: var(--fs-12);
+  color: var(--text-2);
+}
+.scene-toolbar > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font: 500 11px/14px var(--mono);
+  letter-spacing: 0.08em;
+}
+.overlay-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: var(--control-h);
+  cursor: pointer;
+}
+
+/* Scene frame */
+.scene {
+  position: relative;
+  overflow: hidden;
+  width: 100%;
+  border-radius: var(--r-panel);
+  border: 1px solid var(--line-strong);
+  background: #05060a;
+  box-shadow:
+    0 24px 64px rgb(0 0 0 / 45%),
+    0 0 0 6px rgb(255 255 255 / 1.5%);
+}
+/* Vignette on the frame edge only. */
+.scene::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 4%);
+}
+.zoom-pan-content > img,
+.zoom-pan-content > video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.empty-scene {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 8px;
+  padding: 8px;
+  text-align: center;
+  background:
+    repeating-linear-gradient(0deg, rgb(255 255 255 / 3%) 0 1px, transparent 1px 3px),
+    radial-gradient(circle at 50% 45%, var(--surface-2), #05060a 70%);
+}
+.empty-scene svg {
+  width: 24px;
+  height: 24px;
+  color: var(--seen);
+}
+.empty-scene h3 {
+  font: 600 17px/22px var(--ui);
+}
+.empty-scene p {
+  color: var(--text-2);
+}
+.empty-scene small {
+  color: var(--text-3);
+  font-size: var(--fs-12);
+}
+.frame-tick {
+  position: absolute;
+  z-index: var(--z-tag);
+  width: 20px;
+  height: 20px;
+  border: 0 solid rgb(236 233 242 / 45%);
+  pointer-events: none;
+}
+.frame-tick.tl {
+  top: 12px;
+  left: 12px;
+  border-width: 1.5px 0 0 1.5px;
+}
+.frame-tick.tr {
+  top: 12px;
+  right: 12px;
+  border-width: 1.5px 1.5px 0 0;
+}
+.frame-tick.bl {
+  bottom: 12px;
+  left: 12px;
+  border-width: 0 0 1.5px 1.5px;
+}
+.frame-tick.br {
+  bottom: 12px;
+  right: 12px;
+  border-width: 0 1.5px 1.5px 0;
+}
+.frame-label {
+  position: absolute;
+  z-index: var(--z-tag);
+  right: 40px;
+  bottom: 14px;
+  padding: 3px 8px;
+  border-radius: var(--r-chip);
+  color: var(--text-2);
+  background: var(--glass-thin);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+.frame-label span {
+  margin-left: 8px;
+  color: var(--text-3);
+}
+/* A running camera: what plays is live, at the rate its frames reach the page. */
+.frame-live {
+  position: absolute;
+  z-index: var(--z-tag);
+  top: 14px;
+  left: 40px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  border-radius: var(--r-chip);
+  font: 500 11px/14px var(--mono);
+  letter-spacing: 0.08em;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  background: var(--glass-thin);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  pointer-events: none;
+}
+.frame-live .privacy-dot {
+  animation: breathe 1.4s ease-in-out infinite;
+}
+.frame-live span:last-child {
+  margin-left: 2px;
+  color: var(--text-2);
+}
+
+/* Detections: cyan is what the model saw, magenta is what you confirmed. */
+.mask-overlay,
+.zone-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.mask-overlay {
+  pointer-events: none;
+}
+/* On the camera, the zone sits in a layer fitted to the picture; only the picture takes the drag. */
+.zone-fit {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  z-index: var(--z-overlay);
+  height: 100%;
+  pointer-events: none;
+}
+.zone-fit > .zone-overlay {
+  pointer-events: auto;
+}
+.zone-overlay .zone-hit {
+  fill: transparent;
+  stroke: none;
+  filter: none;
+  pointer-events: all;
+}
+/* Where the tracked mug has been: faint earlier boxes joined by its path. */
+.trail-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.trail-overlay polyline,
+.trail-overlay rect {
+  fill: none;
+  stroke: var(--seen);
+  stroke-width: 1px;
+  vector-effect: non-scaling-stroke;
+}
+.trail-overlay polyline {
+  stroke-dasharray: 4 4;
+  opacity: 0.7;
+}
+.trail-overlay rect {
+  opacity: 0.25;
+}
+/* The object selected in the outline, where it was last seen. */
+.focus-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.focus-overlay rect {
+  fill: none;
+  stroke: var(--chosen);
+  stroke-width: 2px;
+  vector-effect: non-scaling-stroke;
+  filter: drop-shadow(0 0 6px var(--chosen-glow));
+}
+.focus-overlay rect.earlier {
+  stroke-dasharray: 6 4;
+  opacity: 0.7;
+}
+.detection {
+  --signal: var(--seen);
+  --signal-glow: var(--seen-glow);
+}
+.detection.chosen {
+  --signal: var(--chosen);
+  --signal-glow: var(--chosen-glow);
+}
+.detection .mask {
+  fill: var(--signal);
+  fill-opacity: 0.24;
+  stroke: var(--signal);
+  stroke-width: 1px;
+  vector-effect: non-scaling-stroke;
+  animation: mask-in var(--t-base) var(--ease-out) var(--t-slow) both;
+}
+.detection polyline {
+  fill: none;
+  stroke: var(--signal);
+  stroke-width: 2px;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+  filter: drop-shadow(0 0 6px var(--signal-glow));
+}
+.detection .scan {
+  fill: var(--seen);
+  opacity: 0;
+  animation: scan var(--t-slow) var(--ease-out);
+}
+.detection text {
+  fill: var(--signal);
+  font-family: var(--mono);
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  paint-order: stroke;
+  stroke: var(--void);
+  stroke-width: 4px;
+  stroke-linejoin: round;
+}
+@keyframes scan {
+  from {
+    opacity: 0.9;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0.2;
+    transform: translateY(var(--travel));
+  }
+}
+@keyframes mask-in {
+  from {
+    fill-opacity: 0;
+    stroke-opacity: 0;
+  }
+}
+
+/* Zone */
+.zone-overlay {
+  z-index: var(--z-overlay);
+}
+.zone-overlay.drawing {
+  cursor: crosshair;
+  touch-action: none;
+}
+.zone-overlay rect {
+  fill: var(--chosen-wash);
+  stroke: var(--chosen);
+  stroke-width: 1.5px;
+  vector-effect: non-scaling-stroke;
+  filter: drop-shadow(0 0 12px var(--chosen-glow));
+  transition: stroke-dasharray var(--t-slow) var(--ease-out);
+}
+.zone-overlay.drawing rect {
+  stroke-dasharray: 6 5;
+  filter: none;
+}
+/* Occupied: the thing stands in the zone by the last check. */
+.zone-overlay.inside rect {
+  fill: var(--ok-wash);
+  stroke: var(--ok);
+  stroke-width: 2.5px;
+  filter: drop-shadow(0 0 14px var(--ok-glow));
+}
+.zone-tag.inside {
+  color: var(--ok);
+}
+/* The tag on the camera, drawn in the picture's own pixels. */
+.zone-label {
+  font-family: var(--mono);
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  fill: var(--chosen);
+  paint-order: stroke;
+  stroke: rgb(10 12 18 / 75%);
+  stroke-width: 4px;
+}
+.zone-label.inside {
+  fill: var(--ok);
+}
+.zone-tag {
+  position: absolute;
+  z-index: var(--z-tag);
+  transform: translateY(calc(-100% - 6px));
+  padding: 2px 6px;
+  border-radius: var(--r-chip);
+  font: 500 11px/14px var(--mono);
+  letter-spacing: 0.08em;
+  color: var(--chosen);
+  background: rgb(10 12 18 / 75%);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+/* Local following: the browser's own guess, kept visually apart from SAM's masks. */
+.follow-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: var(--z-overlay);
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.follow-overlay rect {
+  fill: none;
+  stroke-width: 1.5px;
+  vector-effect: non-scaling-stroke;
+}
+.follow-zone {
+  stroke: var(--chosen);
+  stroke-dasharray: 6 5;
+  opacity: 0.6;
+}
+.follow-box {
+  stroke: var(--seen);
+  stroke-dasharray: 3 3;
+  transition:
+    x var(--t-fast) var(--ease-out),
+    y var(--t-fast) var(--ease-out);
+}
+.follow-box:not(.follow),
+.follow-box.unsure {
+  stroke: var(--unsure);
+}
+.follow-tag {
+  color: var(--seen);
+}
+.follow-tag:not(.follow),
+.follow-tag.unsure {
+  color: var(--unsure);
+}
+
+/* Tracked things over the live camera, fitted to the video like object-fit: contain. */
+.tracking-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: var(--z-overlay);
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.tracked {
+  --signal: var(--seen);
+}
+.tracked.sam {
+  --signal: var(--chosen);
+}
+.tracked.unsure {
+  --signal: var(--unsure);
+}
+.tracked.missing {
+  --signal: var(--blocked);
+}
+.tracked rect,
+.tracked .outline {
+  fill: none;
+  stroke: var(--signal);
+  stroke-width: 1.5px;
+  vector-effect: non-scaling-stroke;
+}
+.tracked rect {
+  transition:
+    x var(--t-fast) var(--ease-out),
+    y var(--t-fast) var(--ease-out),
+    width var(--t-fast) var(--ease-out),
+    height var(--t-fast) var(--ease-out);
+}
+.tracked.sam rect,
+.tracked.missing rect {
+  stroke-dasharray: 6 4;
+}
+.tracked .outline {
+  fill: var(--signal);
+  fill-opacity: 0.12;
+}
+.tracked text {
+  font-family: var(--mono);
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  fill: var(--signal);
+  paint-order: stroke;
+  stroke: rgb(10 12 18 / 80%);
+  stroke-width: 3px;
+}
+
+.capture-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.capture-actions svg {
+  width: 18px;
+  height: 18px;
+}
+
+/* Demo mug positions */
+.capture-actions button[aria-pressed='true'] {
+  border-color: var(--seen);
+  color: var(--seen);
+}
