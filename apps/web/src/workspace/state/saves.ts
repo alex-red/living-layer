@@ -3,17 +3,22 @@ import type { Mode, RunKind, DemoPosition } from '@livinglayer/domain';
 import { DEMO_POSITIONS } from '@livinglayer/domain';
 import {
   clearSession,
+  deskKeys,
+  desksToSave,
   downloadSave,
   emptyDesk,
+  onOtherTabSave,
   parseSave,
   prefsOf,
   readSaves,
+  readSession,
   readUi,
   saveName,
   withSave,
   writeSaves,
   writeSession,
   writeUi,
+  type DeskKeys,
   type NamedSave,
   type Prefs,
   type SessionSave,
@@ -180,23 +185,39 @@ export function useSavesSlice(
       failuresOnly,
     ],
   );
-  function saveNow() {
-    const ok = writeSession(prefs, memories);
+  // Other tabs share the autosave: this tab's desks as it last wrote or caught up to them, and its choices as last written.
+  const seenDesks = useRef<Partial<DeskKeys>>({});
+  const writtenPrefs = useRef('');
+  /** Write the autosave; unless `always`, only when this tab changed something since it last did. */
+  function saveNow(always = true) {
+    const keys = deskKeys(memories);
+    const prefsText = JSON.stringify(prefs);
+    const changed =
+      keys.demo !== seenDesks.current.demo ||
+      keys.live !== seenDesks.current.live ||
+      prefsText !== writtenPrefs.current;
+    if (!always && !changed) return true;
+    // A desk this tab didn't change may be older than one another tab saved meanwhile: keep that one.
+    const ok = writeSession(prefs, desksToSave(memories, seenDesks.current, readSession()?.desks));
     setStorageOk(ok);
-    if (ok) setSavedAt(new Date().toISOString());
+    if (ok) {
+      seenDesks.current = keys;
+      writtenPrefs.current = prefsText;
+      setSavedAt(new Date().toISOString());
+    }
     return ok;
   }
   const saveLatest = useRef(saveNow);
   saveLatest.current = saveNow;
   useEffect(() => {
     if (!deskReady) return;
-    const timer = window.setTimeout(() => saveLatest.current(), 400);
+    const timer = window.setTimeout(() => saveLatest.current(false), 400);
     return () => window.clearTimeout(timer);
   }, [deskReady, memories, prefs]);
   // A reload or a closed tab can come sooner than the pause autosave waits for, so save on the way out too.
   const flush = useRef(() => {});
   flush.current = () => {
-    if (deskReady) saveNow();
+    if (deskReady) saveNow(false);
   };
   useEffect(() => {
     const leave = () => flush.current();
@@ -249,6 +270,32 @@ export function useSavesSlice(
     return typeof id === 'string' ? id : '';
   });
   const activeSave = saves.find((s) => s.id === activeSaveId) ?? null;
+  // When another tab saves desks other than this tab's, fetch them from the server, so this tab works on and saves the current ones.
+  const catchUp = useRef(() => {});
+  catchUp.current = () => {
+    if (!deskReady) return;
+    const stored = deskKeys(readSession()?.desks ?? {});
+    const ours = deskKeys(memories);
+    if (stored.demo === ours.demo && stored.live === ours.live) return;
+    void refresh()
+      .then((desks) => {
+        seenDesks.current = deskKeys(desks);
+      })
+      .catch(() => {});
+  };
+  useEffect(() => {
+    let timer = 0;
+    const stop = onOtherTabSave((what) => {
+      if (what === 'saves') return setSaves(readSaves());
+      // Another tab autosaves at most every pause, but a burst of them needs one fetch.
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => catchUp.current(), 200);
+    });
+    return () => {
+      stop();
+      window.clearTimeout(timer);
+    };
+  }, []);
   const savedEdits = useRef(0);
   /** Whether there are edits no named save holds, so loading another would lose them. */
   const unsaved = !activeSave || edits.current !== savedEdits.current;
@@ -257,6 +304,7 @@ export function useSavesSlice(
     writeUi('activeSave', entry?.id ?? '');
     savedEdits.current = edits.current;
   }
+  // Each change starts from the list as stored, not this tab's copy, so it keeps saves another tab made meanwhile.
   function storeSaves(list: NamedSave[]) {
     const ok = writeSaves(list);
     if (ok) setSaves(list);
@@ -271,43 +319,49 @@ export function useSavesSlice(
     const clean = saveName(name);
     if (!clean) return false;
     saveNow();
-    const same = saves.find((s) => s.name.toLowerCase() === clean.toLowerCase());
+    const stored = readSaves();
+    const same = stored.find((s) => s.name.toLowerCase() === clean.toLowerCase());
     const entry: NamedSave = {
       id: same?.id ?? crypto.randomUUID(),
       name: clean,
       save: currentSave(clean),
     };
-    if (!storeSaves(withSave(saves, entry))) return false;
+    if (!storeSaves(withSave(stored, entry))) return false;
     markActive(entry);
     setMessage(same ? `Updated “${clean}”.` : `Saved as “${clean}”.`);
     return true;
   }
   /** Put what's on the desks into an existing named save. */
   function updateSave(id: string) {
-    const entry = saves.find((s) => s.id === id);
+    const stored = readSaves();
+    const entry = stored.find((s) => s.id === id);
     if (!entry) return false;
     saveNow();
     const next = { ...entry, save: currentSave(entry.name) };
-    if (!storeSaves(withSave(saves, next))) return false;
+    if (!storeSaves(withSave(stored, next))) return false;
     markActive(next);
     return true;
   }
   function renameSave(id: string, name: string) {
     const clean = saveName(name);
-    const entry = saves.find((s) => s.id === id);
+    const stored = readSaves();
+    const entry = stored.find((s) => s.id === id);
     if (!clean || !entry) return false;
-    const taken = saves.some((s) => s.id !== id && s.name.toLowerCase() === clean.toLowerCase());
+    const taken = stored.some((s) => s.id !== id && s.name.toLowerCase() === clean.toLowerCase());
     if (taken) {
       setError(`There is already a save called “${clean}”.`);
       return false;
     }
     return storeSaves(
-      saves.map((s) => (s.id === id ? { ...s, name: clean, save: { ...s.save, name: clean } } : s)),
+      stored.map((s) =>
+        s.id === id ? { ...s, name: clean, save: { ...s.save, name: clean } } : s,
+      ),
     );
   }
   function deleteSave(id: string) {
-    const entry = saves.find((s) => s.id === id);
-    if (!entry || !storeSaves(saves.filter((s) => s.id !== id))) return;
+    const stored = readSaves();
+    const entry = stored.find((s) => s.id === id);
+    if (!entry || !storeSaves(stored.filter((s) => s.id !== id))) return;
     if (id === activeSaveId) markActive(null);
     setMessage(`Deleted “${entry.name}”.`);
   }
@@ -382,14 +436,14 @@ export function useSavesSlice(
   async function importSave(chosen: File) {
     try {
       const save = parseSave(await chosen.text());
-      const taken = new Set(saves.map((s) => s.name.toLowerCase()));
+      const taken = new Set(readSaves().map((s) => s.name.toLowerCase()));
       const base = save.name || saveName(chosen.name.replace(/\.json$/i, '')) || 'Imported save';
       let name = base;
       for (let n = 2; taken.has(name.toLowerCase()); n++) name = saveName(`${base} (${n})`);
       const entry: NamedSave = { id: crypto.randomUUID(), name, save: { ...save, name } };
       if (!(await applySave(save, `Imported “${name}”.`))) return;
-      if (writeSaves(withSave(saves, entry))) {
-        setSaves(withSave(saves, entry));
+      if (writeSaves(withSave(readSaves(), entry))) {
+        setSaves(readSaves());
         markActive(entry);
       }
     } catch (e) {
