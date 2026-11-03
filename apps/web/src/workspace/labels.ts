@@ -183,8 +183,8 @@ export function builtInLamps(lab: LabRead): BuiltInLamp[] {
     }
   return lamps;
 }
-/** The small templates drawn standing on a desk or shelf: a book, a bottle. */
-const DESK_THINGS = new Set(['book', 'bottle', 'jar', 'carton']);
+/** The small templates drawn standing on a desk or shelf: a book, a bottle, the fridge's eggs. */
+const DESK_THINGS = new Set(['book', 'bottle', 'jar', 'carton', 'eggs', 'butter', 'tub']);
 /** A small thing drawn as part of a room's layout, such as the office's book. */
 interface BuiltInThing {
   /** `scene~group`, the outline's id for it. */

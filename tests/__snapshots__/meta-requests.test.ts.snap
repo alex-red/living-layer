@@ -156,7 +156,7 @@ exports[`every Spark call kind sends the same request body 1`] = `
 "Pick the scene preset that best matches this photo: office (a room with a desk), desk (an office desk: a close view of the desktop in an office), or fridge (the inside of a fridge). Then list which of that preset's optional props are visible, using only these ids:
 office: monitor (monitor), keyboard (keyboard), book (green book), bottle (sage bottle), chair (chair), shelf (bookshelf), plant (plant)
 desk: book (green book), bottle (sage bottle)
-fridge: milk (milk carton), jar (jar)
+fridge: jar (pickle jar), leftovers (leftovers), milk (milk carton), butter (butter), eggs (egg carton)
 Describe only what is visible, in one short sentence."
 ,
                   "type": "input_text",
@@ -202,12 +202,15 @@ Describe only what is visible, in one short sentence."
                         "chair",
                         "shelf",
                         "plant",
-                        "milk",
                         "jar",
+                        "leftovers",
+                        "milk",
+                        "butter",
+                        "eggs",
                       ],
                       "type": "string",
                     },
-                    "maxItems": 9,
+                    "maxItems": 12,
                     "type": "array",
                   },
                 },
@@ -1107,7 +1110,7 @@ The ops you may use:
 - clarify: Ask one short question back when the request is unclear. Never guess instead.
 Fill only the fields an op needs and leave the others null or empty. parts picks parts of the model by names, roles and materials it has (empty lists for no filter), minus exceptNames and exceptRoles; parts null means the whole model.
 color is a hex value (#rrggbb) for the colour asked for. sizeCm is in centimetres; leave axes not mentioned null.
-form is one of: desk, table, chair, bookcase, cabinet, pot, foliage, lamp-stand, lamp-shade, monitor, keyboard, book, bottle, jar, carton.
+form is one of: desk, table, chair, bookcase, cabinet, pot, foliage, lamp-stand, lamp-shade, monitor, keyboard, book, bottle, jar, carton, eggs, butter, tub.
 product: the product named, with its brand, model and kind (“IKEA Alex desk”), or null.
 needs: what must be looked up to build it: size, parts, colors, materials. Empty unless the request makes a model.
 targetDisagrees: if the crop clearly shows something other than the selection named above, what it shows; else null.
@@ -1231,6 +1234,9 @@ If the request is unclear, or asks for anything the ops can’t do, answer one c
                                 "bottle",
                                 "jar",
                                 "carton",
+                                "eggs",
+                                "butter",
+                                "tub",
                               ],
                               "type": "string",
                             },
@@ -1632,7 +1638,7 @@ The ops you may use:
 - clarify: Ask one short question back when the request is unclear. Never guess instead.
 Fill only the fields an op needs and leave the others null or empty. parts picks parts of the model by names, roles and materials it has (empty lists for no filter), minus exceptNames and exceptRoles; parts null means the whole model.
 color is a hex value (#rrggbb) for the colour asked for. sizeCm is in centimetres; leave axes not mentioned null.
-form is one of: desk, table, chair, bookcase, cabinet, pot, foliage, lamp-stand, lamp-shade, monitor, keyboard, book, bottle, jar, carton.
+form is one of: desk, table, chair, bookcase, cabinet, pot, foliage, lamp-stand, lamp-shade, monitor, keyboard, book, bottle, jar, carton, eggs, butter, tub.
 product: the product named, with its brand, model and kind (“IKEA Alex desk”), or null.
 needs: what must be looked up to build it: size, parts, colors, materials. Empty unless the request makes a model.
 targetDisagrees: if the crop clearly shows something other than the selection named above, what it shows; else null.
@@ -1751,6 +1757,9 @@ If the request is unclear, or asks for anything the ops can’t do, answer one c
                                 "bottle",
                                 "jar",
                                 "carton",
+                                "eggs",
+                                "butter",
+                                "tub",
                               ],
                               "type": "string",
                             },
@@ -2328,6 +2337,9 @@ book: book, 0.5333333333333333×0.7666666666666667 tiles, stands on a surface
 bottle: bottle, 0.25×0.25 tiles, stands on a surface
 jar: jar, 0.3333333333333333×0.3333333333333333 tiles, stands on a surface
 carton: carton, 0.23333333333333334×0.23333333333333334 tiles, stands on a surface
+eggs: egg carton, 1×0.36666666666666664 tiles, stands on a surface
+butter: butter, 0.4166666666666667×0.21666666666666667 tiles, stands on a surface
+tub: food tub, 0.5×0.5 tiles, stands on a surface
 Choose a grid from 4 to 14 tiles each way. x runs left to right across the photo, y from the back of the room toward the camera; (x, y) is the back-left corner of the template. turns rotates it by quarter turns.
 Put things that stand on a surface at the x and y of that surface; their height is worked out for you. Use at most 24 items, only for what is visible, and describe the scene in one short sentence."
 ,
@@ -2394,6 +2406,9 @@ Put things that stand on a surface at the x and y of that surface; their height 
                             "bottle",
                             "jar",
                             "carton",
+                            "eggs",
+                            "butter",
+                            "tub",
                           ],
                           "type": "string",
                         },
@@ -2518,6 +2533,9 @@ In missing, list up to four clearly visible things the scene lacks, in the same 
                             "bottle",
                             "jar",
                             "carton",
+                            "eggs",
+                            "butter",
+                            "tub",
                             "mug",
                             "cup",
                             "can",
@@ -2734,6 +2752,9 @@ Include the main surface if there is one. Use at most 16 things, only what is cl
                             "bottle",
                             "jar",
                             "carton",
+                            "eggs",
+                            "butter",
+                            "tub",
                             "mug",
                             "cup",
                             "can",
@@ -3382,6 +3403,9 @@ product: null. needs: empty. targetDisagrees: null."
                                 "bottle",
                                 "jar",
                                 "carton",
+                                "eggs",
+                                "butter",
+                                "tub",
                               ],
                               "type": "string",
                             },
@@ -4449,6 +4473,9 @@ The photo is from a camera mounted high in one corner of the room, looking acros
                             "bottle",
                             "jar",
                             "carton",
+                            "eggs",
+                            "butter",
+                            "tub",
                             "mug",
                             "cup",
                             "can",

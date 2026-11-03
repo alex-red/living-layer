@@ -108,9 +108,10 @@ export const PROP_TEMPLATES = {
     build: modelled('Cabinet', 'cabinet', 'wood', 'Cabinet top'),
   },
   // A French-door fridge over a freezer drawer, as photographed: 91 cm wide,
-  // 178 tall, its cabinet 74 deep. It opens toward +y with both doors open,
-  // the left one square to the front and the right one folded flat beside
-  // it, so neither hides the shelves and both show their bins.
+  // 178 tall, its cabinet 74 deep. It opens toward +y with its left door open
+  // square to the front, showing its bins. The right door is left out: from
+  // the room's corner it folds across the right of the shelves at any angle,
+  // and hides what the fridge camera follows there (the milk).
   fridge: {
     label: 'Fridge',
     size: { w: cm(91), d: cm(74) },
@@ -142,6 +143,57 @@ export const PROP_TEMPLATES = {
         surface: surface(g, id, label, `${g}:${id}`, { ...inner }, floor + cm(up)),
       }));
       const crisper = (inner.w - cm(3)) / 2;
+      // The pantry drawer is an open tray, so what is in it (the eggs) stands on its floor.
+      const tray = {
+        x: inner.x + cm(1),
+        y: inner.y + cm(2),
+        w: inner.w - cm(2),
+        d: inner.d - cm(2),
+      };
+      const side = cm(1.5);
+      const rim = cm(15);
+      const pantry = [
+        prism(
+          g,
+          'pantry',
+          'Pantry drawer',
+          [tray.x, tray.y, floor],
+          [tray.w, tray.d, side],
+          'glass',
+        ),
+        prism(
+          g,
+          'pantry-back',
+          'Pantry drawer',
+          [tray.x, tray.y, floor + side],
+          [tray.w, side, rim - side],
+          'glass',
+        ),
+        prism(
+          g,
+          'pantry-left',
+          'Pantry drawer',
+          [tray.x, tray.y + side, floor + side],
+          [side, tray.d - 2 * side, rim - side],
+          'glass',
+        ),
+        prism(
+          g,
+          'pantry-right',
+          'Pantry drawer',
+          [tray.x + tray.w - side, tray.y + side, floor + side],
+          [side, tray.d - 2 * side, rim - side],
+          'glass',
+        ),
+        prism(
+          g,
+          'pantry-front',
+          'Pantry drawer',
+          [tray.x, tray.y + tray.d - side, floor + side],
+          [tray.w, side, rim - side],
+          'glass',
+        ),
+      ];
       // Door bins, from the fridge's floor: [bottom, height] in cm.
       const bins = [
         [8, 16],
@@ -168,14 +220,7 @@ export const PROP_TEMPLATES = {
             [wall, d - wall, top - floor],
             'appliance',
           ),
-          prism(
-            g,
-            'pantry',
-            'Pantry drawer',
-            [inner.x + cm(1), inner.y + cm(2), floor],
-            [inner.w - cm(2), inner.d - cm(2), cm(15)],
-            'glass',
-          ),
+          ...pantry,
           ...[0, 1].map((i) =>
             prism(
               g,
@@ -239,26 +284,11 @@ export const PROP_TEMPLATES = {
               'glass',
             ),
           ),
-          prism(
-            g,
-            'door-right',
-            'Right door',
-            [x + w, y + d, floor],
-            [leaf, door, top - floor],
-            'appliance',
-          ),
-          ...bins.map(([at, tall], i) =>
-            prism(
-              g,
-              `bin-right-${i + 1}`,
-              'Door bin',
-              [x + w + cm(3), y + d + door, floor + cm(at)],
-              [leaf - cm(6), bin, cm(tall)],
-              'glass',
-            ),
-          ),
         ],
-        surfaces: shelves.map((s) => s.surface),
+        surfaces: [
+          ...shelves.map((s) => s.surface),
+          surface(g, 'pantry', 'Pantry drawer', `${g}:pantry`, { ...tray }, floor + side),
+        ],
       };
     },
   },
@@ -370,6 +400,24 @@ export const PROP_TEMPLATES = {
     size: { w: cm(7), d: cm(7) },
     onTop: true,
     build: modelled('Carton', 'carton', 'paper'),
+  },
+  eggs: {
+    label: 'Egg carton',
+    size: { w: cm(30), d: cm(11) },
+    onTop: true,
+    build: modelled('Egg carton', 'eggs', 'paper'),
+  },
+  butter: {
+    label: 'Butter',
+    size: { w: cm(12.5), d: cm(6.5) },
+    onTop: true,
+    build: modelled('Butter', 'butter', 'paper'),
+  },
+  tub: {
+    label: 'Food tub',
+    size: { w: cm(15), d: cm(15) },
+    onTop: true,
+    build: modelled('Food tub', 'tub', 'glass'),
   },
 } satisfies Record<string, Template>;
 export type TemplateId = keyof typeof PROP_TEMPLATES;
