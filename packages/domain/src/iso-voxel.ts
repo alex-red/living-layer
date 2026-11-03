@@ -364,6 +364,10 @@ export interface VoxelGrid {
   ao: Float32Array;
   /** The footprint on z = 0, for the contact shadow. */
   footprint: { cx: number; cy: number; rx: number; ry: number };
+  /** The parts it was sampled from. */
+  parts: ItemPart[];
+  /** 1 for a surface voxel on the outside of a part with a decal, which a clean finish paints per pixel. */
+  decals: Uint8Array;
 }
 const MAX_VOXELS = 600_000;
 /**
@@ -498,6 +502,7 @@ export function voxelize(
   const normals = new Float32Array(s * 3);
   const colors = new Float32Array(s * 3);
   const mats = new Uint8Array(s);
+  const decals = new Uint8Array(s);
   const ao = new Float32Array(s);
   const e = size * 0.5;
   const labs = new Map<string, Lab>();
@@ -563,6 +568,7 @@ export function voxelize(
     colors[k * 3 + 1] = c[1];
     colors[k * 3 + 2] = c[2];
     mats[k] = materialIndex(material);
+    if (zone === 0 && part.paint?.some((l) => l.kind === 'decal')) decals[k] = 1;
   });
   // Ambient occlusion: how many short rays from the surface are blocked.
   list.forEach((i, k) => {
@@ -630,7 +636,22 @@ export function voxelize(
         ry: ((fy1 - fy0) / 2) * size,
       }
     : { cx: 0, cy: 0, rx: 0, ry: 0 };
-  return { nx, ny, nz, origin, size, occ, surf, normals, colors, mats, ao, footprint };
+  return {
+    nx,
+    ny,
+    nz,
+    origin,
+    size,
+    occ,
+    surf,
+    normals,
+    colors,
+    mats,
+    ao,
+    footprint,
+    parts,
+    decals,
+  };
 }
 
 /**
@@ -720,6 +741,12 @@ const HALF: V3 = (() => {
   const l = Math.hypot(...v);
   return v.map((c) => c / l) as V3;
 })();
+/** Where a clean finish samples a pixel's paint: a 4 × 4 grid. */
+const SUBPIXELS = [-0.375, -0.125, 0.125, 0.375].flatMap((dy) =>
+  [-0.375, -0.125, 0.125, 0.375].map((dx) => [dx, dy] as const),
+);
+/** The share of a pixel a decal's marks must cover to take it. */
+const MARK_SHARE = 0.3;
 const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
 const ACCENT = hexLab('#e68cc4');
 const SHADOW: Lab = hexLab('#05060a');
@@ -737,6 +764,13 @@ interface SpriteOptions {
   glow?: string | null;
   /** Outline this part in the accent colour. */
   select?: number;
+  /**
+   * `pixel` (the default) is the room's look: four dithered steps with cool
+   * shadows. `clean` is an item seen up close, drawn as pixel art is: six flat
+   * steps, shadows warmer and highlights yellower than the base, no dither,
+   * and a near-black outline with the colour's own hue.
+   */
+  finish?: 'pixel' | 'clean';
 }
 export interface Sprite {
   width: number;
@@ -748,9 +782,34 @@ export interface Sprite {
   pixel: number;
 }
 
-function shadeVoxel(g: VoxelGrid, k: number, px: number, py: number, glow: Lab | null): Lab {
+/** A clean finish's steps from darkest to lightest. */
+const CLEAN_STEPS = 6;
+/** One of a clean finish's steps: darker toward red-violet, lighter toward yellow. */
+function cleanStep([L, a, b]: Lab, level: number): Lab {
+  const q = Math.round(Math.max(0, Math.min(1, level)) * (CLEAN_STEPS - 1)) / (CLEAN_STEPS - 1);
+  // 0.75 is the lit-side-on face, which keeps the base colour.
+  const d = q - 0.75;
+  return [
+    Math.max(0.05, Math.min(0.985, L * (1 + 0.42 * d) + 0.04 * Math.max(0, d))),
+    a - 0.03 * d + (d < 0 ? Math.abs(a) * -d * 0.3 : 0),
+    b + 0.02 * d,
+  ];
+}
+function cleanOutline([L, a, b]: Lab): Lab {
+  return [Math.min(0.26, L * 0.3), a * 0.6 + 0.012, b * 0.6 + 0.004];
+}
+function shadeVoxel(
+  g: VoxelGrid,
+  k: number,
+  px: number,
+  py: number,
+  glow: Lab | null,
+  clean: boolean,
+  painted: Lab | null = null,
+): Lab {
   const n: V3 = [g.normals[k * 3]!, g.normals[k * 3 + 1]!, g.normals[k * 3 + 2]!];
-  const base: Lab = glow ?? [g.colors[k * 3]!, g.colors[k * 3 + 1]!, g.colors[k * 3 + 2]!];
+  const base: Lab = glow ??
+    painted ?? [g.colors[k * 3]!, g.colors[k * 3 + 1]!, g.colors[k * 3 + 2]!];
   const material = ITEM_MATERIALS[g.mats[k]!]!;
   const nl = Math.max(0, n[0] * LIGHT[0] + n[1] * LIGHT[1] + n[2] * LIGHT[2]);
   let level: number;
@@ -763,9 +822,12 @@ function shadeVoxel(g: VoxelGrid, k: number, px: number, py: number, glow: Lab |
   } else level = 0.3 + 0.7 * nl;
   level *= 0.45 + 0.55 * g.ao[k]!;
   if (glow) level = Math.max(level, 0.7);
-  level += (BAYER[(py & 3) * 4 + (px & 3)]! / 16 - 0.47) * 0.07;
-  const band = level > 0.8 ? 3 : level > 0.6 ? 2 : level > 0.45 ? 1 : 0;
-  let c = rampLab(base, band);
+  let c: Lab;
+  if (clean) c = cleanStep(base, (level - 0.25) / 0.7);
+  else {
+    level += (BAYER[(py & 3) * 4 + (px & 3)]! / 16 - 0.47) * 0.07;
+    c = rampLab(base, level > 0.8 ? 3 : level > 0.6 ? 2 : level > 0.45 ? 1 : 0);
+  }
   const exponent =
     material === 'metal' ? 16 : material === 'gloss' || material === 'glass' ? 40 : 0;
   if (exponent) {
@@ -779,6 +841,7 @@ function shadeVoxel(g: VoxelGrid, k: number, px: number, py: number, glow: Lab |
 /** The model lit and drawn as an isometric pixel-art sprite. */
 export function renderSprite(g: VoxelGrid, opts: SpriteOptions): Sprite {
   const { scale, pixel = 1, shadow = true } = opts;
+  const clean = opts.finish === 'clean';
   const glow = opts.glow ? hexLab(opts.glow) : null;
   const palette = opts.palette?.map(hexLab);
   // Bounds: the grid's corners, plus room for the shadow.
@@ -827,6 +890,67 @@ export function renderSprite(g: VoxelGrid, opts: SpriteOptions): Sprite {
   let out1 = 0;
   let out2 = 0;
   let a = 0;
+  // A clean finish paints a decal per pixel, as pixel art letters one: the
+  // part's paint at 4 × 4 points of the pixel, on the part's own surface, and
+  // the commonest mark takes the pixel when marks cover enough of it, so thin
+  // strokes stay solid and nothing is blurred.
+  const labOf = new Map<string, Lab>();
+  const primsOf = new Map<number, Prim[]>();
+  const paintHere = (part: number, k: number, t: number): Lab => {
+    let prims = primsOf.get(part);
+    if (!prims) primsOf.set(part, (prims = partPrims(g.parts[part]!, part)));
+    const own = g.parts[part]!.color;
+    const counts = new Map<string, number>();
+    let marks = 0;
+    let outside = 0;
+    for (const [dx, dy] of SUBPIXELS) {
+      const f = fromIso({ sx: x0 + (px + 0.5 + dx) * pixel, sy: y0 + (py + 0.5 + dy) * pixel }, 0);
+      const vx = (f.x / scale - g.origin[0]) / g.size + VIEW[0] * (reach - t);
+      const vy = (f.y / scale - g.origin[1]) / g.size + VIEW[1] * (reach - t);
+      const vz = (0 - g.origin[2]) / g.size + VIEW[2] * (reach - t);
+      // From a voxel short of the hit, onto the part's own surface.
+      let x = g.origin[0] + (vx + VIEW[0]) * g.size;
+      let y = g.origin[1] + (vy + VIEW[1]) * g.size;
+      let z = g.origin[2] + (vz + VIEW[2]) * g.size;
+      for (let step = 0; step < 16; step++) {
+        let d = Infinity;
+        for (const prim of prims) d = Math.min(d, prim.dist(x, y, z));
+        if (d < g.size * 0.02 || d > g.size * 4) break;
+        x -= VIEW[0] * d;
+        y -= VIEW[1] * d;
+        z -= VIEW[2] * d;
+      }
+      // A wall thinner than a voxel or two can leave an inner wall's voxel marked
+      // as outside: a point the part itself calls inner takes no print.
+      // The surface's own normal there, not the voxel's: a thin wall's voxel can face either way.
+      const e = g.size * 0.25;
+      const at = (ax: number, ay: number, az: number) => {
+        let d = Infinity;
+        for (const prim of prims) d = Math.min(d, prim.dist(ax, ay, az));
+        return d;
+      };
+      const gx = at(x + e, y, z) - at(x - e, y, z);
+      const gy = at(x, y + e, z) - at(x, y - e, z);
+      const gz = at(x, y, z + e) - at(x, y, z - e);
+      const gl = sqrt3(gx, gy, gz) || 1;
+      const n: V3 = [gx / gl, gy / gl, gz / gl];
+      if (prims.some((prim) => (prim.zone?.(x, y, z, n) ?? 0) !== 0)) continue;
+      outside++;
+      const hex = paintAt(g.parts[part]!, x, y, z, n[2]);
+      if (hex === own) continue;
+      counts.set(hex, (counts.get(hex) ?? 0) + 1);
+      marks++;
+    }
+    if (!outside) return [g.colors[k * 3]!, g.colors[k * 3 + 1]!, g.colors[k * 3 + 2]!];
+    let hex = own;
+    if (marks >= SUBPIXELS.length * MARK_SHARE) {
+      let best = 0;
+      for (const [h, n] of counts) if (n > best) [hex, best] = [h, n];
+    }
+    let c = labOf.get(hex);
+    if (!c) labOf.set(hex, (c = hexLab(hex)));
+    return c;
+  };
   const visit = (i: number, t: number) => {
     const part = g.occ[i]! - 1;
     if (part === glassPart && t - lastT < 1.8) {
@@ -835,7 +959,15 @@ export function renderSprite(g: VoxelGrid, opts: SpriteOptions): Sprite {
     }
     const k = g.surf[i]!;
     if (k < 0) return false;
-    const c = shadeVoxel(g, k, px, py, glow);
+    const c = shadeVoxel(
+      g,
+      k,
+      px,
+      py,
+      glow,
+      clean,
+      clean && g.decals[k] ? paintHere(part, k, t) : null,
+    );
     const glass = layers === 0 && ITEM_MATERIALS[g.mats[k]!] === 'glass';
     if (layers === 0) {
       hitPart[p] = part;
@@ -919,7 +1051,7 @@ export function renderSprite(g: VoxelGrid, opts: SpriteOptions): Sprite {
       }
       let c = lab;
       if (opts.select === hitPart[p] && (edge || other)) c = ACCENT;
-      else if (edge) c = outlineLab(lab);
+      else if (edge) c = clean ? cleanOutline(lab) : outlineLab(lab);
       else if (behind) c = [lab[0] * 0.74, lab[1], lab[2] - 0.012];
       final.set(c, p * 3);
     }

@@ -15,6 +15,9 @@ import {
   fixtureReference,
   fixtureSize,
   fromSculpt,
+  sculptPrints,
+  SCULPT_PROMPT_VERSION,
+  type Sculpt,
   withNewModel,
   scoreAgainst,
   sculptPrompt,
@@ -40,6 +43,7 @@ import { type RouteDeps } from '../route-deps.js';
 import { SEARCH_CEILING, SPARK_BUDGET, type MetaAdapter } from '../meta.js';
 import { BUNDLED_CATALOG, Catalog, research, type Researcher } from '../research.js';
 import { type EvidenceStore } from '../store.js';
+import { inkPrints } from '../print-ink.js';
 import { productSize, type Parsed } from './shared.js';
 
 /** What a sighting's picture says about how it was cut out. */
@@ -229,6 +233,25 @@ function sculptPicture(
   };
 }
 
+/**
+ * One of Spark's sculpt answers as our model: its prints set in type, then
+ * read by `fromSculpt`. The route and `bun run sculpt <run>` both read answers
+ * this way, so a replay reads them as the route would now.
+ */
+export async function readSculpt(baseLabel: string, answer: Sculpt): Promise<IsoItem | null> {
+  return fromSculpt(baseLabel, answer, await inkPrints(sculptPrints(answer)));
+}
+/** What a sculpt run keeps of Spark's answers (`answers.json`), so they can be read again offline. */
+export interface SculptAnswers {
+  promptVersion: string;
+  prompt: string;
+  /** The model Spark started from, as it was shown it. */
+  from: ReturnType<typeof toSculpt>;
+  elevation: number;
+  baseLabel: string;
+  answers: { answer: Sculpt; iou: number | null }[];
+}
+
 /** Step 3 of modelling with AI: Spark drafts the parts several times, and the draft whose silhouette matches best is kept. */
 async function bestSculpt(
   meta: MetaAdapter,
@@ -262,19 +285,19 @@ async function bestSculpt(
     ),
   );
   job.check();
-  const drafts: { item: IsoItem; iou: number; note: string }[] = [];
+  const drafts: { item: IsoItem; iou: number; note: string; answer: number }[] = [];
+  const kept: SculptAnswers['answers'] = [];
   for (const answer of answers) {
     if (answer.status !== 'fulfilled') continue;
     usage = addUsage(usage, answer.value.usage);
     model = answer.value.model;
     requestId = answer.value.requestId;
-    const item = fromSculpt(baseLabel, answer.value.output);
-    if (item)
-      drafts.push({
-        item,
-        iou: scoreAgainst(item, input, elevation).iou,
-        note: answer.value.output.note,
-      });
+    const output = answer.value.output;
+    const item = await readSculpt(baseLabel, output);
+    const iou = item ? scoreAgainst(item, input, elevation).iou : null;
+    kept.push({ answer: output, iou });
+    if (item && iou !== null)
+      drafts.push({ item, iou, note: output.note, answer: kept.length - 1 });
   }
   const best = drafts.sort((a, b) => b.iou - a.iou)[0];
   if (!best) {
@@ -286,7 +309,7 @@ async function bestSculpt(
       502,
     );
   }
-  return { best, drafts, usage, model, requestId };
+  return { best, drafts, answers: kept, usage, model, requestId };
 }
 
 type SculptDeps = Pick<RouteDeps, 'store' | 'meta' | 'run' | 'jobs' | 'productsDir'>;
@@ -432,6 +455,20 @@ async function sculptDraft(
   r.usage = addUsage(r.usage, asked.usage);
   const drafted = await viewPng(best.item, elevation, input.width);
   r.assets.push(store.asset(id, 'render-2.png', drafted));
+  // Every answer, as Spark gave it, so `bun run sculpt <run>` can read them again with a later tree.
+  const kept: SculptAnswers = {
+    promptVersion: SCULPT_PROMPT_VERSION,
+    prompt,
+    from: toSculpt(from),
+    elevation,
+    baseLabel: activeModel.label,
+    answers: asked.answers,
+  };
+  r.assets.push(store.asset(id, 'answers.json', Buffer.from(JSON.stringify(kept, null, 1))));
+  for (const d of drafts)
+    r.assets.push(
+      store.asset(id, `draft-${d.answer + 1}.png`, await viewPng(d.item, elevation, input.width)),
+    );
   await job.done(
     'draft',
     `${partsOf(best.item.parts.length)}, ${overlap(best.iou)}, the best of ${drafts.length}. ${best.note}`,
@@ -573,6 +610,7 @@ async function sculptSteps(
     requestId: asked.requestId,
     usage: r.usage,
     assets: r.assets,
+    promptVersion: SCULPT_PROMPT_VERSION,
   };
 }
 

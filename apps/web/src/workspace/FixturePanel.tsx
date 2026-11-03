@@ -40,6 +40,7 @@ import {
   type LampResult,
   type StarterTemplate,
   type ZoneRect,
+  ITEM_SPRITES,
 } from '@livinglayer/domain';
 import { api } from '../api';
 import { Glyph } from '../Glyph';
@@ -86,10 +87,10 @@ const REFERENCE_LABEL: Record<DemoReference, string> = {
 
 /** The model as a small pixel-art picture, for review; `turns` shows another side. */
 function ModelPreview({ model, turns = 0 }: { model: FixtureDraft['model']; turns?: number }) {
-  const sprite = useItemSprite(turns ? { ...model, ...rotateItem(model, turns) } : model, {
-    scale: 3,
-    resolution: 48,
-  });
+  const sprite = useItemSprite(
+    turns ? { ...model, ...rotateItem(model, turns) } : model,
+    ITEM_SPRITES.review,
+  );
   if (!sprite) return null;
   return (
     <img
@@ -114,10 +115,7 @@ function StarterCard({
 }) {
   const meta = starterMeta(template);
   const model = useMemo(() => starterFixtureDraft(template).model, [template]);
-  const preview = useItemSprite(model, {
-    scale: 1.8,
-    resolution: 32,
-  });
+  const preview = useItemSprite(model, ITEM_SPRITES.card);
   return (
     <button
       role="listitem"

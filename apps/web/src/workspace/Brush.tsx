@@ -4,6 +4,7 @@ import {
   type FixtureRecipe,
   type IsoItem,
   type SelectionShape,
+  ITEM_SPRITES,
 } from '@livinglayer/domain';
 import { useItemSprite, usePropSprite } from '../iso/sprites';
 import { typing } from '../shortcuts';
@@ -139,7 +140,7 @@ function RecipeImage({ recipe, turns = 0 }: { recipe: FixtureRecipe; turns?: num
 
 /** A thing's model as the room draws it, small, for the review of a variant. */
 function ThingPreview({ model }: { model: IsoItem }) {
-  const sprite = useItemSprite(model, { scale: 2.4, resolution: 40 });
+  const sprite = useItemSprite(model, ITEM_SPRITES.brush);
   if (!sprite) return null;
   return (
     <img

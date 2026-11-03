@@ -4137,6 +4137,68 @@ Parts:
                             },
                           ],
                         },
+                        "prints": {
+                          "anyOf": [
+                            {
+                              "items": {
+                                "additionalProperties": false,
+                                "properties": {
+                                  "around": {
+                                    "maximum": 360,
+                                    "minimum": -360,
+                                    "type": "number",
+                                  },
+                                  "at": {
+                                    "maximum": 1,
+                                    "minimum": 0,
+                                    "type": "number",
+                                  },
+                                  "color": {
+                                    "pattern": "^#[0-9a-f]{6}$",
+                                    "type": "string",
+                                  },
+                                  "size": {
+                                    "maximum": 1,
+                                    "minimum": 0.05,
+                                    "type": "number",
+                                  },
+                                  "style": {
+                                    "enum": [
+                                      "script",
+                                      "sans",
+                                      "serif",
+                                      "bold",
+                                    ],
+                                    "type": "string",
+                                  },
+                                  "text": {
+                                    "maxLength": 48,
+                                    "minLength": 1,
+                                    "type": "string",
+                                  },
+                                  "underline": {
+                                    "type": "boolean",
+                                  },
+                                },
+                                "required": [
+                                  "text",
+                                  "style",
+                                  "color",
+                                  "around",
+                                  "at",
+                                  "size",
+                                  "underline",
+                                ],
+                                "type": "object",
+                              },
+                              "maxItems": 3,
+                              "type": "array",
+                            },
+                            {
+                              "type": "null",
+                            },
+                          ],
+                        },
                         "profile": {
                           "anyOf": [
                             {
@@ -4231,6 +4293,7 @@ Parts:
                         "wall",
                         "inside",
                         "bands",
+                        "prints",
                       ],
                       "type": "object",
                     },
@@ -4482,6 +4545,68 @@ Parts:
                             },
                           ],
                         },
+                        "prints": {
+                          "anyOf": [
+                            {
+                              "items": {
+                                "additionalProperties": false,
+                                "properties": {
+                                  "around": {
+                                    "maximum": 360,
+                                    "minimum": -360,
+                                    "type": "number",
+                                  },
+                                  "at": {
+                                    "maximum": 1,
+                                    "minimum": 0,
+                                    "type": "number",
+                                  },
+                                  "color": {
+                                    "pattern": "^#[0-9a-f]{6}$",
+                                    "type": "string",
+                                  },
+                                  "size": {
+                                    "maximum": 1,
+                                    "minimum": 0.05,
+                                    "type": "number",
+                                  },
+                                  "style": {
+                                    "enum": [
+                                      "script",
+                                      "sans",
+                                      "serif",
+                                      "bold",
+                                    ],
+                                    "type": "string",
+                                  },
+                                  "text": {
+                                    "maxLength": 48,
+                                    "minLength": 1,
+                                    "type": "string",
+                                  },
+                                  "underline": {
+                                    "type": "boolean",
+                                  },
+                                },
+                                "required": [
+                                  "text",
+                                  "style",
+                                  "color",
+                                  "around",
+                                  "at",
+                                  "size",
+                                  "underline",
+                                ],
+                                "type": "object",
+                              },
+                              "maxItems": 3,
+                              "type": "array",
+                            },
+                            {
+                              "type": "null",
+                            },
+                          ],
+                        },
                         "profile": {
                           "anyOf": [
                             {
@@ -4576,6 +4701,7 @@ Parts:
                         "wall",
                         "inside",
                         "bands",
+                        "prints",
                       ],
                       "type": "object",
                     },

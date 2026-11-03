@@ -80,6 +80,8 @@ export function draw(r: SpriteRequest): Drawn {
       ? renderPropSprite(r.prop, r.lit)
       : renderSprite(voxelize(r.item.parts, { resolution: r.resolution }), {
           scale: r.scale,
+          // A thing is drawn as pixel art is, its prints lettered per pixel; props keep the room's dither.
+          finish: 'clean',
           ...(r.select !== undefined ? { select: r.select } : {}),
           ...(r.glow ? { glow: '#ffb866' } : {}),
         });

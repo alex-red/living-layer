@@ -28,6 +28,7 @@ const part = (id: string, at: SculptPart['at'], size: SculptPart['size'], color:
     wall: null,
     inside: null,
     bands: null,
+    prints: null,
   }) satisfies SculptPart;
 
 describe('a brush model shaped from the photo', () => {

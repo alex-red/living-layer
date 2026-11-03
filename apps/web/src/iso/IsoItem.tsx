@@ -1,4 +1,4 @@
-import { toIso, type IsoItem, type IsoVec } from '@livinglayer/domain';
+import { ITEM_SPRITES, toIso, type IsoItem, type IsoVec } from '@livinglayer/domain';
 import { useItemSprite } from './sprites';
 
 /**
@@ -11,7 +11,7 @@ export function ItemSprite({
   origin,
   scale,
   selected,
-  resolution = 32,
+  resolution = ITEM_SPRITES.room.resolution,
   glow,
 }: {
   item: IsoItem;

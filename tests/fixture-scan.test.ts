@@ -54,8 +54,11 @@ import {
   type ScannedThing,
   sightedThing,
   type Detection,
+  SCULPT_PROMPT_VERSION,
 } from '@livinglayer/domain';
 import { DEMO_SURFACE, fixture, thing, setup, type Scanned } from './lib/fixture-scan.js';
+import { openEvidence } from '../scripts/lib/evidence.js';
+import { replaySculpt } from '../scripts/lib/sculpt-replay.js';
 import { demoPng, demoSegmentation } from '../apps/server/src/demo.js';
 
 /** A box drawn round the demo frame's mug, in thousandths, as a person draws one. */
@@ -1031,6 +1034,20 @@ describe('scanning live, with a mocked Meta API', () => {
       ['stand', 'tube'],
     ]);
     expect(after.run.assets).toContain(`${after.run.id}/render-final.png`);
+    // Every answer is kept, with what it was asked, to be read again offline (`bun run sculpt`).
+    expect(after.run.promptVersion).toBe(SCULPT_PROMPT_VERSION);
+    expect(after.run.assets).toContain(`${after.run.id}/answers.json`);
+    expect(after.run.assets).toContain(`${after.run.id}/draft-1.png`);
+    const kept = JSON.parse(
+      readFileSync(join(s.dataDir, 'evidence', after.run.id, 'answers.json'), 'utf8'),
+    ) as { answers: { iou: number | null }[]; promptVersion: string };
+    expect(kept.answers).toHaveLength(3);
+    expect(kept.promptVersion).toBe(SCULPT_PROMPT_VERSION);
+    // …and read again offline with this tree, scoring as the run did.
+    const ev = openEvidence(s.dataDir);
+    const replay = await replaySculpt(ev, after.run.id);
+    ev.close();
+    expect(replay!.answers.map((x) => x.iouNow)).toEqual(kept.answers.map((x) => x.iou));
     // A note is looked up (the catalog knows this one, so no web search) and told to Spark.
     calls.length = 0;
     const noted = crypto.randomUUID();

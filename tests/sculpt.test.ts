@@ -16,10 +16,77 @@ const part = (over: Partial<Sculpt['parts'][number]> = {}): Sculpt['parts'][numb
   wall: null,
   inside: null,
   bands: null,
+  prints: null,
   ...over,
 });
 
 describe('a model Spark writes in our parts', () => {
+  it('pushes a handle left inside a moved body out to its surface', () => {
+    // Spark's answer once: the body moved right, its handle stayed, its loop barely out.
+    const body = part({
+      id: 'body',
+      shape: 'lathe',
+      at: { x: 0.14, y: 0.14, z: 0 },
+      size: { w: 0.72, d: 0.72, h: 1 },
+      radius: null,
+      profile: [
+        { r: 1, z: 0 },
+        { r: 1, z: 1 },
+      ],
+    });
+    const handle = part({
+      id: 'handle',
+      shape: 'tube',
+      at: { x: 0.66, y: 0.42, z: 0.25 },
+      size: { w: 0.34, d: 0.16, h: 0.5 },
+      radius: 0.06,
+      path: [
+        { x: 0, y: 0.5, z: 0.86 },
+        { x: 1, y: 0.5, z: 0.86 },
+        { x: 1, y: 0.5, z: 0.14 },
+        { x: 0, y: 0.5, z: 0.14 },
+      ],
+    });
+    const item = fromSculpt('Mug', { note: '', parts: [body, handle] })!;
+    const seated = item.parts.find((p) => p.id === 'handle')!;
+    // Its ends meet the body's right side, 0.86 across.
+    expect(seated.at.x).toBeCloseTo(0.86, 2);
+    expect(seated.at.y).toBeCloseTo(0.42, 5);
+  });
+
+  it('pushes out a handle whose loop hardly clears its body, and leaves a real one', () => {
+    const loop = [
+      { x: 0, y: 0.5, z: 0.86 },
+      { x: 1, y: 0.5, z: 0.86 },
+      { x: 1, y: 0.5, z: 0.14 },
+      { x: 0, y: 0.5, z: 0.14 },
+    ];
+    const body = part({
+      id: 'body',
+      shape: 'lathe',
+      at: { x: 0.05, y: 0.125, z: 0 },
+      size: { w: 0.75, d: 0.75, h: 1 },
+      radius: null,
+      profile: [
+        { r: 1, z: 0 },
+        { r: 1, z: 1 },
+      ],
+    });
+    const handle = (x: number) =>
+      part({
+        id: 'handle',
+        shape: 'tube',
+        at: { x, y: 0.385, z: 0.25 },
+        size: { w: 0.36, d: 0.19, h: 0.5 },
+        radius: 0.06,
+        path: loop,
+      });
+    const seated = (x: number) =>
+      fromSculpt('Mug', { note: '', parts: [body, handle(x)] })!.parts[1]!.at.x;
+    expect(seated(0.64)).toBeCloseTo(0.8, 2);
+    expect(seated(0.78)).toBe(0.78);
+  });
+
   it('becomes a valid model, numbers kept in range and nulls left out', () => {
     const item = fromSculpt('Monitor', {
       note: '',

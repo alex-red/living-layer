@@ -50,3 +50,7 @@ export * from './room-cases.js';
 export * from './requests.js';
 export * from './routes.js';
 export * from './run-outputs.js';
+export * from './item-print.js';
+export * from './starter-prints.js';
+export * from './starter-decals.js';
+export * from './sprite-presets.js';

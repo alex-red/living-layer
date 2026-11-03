@@ -30,6 +30,28 @@ const tall = z.number().min(0.02).max(6);
 const share = z.number().min(0).max(1);
 /** Decal pixels: one character per pixel, an index into `colors`, or `.` for none. */
 const DECAL_CHARS = '0123456789abcdef';
+/** How a print's letters are set: joined handwriting, plain, with serifs, or heavy. */
+const PRINT_STYLES = ['script', 'sans', 'serif', 'bold'] as const;
+/**
+ * Lettering or a logo's words printed on a part, as Spark reads them off a
+ * picture: set in type on the server and drawn as a decal, which keeps it so
+ * the words survive another look. `around` is the way its middle faces, in
+ * degrees seen from above: 0 the front (y = 1), 90 the right (x = 1), 180
+ * the back. `at` is its middle's height and `size` its block's height, both
+ * shares of the part's height. Lines break at `\n`.
+ */
+export const printSchema = z
+  .object({
+    text: z.string().min(1).max(48),
+    style: z.enum(PRINT_STYLES),
+    color: hexColorSchema,
+    around: z.number().min(-360).max(360),
+    at: share,
+    size: z.number().min(0.05).max(1),
+    underline: z.boolean(),
+  })
+  .strict();
+export type Print = z.infer<typeof printSchema>;
 /**
  * Surface layers, in the part's own coordinates: `u` runs around the part
  * (0.5 faces the viewer, 0.25 is the viewer's right), `v` runs up its height.
@@ -68,13 +90,16 @@ const paintSchema = z.discriminatedUnion('kind', [
       v1: share,
       /** Quarter turns of a `top` decal, so it turns with the item. */
       turns: z.number().int().min(0).max(3),
-      w: z.number().int().min(1).max(64),
-      h: z.number().int().min(1).max(32),
+      /** Up to 128 × 64: a print's letters need it, a fitted unwrap uses at most 64 × 32. */
+      w: z.number().int().min(1).max(128),
+      h: z.number().int().min(1).max(64),
       colors: z.array(hexColorSchema).min(1).max(16),
       data: z
         .string()
-        .max(64 * 32)
+        .max(128 * 64)
         .regex(/^[0-9a-f.]*$/),
+      /** The words it was set from, when it is a print. */
+      print: printSchema.optional(),
     })
     .strict()
     .refine((d) => d.u1 > d.u0 && d.u1 - d.u0 <= 1 && d.v1 > d.v0, {
@@ -372,6 +397,9 @@ export const isoItemSchema = z.preprocess(
     .strict(),
 );
 export type IsoItem = z.infer<typeof isoItemSchema>;
+/** The model inside a stored one: a `SavedItem` also carries its source, fit and swatches. */
+export const storedItem = ({ label, parts }: { label: string; parts: unknown[] }): IsoItem =>
+  isoItemSchema.parse({ label, parts });
 /** How well a fitted model matches the photo it was fitted to. */
 export interface ItemFitRecord {
   archetype: Archetype;
@@ -438,6 +466,10 @@ export function rotateItem(item: IsoItem, quarters = 1): IsoItem {
                   // The surface's u runs around: a quarter turn moves it a quarter on.
                   u0: (layer.u0 + 0.25) % 1,
                   u1: ((layer.u0 + 0.25) % 1) + (layer.u1 - layer.u0),
+                  // The front goes to the left.
+                  ...(layer.print
+                    ? { print: { ...layer.print, around: (layer.print.around + 270) % 360 } }
+                    : {}),
                 },
         );
       return turned;
@@ -445,47 +477,50 @@ export function rotateItem(item: IsoItem, quarters = 1): IsoItem {
   return { ...item, parts };
 }
 /**
- * A plain empty mug: an open body, its inside a shade darker, and a handle on
- * the right. The base of every mug draft; nothing is in it unless a fit or the
- * person says so.
+ * A plain empty mug: a glazed body a little narrower at its foot, its inside
+ * a shade darker, and a thick D handle standing out to the viewer's right
+ * (toward the back right, which the isometric view shows as right). The base
+ * of every mug draft; nothing is in it unless a fit or the person says so.
+ * Its proportions are a diner mug's: 9.8 cm tall, 8.5 cm across.
  */
-export function mugItem(body = '#ece5d0', inside = '#c9c0a8', label = 'Mug'): IsoItem {
-  const straight = [
-    { r: 1, z: 0 },
-    { r: 1, z: 1 },
-  ];
-  // The handle is a half loop, 0.16 thick, standing 0.52 tall and reaching 0.3458 out from the body.
-  const thick = 0.08;
-  const top = (0.52 - thick) / 0.52;
-  const bottom = thick / 0.52;
+export function mugItem(body = '#f3e3dc', inside = '#cbb3ae', label = 'Mug'): IsoItem {
   return {
     label,
     parts: [
       {
         id: 'body',
         shape: 'lathe',
-        profile: straight,
-        at: { x: 0, y: 0, z: 0 },
-        size: { w: 0.78, d: 0.78, h: 0.9 },
+        profile: [
+          { r: 0.94, z: 0 },
+          { r: 0.99, z: 0.04 },
+          { r: 1, z: 0.96 },
+          { r: 0.98, z: 1 },
+        ],
+        at: { x: 0, y: 0.236, z: 0 },
+        size: { w: 0.74, d: 0.74, h: 0.86 },
         color: body,
         taper: 1,
+        material: 'gloss',
         wall: 0.1,
         inside: { wall: inside, liquid: null, level: 0 },
       },
       {
+        // A loop in the vertical plane through the body's axis and its back-right
+        // side: both ends just outside the body's wall, so neither shows inside.
         id: 'handle',
         shape: 'tube',
         path: [
-          { x: 0, y: 0.5, z: top },
-          { x: 1, y: 0.5, z: top },
-          { x: 1, y: 0.5, z: bottom },
-          { x: 0, y: 0.5, z: bottom },
+          { x: 0, y: 1, z: 1 },
+          { x: 1, y: 0, z: 1 },
+          { x: 1, y: 0, z: 0 },
+          { x: 0, y: 1, z: 0 },
         ],
-        radius: thick,
-        at: { x: 0.74, y: 0.31, z: 0.18 },
-        size: { w: 0.26 * 1.33, d: 0.16, h: 0.52 },
+        radius: 0.085,
+        at: { x: 0.656, y: 0, z: 0.13 },
+        size: { w: 0.3, d: 0.3, h: 0.62 },
         color: body,
         taper: 1,
+        material: 'gloss',
       },
     ],
   };

@@ -32,6 +32,7 @@ import {
   type Paint,
   type SavedItem,
   type StarterTemplate,
+  ITEM_SPRITES,
 } from '@livinglayer/domain';
 import { ItemSprite } from './IsoItem';
 import { useItemSprite, useViewOverlay } from './sprites';
@@ -39,7 +40,7 @@ import { Button, Check, IconButton, Segmented } from '../ui/controls';
 
 /** Colours to offer next to the sampled ones: neutral materials, not the signal hues. */
 const MATERIALS = ['#ece5d0', '#b3a796', '#73604c', '#3c554a', '#5f7c88', '#4a5164', '#1f232f'];
-const PREVIEW_SCALE = 3;
+const PREVIEW_SCALE = ITEM_SPRITES.editor.scale;
 const SOURCE: Record<SavedItem['source'], string> = {
   demo: 'Demo photo',
   sampled: 'Fitted to the mask',
@@ -707,14 +708,13 @@ function maskBounds(img: HTMLImageElement) {
 }
 /** A fixture state's small picture on its tab. */
 function StateThumb({ model }: { model: IsoItem }) {
-  const thumb = useItemSprite(model, { scale: 1.5, resolution: 32 });
+  const thumb = useItemSprite(model, ITEM_SPRITES.thumb);
   return thumb ? <img src={thumb.url} alt="" /> : <span className="studio-state-blank" />;
 }
 /** A fixture state at editor size, framed to its sprite. */
 function StatePreview({ model, glow, label }: { model: IsoItem; glow: boolean; label: string }) {
   const sp = useItemSprite(model, {
-    scale: PREVIEW_SCALE,
-    resolution: 64,
+    ...ITEM_SPRITES.editor,
     ...(glow ? { glow } : {}),
   });
   return (
@@ -726,7 +726,7 @@ function StatePreview({ model, glow, label }: { model: IsoItem; glow: boolean; l
         item={model}
         origin={{ x: 0, y: 0, z: 0 }}
         scale={PREVIEW_SCALE}
-        resolution={64}
+        resolution={ITEM_SPRITES.editor.resolution}
         glow={glow}
       />
     </svg>
@@ -921,8 +921,7 @@ export function ItemEditor({
   const deferredShown = deferredDraft ? rotateItem(previewItem(deferredDraft), turns) : null;
   const deferredSelect = deferredShown?.parts.findIndex((p) => p.id === selected) ?? -1;
   const sprite = useItemSprite(deferredShown, {
-    scale: PREVIEW_SCALE,
-    resolution: 64,
+    ...ITEM_SPRITES.editor,
     ...(deferredSelect >= 0 ? { select: deferredSelect } : {}),
     ...(fixture?.control.kind === 'light' && fixture.state === 'on' ? { glow: true } : {}),
   });
@@ -1625,7 +1624,7 @@ export function ItemEditor({
                     item={ghostItem}
                     origin={{ x: 0, y: 0, z: 0 }}
                     scale={PREVIEW_SCALE}
-                    resolution={64}
+                    resolution={ITEM_SPRITES.editor.resolution}
                   />
                 </g>
               )}
@@ -1634,7 +1633,7 @@ export function ItemEditor({
                 origin={{ x: 0, y: 0, z: 0 }}
                 scale={PREVIEW_SCALE}
                 selected={selected}
-                resolution={64}
+                resolution={ITEM_SPRITES.editor.resolution}
                 glow={isLitGlow}
               />
               {showBox &&

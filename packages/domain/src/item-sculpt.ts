@@ -1,46 +1,63 @@
 import { z } from 'zod';
 import type { ProductFacts } from './facts.js';
-import { clampFiniteOrLow } from './math.js';
-import { ITEM_MATERIALS, itemPartSchema, type IsoItem, type ItemPart } from './iso-item.js';
+import { bezier, clampFiniteOrLow, textHash } from './math.js';
+import {
+  ITEM_MATERIALS,
+  itemPartSchema,
+  printSchema,
+  type IsoItem,
+  type ItemPart,
+  type Paint,
+} from './iso-item.js';
+import { printDecal, printKey, type Ink } from './item-print.js';
 
 /**
  * A model as Spark writes it: our own parts, with every field present (null
  * where a shape doesn't use it), so a strict JSON schema can carry it. Only
- * the current shapes; colour bands are the one paint, as most things are a
- * few flat colours.
+ * the current shapes; colour bands and prints (lettering, set in type on the
+ * server) are the paint, as most things are a few flat colours and a logo.
  */
 const SCULPT_SHAPES = ['lathe', 'rbox', 'tube', 'extrude', 'blob'] as const;
 const unit = z.number().min(0).max(1);
-const sculptPartSchema = z
-  .object({
-    id: z.string().min(1).max(24),
-    shape: z.enum(SCULPT_SHAPES),
-    at: z.object({ x: z.number(), y: z.number(), z: z.number() }).strict(),
-    size: z.object({ w: z.number(), d: z.number(), h: z.number() }).strict(),
-    color: z.string().regex(/^#[0-9a-f]{6}$/),
-    material: z.enum(ITEM_MATERIALS),
-    profile: z.array(z.object({ r: unit, z: unit }).strict()).nullable(),
-    path: z.array(z.object({ x: unit, y: unit, z: unit }).strict()).nullable(),
-    outline: z.array(z.object({ x: unit, y: unit }).strict()).nullable(),
-    radius: z.number().nullable(),
-    rough: z.number().nullable(),
-    wall: z.number().nullable(),
-    inside: z
-      .object({
-        wall: z.string().regex(/^#[0-9a-f]{6}$/),
-        liquid: z
-          .string()
-          .regex(/^#[0-9a-f]{6}$/)
-          .nullable(),
-        level: unit,
-      })
-      .strict()
-      .nullable(),
-    bands: z
-      .array(z.object({ from: unit, to: unit, color: z.string().regex(/^#[0-9a-f]{6}$/) }).strict())
-      .nullable(),
-  })
-  .strict();
+/** Answers from before prints, and mocks of them, have none: that is null. */
+const withPrints = (v: unknown) =>
+  v && typeof v === 'object' && !('prints' in v) ? { ...v, prints: null } : v;
+const sculptPartSchema = z.preprocess(
+  withPrints,
+  z
+    .object({
+      id: z.string().min(1).max(24),
+      shape: z.enum(SCULPT_SHAPES),
+      at: z.object({ x: z.number(), y: z.number(), z: z.number() }).strict(),
+      size: z.object({ w: z.number(), d: z.number(), h: z.number() }).strict(),
+      color: z.string().regex(/^#[0-9a-f]{6}$/),
+      material: z.enum(ITEM_MATERIALS),
+      profile: z.array(z.object({ r: unit, z: unit }).strict()).nullable(),
+      path: z.array(z.object({ x: unit, y: unit, z: unit }).strict()).nullable(),
+      outline: z.array(z.object({ x: unit, y: unit }).strict()).nullable(),
+      radius: z.number().nullable(),
+      rough: z.number().nullable(),
+      wall: z.number().nullable(),
+      inside: z
+        .object({
+          wall: z.string().regex(/^#[0-9a-f]{6}$/),
+          liquid: z
+            .string()
+            .regex(/^#[0-9a-f]{6}$/)
+            .nullable(),
+          level: unit,
+        })
+        .strict()
+        .nullable(),
+      bands: z
+        .array(
+          z.object({ from: unit, to: unit, color: z.string().regex(/^#[0-9a-f]{6}$/) }).strict(),
+        )
+        .nullable(),
+      prints: z.array(printSchema).max(3).nullable(),
+    })
+    .strict(),
+);
 export type SculptPart = z.infer<typeof sculptPartSchema>;
 /** A model of at most `max` parts as Spark writes it. */
 export const sculptSchemaOf = (max: number) =>
@@ -54,11 +71,18 @@ export const sculptSchemaOf = (max: number) =>
 const sculptSchema = sculptSchemaOf(12);
 export type Sculpt = z.infer<typeof sculptSchema>;
 
+/** Every print in a sculpt, to be set in type before `fromSculpt`. */
+export const sculptPrints = (sculpt: Sculpt) => sculpt.parts.flatMap((p) => p.prints ?? []);
 /**
  * Spark's parts as ours: numbers kept in range, nulls left out, and any part
- * that still isn't a valid one dropped. Null when nothing is left.
+ * that still isn't a valid one dropped. Null when nothing is left. A print
+ * becomes a decal when `inks` has it set (`printKey`), else it is left off.
  */
-export function fromSculpt(label: string, sculpt: Sculpt): IsoItem | null {
+export function fromSculpt(
+  label: string,
+  sculpt: Sculpt,
+  inks: ReadonlyMap<string, Ink> = new Map(),
+): IsoItem | null {
   const parts: ItemPart[] = [];
   const ids = new Set<string>();
   for (const s of sculpt.parts) {
@@ -89,21 +113,86 @@ export function fromSculpt(label: string, sculpt: Sculpt): IsoItem | null {
       // An open top, and what shows inside it: only a lathe has one.
       ...(s.shape === 'lathe' && s.wall ? { wall: clampFiniteOrLow(s.wall, 0.02, 0.9) } : {}),
       ...(s.shape === 'lathe' && s.wall && s.inside ? { inside: s.inside } : {}),
-      ...(s.bands?.length
-        ? {
-            paint: s.bands
-              .filter((b) => b.to > b.from)
-              .slice(0, 6)
-              .map((b) => ({ kind: 'band' as const, from: b.from, to: b.to, color: b.color })),
-          }
-        : {}),
     };
-    const ok = itemPartSchema.safeParse(part);
+    const bands: Paint[] = (s.bands ?? [])
+      .filter((b) => b.to > b.from)
+      .slice(0, 6)
+      .map((b) => ({ kind: 'band' as const, from: b.from, to: b.to, color: b.color }));
+    const ok = itemPartSchema.safeParse(bands.length ? { ...part, paint: bands } : part);
     if (!ok.success) continue;
+    const decals = (s.prints ?? []).flatMap((print) => {
+      const ink = inks.get(printKey(print));
+      const decal = ink && printDecal(ok.data, print, ink);
+      return decal ? [decal] : [];
+    });
+    const printed = decals.length
+      ? itemPartSchema.safeParse({ ...ok.data, paint: [...bands, ...decals].slice(0, 6) })
+      : null;
+    if (printed?.success) ok.data = printed.data;
     ids.add(id);
     parts.push(ok.data);
   }
-  return parts.length ? { label, parts: openTops(parts) } : null;
+  return parts.length ? { label, parts: seatHandles(openTops(parts)) } : null;
+}
+
+/** A turned part's radius at height z, in item units. */
+function latheRadius(body: Extract<ItemPart, { shape: 'lathe' }>, z: number): number {
+  const v = (z - body.at.z) / body.size.h;
+  const pr = body.profile;
+  const i = pr.findIndex((q) => q.z >= v);
+  let r = pr[i < 0 ? pr.length - 1 : 0]!.r;
+  if (i > 0) {
+    const a = pr[i - 1]!;
+    const b = pr[i]!;
+    r = a.r + ((b.r - a.r) * (v - a.z)) / Math.max(1e-6, b.z - a.z);
+  }
+  return (r * Math.min(body.size.w, body.size.d)) / 2;
+}
+/**
+ * A handle whose loop hardly clears a turned body, as when Spark moves the
+ * body and leaves its handle behind, is pushed straight out from the body's
+ * axis until its ends meet the body's surface.
+ */
+function seatHandles(parts: ItemPart[]): ItemPart[] {
+  return parts.map((tube) => {
+    if (tube.shape !== 'tube' || tube.path.length < 2) return tube;
+    const at = (q: { x: number; y: number; z: number }) => ({
+      x: tube.at.x + q.x * tube.size.w,
+      y: tube.at.y + q.y * tube.size.d,
+      z: tube.at.z + q.z * tube.size.h,
+    });
+    const control = tube.path.map((q): [number, number, number] => [q.x, q.y, q.z]);
+    const curve = Array.from({ length: 9 }, (_, i) => {
+      const [x, y, z] = bezier(control, i / 8);
+      return at({ x, y, z });
+    });
+    const radius = tube.radius ?? 0;
+    for (const body of parts) {
+      if (body.shape !== 'lathe') continue;
+      const cx = body.at.x + body.size.w / 2;
+      const cy = body.at.y + body.size.d / 2;
+      const off = (p: { x: number; y: number; z: number }) =>
+        Math.hypot(p.x - cx, p.y - cy) - latheRadius(body, p.z);
+      const inZ = (p: { z: number }) => p.z >= body.at.z && p.z <= body.at.z + body.size.h;
+      // A real handle stands well off its body: by a few times its thickness at least.
+      const clear = Math.max(radius * 3, latheRadius(body, curve[4]!.z) * 0.4);
+      if (!curve.every(inZ) || curve.some((p) => off(p) > clear)) continue;
+      // Out along the way the loop's middle leans from the axis.
+      const mid = curve[4]!;
+      const len = Math.hypot(mid.x - cx, mid.y - cy);
+      if (len < 1e-3) continue;
+      const [dx, dy] = [(mid.x - cx) / len, (mid.y - cy) / len];
+      const ends = [curve[0]!, curve[8]!];
+      const shift = Math.max(
+        ...ends.map((e) => latheRadius(body, e.z) - ((e.x - cx) * dx + (e.y - cy) * dy)),
+      );
+      if (shift <= 0) continue;
+      const x = clampFiniteOrLow(tube.at.x + dx * shift, -0.5, 1.5);
+      const y = clampFiniteOrLow(tube.at.y + dy * shift, -0.5, 1.5);
+      return { ...tube, at: { ...tube.at, x, y } };
+    }
+    return tube;
+  });
 }
 
 /**
@@ -168,6 +257,7 @@ export function toSculpt(item: IsoItem): SculptPart[] {
         p.paint?.flatMap((q) =>
           q.kind === 'band' ? [{ from: q.from, to: q.to, color: q.color }] : [],
         ) ?? null,
+      prints: p.paint?.flatMap((q) => (q.kind === 'decal' && q.print ? [q.print] : [])) ?? null,
     };
     return { ...base, shape: p.shape };
   });
@@ -183,6 +273,7 @@ export const SCULPT_FORMAT = [
   '- blob: a lumpy ellipsoid, for foliage and soft things. rough: 0 to 1.',
   'Set fields a shape doesn’t use to null.',
   'Give each part its main colour as lowercase #rrggbb and a material (matte, gloss, metal, glass, fabric, wood); bands paint horizontal stripes on it, from and to as shares of its height. Use few parts and get the big shapes right first.',
+  'prints: lettering or a logo’s words printed on a part, which we set in type and wrap round it: text (lines broken with \\n, as the picture breaks them), style (script for joined handwriting, sans, serif, or bold), color, around (the way its middle faces in degrees seen from above: 0 the front, y = 1; 90 the right, x = 1; 180 the back; 270 the left), at (its middle’s height) and size (its block’s height, from the top line to the underline), both shares of the part’s height, and underline. A print is paint, never a part of its own: don’t model letters or a logo as boxes, and where the current model has boxes standing for printed letters or a logo, remove them and print it instead. When the picture is too small to read and the person names the words, print those. Null when nothing is printed.',
 ];
 /** What Spark is asked: our part format, and how to build the thing from its picture. */
 /**
@@ -241,6 +332,13 @@ export function sculptPrompt(
     'Say in note what you changed.',
   ].join('\n');
 }
+/**
+ * Which sculpt prompt a run sent: a hash of its fixed lines and format, so
+ * the run log tells one prompt from the next.
+ */
+export const SCULPT_PROMPT_VERSION = `sculpt-${textHash(
+  sculptPrompt('thing', { w: 1, d: 1, h: 1 }, { note: 'note', small: true, greyscale: true }),
+)}`;
 /** One step of a long job, as the page shows it while the job runs. */
 interface JobStep {
   id: string;

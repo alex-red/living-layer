@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { ISO_PRESETS, isoSurface } from './iso-presets.js';
 import { ITEM_MATERIALS, isoItemSchema, mugItem, type SavedItem } from './iso-item.js';
+import { withStarterPrint } from './starter-prints.js';
 import {
   archetypeSchema,
   buildItem,
@@ -72,6 +73,7 @@ export const STARTER_TEMPLATES = [
   'floor-lamp',
   'plant',
   'mug',
+  'tim-hortons-mug',
   'book',
   'device',
   'box',
@@ -817,8 +819,16 @@ const STARTER_META: Record<
     archetype: 'mug',
     suggested: 'none',
     description: 'A ceramic mug with a handle.',
-    sizeCm: { w: 12, d: 10, h: 10 },
-    colors: ['#ece5d0', '#73604c'],
+    sizeCm: { w: 12, d: 12, h: 10 },
+    colors: ['#f3e3dc', '#cbb3ae'],
+  },
+  'tim-hortons-mug': {
+    label: 'Tim Hortons mug',
+    archetype: 'mug',
+    suggested: 'none',
+    description: 'A diner mug with Tim Hortons in brown script on its side.',
+    sizeCm: { w: 12, d: 12, h: 10 },
+    colors: ['#f3e3dc', '#cbb3ae'],
   },
   book: {
     label: 'Book',
@@ -910,7 +920,9 @@ export function starterTemplateModel(
           ? floorLampItem(label, colors)
           : template === 'cat-tree'
             ? catTreeItem(label, colors)
-            : buildItem(label, defaultFit(meta.archetype, colors));
+            : meta.archetype === 'mug'
+              ? withStarterPrint(template, mugItem(colors[0], colors[1], label))
+              : buildItem(label, defaultFit(meta.archetype, colors));
   const saved: SavedItem = {
     ...base,
     source: 'placeholder',

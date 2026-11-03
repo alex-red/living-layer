@@ -54,6 +54,7 @@ export function recipeToSculpt(recipe: FixtureRecipe): SculptPart[] {
     wall: null,
     inside: null,
     bands: null,
+    prints: null,
   }));
 }
 

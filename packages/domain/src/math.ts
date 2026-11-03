@@ -64,3 +64,10 @@ export const KEY_LIGHT: Vec3 = (() => {
   const l = Math.hypot(...v);
   return [v[0] / l, v[1] / l, v[2] / l];
 })();
+
+/** A short, stable hash of a text (32-bit FNV-1a, in hex): for telling versions apart, not security. */
+export function textHash(text: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) h = Math.imul(h ^ text.charCodeAt(i), 0x01000193);
+  return (h >>> 0).toString(16).padStart(8, '0');
+}

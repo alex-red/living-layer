@@ -64,6 +64,7 @@ export function promoteGroup(
         wall: null,
         inside: null,
         bands: null,
+        prints: null,
         volume: q.size.w * q.size.d * q.size.h,
       });
     }

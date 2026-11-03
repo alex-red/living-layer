@@ -22,7 +22,14 @@ export type Runner = <K extends RunKind>(
   operation: (
     id: string,
     signal?: AbortSignal,
-  ) => Promise<Partial<ProviderResult<unknown>> & { output: RunKindOutput<K>; assets?: string[] }>,
+  ) => Promise<
+    Partial<ProviderResult<unknown>> & {
+      output: RunKindOutput<K>;
+      assets?: string[];
+      /** Which prompt it sent, when the operation knows better than its kind's default. */
+      promptVersion?: string;
+    }
+  >,
   /** Aborts the operation's model calls, such as when the client goes away. */
   signal?: AbortSignal,
 ) => Promise<EvidenceRun<RunKindOutput<K>>>;
@@ -46,6 +53,7 @@ export function createRunner(store: EvidenceStore): Runner {
       const result = await operation(id, signal);
       const evidence: EvidenceRun<RunKindOutput<typeof kind>> = {
         ...base,
+        promptVersion: result.promptVersion ?? base.promptVersion,
         output: result.output,
         assets: result.assets ?? [],
         model: result.model ?? null,

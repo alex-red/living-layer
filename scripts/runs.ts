@@ -12,6 +12,7 @@
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
+import sharp from 'sharp';
 import {
   runCost,
   runFailure,
@@ -24,6 +25,7 @@ import { flag, has, parseArgs } from './lib/args.js';
 import { loadCalls, summarizeCalls } from './lib/calls.js';
 import { dataDir, openEvidence } from './lib/evidence.js';
 import { STREAM_STATS_FILE } from '../apps/server/src/store.js';
+import type { SculptAnswers } from '../apps/server/src/fixture/sculpt.js';
 
 const args = parseArgs();
 
@@ -160,6 +162,7 @@ console.log(
 );
 if (run.model)
   console.log(`  model ${run.model}${run.requestId ? `, request ${run.requestId}` : ''}`);
+console.log(`  prompt ${run.promptVersion}`);
 if (why(run)) console.log(`  failed: ${why(run)}`);
 const job = store.jobOf(run.id);
 const dir = resolve(import.meta.dir, '..', 'out', 'runs', short);
@@ -181,6 +184,21 @@ if (job) {
 }
 const assists = runOutput(run, 'photo')?.assists;
 if (assists?.length) console.log(`\n${assists.map((a) => `· ${a}`).join('\n')}`);
+// A sculpt: the picture Spark saw, and each of its answers (bun run sculpt replays them).
+const picture = store.asset(`${run.id}/picture.png`);
+if (picture && run.kind === 'fixture') {
+  const { width, height } = await sharp(picture).metadata();
+  console.log(`\nSpark was shown a picture ${width} × ${height}.`);
+}
+const answers = store.asset(`${run.id}/answers.json`);
+if (answers) {
+  const kept = JSON.parse(answers.toString('utf8')) as SculptAnswers;
+  for (const [i, a] of kept.answers.entries())
+    console.log(
+      `  answer ${i + 1}: ${a.iou === null ? 'unusable' : `${Math.round(a.iou * 100)}% overlap`}. ${a.answer.note}`,
+    );
+  console.log(`  bun run sculpt ${short} reads them again with this tree.`);
+}
 let saved = 0;
 for (const a of run.assets) {
   const content = store.asset(a);
