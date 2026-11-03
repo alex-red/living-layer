@@ -1,8 +1,8 @@
 /**
  * Everything worth knowing about a change, in one go and about a minute,
- * with no build and no server: formatting, types, the tests, the benches,
+ * with no build and no server: formatting, types, the hooks lint, the tests, the benches,
  * and the colour audit of every template. Prints one summary. Fails only on
- * formatting, types or tests; the benches and the audit report, as agreed.
+ * formatting, types or tests; the lint, benches and audit report, as agreed.
  *
  *   bun run verify
  *   bun run verify --against main     also the room bench at main, and what moved
@@ -18,6 +18,7 @@
  * whatever else is on disk (`lib/worktree.ts`).
  */
 import { spawnSync } from 'node:child_process';
+import { cpus } from 'node:os';
 import { join, resolve } from 'node:path';
 import { flag, has, parseArgs } from './lib/args.js';
 import { browserOut, changedSinceSuitePassed, describePass } from './lib/browser.js';
@@ -76,10 +77,23 @@ const steps: Step[] = [
   },
   {
     name: 'tests',
-    cmd: ['bun', 'test'],
+    cmd: ['bun', 'scripts/test-shards.ts'],
     gate: true,
     read: (out) =>
       `${/(\d+) pass/.exec(out)?.[1] ?? '?'} pass, ${/(\d+) fail/.exec(out)?.[1] ?? '?'} fail`,
+  },
+  {
+    // Hooks rules only (`.oxlintrc.json`). Reports until the web code is clean, then gates.
+    name: 'lint',
+    cmd: ['bun', 'run', 'lint'],
+    gate: false,
+    read: (out, ok) =>
+      /: (error|warning) /.test(out)
+        ? `${count(out, /: error /g)} errors, ${count(out, /: warning /g)} warnings`
+        : ok
+          ? 'clean'
+          : 'did not run',
+    look: (out) => !/^$/.test(out.trim()),
   },
   {
     name: 'room bench',
@@ -154,18 +168,40 @@ const steps: Step[] = [
     : []),
 ];
 
+// The steps are separate processes and none needs another's output, so they run in a pool,
+// in order; the summary keeps the steps' own order. (The benches write to different
+// files in out/: rooms-<name>*.png, prop-sheet.png and nothing, so they don't collide.)
+const pool = Math.max(2, Math.floor(cpus().length / 2));
+interface Done {
+  out: string;
+  ok: boolean;
+  seconds: string;
+}
+const done = new Map<Step, Done>();
+const queue = [...steps];
+async function worker() {
+  for (let step = queue.shift(); step; step = queue.shift()) {
+    const start = performance.now();
+    const proc = Bun.spawn(step.cmd, { cwd: root, stdout: 'pipe', stderr: 'pipe' });
+    const [stdout, stderr, code] = await Promise.all([
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+      proc.exited,
+    ]);
+    const seconds = ((performance.now() - start) / 1000).toFixed(1);
+    done.set(step, { out: `${stdout}${stderr}`, ok: code === 0, seconds });
+    console.log(`${step.name}… ${seconds}s`);
+  }
+}
+const begun = performance.now();
+await Promise.all(Array.from({ length: Math.min(pool, steps.length) }, worker));
+
 let failed = 0;
 const lines: string[] = [];
 for (const step of steps) {
-  process.stdout.write(`${step.name}… `);
-  const start = performance.now();
-  const r = spawnSync(step.cmd[0]!, step.cmd.slice(1), { cwd: root, encoding: 'utf8' });
-  const out = `${r.stdout ?? ''}${r.stderr ?? ''}`;
-  const ok = r.status === 0;
-  const s = ((performance.now() - start) / 1000).toFixed(1);
+  const { out, ok, seconds: s } = done.get(step)!;
   const look = step.gate ? !ok : (step.look?.(out) ?? false);
   if (step.gate && !ok) failed++;
-  console.log(`${s}s`);
   lines.push(
     `${(look ? (step.gate ? '✗' : '!') : '✓').padEnd(2)} ${step.name.padEnd(16)} ${step.read(out, ok).padEnd(34)} ${s}s`,
   );
@@ -184,5 +220,6 @@ if (!browser) {
     );
 }
 console.log(`\n${lines.join('\n')}`);
+console.log(`\nall steps ${((performance.now() - begun) / 1000).toFixed(1)}s, ${pool} at a time`);
 console.log('\n✗ fails the run · ! reported, not failing (benches and audit) · ✓ fine');
 process.exit(failed ? 1 : 0);
