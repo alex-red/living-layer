@@ -710,6 +710,21 @@ export function resizeRoom(scene: IsoScene, grid: { w: number; d: number }): Iso
   return next;
 }
 
+/** Each fridge door's props, with its bins and (on the left) the ice maker. */
+const FRIDGE_DOOR = {
+  left: /^(door(-liner)?|ice|bin-left-\d)$/,
+  right: /^(door-right(-liner)?|bin-right-\d)$/,
+};
+/** The ids of every fridge's door on one side: the near door from a corner, drawn see-through. */
+export function fridgeDoor(scene: IsoScene, side: 'left' | 'right'): Set<string> {
+  return new Set(
+    scene.props
+      .filter(
+        (p) => p.template === 'fridge' && FRIDGE_DOOR[side].test(p.id.slice(p.group.length + 1)),
+      )
+      .map((p) => p.id),
+  );
+}
 /** The fridge's top, right side and doors: what its cut-away view leaves out. */
 const FRIDGE_SHELL = /^(top|right|right-liner|door(-right)?(-liner)?|ice)$/;
 /** A door bin, and which door it is on. */

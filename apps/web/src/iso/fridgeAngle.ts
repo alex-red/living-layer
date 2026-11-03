@@ -1,4 +1,11 @@
-import { cutAway, rotateItem, rotateScene, type IsoScene, type Point } from '@livinglayer/domain';
+import {
+  cutAway,
+  fridgeDoor,
+  rotateItem,
+  rotateScene,
+  type IsoScene,
+  type Point,
+} from '@livinglayer/domain';
 import type { IsoFixture, IsoObject, IsoZone } from './IsoScene';
 
 /**
@@ -25,17 +32,22 @@ interface Shown {
   zones: IsoZone[];
   trail: Point[];
 }
+interface Seen extends Shown {
+  /** Props drawn see-through: the door nearest the corner, which folds across the shelves. */
+  seeThrough: ReadonlySet<string>;
+}
 /**
  * The room as seen from an angle. From the left it is turned three quarters,
  * so the front (+y) faces +x: a box at (x, y) goes to (y, W − x − w), and a
  * point on a surface (u, v) to (v, 1 − u), as `rotateScene` turns surfaces.
+ * From either corner the near door is see-through.
  */
-export function fromAngle(angle: FridgeAngle, shown: Shown): Shown {
+export function fromAngle(angle: FridgeAngle, shown: Shown): Seen {
   if (angle === 'cut') {
     const also = [...shown.fixtures, ...shown.objects].map((f) => f.box);
-    return { ...shown, scene: cutAway(shown.scene, also) };
+    return { ...shown, scene: cutAway(shown.scene, also), seeThrough: new Set() };
   }
-  if (angle === 'right') return shown;
+  if (angle === 'right') return { ...shown, seeThrough: fridgeDoor(shown.scene, 'right') };
   const { w: W } = shown.scene.grid;
   const box = <B extends IsoObject['box']>(b: B): B => ({
     ...b,
@@ -53,5 +65,6 @@ export function fromAngle(angle: FridgeAngle, shown: Shown): Shown {
     fixtures: shown.fixtures.map((f) => ({ ...f, box: box(f.box), item: rotateItem(f.item, 3) })),
     zones: shown.zones.map((z) => ({ ...z, quad: z.quad.map(uv) as IsoZone['quad'] })),
     trail: shown.trail.map(uv),
+    seeThrough: fridgeDoor(shown.scene, 'left'),
   };
 }

@@ -6,6 +6,7 @@ import {
   dayOf,
   daysUntil,
   fixtureInput,
+  foodDefaults,
   foodKeeps,
   foodNow,
   promoteBuiltIn,
@@ -39,12 +40,18 @@ describe('food things', () => {
     expect(foodKeeps('Milk carton')).toBe(5);
     expect(foodKeeps('Leftovers')).toBe(3);
     expect(foodKeeps('Desk lamp')).toBeNull();
+    // Bought today, a thing starts with its usual use-by day.
+    expect(foodDefaults('Milk carton', '2026-11-03')).toEqual({ expires: '2026-11-13' });
+    expect(foodDefaults('Egg carton', '2026-11-03')).toEqual({ expires: '2026-12-01' });
+    expect(foodDefaults('Green book', '2026-11-03')).toBeNull();
   });
   it('makes a preset’s built-in thing a thing that stands in for it', () => {
     const milk = promoteBuiltIn('fridge', 'milk')!;
     expect(milk).toMatchObject({ label: 'Milk carton', scene: 'fridge', builtIn: 'milk' });
     // It stands on the crisper lid, where the preset drew it.
     expect(milk.surfaceId).toBe('fridge:shelf-3');
+    expect(milk.food).toBeUndefined();
+    expect(promoteBuiltIn('fridge', 'eggs', '2026-11-03')?.food).toEqual({ expires: '2026-12-01' });
     const fridge = ISO_PRESETS.fridge;
     const without = withoutPromoted(fridge, [{ scene: 'fridge', builtIn: 'milk' }]);
     expect(without.props.some((p) => p.group === 'milk')).toBe(false);

@@ -1,4 +1,5 @@
 import { StatBadges } from './StatBadges';
+import { CALLOUT_SIDE, Callouts, type IsoCallout } from './Callouts';
 import { memo, useRef, useState, type MouseEvent, type PointerEvent } from 'react';
 import {
   ISO_TILE,
@@ -206,9 +207,12 @@ function FixtureMarker({
   onGrab,
   onMenu,
   stats,
+  calledOut,
 }: {
   fixture: IsoFixture;
   stats: boolean;
+  /** Its card beside the room says it all: no food line over it. */
+  calledOut?: boolean;
   onSelect?: (id: string) => void;
   /** Pressed to drag it; a press that doesn't move selects it instead. */
   onGrab?: (e: PointerEvent<SVGGElement>) => void;
@@ -255,7 +259,7 @@ function FixtureMarker({
           ? ` · ${fixture.state.toUpperCase()}`
           : ''}
       </text>
-      {fixture.food && (
+      {fixture.food && !calledOut && (
         <text className={`iso-food ${fixture.food.tone}`} x={head.sx} y={head.sy - 19}>
           {fixture.food.text.toUpperCase()}
         </text>
@@ -372,7 +376,9 @@ function IsoSceneView({
   onDrag,
   editing,
   hidden,
+  seeThrough,
   stats = false,
+  callouts = [],
 }: {
   scene: Scene;
   surface?: IsoSurface;
@@ -400,8 +406,12 @@ function IsoSceneView({
   editing?: IsoEditing;
   /** Prop groups not drawn; the view keeps its framing. */
   hidden?: ReadonlySet<string>;
+  /** Props drawn faint and let the pointer through: a door in front of what is behind it. */
+  seeThrough?: ReadonlySet<string>;
   /** Draw each thing's stats over it. */
   stats?: boolean;
+  /** With `stats`, cards beside the room for the things with something to say. */
+  callouts?: IsoCallout[];
 }) {
   const svg = useRef<SVGSVGElement>(null);
   const start = useRef<Point | null>(null);
@@ -452,8 +462,10 @@ function IsoSceneView({
   );
   const all = [...floor.map(toIso), ...corners];
   const pad = 24;
-  const minX = Math.min(...all.map((p) => p.sx)) - pad;
-  const maxX = Math.max(...all.map((p) => p.sx)) + pad;
+  // The stats layer's cards stand in columns beside the room, so the view widens to hold them.
+  const side = stats && !editing && callouts.length > 0 ? CALLOUT_SIDE : 0;
+  const minX = Math.min(...all.map((p) => p.sx)) - pad - side;
+  const maxX = Math.max(...all.map((p) => p.sx)) + pad + side;
   const minY = Math.min(...all.map((p) => p.sy)) - pad * 2;
   const maxY = Math.max(...all.map((p) => p.sy)) + pad;
   const items: Drawable[] = [
@@ -588,6 +600,7 @@ function IsoSceneView({
             className={[
               editing?.selected === item.prop.group ? 'selected' : '',
               editing?.flagged.has(item.prop.group) ? 'overlap' : '',
+              seeThrough?.has(item.prop.id) ? 'see-through' : '',
             ].join(' ')}
             onPointerDown={
               editing
@@ -647,7 +660,8 @@ function IsoSceneView({
           <FixtureMarker
             key={`fixture-${item.fixture.id}`}
             fixture={item.fixture}
-            stats={stats}
+            stats={stats && !callouts.some((c) => c.id === item.fixture.id)}
+            calledOut={stats && callouts.some((c) => c.id === item.fixture.id)}
             onSelect={drawing || placing ? undefined : onFixture}
             onGrab={
               movable
@@ -737,6 +751,9 @@ function IsoSceneView({
           />
         );
       })}
+      {stats && !editing && callouts.length > 0 && (
+        <Callouts callouts={callouts} bounds={{ minX, maxX, minY, maxY }} />
+      )}
       {onResizeFixture &&
         !editing &&
         !drawing &&

@@ -44,18 +44,17 @@ export function useLayers(): Layer[] {
       set: lab.setShowZones,
       views: ['photo', 'iso'],
     },
-    // Only once some thing keeps a stat.
-    ...(Object.keys(lab.memory?.thingStats ?? {}).length
-      ? [
-          {
-            name: 'Stats',
-            hint: 'Each thing’s stats, over the camera and in the room',
-            on: lab.showStats,
-            set: lab.setShowStats,
-            views: lab.camera ? (['photo', 'iso'] as const) : (['iso'] as const),
-          },
-        ]
-      : []),
+    // In the room always (food's use-by days need no camera); over the camera once some thing keeps a stat.
+    {
+      name: 'Stats',
+      hint: 'Each thing’s stats and use-by day, in cards beside the room and over the camera',
+      on: lab.showStats,
+      set: lab.setShowStats,
+      views:
+        lab.camera && Object.keys(lab.memory?.thingStats ?? {}).length
+          ? (['photo', 'iso'] as const)
+          : (['iso'] as const),
+    },
     {
       name: 'Tracking',
       hint: 'Tracked objects and fixtures over the live camera',
