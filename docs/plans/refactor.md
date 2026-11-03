@@ -47,6 +47,7 @@ _Landed:_ the demo's first scan runs once in `beforeAll` and six tests copy that
 _Landed:_ oxlint 1.90.0 (`bun run lint`, `.oxlintrc.json`: `rules-of-hooks` as error, `exhaustive-deps` as warning, nothing else). Today it reports 0 errors and 21 warnings, 10 of them in `useLabState.ts`. It does not fail verify yet; make it gate when the count reaches 0.
 
 **A7. later: catch dead exports.** Add a verify step (knip, or a small script) that lists exports nothing imports. It would catch 7 in domain, 8 in web and about 30 in server today.
+_Landed:_ `bun run dead-exports` (`scripts/dead-exports.ts`), a report step in verify. It reads imports with a regex, since the TypeScript 7 beta has no JS API, and follows `export *` through the domain index. Today it finds 216 unused exports: 32 in server, 27 in web, 157 in domain, in 60 files, in 0.03 s. The counts above are from before the merges; `IGNORE` in the script is empty.
 
 **A8. now: docs that drifted.** `architecture.md`'s server table names `lamp.ts`, which is gone, and leaves out `fixture.ts`, `assist.ts`, `watcher.ts`, `jobs.ts`, `photo.ts` and `illustration.ts`. `current.md` says `bun run check`; the script is `bun run ci`.
 _Landed:_ both fixed.
@@ -107,6 +108,7 @@ _Landed:_ one `Jobs` per `buildApp`, passed to the routes that start jobs; stale
 **C7. later: fitting and rendering off the event loop.** After B, measure a scan again. If one still holds the loop for more than about 200 ms, run `fitItem` and `renderRoom` in a small Bun Worker pool: domain is pure, and the RGBA buffers can be transferred.
 
 **C8. later: one Spark call in `meta.ts`.** Thirteen methods repeat the same 45 lines (`meta.ts:400-1091`). Replace them with one `structured(kind, …)` that takes its tokens and effort from `SPARK_CALLS`. Today `reasoningOf` is applied for only three kinds, so an effort set for any other kind does nothing. `lookupProduct` should use the same reserve and settle, and `SPARK_BUDGET` should be derived. Check with `tests/calls.test.ts` and `bench:intent`.
+_Landed:_ `meta.ts` went from 1304 to 965 lines. One private `structured()` serves every Spark method, and `lookupProduct` shares its reserve and settle. `SPARK_BUDGET` is derived, and `classifyCause` uses `isTimeout` from `errors.ts`. `tests/meta-requests.test.ts` snapshots every kind's request, taken before the change and unchanged after. No effort setting was dead: only `fixtureScan` and `productLookup` set one, and both were applied.
 
 **C9. later: route helpers.** Five small helpers would replace about 60 repeated blocks:
 
@@ -147,6 +149,7 @@ _Landed:_ a01abff. `useNow()` now ticks in the four components that show time (n
 Keep `useLab()` as a facade, and move consumers over one pane at a time. Then `IsoView` reads its slice instead of taking 46 props, and `IsoScene` is memoized.
 
 **D4. later: sprites in a Worker.** An item sprite takes 31–71 ms on the main thread, and every item-editor edit misses the cache. Draw sprites in a Web Worker with OffscreenCanvas and serve object URLs. Give the cache least-recently-used eviction instead of oldest-first (`iso/sprites.ts:47`), and bound `viewOverlay`. A `useSprite` hook keeps the last image until the new one is ready, and `useDeferredValue` smooths the editor's draft. Measure again after B first.
+_Landed:_ `iso/sprite.worker.ts` draws sprites (`sprite-draw.ts`, shared with the main-thread fallback) and returns PNG blobs via `OffscreenCanvas`; `sprites.ts` serves object URLs from an LRU cache bounded by 400 entries and 48 MB (also for `viewOverlay`), revoking evicted URLs after 30 s. `useItemSprite`, `usePropSprite` and `useViewOverlay` keep the last image until the next is ready; `IsoScene`, `IsoItem`, `ItemEditor`, `PropPicker` and `Brush` use them, and the editor draws from `useDeferredValue(draft)`. No Worker or OffscreenCanvas (and bun tests) draws on the main thread. Still synchronous: `itemSprite`, `propSprite` and `viewOverlay`, which `FixturePanel` calls (sizing needs pixels in the same tick); move it to the hooks when that file is free.
 
 **D5. later: lazy chunks.** Lazy-load the Playground (`main.tsx:8`), `ItemEditor`, `SceneEditor`, `IllustrationView`, `RoomCalibrate`, `PhonePairing`, `CameraSetup` and `AIRichPreviewDialog`. Add `sideEffects: false` to domain's `package.json`.
 _Done when:_ the first chunk is under 400 KB.

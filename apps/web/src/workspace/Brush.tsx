@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent } from 'react';
 import { placeRecipe, type FixtureRecipe, type SelectionShape } from '@livinglayer/domain';
-import { propSprite } from '../iso/sprites';
+import { usePropSprite } from '../iso/sprites';
 import { typing } from '../shortcuts';
 import { Button, IconButton } from '../ui/controls';
 import { CLOSE_SHARE, inSentence, type Brush, type BrushStroke, type Share } from './useBrush';
@@ -111,11 +111,13 @@ const rectBox = (s: Extract<BrushStroke, { kind: 'rect' }>) => ({
 
 /** A recipe drawn by the room's own kernel, turned `turns` quarters clockwise. */
 function RecipeImage({ recipe, turns = 0 }: { recipe: FixtureRecipe; turns?: number }) {
-  const sprite = useMemo(() => {
+  const prop = useMemo(() => {
     const p = placeRecipe(recipe, 'preview', 0, 0).props[0]!;
     const size = turns % 2 ? { ...p.size, w: p.size.d, d: p.size.w } : p.size;
-    return propSprite({ ...p, size, turns }, false);
+    return { ...p, size, turns };
   }, [recipe, turns]);
+  const sprite = usePropSprite(prop, false);
+  if (!sprite) return null;
   return (
     <img
       className="brush-preview"
