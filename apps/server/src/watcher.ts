@@ -9,6 +9,7 @@ import {
   asked,
   appearanceRegion,
   cameraEdges,
+  cameraKept,
   cameraMoved,
   cropMask,
   findByAppearance,
@@ -160,6 +161,8 @@ const alike = (a: WatchThing, b: WatchThing) =>
  */
 /** How often a live camera's view is checked against its calibration frame. */
 const CAMERA_CHECK_MS = 10_000;
+/** How many checks in a row must disagree with what desk memory says before it changes. */
+const CAMERA_CHECKS = 3;
 export class Watcher {
   private source: FrameSource | null = null;
   private things = new Map<string, WatchThing>();
@@ -188,6 +191,8 @@ export class Watcher {
   private occupancy = new Map<string, ZoneOccupancy>();
   private lastOccupancyCheck = 0;
   private lastCameraCheck = 0;
+  /** Camera checks in a row that disagreed with desk memory's `moved`. */
+  private cameraDisagrees = 0;
   private lastSam = new Map<string, number>();
   private comparing = false;
   private model: Appearance | null = null;
@@ -748,14 +753,23 @@ export class Watcher {
   }
   /**
    * Whether the camera moved since it was calibrated. Once it has, zones no
-   * longer line up, so every rule is blocked until it is calibrated again.
+   * longer line up, so every rule is blocked until it is calibrated again or
+   * its view lines up with the calibration frame again. Either takes
+   * `CAMERA_CHECKS` checks in a row agreeing: one odd frame (the stream
+   * opening, a light switched, someone close to the lens) neither blocks the
+   * rules nor frees them.
    */
   private checkCamera(frame: LumaFrame) {
     const calibration = this.deps.store.memory(this.deps.mode).camera;
-    if (!calibration?.reference || calibration.moved) return;
-    if (!cameraMoved(calibration.reference, cameraEdges(frame)).moved) return;
+    if (!calibration?.reference) return;
+    const moved = cameraMoved(calibration.reference, cameraEdges(frame)).moved;
+    if (moved === Boolean(calibration.moved)) return void (this.cameraDisagrees = 0);
+    if (++this.cameraDisagrees < CAMERA_CHECKS) return;
+    this.cameraDisagrees = 0;
     this.deps.store.updateMemory(this.deps.mode, (memory) => {
-      if (memory.camera) memory.camera = { ...memory.camera, moved: true };
+      if (!memory.camera?.reference) return;
+      if (moved) memory.camera = { ...memory.camera, moved: true };
+      else Object.assign(memory, cameraKept(memory, memory.camera.reference));
     });
     this.emit(true);
   }

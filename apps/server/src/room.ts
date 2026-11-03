@@ -7,7 +7,7 @@ import {
   ISO_PRESETS,
   META_PRICES,
   cameraEdges,
-  MOVED_CAMERA,
+  cameraKept,
   cameraFromMarks,
   fitLimit,
   convexHull,
@@ -287,16 +287,7 @@ export async function roomRoutes(
         `This frame is ${image.width}×${image.height}, but the camera was calibrated at ${frame.width}×${frame.height}. Calibrate it again.`,
       );
     const luma = await lumaOf(image ? image.bytes : await demoPng());
-    const { moved: _, ...kept } = calibration;
-    // A check blocked only by the move no longer stands.
-    const stale = (d: DeskMemory['lastDecision'] | undefined) =>
-      d?.output.reason === MOVED_CAMERA ? null : (d ?? null);
-    store.saveMemory({
-      ...memory,
-      camera: { ...kept, reference: cameraEdges(luma) },
-      lastDecision: stale(memory.lastDecision),
-      rules: memory.rules?.map((r) => ({ ...r, lastDecision: stale(r.lastDecision) })),
-    });
+    store.saveMemory(cameraKept(memory, cameraEdges(luma)));
     return store.memory(input.mode);
   });
 

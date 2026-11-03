@@ -25,6 +25,21 @@ import {
 export const OBSERVATION_MAX_AGE_MS = 5 * 60 * 1000;
 export const MOVED_CAMERA =
   'The camera has moved since it was calibrated, so zones no longer line up. Calibrate it again, or keep the calibration if it still fits and redraw the zones.';
+/**
+ * Desk memory with its camera no longer taken to have moved, compared from
+ * now on with `reference`, and checks blocked only by the move dropped.
+ */
+export function cameraKept(memory: DeskMemory, reference: string): DeskMemory {
+  const { moved: _, ...camera } = memory.camera!;
+  const stale = (d: DeskMemory['lastDecision'] | undefined) =>
+    d?.output.reason === MOVED_CAMERA ? null : (d ?? null);
+  return {
+    ...memory,
+    camera: { ...camera, reference },
+    lastDecision: stale(memory.lastDecision),
+    rules: memory.rules?.map((r) => ({ ...r, lastDecision: stale(r.lastDecision) })),
+  };
+}
 /** True when the box's bottom centre, where it touches down nearest the camera, is in the zone. */
 export function footInZone(
   b: Detection['box'],
