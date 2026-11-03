@@ -59,6 +59,31 @@ export function requireFrame(
       409,
     );
 }
+/**
+ * The size of a PNG that SAM can take just as it came: one page, nothing to
+ * orient, so its pixels are the ones `validateImage` stores. Null for anything
+ * else, which goes through `samDataUrl`. Reads only the header.
+ */
+export async function samReadyPng(
+  dataUrl: string | undefined,
+): Promise<{ width: number; height: number } | null> {
+  const match = /^data:image\/png;base64,([A-Za-z0-9+/]+={0,2})$/.exec(dataUrl ?? '');
+  if (!match) return null;
+  try {
+    const meta = await sharp(Buffer.from(match[1]!, 'base64')).metadata();
+    const { width, height } = meta;
+    return meta.format === 'png' &&
+      (meta.pages ?? 1) === 1 &&
+      (meta.orientation ?? 1) === 1 &&
+      width &&
+      height &&
+      width * height <= MAX_IMAGE_PIXELS
+      ? { width, height }
+      : null;
+  } catch {
+    return null;
+  }
+}
 /** The stored source photo among a run's assets: `source.webp`, or `source.png` on older runs. */
 export const findSource = (assets: string[]) => assets.find((a) => /\/source\.(webp|png)$/.test(a));
 

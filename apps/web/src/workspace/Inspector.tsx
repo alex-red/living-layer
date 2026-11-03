@@ -1016,6 +1016,7 @@ function ZonePanel() {
   const lab = useLab();
   const { memory, mode, busy, drawing, draftZone, currentObservation, zoneObservation, lampReady } =
     lab;
+  const { call, off } = useCall();
   if (!memory?.object)
     return (
       <Panel
@@ -1056,7 +1057,8 @@ function ZonePanel() {
       <p className="rule-sentence">
         When <strong>{memory.object.label}</strong> is inside{' '}
         <strong>{memory.zone ? 'ZN-01' : 'a zone'}</strong>, turn on{' '}
-        <strong>{lab.lights[0] ?? 'the main lamp'}</strong>.
+        <strong>{lab.lights[0] ?? 'the main lamp'}</strong>
+        {memory.zone?.offWhenEmpty !== false && ', and off again when it leaves'}.
       </p>
       <CameraMoved />
       {!drawing && (
@@ -1174,6 +1176,17 @@ function ZonePanel() {
             )}
           </p>
         </Details>
+      )}
+      {memory.zone && (
+        <Check
+          checked={memory.zone.offWhenEmpty !== false}
+          disabled={off}
+          onChange={(offWhenEmpty) =>
+            void call<DeskMemory>('desk/zone/off', { offWhenEmpty }, lab.setMemory)
+          }
+        >
+          and off again when the mug leaves
+        </Check>
       )}
       <Details summary="Camera">
         <Check

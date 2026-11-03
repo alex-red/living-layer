@@ -34,6 +34,7 @@ const ROUTES = [
   '/api/desk/track [POST]',
   '/api/desk/verify [POST]',
   '/api/desk/zone [POST]',
+  '/api/desk/zone/off [POST]',
   '/api/discover [POST]',
   '/api/evidence [GET]',
   '/api/expose/:mode [GET]',

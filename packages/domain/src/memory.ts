@@ -100,6 +100,8 @@ export interface DeskMemory {
     rect: ZoneRect;
     frame?: Segmentation['frame'];
     onSurface?: ZoneOnSurface;
+    /** False keeps the light on when the mug leaves; unset turns it off. */
+    offWhenEmpty?: boolean;
   } | null;
   lastDecision: EvidenceRun<PlacementDecision> | null;
   /**

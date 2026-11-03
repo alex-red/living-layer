@@ -57,13 +57,17 @@ export interface WatchThing {
 }
 export const WATCH = {
   /** Frames on the other side of a zone edge before SAM confirms the crossing. */
-  settleSteps: 3,
+  settleSteps: 2,
   /** Weak or ambiguous frames before the thing counts as lost. */
   lostSteps: 3,
-  /** Frames of stillness around the thing before SAM is asked anything. */
-  quietSteps: 8,
-  /** Least time between two SAM checks of one thing, ms. */
-  confirmGapMs: 2000,
+  /**
+   * Frames of stillness around the thing before SAM is asked anything (0.4 s at
+   * 10 a second): long enough for a hand to be gone, since SAM's picture is a
+   * still taken after the quiet began (`STILL_FPS`).
+   */
+  quietSteps: 4,
+  /** Least time between two SAM checks of one thing, ms: a mug lifted and set back is asked again. */
+  confirmGapMs: 1000,
   reanchorGapMs: { first: 2000, max: 30_000 },
   /** Good steps in a row (about 3 s at 10 frames a second) before the back-off resets. */
   recoveredSteps: 30,

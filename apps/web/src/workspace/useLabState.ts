@@ -1802,7 +1802,8 @@ export function useLabState() {
     while (taken.has(`Zone ${n}`)) n++;
     openRule({
       objects: objectId ? [objectId] : 'any',
-      offWhenEmpty: false,
+      // A zone's light follows it: on when it fills, off when it empties, unless unticked.
+      offWhenEmpty: true,
       entityId: entities[0] ?? '',
       label: `Zone ${n}`,
       rect: null,

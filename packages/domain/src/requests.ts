@@ -302,6 +302,12 @@ export const deskTrackBodySchema = z
   .strict();
 export type DeskTrackBody = z.input<typeof deskTrackBodySchema>;
 
+/** POST /api/desk/zone/off */
+export const deskZoneOffBodySchema = z
+  .object({ mode: modeSchema, offWhenEmpty: z.boolean() })
+  .strict();
+export type DeskZoneOffBody = z.input<typeof deskZoneOffBodySchema>;
+
 /** POST /api/desk/camera */
 export const deskCameraBodySchema = z.object({ mode: modeSchema, fixed: z.boolean() }).strict();
 export type DeskCameraBody = z.input<typeof deskCameraBodySchema>;

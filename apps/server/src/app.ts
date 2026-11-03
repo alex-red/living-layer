@@ -30,7 +30,7 @@ import { chosenEntities, haConnection, haRoutes, type OpenSocket } from './ha.js
 import { fixtureRoutes } from './fixture.js';
 import { requestSignal, watchRequest } from './request-signal.js';
 import { LabError, logError, liveImage, parseInput } from './errors.js';
-import { findSource, samDataUrl, toDataUrl, validateImage } from './images.js';
+import { findSource, samDataUrl, samReadyPng, toDataUrl, validateImage } from './images.js';
 import { deskRoutes } from './desk.js';
 import { itemRoutes } from './item.js';
 import { sceneRoutes } from './scene.js';
@@ -305,9 +305,7 @@ export async function buildApp(
     store,
     async (mode, entityId, action = 'on') =>
       mode === 'demo'
-        ? entityId
-          ? demoLampFor(entityId, action)
-          : demoLamp
+        ? demoLampFor(entityId ?? demoLamp.entityId, action)
         : switchLive(entityId, action),
     entities,
   );
@@ -420,16 +418,28 @@ export async function buildApp(
         }
         if (input.demoPosition)
           throw new LabError('demo_position', 'Demo positions apply only in demo mode.');
-        const image = await validateImage(input.imageDataUrl);
-        const result = await meta.segment(
-          await samDataUrl(image),
-          input.concept,
-          image.width,
-          image.height,
-          {
-            ...(signal ? { signal } : {}),
-          },
-        );
+        const options = signal ? { signal } : {};
+        // A plain PNG (the watcher's frames) goes to SAM as it came, while the stored copy
+        // is encoded alongside: the lossless WebP takes about 200 ms, and SAM needn't wait.
+        const ready = await samReadyPng(input.imageDataUrl);
+        const [image, result] = ready
+          ? await Promise.all([
+              validateImage(input.imageDataUrl),
+              meta.segment(input.imageDataUrl!, input.concept, ready.width, ready.height, options),
+            ])
+          : await validateImage(input.imageDataUrl).then(
+              async (image) =>
+                [
+                  image,
+                  await meta.segment(
+                    await samDataUrl(image),
+                    input.concept,
+                    image.width,
+                    image.height,
+                    options,
+                  ),
+                ] as const,
+            );
         return {
           ...result,
           output: {
