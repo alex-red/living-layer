@@ -32,7 +32,7 @@ import { LabError, liveImage, parseInput } from './errors.js';
 import { demoPng, demoSegmentation } from './demo.js';
 import { lumaOf } from './frames.js';
 import { samDataUrl, requireFrame, validateImage, type ValidatedImage } from './images.js';
-import type { Runner } from './item.js';
+import type { Runner } from './runs.js';
 import type { MetaAdapter } from './meta.js';
 import type { EvidenceStore } from './store.js';
 

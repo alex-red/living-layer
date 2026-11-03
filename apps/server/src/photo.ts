@@ -53,7 +53,8 @@ import {
   validateImage,
   type ValidatedImage,
 } from './images.js';
-import { demoPhoto, type Runner } from './item.js';
+import { demoPhoto } from './item.js';
+import type { Runner } from './runs.js';
 import { SPARK_BUDGET, type MetaAdapter } from './meta.js';
 import type { EvidenceStore } from './store.js';
 import { following, type JobTracker, type Jobs } from './jobs.js';

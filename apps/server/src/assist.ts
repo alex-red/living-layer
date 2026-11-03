@@ -67,7 +67,7 @@ import { LabError, liveImage, parseInput } from './errors.js';
 import { NOT_CALIBRATED } from './photo.js';
 import { around } from './fixture.js';
 import { toDataUrl, requireFrame, validateImage } from './images.js';
-import type { Runner } from './item.js';
+import type { Runner } from './runs.js';
 import { following, type Jobs } from './jobs.js';
 import { SEARCH_CEILING, SPARK_BUDGET, type MetaAdapter } from './meta.js';
 import { BUNDLED_CATALOG, Catalog, research, type Researcher } from './research.js';

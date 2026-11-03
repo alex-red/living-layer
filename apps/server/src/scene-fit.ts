@@ -20,7 +20,7 @@ import {
 import { samWhole } from './assist.js';
 import { LabError, liveImage, parseInput } from './errors.js';
 import { samDataUrl, requireFrame, validateImage } from './images.js';
-import type { Runner } from './item.js';
+import type { Runner } from './runs.js';
 import type { MetaAdapter } from './meta.js';
 import { NOT_CALIBRATED } from './photo.js';
 import type { EvidenceStore } from './store.js';

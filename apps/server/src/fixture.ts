@@ -107,8 +107,8 @@ import {
   pinElevation,
   rescore,
   viewPng,
-  type Runner,
 } from './item.js';
+import type { Runner } from './runs.js';
 import { SEARCH_CEILING, SPARK_BUDGET, type MetaAdapter } from './meta.js';
 import { BUNDLED_CATALOG, Catalog, research, type Researcher } from './research.js';
 import type { EvidenceStore } from './store.js';

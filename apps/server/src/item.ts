@@ -30,7 +30,6 @@ import {
   type ItemClass,
   type ItemFitRecord,
   type Mode,
-  type RunKind,
   type SavedItem,
   type Segmentation,
   type Usage,
@@ -39,20 +38,10 @@ import {
 import { demoMugCloseUp, demoPng } from './demo.js';
 import { LabError, parseInput } from './errors.js';
 import { detectionBits, findSource, maskedCrop, toDataUrl } from './images.js';
-import type { MetaAdapter, ProviderResult } from './meta.js';
+import type { MetaAdapter } from './meta.js';
 import { requestSignal } from './request-signal.js';
+import type { Runner } from './runs.js';
 import type { EvidenceStore } from './store.js';
-
-export type Runner = (
-  kind: RunKind,
-  mode: Mode,
-  operation: (
-    id: string,
-    signal?: AbortSignal,
-  ) => Promise<Partial<ProviderResult<unknown>> & { output: unknown; assets?: string[] }>,
-  /** Aborts the operation's model calls, such as when the client goes away. */
-  signal?: AbortSignal,
-) => Promise<EvidenceRun>;
 
 /** What a Spark class looks like offline: the demo mug is a glossy mug. */
 export const demoItemClass: ItemClass = {

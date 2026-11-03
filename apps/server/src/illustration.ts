@@ -32,7 +32,7 @@ import {
 } from '@livinglayer/domain';
 import { LabError, liveImage, parseInput } from './errors.js';
 import { samDataUrl, toDataUrl, requireFrame, validateImage } from './images.js';
-import type { Runner } from './item.js';
+import type { Runner } from './runs.js';
 import {
   basePrompt,
   cutSprite,

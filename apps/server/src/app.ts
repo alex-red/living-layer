@@ -17,10 +17,7 @@ import {
   type SceneDraft,
   estimateCost,
   type EvidenceRun,
-  type RunKind,
-  type RunFailure,
   type Mode,
-  type LampResult,
   type Segmentation,
   type DemoPosition,
   DEMO_POSITIONS,
@@ -30,12 +27,12 @@ import {
 import { type Config, type Fetcher, PROJECT_ROOT } from './config.js';
 import { EvidenceStore } from './store.js';
 import { closeCompute } from './workers/compute.js';
-import { MetaAdapter, type ProviderResult } from './meta.js';
+import { MetaAdapter } from './meta.js';
 import { ControlAdapter } from './control.js';
 import { chosenEntities, haConnection, haRoutes, type OpenSocket } from './ha.js';
 import { fixtureRoutes } from './fixture.js';
 import { requestSignal, watchRequest } from './request-signal.js';
-import { LabError, logError, liveImage, parseInput, safeError } from './errors.js';
+import { LabError, logError, liveImage, parseInput } from './errors.js';
 import { findSource, samDataUrl, toDataUrl, validateImage } from './images.js';
 import { deskRoutes } from './desk.js';
 import { itemRoutes } from './item.js';
@@ -55,6 +52,7 @@ import { Appearance } from './appearance.js';
 import { DemoSource } from './frames.js';
 import { RemoteCamera, remoteRoutes } from './remote.js';
 import { reconstruct } from './sam3d.js';
+import { createRunner } from './runs.js';
 import { Exposer, exposeRoutes } from './expose.js';
 import { MqttLink, type MqttConnect } from './mqtt.js';
 import { MqttControl } from './mqtt-control.js';
@@ -101,6 +99,7 @@ export async function buildApp(
   // Long AI jobs the page follows: one set per app, so apps in one process don't share them.
   const jobs = new Jobs();
   const meta = new MetaAdapter(config, store, options.fetcher);
+  const run = createRunner(store);
   const lamp = new ControlAdapter(config, options.fetcher, undefined, {
     allowed: () => [...haLights(), ...haSwitches()],
     connection: () => haConnection(config, store),
@@ -362,69 +361,6 @@ export async function buildApp(
       runs: store.list(),
     }),
   );
-  async function run(
-    kind: RunKind,
-    mode: Mode,
-    operation: (
-      id: string,
-      signal?: AbortSignal,
-    ) => Promise<Partial<ProviderResult<unknown>> & { output: unknown; assets?: string[] }>,
-    signal?: AbortSignal,
-  ) {
-    const start = performance.now();
-    const id = randomUUID();
-    const base = {
-      id,
-      kind,
-      mode,
-      createdAt: new Date().toISOString(),
-      promptVersion: `${kind}-v1`,
-      assets: [] as string[],
-      model: null,
-      requestId: null,
-      usage: null,
-    };
-    try {
-      const result = await operation(id, signal);
-      let status: EvidenceRun['status'] = 'completed';
-      if (kind === 'segment' && !(result.output as Segmentation).detections.length)
-        status = 'no_match';
-      if (kind === 'lamp' && !(result.output as LampResult).stateConfirmed) status = 'unconfirmed';
-      const evidence: EvidenceRun = {
-        ...base,
-        output: result.output,
-        assets: result.assets ?? [],
-        model: result.model ?? null,
-        requestId: result.requestId ?? null,
-        usage: result.usage ?? null,
-        status,
-        durationMs: Math.round(performance.now() - start),
-      };
-      store.save(evidence);
-      return evidence;
-    } catch (error) {
-      const safe = safeError(error, kind);
-      const failure: RunFailure = {
-        error: {
-          code: safe.code,
-          message: safe.message,
-          ...(safe.detail ? { detail: safe.detail } : {}),
-        },
-      };
-      store.save({
-        ...base,
-        // What the provider reported, so a failed call shows its model and cost too.
-        model: safe.detail?.model ?? null,
-        requestId: safe.detail?.requestId ?? null,
-        usage: safe.detail?.usage ?? null,
-        status: 'failed',
-        durationMs: Math.round(performance.now() - start),
-        output: failure,
-      });
-      // The run id lets the page open the failed run in the inspector.
-      throw Object.assign(safe, { runId: id });
-    }
-  }
   /** Change the daily Meta spending limit; null goes back to the one in `.env`. */
   app.post('/api/settings/spend-limit', async (request) => {
     const { usd } = parseInput(settingsSpendLimitBodySchema, request.body);
