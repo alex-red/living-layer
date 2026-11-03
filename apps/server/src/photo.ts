@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import { renderRoomAsync } from './workers/compute.js';
 import { createHash, randomUUID } from 'node:crypto';
 import sharp from 'sharp';
 import { z } from 'zod';
@@ -22,7 +23,6 @@ import {
   floorSolid,
   layoutRoom,
   refineWalls,
-  renderRoom,
   sceneSolids,
   thingSolids,
   type LayoutInput,
@@ -45,7 +45,13 @@ import {
 import type { Config } from './config.js';
 import { LabError, parseInput } from './errors.js';
 import { demoPhotoCheck, demoPhotoInventory, demoPhotoSegmentation } from './demo.js';
-import { maskedCrop, validateImage, type ValidatedImage } from './images.js';
+import {
+  maskedCrop,
+  mediaTypeOf,
+  samDataUrl,
+  validateImage,
+  type ValidatedImage,
+} from './images.js';
 import { demoPhoto, type Runner } from './item.js';
 import { SPARK_BUDGET, type MetaAdapter } from './meta.js';
 import type { EvidenceStore } from './store.js';
@@ -88,7 +94,7 @@ async function renderScene(
   calibration: RoomCalibration,
   things: PhotoLayout['things'] = [],
 ) {
-  const picture = renderRoom(calibration.camera, [
+  const picture = await renderRoomAsync(calibration.camera, [
     floorSolid(scene.grid),
     ...sceneSolids(scene),
     ...thingSolids(things.filter((t) => t.status === 'object')),
@@ -173,7 +179,14 @@ export function photoRoutes(
         sourceKey: live ? createHash('sha256').update(photo).digest('hex') : demoSourceKey(),
       },
       assets: live
-        ? [store.asset(sid, 'source.png', photo), store.asset(sid, 'sam-output.txt', raw ?? '')]
+        ? [
+            store.asset(
+              sid,
+              `source.${mediaTypeOf(photo) === 'image/webp' ? 'webp' : 'png'}`,
+              photo,
+            ),
+            store.asset(sid, 'sam-output.txt', raw ?? ''),
+          ]
         : [store.asset(sid, 'synthetic-sam.txt', raw ?? '')],
     };
     store.save(segment);
@@ -227,7 +240,7 @@ export function photoRoutes(
     let raw: string;
     if (image) {
       const result = await meta.segmentBoxes(
-        image.dataUrl,
+        await samDataUrl(image),
         prompts,
         frame.width,
         frame.height,
@@ -339,7 +352,7 @@ export function photoRoutes(
             .filter((p): p is typeof p & { box: NonNullable<typeof p.box> } => Boolean(p.box));
           if (more.length) {
             const extra = await meta.segmentBoxes(
-              image.dataUrl,
+              await samDataUrl(image),
               more,
               frame.width,
               frame.height,
@@ -501,7 +514,7 @@ export function photoRoutes(
             `This frame is ${frame.width} × ${frame.height}, but the room’s camera was calibrated on ${width} × ${height} frames. Send a frame from that camera, or calibrate again.`,
             409,
           );
-        const assets = image ? [store.asset(id, 'source.png', image.bytes)] : [];
+        const assets = image ? [store.asset(id, `source.${image.ext}`, image.bytes)] : [];
         await job.done(
           'photo',
           image
@@ -600,7 +613,7 @@ export function photoRoutes(
         const image = live ? await validateImage(input.imageDataUrl) : null;
         const photo = image ? image.bytes : await demoPhoto();
         const frame = image ? { width: image.width, height: image.height } : { ...DEMO_FRAME };
-        const assets = image ? [store.asset(id, 'source.png', image.bytes)] : [];
+        const assets = image ? [store.asset(id, `source.${image.ext}`, image.bytes)] : [];
         await job.done(
           'photo',
           image

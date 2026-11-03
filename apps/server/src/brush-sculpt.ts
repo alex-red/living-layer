@@ -1,4 +1,5 @@
 import sharp from 'sharp';
+import { renderRoomAsync } from './workers/compute.js';
 import {
   BRUSH_SCULPT_PARTS,
   brushSculptPrompt,
@@ -6,7 +7,6 @@ import {
   floorSolid,
   recipeFromSculpt,
   recipeToSculpt,
-  renderRoom,
   sceneSolids,
   sceneWithRecipe,
   type Bits,
@@ -82,7 +82,7 @@ export async function shapeFromPhoto({
     const solids = sceneSolids(sceneWithRecipe(scene, r, place)).filter(
       (s) => s.id === 'candidate',
     );
-    const pic = renderRoom(camera, [floorSolid(scene.grid), ...solids]);
+    const pic = await renderRoomAsync(camera, [floorSolid(scene.grid), ...solids]);
     return sharp(Buffer.from(pic.rgba), {
       raw: { width: pic.width, height: pic.height, channels: 4 },
     })

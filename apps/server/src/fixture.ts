@@ -88,7 +88,7 @@ import {
   demoPhotoSegmentation,
   demoReference,
 } from './demo.js';
-import { maskedCrop, validateImage } from './images.js';
+import { maskedCrop, samDataUrl, validateImage } from './images.js';
 import {
   cropInput,
   demoPhoto,
@@ -299,7 +299,11 @@ export async function around(
 export function roomPhotoBytes(memory: DeskMemory, store: EvidenceStore): Buffer | null {
   if (memory.surface?.scene !== 'custom') return null;
   const drawn = memory.illustration?.asset.split('/')[0];
-  for (const asset of [memory.scenePhoto, drawn && `${drawn}/source.png`]) {
+  for (const asset of [
+    memory.scenePhoto,
+    drawn && `${drawn}/source.webp`,
+    drawn && `${drawn}/source.png`,
+  ]) {
     const bytes = asset ? store.readAsset(asset) : null;
     if (bytes) return bytes;
   }
@@ -782,14 +786,14 @@ export function fixtureRoutes(
           await listedPreview(png, frame, scan.things),
           SCAN_PREVIEW,
         );
-        const assets = image ? [store.asset(id, 'source.png', image.bytes)] : [];
+        const assets = image ? [store.asset(id, `source.${image.ext}`, image.bytes)] : [];
         // 2. SAM outlines every thing from Spark's box, in one call.
         job.run('outline');
         const outlined = await outlinedThings(
           { meta, store },
           scan,
           frame,
-          image?.dataUrl ?? null,
+          image ? await samDataUrl(image) : null,
           id,
           assets,
           job.signal,
@@ -1884,7 +1888,7 @@ export function fixtureRoutes(
         image.height,
       );
       const outlined = await meta.segmentBoxes(
-        image.dataUrl,
+        await samDataUrl(image),
         [{ id: 1, box }],
         image.width,
         image.height,
@@ -1897,7 +1901,7 @@ export function fixtureRoutes(
           sourceKey: createHash('sha256').update(image.bytes).digest('hex'),
         },
         assets: [
-          store.asset(runId, 'source.png', image.bytes),
+          store.asset(runId, `source.${image.ext}`, image.bytes),
           store.asset(runId, 'sam-output.txt', outlined.raw),
         ],
       };

@@ -7,7 +7,7 @@ import { parseConfig, type Fetcher } from '../apps/server/src/config.js';
 import { EvidenceStore } from '../apps/server/src/store.js';
 import { demoSegmentation } from '../apps/server/src/demo.js';
 import { decodeSegmentation, syntheticStream } from '../apps/server/src/sam.js';
-import { validateImage } from '../apps/server/src/images.js';
+import { findSource, mediaTypeOf, samDataUrl, validateImage } from '../apps/server/src/images.js';
 import { buildApp } from '../apps/server/src/app.js';
 import { ControlAdapter } from '../apps/server/src/control.js';
 import { MetaAdapter } from '../apps/server/src/meta.js';
@@ -118,9 +118,26 @@ describe('configuration, budget, and images', () => {
     const image = await validateImage(`data:image/jpeg;base64,${bytes.toString('base64')}`);
     expect(image.width).toBe(32);
     expect(image.height).toBe(24);
-    expect(image.dataUrl).toMatch(/^data:image\/png/);
+    expect(image.dataUrl).toMatch(/^data:image\/webp/);
     await expect(validateImage('https://example.com/image.png')).rejects.toThrow();
     await expect(validateImage('data:image/png;base64,aaaaaaaaaaaaaaaaaaaa')).rejects.toThrow();
+  });
+  it('stores frames as lossless WebP whose decoded pixels equal the PNG path', async () => {
+    const raw = Buffer.alloc(40 * 30 * 3);
+    for (let i = 0; i < raw.length; i++) raw[i] = (i * 37) % 251;
+    const png = await sharp(raw, { raw: { width: 40, height: 30, channels: 3 } })
+      .png()
+      .toBuffer();
+    const image = await validateImage(`data:image/png;base64,${png.toString('base64')}`);
+    expect(image.ext).toBe('webp');
+    expect(mediaTypeOf(image.bytes)).toBe('image/webp');
+    const pixels = (b: Buffer) => sharp(b).removeAlpha().raw().toBuffer();
+    expect(Buffer.compare(await pixels(image.bytes), await pixels(png))).toBe(0);
+    // SAM is sent a PNG, and old PNG evidence reads as PNG.
+    expect((await samDataUrl(image)).startsWith('data:image/png;base64,')).toBe(true);
+    expect(mediaTypeOf(png)).toBe('image/png');
+    expect(findSource(['a/sam-output.txt', 'a/source.png'])).toBe('a/source.png');
+    expect(findSource(['a/source.webp'])).toBe('a/source.webp');
   });
   it('validates bounded scene structure', () => {
     expect(

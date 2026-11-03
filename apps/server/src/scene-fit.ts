@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import { renderRoomAsync } from './workers/compute.js';
 import { z } from 'zod';
 import {
   calibrationOf,
@@ -12,7 +13,6 @@ import {
   ISO_TILE_CM,
   isoSceneSchema,
   modeSchema,
-  renderRoom,
   roomMask,
   sceneSolids,
   type IsoScene,
@@ -21,7 +21,7 @@ import {
 } from '@livinglayer/domain';
 import { samWhole } from './assist.js';
 import { LabError, parseInput } from './errors.js';
-import { validateImage } from './images.js';
+import { samDataUrl, validateImage } from './images.js';
 import type { Runner } from './item.js';
 import type { MetaAdapter } from './meta.js';
 import { NOT_CALIBRATED } from './photo.js';
@@ -66,7 +66,7 @@ export function sceneFitRoutes(
     const outlined = await run('segment', mode, async (id) => {
       if (mode === 'demo') {
         // The demo's frame is its own room drawn through its camera.
-        const picture = renderRoom(
+        const picture = await renderRoomAsync(
           DEMO_CAMERA,
           [floorSolid(DEMO_ROOM.grid), ...sceneSolids(DEMO_ROOM)],
           { labels: true },
@@ -82,12 +82,17 @@ export function sceneFitRoutes(
           `This frame is ${image.width} × ${image.height}, but the room’s camera was calibrated on ${width} × ${height} frames.`,
           409,
         );
-      const result = await meta.segmentBoxes(image.dataUrl, [{ id: 1, box }], width, height);
+      const result = await meta.segmentBoxes(
+        await samDataUrl(image),
+        [{ id: 1, box }],
+        width,
+        height,
+      );
       outline = samWhole(result.output, { width, height });
       return {
         ...result,
         assets: [
-          store.asset(id, 'source.png', image.bytes),
+          store.asset(id, `source.${image.ext}`, image.bytes),
           store.asset(id, 'sam-output.txt', result.raw),
         ],
       };

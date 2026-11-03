@@ -716,7 +716,7 @@ describe('photo routes, live with a mocked Meta API', () => {
     expect(run.output.modelFrom.mug).toBe('catalog');
     expect(run.output.crops.mug).toMatch(/crop-mug.png$/);
     expect(run.usage?.totalTokens).toBe(240);
-    expect(run.assets.some((a) => a.endsWith('/source.png'))).toBe(true);
+    expect(run.assets.some((a) => a.endsWith('/source.webp'))).toBe(true);
     await s.app.close();
   });
   it('goes on without Spark’s check when the check fails', async () => {

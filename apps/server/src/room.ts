@@ -33,7 +33,7 @@ import {
 import { LabError, parseInput } from './errors.js';
 import { demoPng, demoSegmentation } from './demo.js';
 import { lumaOf } from './frames.js';
-import { validateImage, type ValidatedImage } from './images.js';
+import { samDataUrl, validateImage, type ValidatedImage } from './images.js';
 import type { Runner } from './item.js';
 import type { MetaAdapter } from './meta.js';
 import type { EvidenceStore } from './store.js';
@@ -85,7 +85,12 @@ export async function findFloorMarks(
           assets: [store.asset(id, 'synthetic-sam.txt', result.raw)],
         };
       }
-      const result = await meta.segment(image.dataUrl, concept, image.width, image.height);
+      const result = await meta.segment(
+        await samDataUrl(image),
+        concept,
+        image.width,
+        image.height,
+      );
       return {
         ...result,
         output: {
@@ -93,7 +98,7 @@ export async function findFloorMarks(
           sourceKey: createHash('sha256').update(image.bytes).digest('hex'),
         },
         assets: [
-          store.asset(id, 'source.png', image.bytes),
+          store.asset(id, `source.${image.ext}`, image.bytes),
           store.asset(id, 'sam-output.txt', result.raw),
         ],
       };

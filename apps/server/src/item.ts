@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import { fitItemAsync } from './workers/compute.js';
 import sharp from 'sharp';
 import { z } from 'zod';
 import {
@@ -8,7 +9,6 @@ import {
   archetypeOf,
   buildItem,
   describeFit,
-  fitItem,
   fuseFits,
   isMugConcept,
   isoItemSchema,
@@ -37,7 +37,7 @@ import {
 } from '@livinglayer/domain';
 import { demoMugCloseUp, demoPng } from './demo.js';
 import { LabError, parseInput } from './errors.js';
-import { detectionBits, maskedCrop } from './images.js';
+import { detectionBits, findSource, maskedCrop } from './images.js';
 import type { MetaAdapter, ProviderResult } from './meta.js';
 import { requestSignal } from './request-signal.js';
 import type { EvidenceStore } from './store.js';
@@ -83,7 +83,7 @@ export async function itemCrop(
     const close = await demoMugCloseUp(DEMO_POSITIONS[position] ? position : 'centre');
     return maskedCrop(close.png, close.detection);
   }
-  const photo = segment.assets.find((a) => a.endsWith('/source.png'));
+  const photo = findSource(segment.assets);
   const bytes = photo ? store.readAsset(photo) : null;
   if (!bytes) throw new LabError('item_source', 'The photo behind this sighting is missing.', 409);
   return maskedCrop(bytes, detection);
@@ -220,7 +220,7 @@ export async function draftModel(
     parts,
     knownHeight,
   };
-  const fitted = fitItem(input);
+  const fitted = await fitItemAsync(input);
   let params = fitted.params;
   let item = fitted.item;
   let score = fitted.score;
@@ -409,7 +409,7 @@ export function itemRoutes(
     const input = { ...(await cropInput(png, target.label)), archetype: fit.archetype, material };
     // A flat thing's height can't be measured from above: keep the one it has.
     const knownHeight = fit.params.family === 'flat' ? fit.params.h : null;
-    const fitted = fitItem({ ...input, elevation: fit.elevation, knownHeight });
+    const fitted = await fitItemAsync({ ...input, elevation: fit.elevation, knownHeight });
     const refitted = keepLocked(fitted.item, item ?? target.item);
     const score = scoreAgainst(refitted, input, fitted.elevation);
     const memory = store.memory(mode);

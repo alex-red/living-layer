@@ -8,7 +8,7 @@ import { LabError, parseInput } from './errors.js';
 export interface JobHistory {
   saveJob(job: Job): void;
   getJob(id: string): Job | undefined;
-  listJobs(): Job[];
+  listJobs(options?: { pictures?: boolean }): Job[];
 }
 
 /** How long a finished or abandoned job stays readable. */
@@ -224,10 +224,7 @@ export function jobRoutes(app: FastifyInstance, jobs: Jobs, history: JobHistory)
       z.object({ pictures: z.enum(['0', '1']).default('0') }).strict(),
       request.query,
     );
-    const list = history.listJobs();
-    // The list is light: each step's picture is fetched with its job.
-    return pictures === '1'
-      ? list
-      : list.map((j) => ({ ...j, steps: j.steps.map(({ image: _i, ...s }) => s) }));
+    // The list is light: each step's picture is fetched with its job (dropped in SQL).
+    return history.listJobs({ pictures: pictures === '1' });
   });
 }
