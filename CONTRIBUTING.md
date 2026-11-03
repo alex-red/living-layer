@@ -20,7 +20,7 @@ bun run ci
 bun run test:browser   # if you touched the UI
 ```
 
-`ci` runs oxfmt, `tsrs` (TypeScript 7.1), `bun test`, and the web build. CI runs the same commands. The browser tests run Playwright on Node 24 (see `.nvmrc`).
+`ci` runs oxfmt, `tsrs` (TypeScript 7.1), oxlint (warnings fail it), the tests in four processes (`bun run test:fast`), and the web build. CI runs the same commands. The browser tests run Playwright on Node 24 (see `.nvmrc`).
 
 A few conventions:
 

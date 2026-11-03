@@ -20,24 +20,52 @@ Demo and live have separate desk memory. Demo runs never count toward the live c
 
 ## Server
 
-| File              | Responsibility                                                                                                                                                |
-| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `app.ts`          | Routes for the single model and lamp calls (`text`, `discover`, `segment`, `lamp`), loopback host/origin checks, and recording each run as an evidence record |
-| `desk.ts`         | The placement workflow: select a mug, track it, save a zone, mark the camera fixed, verify, reset                                                             |
-| `meta.ts`         | Spark (structured JSON output) and SAM (streamed) through the OpenAI-compatible SDK, with retries disabled                                                    |
-| `sam.ts`          | Runs the SAM stream through `@meta-sam/parser` and rejects anything incomplete, mismatched, or oversized                                                      |
-| `control.ts`      | Turns one light or switch on or off through Home Assistant, then polls its state to see whether it matches                                                    |
-| `fixture.ts`      | The fixture routes: draft from a photo, scan and map the room's things, sculpt, refit from more photos, save, find, control; the job routes                   |
-| `assist.ts`       | The AI brush: reads a typed request into recipe ops, builds them against the scene, checks the result, and saves it                                           |
-| `watcher.ts`      | Watches the camera between SAM looks: the local tracker, re-anchoring, the live events stream, and the demo's watch                                           |
-| `jobs.ts`         | Long jobs the page follows by id: their steps and pictures, the history, and stopping one                                                                     |
-| `photo.ts`        | Drafts a scene and its objects from one frame of the calibrated room camera, and sets up a room from it                                                       |
-| `illustration.ts` | The room's picture: illustrates it, lifts fixtures off it as sprites over a base, and puts them back                                                          |
-| `store.ts`        | SQLite tables for evidence, desk memory, placement claims, the spend ledger and settings                                                                      |
-| `expose.ts`       | Entities shown in Home Assistant: works out their states, keeps the broker's retained topics in step, the lab's routes                                        |
-| `mqtt-control.ts` | Lights and switches switched over MQTT (`MQTT_DEVICES`): one command, then the device's own report                                                            |
-| `mqtt.ts`         | One MQTT connection: last will, Home Assistant's birth message, retained publishes                                                                            |
-| `errors.ts`       | `LabError`, and mapping upstream failures to generic messages so provider errors never leak keys or inputs                                                    |
+`buildApp` (`app.ts`) creates the shared pieces once (the store, the Meta adapter, `run`, the jobs, the desk service, switching) and registers one Fastify plugin per resource under its URL prefix: `/api/desk`, `/api/fixtures`, `/api/scene`, `/api/item`, `/api/room`, `/api/jobs`, `/api/cameras`, `/api/streams` and so on. Each plugin takes what it needs from `RouteDeps` (`route-deps.ts`). `tests/routes.test.ts` pins every method and path, so a route that moves or disappears fails a test.
+
+Route request bodies are zod schemas in `packages/domain/src/requests.ts`, shared with the web, which types its calls through the route table in `routes.ts`. Errors go through `LabError`: anything else is logged with its stack and answered as `internal`, and only SDK and network failures count as `upstream_failure`.
+
+| File                 | Responsibility                                                                                                                         |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `app.ts`             | Builds the app: the shared pieces, loopback host/origin checks, the error handler, and every plugin under its prefix                   |
+| `route-deps.ts`      | `RouteDeps`, what a plugin may use                                                                                                     |
+| `runs.ts`            | `run()`: one operation recorded as an evidence run (output, assets, model, usage, time), typed by its kind; a failure carries its id   |
+| `request-signal.ts`  | A signal per request that aborts when the client goes away, passed through `run()` to model calls                                      |
+| `desk.ts`            | `createDesk`, the placement service (busy check, tracking, zones judged by SAM or locally, rules), and the `/api/desk` routes          |
+| `fixture.ts`         | The fixture routes and their services, each a sequence of named steps: draft from a photo, scan and map the room, sculpt, refit, save  |
+| `scene.ts`           | `/api/scene`: saving, fitting and drafting scenes, and saving a room drafted from a photo                                              |
+| `text.ts`            | The connection check: one small model request                                                                                          |
+| `discover.ts`        | Names what a photo shows, with no layout                                                                                               |
+| `segment.ts`         | One SAM segmentation, for the lab's button or the watcher                                                                              |
+| `lamp.ts`            | The by-hand switch, over MQTT or Home Assistant                                                                                        |
+| `settings.ts`        | The daily spending limit                                                                                                               |
+| `meta.ts`            | Spark (structured JSON output, one `structured()` call for every kind, limits from `SPARK_CALLS`) and SAM (streamed), retries disabled |
+| `sam.ts`             | Runs the SAM stream through `@meta-sam/parser` and rejects anything incomplete, mismatched, or oversized                               |
+| `images.ts`          | Validates uploads and stores frames as lossless WebP (`FRAME_FORMAT=png` for PNG); SAM is sent PNG, converted when sent                |
+| `workers/compute.ts` | Fits and room renders in a small Bun Worker pool, so a scan never holds the event loop (`COMPUTE_WORKERS`, 0 in tests)                 |
+| `control.ts`         | Turns one light or switch on or off through Home Assistant, then polls its state to see whether it matches                             |
+| `assist.ts`          | The AI brush: reads a typed request into recipe ops, builds them against the scene, checks the result, and saves it                    |
+| `watcher.ts`         | Watches the camera between SAM looks: the local tracker, re-anchoring, zones judged where a thing is followed, the live events stream  |
+| `jobs.ts`            | Long jobs, one `Jobs` per app: their steps and pictures, the history, stopping one, and `/api/jobs/:id/events` for their progress      |
+| `photo.ts`           | Drafts a scene and its objects from one frame of the calibrated room camera, and sets up a room from it                                |
+| `illustration.ts`    | The room's picture: illustrates it, lifts fixtures off it as sprites over a base, and puts them back                                   |
+| `store.ts`           | SQLite: evidence, desk memory (parsed with `deskMemorySchema`), placement claims, the spend ledger, settings; migrations and pruning   |
+| `expose.ts`          | Entities shown in Home Assistant: works out their states, keeps the broker's retained topics in step, the lab's routes                 |
+| `mqtt-control.ts`    | Lights and switches switched over MQTT (`MQTT_DEVICES`): one command, then the device's own report                                     |
+| `mqtt.ts`            | One MQTT connection: last will, Home Assistant's birth message, retained publishes                                                     |
+| `errors.ts`          | `LabError`, the shared route checks (`liveImage`, `requireFrame`, `requireCalibration`), and mapping failures to safe messages         |
+
+**Stored data.** Schema changes are migrations gated by `PRAGMA user_version`, so each runs once. Evidence (runs, jobs and their pictures under `DATA_DIR/evidence`) older than `EVIDENCE_RETENTION_DAYS` (30 by default, 0 keeps everything) is deleted at startup and then daily, except runs the desk still refers to. Captured rooms in `.data/rooms` are never touched.
+
+## Web
+
+- **State.** `LabProvider` (`workspace/useLabState.ts`) composes one hook per slice under `workspace/state/` (view, desk, camera, fixtures, calibration, AI tasks, the run log and so on), each with its own interface and context. A pane reads only the slices it uses (`useLabParts(useView(), …)`), and `useStableSlice` keeps a slice's identity until a value in it changes, so a pane renders for changes it can see. Fast-changing values (the 10 Hz follow box, an AI task's progress) live in small stores outside React (`state/store.ts`) that only their readers subscribe to. A clock a pane shows is its own `useNow()`.
+- **Calls.** `api()` (`api.ts`) types each call from the domain's route table, with a `method` option, `apiAt` for paths built at run time and `apiBlob` for files. A job's progress comes over its event stream (`state/follow-job.ts`), polling only if that fails.
+- **Sprites** are drawn in a Worker (`iso/sprite.worker.ts`) and served as object URLs from a least-recently-used cache (`iso/sprites.ts`); `useItemSprite` and its siblings keep the last image until the new one is ready.
+- **Chunks.** The editors, dialogs and the Playground load on first use (`React.lazy`); React has its own chunk, and the domain package is marked free of side effects so unused modules drop out.
+
+## Domain package
+
+`packages/domain` is pure TypeScript shared by the server, the web, the scripts and the tests. `index.ts` only re-exports. Beside the models and algorithms it holds the wire types (`api.ts`), prices (`cost.ts`), desk memory and its schema (`memory.ts`), zone rules (`rules.ts`), route request schemas (`requests.ts`), the web's route table (`routes.ts`), run outputs typed by kind (`run-outputs.ts`), shared numeric helpers (`math.ts`) and the room bench's cases (`room-cases.ts`). The kernel's hot loops (`voxelize`, `renderSprite`, `renderRoom`, `refineFit`) avoid allocating per voxel or pixel; a change there must leave the goldens and the benches as they were.
 
 ## Placement rule
 

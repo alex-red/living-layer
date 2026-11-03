@@ -51,6 +51,8 @@ The lamp is virtual in this mode and nothing leaves your machine.
 
 Copy `.env.example` to `.env` and fill in what you need. Restart the server after editing it.
 
+The server keeps 30 days of runs and their pictures in `DATA_DIR` and deletes older ones at startup and daily, except what the desk still uses. `EVIDENCE_RETENTION_DAYS=0` keeps everything.
+
 | Variable                                 | Purpose                                                                                                                                |
 | ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
 | `MODEL_API_KEY`                          | Meta API key. Stays on the server and is never sent to the browser.                                                                    |
@@ -99,7 +101,7 @@ Its RTSP output is what lets the server watch it with no tab open: choose it as 
 ## Development
 
 ```sh
-bun run ci             # format, typecheck, unit tests, web build
+bun run ci             # format, typecheck, lint, unit tests (sharded), web build
 bun run test:browser   # Playwright, after `bunx playwright install chromium`
 bun run test:browser:strict  # the same with tighter waits, to catch what CI's slower runner would fail
 bun run format

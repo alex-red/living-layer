@@ -10,7 +10,9 @@ What isn't obvious from the code. [CONTRIBUTING.md](CONTRIBUTING.md) has setup, 
 - When a check fails for no reason you can see, run `git status --short`: another session's half-done edit may be on disk. `bun run verify --at staged` or `--at <ref>` judges a snapshot in a clean worktree.
 - Commit summaries stay under about 60 characters (Conventional Commits); put the detail in the body.
 - Types are checked by `tsrs` against TypeScript 7.1 (`bun run typecheck`). Bun's own `bun check` is quicker but passes errors 7.1 reports, so it doesn't stand in for it.
-- `bun run verify` checks format, types, tests, the benches and the colour audit in about a minute, as one summary; `bun run commit` runs it for you.
+- `bun run verify` checks format, types, lint, tests, the benches, the colour audit and unused exports in about 20 seconds, its steps side by side, as one summary; `bun run commit` runs it for you. Lint fails on any warning (`oxlint --deny-warnings`, hooks rules included).
+- `bun run test:fast` runs the tests in four processes, dealt by each file's last time (`scripts/test-times.json`; `--record` refreshes it). A file over about 5 s sets the floor for the whole run: share setup or split it. A test that is slow on its own gets an explicit timeout, since under load it crosses bun's 5 s default.
+- `bun run dead-exports` lists exports nothing else imports, and verify reports the count (0 now). Un-export or delete what it names rather than ignoring it.
 - Format with `bun run format` or `bunx oxfmt <files>`, never Prettier.
 - Before merging another session's branch, run `bun run verify --at <merge> --against main`. When you brief a side session, ask it to work in a worktree from the latest `main` and check `bun run bench:at main room` before it reports, since `main` may have moved.
 
@@ -30,6 +32,15 @@ What isn't obvious from the code. [CONTRIBUTING.md](CONTRIBUTING.md) has setup, 
 - The demo is the office rendered through `DEMO_CAMERA` (`demo-room.ts`): its frames, SAM masks, pin and the mug's close-up all come from that render. A demo mask is exactly what the frame shows, so test against `demoSegmentation`, not hand-written boxes.
 - A saved camera or the phone may keep a zoomed view (`crop`): its frames arrive already cut, so the calibrated `RoomCamera` is the crop's, with its principal point off centre. Never assume `cx`, `cy` is the frame's middle.
 - Across a room a mug is about 17 × 23 pixels. Anything that models or recognises one thing (the item fitter, the appearance layer) needs a close photo or a zoomed crop of it, not the whole frame.
+
+## Server and web
+
+- A new route goes in its resource's plugin. Its request schema goes in `packages/domain/src/requests.ts`, the web's call in the route table (`routes.ts`), and its method and path in `tests/routes.test.ts`, which pins every route in sorted order.
+- Never hold desk memory across an `await`: read and write it in one step with `store.updateMemory(mode, fn)`. A memory read before a slow call and saved after it drops whatever was saved meanwhile.
+- New lab state goes in a slice under `apps/web/src/workspace/state/`, not in `useLabState.ts`, which only composes them. Anything that changes several times a second goes in a store (`state/store.ts`) read by the components that show it.
+- In the kernel's hot loops (`voxelize`, `renderSprite`, `renderView`, `renderRoom`) don't allocate per voxel or pixel. Two-argument `Math.hypot` stays: `Math.sqrt` rounds differently there and moved the stored normals.
+- Fits and room renders run in Bun Workers (`COMPUTE_WORKERS`). Tests run them in place, so a worker-only bug only shows in the running server.
+- The server deletes evidence older than `EVIDENCE_RETENTION_DAYS` (30) at startup and daily. A probe or bench that needs an old run should copy what it needs or set it to 0.
 
 ## Look before and after
 

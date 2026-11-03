@@ -1,5 +1,7 @@
 # Refactor and speed-up · November 2, 2026
 
+_Status: done, on `main` since November 3. Each item's `_Landed:_` note says what was measured and what was left as it was, and why._
+
 Where the code is slow, fragile or hard to work in, and what to do about each, in the order that pays. Measured at `faedf5c` on a 12-core Mac. The kernel timings come from patched copies in a scratch folder, not from the tree, so re-measure each one as it lands.
 
 Submission is November 4 at 7 PM Edmonton time ([current.md](current.md)). Everything marked **now** changes no behaviour (or fixes a bug), is small, and has a check that says whether it held. Everything marked **later** reshapes code or changes what a model sees, and waits until after the submission.
