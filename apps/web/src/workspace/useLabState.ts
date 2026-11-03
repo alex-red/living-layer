@@ -1974,6 +1974,16 @@ export function useLabState() {
     });
   }
   /**
+   * Click a surface's corners on the frame the camera shows now, or the
+   * current photo. The camera stops on that frame while the corners are set.
+   */
+  function pinHere(target: NonNullable<typeof pinning>) {
+    if (!frameNow() && mode === 'live') return;
+    if (camera) (tracking || watching ? dropCamera : stopCamera)();
+    setDrawing(false);
+    setPinning(target);
+  }
+  /**
    * The camera was taken to have moved but its calibration still holds: the
    * frame it shows now is what later frames are compared with, and zones apply
    * again (redraw any that no longer fit).
@@ -2926,6 +2936,7 @@ export function useLabState() {
     cameraFrame,
     calibrateByHand,
     calibrateHere,
+    pinHere,
     keepCameraView,
     zoomable: zoomable(),
     startZooming,

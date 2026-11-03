@@ -471,7 +471,8 @@ function SurfacePanel({ id, closeView }: { id: string; closeView?: boolean }) {
     );
   const label = row.surface.label.toLowerCase();
   const demoPin = mode === 'demo' && !memory?.surface && row.pinned;
-  const needPhoto = mode === 'live' && !image;
+  // A running camera's frame is a photo too: pinning takes it.
+  const needPhoto = mode === 'live' && !image && !lab.camera;
   const title = closeView && progress.view ? viewLabel(progress.view) : row.surface.label;
   // The room's calibrated camera sees every surface of the room; a close view has its own camera.
   const findable = !closeView && Boolean(memory?.camera || mode === 'demo');
@@ -546,11 +547,10 @@ function SurfacePanel({ id, closeView }: { id: string; closeView?: boolean }) {
         )}
         <Button
           variant={row.pinned || needPhoto || findable ? 'secondary' : 'primary'}
-          disabled={Boolean(busy) || Boolean(pinning) || lab.camera || needPhoto}
-          onClick={() => {
-            lab.setDrawing(false);
-            lab.setPinning({ scene: pinScene(row.scene), surfaceId: row.surface.id, label });
-          }}
+          disabled={Boolean(busy) || Boolean(pinning) || needPhoto}
+          onClick={() =>
+            lab.pinHere({ scene: pinScene(row.scene), surfaceId: row.surface.id, label })
+          }
         >
           {row.pinned && memory?.surface ? 'Re-pin surface' : 'Pin surface'}
         </Button>
