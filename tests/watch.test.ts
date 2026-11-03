@@ -7,6 +7,7 @@ import { Appearance, appearanceModelPath } from '../apps/server/src/appearance.j
 import { DemoSource, FfmpegSource, LUMA_WIDTH } from '../apps/server/src/frames.js';
 import { demoSegmentation } from '../apps/server/src/demo.js';
 import { watchersOf } from '../apps/server/src/app.js';
+import { EvidenceStore } from '../apps/server/src/store.js';
 import {
   appearanceRegion,
   cropMask,
@@ -311,7 +312,7 @@ describe('where a fixture shows in the frame', () => {
 });
 
 async function setup() {
-  const { app, post, memory } = await testApp({
+  const { app, post, memory, dataDir } = await testApp({
     name: 'watch',
     appearance: async () => null,
     browseCameras: async () => [],
@@ -321,7 +322,7 @@ async function setup() {
     await post('watch/demo', { position, mode: undefined });
     await watcher.idle();
   };
-  return { app, post, memory, watcher, move };
+  return { app, post, memory, dataDir, watcher, move };
 }
 
 describe('the server watching the demo desk', () => {
@@ -524,6 +525,46 @@ describe('the server watching the demo desk', () => {
     });
     expect(moved.statusCode, moved.body).toBe(200);
     expect(moved.json<DeskMemory>().fixtures![0]!.track).toBeUndefined();
+    await s.app.close();
+  });
+
+  it('draws a missing fixture as seen again once it is followed with no SAM call', async () => {
+    const s = await setup();
+    const saved = (
+      await s.post('fixtures/save', {
+        fixture: {
+          label: 'Mug lamp',
+          scene: 'desk',
+          surfaceId: 'desk:top',
+          at: { x: 1, y: 1 },
+          turns: 0,
+          size: { w: 0.5, d: 0.5, h: 0.5 },
+          model: { label: 'mug', parts: mugItem().parts },
+          reference: null,
+          control: { kind: 'none' },
+        },
+      })
+    ).json<DeskMemory>();
+    const id = saved.fixtures![0]!.id;
+    const segment = (await s.post('segment', { concept: 'mug' })).json<EvidenceRun<Segmentation>>();
+    await s.post('fixtures/anchor', { id, segmentRunId: segment.id, detectionId: '7' });
+    await s.app.inject({
+      method: 'POST',
+      url: '/api/settings/tracking-ai',
+      payload: { on: false },
+    });
+    // Lost earlier, as when something stood in front of it.
+    new EvidenceStore(s.dataDir).updateMemory('demo', (m) => {
+      m.fixtures![0]!.track!.status = 'missing';
+    });
+    await s.post('watch', { on: true });
+    await s.watcher.idle();
+    expect(s.watcher.view().things).toEqual([expect.objectContaining({ id, status: 'missing' })]);
+    // Moved where it was: its old place is matched again, on this machine.
+    await s.move('right');
+    await s.move('centre');
+    expect(s.watcher.view().things).toEqual([expect.objectContaining({ id, status: 'following' })]);
+    expect((await s.memory()).fixtures![0]!.track!.status).toBe('seen');
     await s.app.close();
   });
 

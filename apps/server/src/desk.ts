@@ -635,6 +635,18 @@ export function createDesk(
     fixture.track.status = 'missing';
     store.saveMemory(memory);
   }
+  /** The watcher found a fixture it had lost, by itself: no longer drawn as missing. */
+  function findFixture(mode: Mode, fixtureId: string) {
+    const lost = (memory: DeskMemory) => {
+      const track = memory.fixtures?.find((f) => f.id === fixtureId)?.track;
+      return track?.status === 'missing' ? track : null;
+    };
+    if (!lost(store.memory(mode))) return;
+    store.updateMemory(mode, (memory) => {
+      const track = lost(memory);
+      if (track) track.status = 'seen';
+    });
+  }
   /** The mug is this mask of the newest mug segmentation, by hand. */
   function selectMug(mode: Mode, segmentRunId: string, detectionId: string) {
     available(mode);
@@ -703,6 +715,7 @@ export function createDesk(
     trackFixture,
     anchorFixture,
     loseFixture,
+    findFixture,
     verifyRules,
     placeLocally,
     latestMugSegmentation,

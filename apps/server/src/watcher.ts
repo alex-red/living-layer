@@ -736,6 +736,7 @@ export class Watcher {
       this.pace,
       this.held,
     )) {
+      this.found(this.things.get(id), step.thing);
       this.things.set(id, step.thing);
       if (step.refind) this.refind(id);
       if (step.place) this.place(id);
@@ -881,7 +882,9 @@ export class Watcher {
         );
         const thing = this.things.get(id);
         if (clash || !thing) continue;
-        this.things.set(id, refound(thing, box, seen));
+        const next = refound(thing, box, seen);
+        this.found(thing, next);
+        this.things.set(id, next);
         this.closeSeen.set(id, { box, at: this.now });
         found.add(id);
       }
@@ -948,6 +951,16 @@ export class Watcher {
         ? `${who} can find the ${thing.subject.label}. Marked missing until something moves where it was, or it shows up elsewhere.`
         : `${who} can see the ${thing.subject.label} either. Looking again later.`,
     );
+  }
+  /**
+   * Followed again with no SAM call (its old place matched, or it was found by
+   * how it looks): a fixture the room drew as missing is seen again. Only SAM
+   * moves it in the room, so it stays where SAM last saw it.
+   */
+  private found(before: WatchThing | undefined, after: WatchThing) {
+    if (after.subject.kind !== 'fixture' || after.status !== 'following') return;
+    if (before?.status === 'following') return;
+    this.deps.tracking.findFixture(this.deps.mode, after.subject.id);
   }
   /** Judge a thing's zones where it is followed now, after any judgement still running. */
   private place(id: string) {
