@@ -7,9 +7,9 @@
  * light itself: either would otherwise set every zone off, and loop.
  *
  * Zones side by side contest a start: an arm reaching for one crosses its
- * neighbour first, so the first to move isn't the one touched. Once one of
- * them would start, they gather motion a moment and only the one that moved
- * most starts.
+ * neighbour first, so the first to move isn't the one touched. From the
+ * first motion among them they gather it a moment, the latest counting most,
+ * and only the one moving most by then starts: where the hand got to.
  */
 import { z } from 'zod';
 import { around, type UnitBox } from './tracker.js';
@@ -31,8 +31,12 @@ export const MOTION_ZONE = {
   lightShare: 0.25,
   /** How long motion is ignored after a motion zone switched something, ms. */
   settleMs: 2500,
-  /** How long neighbouring zones gather motion before the one that moved most starts, ms. */
-  contestMs: 800,
+  /** How long neighbouring zones gather motion, from the first, before one starts, ms. */
+  contestMs: 500,
+  /** Gathered motion halves in this long, so the latest counts most, ms. */
+  contestHalfLifeMs: 200,
+  /** A contest with a zone ready to start ends early once its group has been still this long, ms. */
+  contestQuietMs: 200,
   minShare: 0.01,
   maxShare: 0.5,
   maxQuietS: 600,
@@ -95,10 +99,17 @@ export interface MotionZone {
   /** Whether it has steps to run when motion starts, and when it stops. */
   steps: { started: boolean; stopped: boolean };
 }
-/** Neighbours deciding which of them starts: since when, and each one's motion so far. */
+/** Neighbours deciding which of them starts. */
 interface MotionContest {
+  /** When the first of them moved, and the last. */
   since: number;
+  movedAt: number;
+  /** When `sums` were last faded. */
+  at: number;
+  /** Each one's motion so far, fading. */
   sums: Record<string, number>;
+  /** Those that moved long enough to start on their own. */
+  ready: string[];
 }
 /** Every motion zone's state, and the contests open between neighbours (by their first zone). */
 export interface MotionZones {
@@ -133,10 +144,12 @@ function neighbourhoods(zones: readonly MotionZone[]): MotionZone[][] {
 
 /**
  * One frame's step for every motion zone, each zone's changed share in
- * `shares`. A zone alone steps as `nextMotion` says. A still zone with
- * neighbours that would start opens a contest instead: for `contestMs` the
- * still zones of its group add up the shares they move by, then the one with
- * the most starts and the rest stay still. Zones already moving aren't held.
+ * `shares`. A zone alone steps as `nextMotion` says. Still zones with
+ * neighbours contest a start instead: from the first frame one of them moves,
+ * for `contestMs` or until they have been still `contestQuietMs`, each adds
+ * up the shares it moves by, fading by half every `contestHalfLifeMs`. Then
+ * of those that moved long enough to start, the one with the most starts and
+ * the rest stay still. Zones already moving aren't held.
  * `settle` says whether a zone that started or stopped runs steps for it: only
  * then may a light have switched, for every zone to wait out.
  */
@@ -165,8 +178,11 @@ export function stepMotionZones(
   for (const group of neighbourhoods(zones)) {
     const key = group[0]!.id;
     const open = was.contests[key];
-    const sums = { ...open?.sums };
-    let starting = false;
+    const fade = open ? 0.5 ** ((now - open.at) / MOTION_ZONE.contestHalfLifeMs) : 1;
+    const sums: Record<string, number> = {};
+    for (const [id, sum] of Object.entries(open?.sums ?? {})) sums[id] = sum * fade;
+    const ready = new Set(open?.ready);
+    let moved = false;
     for (const zone of group) {
       const from = was.zones[zone.id] ?? STILL;
       const share = frame.shares[zone.id] ?? 0;
@@ -182,19 +198,25 @@ export function stepMotionZones(
         if (step.event) events.push({ id: zone.id, event: step.event });
         continue;
       }
-      if (!ignored && share >= zone.trigger.share) sums[zone.id] = (sums[zone.id] ?? 0) + share;
-      if (step.event === 'started') starting = true;
+      if (!ignored && share >= zone.trigger.share) {
+        sums[zone.id] = (sums[zone.id] ?? 0) + share;
+        moved = true;
+      }
+      if (step.event === 'started') ready.add(zone.id);
       state.zones[zone.id] = step.event ? { ...step.state, moving: false } : step.state;
     }
-    const since = open?.since ?? (starting ? now : null);
-    if (since === null) continue;
-    if (now - since < contestMs) {
-      state.contests[key] = { since, sums };
+    if (!open && !moved) continue;
+    const since = open?.since ?? now;
+    const movedAt = moved ? now : open!.movedAt;
+    const over =
+      now - since >= contestMs || (ready.size > 0 && now - movedAt >= MOTION_ZONE.contestQuietMs);
+    if (!over) {
+      state.contests[key] = { since, movedAt, at: now, sums, ready: [...ready] };
       continue;
     }
     let winner: MotionZone | null = null;
     for (const zone of group)
-      if (!state.zones[zone.id]!.moving && (sums[zone.id] ?? 0) > (winner ? sums[winner.id]! : 0))
+      if (ready.has(zone.id) && (sums[zone.id] ?? 0) > (winner ? sums[winner.id]! : 0))
         winner = zone;
     for (const zone of group)
       if (!state.zones[zone.id]!.moving)

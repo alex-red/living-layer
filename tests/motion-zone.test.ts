@@ -116,8 +116,19 @@ describe('motion zones side by side', () => {
       hand,
     ]);
     expect(events(frames)).toEqual(['blue started']);
-    // After the contest's time from when the arm first counted.
-    expect(frames.findIndex((f) => f.events.length)).toBe(1 + MOTION_ZONE.contestMs / 100);
+    // The contest's time from the arm's first frame.
+    expect(frames.findIndex((f) => f.events.length)).toBe(MOTION_ZONE.contestMs / 100);
+  });
+
+  it('start a quick touch once its group goes still, before the contest’s time', () => {
+    const touch = { pink: 0, blue: 0.5, yellow: 0 };
+    const frames = runZones(plushies, [touch, touch, {}, {}, {}, {}, {}, {}]);
+    expect(events(frames)).toEqual(['blue started']);
+    expect(frames.findIndex((f) => f.events.length) * 100).toBe(100 + MOTION_ZONE.contestQuietMs);
+  });
+
+  it('start nothing for one noisy frame among neighbours', () => {
+    expect(events(runZones(plushies, [{ blue: 0.5 }, ...Array(10).fill({})]))).toEqual([]);
   });
 
   it('start a zone with no neighbour on the frame it qualifies', () => {
