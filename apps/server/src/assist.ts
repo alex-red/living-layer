@@ -64,7 +64,7 @@ import { shapeFromPhoto, type Shaped } from './brush-sculpt.js';
 import { demoPng } from './demo.js';
 import { demoIntent } from './demo-intent.js';
 import { LabError, liveImage, parseInput, requireCalibration } from './errors.js';
-import { around } from './fixture.js';
+import { around } from './fixture/shared.js';
 import { toDataUrl, requireFrame, validateImage } from './images.js';
 import type { RouteDeps } from './route-deps.js';
 import { following } from './jobs.js';

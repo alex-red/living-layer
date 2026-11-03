@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, mock } from 'bun:test';
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import sharp from 'sharp';
 import { join } from 'node:path';
-import { productSize } from '../apps/server/src/fixture.js';
+import { productSize } from '../apps/server/src/fixture/shared.js';
 import { type Fetcher } from '../apps/server/src/config.js';
 import { syntheticStream } from '../apps/server/src/sam.js';
 import {

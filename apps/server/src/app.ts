@@ -21,7 +21,7 @@ import { closeCompute } from './workers/compute.js';
 import { MetaAdapter } from './meta.js';
 import { ControlAdapter, type SwitchOptions, type Switched } from './control.js';
 import { chosenEntities, haConnection, haRoutes, type OpenSocket } from './ha.js';
-import { fixtureRoutes } from './fixture.js';
+import { fixtureRoutes } from './fixture/routes.js';
 import { watchRequest } from './request-signal.js';
 import { LabError, logError } from './errors.js';
 import { findSource, toDataUrl } from './images.js';
