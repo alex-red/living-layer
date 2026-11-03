@@ -42,6 +42,7 @@ _Done when:_ the file takes under 6 s.
 _Landed:_ the demo's first scan runs once in `beforeAll` and six tests copy that store. The file went from 14.1 s to 10.3 s, not under 6 s: the rest are scans each test needs for itself (about 0.85 s each, 12 of them). Measure again after B.
 
 _Landed (A4 remainder):_ measured again after B and the workers: 8.5–11 s on a loaded machine (load about 9; 10.4 s of CPU), still over 6 s, and not cut further. What is left is the seed scan (about 1 s) and nine tests that each scan a state of their own (a fixture saved first, a drafted room, live with a mocked Meta API, a second scan after an edit): sharing those would change what they test. `scripts/test-times.json` was refreshed with `bun run test:fast --record` (fixture-scan 8.48 s).
+Split instead, so the shards balance: `fixture-scan.test.ts` 3.8 s (38 tests), `fixture-scan-desk.test.ts` 4.9 s (8 tests, the seeded demo-desk scans), 46 tests as before; the helpers are in `tests/lib/fixture-scan.ts`. Full suite 52 s in one process, 18 s under `test:fast` (4 shards); 602 tests, 0 fail, 1 skip.
 
 **A5. later: one test harness.** About 20 files repeat `mkdtemp`, `parseConfig`, `buildApp`, `post` and the cleanup. `tests/lib/app.ts` exports `testApp({ env, fetcher })` and cleans up after itself.
 
