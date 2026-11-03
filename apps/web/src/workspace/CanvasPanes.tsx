@@ -49,6 +49,7 @@ import { createStore, useStore } from './state/store';
 import { dragRectStore, useDragRect } from './state/view';
 import { watchStore } from '../watch';
 import { LayerChips, useLayers, usePicture } from './LayerChips';
+import { SavedZones } from './SavedZones';
 import type { Lab } from './useLabState';
 import { ContextMenu } from './ContextMenu';
 import { Popover } from './Popover';
@@ -836,6 +837,7 @@ export function PhotoStage({
             <TrailLayer />
             <MasksLayer />
             <ZoneLayer />
+            <SavedZones />
             <DrawLayers />
             <BrushLayer />
             <OutlineLayer />

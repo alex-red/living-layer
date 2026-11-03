@@ -1,0 +1,43 @@
+/* Zones beyond the main one over the picture: quiet until something is in them. */
+.saved-zones {
+  position: absolute;
+  inset: 0;
+  z-index: var(--z-overlay);
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.saved-zone rect {
+  fill: none;
+  stroke: var(--chosen);
+  stroke-width: 1.5px;
+  stroke-dasharray: 5 4;
+  vector-effect: non-scaling-stroke;
+  transition:
+    fill var(--t-fast) var(--ease-out),
+    stroke var(--t-fast) var(--ease-out);
+}
+.saved-zone.motion rect {
+  stroke: var(--seen);
+}
+.saved-zone.on rect {
+  fill: var(--warm-wash);
+  stroke: var(--warm);
+  stroke-dasharray: none;
+  filter: drop-shadow(0 0 8px var(--warm-glow));
+}
+.saved-zone text {
+  font-family: var(--mono);
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  fill: var(--chosen);
+  paint-order: stroke;
+  stroke: rgb(10 12 18 / 75%);
+  stroke-width: 4px;
+}
+.saved-zone.motion text {
+  fill: var(--seen);
+}
+.saved-zone.on text {
+  fill: var(--warm);
+}
