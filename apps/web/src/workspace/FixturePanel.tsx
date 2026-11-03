@@ -1,4 +1,5 @@
 import { useRef, useState, type ReactNode } from 'react';
+import { useNow } from '../useNow';
 import {
   DEMO_REFERENCES,
   DEMO_SURFACE,
@@ -1291,7 +1292,8 @@ const TRACK_STATUS = {
  */
 function FixtureCamera({ fixture: f, disabled }: { fixture: Fixture; disabled: boolean }) {
   const lab = useLab();
-  const { busy, segmentation, segmentRunId, now, watch } = lab;
+  const { busy, segmentation, segmentRunId, watch } = lab;
+  const now = useNow();
   const found =
     segmentRunId && segmentation?.concept === f.label.trim().toLowerCase()
       ? segmentation.detections

@@ -129,6 +129,8 @@ _Landed:_ `webResearcher`, `/api/fixtures/track` and `layers.ts`'s hull are gone
 
 **D1. now: timers re-render only what shows them.** `useLabState` holds a 1 Hz `now` (`useLabState.ts:347-351`) that only `FixturePanel.tsx:1294` and `:1613` read. Replace it with a local `useNow()`, and move the fps readout (`Canvas.tsx:183`) into a leaf component. `unsaved` (`useLabState.ts:668`) reads a ref during render, so check that it still updates. Check with `bun run browser`.
 
+_Landed:_ a01abff. `useNow()` now ticks in the four components that show time (no 1 Hz state in `useLabState`); the fps readout is a leaf; `unsaved` was left as it was (its edit counter is always paired with a state update). `bun run browser` 13/14: the one failure is the same on main.
+
 **D2. later: fast state outside React's tree.** Move the follow view (10 Hz), its stats and the AI task's progress into small stores read with `useSyncExternalStore`, as `activity.ts` does. Send job progress over the existing event stream instead of polling every 350 ms.
 
 **D3. later: split `useLabState`.** It has 34 `useState`s, 15 `useEffect`s and about 218 fields, and its type is inferred. Split it into slices, each with its own interface:

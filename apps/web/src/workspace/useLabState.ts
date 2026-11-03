@@ -37,7 +37,6 @@ import {
   DEMO_POSITIONS,
   DEMO_LIGHTS,
   DEMO_SWITCHES,
-  OBSERVATION_MAX_AGE_MS,
   ISO_PRESETS,
   cameraForScene,
   closeViewOf,
@@ -345,11 +344,6 @@ function median(values: number[]): number | null {
 
 /** All of the lab's state and actions, shared with the workspace through `LabContext`. */
 export function useLabState() {
-  const [now, setNow] = useState(Date.now());
-  useEffect(() => {
-    const timer = window.setInterval(() => setNow(Date.now()), 1000);
-    return () => window.clearInterval(timer);
-  }, []);
   // The browser's own save: choices and a copy of each desk, read once.
   const [boot] = useState(() => {
     const save = readSession();
@@ -1624,9 +1618,6 @@ export function useLabState() {
     segmentRunId === memory.observation.segmentRunId
       ? memory.observation
       : null;
-  const observationStale = memory?.observation
-    ? now - Date.parse(memory.observation.observedAt) > OBSERVATION_MAX_AGE_MS
-    : false;
   // Where a zone is drawn: the mug in this frame, or, on the running camera, its last sighting
   // from a frame the camera gives, since the stream shows that same view.
   const zoneObservation =
@@ -2890,7 +2881,6 @@ export function useLabState() {
     ? [...segmentation.detections].sort((a, b) => (b.confidence ?? 0) - (a.confidence ?? 0))
     : [];
   return {
-    now,
     mode,
     status,
     runs,
@@ -3069,7 +3059,6 @@ export function useLabState() {
     currentObservation,
     zoneObservation,
     cameraSize,
-    observationStale,
     zone,
     localZone,
     visibleZone,
