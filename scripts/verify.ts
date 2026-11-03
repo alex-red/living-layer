@@ -10,8 +10,8 @@
  *   bun run verify --at <ref>         a commit (a merge, say) in a clean worktree
  *   bun run verify --browser          also the browser suite (a build and Playwright, a minute or two)
  *
- * The browser suite only reports. Without `--browser`, verify warns when
- * `apps/web` or `tests/browser` changed since it last passed (`bun run browser`).
+ * The browser suite is manual for now (prototype): it runs only with `--browser`,
+ * and only reports.
  *
  * Run it before committing, and on any merge of another branch. Other
  * sessions may be editing this checkout: `--at` judges exactly the snapshot,
@@ -21,7 +21,7 @@ import { spawnSync } from 'node:child_process';
 import { cpus } from 'node:os';
 import { join, resolve } from 'node:path';
 import { flag, has, parseArgs } from './lib/args.js';
-import { browserOut, changedSinceSuitePassed, describePass } from './lib/browser.js';
+import { browserOut } from './lib/browser.js';
 import { snapshotOf, withWorktree } from './lib/worktree.js';
 
 const root = resolve(import.meta.dir, '..');
@@ -219,15 +219,6 @@ for (const step of steps) {
   if (look)
     lines.push(
       `   └ run \`${step.name === 'browser' ? 'bun run trace' : step.cmd.join(' ')}\` to see it`,
-    );
-}
-if (!browser) {
-  // The browser suite isn't run here, so say when what it covers has moved since it passed.
-  const stale = changedSinceSuitePassed(root);
-  if (stale)
-    lines.push(
-      `${'!'.padEnd(2)} ${'browser'.padEnd(16)} ${(stale.pass ? `${stale.changed.join(', ')} changed since it passed (${describePass(stale.pass)})` : 'not passed in this checkout yet').padEnd(34)}`,
-      '   └ run `bun run browser` (or `verify --browser`)',
     );
 }
 console.log(`\n${lines.join('\n')}`);

@@ -17,10 +17,11 @@ Nothing reloads by itself while you edit: once code changes, the page shows `Rel
 
 ```sh
 bun run ci
-bun run test:browser   # if you touched the UI
 ```
 
-`ci` runs oxfmt, `tsrs` (TypeScript 7.1), oxlint (warnings fail it), the tests in four processes (`bun run test:fast`), and the web build. CI runs the same commands. The browser tests run Playwright on Node 24 (see `.nvmrc`).
+`ci` runs oxfmt, `tsrs` (TypeScript 7.1), oxlint (warnings fail it), the tests in four processes (`bun run test:fast`), and the web build. CI runs the same commands.
+
+The browser tests (`bun run browser`, Playwright on Node 24, see `.nvmrc`) are manual while the project is a prototype: CI and the pre-push hook don't run them. Cover changes with unit tests instead; logic worth testing in a component belongs in a plain module the test can import.
 
 A few conventions:
 
