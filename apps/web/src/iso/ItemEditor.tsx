@@ -937,11 +937,12 @@ export function ItemEditor({
   if (!draft)
     return (
       <div className="item-editor empty">
-        <h3>Model the {label.toLowerCase()}</h3>
-        <p>
-          Spark rebuilds it in editable parts from its last sighting, cut out by its mask. Say what
-          it is, and it looks that up too.
-        </p>
+        <h3>
+          Model{' '}
+          {/^(my|your|the|a|an)\b/i.test(label)
+            ? label.toLowerCase()
+            : `the ${label.toLowerCase()}`}
+        </h3>
         {modelWithAi}
         <div className="item-actions">
           <Button variant="ghost" disabled={busy || !onDraft} onClick={() => onDraft?.()}>
