@@ -66,17 +66,23 @@ _Done when:_ the checks in the principles report what they did before, and `bun 
 ## C. The server (`apps/server`)
 
 **C1. now: log what goes wrong.** Log the stack of any error that isn't a `LabError` (`app.ts:97`, `:175-196`; `index.ts:47` drops the cause). Report only SDK and network errors as `upstream_failure`, and everything else as `internal` (`errors.ts:96-101`). The live checks in [current.md](current.md) need this.
+_Landed:_ errors that aren't a `LabError` are logged with their stack (`logError`, in `safeError` and the error handler); only SDK, network and timeout errors stay `upstream_failure`, the rest is `internal` with a generic message. `index.ts` logs the startup cause.
 
 **C2. now: no desk memory held across an await.** `verifyRules` reads memory (`desk.ts:253`), waits up to 3 s on `turnOn` (`:307`), then saves what it read (`:323`). Anything another route, the exposer or `watcher.checkCamera` (`watcher.ts:651-656`) saved meanwhile is lost. Add `store.updateMemory(mode, fn)`, which reads again and applies the change in one synchronous step.
 _Done when:_ a test that saves a fixture during a slow `turnOn` keeps it.
+_Landed:_ `store.updateMemory(mode, fn)`; `verify`, `verifyRules` and `watcher.checkCamera` use it, and `tests/desk.test.ts` keeps a rule saved during a slow `turnOn`. `verify` (the main zone) had the same stale save and is fixed too.
 
 **C3. now: migrations once.** `renameDemoMode` runs on every boot (`store.ts:54-66`). Its `LIKE '%fixture%'` now matches every fixture run, and it would also rewrite a future `"source":"fixture"`. Gate migrations by `PRAGMA user_version`, and set `busy_timeout` and `synchronous = NORMAL`.
+_Landed:_ migrations run once by `PRAGMA user_version`; `busy_timeout` 5000 and `synchronous = NORMAL` (WAL was already on). `tests/store-migrate.test.ts`.
 
 **C4. now: stop calls nobody is waiting for.** Add a `requestSignal(request)` helper that aborts when the client goes away, and pass it through `run()`. Give `segment()` a signal too, so the watcher's SAM asks stop with it (`app.ts:482`), and give `pictureFind` the job's signal (`illustration.ts:400`).
+_Landed:_ `requestSignal(request)` (`request-signal.ts`) aborts on client disconnect and is threaded through `run()` to `/api/segment` and `/api/item/draft`; the watcher aborts its SAM asks when it stops or restarts. `pictureFind` already took `job.signal`.
 
 **C5. now: ask SAM for a mug's two parts at once** (`item.ts:187-191`), which saves one round trip.
+_Landed:_ `draftModel` asks a mug's part masks with `Promise.all`.
 
 **C6. now: jobs per app.** `jobs` is a module singleton that every `buildApp` rebinds (`app.ts:326`). Its `trackers` map is never pruned (`jobs.ts:56`, `:74-77`), and each job keeps its step pictures for the life of the process. Make one `Jobs` per app, prune finished trackers, and move the job routes out of `fixture.ts:1622-1633` into `jobs.ts`.
+_Landed:_ one `Jobs` per `buildApp`, passed to the routes that start jobs; ended jobs drop their tracker, stale ones are pruned with theirs; `/api/jobs/:id` and its stop route live in `jobs.ts`. `tests/jobs.test.ts`.
 
 **C7. later: fitting and rendering off the event loop.** After B, measure a scan again. If one still holds the loop for more than about 200 ms, run `fitItem` and `renderRoom` in a small Bun Worker pool: domain is pure, and the RGBA buffers can be transferred.
 
@@ -97,6 +103,7 @@ _Done when:_ a test that saves a fixture during a slow `turnOn` keeps it.
 **C12. later, needs a decision: JPEG frames.** Every upload is stored and sent as PNG (`images.ts:33`). For a 1280 × 960 frame, PNG is 1.76 MB and 36 ms; JPEG at q92 is 228 KB and 8 ms. That is 7.7 times fewer bytes to Spark and SAM, but it changes the pixels SAM sees. Check with `bench:rooms`, `bench:brush` and one billed live comparison.
 
 **C13. later: dead code.** `webResearcher` (`research.ts:116`) and `/api/fixtures/track` (`desk.ts:670`) are unused, and `convexHull` (`layers.ts:28`) duplicates `photo-scene.ts:273`.
+_Landed:_ `webResearcher`, `/api/fixtures/track` and `layers.ts`'s hull are gone (the domain's `convexHull` gives the same outline). Done early, with the C items.
 
 ## D. The web (`apps/web`)
 
