@@ -13,7 +13,7 @@ import { floorSolid, renderRoom, sceneSolids } from './room-render.js';
  * the template knows it better than an outline can. What stands on it stays
  * where it is in the room and settles onto whatever is under it then.
  */
-export interface GroupFit {
+interface GroupFit {
   /** The scene with the group where it fits best. */
   scene: IsoScene;
   /** Its drawing against the outline (IoU), where it stood and where it fits. */
@@ -26,7 +26,7 @@ export interface GroupFit {
   tried: number;
 }
 /** A fit is used only when its drawing matches at least this well, and by this much more than before. */
-export const FIT_KEEP = { iou: 0.45, gain: 0.05 } as const;
+const FIT_KEEP = { iou: 0.45, gain: 0.05 } as const;
 /** How much better a half turn must match to be taken over the turn it has. */
 const TURN_MARGIN = 0.02;
 

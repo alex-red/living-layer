@@ -29,10 +29,10 @@ export const ARCHETYPES = [
 ] as const;
 export const archetypeSchema = z.enum(ARCHETYPES);
 export type Archetype = z.infer<typeof archetypeSchema>;
-export const CAT_POSES = ['idle', 'sleeping'] as const;
-export type CatPose = (typeof CAT_POSES)[number];
+const CAT_POSES = ['idle', 'sleeping'] as const;
+type CatPose = (typeof CAT_POSES)[number];
 /** How wide each kind of object usually is, handle included, in centimetres. */
-export const ARCHETYPE_WIDTH_CM: Record<Archetype, number | null> = {
+const ARCHETYPE_WIDTH_CM: Record<Archetype, number | null> = {
   mug: 12,
   cup: 9,
   bottle: 7.5,
@@ -646,7 +646,7 @@ export const itemCheckSchema = z
     note: z.string().max(240),
   })
   .strict();
-export type ItemCheck = z.infer<typeof itemCheckSchema>;
+type ItemCheck = z.infer<typeof itemCheckSchema>;
 /**
  * Apply Spark's suggested multipliers to a fit, each clamped to ±20% (±30%
  * for the handle), so a check can nudge a model but never redraw it.

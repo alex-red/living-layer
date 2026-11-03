@@ -29,7 +29,6 @@ export const ITEM_SHAPES = [
   'handle',
   'lid',
 ] as const;
-export type ItemShape = (typeof ITEM_SHAPES)[number];
 /** How a surface takes light: it sets the shading ramp, highlight and transparency. */
 export const ITEM_MATERIALS = ['matte', 'gloss', 'metal', 'glass', 'fabric', 'wood'] as const;
 export type ItemMaterial = (typeof ITEM_MATERIALS)[number];
@@ -46,7 +45,7 @@ const DECAL_CHARS = '0123456789abcdef';
  * (0.5 faces the viewer, 0.25 is the viewer's right), `v` runs up its height.
  * `top` and decals on the `top` face use the box's x and y instead.
  */
-export const paintSchema = z.discriminatedUnion('kind', [
+const paintSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('band'), from: share, to: share, color: hexColorSchema }).strict(),
   z
     .object({

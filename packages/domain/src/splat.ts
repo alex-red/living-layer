@@ -8,7 +8,7 @@
  */
 import type { LatheFit } from './iso-archetypes.js';
 
-export interface SplatPoint {
+interface SplatPoint {
   /** Position, with z up (SAM 3D's frame). */
   x: number;
   y: number;

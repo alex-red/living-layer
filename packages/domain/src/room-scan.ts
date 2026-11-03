@@ -145,7 +145,7 @@ function drawnInset(
 }
 /** The walls' inner faces, in tiles: the back and left walls are 0.2 thick, the others the room's edge. */
 type Walls = { x0: number; y0: number; x1: number; y1: number };
-export interface NearPoint {
+interface NearPoint {
   x: number;
   y: number;
   /** Only a bound, nothing seen there: the frame cuts the column off, or it fell behind a wall. */
@@ -345,7 +345,7 @@ export interface Footprint {
   d: number;
 }
 /** How one thing's place was found. */
-export interface PlanTrace {
+interface PlanTrace {
   /** The height it stands at, and the turn it took. */
   top: number;
   turns: number;
@@ -368,7 +368,7 @@ export interface PlanTrace {
   placed?: Footprint;
 }
 /** One overlap `apart` met: every way it could clear it, cheapest first, and it took the first. */
-export interface ApartStep {
+interface ApartStep {
   /** Floor pieces first, then chairs among them. */
   phase: 'floor' | 'chairs';
   pass: number;

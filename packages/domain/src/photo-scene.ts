@@ -84,7 +84,7 @@ export type PhotoInventory = z.infer<typeof photoInventorySchema>;
  * photo, so the right one is the room's back wall and the left one its left
  * wall, as the iso view draws them. Estimates, which calibration checks.
  */
-export const roomEstimateSchema = z
+const roomEstimateSchema = z
   .object({
     rightWallCm: z.number().int().min(60).max(480),
     leftWallCm: z.number().int().min(60).max(480),
@@ -96,7 +96,6 @@ export type RoomEstimate = z.infer<typeof roomEstimateSchema>;
 export const setupInventorySchema = photoInventorySchema
   .extend({ room: roomEstimateSchema })
   .strict();
-export type SetupInventory = z.infer<typeof setupInventorySchema>;
 export type PhotoThing = z.infer<typeof photoThingSchema>;
 /** Spark's second look: the photo beside the drawn scene, naming what's missing or extra. */
 export const photoCheckSchema = z
@@ -294,7 +293,7 @@ export function convexHull(points: Point[]): Point[] {
  * the camera, all in camera coordinates, with the surface's back-left corner
  * at `t`. `surface` is the size the corners imply, in tiles.
  */
-export interface PhotoCamera {
+interface PhotoCamera {
   f: number;
   cx: number;
   cy: number;

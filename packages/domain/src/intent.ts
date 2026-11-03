@@ -16,12 +16,12 @@ import type { SelectionTarget } from './selection.js';
  * so a strict schema holds it, and `readIntent` turns that into typed ops,
  * keeping only what can be done and saying why the rest can't.
  */
-export const INTENT_KINDS = ['create', 'rebase', 'match_photo', 'set_control', 'clarify'] as const;
-export type IntentKind = (typeof INTENT_KINDS)[number];
-export const MAX_INTENT_OPS = 4;
+const INTENT_KINDS = ['create', 'rebase', 'match_photo', 'set_control', 'clarify'] as const;
+type IntentKind = (typeof INTENT_KINDS)[number];
+const MAX_INTENT_OPS = 4;
 
 /** What each intent op is for, beside the recipe ops' own lines, for the parser's prompt. */
-export const INTENT_ABOUT: Record<IntentKind, string> = {
+const INTENT_ABOUT: Record<IntentKind, string> = {
   create:
     'Make the selection its own model: a fixture or a piece of furniture (label; form: the built-in form it is closest to, if any; as: fixture or furniture).',
   rebase: 'Build the model again from another built-in form ("it is a table, not a desk").',
@@ -54,7 +54,7 @@ const roles = z.array(z.enum(RECIPE_ROLES)).max(RECIPE_ROLES.length);
 const materials = z.array(z.enum(ITEM_MATERIALS)).max(ITEM_MATERIALS.length);
 const cmOrNull = z.number().min(0.5).max(600).nullable();
 /** One op as Spark writes it: every field present, null or empty when it doesn't apply. */
-export const sparkIntentOpSchema = z
+const sparkIntentOpSchema = z
   .object({
     op: z.enum([...(Object.keys(RECIPE_OPS) as RecipeOp['op'][]), ...INTENT_KINDS]),
     parts: z

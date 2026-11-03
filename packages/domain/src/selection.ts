@@ -87,7 +87,7 @@ export interface SelectionTarget {
   label: string;
 }
 /** How well a selection points at one thing. */
-export interface TargetScore {
+interface TargetScore {
   target: SelectionTarget;
   /** The share of the thing's visible pixels inside the selection. */
   covered: number;

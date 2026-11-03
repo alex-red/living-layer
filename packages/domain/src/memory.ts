@@ -162,7 +162,7 @@ export interface PlacementDecision {
   ruleId?: string;
 }
 /** Another remembered object, beside the mug. Any concept SAM can segment. */
-export interface TrackedObject {
+interface TrackedObject {
   id: string;
   label: string;
   /** The SAM concept it was confirmed from; tracking only follows the same one. */

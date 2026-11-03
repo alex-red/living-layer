@@ -172,13 +172,10 @@ export interface LabStatus {
   /** Where SAM 3D runs for refining a fixture's shape (experimental), or null when it can't. */
   sam3d: 'local' | 'fal' | null;
 }
-export interface ApiFailure {
-  error: { code: string; message: string; runId?: string };
-}
 
 export const MAX_IMAGE_PIXELS = 4_000_000;
 export const MAX_MASK_PIXELS = 4_000_000;
-export const DEMO_ID = 'corner-office-v1';
+const DEMO_ID = 'corner-office-v1';
 /** Each demo position is its own source image, as a new photo would be. */
 export function demoSourceKey(position: DemoPosition = 'centre'): string {
   return position === 'centre' ? DEMO_ID : `${DEMO_ID}@${position}`;

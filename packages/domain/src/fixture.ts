@@ -34,9 +34,9 @@ export type ControlKind = (typeof CONTROL_KINDS)[number];
  * act like a switch (a fan, a helper toggle). Anything else is never switched.
  */
 export const SWITCHABLE_DOMAINS = ['light', 'switch', 'fan', 'input_boolean'] as const;
-export const lightEntitySchema = z.string().regex(/^light\.[a-z0-9_]+$/);
+const lightEntitySchema = z.string().regex(/^light\.[a-z0-9_]+$/);
 /** A switch, a fan or a helper toggle: on and off, no brightness. */
-export const switchEntitySchema = z.string().regex(/^(switch|fan|input_boolean)\.[a-z0-9_]+$/);
+const switchEntitySchema = z.string().regex(/^(switch|fan|input_boolean)\.[a-z0-9_]+$/);
 /** A Home Assistant entity a fixture or a rule can switch. */
 export const entityIdSchema = z.string().regex(/^(light|switch|fan|input_boolean)\.[a-z0-9_]+$/);
 /** Which fixture kind an entity is: a light, else a switch. */
@@ -53,11 +53,10 @@ export type FixtureControl = z.infer<typeof fixtureControlSchema>;
  * lamp's uplight bowl and its reading shade. A source is a part whose id is
  * `shade` or starts with `shade-` (`lightSources`).
  */
-export const fixtureLightSchema = z
+const fixtureLightSchema = z
   .object({ part: z.string().min(1).max(24), entityId: entityIdSchema })
   .strict();
-export type FixtureLight = z.infer<typeof fixtureLightSchema>;
-export const MAX_FIXTURE_LIGHTS = 4;
+const MAX_FIXTURE_LIGHTS = 4;
 export const MAX_FIXTURES = 12;
 /** Templates the Fixture Studio and Add Fixture panel can start from without a photo. */
 export const STARTER_TEMPLATES = [
@@ -77,14 +76,14 @@ export const DEMO_REFERENCES = ['mouse', 'lamp', 'monitor', 'cat'] as const;
 export type DemoReference = (typeof DEMO_REFERENCES)[number];
 
 export const fixtureStateNameSchema = z.string().trim().min(1).max(24);
-export const fixtureSizeSchema = z
+const fixtureSizeSchema = z
   .object({
     w: z.number().min(0.1).max(8),
     d: z.number().min(0.1).max(8),
     h: z.number().min(0.1).max(8),
   })
   .strict();
-export const fixtureReferenceSchema = z
+const fixtureReferenceSchema = z
   .object({ runId: z.string().min(1), asset: z.string().min(1) })
   .strict()
   .nullable();
@@ -101,7 +100,6 @@ export const fixtureStateInputSchema = z
     reference: fixtureReferenceSchema.optional(),
   })
   .strict();
-export type FixtureStateInput = z.infer<typeof fixtureStateInputSchema>;
 export interface FixtureState {
   model: SavedItem;
   size?: z.infer<typeof fixtureSizeSchema>;
@@ -201,7 +199,7 @@ export interface Fixture extends Omit<FixtureInput, 'id' | 'model' | 'states'> {
 /** How many earlier models a fixture keeps to choose between. */
 export const MAX_DRAFTS = 4;
 /** What made a fixture's model, read off the model itself. */
-export type ModelOrigin = 'fit' | 'photos' | 'sculpt' | 'sam3d' | 'other';
+type ModelOrigin = 'fit' | 'photos' | 'sculpt' | 'sam3d' | 'other';
 export const MODEL_ORIGIN_LABEL: Record<ModelOrigin, string> = {
   fit: 'Fitted to its photo',
   photos: 'Fused from several photos',
@@ -216,7 +214,7 @@ export function modelOrigin(model: SavedItem): ModelOrigin {
   if (fit) return 'fit';
   return model.source === 'spark' ? 'sculpt' : 'other';
 }
-export interface EarlierDraft {
+interface EarlierDraft {
   model: SavedItem;
   origin: ModelOrigin;
   /** When it was replaced. */
@@ -233,7 +231,7 @@ export function withNewModel<F extends Pick<Fixture, 'model' | 'drafts'>>(
 }
 
 /** A fixture the camera follows, like a remembered object. */
-export interface FixtureTrack {
+interface FixtureTrack {
   /** The SAM concept it was confirmed from; it is looked for in outlines of the same one. */
   concept: string;
   observation: DeskObservation;
@@ -391,7 +389,7 @@ const SOURCE_NAMES: Record<string, string> = {
   'shade-bowl': 'Uplight bowl',
   'shade-reading': 'Reading shade',
 };
-export interface LightSource {
+interface LightSource {
   part: string;
   label: string;
 }

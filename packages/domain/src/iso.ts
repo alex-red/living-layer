@@ -185,7 +185,7 @@ function backToFront<T extends IsoBox>(boxes: T[]): T[] {
 export const pointSchema = z.object({ x: z.number().finite(), y: z.number().finite() }).strict();
 export type Point = z.infer<typeof pointSchema>;
 export type Quad = [Point, Point, Point, Point];
-export type Homography = [number, number, number, number, number, number, number, number, number];
+type Homography = [number, number, number, number, number, number, number, number, number];
 
 /** Solve `A·x = b` in place by Gaussian elimination; null when singular. */
 function solve(a: number[][], b: number[]): number[] | null {

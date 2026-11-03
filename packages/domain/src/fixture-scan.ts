@@ -60,7 +60,7 @@ const scanBoxSchema = z
     y2: z.number().int().min(0).max(1000),
   })
   .strict();
-export const scannedThingSchema = z
+const scannedThingSchema = z
   .object({
     label: z.string().trim().min(1).max(40),
     archetype: archetypeSchema,
@@ -86,7 +86,7 @@ export const fixtureScanSchema = z
 export type FixtureScan = z.infer<typeof fixtureScanSchema>;
 
 /** How a scanned thing was mapped. */
-export type ScanMatch =
+type ScanMatch =
   /** The room already has it; nothing was added. */
   | 'existing'
   /** Placed with the model of a fixture saved in another scene, or another of its kind. */
@@ -668,7 +668,7 @@ export function placeSeen(
 }
 
 /** A thing a person's layout draws standing on something: the office's book, lamp or monitor. */
-export interface LayoutThing {
+interface LayoutThing {
   group: string;
   label: string;
   /** The corner nearest the origin, and the box around all its parts. */

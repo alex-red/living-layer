@@ -366,7 +366,7 @@ export function placeRecipe(
 
 const EPS = 1e-6;
 const groupProps = (scene: IsoScene, g: string) => scene.props.filter((p) => p.group === g);
-export function groupIds(scene: IsoScene): string[] {
+function groupIds(scene: IsoScene): string[] {
   return [...new Set(scene.props.map((p) => p.group))];
 }
 /** The box around every prop of a group. */

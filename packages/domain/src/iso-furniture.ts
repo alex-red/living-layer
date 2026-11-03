@@ -180,7 +180,7 @@ export const FURNITURE_SPECS = {
   jar: { heightCm: 12 },
   carton: { heightCm: 24 },
 } satisfies Record<PropForm, { heightCm: number } & Record<string, number | boolean>>;
-export type FurnitureSpecs = typeof FURNITURE_SPECS;
+type FurnitureSpecs = typeof FURNITURE_SPECS;
 export type FurnitureOverrides = { [F in PropForm]?: Partial<FurnitureSpecs[F]> };
 
 let overrides: FurnitureOverrides = {};

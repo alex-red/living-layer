@@ -7,7 +7,7 @@ import { layoutRoom, type RoomLayoutInput, type WallGap } from './room-scan.js';
 const STEP_DEG = 0.5;
 const MOST_DEG = 15;
 
-export interface WallRefinement {
+interface WallRefinement {
   calibration: RoomCalibration;
   wall: keyof WallGap;
   /** The turn of that wall's marks about the corner, in the frame, clockwise. */

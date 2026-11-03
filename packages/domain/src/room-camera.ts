@@ -53,10 +53,8 @@ export function projectRoom(c: RoomCamera, p: IsoVec): Point | null {
   if (z <= 1e-6) return null;
   return { x: (c.f * x) / z + c.cx, y: (c.f * y) / z + c.cy };
 }
-/** How far in front of the camera a point is, along its view. */
-export const roomDepth = (c: RoomCamera, p: IsoVec) => toCamera(c, p)[2];
 /** The ray a pixel sees, in room coordinates: from the camera, not of unit length. */
-export function pixelRay(c: RoomCamera, { x, y }: Point): Vec3 {
+function pixelRay(c: RoomCamera, { x, y }: Point): Vec3 {
   const u = (x - c.cx) / c.f;
   const v = (y - c.cy) / c.f;
   return [0, 1, 2].map((k) => c.right[k]! * u + c.down[k]! * v + c.forward[k]!) as Vec3;
@@ -110,7 +108,7 @@ export function lookAt(
 }
 
 /** Typical corner cameras: a wide lens, mounted 2.4 m up, 10 cm in from each wall. */
-export const CORNER_DEFAULTS = { heightCm: 240, insetCm: 10, hfovDeg: 90 } as const;
+const CORNER_DEFAULTS = { heightCm: 240, insetCm: 10, hfovDeg: 90 } as const;
 const focalOf = (width: number, hfovDeg: number) => width / 2 / Math.tan((hfovDeg * Math.PI) / 360);
 
 /**
@@ -174,13 +172,13 @@ export interface VerticalMark {
   a: Point;
   b: Point;
 }
-export const verticalMarkSchema = z.object({ a: pointSchema, b: pointSchema }).strict();
+const verticalMarkSchema = z.object({ a: pointSchema, b: pointSchema }).strict();
 export interface HeightMark {
   foot: Point;
   top: Point;
   cm: number;
 }
-export const heightMarkSchema = z
+const heightMarkSchema = z
   .object({ foot: pointSchema, top: pointSchema, cm: z.number().min(5).max(400) })
   .strict();
 export const roomMarksSchema = z
@@ -272,7 +270,7 @@ function minimise(f: (x: number[]) => number, start: number[], steps: number[], 
 }
 
 /** How a calibration turned out. */
-export interface RoomFit {
+interface RoomFit {
   camera: RoomCamera;
   /** Root mean square distance of the marks from where the camera draws them, in pixels. */
   error: number;
@@ -655,7 +653,7 @@ export function marksFromFloor(
  * change some edges but leave the room's lined up; a camera knocked aside
  * lines them up better at another offset, or not at all.
  */
-export const CAMERA_CHECK = {
+const CAMERA_CHECK = {
   /** Thumbnail width, in pixels. */
   width: 80,
   /** Thumbnail height at most, in pixels: it is stored in one byte. */

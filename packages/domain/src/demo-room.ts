@@ -32,7 +32,7 @@ const desk = DEMO_ROOM.surfaces.find((s) => s.id === 'desk:top')!;
 export const DEMO_MUG = { r: cm(4.25), h: cm(9.5), color: '#e3d9c6', coffee: '#6b5443' } as const;
 
 /** The mug's solids at a position: its body and handle, on the desk top. */
-export function demoMugSolids(position: DemoPosition): RoomSolid[] {
+function demoMugSolids(position: DemoPosition): RoomSolid[] {
   const { x, y } = DEMO_POSITIONS[position];
   const { r, h } = DEMO_MUG;
   const color = hexLab(DEMO_MUG.color);

@@ -129,7 +129,7 @@ export function roomCase(
 const floorOf = (scene: IsoScene) => floorSolid(scene.grid);
 
 /** One thing of a scene built by `sceneOf`. */
-export interface ScenePiece {
+interface ScenePiece {
   template: TemplateId;
   /** Where its footprint's corner nearest the origin lands, once turned. */
   x: number;
@@ -258,7 +258,7 @@ export const ROOM_CASES: ({
 const ROUND = new Set<string>(['plant', 'lamp', 'bottle', 'jar']);
 const HALF = new Set<string>(['desk', 'table', 'rug']);
 /** How a scan of a case turned out against where everything really is. */
-export function judgeRoom(layout: PhotoLayout, truth: ReturnType<typeof roomCase>['truth']) {
+function judgeRoom(layout: PhotoLayout, truth: ReturnType<typeof roomCase>['truth']) {
   let worst = 0;
   let who = '';
   let wrongTurns = 0;
@@ -293,7 +293,7 @@ export function judgeRoom(layout: PhotoLayout, truth: ReturnType<typeof roomCase
   return { worst, who, wrongTurns, size };
 }
 
-export interface ScanOptions {
+interface ScanOptions {
   /** Sizes Spark gets wrong, by group, in centimetres. */
   guess?: Record<string, Partial<PhotoThing['sizeCm']>>;
   /**

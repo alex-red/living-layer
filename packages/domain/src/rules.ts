@@ -86,7 +86,7 @@ export function zoneApplies(memory: DeskMemory): { applies: boolean; carried: bo
  * every frame of its calibrated camera; otherwise the same image, or any frame
  * of its size by the fixed-camera assumption.
  */
-export function zoneAppliesTo(
+function zoneAppliesTo(
   o: DeskObservation | null | undefined,
   z:
     | { sourceKey: string; frame?: Segmentation['frame']; onSurface?: ZoneOnSurface }
@@ -171,7 +171,7 @@ export const ruleInputSchema = z
   }
 >;
 /** Everything the camera follows: the mug, other objects and tracked fixtures. */
-export function followedIds(memory: DeskMemory): string[] {
+function followedIds(memory: DeskMemory): string[] {
   return [
     ...(memory.object && memory.observation ? [memory.object.id] : []),
     ...(memory.others ?? []).filter((o) => o.observation).map((o) => o.id),

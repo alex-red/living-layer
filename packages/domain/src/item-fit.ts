@@ -50,13 +50,13 @@ export interface FitInput {
    */
   knownHeight?: number | null;
 }
-export interface FitScore {
+interface FitScore {
   /** Silhouette overlap with the mask, 0 to 1. */
   iou: number;
   /** Mean OKLab colour error inside both, times 100. */
   deltaE: number;
 }
-export interface FitOutput {
+interface FitOutput {
   item: IsoItem;
   params: ArchetypeFit;
   archetype: Archetype;
@@ -905,7 +905,7 @@ function shrink(
  * bottom left, since both are cropped to their own bounds. `grids` keeps the
  * voxelized shapes between calls: the camera angle moves without the shape.
  */
-export function scoreItem(
+function scoreItem(
   item: IsoItem,
   target: { w: number; h: number; mask: Uint8Array; lab: Float32Array },
   ppu: number,
@@ -1050,7 +1050,7 @@ const boxKnobs: Knob[] = [
  * render matches the mask better. Coordinate descent with halving steps;
  * deterministic and bounded by `budget` renders.
  */
-export function refineFit(
+function refineFit(
   label: string,
   start: ArchetypeFit,
   elevation: number,
@@ -1116,7 +1116,7 @@ export const FIT_TARGETS = { iou: 0.9, deltaE: 8 } as const;
 export const SHAPE_TARGETS = { aspect: 0.15, spread: 0.2 } as const;
 
 /** A turned body's radius at a share of its height, from its profile. */
-export function profileRadius(fit: LatheFit, z: number): number {
+function profileRadius(fit: LatheFit, z: number): number {
   const p = fit.profile;
   for (let i = 1; i < p.length; i++)
     if (p[i]!.z >= z) {

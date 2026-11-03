@@ -14,7 +14,7 @@ type V3 = [number, number, number];
 // Bun's Math.hypot with three arguments gives these same bits, far slower, and these run
 // per voxel. (The two-argument form rounds differently, so it stays Math.hypot.)
 const sqrt3 = (a: number, b: number, c: number) => Math.sqrt(a * a + b * b + c * c);
-export interface Prim {
+interface Prim {
   part: number;
   min: V3;
   max: V3;
@@ -334,7 +334,7 @@ export function partPrims(p: ItemPart, index: number): Prim[] {
 }
 
 /** Where a point sits on a part's surface: `u` around (0.5 facing the viewer), `v` up. */
-export function surfaceUv(p: ItemPart, x: number, y: number, z: number): { u: number; v: number } {
+function surfaceUv(p: ItemPart, x: number, y: number, z: number): { u: number; v: number } {
   const dx = (x - (p.at.x + p.size.w / 2)) / (p.size.w / 2);
   const dy = (y - (p.at.y + p.size.d / 2)) / (p.size.d / 2);
   const theta = Math.atan2(dy, dx);
@@ -781,7 +781,7 @@ const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
 const ACCENT = hexLab('#e68cc4');
 const SHADOW: Lab = hexLab('#05060a');
 
-export interface SpriteOptions {
+interface SpriteOptions {
   /** Tiles per item unit: how big the model stands in the scene. */
   scale: number;
   /** Iso pixels per sprite pixel. */
@@ -994,7 +994,7 @@ export function renderSprite(g: VoxelGrid, opts: SpriteOptions): Sprite {
   return { width, height, rgba, x: x0, y: y0, pixel };
 }
 
-export interface ItemView {
+interface ItemView {
   width: number;
   height: number;
   /** 1 where the model covers the pixel. */
