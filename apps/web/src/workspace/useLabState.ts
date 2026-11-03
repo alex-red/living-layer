@@ -360,6 +360,8 @@ export function useLabState() {
   const [runs, setRuns] = useState<EvidenceRun[]>([]);
   const [image, setImage] = useState<string>();
   const [dimensions, setDimensions] = useState({ width: 960, height: 640 });
+  // The size a frame captured from the running camera would be prepared at.
+  const [cameraSize, setCameraSize] = useState<{ width: number; height: number } | null>(null);
   const [scene, setScene] = useState<Scene>();
   const [segmentation, setSegmentation] = useState<Segmentation>();
   const [memories, setMemories] = useState<Partial<Record<Mode, DeskMemory>>>({});
@@ -1099,6 +1101,19 @@ export function useLabState() {
     }
   }
   useEffect(() => {
+    const el = video.current;
+    if (!camera || !el) return setCameraSize(null);
+    const read = () =>
+      setCameraSize(el.videoWidth ? frameSize(el.videoWidth, el.videoHeight) : null);
+    read();
+    el.addEventListener('loadedmetadata', read);
+    el.addEventListener('resize', read);
+    return () => {
+      el.removeEventListener('loadedmetadata', read);
+      el.removeEventListener('resize', read);
+    };
+  }, [camera]);
+  useEffect(() => {
     if (camera && video.current && stream.current) {
       video.current.srcObject = stream.current;
       void video.current
@@ -1612,7 +1627,17 @@ export function useLabState() {
   const observationStale = memory?.observation
     ? now - Date.parse(memory.observation.observedAt) > OBSERVATION_MAX_AGE_MS
     : false;
-  const zone = memory && currentObservation ? zoneApplies(memory) : null;
+  // Where a zone is drawn: the mug in this frame, or, on the running camera, its last sighting
+  // from a frame the camera gives, since the stream shows that same view.
+  const zoneObservation =
+    currentObservation ??
+    (camera &&
+    memory?.observation &&
+    memory.observation.frame.width === cameraSize?.width &&
+    memory.observation.frame.height === cameraSize.height
+      ? memory.observation
+      : null);
+  const zone = memory && zoneObservation ? zoneApplies(memory) : null;
   // New frames from following only have a zone by the fixed-camera assumption.
   const localZone: UnitBox | null =
     memory?.zone &&
@@ -3042,6 +3067,8 @@ export function useLabState() {
     startFollow,
     deskAction,
     currentObservation,
+    zoneObservation,
+    cameraSize,
     observationStale,
     zone,
     localZone,

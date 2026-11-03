@@ -106,7 +106,8 @@ export function Canvas() {
     segmentation,
     overlay,
     trail,
-    currentObservation,
+    zoneObservation,
+    cameraSize,
     visibleZone,
     drawing,
     follow,
@@ -188,6 +189,46 @@ export function Canvas() {
     segmentation.frame.height === dimensions.height;
   // A running camera is live; its rate is what reaches the page, so a fallback to MJPEG shows.
   const fps = useFrameRate(lab.video, camera);
+  // The zone over the photo or, on the running camera, over the frames it gives.
+  const zoneShown = Boolean(zoneObservation && visibleZone && (drawing || lab.showZones));
+  const zoneLayer = visibleZone && (
+    <svg
+      className={`zone-overlay ${drawing ? 'drawing' : ''}`}
+      {...(cameraSize ? { width: cameraSize.width, height: cameraSize.height } : {})}
+      viewBox="0 0 1000 1000"
+      preserveAspectRatio="none"
+      aria-label={drawing ? 'Draw placement zone' : 'Saved placement zone'}
+      onPointerDown={(e) => {
+        if (!drawing || busy) return;
+        lab.zoneStart.current = lab.zonePoint(e);
+        e.currentTarget.setPointerCapture(e.pointerId);
+      }}
+      onPointerMove={(e) => {
+        if (!drawing || !lab.zoneStart.current) return;
+        const p = lab.zonePoint(e),
+          a = lab.zoneStart.current;
+        lab.setDraftZone({
+          x: Math.min(a.x, p.x),
+          y: Math.min(a.y, p.y),
+          width: Math.abs(a.x - p.x),
+          height: Math.abs(a.y - p.y),
+        });
+      }}
+      onPointerUp={() => {
+        lab.zoneStart.current = null;
+      }}
+      onPointerCancel={() => {
+        lab.zoneStart.current = null;
+      }}
+    >
+      <rect
+        x={visibleZone.x * 1000}
+        y={visibleZone.y * 1000}
+        width={visibleZone.width * 1000}
+        height={visibleZone.height * 1000}
+      />
+    </svg>
+  );
   return (
     <section className="ws-canvas" aria-label="Scene and segmentation">
       <div className="scene-toolbar">
@@ -399,44 +440,19 @@ export function Canvas() {
                 chosenId={lab.confirmedId}
               />
             )}
-            {!camera && currentObservation && visibleZone && (drawing || lab.showZones) && (
-              <svg
-                className={`zone-overlay ${drawing ? 'drawing' : ''}`}
-                viewBox="0 0 1000 1000"
-                preserveAspectRatio="none"
-                aria-label={drawing ? 'Draw placement zone' : 'Saved placement zone'}
-                onPointerDown={(e) => {
-                  if (!drawing || busy) return;
-                  lab.zoneStart.current = lab.zonePoint(e);
-                  e.currentTarget.setPointerCapture(e.pointerId);
-                }}
-                onPointerMove={(e) => {
-                  if (!drawing || !lab.zoneStart.current) return;
-                  const p = lab.zonePoint(e),
-                    a = lab.zoneStart.current;
-                  lab.setDraftZone({
-                    x: Math.min(a.x, p.x),
-                    y: Math.min(a.y, p.y),
-                    width: Math.abs(a.x - p.x),
-                    height: Math.abs(a.y - p.y),
-                  });
-                }}
-                onPointerUp={() => {
-                  lab.zoneStart.current = null;
-                }}
-                onPointerCancel={() => {
-                  lab.zoneStart.current = null;
-                }}
-              >
-                <rect
-                  x={visibleZone.x * 1000}
-                  y={visibleZone.y * 1000}
-                  width={visibleZone.width * 1000}
-                  height={visibleZone.height * 1000}
-                />
-              </svg>
-            )}
-            {!camera && currentObservation && visibleZone && (drawing || lab.showZones) && (
+            {zoneShown &&
+              (camera
+                ? cameraSize && (
+                    // Fitted to the picture like the video's object-fit: contain, not to the stage.
+                    <svg
+                      className="zone-fit"
+                      viewBox={`0 0 ${cameraSize.width} ${cameraSize.height}`}
+                    >
+                      {zoneLayer}
+                    </svg>
+                  )
+                : zoneLayer)}
+            {zoneShown && visibleZone && !camera && (
               <span
                 className={`zone-tag ${drawing ? 'drawing' : ''}`}
                 style={{ left: `${visibleZone.x * 100}%`, top: `${visibleZone.y * 100}%` }}
@@ -558,7 +574,7 @@ export function Canvas() {
                 preserveAspectRatio="none"
                 aria-label={`Locally followed mug, match ${followView.track.score.toFixed(2)}`}
               >
-                {localZone && !(!camera && currentObservation && visibleZone) && (
+                {localZone && !zoneShown && (
                   <rect
                     className="follow-zone"
                     x={localZone.x * 1000}

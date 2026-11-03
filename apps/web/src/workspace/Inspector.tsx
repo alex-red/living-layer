@@ -1009,7 +1009,8 @@ function CameraMoved() {
 /** The mug's own zone and the main lamp. */
 function ZonePanel() {
   const lab = useLab();
-  const { memory, mode, busy, drawing, draftZone, currentObservation, lampReady, camera } = lab;
+  const { memory, mode, busy, drawing, draftZone, currentObservation, zoneObservation, lampReady } =
+    lab;
   if (!memory?.object)
     return (
       <Panel
@@ -1026,7 +1027,7 @@ function ZonePanel() {
   const d = memory.lastDecision?.output;
   const lampName = mode === 'demo' ? 'virtual lamp' : 'lamp';
   const status = !memory.zone
-    ? currentObservation
+    ? zoneObservation
       ? 'Draw the zone the mug should be in.'
       : 'Track the mug in this frame, then draw its zone.'
     : !d
@@ -1055,7 +1056,7 @@ function ZonePanel() {
       <CameraMoved />
       {!drawing && (
         <Button
-          disabled={Boolean(busy) || !currentObservation || camera}
+          disabled={Boolean(busy) || !zoneObservation}
           onClick={() => {
             lab.setDraftZone(memory.zone?.rect ?? { x: 0.3, y: 0.2, width: 0.4, height: 0.6 });
             lab.setDrawing(true);
@@ -1094,10 +1095,10 @@ function ZonePanel() {
           <div className="save-actions">
             <Button
               variant="primary"
-              disabled={Boolean(busy) || !currentObservation}
+              disabled={Boolean(busy) || !zoneObservation}
               onClick={() =>
                 void lab.deskAction('zone', {
-                  observationId: currentObservation?.id,
+                  observationId: zoneObservation?.id,
                   rect: {
                     x: draftZone.x,
                     y: draftZone.y,

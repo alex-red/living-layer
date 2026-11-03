@@ -547,6 +547,17 @@ p {
 .mask-overlay {
   pointer-events: none;
 }
+/* On the camera, the zone sits in a layer fitted to the picture; only the picture takes the drag. */
+.zone-fit {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.zone-fit > .zone-overlay {
+  pointer-events: auto;
+}
 /* Where the tracked mug has been: faint earlier boxes joined by its path. */
 .trail-overlay {
   position: absolute;
