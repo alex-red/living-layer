@@ -1,18 +1,16 @@
-import { useMemo, useState } from 'react';
-import { Button, IconButton } from '../ui/controls';
+import { useMemo, useRef, useState } from 'react';
 import {
-  ASK_EXAMPLES,
-  DAY_END,
-  DAY_START,
-  DAY_THINGS,
+  DEMO_ASK_EXAMPLES,
   DEMO_DAY,
-  askRoom,
-  clock,
-  dayNudges,
-  eventsUntil,
+  clockOf,
+  midnightOf,
   type DayEvent,
   type RoomAnswer,
-} from './demoDay';
+} from '@livinglayer/domain';
+import { api } from '../api';
+import { Button, IconButton } from '../ui/controls';
+import { DAY_END, DAY_START, DAY_THINGS, clock, dayNudges, eventsUntil } from './demoDay';
+import { useLabCalls } from './LabContext';
 import { REPLAY_SPEEDS, playReplay, setReplay, useReplay, useReplayClock } from './state/replay';
 import './day.css';
 
@@ -122,14 +120,47 @@ function Thing({ e }: { e: DayEvent }) {
   return <span className={`day-dot ${e.thing}`} title={DAY_THINGS[e.thing]} aria-hidden="true" />;
 }
 
-/** "Ask your room": a question about the day so far, answered from its events. */
+/** The dot a cited thing is drawn with, by its id in the demo. */
+function dotOf(thingId: string): string {
+  if (thingId === 'cat-tree') return 'cat';
+  if (['milk', 'leftover-chicken', 'spinach'].includes(thingId)) return 'fridge';
+  return ['mug', 'lamp', 'monitor', 'mouse'].includes(thingId) ? thingId : 'other';
+}
+
+/**
+ * "Ask your room": a question about the room's history, read by Spark (live)
+ * or offline (the demo, as of the replay's minute) and answered by the server
+ * from the things' events. Every answer cites the events it rests on; in the
+ * demo a cited time moves the replay there.
+ */
 function Ask({ minute }: { minute: number }) {
+  const calls = useLabCalls();
   const [question, setQuestion] = useState('');
+  const [asking, setAsking] = useState(false);
+  const [error, setError] = useState('');
   const [answer, setAnswer] = useState<(RoomAnswer & { question: string }) | null>(null);
-  const ask = (q: string) => {
+  const asked = useRef(0);
+  const demo = calls.mode() === 'demo';
+  // The sample day is today: the replay's minute is a time today.
+  const today = midnightOf(Date.now());
+  const ask = async (q: string) => {
     if (!q.trim()) return;
     setQuestion(q);
-    setAnswer({ question: q, ...askRoom(q, minute) });
+    setError('');
+    setAsking(true);
+    const n = ++asked.current;
+    try {
+      const run = await api('things/ask', {
+        mode: calls.mode(),
+        question: q,
+        ...(demo ? { at: today + minute * 60_000 } : {}),
+      });
+      if (n === asked.current) setAnswer({ question: q, ...run.output });
+    } catch (e) {
+      if (n === asked.current) setError(e instanceof Error ? e.message : 'The question failed.');
+    } finally {
+      if (n === asked.current) setAsking(false);
+    }
   };
   return (
     <div className="day-ask">
@@ -137,24 +168,31 @@ function Ask({ minute }: { minute: number }) {
         className="day-ask-row"
         onSubmit={(e) => {
           e.preventDefault();
-          ask(question);
+          void ask(question);
         }}
       >
         <input
           className="day-ask-input"
           aria-label="Ask your room"
-          placeholder={`Ask your room about today, up to ${clock(minute)}`}
+          placeholder={
+            demo ? `Ask your room, as of ${clock(minute)}` : 'Ask your room about its history'
+          }
           value={question}
           onChange={(e) => setQuestion(e.target.value)}
         />
-        <Button size="sm" type="submit" disabled={!question.trim()}>
-          Ask
+        <Button size="sm" type="submit" disabled={!question.trim() || asking}>
+          {asking ? 'Asking…' : 'Ask'}
         </Button>
       </form>
+      {error && (
+        <p className="day-ask-error micro" role="alert">
+          {error}
+        </p>
+      )}
       {!answer && (
         <div className="day-examples" role="group" aria-label="Example questions">
-          {ASK_EXAMPLES.map((q) => (
-            <button key={q} type="button" className="day-example" onClick={() => ask(q)}>
+          {DEMO_ASK_EXAMPLES.map((q) => (
+            <button key={q} type="button" className="day-example" onClick={() => void ask(q)}>
               {q}
             </button>
           ))}
@@ -163,19 +201,40 @@ function Ask({ minute }: { minute: number }) {
       {answer && (
         <div className="day-answer" role="status">
           <p>{answer.text}</p>
+          {answer.bars && <Bars bars={answer.bars} />}
+          {answer.notes.map((n) => (
+            <p key={n} className="day-note micro">
+              {n}
+            </p>
+          ))}
           {answer.cites.length > 0 && (
             <div className="day-cites" role="group" aria-label="What it rests on">
-              {answer.cites.map((e, i) => (
-                <button
-                  key={i}
-                  type="button"
-                  className="day-cite"
-                  title="Show the room then"
-                  onClick={() => setReplay({ minute: e.at, playing: false })}
-                >
-                  <Thing e={e} /> {clock(e.at)} {e.text}
-                </button>
-              ))}
+              {answer.cites.map((c, i) => {
+                const seek = demo && c.at >= today;
+                const body = (
+                  <>
+                    <span className={`day-dot ${dotOf(c.thingId)}`} aria-hidden="true" />{' '}
+                    {clockOf(c.at)} {c.text}
+                  </>
+                );
+                return seek ? (
+                  <button
+                    key={i}
+                    type="button"
+                    className="day-cite"
+                    title="Show the room then"
+                    onClick={() =>
+                      setReplay({ minute: Math.round((c.at - today) / 60_000), playing: false })
+                    }
+                  >
+                    {body}
+                  </button>
+                ) : (
+                  <span key={i} className="day-cite still">
+                    {body}
+                  </span>
+                );
+              })}
             </div>
           )}
           <Button size="sm" variant="text" onClick={() => setAnswer(null)}>
@@ -183,6 +242,30 @@ function Ask({ minute }: { minute: number }) {
           </Button>
         </div>
       )}
+    </div>
+  );
+}
+
+/** A count or a time per hour or per day, as bars. */
+function Bars({ bars }: { bars: NonNullable<RoomAnswer['bars']> }) {
+  const max = Math.max(...bars.values.map((v) => v.value), 1);
+  const unit = bars.unit === 'times' ? '' : ' min';
+  // Label every bar when they fit, else every third.
+  const every = bars.values.length > 12 ? 3 : 1;
+  return (
+    <div
+      className="day-bars"
+      role="img"
+      aria-label={bars.values.map((v) => `${v.label}: ${v.value}${unit}`).join(', ')}
+    >
+      {bars.values.map((v, i) => (
+        <div key={v.from} className="day-bar-col" title={`${v.label}: ${v.value}${unit}`}>
+          <span className="day-bar-track">
+            <span className="day-bar-fill" style={{ height: `${(v.value / max) * 100}%` }} />
+          </span>
+          <span className="day-bar-label">{i % every === 0 ? v.label : ''}</span>
+        </div>
+      ))}
     </div>
   );
 }

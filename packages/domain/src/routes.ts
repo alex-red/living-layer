@@ -24,6 +24,7 @@ import type { RoomMarks } from './room-camera.js';
 import type { Job } from './item-sculpt.js';
 import type { Quad } from './iso.js';
 import type { RunOf } from './run-outputs.js';
+import type { RoomAnswer } from './room-ask.js';
 import type { StatNow, StatsNow, ThingStatsView } from './stats.js';
 import type { WatchView } from './watch.js';
 
@@ -112,6 +113,7 @@ interface ApiRoutes {
   };
   watch: { body: R.WatchBody; response: WatchView };
   'things/stats': { body: R.ThingsStatsBody; response: { memory: DeskMemory; stats: StatsNow } };
+  'things/ask': { body: R.ThingsAskBody; response: EvidenceRun<RoomAnswer> };
   'things/learn': { body: R.ThingsLearnBody; response: { now: StatNow; stats: StatsNow } };
   'things/used': { body: R.ThingsUsedBody; response: { now: StatNow; stats: StatsNow } };
   [path: `things/${'demo' | 'live'}/${string}`]: { body: undefined; response: ThingStatsView };

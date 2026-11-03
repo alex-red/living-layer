@@ -118,6 +118,7 @@ export type RunKind =
   | 'item'
   | 'fixture'
   | 'assist'
+  | 'ask'
   | 'lamp'
   | 'observation'
   | 'zone'

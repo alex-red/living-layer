@@ -62,7 +62,7 @@ import {
   surfaceWorld,
   type Point,
 } from '@livinglayer/domain';
-import { applyHomography, runOutput } from '@livinglayer/domain';
+import { applyHomography, runOutput, type MugSpot } from '@livinglayer/domain';
 import { apiAt } from '../api';
 import { ZoomPan } from '../ZoomPan';
 import type { BaseRect } from './BaseHandles';
@@ -90,7 +90,7 @@ import { pinScene, type WorkScene as Kind } from '../workspace/progress';
 import './iso.css';
 import type { SceneView } from './SceneEditor';
 import { DayChip, DayNudges } from '../workspace/DayDock';
-import { clock, dayAt, type MugSpot } from '../workspace/demoDay';
+import { clock, dayAt } from '../workspace/demoDay';
 import { useReplay } from '../workspace/state/replay';
 import { statsStore } from '../workspace/state/stats';
 import { useStore } from '../workspace/state/store';

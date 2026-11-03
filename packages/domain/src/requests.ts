@@ -183,6 +183,22 @@ export const thingsStatsBodySchema = z
   .strict();
 export type ThingsStatsBody = z.input<typeof thingsStatsBodySchema>;
 
+/** POST /api/things/ask: a question about the room's history. */
+export const thingsAskBodySchema = z
+  .object({
+    mode: modeSchema,
+    question: z.string().trim().min(1).max(300),
+    /** Ask as of this time, ms: the demo's replay minute. Now when absent. */
+    at: z
+      .number()
+      .int()
+      .positive()
+      .refine((at) => at <= Date.now() + 86_400_000, { message: 'That time is still to come.' })
+      .optional(),
+  })
+  .strict();
+export type ThingsAskBody = z.input<typeof thingsAskBodySchema>;
+
 /** POST /api/things/learn: the person says how the thing looks now. */
 export const thingsLearnBodySchema = z
   .object({

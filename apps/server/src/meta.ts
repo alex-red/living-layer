@@ -28,6 +28,9 @@ import {
   factsFromLookup,
   productLookupSchema,
   sparkIntentSchema,
+  askQuerySchema,
+  ASK_MEASURE_ABOUT,
+  type AskThing,
   describeContext,
   opCatalog,
   PROP_FORMS,
@@ -84,6 +87,8 @@ export const SPARK_CALLS = {
   productLookup: { tokens: 8192, timeoutMs: 90_000, effort: 'low' },
   // Spark's answers with a crop have taken 7 to 51 s for 2,000 to 5,000 tokens, and once ran past 60.
   intent: { tokens: 8192, timeoutMs: 90_000 },
+  // A question read as one query from closed lists: no picture, little to reason over.
+  ask: { tokens: 4096, timeoutMs: DEFAULT_SPARK_TIMEOUT_MS, effort: 'low' },
   // Spark reasons over the photo and the model's parts first: 8192 ran out before it answered.
   refine: { tokens: 16384, timeoutMs: 150_000 },
 } as const;
@@ -462,6 +467,28 @@ export class MetaAdapter {
    * and the crop when there is one. Answered in the request's own schema;
    * the caller keeps only recipe ops.
    */
+  async ask(question: string, things: readonly AskThing[], now: number, signal?: AbortSignal) {
+    return this.structured('ask', {
+      name: 'room_question',
+      schema: askQuerySchema,
+      what: 'question',
+      signal,
+      text: [
+        'A person asked about their room’s history. The room keeps stats on the things below; read the question as one query over them. Code counts and answers from the stored events, so don’t answer it yourself.',
+        `The question: ${JSON.stringify(question)}`,
+        `It is now ${new Date(now).toLocaleString('en-GB', { weekday: 'long', hour: '2-digit', minute: '2-digit' })}.`,
+        'The things (id: name, its stats):',
+        ...things.map((t) => `- ${t.id}: ${t.label} (${t.stats.join(', ')})`),
+        'The stats: lastUsed is each time a thing was picked up and put back (for a mug or cup, a drink); power is on or off; occupied is something on it (a cat on its tree); activity is how busy it is (a mouse being used: working at the desk).',
+        'thing: a thing’s id from the list, or null for every thing. stat: one of that thing’s stats, or null.',
+        'measure, one of:',
+        ...Object.entries(ASK_MEASURE_ABOUT).map(([m, about]) => `- ${m}: ${about}`),
+        'window: minutes (the last amount minutes: an hour is 60), today (so far), yesterday, or days (the last amount days, today included: a week is 7). amount: null unless the window is minutes or days. With no time named, today.',
+        'compare: previous for “more than yesterday” or “than the hour before” (the window before), average for “than usual”, else none.',
+        'clarify: if the question isn’t about these things or can’t be one query, a short question back; else null.',
+      ].join('\n'),
+    });
+  }
   async refineRecipe(
     recipe: FixtureRecipe,
     check: RecipeCheck,

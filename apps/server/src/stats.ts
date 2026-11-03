@@ -6,9 +6,13 @@ import {
   LOCAL_TRACK,
   WATCH,
   activityStep,
+  answerAsk,
   around,
+  askSince,
   calibrationOf,
   dayOf,
+  demoAsk,
+  demoHistory,
   featureDifference,
   fixtureEntity,
   fixtureInFrame,
@@ -20,17 +24,22 @@ import {
   powerLook,
   powerReading,
   quadBox,
+  readAsk,
   sampleInto,
   sampleQuadInto,
   screenInFrame,
   settle,
   settled,
   usedStep,
+  thingsAskBodySchema,
   thingsLearnBodySchema,
   thingsUsedBodySchema,
   thingsStatsBodySchema,
   thingStatsQuerySchema,
   type Activity,
+  type AskHistory,
+  type AskQuery,
+  type AskThing,
   type DeskMemory,
   type EmptyLook,
   type LumaFrame,
@@ -51,6 +60,9 @@ import {
   type WatchThing,
 } from '@livinglayer/domain';
 import { LabError, parseInput } from './errors.js';
+import type { ProviderResult } from './meta.js';
+import { requestSignal } from './request-signal.js';
+import type { RouteDeps } from './route-deps.js';
 import type { EvidenceStore } from './store.js';
 
 /** A thing stats can be kept for: the mug, another object or a fixture. */
@@ -216,6 +228,9 @@ export class StatRunner {
   private boxes = new Map<string, UnitBox>();
   private cameraMoved = false;
   private watching = false;
+  /** When watching began, while it lasts: the span the store keeps for asking. */
+  private watchedFrom: number | null = null;
+  private watchedTimer: ReturnType<typeof setInterval> | null = null;
   private seeded = false;
   /** One sample buffer each, reused by every stat on every frame: they run one at a time. */
   private sample = new Uint8Array(STATS.sample.width * STATS.sample.height);
@@ -292,8 +307,18 @@ export class StatRunner {
   /** Watching started or stopped: what the camera says is fresh, or only the last thing it saw. */
   setWatching(on: boolean) {
     if (on === this.watching) return;
-    this.account(this.now);
+    const now = this.now;
+    this.account(now);
     this.watching = on;
+    if (on) this.watchedFrom = now;
+    this.keepWatched(now);
+    if (this.watchedTimer) clearInterval(this.watchedTimer);
+    this.watchedTimer = null;
+    if (on) {
+      // A still room writes no events, so its watched span moves on by itself.
+      this.watchedTimer = setInterval(() => this.keepWatched(this.now), STATS.flushMs);
+      this.watchedTimer.unref?.();
+    } else this.watchedFrom = null;
     if (!on) {
       this.lastFrame = this.previous = null;
       this.boxes.clear();
@@ -573,11 +598,21 @@ export class StatRunner {
     this.flushTimer ??= setTimeout(() => this.flush(), STATS.flushMs);
     this.flushTimer.unref?.();
   }
+  /** Move the watched span's end on to `now`. */
+  private keepWatched(now: number) {
+    if (this.watchedFrom === null) return;
+    try {
+      this.deps.store.saveWatchSpan(this.deps.mode, this.watchedFrom, now);
+    } catch {
+      // A store that is closing loses the last few seconds.
+    }
+  }
   /** Write what changed since the last write, in one transaction. */
   flush() {
     if (this.flushTimer) clearTimeout(this.flushTimer);
     this.flushTimer = null;
     this.account(this.now);
+    this.keepWatched(this.now);
     const events = this.events;
     const days = [...this.days.values()];
     this.events = [];
@@ -684,11 +719,59 @@ export class StatRunner {
   }
 }
 
+/** The things that keep stats, as asking about the room sees them. */
+function askThings(memory: DeskMemory): AskThing[] {
+  const labels = new Map(statThings(memory).map((t) => [t.id, t.label]));
+  return Object.entries(memory.thingStats ?? {}).flatMap(([id, stats]) => {
+    const label = labels.get(id);
+    return label && stats.length ? [{ id, label, stats: stats.map((s) => s.key) }] : [];
+  });
+}
+
 /** The lab's routes for things' stats. */
 export async function statRoutes(
   app: FastifyInstance,
-  { store, runners }: { store: EvidenceStore; runners: Record<Mode, StatRunner> },
+  {
+    store,
+    runners,
+    meta,
+    run,
+  }: { runners: Record<Mode, StatRunner> } & Pick<RouteDeps, 'store' | 'meta' | 'run'>,
 ) {
+  /**
+   * A question about the room's history. Spark reads it as one query (the
+   * demo reads it offline); the answer is worked out from stored events. The
+   * demo answers from its sample week, as of `at`.
+   */
+  app.post('/ask', async (request) => {
+    const { mode, question, at } = parseInput(thingsAskBodySchema, request.body);
+    const signal = requestSignal(request);
+    return run(
+      'ask',
+      mode,
+      async () => {
+        const now = at ?? Date.now();
+        const history: AskHistory =
+          mode === 'demo'
+            ? { ...demoHistory(now), watched: null }
+            : { things: askThings(store.memory(mode)), events: [], watched: null };
+        let read: Partial<ProviderResult<AskQuery>> & { output: AskQuery };
+        if (mode === 'demo' || !history.things.length)
+          read = { output: demoAsk(question, history.things) };
+        else read = await meta.ask(question, history.things, now, signal);
+        const query = readAsk(read.output, history.things);
+        if (mode === 'live' && !query.clarify) {
+          runners[mode].flush();
+          const since = askSince(query, now);
+          history.events = store.allStatEvents(mode, since).filter((e) => e.at <= now);
+          history.watched = store.watchSpans(mode, since);
+        }
+        const { output: _, ...provider } = read;
+        return { ...provider, output: answerAsk(query, history, now) };
+      },
+      signal,
+    );
+  });
   app.post('/stats', async (request) => {
     const { mode, id, stats } = parseInput(thingsStatsBodySchema, request.body);
     const memory = store.updateMemory(mode, (memory) => {

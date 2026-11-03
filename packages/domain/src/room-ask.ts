@@ -1,0 +1,819 @@
+/**
+ * Asking the room about its history ([plan](../../../docs/plans/ask-room.md)).
+ * Spark reads a question as one `AskQuery`, from closed lists; `readAsk`
+ * checks it against the things that keep stats, and `answerAsk` works the
+ * number out from their stored events and words it. Spark never counts.
+ * `demoAsk` reads a question offline in Spark's shape, for the demo.
+ */
+import { z } from 'zod';
+import { midnightOf, type AskThing } from './demo-day.js';
+import { STAT_KEYS, STAT_KINDS, type StatEvent, type StatKey } from './stats.js';
+
+const ASK_MEASURES = [
+  'count',
+  'duration',
+  'last',
+  'first',
+  'longestGap',
+  'longest',
+  'now',
+  'summary',
+] as const;
+type AskMeasure = (typeof ASK_MEASURES)[number];
+/** Each measure in a line, for Spark's prompt and the tests. */
+export const ASK_MEASURE_ABOUT: Record<AskMeasure, string> = {
+  count: 'how many times: uses, drinks, switchings on, visits, busy stretches',
+  duration: 'how long in all: on, occupied, in use',
+  last: 'when it last happened (window ignored)',
+  first: 'when it first happened in the window',
+  longestGap: 'the longest stretch without it: without a drink, off, empty, idle',
+  longest: 'the longest single stretch of it: on, a nap, a focus stretch',
+  now: 'what it is now and since when',
+  summary: 'what happened, one line per thing (thing and stat null)',
+};
+const ASK_WINDOWS = ['minutes', 'today', 'yesterday', 'days'] as const;
+const ASK_COMPARES = ['none', 'previous', 'average'] as const;
+
+/** What Spark answers: one query, every field present, null when unused. */
+export const askQuerySchema = z
+  .object({
+    /** A thing's id from the list, or null for every thing. */
+    thing: z.string().nullable(),
+    stat: z.enum(STAT_KEYS).nullable(),
+    measure: z.enum(ASK_MEASURES),
+    /** The last `amount` minutes, today so far, yesterday, or the last `amount` days. */
+    window: z.enum(ASK_WINDOWS),
+    amount: z.number().nullable(),
+    /** Against the window before it (yesterday by this time), or the week before's average. */
+    compare: z.enum(ASK_COMPARES),
+    /** A short question back, when the question can't be read as one query. */
+    clarify: z.string().nullable(),
+  })
+  .strict();
+export type AskQuery = z.infer<typeof askQuerySchema>;
+
+/** What the history holds for asking: the things, their events, and when the camera watched. */
+export interface AskHistory {
+  things: readonly AskThing[];
+  /** Oldest first; each thing's last change before the span asked about included. */
+  events: readonly StatEvent[];
+  /** When the camera watched, oldest first; null when it is unknown or always (the demo). */
+  watched: readonly { from: number; to: number }[] | null;
+}
+
+/** One event an answer rests on. */
+interface AskCite {
+  at: number;
+  thingId: string;
+  text: string;
+}
+/** An answer about the room, with what it rests on. */
+export interface RoomAnswer {
+  text: string;
+  /** What a number really counts, and how much of the window the camera watched. */
+  notes: string[];
+  cites: AskCite[];
+  /** A count or a time per hour or per day, when the window is long enough to draw. */
+  bars: {
+    unit: 'times' | 'minutes';
+    values: { label: string; from: number; value: number }[];
+  } | null;
+  /** The same measure over the window it was compared with. */
+  compared: { label: string; value: number; words: string } | null;
+  /** The query it answered, after `readAsk`; null when it asks back. */
+  query: AskQuery | null;
+  /** A question back, when the question couldn't be read. */
+  clarify: string | null;
+}
+
+const MINUTE = 60_000;
+const HOUR = 60 * MINUTE;
+const DAY = 24 * HOUR;
+
+/** 9:05, local time. */
+export function clockOf(ms: number): string {
+  const d = new Date(ms);
+  return `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+/** 2 h 10 min. */
+function spanOf(ms: number): string {
+  const minutes = Math.round(ms / MINUTE);
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return h ? (m ? `${h} h ${m} min` : `${h} h`) : `${m} min`;
+}
+const times = (n: number) => (n === 1 ? 'once' : n === 2 ? 'twice' : `${n} times`);
+const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+
+/**
+ * Check a query against the things: a thing named by id or label, a stat it
+ * keeps, a measure that means something for that stat, an amount in range.
+ * A query that can't be answered comes back with `clarify` set.
+ */
+export function readAsk(raw: AskQuery, things: readonly AskThing[]): AskQuery {
+  const names = things.map((t) => t.label.toLowerCase()).join(', ');
+  const ask = (clarify: string): AskQuery => ({ ...raw, clarify });
+  if (!things.length)
+    return ask('No thing in this room keeps stats yet. Switch one on in its card first.');
+  if (raw.clarify?.trim()) return { ...raw, clarify: raw.clarify.trim() };
+  const q: AskQuery = { ...raw, clarify: null };
+  if (q.thing !== null) {
+    const name = q.thing.toLowerCase();
+    const thing =
+      things.find((t) => t.id === q.thing) ?? things.find((t) => t.label.toLowerCase() === name);
+    if (!thing) return ask(`I keep stats for ${names}. Which one did you mean?`);
+    q.thing = thing.id;
+    if (!q.stat || !thing.stats.includes(q.stat)) q.stat = thing.stats[0] ?? null;
+  } else if (q.stat !== null && !things.some((t) => t.stats.includes(q.stat!)))
+    return ask(
+      `Nothing here keeps ${STAT_KINDS[q.stat].label.toLowerCase()}. I keep stats for ${names}.`,
+    );
+  if (q.thing === null && q.stat === null && q.measure !== 'summary') q.measure = 'summary';
+  // A use is a moment: it has no length of its own.
+  if (q.stat === 'lastUsed' && q.measure === 'duration') q.measure = 'count';
+  if (q.stat === 'lastUsed' && q.measure === 'longest') q.measure = 'longestGap';
+  if (q.window === 'minutes')
+    q.amount = Math.round(Math.min(Math.max(q.amount ?? 60, 1), 30 * 24 * 60));
+  else if (q.window === 'days') q.amount = Math.round(Math.min(Math.max(q.amount ?? 7, 1), 30));
+  else q.amount = null;
+  return q;
+}
+
+/** The span a query's window covers, and its words. */
+function windowOf(q: AskQuery, now: number): { from: number; to: number; words: string } {
+  const midnight = midnightOf(now);
+  if (q.window === 'minutes') {
+    const m = q.amount ?? 60;
+    const words =
+      m === 60
+        ? 'in the last hour'
+        : m % 60 === 0
+          ? `in the last ${m / 60} hours`
+          : `in the last ${m} min`;
+    return { from: now - m * MINUTE, to: now, words };
+  }
+  if (q.window === 'yesterday')
+    return { from: shiftDays(midnight, -1), to: midnight, words: 'yesterday' };
+  if (q.window === 'days') {
+    const n = q.amount ?? 7;
+    return {
+      from: shiftDays(midnight, -(n - 1)),
+      to: now,
+      words: n === 1 ? 'today' : `in the last ${n} days`,
+    };
+  }
+  return { from: midnight, to: now, words: 'today' };
+}
+/** The same clock time `n` days on, through a date so a clock change doesn't shift it. */
+function shiftDays(ms: number, n: number): number {
+  const d = new Date(ms);
+  d.setDate(d.getDate() + n);
+  return d.getTime();
+}
+
+/** One thing's one stat over time. */
+interface Track {
+  thing: AskThing;
+  key: StatKey;
+  events: StatEvent[];
+}
+/** A stretch it was on (or busy, at `level`), clipped to the span asked about. */
+interface Stretch {
+  from: number;
+  to: number;
+  /** Seconds-weighted level: 1 for on, the busy share for activity. */
+  weight: number;
+  /** It began inside the span, rather than running into it. */
+  began: boolean;
+}
+
+const isOn = (key: StatKey, v: StatEvent['value']) =>
+  key === 'activity' ? typeof v === 'number' && v > 0 : v === true;
+const weightOf = (key: StatKey, v: StatEvent['value']) =>
+  key === 'activity' ? (typeof v === 'number' ? v : 0) : v === true ? 1 : 0;
+
+/** The stretches a track was on between `from` and `to`, adjacent busy levels merged. */
+function stretches(t: Track, from: number, to: number): Stretch[] {
+  const out: Stretch[] = [];
+  let value: StatEvent['value'] = null;
+  const later: StatEvent[] = [];
+  for (const e of t.events) {
+    if (e.at <= from) value = e.value;
+    else if (e.at <= to) later.push(e);
+    else break;
+  }
+  let open = isOn(t.key, value) ? { from, began: false, weighted: 0 } : null;
+  let since = from;
+  const add = (at: number) => {
+    if (open) open.weighted += weightOf(t.key, value) * (at - since);
+    since = at;
+  };
+  const close = (o: NonNullable<typeof open>, at: number) =>
+    out.push({
+      from: o.from,
+      to: at,
+      weight: o.weighted / Math.max(at - o.from, 1),
+      began: o.began,
+    });
+  for (const e of later) {
+    add(e.at);
+    const on = isOn(t.key, e.value);
+    if (open && !on) (close(open, e.at), (open = null));
+    else if (!open && on) open = { from: e.at, began: true, weighted: 0 };
+    value = e.value;
+  }
+  add(to);
+  if (open) close(open, to);
+  return out.filter((s) => s.to > s.from);
+}
+/** The moments a track switched on (or got busy), or each use of a Last used track. */
+const risings = (t: Track) =>
+  t.events.filter((e, i) =>
+    t.key === 'lastUsed'
+      ? e.value !== null
+      : isOn(t.key, e.value) && !isOn(t.key, t.events[i - 1]?.value ?? null),
+  );
+/** The uses of a Last used track between `from` and `to`. */
+const usesOf = (t: Track, from: number, to: number) =>
+  t.events.filter((e) => e.at > from && e.at <= to && e.value !== null);
+/** The time a track was on in a span, weighted by its level, ms. */
+const onMs = (t: Track, from: number, to: number) =>
+  stretches(t, from, to).reduce((sum, s) => sum + (s.to - s.from) * s.weight, 0);
+/** The count of a track in a span: uses, or stretches that began in it. */
+const countOf = (t: Track, from: number, to: number) =>
+  t.key === 'lastUsed'
+    ? usesOf(t, from, to).length
+    : stretches(t, from, to).filter((s) => s.began).length;
+
+/** What kind of thing it is, for the words. */
+type Voice = 'drink' | 'food' | 'screen' | 'cat' | 'pointer' | 'other';
+function voiceOf(thing: AskThing, key: StatKey): Voice {
+  const l = thing.label.toLowerCase();
+  if (key === 'lastUsed' && /\b(mug|cup|glass|bottle|tumbler|flask)\b/.test(l)) return 'drink';
+  if (key === 'lastUsed' && /\b(milk|egg|chicken|spinach|cheese|butter|juice|leftover|yog)/.test(l))
+    return 'food';
+  if (key === 'power' && /\b(monitor|screen|display|tv|television)\b/.test(l)) return 'screen';
+  if (key === 'occupied' && /\bcat\b/.test(l)) return 'cat';
+  if (key === 'activity') return 'pointer';
+  return 'other';
+}
+/** "your desk mug", "the monitor". */
+function nameOf(thing: AskThing): string {
+  const l = thing.label.trim();
+  return /^my\s/i.test(l) ? `your ${l.slice(3)}` : `the ${l.charAt(0).toLowerCase()}${l.slice(1)}`;
+}
+/** What one event says, as a cite. */
+function eventText(t: Track, e: StatEvent): string {
+  const voice = voiceOf(t.thing, t.key);
+  const on = isOn(t.key, e.value);
+  if (t.key === 'lastUsed')
+    return voice === 'drink'
+      ? `Drink from ${nameOf(t.thing)}`
+      : voice === 'food'
+        ? `${t.thing.label} taken out`
+        : `${cap(nameOf(t.thing))} used`;
+  if (voice === 'cat') return on ? 'The cat climbed its tree' : 'The cat left its tree';
+  if (t.key === 'activity') return on ? `${t.thing.label} busy` : `${t.thing.label} idle`;
+  const words = STAT_KINDS[t.key].words;
+  return `${t.thing.label} ${on ? (words?.on ?? 'on') : (words?.off ?? 'off')}`.replace(
+    / (On|Off|Occupied|Empty)$/,
+    (_, w: string) => ` ${w.toLowerCase()}`,
+  );
+}
+const cite = (t: Track, e: StatEvent): AskCite => ({
+  at: e.at,
+  thingId: t.thing.id,
+  text: eventText(t, e),
+});
+
+/** "4 drinks from your desk mug today", as a sentence. */
+function countSentence(t: Track, n: number, win: string): string {
+  const name = nameOf(t.thing);
+  switch (voiceOf(t.thing, t.key)) {
+    case 'drink':
+      return n
+        ? `You had ${n} drink${n === 1 ? '' : 's'} from ${name} ${win}.`
+        : `No drinks from ${name} ${win}.`;
+    case 'food':
+      return n
+        ? `${cap(name)} was taken out ${times(n)} ${win}.`
+        : `${cap(name)} stayed in ${win}.`;
+    case 'cat':
+      return n
+        ? `The cat went up its tree ${times(n)} ${win}.`
+        : `The cat didn’t climb its tree ${win}.`;
+    case 'pointer':
+      return `${cap(name)} had ${n} busy stretch${n === 1 ? '' : 'es'} ${win}.`;
+    default:
+      return t.key === 'lastUsed'
+        ? `${cap(name)} was used ${times(n)} ${win}.`
+        : n
+          ? `${cap(name)} came on ${times(n)} ${win}.`
+          : `${cap(name)} didn’t come on ${win}.`;
+  }
+}
+/** "Your screen was on for 5 h 10 min today", as a sentence. */
+function durationSentence(t: Track, ms: number, win: string): string {
+  const name = nameOf(t.thing);
+  if (ms < MINUTE)
+    return voiceOf(t.thing, t.key) === 'cat'
+      ? `The cat wasn’t on its tree ${win}.`
+      : `${cap(name)} wasn’t ${t.key === 'activity' ? 'in use' : t.key === 'occupied' ? 'occupied' : 'on'} ${win}.`;
+  switch (voiceOf(t.thing, t.key)) {
+    case 'screen':
+      return `Your screen was on for ${spanOf(ms)} ${win}.`;
+    case 'cat':
+      return `The cat spent ${spanOf(ms)} on its tree ${win}.`;
+    case 'pointer':
+      return `${cap(name)} was in use for ${spanOf(ms)} ${win}.`;
+    default:
+      return `${cap(name)} was ${t.key === 'occupied' ? 'occupied' : 'on'} for ${spanOf(ms)} ${win}.`;
+  }
+}
+const ago = (at: number, now: number) =>
+  now - at < MINUTE ? 'just now' : `${spanOf(now - at)} ago`;
+
+/** The bars of a count or a time: per hour for up to a day, per day beyond. */
+function barsOf(t: Track, from: number, to: number, unit: 'times' | 'minutes'): RoomAnswer['bars'] {
+  if (to - from < 2 * HOUR) return null;
+  const perDay = to - from > 26 * HOUR;
+  const values: { label: string; from: number; value: number }[] = [];
+  let start = perDay ? midnightOf(from) : from - (from % HOUR);
+  while (start < to) {
+    const end = perDay ? shiftDays(start, 1) : start + HOUR;
+    const a = Math.max(start, from);
+    const b = Math.min(end, to);
+    const value = unit === 'times' ? countOf(t, a, b) : Math.round(onMs(t, a, b) / MINUTE);
+    const d = new Date(start);
+    values.push({
+      label: perDay ? d.toLocaleDateString('en-GB', { weekday: 'short' }) : String(d.getHours()),
+      from: start,
+      value,
+    });
+    start = end;
+  }
+  // An hourly day starts at its first busy hour, so the night doesn't fill the chart.
+  if (!perDay) {
+    const first = values.findIndex((v) => v.value > 0);
+    if (first > 0) values.splice(0, first);
+  }
+  return values.some((v) => v.value > 0) ? { unit, values } : null;
+}
+
+/** The camera stats' note on how much of the window it watched. */
+function watchedNote(
+  history: AskHistory,
+  tracks: Track[],
+  from: number,
+  to: number,
+): string | null {
+  if (!history.watched || to <= from) return null;
+  // A power stat read from Home Assistant needs no camera.
+  const camera = tracks.some(
+    (t) => t.key !== 'power' || !t.events.some((e) => e.source === 'entity'),
+  );
+  if (!camera) return null;
+  let ms = 0;
+  for (const w of history.watched) ms += Math.max(0, Math.min(w.to, to) - Math.max(w.from, from));
+  if (ms >= 0.95 * (to - from)) return null;
+  return ms < MINUTE
+    ? 'The camera wasn’t watching then, so this may miss what happened.'
+    : `The camera watched for ${spanOf(ms)} of those ${spanOf(to - from)}.`;
+}
+
+/** One track's answer to a measure over a span. */
+function answerTrack(
+  t: Track,
+  q: AskQuery,
+  span: { from: number; to: number; words: string },
+  now: number,
+): Pick<RoomAnswer, 'text' | 'cites' | 'bars'> & { value: number | null } {
+  const { from, to, words: win } = span;
+  const name = nameOf(t.thing);
+  const voice = voiceOf(t.thing, t.key);
+  const lastN = (es: StatEvent[]) => es.slice(-4).map((e) => cite(t, e));
+  const inSpan = t.events.filter((e) => e.at > from && e.at <= to);
+  switch (q.measure) {
+    case 'count': {
+      const n = countOf(t, from, to);
+      const shown =
+        t.key === 'lastUsed' ? usesOf(t, from, to) : inSpan.filter((e) => isOn(t.key, e.value));
+      return {
+        text: countSentence(t, n, win),
+        value: n,
+        cites: lastN(shown),
+        bars: barsOf(t, from, to, 'times'),
+      };
+    }
+    case 'duration': {
+      const ms = onMs(t, from, to);
+      return {
+        text: durationSentence(t, ms, win),
+        value: Math.round(ms / MINUTE),
+        cites: lastN(inSpan),
+        bars: barsOf(t, from, to, 'minutes'),
+      };
+    }
+    case 'last':
+    case 'first': {
+      const ons = risings(t).filter((e) =>
+        q.measure === 'last' ? e.at <= to : e.at > from && e.at <= to,
+      );
+      const e = q.measure === 'last' ? ons.at(-1) : ons[0];
+      const which = q.measure === 'last' ? 'last' : 'first';
+      const Name = cap(name);
+      // "Your last drink was", "The milk was first taken out", "The monitor last came on".
+      const lead =
+        voice === 'drink'
+          ? `Your ${which} drink from ${name} was`
+          : voice === 'food'
+            ? `${Name} was ${which} taken out`
+            : voice === 'cat'
+              ? `The cat ${which} climbed its tree`
+              : t.key === 'lastUsed'
+                ? `${Name} was ${which} used`
+                : `${Name} ${which} ${t.key === 'activity' ? 'got busy' : 'came on'}`;
+      const inWin = q.measure === 'first' ? ` ${win}` : '';
+      if (!e)
+        return {
+          text: `I haven’t seen that ${q.measure === 'last' ? 'yet' : win}.`,
+          value: null,
+          cites: [],
+          bars: null,
+        };
+      const state =
+        t.key !== 'lastUsed' && q.measure === 'last' && isOn(t.key, valueAt(t, to))
+          ? ' It’s still on.'
+          : '';
+      const when = midnightOf(e.at) === midnightOf(now) ? '' : ` ${dayName(e.at, now)}`;
+      return {
+        text: `${lead}${inWin} at ${clockOf(e.at)}${when}, ${ago(e.at, now)}.${state}`,
+        value: e.at,
+        cites: [cite(t, e)],
+        bars: null,
+      };
+    }
+    case 'longestGap': {
+      // Between one use (or stretch) and the next, and from the last to now.
+      const marks: { end: number; next: number; a?: StatEvent; b?: StatEvent }[] = [];
+      if (t.key === 'lastUsed') {
+        const uses = usesOf(t, from, to);
+        for (let i = 1; i < uses.length; i++)
+          marks.push({ end: uses[i - 1]!.at, next: uses[i]!.at, a: uses[i - 1], b: uses[i] });
+        if (uses.length && to >= now - MINUTE)
+          marks.push({ end: uses.at(-1)!.at, next: to, a: uses.at(-1) });
+      } else {
+        const s = stretches(t, from, to);
+        for (let i = 1; i < s.length; i++) marks.push({ end: s[i - 1]!.to, next: s[i]!.from });
+        if (s.length && s.at(-1)!.to < to && to >= now - MINUTE)
+          marks.push({ end: s.at(-1)!.to, next: to });
+      }
+      const best = marks.sort((a, b) => b.next - b.end - (a.next - a.end))[0];
+      if (!best)
+        return {
+          text: `There isn’t a gap to measure ${win} yet.`,
+          value: null,
+          cites: [],
+          bars: null,
+        };
+      const until = best.next >= now - MINUTE ? 'now' : clockOf(best.next);
+      const what =
+        voice === 'drink'
+          ? 'without a drink'
+          : voice === 'cat'
+            ? 'with the cat off its tree'
+            : t.key === 'lastUsed'
+              ? `without using ${name}`
+              : `with ${name} ${t.key === 'activity' ? 'idle' : 'off'}`;
+      const near = (at: number) => t.events.filter((e) => Math.abs(e.at - at) < 1000);
+      return {
+        text: `Your longest stretch ${what} ${win} was ${spanOf(best.next - best.end)}, from ${clockOf(best.end)} to ${until}.`,
+        value: Math.round((best.next - best.end) / MINUTE),
+        cites: [...near(best.end), ...near(best.next)].slice(0, 4).map((e) => cite(t, e)),
+        bars: null,
+      };
+    }
+    case 'longest': {
+      const best = stretches(t, from, to).sort((a, b) => b.to - b.from - (a.to - a.from))[0];
+      if (!best)
+        return {
+          text: durationSentence(t, 0, win),
+          value: 0,
+          cites: [],
+          bars: null,
+        };
+      const what =
+        voice === 'cat'
+          ? 'The cat’s longest nap on its tree'
+          : voice === 'pointer'
+            ? 'Your longest focus stretch'
+            : `The longest ${name} stayed ${t.key === 'occupied' ? 'occupied' : 'on'}`;
+      const until = best.to >= now - MINUTE ? 'now' : clockOf(best.to);
+      const near = t.events.filter((e) => e.at === best.from || e.at === best.to);
+      return {
+        text: `${what} ${win} was ${spanOf(best.to - best.from)}, from ${clockOf(best.from)} to ${until}.`,
+        value: Math.round((best.to - best.from) / MINUTE),
+        cites: near.slice(0, 4).map((e) => cite(t, e)),
+        bars: null,
+      };
+    }
+    case 'now':
+    case 'summary': {
+      if (t.key === 'lastUsed') return answerTrack(t, { ...q, measure: 'last' }, span, now);
+      const last = [...t.events].reverse().find((e) => e.at <= to);
+      const on = isOn(t.key, last?.value ?? null);
+      const subject = voice === 'cat' ? 'The cat' : cap(name);
+      const state =
+        voice === 'cat'
+          ? on
+            ? 'is on its tree'
+            : 'isn’t on its tree'
+          : t.key === 'activity'
+            ? on
+              ? 'is in use'
+              : 'is idle'
+            : on
+              ? 'is on'
+              : 'is off';
+      return {
+        text: last
+          ? `${subject} ${state}, since ${clockOf(last.at)}.`
+          : `I haven’t seen ${name} yet.`,
+        value: on ? 1 : 0,
+        cites: last ? [cite(t, last)] : [],
+        bars: null,
+      };
+    }
+  }
+}
+function valueAt(t: Track, at: number): StatEvent['value'] {
+  let v: StatEvent['value'] = null;
+  for (const e of t.events) {
+    if (e.at > at) break;
+    v = e.value;
+  }
+  return v;
+}
+function dayName(at: number, now: number): string {
+  const days = Math.round((midnightOf(now) - midnightOf(at)) / DAY);
+  return days === 1
+    ? 'yesterday'
+    : `on ${new Date(at).toLocaleDateString('en-GB', { weekday: 'long' })}`;
+}
+
+/** The words for a compared value. */
+function comparedWords(t: Track, q: AskQuery, value: number): string {
+  if (q.measure === 'count')
+    return voiceOf(t.thing, t.key) === 'drink'
+      ? `${Math.round(value * 10) / 10} drink${value === 1 ? '' : 's'}`
+      : times(Math.round(value * 10) / 10);
+  return spanOf(value * MINUTE);
+}
+/** One clause comparing now with before: "2 more than yesterday by this time (4)". */
+function compareClause(now: number, before: number, label: string, words: string): string {
+  const d = Math.round((now - before) * 10) / 10;
+  if (Math.abs(d) < 0.5) return `About the same as ${label} (${words}).`;
+  return `That’s ${d > 0 ? 'more' : 'less'} than ${label} (${words}).`;
+}
+
+/**
+ * Answer a read query from the history, as of `now`: the number worked out
+ * from the events, in words, with the events it rests on, bars to draw, and
+ * the window it was compared with.
+ */
+export function answerAsk(q: AskQuery, history: AskHistory, now: number): RoomAnswer {
+  const empty = { notes: [], cites: [], bars: null, compared: null };
+  if (q.clarify) return { ...empty, text: q.clarify, query: null, clarify: q.clarify };
+  const span = windowOf(q, now);
+  const trackOf = (thing: AskThing, key: StatKey): Track => ({
+    thing,
+    key,
+    events: history.events.filter((e) => e.thingId === thing.id && e.key === key),
+  });
+  const tracks: Track[] =
+    q.thing !== null
+      ? [
+          trackOf(
+            history.things.find((t) => t.id === q.thing)!,
+            q.stat!,
+          ),
+        ]
+      : history.things.flatMap((thing) =>
+          thing.stats.filter((k) => q.stat === null || k === q.stat).map((k) => trackOf(thing, k)),
+        );
+  const notes: string[] = [];
+  const watched = watchedNote(history, tracks, span.from, span.to);
+  if (q.measure === 'summary') {
+    const lines = tracks.flatMap((t) => {
+      const voice = voiceOf(t.thing, t.key);
+      if (t.key === 'lastUsed') {
+        const n = countOf(t, span.from, span.to);
+        if (!n && voice === 'food') return [];
+        return [countSentence(t, n, '').replace(/ \.$/, '.')];
+      }
+      const ms = onMs(t, span.from, span.to);
+      return ms >= MINUTE ? [durationSentence(t, ms, '').replace(/ \.$/, '.')] : [];
+    });
+    const cites = tracks
+      .flatMap((t) =>
+        t.events
+          .filter(
+            (e) =>
+              e.at > span.from && e.at <= span.to && (t.key === 'lastUsed' || isOn(t.key, e.value)),
+          )
+          .map((e) => cite(t, e)),
+      )
+      .sort((a, b) => a.at - b.at)
+      .slice(-4);
+    if (watched) notes.push(watched);
+    return {
+      ...empty,
+      text: lines.length
+        ? `${cap(span.words)}: ${lines.map((l) => l.charAt(0).toLowerCase() + l.slice(1).replace(/\.$/, '')).join('; ')}.`
+        : `Nothing has happened ${span.words} yet.`,
+      notes,
+      cites,
+      query: q,
+      clarify: null,
+    };
+  }
+  const answers = tracks.map((t) => ({ t, ...answerTrack(t, q, span, now) }));
+  const first = answers[0]!;
+  if (tracks.some((t) => voiceOf(t.thing, t.key) === 'drink') && q.measure !== 'now')
+    notes.push('A drink is the mug picked up and put back: the camera can’t see a sip.');
+  if (watched && q.measure !== 'last' && q.measure !== 'now') notes.push(watched);
+  let compared: RoomAnswer['compared'] = null;
+  let text = answers.map((a) => a.text).join(' ');
+  if (
+    answers.length === 1 &&
+    q.compare !== 'none' &&
+    first.value !== null &&
+    ['count', 'duration', 'longest', 'longestGap'].includes(q.measure)
+  ) {
+    const len = span.to - span.from;
+    const shifted = (back: number) =>
+      q.window === 'minutes'
+        ? { from: span.from - back * len, to: span.to - back * len }
+        : {
+            from: shiftDays(span.from, q.window === 'days' ? -back * (q.amount ?? 7) : -back),
+            to: shiftDays(span.to, q.window === 'days' ? -back * (q.amount ?? 7) : -back),
+          };
+    const valueIn = (s: { from: number; to: number }) =>
+      answerTrack(first.t, { ...q, compare: 'none' }, { ...s, words: '' }, s.to).value ?? 0;
+    let before: number;
+    let label: string;
+    if (q.compare === 'average' && q.window !== 'days') {
+      // The same span on each of the week's days before, from when it was first seen.
+      const start = first.t.events[0]?.at ?? Infinity;
+      const spans = [1, 2, 3, 4, 5, 6, 7]
+        .map((k) => ({
+          from: shiftDays(span.from, -k),
+          to: shiftDays(span.to, -k),
+        }))
+        .filter((s) => s.to > start);
+      before = spans.length ? spans.reduce((sum, s) => sum + valueIn(s), 0) / spans.length : 0;
+      label =
+        q.window === 'minutes'
+          ? 'the same time on an average day this past week'
+          : 'an average day this past week';
+      if (q.window === 'today') label = 'an average day this past week by this time';
+    } else {
+      before = valueIn(shifted(1));
+      label =
+        q.window === 'minutes'
+          ? `the ${span.words.replace(/^in the last /, '')} before`
+          : q.window === 'today'
+            ? 'yesterday by this time'
+            : q.window === 'yesterday'
+              ? 'the day before'
+              : `the ${q.amount} days before`;
+    }
+    const words = comparedWords(first.t, q, before);
+    compared = { label, value: Math.round(before * 10) / 10, words };
+    text += ` ${compareClause(first.value, before, label, words)}`;
+  }
+  return {
+    text,
+    notes,
+    cites: answers.flatMap((a) => a.cites).slice(-6),
+    bars: answers.length === 1 ? first.bars : null,
+    compared,
+    query: q,
+    clarify: null,
+  };
+}
+
+/** How far back a query reads events, ms: what `answerAsk` needs and no more. */
+export function askSince(q: AskQuery, now: number): number {
+  if (q.measure === 'last' || q.measure === 'now') return 0;
+  const { from } = windowOf(q, now);
+  const back = q.compare === 'none' ? 0 : q.window === 'days' ? (q.amount ?? 7) : 7;
+  // A day more, for a clock change and for what each stat was as the span began.
+  return from - (back + 1) * DAY;
+}
+
+/** Words that name each kind of thing in a question, for the demo's reader. */
+const THING_WORDS: [RegExp, RegExp][] = [
+  [
+    /\b(mug|cup|glass|bottle)\b/i,
+    /\b(drinks?|drank|drinking|sips?|coffee|tea|water|thirst|hydrat|mug|cup)/i,
+  ],
+  [/\b(monitor|screen|display)\b/i, /\b(screen|monitor|display|computer)\b/i],
+  [
+    /\b(mouse|keyboard|trackpad)\b/i,
+    /\b(mouse|keyboard|work(ed|ing)?|desk time|focus|busy|at (my|the) desk)\b/i,
+  ],
+  [/\blamp\b|\blight\b/i, /\b(lamp|lights?)\b/i],
+  [/\bcat\b/i, /\b(cat|kitty|nap(s|ped)?)\b/i],
+];
+
+/**
+ * Read a question offline, in Spark's shape: the thing its words name, the
+ * measure ("how many", "how long", "when … last", "longest … without"), the
+ * window ("in the last hour", "yesterday", "this week") and a comparison
+ * ("more than yesterday", "than usual"). The demo's stand-in for Spark.
+ */
+export function demoAsk(question: string, things: readonly AskThing[]): AskQuery {
+  const q = question.toLowerCase();
+  let thing: AskThing | undefined = things.find((t) =>
+    t.label
+      .toLowerCase()
+      .split(/\s+/)
+      .filter((w) => w.length > 3 && !['desk', 'computer'].includes(w))
+      .some((w) => q.includes(w)),
+  );
+  for (const [label, words] of THING_WORDS)
+    if (!thing && words.test(q)) thing = things.find((t) => label.test(t.label));
+  if (!thing && /\bfridge\b|\bfood\b/.test(q)) thing = things.find((t) => /milk/i.test(t.label));
+
+  const number = (s: string) =>
+    /^(an?|one)$/.test(s) ? 1 : s === 'half an' || s === 'half' ? 0.5 : Number(s);
+  const lastSpan = q.match(
+    /\b(?:last|past)\s+(\d+|an?|one|half an?)?\s*(minutes?|mins?|hours?|hrs?|h|days?)\b/,
+  );
+  let window: AskQuery['window'] = 'today';
+  let amount: number | null = null;
+  if (lastSpan) {
+    const n = lastSpan[1] ? number(lastSpan[1]) : 1;
+    const unit = lastSpan[2]!;
+    if (/^d/.test(unit)) ((window = 'days'), (amount = n));
+    else ((window = 'minutes'), (amount = /^m/.test(unit) ? n : n * 60));
+  } else if (/\byesterday\b/.test(q) && !/than yesterday|vs\.? yesterday/.test(q))
+    window = 'yesterday';
+  else if (/\bthis week\b|\bweek\b/.test(q)) ((window = 'days'), (amount = 7));
+
+  const summary = /what happened|summary|so far|my day|how was (my|the) day|anything/.test(q);
+  const measure: AskMeasure = summary
+    ? 'summary'
+    : /\blongest\b.*\b(without|between|gap|off|idle|empty)\b|\bwithout\b.*\blongest\b|\blongest gap\b/.test(
+          q,
+        )
+      ? 'longestGap'
+      : /\blongest\b|\bbiggest\b/.test(q)
+        ? 'longest'
+        : /\bfirst\b/.test(q)
+          ? 'first'
+          : /\b(last|latest)\b/.test(q) && /\bwhen\b/.test(q)
+            ? 'last'
+            : /\bhow many\b|\bhow often\b|\btimes\b|\bcount\b/.test(q)
+              ? 'count'
+              : /\bhow long\b|\bhow much time\b|\bscreen time\b|\bduration\b/.test(q)
+                ? 'duration'
+                : /\b(is|are)\b.*\b(on|now|there|up)\b|\bright now\b|\bcurrently\b/.test(q)
+                  ? 'now'
+                  : /\bmore\b|\bless\b/.test(q)
+                    ? thing?.stats[0] === 'lastUsed'
+                      ? 'count'
+                      : 'duration'
+                    : thing
+                      ? thing.stats[0] === 'lastUsed'
+                        ? 'count'
+                        : 'duration'
+                      : 'summary';
+  const compare: AskQuery['compare'] = /\busual(ly)?\b|\baverage\b|\bnormal(ly)?\b|\btypical/.test(
+    q,
+  )
+    ? 'average'
+    : /\bthan\b|\bcompared?\b|\bvs\.?\b/.test(q)
+      ? 'previous'
+      : 'none';
+  if (!thing && !summary)
+    return {
+      thing: null,
+      stat: null,
+      measure,
+      window,
+      amount,
+      compare,
+      clarify: `I keep stats for ${things.map((t) => t.label.toLowerCase()).join(', ')}. Which one did you mean?`,
+    };
+  return {
+    thing: thing?.id ?? null,
+    stat: thing?.stats[0] ?? null,
+    measure,
+    window,
+    amount,
+    compare,
+    clarify: null,
+  };
+}

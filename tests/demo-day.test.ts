@@ -1,15 +1,8 @@
 import { describe, expect, it } from 'bun:test';
-import {
-  ASK_EXAMPLES,
-  DEMO_DAY,
-  askRoom,
-  clock,
-  dayAt,
-  dayNudges,
-  span,
-} from '../apps/web/src/workspace/demoDay.js';
+import { DEMO_DAY } from '@livinglayer/domain';
+import { clock, dayAt, dayNudges, span } from '../apps/web/src/workspace/demoDay.js';
 
-// The sample day the replay, "Ask your room" and the nudges read.
+// The sample day the replay and the nudges read; asking it is in room-ask.test.ts.
 
 describe('the sample day', () => {
   it('is in order', () => {
@@ -43,34 +36,6 @@ describe('dayNudges', () => {
     const lamp = nudges.filter((n) => n.id.startsWith('lamp'));
     expect(lamp.map((n) => n.at)).toEqual([1140 + 30]);
     expect(lamp[0]!.body).toBe('It has been on 30 min with nothing at the desk.');
-  });
-});
-
-describe('askRoom', () => {
-  it('answers when the mug was last used, from the day so far', () => {
-    const a = askRoom('When did I last drink from my mug?', 600);
-    expect(a.text).toStartWith('At 9:35, 25 min ago. You’ve used it 4 times today, first at 7:42.');
-    expect(a.cites.at(-1)!.at).toBe(575);
-  });
-
-  it('lists the food by when it goes off', () => {
-    expect(askRoom('What should I eat first?', 800).text).toStartWith(
-      'Eat the leftover chicken first: it goes off today.',
-    );
-  });
-
-  it('adds up how long the lamp was on', () => {
-    expect(askRoom('How long was the lamp on today?', 700).text).toBe(
-      'The desk lamp was on 2 h 48 min today, switched on 2 times. It is on now.',
-    );
-  });
-
-  it('answers every example', () => {
-    for (const q of ASK_EXAMPLES) expect(askRoom(q, 1000).text).not.toStartWith('In this demo');
-  });
-
-  it('says what it can answer otherwise', () => {
-    expect(askRoom('What is the weather?', 1000).cites).toEqual([]);
   });
 });
 

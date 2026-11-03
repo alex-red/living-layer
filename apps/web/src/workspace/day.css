@@ -81,6 +81,13 @@
 .day-dot.fridge {
   background: var(--seen);
 }
+.day-dot.monitor {
+  background: var(--text-2);
+}
+.day-dot.mouse,
+.day-dot.other {
+  background: var(--text-3);
+}
 .day-dot {
   display: inline-block;
   width: 7px;
@@ -163,6 +170,51 @@
   margin: 0;
   font: 14px/20px var(--ui);
   color: var(--text);
+}
+.day-answer p.day-note,
+.day-ask-error {
+  margin: 0;
+  color: var(--text-2);
+}
+.day-ask-error {
+  color: var(--blocked);
+}
+.day-cite.still {
+  cursor: default;
+}
+/* An answer's count or time per hour or day. */
+.day-bars {
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  width: 100%;
+  max-width: 420px;
+  height: 64px;
+}
+.day-bar-col {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  justify-content: flex-end;
+  min-width: 0;
+}
+.day-bar-track {
+  display: flex;
+  flex: 1;
+  align-items: flex-end;
+}
+.day-bar-fill {
+  display: block;
+  width: 100%;
+  min-height: 1px;
+  border-radius: 2px 2px 0 0;
+  background: var(--seen);
+}
+.day-bar-label {
+  height: 14px;
+  font: 10px/14px var(--mono);
+  text-align: center;
+  color: var(--text-3);
 }
 
 /* Notifications as a phone shows them, over the room's top right. */

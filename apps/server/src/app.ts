@@ -595,7 +595,7 @@ export async function buildApp(
     { prefix: '/api/expose' },
   );
   const statRunners = { demo: watchers.demo.statRunner, live: watchers.live.statRunner };
-  app.register((scope) => statRoutes(scope, { store, runners: statRunners }), {
+  app.register((scope) => statRoutes(scope, { store, runners: statRunners, meta, run }), {
     prefix: '/api/things',
   });
   // Whatever a person changes in a desk, the watchers follow and the entities shown in Home

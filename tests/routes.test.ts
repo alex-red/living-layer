@@ -110,6 +110,7 @@ const ROUTES = [
   '/api/streams/stats [POST]',
   '/api/text [POST]',
   '/api/things/:mode/:id/stats [GET]',
+  '/api/things/ask [POST]',
   '/api/things/learn [POST]',
   '/api/things/stats [POST]',
   '/api/things/used [POST]',

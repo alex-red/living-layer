@@ -62,3 +62,5 @@ export * from './starter-prints.js';
 export * from './starter-decals.js';
 export * from './sprite-presets.js';
 export * from './desktop-node.js';
+export * from './demo-day.js';
+export * from './room-ask.js';

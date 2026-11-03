@@ -72,6 +72,7 @@ export class EvidenceStore {
       CREATE TABLE IF NOT EXISTS meta_calls (id INTEGER PRIMARY KEY AUTOINCREMENT, created_at TEXT NOT NULL, payload TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS stat_events (mode TEXT NOT NULL, thing_id TEXT NOT NULL, key TEXT NOT NULL, at INTEGER NOT NULL, payload TEXT NOT NULL);
       CREATE INDEX IF NOT EXISTS stat_events_thing ON stat_events (mode, thing_id, key, at);
+      CREATE TABLE IF NOT EXISTS watch_spans (mode TEXT NOT NULL, start INTEGER NOT NULL, end INTEGER NOT NULL, PRIMARY KEY (mode, start));
       CREATE TABLE IF NOT EXISTS stat_days (mode TEXT NOT NULL, day TEXT NOT NULL, thing_id TEXT NOT NULL, key TEXT NOT NULL, total REAL NOT NULL, PRIMARY KEY (mode, thing_id, key, day));`);
     this.migrate();
   }
@@ -453,6 +454,7 @@ export class EvidenceStore {
     const jobs = this.db.run('DELETE FROM jobs WHERE created_at < ?', [cutoff]).changes;
     // A stat's changes go with the evidence; its day totals are kept for good.
     this.db.run('DELETE FROM stat_events WHERE at < ?', [now - maxAgeMs]);
+    this.db.run('DELETE FROM watch_spans WHERE end < ?', [now - maxAgeMs]);
     return { runs: old.length, jobs, bytes };
   }
   /**
@@ -506,6 +508,47 @@ export class EvidenceStore {
       )
       .all(mode, thingId, since);
     return [...before, ...after].map(read);
+  }
+  /**
+   * Every thing's stat changes since `since` (ms), oldest first, with each
+   * stat's last change before it: what asking about the room reads.
+   */
+  allStatEvents(mode: Mode, since: number): StatEvent[] {
+    type Row = { thing_id: string; key: string; at: number; payload: string };
+    const read = (row: Row): StatEvent => ({
+      thingId: row.thing_id,
+      key: row.key as StatKey,
+      at: row.at,
+      ...(JSON.parse(row.payload) as Pick<StatEvent, 'value' | 'source' | 'confidence'>),
+    });
+    const before = this.db
+      .query<Row, [string, number]>(
+        `SELECT thing_id, key, MAX(at) AS at, payload FROM stat_events WHERE mode = ? AND at < ? GROUP BY thing_id, key`,
+      )
+      .all(mode, since);
+    const after = this.db
+      .query<Row, [string, number]>(
+        'SELECT thing_id, key, at, payload FROM stat_events WHERE mode = ? AND at >= ? ORDER BY at',
+      )
+      .all(mode, since);
+    return [...before.sort((a, b) => a.at - b.at), ...after].map(read);
+  }
+  /** Keep that the camera watched from `start` until `end` (ms): one row per span, its end moved on. */
+  saveWatchSpan(mode: Mode, start: number, end: number): void {
+    this.db.run(
+      `INSERT INTO watch_spans (mode, start, end) VALUES (?, ?, ?)
+       ON CONFLICT (mode, start) DO UPDATE SET end = excluded.end`,
+      [mode, start, end],
+    );
+  }
+  /** When the camera watched, from `since` on, oldest first. */
+  watchSpans(mode: Mode, since: number): { from: number; to: number }[] {
+    return this.db
+      .query<{ start: number; end: number }, [string, number]>(
+        'SELECT start, end FROM watch_spans WHERE mode = ? AND end >= ? ORDER BY start',
+      )
+      .all(mode, since)
+      .map((r) => ({ from: r.start, to: r.end }));
   }
   /** Each stat's last change, for every thing in a mode: what a restart starts from. */
   lastStats(mode: Mode): StatEvent[] {
