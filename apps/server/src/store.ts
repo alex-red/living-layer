@@ -102,6 +102,16 @@ export class EvidenceStore {
       [memory.mode, JSON.stringify(memory)],
     );
   }
+  /**
+   * Change a mode's desk memory against what is saved now: read, apply and save in one
+   * synchronous step, so nothing saved meanwhile is lost. Never hold a memory over an await.
+   */
+  updateMemory<T = void>(mode: Mode, change: (memory: DeskMemory) => T): T {
+    const memory = this.memory(mode);
+    const result = change(memory);
+    this.saveMemory(memory);
+    return result;
+  }
   claimPlacement(segmentId: string): boolean {
     return (
       this.db.run('INSERT OR IGNORE INTO placement_claims VALUES (?, ?)', [

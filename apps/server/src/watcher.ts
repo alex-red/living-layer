@@ -648,12 +648,12 @@ export class Watcher {
    * longer line up, so every rule is blocked until it is calibrated again.
    */
   private checkCamera(frame: LumaFrame) {
-    const memory = this.deps.store.memory(this.deps.mode);
-    const calibration = memory.camera;
+    const calibration = this.deps.store.memory(this.deps.mode).camera;
     if (!calibration?.reference || calibration.moved) return;
     if (!cameraMoved(calibration.reference, cameraEdges(frame)).moved) return;
-    memory.camera = { ...calibration, moved: true };
-    this.deps.store.saveMemory(memory);
+    this.deps.store.updateMemory(this.deps.mode, (memory) => {
+      if (memory.camera) memory.camera = { ...memory.camera, moved: true };
+    });
     this.emit(true);
   }
   /** Look for a lost thing by appearance; SAM is asked only if this can't find it. */
