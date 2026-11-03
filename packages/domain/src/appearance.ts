@@ -49,6 +49,20 @@ export const APPEARANCE = {
   zoom: 7,
   /** A lost thing is looked for in a square twice as wide, embedded at up to twice the side. */
   searchZoom: 14,
+  /**
+   * The close look: a square this many times the thing's size, where it
+   * spans several patches. Its patches, each where it lies in the thing, are
+   * what a candidate place is checked against (`closeScore`).
+   */
+  closeZoom: 3,
+  /** Patches a close look may slide by, each way, so a candidate a little off still lines up. */
+  closeShift: 2,
+  /** The best places of the wide search each given a close look. */
+  candidates: 4,
+  /** Below this close score the thing isn't there. On a real desk the mug scored 0.76–0.89 and empty places at most 0.71. */
+  closeMinScore: 0.75,
+  /** Below this lead over the next candidate neither is trusted. The mug led by 0.11–0.20 and empty places by at most 0.063. */
+  closeMinLead: 0.08,
 };
 
 /**
@@ -273,3 +287,141 @@ export function patchWeights(
   for (let p = 0; p < weights.length; p++) weights[p] = counts[p] ? weights[p]! / counts[p]! : 0;
   return weights;
 }
+
+/**
+ * A thing's own patches from its close look (`closeRegion`): each patch over
+ * its box, normalized, with how much of it the mask covers. Kept in place, so
+ * a white mug's teal inside sits above its handle; a prototype's one mean
+ * can't tell it from a white kettle.
+ */
+export interface PatchTemplate {
+  cols: number;
+  rows: number;
+  dim: number;
+  weights: Float32Array;
+  data: Float32Array;
+}
+
+/** The square a thing at `box` is looked at closely in. */
+export const closeRegion = (box: UnitBox, frame: { width: number; height: number }) =>
+  appearanceRegion(box, frame, APPEARANCE.closeZoom);
+
+/** The patches of `grid` (made of `region`) over `box`, both as shares of the frame. */
+function cellsUnder(grid: PatchGrid, region: UnitBox, box: UnitBox) {
+  const c0 = Math.max(0, Math.floor(((box.x - region.x) / region.width) * grid.cols));
+  const r0 = Math.max(0, Math.floor(((box.y - region.y) / region.height) * grid.rows));
+  const c1 = Math.min(
+    grid.cols,
+    Math.ceil(((box.x + box.width - region.x) / region.width) * grid.cols),
+  );
+  const r1 = Math.min(
+    grid.rows,
+    Math.ceil(((box.y + box.height - region.y) / region.height) * grid.rows),
+  );
+  return { c0, r0, cols: Math.max(0, c1 - c0), rows: Math.max(0, r1 - r0) };
+}
+
+/**
+ * The template of a thing at `box` from the close look's `grid` (made of
+ * `region`) and its `mask` cut to that region. Null when the mask covers
+ * less than one patch's worth.
+ */
+export function patchTemplate(
+  grid: PatchGrid,
+  region: UnitBox,
+  box: UnitBox,
+  mask: { width: number; height: number; data: Uint8Array },
+): PatchTemplate | null {
+  const all = patchWeights(mask, grid.cols, grid.rows);
+  const at = cellsUnder(grid, region, box);
+  const weights = new Float32Array(at.cols * at.rows);
+  const data = new Float32Array(at.cols * at.rows * grid.dim);
+  let total = 0;
+  for (let r = 0; r < at.rows; r++)
+    for (let c = 0; c < at.cols; c++) {
+      const p = (at.r0 + r) * grid.cols + at.c0 + c;
+      const i = r * at.cols + c;
+      let n = 0;
+      for (let k = 0; k < grid.dim; k++) n += grid.data[p * grid.dim + k]! ** 2;
+      n = Math.sqrt(n) || 1;
+      for (let k = 0; k < grid.dim; k++) data[i * grid.dim + k] = grid.data[p * grid.dim + k]! / n;
+      weights[i] = all[p]!;
+      total += all[p]!;
+    }
+  return total >= 1 ? { cols: at.cols, rows: at.rows, dim: grid.dim, weights, data } : null;
+}
+
+/**
+ * How well `template` lines up with a candidate at `box`, in the close look's
+ * `grid` (made of `region`): the mask-weighted mean cosine of each template
+ * patch with the one under it, at the best shift up to `closeShift` patches.
+ */
+export function closeScore(
+  template: PatchTemplate,
+  grid: PatchGrid,
+  region: UnitBox,
+  box: UnitBox,
+): number {
+  const at = cellsUnder(grid, region, box);
+  const { dim } = grid;
+  const norms = new Float32Array(grid.cols * grid.rows);
+  for (let p = 0; p < norms.length; p++) {
+    let n = 0;
+    for (let k = 0; k < dim; k++) n += grid.data[p * dim + k]! ** 2;
+    norms[p] = Math.sqrt(n) || 1;
+  }
+  const shift = APPEARANCE.closeShift;
+  let best = -1;
+  for (let dy = -shift; dy <= shift; dy++)
+    for (let dx = -shift; dx <= shift; dx++) {
+      let sum = 0;
+      let total = 0;
+      for (let r = 0; r < template.rows; r++)
+        for (let c = 0; c < template.cols; c++) {
+          const w = template.weights[r * template.cols + c]!;
+          const gc = at.c0 + c + dx;
+          const gr = at.r0 + r + dy;
+          if (w <= 0 || gc < 0 || gr < 0 || gc >= grid.cols || gr >= grid.rows) continue;
+          const p = gr * grid.cols + gc;
+          const t = (r * template.cols + c) * dim;
+          let dot = 0;
+          for (let k = 0; k < dim; k++) dot += template.data[t + k]! * grid.data[p * dim + k]!;
+          sum += (w * dot) / norms[p]!;
+          total += w;
+        }
+      if (total > 0) best = Math.max(best, sum / total);
+    }
+  return best;
+}
+
+/**
+ * The best `count` places of the wide search, each the size of `size`, none
+ * overlapping another, best first: the places given a close look.
+ */
+export function candidatePlaces(
+  grid: PatchGrid,
+  prototypes: Float32Array[],
+  size: { width: number; height: number },
+  exclude: UnitBox[] = [],
+  count = APPEARANCE.candidates,
+): UnitBox[] {
+  const places: UnitBox[] = [];
+  for (let i = 0; i < count; i++) {
+    const m = findByAppearance(grid, prototypes, size, { exclude: [...exclude, ...places] });
+    if (!m || m.score <= -1) break;
+    places.push(m.box);
+  }
+  return places;
+}
+
+/** The candidate with the best close score, and how far it leads the next; null without one. */
+export function closeMatch(scored: { box: UnitBox; score: number }[]) {
+  const [best, next] = [...scored].sort((a, b) => b.score - a.score);
+  return best
+    ? { box: best.box, score: best.score, lead: next ? best.score - next.score : 1 }
+    : null;
+}
+
+/** A close match sure enough to follow: like the thing up close, and clearly more than anywhere else. */
+export const closeSure = (m: ReturnType<typeof closeMatch>): m is NonNullable<typeof m> =>
+  m !== null && m.score >= APPEARANCE.closeMinScore && m.lead >= APPEARANCE.closeMinLead;

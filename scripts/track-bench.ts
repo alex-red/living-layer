@@ -23,8 +23,10 @@ import { Database } from 'bun:sqlite';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
+  APPEARANCE,
   LOCAL_TRACK,
   appearanceRegion,
+  closeRegion,
   around,
   asked,
   missed,
@@ -239,6 +241,7 @@ async function bench() {
       ['learn a prototype (224 px)', appearanceRegion(box, meta), 224],
       ['look again, as built', searchRegion(box, meta).region, searchRegion(box, meta).side],
       ['look again at 896 px', searchRegion(box, meta).region, 896],
+      [`close look (×${APPEARANCE.candidates} a look)`, closeRegion(box, meta), APPEARANCE.side],
     ] as const) {
       const at = performance.now();
       for (let i = 0; i < 5; i++) await model.embed(still, region, side);

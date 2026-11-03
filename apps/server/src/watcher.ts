@@ -21,6 +21,12 @@ import {
   missed,
   placed,
   patchWeights,
+  patchTemplate,
+  candidatePlaces,
+  closeMatch,
+  closeRegion,
+  closeScore,
+  closeSure,
   prototypeOf,
   refound,
   startLocalTrack,
@@ -50,6 +56,7 @@ import {
   type Mode,
   type Segmentation,
   type UnitBox,
+  type PatchTemplate,
   type WatchCamera,
   type CameraCrop,
   type WatchSubject,
@@ -158,6 +165,8 @@ export class Watcher {
   /** Things last seeded from a whole drawn box, not an outline: learned with their background. */
   private boxOnly = new Set<string>();
   private prototypes = new Map<string, Float32Array[]>();
+  /** Each thing's own patches up close, from the same sightings: what a candidate place is checked against. */
+  private templates = new Map<string, PatchTemplate[]>();
   private listeners = new Set<(view: WatchView) => void>();
   private checking = false;
   private pending: { id: string; ask: 'reanchor' }[] = [];
@@ -637,32 +646,39 @@ export class Watcher {
     if (this.model && detection)
       void this.track(this.learn(subject.id, photo, detection, seen.observation.frame));
   }
-  /** Add a prototype of how the thing looks, from SAM's mask on its photo. */
+  /** Add a prototype of how the thing looks, and its close template, from SAM's mask on its photo. */
   private async learn(
     id: string,
     photo: Buffer,
     detection: Segmentation['detections'][number],
     frame: Segmentation['frame'],
   ) {
+    const box = {
+      x: detection.box.x / frame.width,
+      y: detection.box.y / frame.height,
+      width: detection.box.width / frame.width,
+      height: detection.box.height / frame.height,
+    };
+    const bits = maskBits(detection, frame, 1);
     try {
       // A square around the thing, so a small one still spans a few patches.
-      const region = appearanceRegion(
-        {
-          x: detection.box.x / frame.width,
-          y: detection.box.y / frame.height,
-          width: detection.box.width / frame.width,
-          height: detection.box.height / frame.height,
-        },
-        frame,
-      );
+      const region = appearanceRegion(box, frame);
       const grid = await this.model!.embed(photo, region);
-      const mask = cropMask(maskBits(detection, frame, 1), region);
+      const mask = cropMask(bits, region);
       const proto = prototypeOf(grid, patchWeights(mask, grid.cols, grid.rows));
       if (!proto) return;
       this.prototypes.set(
         id,
         [proto, ...(this.prototypes.get(id) ?? [])].slice(0, APPEARANCE.maxPrototypes),
       );
+      const near = closeRegion(box, frame);
+      const close = await this.model!.embed(photo, near, APPEARANCE.side);
+      const template = patchTemplate(close, near, box, cropMask(bits, near));
+      if (template)
+        this.templates.set(
+          id,
+          [template, ...(this.templates.get(id) ?? [])].slice(0, APPEARANCE.maxPrototypes),
+        );
     } catch {
       // Without a prototype, a lost thing goes straight to SAM or the whole-frame search.
     }
@@ -804,24 +820,41 @@ export class Watcher {
       const followed = [...this.things.values()]
         .filter((t) => t.status === 'following' || t.status === 'entangled')
         .map((t) => intoRegion(t.track.box, region));
-      const matches = wanted.map((w) => ({
-        id: w.id,
-        match: findByAppearance(grid, w.protos, intoRegion(w.thing.track.box, region), {
+      const matches: { id: string; box: UnitBox | null }[] = [];
+      for (const w of wanted) {
+        const size = intoRegion(w.thing.track.box, region);
+        const templates = this.templates.get(w.id);
+        if (templates?.length) {
+          // The wide search's best few places, each looked at closely against the thing's own patches.
+          const scored = [];
+          for (const place of candidatePlaces(grid, w.protos, size, followed)) {
+            const box = outOfRegion(place, region);
+            const near = closeRegion(box, shot);
+            const close = await model.embed(shot.png, near, APPEARANCE.side);
+            const score = Math.max(...templates.map((t) => closeScore(t, close, near, box)));
+            scored.push({ box, score });
+          }
+          const match = closeMatch(scored);
+          matches.push({ id: w.id, box: closeSure(match) ? match.box : null });
+          continue;
+        }
+        const match = findByAppearance(grid, w.protos, size, {
           exclude: followed,
           rivals: wanted.filter((o) => o !== w && alike(o.thing, w.thing)).flatMap((o) => o.protos),
-        }),
-      }));
-      for (const { id, match } of matches) {
-        if (!appearanceSure(match)) continue;
+        });
+        matches.push({
+          id: w.id,
+          box: appearanceSure(match) ? outOfRegion(match.box, region) : null,
+        });
+      }
+      for (const { id, box } of matches) {
+        if (!box) continue;
         const clash = matches.some(
-          (o) =>
-            o.id !== id &&
-            appearanceSure(o.match) &&
-            boxIoU(o.match.box, match.box) >= LOCAL_TRACK.claimIoU,
+          (o) => o.id !== id && o.box && boxIoU(o.box, box) >= LOCAL_TRACK.claimIoU,
         );
         const thing = this.things.get(id);
         if (clash || !thing) continue;
-        this.things.set(id, refound(thing, outOfRegion(match.box, region)));
+        this.things.set(id, refound(thing, box));
         found.add(id);
       }
       this.stats.refinds += found.size;

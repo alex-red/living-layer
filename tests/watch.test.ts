@@ -11,6 +11,13 @@ import {
   appearanceRegion,
   cropMask,
   findByAppearance,
+  candidatePlaces,
+  closeRegion,
+  APPEARANCE,
+  closeMatch,
+  closeScore,
+  closeSure,
+  patchTemplate,
   intoRegion,
   outOfRegion,
   searchRegion,
@@ -191,6 +198,50 @@ describe('finding a thing by appearance', () => {
     const twins = findByAppearance(grid({ c: 1, r: 1 }, { c: 6, r: 3 }), [proto], size);
     expect(twins!.score).toBeGreaterThan(0.9);
     expect(appearanceSure(twins)).toBe(false);
+  });
+  it('tells it from a thing of the same colours by where they lie in it, up close', () => {
+    // A mug, teal above white, and a kettle of the same two the other way up: one mean for both.
+    const teal = [1, 0, 0, 0.2];
+    const white = [0, 1, 0, 0.2];
+    function desk(things: { c: number; r: number; top: number[]; bottom: number[] }[]): PatchGrid {
+      const data = new Float32Array(60 * 4);
+      for (let p = 0; p < 60; p++) data.set([0, 0, 1, 0.1 * (p % 3)], p * 4);
+      for (const t of things) {
+        data.set(t.top, (t.r * 10 + t.c) * 4);
+        data.set(t.bottom, ((t.r + 1) * 10 + t.c) * 4);
+      }
+      return { cols: 10, rows: 6, dim: 4, data };
+    }
+    const whole = { x: 0, y: 0, width: 1, height: 1 };
+    const cell = (c: number, r: number) => ({ x: c / 10, y: r / 6, width: 0.1, height: 2 / 6 });
+    const learned = desk([{ c: 1, r: 1, top: teal, bottom: white }]);
+    const mask = new Uint8Array(60);
+    mask[11] = mask[21] = 1;
+    const thing = { width: 10, height: 6, data: mask };
+    const proto = prototypeOf(learned, patchWeights(thing, 10, 6))!;
+    const template = patchTemplate(learned, whole, cell(1, 1), thing)!;
+    const now = desk([
+      { c: 3, r: 3, top: white, bottom: teal },
+      { c: 7, r: 2, top: teal, bottom: white },
+    ]);
+    const places = candidatePlaces(now, [proto], { width: 0.1, height: 2 / 6 });
+    const kettle = findByAppearance(now, [proto], { width: 0.1, height: 2 / 6 });
+    // The wide search can't choose between them.
+    expect(appearanceSure(kettle)).toBe(false);
+    const match = closeMatch(
+      places.map((box) => ({ box, score: closeScore(template, now, whole, box) })),
+    );
+    expect(closeSure(match)).toBe(true);
+    expect(match!.box.x).toBeCloseTo(0.7);
+    // Nothing like it on the desk: nothing sure.
+    const empty = desk([{ c: 3, r: 3, top: white, bottom: teal }]);
+    const none = closeMatch(
+      candidatePlaces(empty, [proto], { width: 0.1, height: 2 / 6 }).map((box) => ({
+        box,
+        score: closeScore(template, empty, whole, box),
+      })),
+    );
+    expect(closeSure(none)).toBe(false);
   });
 });
 
@@ -541,6 +592,13 @@ describe.skipIf(!existsSync(appearanceModelPath(modelDir)))(
         patchWeights(cropMask(maskBits(d, mug.frame, 1), learn), grid.cols, grid.rows),
       )!;
       expect(proto).not.toBeNull();
+      const near = closeRegion(share, mug.frame);
+      const template = patchTemplate(
+        await model.embed(centre, near, APPEARANCE.side),
+        near,
+        share,
+        cropMask(maskBits(d, mug.frame, 1), near),
+      )!;
       for (const position of ['right', 'front'] as const) {
         await desk.show(position);
         const { region, side } = searchRegion(share, mug.frame);
@@ -557,8 +615,24 @@ describe.skipIf(!existsSync(appearanceModelPath(modelDir)))(
           Math.abs(match.box.y + match.box.height / 2 - want.y) < 0.04;
         if (appearanceSure(found)) expect(right).toBe(true);
         if (position === 'right') expect(right).toBe(true);
+        // Up close, each of the wide search's best places against the mug's own patches.
+        const shot = (await desk.snapshot()).png;
+        const scored = [];
+        for (const place of candidatePlaces(moved, [proto], intoRegion(share, region))) {
+          const box = outOfRegion(place, region);
+          const r = closeRegion(box, mug.frame);
+          const close = await model.embed(shot, r, APPEARANCE.side);
+          scored.push({ box, score: closeScore(template, close, r, box) });
+        }
+        const close = closeMatch(scored)!;
+        const closeRight =
+          Math.abs(close.box.x + close.box.width / 2 - want.x) < 0.03 &&
+          Math.abs(close.box.y + close.box.height / 2 - want.y) < 0.04;
+        if (closeSure(close)) expect(closeRight).toBe(true);
+        if (position === 'right') expect(closeSure(close)).toBe(true);
       }
-    });
+      // Each embedding is a model run; under load the test crosses bun's default.
+    }, 30_000);
   },
 );
 
