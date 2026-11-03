@@ -40,7 +40,7 @@ import {
   type Segmentation,
 } from '@livinglayer/domain';
 import type { Config, Fetcher } from './config.js';
-import { LabError, ident } from './errors.js';
+import { LabError, ident, isTimeout } from './errors.js';
 import type { EvidenceStore } from './store.js';
 import { buildObjectPrompt, type PromptBox } from '@meta-sam/parser';
 import { decodeSegmentation, type SamEvent } from './sam.js';
@@ -102,22 +102,12 @@ export const CALL_LIMITS = {
 } as const;
 export type CallKind = keyof typeof CALL_LIMITS;
 
-export const SPARK_BUDGET = {
-  discover: SPARK_CALLS.discover.tokens,
-  classify: SPARK_CALLS.classify.tokens,
-  layout: SPARK_CALLS.layout.tokens,
-  itemClass: SPARK_CALLS.itemClass.tokens,
-  fixtureClass: SPARK_CALLS.fixtureClass.tokens,
-  fixtureScan: SPARK_CALLS.fixtureScan.tokens,
-  pictureFind: SPARK_CALLS.pictureFind.tokens,
-  sculpt: SPARK_CALLS.sculpt.tokens,
-  itemCheck: SPARK_CALLS.itemCheck.tokens,
-  photoInventory: SPARK_CALLS.photoInventory.tokens,
-  photoCheck: SPARK_CALLS.photoCheck.tokens,
-  productLookup: SPARK_CALLS.productLookup.tokens,
-  intent: SPARK_CALLS.intent.tokens,
-  refine: SPARK_CALLS.refine.tokens,
-} as const;
+/** Each Spark call's output-token ceiling, for the callers that reserve spend ahead. */
+export const SPARK_BUDGET = Object.fromEntries(
+  Object.entries(SPARK_CALLS)
+    .filter(([kind]) => kind !== 'text')
+    .map(([kind, limit]) => [kind, limit.tokens]),
+) as { [K in Exclude<SparkCallKind, 'text'>]: (typeof SPARK_CALLS)[K]['tokens'] };
 /** Search queries a product lookup reserves for: the model decides how many it makes. */
 export const SEARCH_CEILING = 5;
 /**
@@ -161,24 +151,8 @@ function issues(error: z.ZodError): string {
     .join('; ');
 }
 function classifyCause(e: unknown): string {
-  if (e && typeof e === 'object') {
-    const err = e as {
-      name?: string;
-      code?: string;
-      message?: string;
-      detail?: { reason?: string };
-    };
-    const text = `${err.name ?? ''} ${err.code ?? ''} ${err.message ?? ''}`.toLowerCase();
-    if (text.includes('timeout') || text.includes('timed out') || text.includes('abort')) {
-      return 'timeout';
-    }
-    if (e instanceof LabError && err.detail?.reason) {
-      return err.detail.reason;
-    }
-    if (e instanceof LabError) {
-      return e.code;
-    }
-  }
+  if (isTimeout(e)) return 'timeout';
+  if (e instanceof LabError) return e.detail?.reason ?? e.code;
   return 'upstream_failure';
 }
 /**
@@ -299,26 +273,106 @@ export class MetaAdapter {
   }
   /**
    * One Spark call under the spend limit, recording what it cost. A long
-   * answer (a whole model) may be given longer than the usual timeout.
+   * answer (a whole model) may be given longer than the usual timeout. A
+   * call with web search reserves for up to `SEARCH_CEILING` queries and is
+   * billed for the ones it made.
    */
   private async spark(
     images: number,
     body: OpenAI.Responses.ResponseCreateParamsNonStreaming & { max_output_tokens: number },
     timeout = this.config.timeoutMs,
     signal?: AbortSignal,
+    search = false,
   ) {
-    const settle = this.reserve(sparkCeiling(body.max_output_tokens, images));
+    const searchCost = search ? META_PRICES.webSearchPerQuery : 0;
+    const settle = this.reserve(
+      sparkCeiling(body.max_output_tokens, images) + SEARCH_CEILING * searchCost,
+    );
     try {
       const response = await this.client.responses.create(body, {
         timeout,
         ...(signal ? { signal } : {}),
       });
-      settle(sparkCost(usageOf(response.usage)));
+      const searches = search
+        ? response.output.filter((o) => o.type === 'web_search_call').length
+        : 0;
+      settle(sparkCost(usageOf(response.usage)) + searches * searchCost);
       return response;
     } catch (e) {
       settle(0);
       throw e;
     }
+  }
+  /**
+   * The one structured Spark call: `text` and then `images` as one user
+   * message, answered in `schema` as strict JSON. Output tokens and timeout
+   * come from `SPARK_CALLS`, as does the reasoning effort (`effort` overrides
+   * it for one call). `finish` maps the parsed answer with the whole response.
+   */
+  private structured<T, U = T>(
+    kind: SparkCallKind,
+    o: {
+      name: string;
+      schema: z.ZodType<T>;
+      /** What the answer is, for the error shown when it fails. */
+      what: string;
+      text: string;
+      images?: string[];
+      signal?: AbortSignal | undefined;
+      effort?: 'minimal' | 'low' | 'medium' | 'high' | undefined;
+      /** With Spark's `web_search` tool, and the prompt as plain text. */
+      web?: boolean;
+      finish?: (output: T, response: OpenAI.Responses.Response) => U;
+    },
+  ): Promise<ProviderResult<U>> {
+    const images = o.images ?? [];
+    return this.executeCall(kind, async (timeoutMs) => {
+      const response = await this.spark(
+        images.length,
+        {
+          model: this.config.sparkModel,
+          store: false,
+          max_output_tokens: SPARK_CALLS[kind].tokens,
+          ...(o.effort ? { reasoning: { effort: o.effort } } : reasoningOf(kind)),
+          ...(o.web
+            ? {
+                tools: [{ type: 'web_search' }],
+                include: ['web_search_call.results'] as OpenAI.Responses.ResponseIncludable[],
+              }
+            : {}),
+          input: o.web
+            ? o.text
+            : [
+                {
+                  role: 'user',
+                  content: [
+                    { type: 'input_text', text: o.text },
+                    ...images.map((image_url) => ({
+                      type: 'input_image' as const,
+                      image_url,
+                      detail: 'auto' as const,
+                    })),
+                  ],
+                },
+              ],
+          text: {
+            format: {
+              type: 'json_schema',
+              name: o.name,
+              strict: true,
+              schema: z.toJSONSchema(o.schema),
+            },
+          },
+        },
+        timeoutMs,
+        o.signal,
+        o.web,
+      );
+      const parsed = this.parsed(response, o.schema, o.what, SPARK_CALLS[kind].tokens);
+      return o.finish
+        ? { ...parsed, output: o.finish(parsed.output, response) }
+        : (parsed as unknown as ProviderResult<U>);
+    });
   }
   /**
    * Look a product up on the web: Spark with its `web_search` tool, asked
@@ -332,64 +386,29 @@ export class MetaAdapter {
     need: readonly FactNeed[],
     signal?: AbortSignal,
   ): Promise<ProviderResult<{ facts: ProductFacts | null; searches: number }>> {
-    return this.executeCall('productLookup', async (timeoutMs) => {
-      const searchCost = META_PRICES.webSearchPerQuery;
-      const settle = this.reserve(
-        sparkCeiling(SPARK_CALLS.productLookup.tokens, 0) + SEARCH_CEILING * searchCost,
-      );
-      let response: OpenAI.Responses.Response & { _request_id?: string | null };
-      try {
-        response = await this.client.responses.create(
-          {
-            model: this.config.sparkModel,
-            store: false,
-            max_output_tokens: SPARK_CALLS.productLookup.tokens,
-            ...reasoningOf('productLookup'),
-            tools: [{ type: 'web_search' }],
-            include: ['web_search_call.results'] as OpenAI.Responses.ResponseIncludable[],
-            input: [
-              'Look this product up on the web, preferring the maker’s own product page: ' +
-                JSON.stringify(query) +
-                '.',
-              `What is needed: ${need.join(', ')}.`,
-              'found: false when you can’t find this exact product.',
-              'name: its full product name as the maker gives it.',
-              'sizeCm: its overall width, depth and height in centimetres, as listed.',
-              `parts: its visible parts (a desktop, a drawer unit, legs, a shelf), each with a role from: ${RECIPE_ROLES.join(', ')}; its size in cm when listed; how many.`,
-              'colors: the colour it was bought in, if the request says, else its usual one, as a hex value.',
-              `materials: from ${ITEM_MATERIALS.join(', ')}.`,
-              'confidence: how sure you are that these are facts of this exact product, 0 to 1.',
-            ].join('\n'),
-            text: {
-              format: {
-                type: 'json_schema',
-                name: 'product_lookup',
-                strict: true,
-                schema: z.toJSONSchema(productLookupSchema),
-              },
-            },
-          },
-          {
-            timeout: timeoutMs,
-            ...(signal ? { signal } : {}),
-          },
-        );
-      } catch (e) {
-        settle(0);
-        throw e;
-      }
-      const searches = response.output.filter((o) => o.type === 'web_search_call').length;
-      settle(sparkCost(usageOf(response.usage)) + searches * searchCost);
-      const parsed = this.parsed(
-        response,
-        productLookupSchema,
-        'product lookup',
-        SPARK_CALLS.productLookup.tokens,
-      );
-      return {
-        ...parsed,
-        output: { facts: factsFromLookup(query, parsed.output, citedSources(response)), searches },
-      };
+    return this.structured('productLookup', {
+      name: 'product_lookup',
+      schema: productLookupSchema,
+      what: 'product lookup',
+      web: true,
+      signal,
+      text: [
+        'Look this product up on the web, preferring the maker’s own product page: ' +
+          JSON.stringify(query) +
+          '.',
+        `What is needed: ${need.join(', ')}.`,
+        'found: false when you can’t find this exact product.',
+        'name: its full product name as the maker gives it.',
+        'sizeCm: its overall width, depth and height in centimetres, as listed.',
+        `parts: its visible parts (a desktop, a drawer unit, legs, a shelf), each with a role from: ${RECIPE_ROLES.join(', ')}; its size in cm when listed; how many.`,
+        'colors: the colour it was bought in, if the request says, else its usual one, as a hex value.',
+        `materials: from ${ITEM_MATERIALS.join(', ')}.`,
+        'confidence: how sure you are that these are facts of this exact product, 0 to 1.',
+      ].join('\n'),
+      finish: (output, response) => ({
+        facts: factsFromLookup(query, output, citedSources(response)),
+        searches: response.output.filter((o) => o.type === 'web_search_call').length,
+      }),
     });
   }
   /**
@@ -398,59 +417,26 @@ export class MetaAdapter {
    * Spark only reads the request; `readIntent` decides what can be done.
    */
   async intent(sentence: string, ctx: IntentContext, cropDataUrl?: string, signal?: AbortSignal) {
-    return this.executeCall('intent', async (timeoutMs) => {
-      const response = await this.spark(
-        cropDataUrl ? 1 : 0,
-        {
-          model: this.config.sparkModel,
-          store: false,
-          max_output_tokens: SPARK_CALLS.intent.tokens,
-          input: [
-            {
-              role: 'user',
-              content: [
-                {
-                  type: 'input_text',
-                  text: [
-                    'A person selected part of their room camera’s picture and typed a request about it. Read the request as a short list of ops (at most four), in the order to do them.',
-                    `The request: ${JSON.stringify(sentence)}`,
-                    describeContext(ctx),
-                    'The ops you may use:',
-                    opCatalog(),
-                    'Fill only the fields an op needs and leave the others null or empty. parts picks parts of the model by names, roles and materials it has (empty lists for no filter), minus exceptNames and exceptRoles; parts null means the whole model.',
-                    'color is a hex value (#rrggbb) for the colour asked for. sizeCm is in centimetres; leave axes not mentioned null.',
-                    `form is one of: ${PROP_FORMS.join(', ')}.`,
-                    'product: the product named, with its brand, model and kind (“IKEA Alex desk”), or null.',
-                    'needs: what must be looked up to build it: size, parts, colors, materials. Empty unless the request makes a model.',
-                    'targetDisagrees: if the crop clearly shows something other than the selection named above, what it shows; else null.',
-                    'If the request is unclear, or asks for anything the ops can’t do, answer one clarify op with a short question.',
-                  ].join('\n'),
-                },
-                ...(cropDataUrl
-                  ? [
-                      {
-                        type: 'input_image' as const,
-                        image_url: cropDataUrl,
-                        detail: 'auto' as const,
-                      },
-                    ]
-                  : []),
-              ],
-            },
-          ],
-          text: {
-            format: {
-              type: 'json_schema',
-              name: 'edit_intent',
-              strict: true,
-              schema: z.toJSONSchema(sparkIntentSchema),
-            },
-          },
-        },
-        timeoutMs,
-        signal,
-      );
-      return this.parsed(response, sparkIntentSchema, 'request', SPARK_CALLS.intent.tokens);
+    return this.structured('intent', {
+      name: 'edit_intent',
+      schema: sparkIntentSchema,
+      what: 'request',
+      images: cropDataUrl ? [cropDataUrl] : [],
+      signal,
+      text: [
+        'A person selected part of their room camera’s picture and typed a request about it. Read the request as a short list of ops (at most four), in the order to do them.',
+        `The request: ${JSON.stringify(sentence)}`,
+        describeContext(ctx),
+        'The ops you may use:',
+        opCatalog(),
+        'Fill only the fields an op needs and leave the others null or empty. parts picks parts of the model by names, roles and materials it has (empty lists for no filter), minus exceptNames and exceptRoles; parts null means the whole model.',
+        'color is a hex value (#rrggbb) for the colour asked for. sizeCm is in centimetres; leave axes not mentioned null.',
+        `form is one of: ${PROP_FORMS.join(', ')}.`,
+        'product: the product named, with its brand, model and kind (“IKEA Alex desk”), or null.',
+        'needs: what must be looked up to build it: size, parts, colors, materials. Empty unless the request makes a model.',
+        'targetDisagrees: if the crop clearly shows something other than the selection named above, what it shows; else null.',
+        'If the request is unclear, or asks for anything the ops can’t do, answer one clarify op with a short question.',
+      ].join('\n'),
     });
   }
   /**
@@ -470,54 +456,21 @@ export class MetaAdapter {
       recipe,
       entities: [],
     };
-    return this.executeCall('refine', async (timeoutMs) => {
-      const response = await this.spark(
-        cropDataUrl ? 1 : 0,
-        {
-          model: this.config.sparkModel,
-          store: false,
-          max_output_tokens: SPARK_CALLS.refine.tokens,
-          input: [
-            {
-              role: 'user',
-              content: [
-                {
-                  type: 'input_text',
-                  text: [
-                    'A model of a piece of furniture was drawn through the room camera and compared with the outline of the real thing in its picture.',
-                    describeContext(ctx),
-                    check.report,
-                    'Suggest at most four ops that bring the model closer to the real thing: resize the model or its parts, add or remove parts. Only these ops:',
-                    opCatalog(),
-                    'Fill only the fields an op needs and leave the others null or empty. Sizes are in centimetres, parts measured from the back-left-bottom corner, facing the room. If nothing would help, answer one clarify op.',
-                    'product: null. needs: empty. targetDisagrees: null.',
-                  ].join('\n'),
-                },
-                ...(cropDataUrl
-                  ? [
-                      {
-                        type: 'input_image' as const,
-                        image_url: cropDataUrl,
-                        detail: 'auto' as const,
-                      },
-                    ]
-                  : []),
-              ],
-            },
-          ],
-          text: {
-            format: {
-              type: 'json_schema',
-              name: 'recipe_refine',
-              strict: true,
-              schema: z.toJSONSchema(sparkIntentSchema),
-            },
-          },
-        },
-        timeoutMs,
-        signal,
-      );
-      return this.parsed(response, sparkIntentSchema, 'model check', SPARK_CALLS.refine.tokens);
+    return this.structured('refine', {
+      name: 'recipe_refine',
+      schema: sparkIntentSchema,
+      what: 'model check',
+      images: cropDataUrl ? [cropDataUrl] : [],
+      signal,
+      text: [
+        'A model of a piece of furniture was drawn through the room camera and compared with the outline of the real thing in its picture.',
+        describeContext(ctx),
+        check.report,
+        'Suggest at most four ops that bring the model closer to the real thing: resize the model or its parts, add or remove parts. Only these ops:',
+        opCatalog(),
+        'Fill only the fields an op needs and leave the others null or empty. Sizes are in centimetres, parts measured from the back-left-bottom corner, facing the room. If nothing would help, answer one clarify op.',
+        'product: null. needs: empty. targetDisagrees: null.',
+      ].join('\n'),
     });
   }
   async text(): Promise<ProviderResult<{ text: string }>> {
@@ -543,72 +496,22 @@ export class MetaAdapter {
     });
   }
   async discover(imageDataUrl: string) {
-    return this.executeCall('discover', async (timeoutMs) => {
-      const response = await this.spark(
-        1,
-        {
-          model: this.config.sparkModel,
-          store: false,
-          max_output_tokens: SPARK_CALLS.discover.tokens,
-          input: [
-            {
-              role: 'user',
-              content: [
-                {
-                  type: 'input_text',
-                  text: 'Describe this desk scene. Return up to three visible, distinctive movable objects. Use short grounded labels and visual appearance only; do not infer identities, ownership, or actions. If no suitable objects are visible, return an empty objects list.',
-                },
-                { type: 'input_image', image_url: imageDataUrl, detail: 'auto' },
-              ],
-            },
-          ],
-          text: {
-            format: {
-              type: 'json_schema',
-              name: 'desk_scene',
-              strict: true,
-              schema: z.toJSONSchema(sceneSchema),
-            },
-          },
-        },
-        timeoutMs,
-      );
-      return this.parsed(response, sceneSchema, 'scene discovery', SPARK_CALLS.discover.tokens);
+    return this.structured('discover', {
+      name: 'desk_scene',
+      schema: sceneSchema,
+      what: 'scene discovery',
+      images: [imageDataUrl],
+      text: 'Describe this desk scene. Return up to three visible, distinctive movable objects. Use short grounded labels and visual appearance only; do not infer identities, ownership, or actions. If no suitable objects are visible, return an empty objects list.',
     });
   }
   /** Which isometric preset fits the photo, and which of its optional props are visible. */
   async classify(imageDataUrl: string) {
-    return this.executeCall('classify', async (timeoutMs) => {
-      const response = await this.spark(
-        1,
-        {
-          model: this.config.sparkModel,
-          store: false,
-          max_output_tokens: SPARK_CALLS.classify.tokens,
-          input: [
-            {
-              role: 'user',
-              content: [
-                {
-                  type: 'input_text',
-                  text: `Pick the scene preset that best matches this photo: office (a room with a desk), desk (an office desk: a close view of the desktop in an office), or fridge (the inside of a fridge). Then list which of that preset's optional props are visible, using only these ids:\n${presetCatalog()}\nDescribe only what is visible, in one short sentence.`,
-                },
-                { type: 'input_image', image_url: imageDataUrl, detail: 'auto' },
-              ],
-            },
-          ],
-          text: {
-            format: {
-              type: 'json_schema',
-              name: 'scene_guess',
-              strict: true,
-              schema: z.toJSONSchema(sceneGuessSchema),
-            },
-          },
-        },
-        timeoutMs,
-      );
-      return this.parsed(response, sceneGuessSchema, 'scene guess', SPARK_CALLS.classify.tokens);
+    return this.structured('classify', {
+      name: 'scene_guess',
+      schema: sceneGuessSchema,
+      what: 'scene guess',
+      images: [imageDataUrl],
+      text: `Pick the scene preset that best matches this photo: office (a room with a desk), desk (an office desk: a close view of the desktop in an office), or fridge (the inside of a fridge). Then list which of that preset's optional props are visible, using only these ids:\n${presetCatalog()}\nDescribe only what is visible, in one short sentence.`,
     });
   }
   /**
@@ -617,42 +520,17 @@ export class MetaAdapter {
    * templates, never from the model.
    */
   async layout(imageDataUrl: string) {
-    return this.executeCall('layout', async (timeoutMs) => {
-      const response = await this.spark(
-        1,
-        {
-          model: this.config.sparkModel,
-          store: false,
-          max_output_tokens: SPARK_CALLS.layout.tokens,
-          input: [
-            {
-              role: 'user',
-              content: [
-                {
-                  type: 'input_text',
-                  text: [
-                    'Lay out the furniture and objects in this photo as a small isometric scene, using only these templates:',
-                    templateCatalog(),
-                    'Choose a grid from 4 to 14 tiles each way. x runs left to right across the photo, y from the back of the room toward the camera; (x, y) is the back-left corner of the template. turns rotates it by quarter turns.',
-                    'Put things that stand on a surface at the x and y of that surface; their height is worked out for you. Use at most 24 items, only for what is visible, and describe the scene in one short sentence.',
-                  ].join('\n'),
-                },
-                { type: 'input_image', image_url: imageDataUrl, detail: 'auto' },
-              ],
-            },
-          ],
-          text: {
-            format: {
-              type: 'json_schema',
-              name: 'scene_draft',
-              strict: true,
-              schema: z.toJSONSchema(sceneDraftSchema),
-            },
-          },
-        },
-        timeoutMs,
-      );
-      return this.parsed(response, sceneDraftSchema, 'scene draft', SPARK_CALLS.layout.tokens);
+    return this.structured('layout', {
+      name: 'scene_draft',
+      schema: sceneDraftSchema,
+      what: 'scene draft',
+      images: [imageDataUrl],
+      text: [
+        'Lay out the furniture and objects in this photo as a small isometric scene, using only these templates:',
+        templateCatalog(),
+        'Choose a grid from 4 to 14 tiles each way. x runs left to right across the photo, y from the back of the room toward the camera; (x, y) is the back-left corner of the template. turns rotates it by quarter turns.',
+        'Put things that stand on a surface at the x and y of that surface; their height is worked out for you. Use at most 24 items, only for what is visible, and describe the scene in one short sentence.',
+      ].join('\n'),
     });
   }
   /**
@@ -660,43 +538,18 @@ export class MetaAdapter {
    * classifies; the fitter measures every number from the mask itself.
    */
   async itemClass(cropDataUrl: string, label: string) {
-    return this.executeCall('itemClass', async (timeoutMs) => {
-      const response = await this.spark(
-        1,
-        {
-          model: this.config.sparkModel,
-          store: false,
-          max_output_tokens: SPARK_CALLS.itemClass.tokens,
-          input: [
-            {
-              role: 'user',
-              content: [
-                {
-                  type: 'input_text',
-                  text: [
-                    `This is a cropped photo of one object, a ${label}, with the background removed.`,
-                    `Pick the archetype that best describes its shape: ${ARCHETYPES.join(', ')}. Use generic only when none fits.`,
-                    `Pick its main surface material: ${ITEM_MATERIALS.join(', ')}.`,
-                    'Describe what you see in one short sentence (colours, print, handle side).',
-                    'If the photo hints at what the hidden back looks like, say so in backside; otherwise null.',
-                  ].join('\n'),
-                },
-                { type: 'input_image', image_url: cropDataUrl, detail: 'auto' },
-              ],
-            },
-          ],
-          text: {
-            format: {
-              type: 'json_schema',
-              name: 'item_class',
-              strict: true,
-              schema: z.toJSONSchema(itemClassSchema),
-            },
-          },
-        },
-        timeoutMs,
-      );
-      return this.parsed(response, itemClassSchema, 'item class', SPARK_CALLS.itemClass.tokens);
+    return this.structured('itemClass', {
+      name: 'item_class',
+      schema: itemClassSchema,
+      what: 'item class',
+      images: [cropDataUrl],
+      text: [
+        `This is a cropped photo of one object, a ${label}, with the background removed.`,
+        `Pick the archetype that best describes its shape: ${ARCHETYPES.join(', ')}. Use generic only when none fits.`,
+        `Pick its main surface material: ${ITEM_MATERIALS.join(', ')}.`,
+        'Describe what you see in one short sentence (colours, print, handle side).',
+        'If the photo hints at what the hidden back looks like, say so in backside; otherwise null.',
+      ].join('\n'),
     });
   }
   /**
@@ -705,51 +558,21 @@ export class MetaAdapter {
    * switch, and its usual size. It never gives the model's numbers.
    */
   async fixtureClass(imageDataUrl: string, hint?: string) {
-    return this.executeCall('fixtureClass', async (timeoutMs) => {
-      const response = await this.spark(
-        1,
-        {
-          model: this.config.sparkModel,
-          store: false,
-          max_output_tokens: SPARK_CALLS.fixtureClass.tokens,
-          input: [
-            {
-              role: 'user',
-              content: [
-                {
-                  type: 'input_text',
-                  text: [
-                    `This is a reference photo of one thing someone wants to add to a model of their room${hint ? `: ${hint}` : ''}.`,
-                    'Name the main thing in a few plain words (label).',
-                    `Pick the archetype that best describes its shape: ${ARCHETYPES.join(', ')}. Use generic only when none fits.`,
-                    `Pick its main surface material: ${ITEM_MATERIALS.join(', ')}.`,
-                    'control: light for a lamp, bulb or light strip; switch for anything else that turns on and off (a fan, a smart plug, a wall switch, a monitor); none for everything else.',
-                    'Describe what you see in one short sentence (colours, shape, details).',
-                    'box: a loose box around the whole thing, in thousandths of the image width (x1, x2) and height (y1, y2), top-left first.',
-                    'sizeCm: its usual real width, depth and height in centimetres.',
-                  ].join('\n'),
-                },
-                { type: 'input_image', image_url: imageDataUrl, detail: 'auto' },
-              ],
-            },
-          ],
-          text: {
-            format: {
-              type: 'json_schema',
-              name: 'fixture_class',
-              strict: true,
-              schema: z.toJSONSchema(fixtureClassSchema),
-            },
-          },
-        },
-        timeoutMs,
-      );
-      return this.parsed(
-        response,
-        fixtureClassSchema,
-        'fixture class',
-        SPARK_CALLS.fixtureClass.tokens,
-      );
+    return this.structured('fixtureClass', {
+      name: 'fixture_class',
+      schema: fixtureClassSchema,
+      what: 'fixture class',
+      images: [imageDataUrl],
+      text: [
+        `This is a reference photo of one thing someone wants to add to a model of their room${hint ? `: ${hint}` : ''}.`,
+        'Name the main thing in a few plain words (label).',
+        `Pick the archetype that best describes its shape: ${ARCHETYPES.join(', ')}. Use generic only when none fits.`,
+        `Pick its main surface material: ${ITEM_MATERIALS.join(', ')}.`,
+        'control: light for a lamp, bulb or light strip; switch for anything else that turns on and off (a fan, a smart plug, a wall switch, a monitor); none for everything else.',
+        'Describe what you see in one short sentence (colours, shape, details).',
+        'box: a loose box around the whole thing, in thousandths of the image width (x1, x2) and height (y1, y2), top-left first.',
+        'sizeCm: its usual real width, depth and height in centimetres.',
+      ].join('\n'),
     });
   }
   /**
@@ -764,56 +587,25 @@ export class MetaAdapter {
     /** What the room has already; with `only`, nothing else is listed. */
     { known = [], only = false }: { known?: string[]; only?: boolean } = {},
   ) {
-    return this.executeCall('fixtureScan', async (timeoutMs) => {
-      const response = await this.spark(
-        1,
-        {
-          model: this.config.sparkModel,
-          store: false,
-          max_output_tokens: SPARK_CALLS.fixtureScan.tokens,
-          ...reasoningOf('fixtureScan'),
-          input: [
-            {
-              role: 'user',
-              content: [
-                {
-                  type: 'input_text',
-                  text: [
-                    'This photo shows part of a room someone is modelling. List the fixtures in it: things that stay put and could be placed in a model of the room, like a lamp, a monitor, a keyboard, a mouse, a speaker, a plant, a wall switch or a fan.',
-                    `Leave out furniture (desks, tables, chairs, shelves), walls and floors${tracked.length ? `, and these objects, which are followed separately: ${tracked.join(', ')}` : ''}.`,
-                    `For each give: a short grounded label (no names, owners or brands); the archetype that best describes its shape (${ARCHETYPES.join(', ')}; generic only when none fits); its main material (${ITEM_MATERIALS.join(', ')}); control: light for a lamp, bulb or light strip, switch for anything else that turns on and off, none for everything else; its main colour as lowercase #rrggbb; box, a loose box around it as x1, y1, x2, y2 from 0 to 1000 across and down the photo; and sizeCm, its usual real width, depth and height in centimetres.`,
-                    ...(known.length
-                      ? [
-                          only
-                            ? `List only these things, which the model already has, and nothing else: ${known.join(', ')}. Label each with its name from this list.`
-                            : `The model already has these; label any you see with its name from this list: ${known.join(', ')}.`,
-                        ]
-                      : []),
-                    `Use at most ${MAX_SCAN_THINGS} things, only what is clearly visible, biggest first. Return an empty list if there are none.`,
-                  ].join('\n'),
-                },
-                { type: 'input_image', image_url: imageDataUrl, detail: 'auto' },
-              ],
-            },
-          ],
-          text: {
-            format: {
-              type: 'json_schema',
-              name: 'fixture_scan',
-              strict: true,
-              schema: z.toJSONSchema(fixtureScanSchema),
-            },
-          },
-        },
-        timeoutMs,
-        signal,
-      );
-      return this.parsed(
-        response,
-        fixtureScanSchema,
-        'fixture scan',
-        SPARK_CALLS.fixtureScan.tokens,
-      );
+    return this.structured('fixtureScan', {
+      name: 'fixture_scan',
+      schema: fixtureScanSchema,
+      what: 'fixture scan',
+      images: [imageDataUrl],
+      signal,
+      text: [
+        'This photo shows part of a room someone is modelling. List the fixtures in it: things that stay put and could be placed in a model of the room, like a lamp, a monitor, a keyboard, a mouse, a speaker, a plant, a wall switch or a fan.',
+        `Leave out furniture (desks, tables, chairs, shelves), walls and floors${tracked.length ? `, and these objects, which are followed separately: ${tracked.join(', ')}` : ''}.`,
+        `For each give: a short grounded label (no names, owners or brands); the archetype that best describes its shape (${ARCHETYPES.join(', ')}; generic only when none fits); its main material (${ITEM_MATERIALS.join(', ')}); control: light for a lamp, bulb or light strip, switch for anything else that turns on and off, none for everything else; its main colour as lowercase #rrggbb; box, a loose box around it as x1, y1, x2, y2 from 0 to 1000 across and down the photo; and sizeCm, its usual real width, depth and height in centimetres.`,
+        ...(known.length
+          ? [
+              only
+                ? `List only these things, which the model already has, and nothing else: ${known.join(', ')}. Label each with its name from this list.`
+                : `The model already has these; label any you see with its name from this list: ${known.join(', ')}.`,
+            ]
+          : []),
+        `Use at most ${MAX_SCAN_THINGS} things, only what is clearly visible, biggest first. Return an empty list if there are none.`,
+      ].join('\n'),
     });
   }
   /**
@@ -832,38 +624,14 @@ export class MetaAdapter {
     /** How hard Spark thinks first: a fixture's model asks for low, to answer in seconds. */
     effort?: 'low' | 'medium',
   ) {
-    const schema = sculptSchemaOf(maxParts);
-    return this.executeCall('sculpt', async (timeoutMs) => {
-      const response = await this.spark(
-        2,
-        {
-          model: this.config.sparkModel,
-          store: false,
-          max_output_tokens: SPARK_CALLS.sculpt.tokens,
-          ...(effort ? { reasoning: { effort } } : reasoningOf('sculpt')),
-          input: [
-            {
-              role: 'user',
-              content: [
-                { type: 'input_text', text: `${prompt}\n\nParts:\n${parts}` },
-                { type: 'input_image', image_url: pictureDataUrl, detail: 'auto' },
-                { type: 'input_image', image_url: renderDataUrl, detail: 'auto' },
-              ],
-            },
-          ],
-          text: {
-            format: {
-              type: 'json_schema',
-              name: 'sculpt',
-              strict: true,
-              schema: z.toJSONSchema(schema),
-            },
-          },
-        },
-        timeoutMs,
-        signal,
-      );
-      return this.parsed(response, schema, 'model', SPARK_CALLS.sculpt.tokens);
+    return this.structured('sculpt', {
+      name: 'sculpt',
+      schema: sculptSchemaOf(maxParts),
+      what: 'model',
+      images: [pictureDataUrl, renderDataUrl],
+      signal,
+      effort,
+      text: `${prompt}\n\nParts:\n${parts}`,
     });
   }
   /**
@@ -876,50 +644,20 @@ export class MetaAdapter {
     things: { label: string; near: { x1: number; y1: number; x2: number; y2: number } }[],
     signal?: AbortSignal,
   ) {
-    return this.executeCall('pictureFind', async (timeoutMs) => {
-      const response = await this.spark(
-        1,
-        {
-          model: this.config.sparkModel,
-          store: false,
-          max_output_tokens: SPARK_CALLS.pictureFind.tokens,
-          input: [
-            {
-              role: 'user',
-              content: [
-                {
-                  type: 'input_text',
-                  text: [
-                    'This is an isometric illustration of a room. Find each of these things drawn in it. Each is numbered, with a box from 0 to 1000 across and down the picture where the room’s layout expects it; it may be drawn somewhat away from there, and what is drawn is what counts.',
-                    ...things.map(
-                      (t, i) =>
-                        `${i + 1}. ${t.label} (expected near ${t.near.x1}, ${t.near.y1}, ${t.near.x2}, ${t.near.y2})`,
-                    ),
-                    'For each number give: seen, whether it is clearly drawn; and box, a tight box around just that thing as x1, y1, x2, y2 from 0 to 1000. When two look alike, take the one nearer its expected box. When it is not drawn, set seen false and give its expected box.',
-                  ].join('\n'),
-                },
-                { type: 'input_image', image_url: pictureDataUrl, detail: 'auto' },
-              ],
-            },
-          ],
-          text: {
-            format: {
-              type: 'json_schema',
-              name: 'picture_find',
-              strict: true,
-              schema: z.toJSONSchema(pictureFindSchema),
-            },
-          },
-        },
-        timeoutMs,
-        signal,
-      );
-      return this.parsed(
-        response,
-        pictureFindSchema,
-        'picture find',
-        SPARK_CALLS.pictureFind.tokens,
-      );
+    return this.structured('pictureFind', {
+      name: 'picture_find',
+      schema: pictureFindSchema,
+      what: 'picture find',
+      images: [pictureDataUrl],
+      signal,
+      text: [
+        'This is an isometric illustration of a room. Find each of these things drawn in it. Each is numbered, with a box from 0 to 1000 across and down the picture where the room’s layout expects it; it may be drawn somewhat away from there, and what is drawn is what counts.',
+        ...things.map(
+          (t, i) =>
+            `${i + 1}. ${t.label} (expected near ${t.near.x1}, ${t.near.y1}, ${t.near.x2}, ${t.near.y2})`,
+        ),
+        'For each number give: seen, whether it is clearly drawn; and box, a tight box around just that thing as x1, y1, x2, y2 from 0 to 1000. When two look alike, take the one nearer its expected box. When it is not drawn, set seen false and give its expected box.',
+      ].join('\n'),
     });
   }
   /**
@@ -928,44 +666,18 @@ export class MetaAdapter {
    * silhouette still matches the mask at least as well.
    */
   async itemCheck(cropDataUrl: string, renderDataUrl: string, summary: string) {
-    return this.executeCall('itemCheck', async (timeoutMs) => {
-      const response = await this.spark(
-        2,
-        {
-          model: this.config.sparkModel,
-          store: false,
-          max_output_tokens: SPARK_CALLS.itemCheck.tokens,
-          input: [
-            {
-              role: 'user',
-              content: [
-                {
-                  type: 'input_text',
-                  text: [
-                    'The first image is a photo of an object; the second is a simple model of it, drawn from the same angle with flat colours.',
-                    `The model is: ${summary}.`,
-                    'Suggest corrections as multipliers between 0.8 and 1.2 (1 for no change): height, radius (width), handleReach (1 if there is no handle).',
-                    'If the model body colour is clearly wrong, give the right one as lowercase #rrggbb in body; otherwise null.',
-                    'Explain the main difference in one short sentence.',
-                  ].join('\n'),
-                },
-                { type: 'input_image', image_url: cropDataUrl, detail: 'auto' },
-                { type: 'input_image', image_url: renderDataUrl, detail: 'auto' },
-              ],
-            },
-          ],
-          text: {
-            format: {
-              type: 'json_schema',
-              name: 'item_check',
-              strict: true,
-              schema: z.toJSONSchema(itemCheckSchema),
-            },
-          },
-        },
-        timeoutMs,
-      );
-      return this.parsed(response, itemCheckSchema, 'item check', SPARK_CALLS.itemCheck.tokens);
+    return this.structured('itemCheck', {
+      name: 'item_check',
+      schema: itemCheckSchema,
+      what: 'item check',
+      images: [cropDataUrl, renderDataUrl],
+      text: [
+        'The first image is a photo of an object; the second is a simple model of it, drawn from the same angle with flat colours.',
+        `The model is: ${summary}.`,
+        'Suggest corrections as multipliers between 0.8 and 1.2 (1 for no change): height, radius (width), handleReach (1 if there is no handle).',
+        'If the model body colour is clearly wrong, give the right one as lowercase #rrggbb in body; otherwise null.',
+        'Explain the main difference in one short sentence.',
+      ].join('\n'),
     });
   }
   /**
@@ -998,44 +710,19 @@ export class MetaAdapter {
     extra: string[],
     signal?: AbortSignal,
   ) {
-    return this.executeCall('photoInventory', async (timeoutMs) => {
-      const response = await this.spark(
-        1,
-        {
-          model: this.config.sparkModel,
-          store: false,
-          max_output_tokens: SPARK_CALLS.photoInventory.tokens,
-          input: [
-            {
-              role: 'user',
-              content: [
-                {
-                  type: 'input_text',
-                  text: [
-                    'List the furniture and objects in this photo so they can be drawn as a small isometric scene.',
-                    photoCatalog(),
-                    'For each thing give: a short id (lowercase, like desk or mug-1); a short grounded label from what you see (no names, owners or brands); as, the closest template or object model; role: surface for what things stand on (a desk, a table, a cabinet top, a shelf), furniture for anything else that stands on the floor, object for small movable things; on, the id of what it stands on, or floor; box, a loose box around it as x1, y1, x2, y2 from 0 to 1000 across and down the photo; sizeCm, its real size in whole centimetres (w across its front, d from front to back, h its height), judged from things of known size (a desk is about 75 cm high, a mug about 10 cm); color, its main colour as lowercase #rrggbb; and material, what it is mostly made of.',
-                    'Include the main surface if there is one. Use at most 16 things, only what is clearly visible, biggest first. Summarise the scene in one short sentence.',
-                    ...extra,
-                  ].join('\n'),
-                },
-                { type: 'input_image', image_url: imageDataUrl, detail: 'auto' },
-              ],
-            },
-          ],
-          text: {
-            format: {
-              type: 'json_schema',
-              name: 'photo_inventory',
-              strict: true,
-              schema: z.toJSONSchema(schema),
-            },
-          },
-        },
-        timeoutMs,
-        signal,
-      );
-      return this.parsed(response, schema, 'photo inventory', SPARK_CALLS.photoInventory.tokens);
+    return this.structured('photoInventory', {
+      name: 'photo_inventory',
+      schema,
+      what: 'photo inventory',
+      images: [imageDataUrl],
+      signal,
+      text: [
+        'List the furniture and objects in this photo so they can be drawn as a small isometric scene.',
+        photoCatalog(),
+        'For each thing give: a short id (lowercase, like desk or mug-1); a short grounded label from what you see (no names, owners or brands); as, the closest template or object model; role: surface for what things stand on (a desk, a table, a cabinet top, a shelf), furniture for anything else that stands on the floor, object for small movable things; on, the id of what it stands on, or floor; box, a loose box around it as x1, y1, x2, y2 from 0 to 1000 across and down the photo; sizeCm, its real size in whole centimetres (w across its front, d from front to back, h its height), judged from things of known size (a desk is about 75 cm high, a mug about 10 cm); color, its main colour as lowercase #rrggbb; and material, what it is mostly made of.',
+        'Include the main surface if there is one. Use at most 16 things, only what is clearly visible, biggest first. Summarise the scene in one short sentence.',
+        ...extra,
+      ].join('\n'),
     });
   }
   /**
@@ -1049,44 +736,18 @@ export class MetaAdapter {
     listing: string,
     signal?: AbortSignal,
   ) {
-    return this.executeCall('photoCheck', async (timeoutMs) => {
-      const response = await this.spark(
-        2,
-        {
-          model: this.config.sparkModel,
-          store: false,
-          max_output_tokens: SPARK_CALLS.photoCheck.tokens,
-          input: [
-            {
-              role: 'user',
-              content: [
-                {
-                  type: 'input_text',
-                  text: [
-                    'The first image is a photo; the second is a simple scene drawn from the same camera in flat colours.',
-                    `The scene has: ${listing}.`,
-                    photoCatalog(),
-                    'In missing, list up to four clearly visible things the scene lacks, in the same form (id, label, as, role, on, box from 0 to 1000). In extra, give the ids of things in the scene that are not in the photo. Explain the main difference in one short sentence.',
-                  ].join('\n'),
-                },
-                { type: 'input_image', image_url: imageDataUrl, detail: 'auto' },
-                { type: 'input_image', image_url: renderDataUrl, detail: 'auto' },
-              ],
-            },
-          ],
-          text: {
-            format: {
-              type: 'json_schema',
-              name: 'photo_check',
-              strict: true,
-              schema: z.toJSONSchema(photoCheckSchema),
-            },
-          },
-        },
-        timeoutMs,
-        signal,
-      );
-      return this.parsed(response, photoCheckSchema, 'photo check', SPARK_CALLS.photoCheck.tokens);
+    return this.structured('photoCheck', {
+      name: 'photo_check',
+      schema: photoCheckSchema,
+      what: 'photo check',
+      images: [imageDataUrl, renderDataUrl],
+      signal,
+      text: [
+        'The first image is a photo; the second is a simple scene drawn from the same camera in flat colours.',
+        `The scene has: ${listing}.`,
+        photoCatalog(),
+        'In missing, list up to four clearly visible things the scene lacks, in the same form (id, label, as, role, on, box from 0 to 1000). In extra, give the ids of things in the scene that are not in the photo. Explain the main difference in one short sentence.',
+      ].join('\n'),
     });
   }
   /**

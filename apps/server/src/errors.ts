@@ -40,12 +40,17 @@ export function logError(error: unknown, where?: string) {
 
 const NETWORK_CODE = /^(E[A-Z]+|ConnectionRefused|ConnectionClosed|FailedToOpenSocket|UND_ERR)/;
 
+/** Whether an error is the SDK's or the platform's timeout or abort, by its name or class. */
+export function isTimeout(error: unknown): boolean {
+  return error instanceof Error && /timeout|abort/i.test(`${error.name} ${error.constructor.name}`);
+}
+
 /** Whether an error came from the provider call or the network, not from our own code. */
 function isUpstream(error: unknown, status: number): boolean {
   if (status) return true;
   if (!(error instanceof Error)) return false;
   const e = error as UpstreamError;
-  if (/timeout|abort/i.test(`${e.name} ${e.constructor.name}`)) return true;
+  if (isTimeout(e)) return true;
   if (/^API|connection/i.test(`${e.name} ${e.constructor.name}`)) return true;
   const code = e.code ?? e.cause?.code;
   return typeof code === 'string' && NETWORK_CODE.test(code);
@@ -94,7 +99,7 @@ export function safeError(error: unknown, step?: string): LabError {
   const mapped = known[status];
   if (mapped) return new LabError(mapped[0], exact(mapped[1]), 502, detail);
   // The SDK's timeout error keeps the name `Error`; its class says what it is.
-  if (error instanceof Error && /timeout|abort/i.test(`${error.name} ${error.constructor.name}`)) {
+  if (isTimeout(error)) {
     return new LabError(
       'timeout',
       'The request timed out. Its result was not accepted; no automatic retry was made.',
