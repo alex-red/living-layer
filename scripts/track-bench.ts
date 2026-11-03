@@ -33,7 +33,7 @@ import {
   savedIdOf,
   searchRegion,
   startLocalTrack,
-  watchStep,
+  watchFrame,
   watchThing,
   type LumaFrame,
   type SavedCamera,
@@ -205,8 +205,9 @@ async function bench() {
     let refinds = 0;
     const per = timeOver(frames.slice(1), (f, k) => {
       const now = (k + 1) * (1000 / info.fps);
+      const steps = watchFrame(watched, f, now);
       watched = watched.map((thing) => {
-        const step = watchStep(thing, f, now);
+        const step = steps.get(thing.subject.id)!;
         if (step.refind) refinds++;
         if (!step.ask) return step.thing;
         // As the watcher does: the next ask waits, and a re-anchor here finds nothing.
@@ -262,18 +263,23 @@ function identity(base: string, frames: LumaFrame[], info: ClipInfo) {
   const replay = replayClip(frames, info.fps, truth);
   const scores = scoreReplay(truth, replay);
   const all = totalScore(scores);
+  // The same clip stepped one thing at a time, as the watcher did before `watchFrame`.
+  const alone = totalScore(
+    scoreReplay(truth, replayClip(frames, info.fps, truth, { alone: true })),
+  );
   console.log(
     `\nIdentity over ${replay.seen.size} marked keyframes (SAM answered from the marks, no feature model):`,
   );
   console.log(
-    '  thing           keys  IDF1  switches  false sure  honest unsure  needless  asks  wrong picks',
+    '  thing           keys  IDF1  switches  false sure  honest unsure  needless  asks  wrong picks  zones judged  on another',
   );
   const row = (s: ThingScore) =>
     console.log(
-      `  ${s.id.slice(0, 14).padEnd(14)}  ${String(s.keys).padStart(4)}  ${idf1(s).toFixed(2)}  ${String(s.switches).padStart(8)}  ${String(s.falseSure).padStart(10)}  ${String(s.honestUnsure).padStart(13)}  ${String(s.needlessUnsure).padStart(8)}  ${String(s.asks).padStart(4)}  ${String(s.wrongPicks).padStart(11)}`,
+      `  ${s.id.slice(0, 14).padEnd(14)}  ${String(s.keys).padStart(4)}  ${idf1(s).toFixed(2)}  ${String(s.switches).padStart(8)}  ${String(s.falseSure).padStart(10)}  ${String(s.honestUnsure).padStart(13)}  ${String(s.needlessUnsure).padStart(8)}  ${String(s.asks).padStart(4)}  ${String(s.wrongPicks).padStart(11)}  ${String(s.places).padStart(12)}  ${String(s.wrongPlaces).padStart(10)}`,
     );
   scores.forEach(row);
   row(all);
+  row({ ...alone, id: 'all, one by one' });
   if (replay.unseeded.length)
     console.log(
       `  not followed (too little texture where first marked): ${replay.unseeded.join(', ')}`,

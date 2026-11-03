@@ -73,6 +73,17 @@ The cheapest fix: things stop competing for the same place.
 - **Entangled pairs.** When two things of the same concept come within one box width of each other while either is moving, both become `entangled` (new status, a kind of `unsure`): boxes held, rules for both wait, no SAM call yet. When they separate and the scene is still (`quietSteps`), they are resolved together in phase 3's joint ask, never one at a time.
 - **Measured by** ID switches on `swap` and `cross`, and false-sure frames everywhere. Cost: one extra mask-out re-match only when boxes collide, so `still-16` should not move.
 
+### Phase 1 as built (exclusion; entangled pairs still to do)
+
+- **Zones are about to be judged on the local box** (`place`, `placeLocally`, another session's work, not yet committed when this was written), with no SAM call. So a local swap now switches a light, and this phase matters more than when the plan was written. The bench counts these: `zones judged` and `on another` (a judgement made while the box sat on another thing), with `wrongPlaces: 0` in `TRACK_TARGETS`.
+- **Exclusion inside the search, not after it.** `matchTemplate` takes `exclude` boxes: a place overlapping one by `LOCAL_TRACK.claimIoU` (0.3) or more is neither the match nor the runner-up. `watchFrame` (`watch.ts`) steps every thing with the others' boxes excluded, so a lost thing's widening search can't settle on a followed look-alike, and two look-alikes side by side aren't each other's runner-up. Boxes that already overlap (a phone on a book) aren't kept off each other. Re-matching after a collision, as planned, was dropped: excluding up front is the same search, once.
+- **Collisions left over:** two things that both moved onto one place in the same frame; the one that came further holds its last box and counts as lost for the step.
+- **`hold`:** the thing SAM is being asked about isn't stepped, but its box stays excluded.
+- **The watcher** steps through `watchFrame`; the bench's cost loop does too. `bench:track` adds an `all, one by one` row: the same clip stepped the old way, for before and after on one tree.
+- **On made-up frames** (`tests/track-truth.test.ts`): a mug carried off with an identical one in view, stepped one by one, follows the other, sure, and judges its zones there; stepped together it stays `unsure`, refinds, and picks its own up again when it's put back, with no wrong judgement. Two look-alikes side by side stay sure of themselves.
+- **Cost** on `office-still`, warmed up, one by one against together: 5 things 1.6 against 1.6 ms a frame, 17 things 5.7 against 5.7 ms. Excluded boxes are only checked when they reach into the searched area.
+- **Not done yet:** `entangled` (a status the lab has to show), keeping runner-up boxes. Both wait for the `swap` and `cross` clips to show whether exclusion alone leaves swaps.
+
 ## Phase 2: motion and joint assignment
 
 What the SORT family gets right, on our own boxes.
@@ -96,7 +107,7 @@ SAM 3.1's multiplexing, done with the API we have.
 - **Assignment on the answer.** Text-prompt detections go through `assignTracks` with every thing of that concept, not just the ones that asked: a call made for one mug also confirms the others it sees, at no extra cost. A box-prompt mask that overlaps another thing's box more than `MULTI.claimIoU` is treated as unresolved for both.
 - **Entangled pairs resolve here.** When an entangled pair separates, both are asked in one call and assigned jointly, with appearance in the cost (phase 4). If the margin is still too small, the lab asks the person: two outlines, "Which is My desk mug?" — the same kind of question `askPerson` already asks for an empty zone.
 - **Spending.** The per-thing back-off and `maxMisses` stay; the 2 s confirm gap becomes per call, not per thing. Expected effect: on `busy`, SAM calls drop from one per moved thing to about one per burst. Measured on the replayed clips.
-- **Rules.** A rule decides only on things whose last state came from SAM with a margin above `minMargin`. An `entangled` thing holds its last verdict; nothing fires on it, the same rule as "the lamp only fires on a SAM observation".
+- **Rules.** An `entangled` thing holds its last verdict and isn't judged locally (`place`) until it is resolved with a margin above `minMargin`.
 
 ## Phase 4: appearance that tells look-alikes apart (layer 2)
 
@@ -143,7 +154,7 @@ Each phase: `bun run bench:track` on every clip before and after (`bun run bench
 
 - **Automatic discovery of everything in view.** A person picks what is followed; SAM's text prompt finds candidates when asked.
 - **Shipping an AGPL detector.**
-- **Firing a rule on a local or worker box,** however confident. Unchanged from tracking.md.
+- **Firing a rule on a worker box.** Local boxes judge zones once `place` lands; a phase 5 worker's wouldn't.
 - **More than one camera.** Still one fixed camera per room.
 
 ## Open decisions

@@ -12,7 +12,7 @@ import {
 
 const W = 96;
 const H = 64;
-/** Noise, the same every frame, with a checked 10-px square drawn at each box. */
+/** Noise, the same every frame, with the same 10-px textured square drawn at each box. */
 function frameWith(boxes: UnitBox[], seed = 7): LumaFrame {
   const data = new Uint8Array(W * H);
   let s = seed;
@@ -25,7 +25,7 @@ function frameWith(boxes: UnitBox[], seed = 7): LumaFrame {
     const y0 = Math.round(b.y * H);
     for (let y = 0; y < Math.round(b.height * H); y++)
       for (let x = 0; x < Math.round(b.width * W); x++)
-        data[(y0 + y) * W + x0 + x] = ((x >> 1) + (y >> 1)) % 2 ? 250 : 10;
+        data[(y0 + y) * W + x0 + x] = (((x * 73856093) ^ (y * 19349663)) & 0xff) > 127 ? 250 : 10;
   }
   return { width: W, height: H, data };
 }
@@ -113,7 +113,7 @@ describe('replaying the watcher over a marked clip', () => {
     expect(replay.unseeded).toEqual([]);
     expect(all).toMatchObject({ keys: 8, tp: 8, switches: 0, falseSure: 0, asks: 0 });
   });
-  it('judges a zone crossing where it follows the thing, asking SAM nothing', () => {
+  it('judges a zone crossing from the local box, with no SAM call', () => {
     const xAt = (k: number) => (k < 10 ? 10 : k < 20 ? 10 + (k - 10) * 4 : 50);
     const frames = Array.from({ length: 60 }, (_, k) => frameWith([box(xAt(k), 20)]));
     const keys: TrackTruth['keys'] = {};
@@ -125,30 +125,61 @@ describe('replaying the watcher over a marked clip', () => {
     };
     const replay = replayClip(frames, 10, truth);
     expect(replay.asks).toEqual([]);
-    expect(replay.places).toMatchObject([{ thing: 'mug-a' }]);
-    expect(scoreReplay(truth, replay)[0]).toMatchObject({ tp: 6, switches: 0, falseSure: 0 });
+    expect(replay.places).toHaveLength(1);
+    expect(scoreReplay(truth, replay)[0]).toMatchObject({
+      tp: 6,
+      switches: 0,
+      falseSure: 0,
+      places: 1,
+      wrongPlaces: 0,
+    });
   });
-  it('catches a lost thing that locks onto its look-alike', () => {
-    // Mug A is carried off at frame 10 and put back at frame 20, away from B, which looks
-    // the same. As built, A's whole-frame search finds B and follows it, sure: phase 1 of
-    // docs/plans/multi-tracking.md is to make that an honest `unsure` instead.
-    const frames = Array.from({ length: 50 }, (_, k) =>
+
+  // Mug A is carried off at frame 10 and put back at frame 20, away from B, which looks
+  // the same. B stands in a zone, so a box of A's on B judges A to be in it.
+  const carriedOff = () => {
+    const frames = Array.from({ length: 80 }, (_, k) =>
       frameWith(
         k < 10 ? [box(10, 20), box(60, 20)] : k < 20 ? [box(60, 20)] : [box(60, 20), box(30, 40)],
       ),
     );
     const keys: TrackTruth['keys'] = {};
-    for (let k = 0; k < 50; k += 10)
+    for (let k = 0; k < 80; k += 10)
       keys[k] =
         k < 10
           ? { 'mug-a': box(10, 20), 'mug-b': box(60, 20) }
           : k < 20
             ? { 'mug-a': 'hidden', 'mug-b': box(60, 20) }
             : { 'mug-a': box(30, 40), 'mug-b': box(60, 20) };
-    const truth: TrackTruth = { things: two, keys };
-    const [a, b] = scoreReplay(truth, replayClip(frames, 10, truth));
+    const truth: TrackTruth = {
+      things: two,
+      zones: [{ id: 'right', rect: { x: 0.55, y: 0, width: 0.45, height: 1 } }],
+      keys,
+    };
+    return { frames, truth };
+  };
+  it('stepped one at a time, a lost thing locks onto its look-alike, sure', () => {
+    const { frames, truth } = carriedOff();
+    const [a, b] = scoreReplay(truth, replayClip(frames, 10, truth, { alone: true }));
     expect(a!.switches).toBe(1);
     expect(a!.falseSure).toBeGreaterThan(0);
-    expect(b).toMatchObject({ switches: 0, falseSure: 0, tp: 5 });
+    expect(a!.wrongPlaces).toBeGreaterThan(0);
+    expect(b).toMatchObject({ switches: 0, falseSure: 0 });
+  });
+  it('stepped together, it stays lost instead and finds its own again', () => {
+    const { frames, truth } = carriedOff();
+    const replay = replayClip(frames, 10, truth);
+    const [a, b] = scoreReplay(truth, replay);
+    expect(a).toMatchObject({ switches: 0, falseSure: 0, wrongPlaces: 0, wrongPicks: 0 });
+    expect(b).toMatchObject({ switches: 0, falseSure: 0, tp: 8 });
+    // Back on its own by the last keyframe.
+    expect(iou(replay.seen.get(70)!.get('mug-a')!.box, box(30, 40))).toBeGreaterThan(0.5);
+  });
+  it('keeps two look-alikes side by side sure of themselves', () => {
+    const frames = Array.from({ length: 30 }, () => frameWith([box(30, 20), box(44, 20)]));
+    const marks = { 'mug-a': box(30, 20), 'mug-b': box(44, 20) };
+    const truth: TrackTruth = { things: two, keys: { 0: marks, 10: marks, 20: marks } };
+    const together = totalScore(scoreReplay(truth, replayClip(frames, 10, truth)));
+    expect(together).toMatchObject({ tp: 6, falseSure: 0, needlessUnsure: 0 });
   });
 });

@@ -10,6 +10,7 @@
  */
 import {
   around,
+  boxIoU,
   frameMotion,
   stepLocalTrack,
   LOCAL_TRACK,
@@ -121,7 +122,7 @@ export function watchStep(
   thing: WatchThing,
   frame: LumaFrame,
   now: number,
-  { quietSteps = WATCH.quietSteps, placeGapMs = WATCH.placeGapMs } = {},
+  { quietSteps = WATCH.quietSteps, placeGapMs = WATCH.placeGapMs, exclude = [] as UnitBox[] } = {},
 ): { thing: WatchThing; ask: 'reanchor' | null; refind: boolean; place: boolean } {
   if (thing.status === 'missing') {
     const motion = frameMotion(thing.track.previous, frame, around(thing.track.box));
@@ -172,7 +173,11 @@ export function watchStep(
               ? ('reanchor' as const)
               : ('follow' as const),
         }
-      : stepLocalTrack(thing.track, frame, null, { lostSteps: WATCH.lostSteps, quietSteps });
+      : stepLocalTrack(thing.track, frame, null, {
+          lostSteps: WATCH.lostSteps,
+          quietSteps,
+          exclude,
+        });
   const track = step.track;
   const settled = track.stillSteps >= quietSteps;
   if (track.lostSteps) {
@@ -205,6 +210,68 @@ export function watchStep(
     refind: false,
     place,
   };
+}
+/** What one frame means for one thing, from `watchFrame`. */
+type WatchStepResult = ReturnType<typeof watchStep>;
+/**
+ * One frame for every followed thing together. Each one's search skips the
+ * others' boxes, so a lost thing can't settle on a look-alike that is already
+ * followed (it stays lost and goes on to the feature model and SAM), and two
+ * look-alikes side by side aren't each other's runner-up. If two boxes still
+ * end up on one place, the thing that came further gives way: it holds its
+ * last box and counts as lost for the step, and nothing is judged for it.
+ * `hold` is a thing SAM is being asked about: it isn't stepped, but its box
+ * is kept clear. Boxes that already overlapped (a phone on a book, two mugs
+ * touching) aren't kept off each other.
+ */
+export function watchFrame(
+  things: WatchThing[],
+  frame: LumaFrame,
+  now: number,
+  pace: { quietSteps?: number; placeGapMs?: number } = {},
+  hold?: string,
+): Map<string, WatchStepResult> {
+  const shown = (t: WatchThing) => t.status !== 'missing';
+  const apart = (a: WatchThing, b: WatchThing) =>
+    boxIoU(a.track.box, b.track.box) < LOCAL_TRACK.claimIoU;
+  const steps = new Map<string, WatchStepResult>();
+  for (const t of things) {
+    if (t.subject.id === hold) continue;
+    const exclude = things
+      .filter((o) => o !== t && shown(o) && apart(o, t))
+      .map((o) => o.track.box);
+    steps.set(t.subject.id, watchStep(t, frame, now, { ...pace, exclude }));
+  }
+  const boxOf = (t: WatchThing) => steps.get(t.subject.id)?.thing.track.box ?? t.track.box;
+  const moved = (t: WatchThing) =>
+    Math.hypot(boxOf(t).x - t.track.box.x, boxOf(t).y - t.track.box.y);
+  for (const a of things)
+    for (const b of things) {
+      if (a === b || !shown(a) || !shown(b) || !apart(a, b)) continue;
+      if (boxIoU(boxOf(a), boxOf(b)) < LOCAL_TRACK.claimIoU) continue;
+      const loser = moved(a) >= moved(b) ? a : b;
+      const step = steps.get(loser.subject.id);
+      if (!step || step.thing.track.lostSteps) continue;
+      steps.set(loser.subject.id, {
+        thing: {
+          ...step.thing,
+          track: {
+            ...step.thing.track,
+            box: loser.track.box,
+            lostSteps: loser.track.lostSteps + 1,
+            crossingSteps: 0,
+          },
+          status: 'unsure',
+          crossingSteps: 0,
+          crossedAt: null,
+          goodSteps: 0,
+        },
+        ask: null,
+        refind: false,
+        place: false,
+      });
+    }
+  return steps;
 }
 /**
  * Its zones were judged where it is followed. Blocked, they aren't judged

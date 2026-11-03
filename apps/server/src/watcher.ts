@@ -22,7 +22,7 @@ import {
   prototypeOf,
   refound,
   startLocalTrack,
-  watchStep,
+  watchFrame,
   watchThing,
   zonesIn,
   featureDifference,
@@ -635,10 +635,9 @@ export class Watcher {
       for (const z of this.zones)
         if (frameMotion(previous, frame, z.rect) > LOCAL_TRACK.motionShare)
           this.motionAt.set(z.id, now);
-    for (const [id, thing] of this.things) {
-      // A thing being checked holds still until SAM answers.
-      if (this.checking && this.pending[0]?.id === id) continue;
-      const step = watchStep(thing, frame, now, this.pace);
+    // Together, so no two things settle on one place. One being checked holds still until SAM answers.
+    const held = this.checking ? this.pending[0]?.id : undefined;
+    for (const [id, step] of watchFrame([...this.things.values()], frame, now, this.pace, held)) {
       this.things.set(id, step.thing);
       if (step.refind) void this.track(this.refind(id));
       if (step.place) this.place(id);

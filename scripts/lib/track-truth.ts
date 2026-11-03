@@ -15,11 +15,13 @@ import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   asked,
+  boxIoU,
   footInZone,
   missed,
   pickTracked,
   placed,
   startLocalTrack,
+  watchFrame,
   watchStep,
   watchThing,
   type Detection,
@@ -88,13 +90,7 @@ export const keyFrames = (truth: TrackTruth) =>
     .map(Number)
     .sort((a, b) => a - b);
 
-export function iou(a: UnitBox, b: UnitBox) {
-  const w = Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x);
-  const h = Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y);
-  if (w <= 0 || h <= 0) return 0;
-  const inter = w * h;
-  return inter / (a.width * a.height + b.width * b.height - inter);
-}
+export const iou = boxIoU;
 
 export const TRACK_SCORE = {
   /** A box is on a thing when it overlaps the thing's marked box at least this much. */
@@ -111,16 +107,21 @@ export interface Seen {
 export interface Ask {
   frame: number;
   thing: string;
-  ask: 'reanchor';
+  ask: 'confirm' | 'reanchor';
   /** Whose marked box the chosen detection was; null when SAM had nothing to give. */
   took: string | null;
+}
+/** A zone judgement the watcher made from a local box, with no SAM call. */
+export interface Place {
+  frame: number;
+  thing: string;
+  box: UnitBox;
 }
 export interface Replay {
   /** Keyframe → thing → what the watcher had. */
   seen: Map<number, Map<string, Seen>>;
   asks: Ask[];
-  /** Zone crossings judged where the thing was followed, with no SAM call. */
-  places: { frame: number; thing: string }[];
+  places: Place[];
   refinds: number;
   /** Things whose first marked box had too little texture to follow. */
   unseeded: string[];
@@ -131,9 +132,17 @@ export interface Replay {
  * take them, with SAM answered from the marks and no feature model. A thing
  * starts on the first keyframe it is marked visible, as if a person confirmed
  * it there, and after each answer starts again from the box `pickTracked`
- * chose, as `Watcher.seed` does.
+ * chose, as `Watcher.seed` does. A zone judgement (`place`) is recorded and
+ * taken as made, so the thing's zones flip to where its box stands.
+ * `alone` steps each thing on its own, as the watcher did before
+ * `watchFrame`, to compare against.
  */
-export function replayClip(frames: LumaFrame[], fps: number, truth: TrackTruth): Replay {
+export function replayClip(
+  frames: LumaFrame[],
+  fps: number,
+  truth: TrackTruth,
+  { alone = false } = {},
+): Replay {
   const keys = keyFrames(truth);
   const zones = truth.zones ?? [];
   const frameSize = { width: frames[0]?.width ?? 1, height: frames[0]?.height ?? 1 };
@@ -175,13 +184,7 @@ export function replayClip(frames: LumaFrame[], fps: number, truth: TrackTruth):
     return true;
   };
   const answer = (concept: string, k: number) => {
-    let near: number | null = null;
-    for (const key of keys)
-      if (
-        Math.abs(key - k) <= TRACK_SCORE.answerWithin &&
-        (near === null || Math.abs(key - k) < Math.abs(near - k))
-      )
-        near = key;
+    const near = nearestKey(truth, k);
     if (near === null) return [];
     return truth.things.flatMap((t) => {
       const mark = truth.keys[near]![t.id];
@@ -195,31 +198,26 @@ export function replayClip(frames: LumaFrame[], fps: number, truth: TrackTruth):
         const mark = truth.keys[k]![t.id] as UnitBox;
         if (!start(t, frame, mark)) replay.unseeded.push(t.id);
       }
+    const steps = alone
+      ? new Map([...things].map(([id, th]) => [id, watchStep(th, frame, now)]))
+      : watchFrame([...things.values()], frame, now);
     for (const t of truth.things) {
-      const thing = things.get(t.id);
-      if (!thing) continue;
-      const step = watchStep(thing, frame, now);
+      const step = steps.get(t.id);
+      if (!step) continue;
       if (step.refind) replay.refinds++;
       if (step.place) {
-        // Judged where it is followed: its zones' verdicts are what desk memory would say.
-        replay.places.push({ frame: k, thing: t.id });
+        const box = step.thing.track.box;
+        replay.places.push({ frame: k, thing: t.id, box });
         const judged = placed(step.thing, now, false);
         things.set(t.id, {
           ...judged,
           subject: {
             ...judged.subject,
-            zones: judged.subject.zones.map((z) => ({
-              ...z,
-              inside: footInZone(judged.track.box, { width: 1, height: 1 }, z.rect),
-            })),
+            zones: judged.subject.zones.map((z) => ({ ...z, inside: inside(box, z.rect) })),
           },
         });
-        continue;
-      }
-      if (!step.ask) {
-        things.set(t.id, step.thing);
-        continue;
-      }
+      } else things.set(t.id, step.thing);
+      if (!step.ask) continue;
       const waited = asked(step.thing, step.ask, now);
       const found = answer(t.concept, k);
       const detections: Detection[] = found.map((f) => ({
@@ -250,6 +248,31 @@ export function replayClip(frames: LumaFrame[], fps: number, truth: TrackTruth):
   return replay;
 }
 
+/** The keyframe nearest frame `k`, within `TRACK_SCORE.answerWithin`. */
+export function nearestKey(truth: TrackTruth, k: number): number | null {
+  let near: number | null = null;
+  for (const key of keyFrames(truth))
+    if (
+      Math.abs(key - k) <= TRACK_SCORE.answerWithin &&
+      (near === null || Math.abs(key - k) < Math.abs(near - k))
+    )
+      near = key;
+  return near;
+}
+/** Whose marked box `box` sits on, at keyframe `k`: `own` first, then the best other. */
+function onWhom(marks: TrackTruth['keys'][string], box: UnitBox, own: string): string | null {
+  const mine = marks[own];
+  if (mine && mine !== 'hidden' && iou(box, mine) >= TRACK_SCORE.onIoU) return own;
+  let on: string | null = null;
+  let best = TRACK_SCORE.onIoU;
+  for (const [other, mark] of Object.entries(marks))
+    if (other !== own && mark !== 'hidden' && iou(box, mark) >= best) {
+      best = iou(box, mark);
+      on = other;
+    }
+  return on;
+}
+
 export interface ThingScore {
   id: string;
   /** Keyframes it was marked on after it started. */
@@ -269,6 +292,9 @@ export interface ThingScore {
   /** SAM asks, and those whose chosen detection was another thing's. */
   asks: number;
   wrongPicks: number;
+  /** Zone judgements from its local box, and those made while on another thing (they switch lights). */
+  places: number;
+  wrongPlaces: number;
 }
 export const idf1 = (s: Pick<ThingScore, 'tp' | 'fp' | 'fn'>) =>
   s.tp + s.fp + s.fn ? (2 * s.tp) / (2 * s.tp + s.fp + s.fn) : 1;
@@ -288,6 +314,8 @@ export function scoreReplay(truth: TrackTruth, replay: Replay): ThingScore[] {
       needlessUnsure: 0,
       asks: 0,
       wrongPicks: 0,
+      places: 0,
+      wrongPlaces: 0,
     };
     let lastOn: string | null = null;
     for (const [k, seen] of replay.seen) {
@@ -297,17 +325,8 @@ export function scoreReplay(truth: TrackTruth, replay: Replay): ThingScore[] {
       if (!mine || own === undefined) continue;
       s.keys++;
       const present = mine.status !== 'missing';
-      const right = own !== 'hidden' && iou(mine.box, own) >= TRACK_SCORE.onIoU;
-      // Whose marked box it sits on, its own first.
-      let on: string | null = right ? t.id : null;
-      if (!on) {
-        let best = TRACK_SCORE.onIoU;
-        for (const [other, mark] of Object.entries(marks))
-          if (other !== t.id && mark !== 'hidden' && iou(mine.box, mark) >= best) {
-            best = iou(mine.box, mark);
-            on = other;
-          }
-      }
+      const on = onWhom(marks, mine.box, t.id);
+      const right = on === t.id;
       if (present && right) s.tp++;
       if (present && !right) s.fp++;
       if (own !== 'hidden' && !(present && right)) s.fn++;
@@ -322,6 +341,13 @@ export function scoreReplay(truth: TrackTruth, replay: Replay): ThingScore[] {
       if (a.thing === t.id) {
         s.asks++;
         if (a.took && a.took !== t.id) s.wrongPicks++;
+      }
+    for (const p of replay.places)
+      if (p.thing === t.id) {
+        s.places++;
+        const near = nearestKey(truth, p.frame);
+        const on = near === null ? null : onWhom(truth.keys[near]!, p.box, t.id);
+        if (on && on !== t.id) s.wrongPlaces++;
       }
     return s;
   });
@@ -342,6 +368,8 @@ export function totalScore(scores: ThingScore[]): ThingScore {
     needlessUnsure: sum('needlessUnsure'),
     asks: sum('asks'),
     wrongPicks: sum('wrongPicks'),
+    places: sum('places'),
+    wrongPlaces: sum('wrongPlaces'),
   };
 }
 
@@ -353,4 +381,6 @@ export const TRACK_TARGETS = {
   switches: 0,
   /** SAM never hands a thing another's detection. */
   wrongPicks: 0,
+  /** No zone judged from a box on another thing. */
+  wrongPlaces: 0,
 };
