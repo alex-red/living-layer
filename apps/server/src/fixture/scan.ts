@@ -35,6 +35,11 @@ import {
   mugOf,
   otherObjects,
   placedFixtures,
+  checkByName,
+  checkedByName,
+  MAX_NAMED_CHECKS,
+  samNoun,
+  type SurfacePin,
 } from '@livinglayer/domain';
 import sharp from 'sharp';
 import { LabError, liveImage } from '../errors.js';
@@ -96,6 +101,9 @@ async function roomPhoto(memory: DeskMemory, store: EvidenceStore): Promise<stri
  * stay put, then those that move): SAM from Spark's
  * boxes live (one call), or the demo render's own outlines,
  * matched by how much they overlap the box. Null where nothing was outlined.
+ * Live, a small thing's box is checked by SAM finding it by name (one call
+ * each, `checkByName`): Spark boxes a mouse across a room on a mug's handle.
+ * `unsure` marks those that can't be told, by their place among the things.
  */
 async function outlinedThings(
   { meta, store }: { meta: MetaAdapter; store: EvidenceStore },
@@ -104,20 +112,58 @@ async function outlinedThings(
   dataUrl: string | null,
   runId: string,
   assets: string[],
+  /** The pinned surface: what SAM finds by name elsewhere (a shelf's, the floor's) isn't the thing. */
+  pin: SurfacePin | null,
   signal?: AbortSignal,
-): Promise<(Detection | null)[]> {
+): Promise<{ outlined: (Detection | null)[]; unsure: boolean[]; checks: string[] }> {
   const boxes = [...scan.things, ...(scan.moving ?? [])].map((t) => promptBox(t, frame));
   let detections: Detection[];
   if (dataUrl) {
     const prompts = boxes.flatMap((box, i) => (box ? [{ id: i + 1, box }] : []));
-    if (!prompts.length) return boxes.map(() => null);
+    if (!prompts.length) return { outlined: boxes.map(() => null), unsure: [], checks: [] };
     const outlined = await meta.segmentBoxes(dataUrl, prompts, frame.width, frame.height, signal);
     assets.push(store.asset(runId, 'sam-output.txt', outlined.raw));
     detections = outlined.output.detections;
-    return boxes.map((_, i) => pickLargest(detections.filter((d) => d.objectId === String(i + 1))));
+    const found = boxes.map((_, i) =>
+      pickLargest(detections.filter((d) => d.objectId === String(i + 1))),
+    );
+    const unsure = scan.things.map(() => false);
+    const checks: string[] = [];
+    const small = scan.things
+      .flatMap((t, i) => (boxes[i] && checkedByName(t) ? [i] : []))
+      .slice(0, MAX_NAMED_CHECKS);
+    for (const i of small) {
+      const thing = scan.things[i]!;
+      const box = boxes[i]!;
+      const named = await meta.segment(dataUrl, samNoun(thing.label), frame.width, frame.height, {
+        ...(signal ? { signal } : {}),
+      });
+      assets.push(store.asset(runId, `sam-named-${i + 1}.txt`, named.raw));
+      const onDesk = named.output.detections.filter(
+        (d) =>
+          !pin ||
+          onPinnedDesk(pin, {
+            x: (d.box.x + d.box.width / 2) / frame.width,
+            y: (d.box.y + d.box.height) / frame.height,
+          }),
+      );
+      const checked = checkByName(found[i] ?? null, onDesk, {
+        x: box.left,
+        y: box.top,
+        width: box.right - box.left,
+        height: box.bottom - box.top,
+      });
+      found[i] = checked.detection;
+      unsure[i] = checked.verdict === 'unsure';
+      if (checked.verdict === 'by-name')
+        checks.push(`${thing.label}: found by name, away from Spark’s box`);
+      if (checked.verdict === 'unsure')
+        checks.push(`${thing.label}: Spark’s box and SAM by name disagree, left as it is`);
+    }
+    return { outlined: found, unsure, checks };
   }
   detections = (await demoPhotoSegmentation()).detections;
-  return boxes.map((box) => {
+  const outlined = boxes.map((box) => {
     if (!box) return null;
     const overlap = (d: Detection) => {
       const w = Math.min(box.right, d.box.x + d.box.width) - Math.max(box.left, d.box.x);
@@ -130,6 +176,7 @@ async function outlinedThings(
     const best = [...detections].sort((a, b) => overlap(b) - overlap(a))[0];
     return best && overlap(best) >= 0.2 ? best : null;
   });
+  return { outlined, unsure: [], checks: [] };
 }
 const pickLargest = (ds: Detection[]) =>
   [...ds].sort((a, b) => b.mask.foregroundPixels - a.mask.foregroundPixels)[0] ?? null;
@@ -431,21 +478,23 @@ async function scanOutline(
   scan: FixtureScan,
   id: string,
   assets: string[],
+  pin: SurfacePin | null,
 ) {
   job.run('outline');
-  const outlined = await outlinedThings(
+  const { outlined, unsure, checks } = await outlinedThings(
     deps,
     scan,
     frame,
     image ? await samDataUrl(image) : null,
     id,
     assets,
+    pin,
     job.signal,
   );
   job.check();
   await job.done(
     'outline',
-    `${outlined.filter(Boolean).length} of ${outlined.length} outlined`,
+    [`${outlined.filter(Boolean).length} of ${outlined.length} outlined`, ...checks].join('; '),
     await outlinedPreview(
       png,
       frame,
@@ -454,7 +503,7 @@ async function scanOutline(
     ),
     SCAN_PREVIEW,
   );
-  return outlined;
+  return { outlined, unsure };
 }
 
 type ScanWhere = {
@@ -472,10 +521,11 @@ async function scanMap(
   { png, frame }: ScanPhoto,
   where: ScanWhere,
   scan: FixtureScan,
-  modelled: Awaited<ReturnType<typeof fitOutlines>>,
+  modelled: Awaited<ReturnType<typeof fitOutlines>> & { unsure: boolean[] },
 ) {
   const { mode, pin, target, replace, addNew } = where;
   const { memory, outlines, models } = modelled;
+  const { unsure } = modelled;
   job.run('map');
   const library = placedFixtures(memory);
   const mapped = mapScan({
@@ -494,6 +544,7 @@ async function scanMap(
     dismissed: memory.dismissed ?? [],
     replace: Boolean(replace),
     addNew: addNew !== false,
+    unsure,
   });
   await job.done(
     'map',
@@ -522,7 +573,15 @@ async function scanRun(
     const result = await scanList(deps, job, photo, asked);
     const scan: FixtureScan = result.output;
     const assets = image ? [store.asset(id, `source.${image.ext}`, image.bytes)] : [];
-    const outlined = await scanOutline({ meta, store }, job, photo, scan, id, assets);
+    const { outlined, unsure } = await scanOutline(
+      { meta, store },
+      job,
+      photo,
+      scan,
+      id,
+      assets,
+      where.pin,
+    );
     outlines = outlined;
     // Step 3: each outline is modelled by the fitter, with no further calls.
     job.run('model');
@@ -544,7 +603,7 @@ async function scanRun(
         ? `${fitted} model${fitted === 1 ? '' : 's'} fitted to their outlines`
         : 'No outlines to fit',
     );
-    const mapped = await scanMap(entities, job, photo, where, scan, modelled);
+    const mapped = await scanMap(entities, job, photo, where, scan, { ...modelled, unsure });
     return { ...result, usage: modelled.usage, output: { scan, mapped }, assets };
   });
   return { event, fits, outlines };
@@ -636,7 +695,9 @@ export async function scanFixtures(
   liveImage(mode, imageDataUrl, 'Demo mode scans only the demo room’s camera.');
   const before = store.memory(mode);
   const { pin, target } = scanTarget(before, live, scene);
-  const ceiling = sparkCeiling(SPARK_BUDGET.fixtureScan, 1) + META_PRICES.samPerImage;
+  // Spark's list, SAM's outlines, and SAM by name for the few small things checked.
+  const ceiling =
+    sparkCeiling(SPARK_BUDGET.fixtureScan, 1) + META_PRICES.samPerImage * (1 + MAX_NAMED_CHECKS);
   if (live) meta.mustAfford(ceiling, 'A scan');
   const job = jobs.start(jobId, follow ? [...SCAN_STEPS, FOLLOW_STEP] : SCAN_STEPS, {
     title: 'Scanning and mapping',

@@ -15,6 +15,8 @@ import {
   layoutThings,
   libraryScore,
   mapScan,
+  checkByName,
+  samNoun,
   onPinnedDesk,
   withLayoutMoves,
   placeTemplate,
@@ -51,6 +53,7 @@ import {
   type SurfacePin,
   type ScannedThing,
   sightedThing,
+  type Detection,
 } from '@livinglayer/domain';
 import { DEMO_SURFACE, fixture, thing, setup, type Scanned } from './lib/fixture-scan.js';
 import { demoPng, demoSegmentation } from '../apps/server/src/demo.js';
@@ -537,6 +540,69 @@ describe('placing what SAM outlined', () => {
     expect(found).toMatchObject({ match: 'existing', fixtureId: guessed.id });
     expect(found!.resize!.h / truth.h).toBeCloseTo(found!.resize!.w / truth.w, 5);
     expect(Math.abs(found!.resize!.w / truth.w - 1)).toBeLessThan(0.25);
+  });
+  it('leaves a thing where it is when its box and its outline by name disagree', () => {
+    const size = sizeInTiles({ w: 6, d: 10, h: 4 });
+    const placed = fixture({
+      label: 'Thing',
+      scene: 'desk',
+      surfaceId: 'desk:top',
+      at: { x: top.x, y: top.y },
+      size,
+      scanned: true,
+    });
+    const [found] = mapScan({
+      scan: scanOf({ w: 6, d: 10, h: 4 }),
+      pin,
+      custom: null,
+      library: [placed],
+      room: 12,
+      entities: [],
+      outlines: [outlined({ x: top.x + top.w * 0.6, y: top.y + top.d * 0.4 }, size)],
+      replace: true,
+      unsure: [true],
+    });
+    expect(found).toMatchObject({ match: 'existing', fixtureId: placed.id, fixture: null });
+    expect(found!.moveTo).toBeUndefined();
+    expect(found!.remodel).toBeUndefined();
+    expect(found!.note).toContain('disagree');
+  });
+});
+
+describe('checking a small thing’s box by name', () => {
+  const at = (x: number, y: number, id = '1'): Detection => ({
+    objectId: id,
+    confidence: 0.9,
+    box: { x, y, width: 50, height: 30 },
+    mask: { width: 1030, height: 772, foregroundPixels: 1000, svgPath: '' },
+  });
+  // Spark boxed a mouse on the mug's handle; SAM found the mouse on its mousepad by name.
+  const handle = at(333, 405);
+  const box = handle.box;
+  it('keeps the box’s outline when what SAM finds by name is there', () => {
+    expect(checkByName(handle, [at(335, 404)], box)).toEqual({
+      detection: handle,
+      verdict: 'agrees',
+    });
+    // Nothing found by name says nothing against the box.
+    expect(checkByName(handle, [], box)).toEqual({ detection: handle, verdict: 'agrees' });
+  });
+  it('takes the one thing found by name when the box is elsewhere', () => {
+    const mousepad = at(525, 335);
+    expect(checkByName(handle, [mousepad], box)).toEqual({
+      detection: mousepad,
+      verdict: 'by-name',
+    });
+  });
+  it('asks SAM by the noun: it found nothing for “small purple mouse”', () => {
+    expect(samNoun('Small purple mouse')).toBe('mouse');
+    expect(samNoun('Pink pen cup on desk')).toBe('cup');
+  });
+  it('is unsure when several are found by name and none is in the box', () => {
+    expect(checkByName(handle, [at(525, 335), at(700, 500, '2')], box)).toEqual({
+      detection: null,
+      verdict: 'unsure',
+    });
   });
 });
 
@@ -1056,6 +1122,41 @@ describe('scanning live, with a mocked Meta API', () => {
       model: { source: 'sampled' },
     });
   });
+  it('asks SAM by name for a small thing, to check Spark’s box of it', async () => {
+    const prompts: string[] = [];
+    const fetcher = mock<Fetcher>().mockImplementation(async (_url, init) => {
+      const body = JSON.parse(String(init?.body));
+      if (body.model === 'sam-3.1') {
+        prompts.push(`sam: ${body.input[0].content[0].text.slice(0, 20)}`);
+        return samResponse(`<0f>1${sam.wire.replace(/^<0f>7/, '')}`);
+      }
+      prompts.push(body.text.format.name);
+      return sparkResponse({
+        things: [
+          thing({
+            label: 'small purple mouse',
+            archetype: 'device',
+            box: { x1: 360, y1: 270, x2: 640, y2: 730 },
+            sizeCm: { w: 6, d: 10, h: 4 },
+          }),
+        ],
+        moving: [],
+      });
+    });
+    const s = await setup({ MODEL_API_KEY: 'test-key', META_LIVE_ENABLED: 'true' }, fetcher);
+    await pin({ ...s, prompts, fetcher, scan: async () => undefined as never });
+    const photo = await sharp(readFileSync('testdata/desk.svg')).png().toBuffer();
+    const res = await s.post('fixtures/scan', {
+      mode: 'live',
+      imageDataUrl: `data:image/png;base64,${photo.toString('base64')}`,
+    });
+    expect(res.statusCode, res.body).toBe(200);
+    // Spark's list, SAM from its box, then SAM by the thing's name.
+    expect(prompts).toEqual(['fixture_scan', expect.stringMatching(/^sam: /), 'sam: mouse']);
+    const r = res.json<Scanned>();
+    expect(r.run.assets).toContain(`${r.run.id}/sam-named-1.txt`);
+  });
+
   it('scans a drafted room from the photo it was drafted from when none is sent', async () => {
     const s = await live();
     const memory = (await s.app.inject('/api/desk/live')).json<DeskMemory>();

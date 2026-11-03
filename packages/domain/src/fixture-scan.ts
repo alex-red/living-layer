@@ -817,6 +817,57 @@ function onPinnedTop(
  * person's layout draws (the office's book) is that, moved where it was
  * seen when `replace` is set. Without `addNew`, nothing else is added.
  */
+/**
+ * A label as SAM's text prompt: a short noun phrase, so what comes before any
+ * “with …”. SAM found nothing for “desk with drawers” and the desk for “light wood desk”.
+ */
+export function samConcept(label: string): string {
+  return label
+    .split(/\s+(?:with|on|in)\s+/i)[0]!
+    .trim()
+    .toLowerCase();
+}
+/**
+ * The noun SAM finds a scanned thing by: the label's last word. SAM found the
+ * mouse for “mouse” and nothing for “small purple mouse” or “purple mouse”.
+ */
+export const samNoun = (label: string) => samConcept(label).split(/\s+/).at(-1)!;
+/** A thing this small (its longest side, in cm) is checked by name: Spark's box of it across a room is often elsewhere. */
+const NAMED_CHECK_CM = 20;
+/** At most this many small things are checked by name in one scan, one SAM call each. */
+export const MAX_NAMED_CHECKS = 3;
+/** Whether a scanned thing is small enough for Spark's box of it to be checked by name. */
+export const checkedByName = (thing: Pick<ScannedThing, 'sizeCm'>) =>
+  Math.max(thing.sizeCm.w, thing.sizeCm.d, thing.sizeCm.h) <= NAMED_CHECK_CM;
+
+const boxOverlap = (a: Detection['box'], b: Detection['box']) => {
+  const w = Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x);
+  const h = Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y);
+  const inter = Math.max(0, w) * Math.max(0, h);
+  const union = a.width * a.height + b.width * b.height - inter;
+  return union > 0 ? inter / union : 0;
+};
+/**
+ * What SAM outlined in Spark's box, checked against what SAM finds by the
+ * thing's name. They agree when one found by name overlaps the box's
+ * outline (or the box, when nothing was outlined in it): the box's stands.
+ * When they don't, the one thing found by name stands instead: a mouse boxed
+ * on a mug's handle is found on its mousepad. Several found and none of them
+ * there, and the thing is unsure, to be left where it is. Nothing found by
+ * name says nothing against the box.
+ */
+export function checkByName(
+  boxed: Detection | null,
+  named: Detection[],
+  box: Detection['box'],
+): { detection: Detection | null; verdict: 'agrees' | 'by-name' | 'unsure' } {
+  if (!named.length) return { detection: boxed, verdict: 'agrees' };
+  const here = named.find((d) => boxOverlap(d.box, boxed?.box ?? box) >= 0.3);
+  if (here) return { detection: boxed ?? here, verdict: 'agrees' };
+  if (named.length === 1) return { detection: named[0]!, verdict: 'by-name' };
+  return { detection: null, verdict: 'unsure' };
+}
+
 export function mapScan({
   scan,
   pin,
@@ -830,7 +881,10 @@ export function mapScan({
   dismissed = [],
   replace = false,
   addNew = true,
+  unsure = [],
 }: {
+  /** Things whose box and outline by name disagree (`checkByName`), by their place in the scan: left as they are. */
+  unsure?: boolean[];
   /** Move every fixture the scan finds, placed by hand or not, and the layout's things. */
   replace?: boolean;
   /** Add what the room doesn't have yet; without it, only what it has is placed. */
@@ -892,6 +946,20 @@ export function mapScan({
       .map((f) => ({ f, score: libraryScore(thing, f) }))
       .filter((x) => x.score >= 0.5)
       .sort((a, b) => b.score - a.score);
+    // Where its box and its outline by name disagree, where it is can't be told: nothing moves.
+    if (unsure[index]) {
+      const here = ranked.find((x) => x.f.scene === scene && !claimed.has(x.f.id))?.f;
+      if (here) claimed.add(here.id);
+      return {
+        label: here?.label ?? thing.label.charAt(0).toUpperCase() + thing.label.slice(1),
+        match: here ? 'existing' : 'new',
+        ...(here ? { fixtureId: here.id } : {}),
+        fixture: null,
+        note: here
+          ? 'Spark’s box and SAM’s outline by name disagree, so it was left where it is.'
+          : 'Spark’s box and SAM’s outline by name disagree, so it wasn’t added.',
+      };
+    }
     // Where it touches down, in the pin's frame (shares travel across sizes):
     // its mask's lowest rows when SAM outlined it, else its box's bottom centre.
     const outline = outlines[index];

@@ -8,6 +8,7 @@ import {
   applyRecipeOps,
   calibrationOf,
   defaultSize,
+  samConcept,
   draftScore,
   ISO_PRESETS,
   isoSceneSchema,
@@ -637,16 +638,6 @@ export function keepOutline(
   return { outline: drawn, samMissed: of?.label ?? 'nothing the room has', open: false };
 }
 
-/**
- * A label as SAM's text prompt: a short noun phrase, so what comes before any
- * “with …”. SAM found nothing for “desk with drawers” and the desk for “light wood desk”.
- */
-export function samConcept(label: string): string {
-  return label
-    .split(/\s+(?:with|on|in)\s+/i)[0]!
-    .trim()
-    .toLowerCase();
-}
 /** How much of each other SAM's outline found by name and the room's drawing of the thing must share. */
 const NAMED_OVERLAP = 0.3;
 /**

@@ -4,13 +4,7 @@ import { testApp } from './lib/app.js';
 import { type Fetcher } from '../apps/server/src/config.js';
 import { demoIntent } from '../apps/server/src/demo-intent.js';
 import { demoPng, demoSegmentation } from '../apps/server/src/demo.js';
-import {
-  fitNewModel,
-  keepOutline,
-  modelAxes,
-  namedOutline,
-  samConcept,
-} from '../apps/server/src/assist.js';
+import { fitNewModel, keepOutline, modelAxes, namedOutline } from '../apps/server/src/assist.js';
 import { syntheticStream } from '../apps/server/src/sam.js';
 import {
   cm,
@@ -23,6 +17,7 @@ import {
   placeOfGroup,
   renderRoom,
   roomMask,
+  samConcept,
   sceneSolids,
   sceneWithRecipe,
   sizeDisagreement,
