@@ -34,13 +34,53 @@ import {
 import sharp from 'sharp';
 import { LabError } from '../errors.js';
 import { following, type JobTracker } from '../jobs.js';
-import { toDataUrl } from '../images.js';
+import { detectionBits, toDataUrl } from '../images.js';
 import { cropInput, keepLocked, sightingPicture, viewPng } from '../item.js';
 import { type RouteDeps } from '../route-deps.js';
 import { SEARCH_CEILING, SPARK_BUDGET, type MetaAdapter } from '../meta.js';
 import { BUNDLED_CATALOG, Catalog, research, type Researcher } from '../research.js';
 import { type EvidenceStore } from '../store.js';
 import { productSize, type Parsed } from './shared.js';
+
+/** What a sighting's picture says about how it was cut out. */
+const SIGHTING_CUT = {
+  mask: 'Its last sighting, cut out by its outline',
+  sam: 'Its last sighting, cut out by SAM: its outline was only the box drawn round it',
+  box: 'Its last sighting, with what is round it: SAM couldn’t cut it out',
+} as const;
+/** Over this share of its box, a sighting's mask is the box drawn round it, not its outline. */
+const BOX_ONLY = 0.9;
+/** How much of a crop its mask keeps. */
+function opaqueShare(rgba: Buffer) {
+  let kept = 0;
+  for (let i = 3; i < rgba.length; i += 4) if (rgba[i]! > 127) kept++;
+  return kept / (rgba.length / 4);
+}
+/**
+ * A sighting outlined on this machine can be only the box drawn round it,
+ * desk and all. SAM cuts the thing out of that crop (one call), so Spark sees
+ * it alone. Null when SAM finds nothing, or only the whole box again.
+ */
+async function cutOut(
+  meta: MetaAdapter,
+  crop: { png: Buffer; rgba: Buffer; width: number; height: number },
+  concept: string,
+): Promise<Buffer | null> {
+  const { width, height } = crop;
+  const found = await meta.segment(toDataUrl(crop.png), concept, width, height);
+  const best = [...found.output.detections].sort(
+    (a, b) => (b.confidence ?? 0) - (a.confidence ?? 0),
+  )[0];
+  const bits = best ? await detectionBits([best], width, height) : null;
+  if (!bits) return null;
+  const share = bits.reduce((n, b) => n + b, 0) / bits.length;
+  if (share < 0.05 || share > BOX_ONLY) return null;
+  const rgba = Buffer.from(crop.rgba);
+  for (let i = 0; i < bits.length; i++) rgba[i * 4 + 3] = bits[i] ? 255 : 0;
+  return sharp(rgba, { raw: { width, height, channels: 4 } })
+    .png()
+    .toBuffer();
+}
 
 /** The room picture is drawn in 2:1 isometric, so a level square shows half as deep as it is wide. */
 const ISO_ELEVATION = 30;
@@ -134,7 +174,7 @@ function sculptPicture(
   store: EvidenceStore,
   memory: DeskMemory,
   fixture: Fixture,
-  sighted: { png: Buffer; elevation: number } | null,
+  sighted: { png: Buffer; elevation: number; cut: 'sam' | 'mask' | 'box' } | null,
 ) {
   const group = new Set([
     fixture.id,
@@ -182,6 +222,8 @@ function sculptPicture(
     activeModel,
     activeSize,
     sprite: Boolean(sprite),
+    /** How a sighting was cut out, when it was the picture. */
+    cut: !sprite && sighted ? sighted.cut : null,
     png: pictured.png,
     elevation: pictured.elevation,
   };
@@ -503,7 +545,9 @@ async function sculptSteps(
     'picture',
     picture.sprite
       ? 'Its cut-out from the room’s picture'
-      : 'The photo crop its model was fitted to',
+      : picture.cut
+        ? SIGHTING_CUT[picture.cut]
+        : 'The photo crop its model was fitted to',
     picture.png,
   );
   const looked = await sculptLookup(r, activeSize);
@@ -578,16 +622,25 @@ export async function sculptFixture(
   if (!fixture) throw new LabError('fixture_missing', 'That fixture is gone.', 404);
   // A thing the camera follows is modelled from its last sighting, cut out by its mask.
   const sighting = fixture.place === 'sightings' ? fixture.track?.observation : undefined;
-  const sighted = sighting ? await sightingPicture(store, mode, memory, sighting) : null;
-  const picture = sculptPicture(store, memory, fixture, sighted);
-  const { group, activeModel, activeSize } = picture;
+  const crop = sighting ? await sightingPicture(store, mode, memory, sighting) : null;
+  // A mask that is only the box drawn round it is cut out by SAM first: one call more.
+  const boxed = crop && opaqueShare(crop.rgba) > BOX_ONLY;
   // A note is looked up as a product first: the catalog, then the web.
   const ceiling =
     SCULPT_DRAFTS * sparkCeiling(SPARK_BUDGET.sculpt, 2) +
     (note
       ? sparkCeiling(SPARK_BUDGET.productLookup, 0) + SEARCH_CEILING * META_PRICES.webSearchPerQuery
-      : 0);
+      : 0) +
+    (boxed ? META_PRICES.samPerImage : 0);
   meta.mustAfford(ceiling, 'Modelling it');
+  const cut = boxed ? await cutOut(meta, crop, fixture.track?.concept ?? fixture.label) : null;
+  const sighted = crop && {
+    png: cut ?? crop.png,
+    elevation: crop.elevation,
+    cut: cut ? ('sam' as const) : boxed ? ('box' as const) : ('mask' as const),
+  };
+  const picture = sculptPicture(store, memory, fixture, sighted);
+  const { group, activeModel, activeSize } = picture;
   const look = await sculptLook(picture.png, fixture.label);
   const job = jobs.start(jobId, sculptStepList(note), {
     title: `Modelling the ${fixture.label.toLowerCase()}`,

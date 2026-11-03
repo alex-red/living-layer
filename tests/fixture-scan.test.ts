@@ -981,13 +981,17 @@ describe('scanning live, with a mocked Meta API', () => {
     expect(chosen.statusCode, chosen.body).toBe(200);
     const mug = mugOf(chosen.json<DeskMemory>())!;
     calls.length = 0;
+    const mugJob = crypto.randomUUID();
     const modelled = await s.post('fixtures/sculpt', {
       mode: 'live',
       fixtureId: mug.id,
-      jobId: crypto.randomUUID(),
+      jobId: mugJob,
     });
     expect(modelled.statusCode, modelled.body).toBe(200);
+    // Its outline is the mug's own, so no SAM call cuts it out again.
     expect(calls).toHaveLength(3);
+    const mugSteps = (await s.app.inject(`/api/jobs/${mugJob}`)).json<Job>().steps;
+    expect(mugSteps[0]!.detail).toBe('Its last sighting, cut out by its outline');
     const remodelled = mugOf(modelled.json<{ memory: DeskMemory }>().memory)!;
     expect(remodelled.model.source).toBe('spark');
     expect(remodelled.drafts ?? []).toEqual([]);

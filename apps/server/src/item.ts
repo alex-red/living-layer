@@ -15,6 +15,7 @@ import {
   describeFit,
   fuseFits,
   isMugConcept,
+  elevationAt,
   isoSurface,
   labRgb,
   modelTarget,
@@ -98,19 +99,29 @@ export async function sightingPicture(
   );
   if (!segment || !detection) return null;
   const crop = await itemCrop(store, mode, segment, detection);
-  return { png: crop.png, elevation: pinElevation(memory, mode) ?? 30 };
+  return { ...crop, elevation: pinElevation(memory, mode) ?? 30 };
 }
 
 /**
- * The camera's angle above the pinned surface: a rectangle seen at elevation
- * e looks sin(e) times as deep as it is. Null without a pin of this frame, or
- * for the demo, whose illustration has no real camera.
+ * The camera's angle above the pinned surface. The calibrated room camera
+ * knows it, at the surface's middle. Without one it is guessed from the pin:
+ * a rectangle seen at elevation e looks sin(e) times as deep as it is, which
+ * holds only for one seen square on (a desk seen corner on reads as seen from
+ * above). Null without a pin of this frame, or for the demo, whose
+ * illustration has no real camera.
  */
 export function pinElevation(memory: DeskMemory, mode: Mode): number | null {
   const pin = memory.surface;
   if (mode === 'demo' || !pin) return null;
   const surface = isoSurface(pin.scene, pin.surfaceId, memory.scene);
   if (!surface) return null;
+  const camera = pin.scene === 'custom' ? memory.camera?.camera : undefined;
+  if (camera)
+    return elevationAt(camera, {
+      x: surface.rect.x + surface.rect.w / 2,
+      y: surface.rect.y + surface.rect.d / 2,
+      z: surface.z,
+    });
   const [a, b, c, d] = pin.corners;
   const dist = (p: typeof a, q: typeof a) => Math.hypot(q.x - p.x, q.y - p.y);
   const width = (dist(a, b) + dist(d, c)) / 2;

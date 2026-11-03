@@ -6,6 +6,7 @@ import { testApp } from './lib/app.js';
 import { type Fetcher } from '../apps/server/src/config.js';
 import { detectionBits, maskedCrop } from '../apps/server/src/images.js';
 import { syntheticStream } from '../apps/server/src/sam.js';
+import { pinElevation } from '../apps/server/src/item.js';
 import {
   DEMO_MUG,
   deltaE,
@@ -18,6 +19,9 @@ import {
   uniqueParts,
   upgradeItem,
   upgradeMemory,
+  DEMO_CALIBRATION,
+  ISO_PRESETS,
+  elevationAt,
   type DeskMemory,
   type EvidenceRun,
   type SavedItem,
@@ -353,5 +357,37 @@ describe('live item drafts with Meta’s help', () => {
     expect(bits![7 * 40 + 25]).toBe(0);
     expect(bits![2 * 40 + 15]).toBe(0);
     expect(await detectionBits([], 40, 20)).toBeNull();
+  });
+});
+
+describe('the camera’s angle a model is drawn at', () => {
+  it('is the calibrated camera’s at the pinned desk, not a guess from a desk seen corner on', () => {
+    const scene = { ...ISO_PRESETS.office, kind: 'custom' as const, label: 'My office' };
+    const desk = scene.surfaces.find((s) => s.id === 'desk:top')!;
+    // A desk seen corner on: as deep across the frame as it is wide, which the guess reads as 90°.
+    const corners = [
+      { x: 480, y: 280 },
+      { x: 660, y: 320 },
+      { x: 270, y: 550 },
+      { x: 100, y: 470 },
+    ];
+    const memory = {
+      mode: 'live',
+      lastDecision: null,
+      scene,
+      surface: { scene: 'custom', surfaceId: desk.id, corners },
+    } as unknown as DeskMemory;
+    expect(pinElevation(memory, 'live')).toBe(90);
+    const centre = {
+      x: desk.rect.x + desk.rect.w / 2,
+      y: desk.rect.y + desk.rect.d / 2,
+      z: desk.z,
+    };
+    const calibrated = { ...memory, camera: DEMO_CALIBRATION };
+    expect(pinElevation(calibrated, 'live')).toBeCloseTo(
+      elevationAt(DEMO_CALIBRATION.camera, centre),
+      6,
+    );
+    expect(pinElevation(calibrated, 'live')).toBeLessThan(60);
   });
 });
