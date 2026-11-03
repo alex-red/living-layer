@@ -103,7 +103,7 @@ import {
   demoPhotoSegmentation,
   demoReference,
 } from './demo.js';
-import { maskedCrop, samDataUrl, toDataUrl, validateImage } from './images.js';
+import { maskedCrop, samDataUrl, toDataUrl, validateImage, type ValidatedImage } from './images.js';
 import {
   cropInput,
   demoPhoto,
@@ -790,19 +790,19 @@ function saveScanned(
  * touches down, which a loose box doesn't. Demo mode scans the
  * demo office through its camera, with no model call.
  */
-async function scanFixtures(
-  {
-    store,
-    meta,
-    run,
-    jobs,
-    entities,
-  }: Pick<RouteDeps, 'store' | 'meta' | 'run' | 'jobs' | 'entities'>,
-  { mode, imageDataUrl, scene, replace, addNew, jobId }: Parsed<typeof fixturesScanBodySchema>,
+type ScanDeps = Pick<RouteDeps, 'store' | 'meta' | 'run' | 'jobs' | 'entities'>;
+type ScanFrame = { width: number; height: number };
+type ScanPhoto = { image: ValidatedImage | null; png: Buffer; frame: ScanFrame };
+type ScanPin = NonNullable<DeskMemory['surface']>;
+type ScanScene = NonNullable<Parsed<typeof fixturesScanBodySchema>['scene']>;
+type ScanAsk = { tracked: string[]; known: string[]; only: boolean };
+
+/** The pin a scan maps through and the scene it fills; refuses a scan that has neither. */
+function scanTarget(
+  before: DeskMemory,
+  live: boolean,
+  scene: Parsed<typeof fixturesScanBodySchema>['scene'],
 ) {
-  const live = mode === 'live';
-  liveImage(mode, imageDataUrl, 'Demo mode scans only the demo room’s camera.');
-  const before = store.memory(mode);
   const pin = live ? before.surface : DEMO_SURFACE;
   if (!pin || (pin.scene === 'custom' && !before.scene))
     throw new LabError(
@@ -817,47 +817,222 @@ async function scanFixtures(
       'The pin is on another scene: scan its own scene, or the room it is a close view of.',
       409,
     );
+  return { pin, target };
+}
+
+/** The photo to scan (null in the demo), which must be the shape of the one the pin was set on. */
+async function scanPhotoImage(
+  store: EvidenceStore,
+  before: DeskMemory,
+  pin: ScanPin,
+  imageDataUrl: string | undefined,
+  live: boolean,
+) {
+  const image = live ? await validateImage(imageDataUrl ?? (await roomPhoto(before, store))) : null;
+  // Things are mapped through the pin by where they are in the frame.
+  if (
+    image &&
+    Math.abs(image.width / image.height - pin.frame.width / pin.frame.height) >
+      0.02 * (pin.frame.width / pin.frame.height)
+  )
+    throw new LabError(
+      'scan_frame',
+      imageDataUrl
+        ? `The pin was set on a ${pin.frame.width}×${pin.frame.height} frame, and this photo is ${image.width}×${image.height}. Scan a frame from the pinned camera, or pin the surface again on this photo.`
+        : `No photo was sent, and the room’s own photo is ${image.width}×${image.height}, while the pin was set on a ${pin.frame.width}×${pin.frame.height} frame. Start the pinned camera and scan what it shows, or pin the surface again on the room’s photo.`,
+      409,
+    );
+  return image;
+}
+
+/** What the room already has, so Spark names things as it does; without addNew, all it looks for. */
+function scanKnown(before: DeskMemory, target: ScanScene, addNew: boolean | undefined): ScanAsk {
+  const tracked = [before.object?.label, ...(before.others ?? []).map((o) => o.label)].filter(
+    (l): l is string => Boolean(l),
+  );
+  const known = [
+    ...new Set([
+      ...(before.fixtures ?? []).filter((f) => f.scene === target).map((f) => f.label),
+      ...(target === 'custom' && before.scene
+        ? layoutThings(before.scene).map((t) => t.label)
+        : []),
+    ]),
+  ];
+  const only = addNew === false;
+  if (only && !known.length)
+    throw new LabError(
+      'scan_nothing_known',
+      'The room has no fixtures or desk things to look for yet. Tick “Add new fixtures it finds” to add what the scan sees.',
+      409,
+    );
+  return { tracked, known, only };
+}
+
+/** Step 1: Spark lists what stays put, each with a loose box. */
+async function scanList(
+  { meta }: Pick<ScanDeps, 'meta'>,
+  job: JobTracker,
+  { image, png, frame }: ScanPhoto,
+  asked: ScanAsk,
+) {
+  job.run('list');
+  const result = image
+    ? await meta.fixtureScan(image.dataUrl, asked.tracked, job.signal, {
+        known: asked.known,
+        only: asked.only,
+      })
+    : { output: demoFixtureScan, model: 'demo', requestId: null, usage: null };
+  job.check();
+  const scan: FixtureScan = result.output;
+  await job.done(
+    'list',
+    scan.things.length
+      ? `${scan.things.length} thing${scan.things.length === 1 ? '' : 's'}: ${scan.things.map((t) => t.label).join(', ')}`
+      : 'Nothing that stays put',
+    await listedPreview(png, frame, scan.things),
+    SCAN_PREVIEW,
+  );
+  return result;
+}
+
+/** Step 2: SAM outlines every thing from Spark's box, in one call. */
+async function scanOutline(
+  deps: Pick<ScanDeps, 'meta' | 'store'>,
+  job: JobTracker,
+  { image, png, frame }: ScanPhoto,
+  scan: FixtureScan,
+  id: string,
+  assets: string[],
+) {
+  job.run('outline');
+  const outlined = await outlinedThings(
+    deps,
+    scan,
+    frame,
+    image ? await samDataUrl(image) : null,
+    id,
+    assets,
+    job.signal,
+  );
+  job.check();
+  await job.done(
+    'outline',
+    `${outlined.filter(Boolean).length} of ${scan.things.length} outlined`,
+    await outlinedPreview(
+      png,
+      frame,
+      scan.things.map((t) => t.label),
+      outlined,
+    ),
+    SCAN_PREVIEW,
+  );
+  return outlined;
+}
+
+type ScanWhere = {
+  mode: Mode;
+  pin: ScanPin;
+  target: ScanScene;
+  replace: boolean | undefined;
+  addNew: boolean | undefined;
+};
+
+/** Step 4: each fitted thing is mapped through the pin onto the scene. */
+async function scanMap(
+  entities: ScanDeps['entities'],
+  job: JobTracker,
+  { png, frame }: ScanPhoto,
+  where: ScanWhere,
+  scan: FixtureScan,
+  modelled: Awaited<ReturnType<typeof fitOutlines>>,
+) {
+  const { mode, pin, target, replace, addNew } = where;
+  const { memory, outlines, models } = modelled;
+  job.run('map');
+  const library = memory.fixtures ?? [];
+  const mapped = mapScan({
+    scan,
+    pin,
+    scene: target,
+    custom: memory.scene ?? null,
+    library,
+    room: MAX_FIXTURES - library.length,
+    entities: entities(mode),
+    outlines,
+    models,
+    dismissed: memory.dismissed ?? [],
+    replace: Boolean(replace),
+    addNew: addNew !== false,
+  });
+  await job.done(
+    'map',
+    mappedSummary(mapped),
+    await placedPreview(png, frame, mapped),
+    SCAN_PREVIEW,
+  );
+  return mapped;
+}
+
+/** The scan as one recorded run: list, outline, model, map. */
+async function scanRun(
+  deps: ScanDeps,
+  job: JobTracker,
+  photo: ScanPhoto,
+  asked: ScanAsk,
+  where: ScanWhere,
+) {
+  const { store, meta, run, entities } = deps;
+  const { image, png, frame } = photo;
+  // What each fitted model was fitted to, by its place in the scan.
+  let fits: ScanFits = [];
+  const event = await run('fixture', where.mode, async (id) => {
+    job.link(id);
+    const result = await scanList(deps, job, photo, asked);
+    const scan: FixtureScan = result.output;
+    const assets = image ? [store.asset(id, `source.${image.ext}`, image.bytes)] : [];
+    const outlined = await scanOutline({ meta, store }, job, photo, scan, id, assets);
+    // Step 3: each outline is modelled by the fitter, with no further calls.
+    job.run('model');
+    const modelled = await fitOutlines({ store, meta }, job, {
+      mode: where.mode,
+      id,
+      png,
+      scan,
+      outlined,
+      frame,
+      assets,
+      usage: result.usage,
+    });
+    fits = modelled.fits;
+    const fitted = modelled.models.filter(Boolean).length;
+    await job.done(
+      'model',
+      fitted
+        ? `${fitted} model${fitted === 1 ? '' : 's'} fitted to their outlines`
+        : 'No outlines to fit',
+    );
+    const mapped = await scanMap(entities, job, photo, where, scan, modelled);
+    return { ...result, usage: modelled.usage, output: { scan, mapped }, assets };
+  });
+  return { event, fits };
+}
+
+async function scanFixtures(
+  deps: ScanDeps,
+  { mode, imageDataUrl, scene, replace, addNew, jobId }: Parsed<typeof fixturesScanBodySchema>,
+) {
+  const { store, meta, jobs } = deps;
+  const live = mode === 'live';
+  liveImage(mode, imageDataUrl, 'Demo mode scans only the demo room’s camera.');
+  const before = store.memory(mode);
+  const { pin, target } = scanTarget(before, live, scene);
   const ceiling = sparkCeiling(SPARK_BUDGET.fixtureScan, 1) + META_PRICES.samPerImage;
   if (live) meta.mustAfford(ceiling, 'A scan');
   const job = jobs.start(jobId, SCAN_STEPS, { title: 'Scanning and mapping', mode });
   return following(job, async () => {
     job.run('photo');
-    const image = live
-      ? await validateImage(imageDataUrl ?? (await roomPhoto(before, store)))
-      : null;
-    // Things are mapped through the pin by where they are in the frame, so the
-    // photo must be the shape of the one the pin was set on.
-    if (
-      image &&
-      Math.abs(image.width / image.height - pin.frame.width / pin.frame.height) >
-        0.02 * (pin.frame.width / pin.frame.height)
-    )
-      throw new LabError(
-        'scan_frame',
-        imageDataUrl
-          ? `The pin was set on a ${pin.frame.width}×${pin.frame.height} frame, and this photo is ${image.width}×${image.height}. Scan a frame from the pinned camera, or pin the surface again on this photo.`
-          : `No photo was sent, and the room’s own photo is ${image.width}×${image.height}, while the pin was set on a ${pin.frame.width}×${pin.frame.height} frame. Start the pinned camera and scan what it shows, or pin the surface again on the room’s photo.`,
-        409,
-      );
-    const tracked = [before.object?.label, ...(before.others ?? []).map((o) => o.label)].filter(
-      (l): l is string => Boolean(l),
-    );
-    // What the room has already, so Spark names them as it does; without addNew, all it looks for.
-    const known = [
-      ...new Set([
-        ...(before.fixtures ?? []).filter((f) => f.scene === target).map((f) => f.label),
-        ...(target === 'custom' && before.scene
-          ? layoutThings(before.scene).map((t) => t.label)
-          : []),
-      ]),
-    ];
-    const only = addNew === false;
-    if (only && !known.length)
-      throw new LabError(
-        'scan_nothing_known',
-        'The room has no fixtures or desk things to look for yet. Tick “Add new fixtures it finds” to add what the scan sees.',
-        409,
-      );
+    const image = await scanPhotoImage(store, before, pin, imageDataUrl, live);
+    const asked = scanKnown(before, target, addNew);
     const png = image ? image.bytes : await demoPhoto();
     const frame = image
       ? { width: image.width, height: image.height }
@@ -871,97 +1046,8 @@ async function scanFixtures(
       SCAN_PREVIEW,
     );
     job.check();
-    // What each fitted model was fitted to, by its place in the scan.
-    let fits: ScanFits = [];
-    const event = await run('fixture', mode, async (id) => {
-      job.link(id);
-      // 1. Spark lists what stays put, each with a loose box.
-      job.run('list');
-      const result = image
-        ? await meta.fixtureScan(image.dataUrl, tracked, job.signal, { known, only })
-        : { output: demoFixtureScan, model: 'demo', requestId: null, usage: null };
-      job.check();
-      const scan: FixtureScan = result.output;
-      let usage: Usage | null = result.usage;
-      await job.done(
-        'list',
-        scan.things.length
-          ? `${scan.things.length} thing${scan.things.length === 1 ? '' : 's'}: ${scan.things.map((t) => t.label).join(', ')}`
-          : 'Nothing that stays put',
-        await listedPreview(png, frame, scan.things),
-        SCAN_PREVIEW,
-      );
-      const assets = image ? [store.asset(id, `source.${image.ext}`, image.bytes)] : [];
-      // 2. SAM outlines every thing from Spark's box, in one call.
-      job.run('outline');
-      const outlined = await outlinedThings(
-        { meta, store },
-        scan,
-        frame,
-        image ? await samDataUrl(image) : null,
-        id,
-        assets,
-        job.signal,
-      );
-      job.check();
-      await job.done(
-        'outline',
-        `${outlined.filter(Boolean).length} of ${scan.things.length} outlined`,
-        await outlinedPreview(
-          png,
-          frame,
-          scan.things.map((t) => t.label),
-          outlined,
-        ),
-        SCAN_PREVIEW,
-      );
-      // 3. Each outline is modelled by the fitter, with no further calls.
-      job.run('model');
-      const modelled = await fitOutlines({ store, meta }, job, {
-        mode,
-        id,
-        png,
-        scan,
-        outlined,
-        frame,
-        assets,
-        usage,
-      });
-      const { memory, outlines, models } = modelled;
-      fits = modelled.fits;
-      usage = modelled.usage;
-      const fitted = models.filter(Boolean).length;
-      await job.done(
-        'model',
-        fitted
-          ? `${fitted} model${fitted === 1 ? '' : 's'} fitted to their outlines`
-          : 'No outlines to fit',
-      );
-      // 4. Each is mapped through the pin onto the scene.
-      job.run('map');
-      const library = memory.fixtures ?? [];
-      const mapped = mapScan({
-        scan,
-        pin,
-        scene: target,
-        custom: memory.scene ?? null,
-        library,
-        room: MAX_FIXTURES - library.length,
-        entities: entities(mode),
-        outlines,
-        models,
-        dismissed: memory.dismissed ?? [],
-        replace: Boolean(replace),
-        addNew: addNew !== false,
-      });
-      await job.done(
-        'map',
-        mappedSummary(mapped),
-        await placedPreview(png, frame, mapped),
-        SCAN_PREVIEW,
-      );
-      return { ...result, usage, output: { scan, mapped }, assets };
-    });
+    const where = { mode, pin, target, replace, addNew };
+    const { event, fits } = await scanRun(deps, job, { image, png, frame }, asked, where);
     // Stopped while the last step ran: nothing is saved.
     job.check();
     job.run('save');
