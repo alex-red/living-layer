@@ -1,12 +1,13 @@
 import { AIRichPreviewDialog, type AIStep } from '../AIRichPreviewDialog';
 import { Button } from '../ui/controls';
 import { useLab } from './LabContext';
+import { setAiTask, useAiTask } from './state/ai-task-store';
 import { RESULT_GLYPH } from './useLabState';
 
 /** The lab's AI action, running or past, step by step in the AI dialog. */
 export function AiTaskDialog() {
   const lab = useLab();
-  const task = lab.aiTask;
+  const task = useAiTask();
   if (!task) return null;
   const steps: AIStep[] = (task.job?.steps ?? []).map((s) => ({
     ...s,
@@ -48,7 +49,7 @@ export function AiTaskDialog() {
         : after
           ? { action: after }
           : {})}
-      onHide={() => lab.setAiTask({ ...task, open: false })}
+      onHide={() => setAiTask({ ...task, open: false })}
       footer={
         runs.length ? (
           <span className="aip-runs">

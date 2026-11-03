@@ -54,6 +54,8 @@ import {
 } from '@livinglayer/domain';
 import { api, ApiError } from '../api';
 import { useBrush } from './useBrush';
+import { aiTaskStore, setAiTask, updateAiTask, type AiTask } from './state/ai-task-store';
+import { followStatsStore, followViewStore } from './state/follow-store';
 import {
   cropStream,
   openMjpeg,
@@ -124,7 +126,6 @@ export const BUSY: Record<string, string> = {
   redo: 'Redoing',
   restore: 'Loading the save',
 };
-/** A long AI action the dialog follows: its job's steps and how it ended. */
 /** What calibrating by hand starts from: marks found so far, the room's size and the frame. */
 interface HandCalibration {
   marks: RoomMarks | null;
@@ -132,21 +133,7 @@ interface HandCalibration {
   heightCm?: number;
   frame: { width: number; height: number };
 }
-export interface AiTask {
-  title: string;
-  description?: string;
-  jobId: string;
-  job: Job | null;
-  status: 'running' | 'done' | 'failed' | 'stopped';
-  error?: string;
-  /** Shown; hiding it lets the action go on. */
-  open: boolean;
-  startedAt: number;
-  /** A past action opened to look back at, not one running now. */
-  review?: boolean;
-  /** What to do after it stopped short: the dialog stays open and offers it. */
-  next?: { label: string; run: () => void };
-}
+export type { AiTask };
 /** A job as it shows once stopped: what was running or waiting is stopped. */
 function stoppedJob(job: Job): Job {
   return {
@@ -504,11 +491,6 @@ export function useLabState() {
   const mounted = useRef(true);
   // Local following: the tracker lives in a ref so the sampling loop never waits on a render.
   const [follow, setFollow] = useState(false);
-  const [followView, setFollowView] = useState<{
-    track: LocalTrack;
-    verdict: LocalVerdict;
-  } | null>(null);
-  const [followStats, setFollowStats] = useState({ frames: 0, checks: 0 });
   const localTrack = useRef<LocalTrack | null>(null);
   // The server's watcher: it follows things and fires rules with no tab open; this shows it.
   const watch = useWatch(mode);
@@ -887,6 +869,8 @@ export function useLabState() {
     }
     return () => {
       mounted.current = false;
+      followViewStore.set(null);
+      aiTaskStore.set(null);
       cameraGeneration.current++;
       releaseStream();
     };
@@ -894,7 +878,7 @@ export function useLabState() {
   function stopFollow() {
     localTrack.current = null;
     setFollow(false);
-    setFollowView(null);
+    followViewStore.set(null);
   }
   function releaseStream() {
     stream.current?.getTracks().forEach((t) => t.stop());
@@ -1285,8 +1269,8 @@ export function useLabState() {
       localTrack.current = next;
       reanchorGap.current = REANCHOR_GAP_MS.first;
       goodSteps.current = 0;
-      setFollowView({ track: next, verdict: 'follow' });
-      setFollowStats({ frames: 0, checks: 0 });
+      followViewStore.set({ track: next, verdict: 'follow' });
+      followStatsStore.set({ frames: 0, checks: 0 });
       setFollow(true);
       if (mode === 'live') await startCamera();
       setMessage(
@@ -1328,8 +1312,8 @@ export function useLabState() {
       if (!next) throw new Error('SAM found the mug, but it is too small to keep following.');
       localTrack.current = next;
       goodSteps.current = 0;
-      setFollowView({ track: next, verdict: 'follow' });
-      setFollowStats((s) => ({ ...s, checks: s.checks + 1 }));
+      followViewStore.set({ track: next, verdict: 'follow' });
+      followStatsStore.set((s) => ({ ...s, checks: s.checks + 1 }));
       setMessage(
         (m) =>
           `${verdict === 'confirm' ? 'Zone crossing checked with SAM' : 'Re-anchored with SAM'}. ${m}`,
@@ -1344,8 +1328,8 @@ export function useLabState() {
     localTrack.current = step.track;
     goodSteps.current = step.track.lostSteps ? 0 : goodSteps.current + 1;
     if (goodSteps.current >= RECOVERED_STEPS) reanchorGap.current = REANCHOR_GAP_MS.first;
-    setFollowView(step);
-    setFollowStats((s) => ({ ...s, frames: s.frames + 1 }));
+    followViewStore.set(step);
+    followStatsStore.set((s) => ({ ...s, frames: s.frames + 1 }));
   }
   async function followDemo(position: DemoPosition) {
     try {
@@ -1907,7 +1891,7 @@ export function useLabState() {
    */
   function calibrateByHand(found: HandCalibration) {
     // The setup's dialog stays open on why it stopped, and offers this as the next step.
-    if (aiTaskNow.current) {
+    if (aiTaskStore.get()) {
       setAiTask((t) =>
         t
           ? {
@@ -2110,16 +2094,11 @@ export function useLabState() {
    * A long AI action shown step by step in its dialog: the job's steps as the
    * server reports them, kept after it ends until the dialog is closed.
    */
-  const [aiTask, setAiTask] = useState<AiTask | null>(null);
-  // The task as it is now, for handlers made before it started (a setup's error lands after).
-  const aiTaskNow = useRef(aiTask);
-  aiTaskNow.current = aiTask;
+  // The task lives in `aiTaskStore`: its job is replaced every 350 ms and only the dialog shows it.
   /** The action running now; a stop bumps the generation so its answer is dropped. */
   const aiGeneration = useRef(0);
   const aiRun = useRef<{ generation: number; jobId: string; abort: AbortController } | null>(null);
   const aiClose = useRef<ReturnType<typeof setTimeout>>(undefined);
-  const updateAiTask = (jobId: string, change: Partial<AiTask>) =>
-    setAiTask((t) => (t?.jobId === jobId ? { ...t, ...change } : t));
   /** The last AI action that finished, with the desk from just before it, to revert to. */
   const [lastAiRun, setLastAiRun] = useState<{ jobId: string; desk: DeskMemory } | null>(null);
   /** Past AI actions, newest first, without their pictures: each is fetched to review. */
@@ -2192,7 +2171,7 @@ export function useLabState() {
       edits.current++;
       setHistoryTick((t) => t + 1);
       setLastAiRun(null);
-      const title = aiHistory.find((j) => j.id === last.jobId)?.title ?? aiTask?.title;
+      const title = aiHistory.find((j) => j.id === last.jobId)?.title ?? aiTaskStore.get()?.title;
       closeAiTask();
       setMessage(
         `Reverted${title ? `: ${title.toLowerCase()}` : ' the last AI run'}. The desk is as it was before it; undo with ${SHORTCUTS.find((k) => k.action === 'undo')!.keys}.`,
@@ -2214,7 +2193,9 @@ export function useLabState() {
     updateAiTask(jobId, { status: 'stopped' });
     setAiTask((t) => (t?.jobId === jobId && t.job ? { ...t, job: stoppedJob(t.job) } : t));
     setBusy('');
-    setMessage(`Stopped: ${aiTask?.title.toLowerCase() ?? 'the AI call'}. Nothing was saved.`);
+    setMessage(
+      `Stopped: ${aiTaskStore.get()?.title.toLowerCase() ?? 'the AI call'}. Nothing was saved.`,
+    );
     // Tell the server first, then drop the request. The job may not be registered
     // yet in the first moments, so the stop is tried again briefly.
     void (async () => {
@@ -2929,7 +2910,6 @@ export function useLabState() {
     refineFixture3d,
     scanFixtures,
     followAi,
-    aiTask,
     setAiTask,
     aiHistory,
     reviewAiRun,
@@ -3011,8 +2991,6 @@ export function useLabState() {
     setCameraSource,
     file,
     follow,
-    followView,
-    followStats,
     watch,
     watching,
     expose,

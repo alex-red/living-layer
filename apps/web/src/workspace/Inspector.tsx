@@ -18,6 +18,7 @@ import { estimateLabel } from '../cost';
 import { Glyph } from '../Glyph';
 import { Button, Check, Field, Select } from '../ui/controls';
 import { useLab } from './LabContext';
+import { useFollowStats, useFollowView } from './state/follow-store';
 import { Cost, Details, Panel, useCall } from './panel';
 import {
   BuiltInPanel,
@@ -767,7 +768,7 @@ function WatchControl() {
 
 function MugPanel() {
   const lab = useLab();
-  const { memory, mode, camera, busy, status, follow, followView, followStats, localZone } = lab;
+  const { memory, mode, camera, busy, status, follow, localZone } = lab;
   const { currentObservation, sightings } = lab;
   const now = useNow();
   const observationStale = memory?.observation
@@ -834,11 +835,13 @@ function MugPanel() {
             {follow ? 'Stop following' : 'Follow locally'}
           </Button>
           <p className="micro">
-            {follow
-              ? `${followStats.frames} local step${followStats.frames === 1 ? '' : 's'} · ${followStats.checks} SAM check${followStats.checks === 1 ? '' : 's'}${followView ? ` · match ${followView.track.score.toFixed(2)}` : ''}${localZone ? '' : ' · no zone to watch: save one and mark the camera fixed'}`
-              : currentObservation
-                ? 'Follows the mug in this tab; SAM confirms each zone crossing.'
-                : 'Track the mug in this frame first.'}
+            {follow ? (
+              <FollowSummary localZone={Boolean(localZone)} />
+            ) : currentObservation ? (
+              'Follows the mug in this tab; SAM confirms each zone crossing.'
+            ) : (
+              'Track the mug in this frame first.'
+            )}
           </p>
         </>
       )}
@@ -1539,5 +1542,16 @@ export function Inspector() {
       )}
       {body(lab, lab.selection)}
     </aside>
+  );
+}
+
+/** The local follower's tally; it renders at the follower's rate so the rest of the inspector need not. */
+function FollowSummary({ localZone }: { localZone: boolean }) {
+  const stats = useFollowStats();
+  const view = useFollowView();
+  return (
+    <>
+      {`${stats.frames} local step${stats.frames === 1 ? '' : 's'} · ${stats.checks} SAM check${stats.checks === 1 ? '' : 's'}${view ? ` · match ${view.track.score.toFixed(2)}` : ''}${localZone ? '' : ' · no zone to watch: save one and mark the camera fixed'}`}
+    </>
   );
 }

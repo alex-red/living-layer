@@ -7,6 +7,7 @@ import { useLab } from './LabContext';
 import { SAVE_NAME_MAX, type NamedSave } from '../session';
 import { Popover } from './Popover';
 import { BUSY } from './useLabState';
+import { aiTaskStore, setAiTask, useAiTaskPart } from './state/ai-task-store';
 import { roomLabel as labelOfRoom, selectionLabel } from './labels';
 import { viewLabel } from './progress';
 
@@ -503,14 +504,7 @@ export function TopBar() {
         <span className="feedback-text">
           {busy ? `${BUSY[busy] ?? 'Working'}…` : lab.error || lab.message}
         </span>
-        {lab.aiTask && !lab.aiTask.open && (
-          <button
-            className="feedback-steps"
-            onClick={() => lab.setAiTask({ ...lab.aiTask!, open: true })}
-          >
-            {lab.aiTask.status === 'running' ? 'Show steps' : 'Steps'}
-          </button>
-        )}
+        <AiStepsButton />
         {lab.lamp === 'virtual' && <span className="hud-tag">VIRTUAL</span>}
       </div>
       <nav className="topbar-links">
@@ -599,5 +593,22 @@ export function TopBar() {
         />
       </nav>
     </header>
+  );
+}
+
+/** Opens the AI dialog again when it was hidden; it renders when the task's state changes, not with each step. */
+function AiStepsButton() {
+  const hidden = useAiTaskPart((t) => (t && !t.open ? t.status : null));
+  if (!hidden) return null;
+  return (
+    <button
+      className="feedback-steps"
+      onClick={() => {
+        const task = aiTaskStore.get();
+        if (task) setAiTask({ ...task, open: true });
+      }}
+    >
+      {hidden === 'running' ? 'Show steps' : 'Steps'}
+    </button>
   );
 }
