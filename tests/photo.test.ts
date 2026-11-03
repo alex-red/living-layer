@@ -323,6 +323,18 @@ describe('photo routes, offline', () => {
       (await s.post('desk/auto-pin', { imageDataUrl: 'data:image/png;base64,AA' })).statusCode,
     ).toBe(400);
   });
+  it('saves clicked corners in the surface’s own order, wherever the clicks started', async () => {
+    const s = await setup();
+    const { pin } = (await s.post('desk/auto-pin')).json<AutoPin>();
+    const c = pin!.corners;
+    // Started a corner late, and anticlockwise: as a turned desk can look on screen.
+    const clicked = [c[1], c[0], c[3], c[2]];
+    const res = await s.post('desk/surface', {
+      pin: { scene: 'office', surfaceId: 'desk:top', corners: clicked, frame: pin!.frame },
+    });
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json<DeskMemory>().surface!.corners).toEqual(c);
+  });
   it('drafts the demo room, then saves the scene, the pin and the ticked objects with their models', async () => {
     const s = await setup();
     const jobId = crypto.randomUUID();

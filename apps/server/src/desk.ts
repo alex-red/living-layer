@@ -33,6 +33,8 @@ import {
   MAX_FIXTURES,
   MAX_DISMISSED,
   placeSeen,
+  pinInOrder,
+  calibrationOf,
   type PlacementRule,
   isoSceneSchema,
   uniqueParts,
@@ -456,10 +458,15 @@ export function deskRoutes(
     const memory = store.memory(mode);
     if (pin && !isoSurface(pin.scene, pin.surfaceId, memory.scene))
       throw new LabError('surface_unknown', 'That surface is not part of the chosen scene.');
-    memory.surface = pin;
-    if (pin)
+    // Clicked corners start at the back left as it looks on screen; the
+    // calibrated camera knows which corner of the surface that really is.
+    const calibration = calibrationOf(memory);
+    const seen = pin && calibration && isoSurface(calibration.scene, pin.surfaceId, memory.scene);
+    const ordered = pin && calibration && seen ? pinInOrder(pin, calibration.camera, seen) : pin;
+    memory.surface = ordered;
+    if (ordered)
       for (const f of memory.fixtures ?? []) {
-        const spot = f.scanned ? placeSeen(f, pin, memory.scene ?? null) : null;
+        const spot = f.scanned ? placeSeen(f, ordered, memory.scene ?? null) : null;
         if (spot) Object.assign(f, spot);
       }
     store.saveMemory(memory);

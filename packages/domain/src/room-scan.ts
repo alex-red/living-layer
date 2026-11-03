@@ -1,4 +1,4 @@
-import type { IsoScene, Quad, SurfacePin } from './iso.js';
+import type { IsoScene, Point, Quad, SurfacePin } from './iso.js';
 import { ISO_PRESETS } from './iso-presets.js';
 import {
   PROP_TEMPLATES,
@@ -784,6 +784,39 @@ export function pinOf(
     corners: corners.map((c) => ({ x: round(c!.x), y: round(c!.y) })) as Quad,
     frame,
   };
+}
+/**
+ * A pin's corners in the surface's own order, by the calibrated camera. A
+ * person clicks "back left" as it looks on screen, which for a turned desk
+ * is another corner of its rect: the pin would map the desk's width onto
+ * its length. The corners are turned (or their winding reversed) to the
+ * order nearest where the camera sees the rect's. As it was when the frame
+ * is another size or a corner is behind the camera.
+ */
+export function pinInOrder(
+  pin: SurfacePin,
+  camera: RoomCamera,
+  surface: IsoScene['surfaces'][number],
+): SurfacePin {
+  if (pin.frame.width !== camera.frame.width || pin.frame.height !== camera.frame.height)
+    return pin;
+  // Where the camera sees the rect's corners, on the frame or past its edge.
+  const { x, y, w, d } = surface.rect;
+  const seen = [
+    [x, y],
+    [x + w, y],
+    [x + w, y + d],
+    [x, y + d],
+  ].map(([px, py]) => projectRoom(camera, { x: px!, y: py!, z: surface.z }));
+  if (seen.some((c) => !c)) return pin;
+  const orders = [0, 1, 2, 3].flatMap((k) => [
+    [0, 1, 2, 3].map((i) => pin.corners[(i + k) % 4]!),
+    [0, 1, 2, 3].map((i) => pin.corners[(k - i + 4) % 4]!),
+  ]);
+  const off = (cs: Point[]) =>
+    cs.reduce((s, c, i) => s + Math.hypot(c.x - seen[i]!.x, c.y - seen[i]!.y), 0);
+  const best = orders.reduce((a, b) => (off(b) < off(a) ? b : a));
+  return { ...pin, corners: best as Quad };
 }
 const round = (v: number) => Math.round(v * 10) / 10;
 const capital = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
