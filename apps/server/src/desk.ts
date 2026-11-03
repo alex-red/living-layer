@@ -282,7 +282,7 @@ export function deskRoutes(
           rule.inside = inside;
         }
         // A zone with no entity only tells Home Assistant: nothing to switch, nothing to claim.
-        const switching =
+        const switching: 'on' | 'off' | null =
           rule.entityId === null
             ? null
             : decision.transition === 'entered'
