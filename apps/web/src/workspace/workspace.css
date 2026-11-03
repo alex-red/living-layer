@@ -712,6 +712,46 @@
   flex-wrap: wrap;
   gap: 4px 12px;
 }
+/* A light's look when its zone turns it on: its own, warm white, or a colour, and how bright. */
+.look-picker {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: var(--fs-13);
+}
+.look-picker select {
+  flex: 1 1 140px;
+  min-width: 0;
+  min-height: var(--control-h);
+}
+.look-picker input[type='color'] {
+  width: var(--control-h);
+  height: var(--control-h);
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-chip);
+  background: none;
+}
+.look-brightness {
+  display: flex;
+  flex: 1 1 160px;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.look-brightness input {
+  flex: 1;
+  min-width: 0;
+  accent-color: var(--warm);
+}
+.look-brightness output {
+  min-width: 4ch;
+  font: 500 var(--fs-11) / 1 var(--mono);
+  color: var(--text-2);
+  text-align: right;
+}
 .rule-builder select,
 .rule-builder input,
 .remember-row input {

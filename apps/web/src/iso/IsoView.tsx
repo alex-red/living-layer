@@ -31,6 +31,7 @@ import {
   type SavedItem,
   type SurfacePin,
   type ZoneOnSurface,
+  type LightLook,
   type ZoneRect,
 } from '@livinglayer/domain';
 import { runOutput } from '@livinglayer/domain';
@@ -74,6 +75,8 @@ export interface RuleDraft {
   objects: 'any' | string[];
   /** Switch the entity off again when the zone empties. */
   offWhenEmpty: boolean;
+  /** How a light looks when the zone turns it on; unset keeps its own. */
+  look?: LightLook;
   /** Empty for a zone that only tells Home Assistant. */
   entityId: string;
   label: string;

@@ -360,9 +360,18 @@ describe('desk tracking', () => {
       ['entered', 'confirmed', 'on'],
     ]);
     // Told to keep the light on, leaving switches nothing.
-    expect((await s.post('desk/zone/off', { offWhenEmpty: false })).statusCode).toBe(200);
+    expect((await s.post('desk/zone/options', { offWhenEmpty: false })).statusCode).toBe(200);
     const kept = (await track(s, 'front')).json<Tracked>();
     expect([kept.event.output.transition, kept.event.output.action]).toEqual(['left', 'none']);
+    // A colour for the zone: the light comes on in it.
+    const look = { kind: 'color', rgb: [255, 0, 0], brightness: 60 } as const;
+    expect((await s.post('desk/zone/options', { look })).statusCode).toBe(200);
+    const red = (await track(s, 'centre')).json<Tracked>();
+    expect(red.event.output).toMatchObject({
+      transition: 'entered',
+      lamp: { action: 'on', desired: { rgb_color: [255, 0, 0], brightness_pct: 60 } },
+    });
+    expect(red.memory.zone).toMatchObject({ look, offWhenEmpty: false });
     expect(steps[0]!.event.output.assumedFixedCamera).toBe(true);
     const last = steps.at(-1)!.memory;
     expect(last.observation).toMatchObject({ identity: 'tracked' });

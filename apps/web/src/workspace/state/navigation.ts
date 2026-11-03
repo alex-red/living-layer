@@ -181,6 +181,7 @@ export function useNavigationSlice(
       ...(r.fixtureId ? { fixtureId: r.fixtureId } : {}),
       objects: r.objects,
       offWhenEmpty: Boolean(r.offWhenEmpty),
+      ...(r.look ? { look: r.look } : {}),
       entityId: r.entityId ?? '',
       label: r.label,
       rect: r.zone.rect,

@@ -172,6 +172,15 @@ export class Watcher {
   /** The SAM asks in flight; stopping or restarting the watch aborts them. */
   private asking = new AbortController();
   private stats = { frames: 0, checks: 0, refinds: 0, places: 0 };
+  /** How the live camera's frames are arriving, logged when they stop (`bun run runs --streams`). */
+  private run: {
+    camera: string;
+    startedAt: number;
+    openMs: number | null;
+    firstFrameAt: number;
+    lastFrameAt: number;
+    maxGapMs: number;
+  } | null = null;
   private state: WatchView['state'] = 'off';
   private note = '';
   /** Demo frames arrive one deliberate move at a time, already set down: no settling, no waiting. */
@@ -446,6 +455,7 @@ export class Watcher {
     return this.track(this.begin());
   }
   private async begin() {
+    this.noteRun('restarted');
     const generation = ++this.generation;
     this.asking.abort();
     this.asking = new AbortController();
@@ -476,11 +486,20 @@ export class Watcher {
     // Each thing is followed from the photo SAM last saw it in: the camera is fixed.
     for (const seen of watchedThings(memory)) await this.seed(seen, memory);
     if (generation !== this.generation) return;
+    const run = (this.run = {
+      camera: camera?.id ?? this.deps.mode,
+      startedAt: this.now,
+      openMs: null as number | null,
+      firstFrameAt: 0,
+      lastFrameAt: 0,
+      maxGapMs: 0,
+    });
     try {
       await source.start(
         (frame) => this.frame(frame),
         (error) => {
           if (generation !== this.generation) return;
+          this.noteRun('lost');
           this.say(
             'camera_lost',
             `${error?.message ?? 'The camera stopped.'} Trying again shortly.`,
@@ -498,6 +517,7 @@ export class Watcher {
       );
     }
     if (generation !== this.generation) return;
+    run.openMs = this.now - run.startedAt;
     const count = this.things.size;
     this.say(
       'watching',
@@ -531,6 +551,7 @@ export class Watcher {
     );
   }
   stop() {
+    this.noteRun('stopped');
     this.generation++;
     this.asking.abort();
     this.asking = new AbortController();
@@ -626,11 +647,40 @@ export class Watcher {
     }
   }
 
+  /**
+   * Logs how the live camera's frames came: how long the source took to open
+   * and to give a first frame, the rate, and the longest gap. Demo frames are
+   * made here, so they say nothing about streaming.
+   */
+  private noteRun(outcome: 'stopped' | 'lost' | 'restarted') {
+    const run = this.run;
+    this.run = null;
+    if (!run || this.deps.mode !== 'live') return;
+    const frames = this.stats.frames;
+    const span = run.lastFrameAt - run.firstFrameAt;
+    this.deps.store.appendStreamStats({
+      source: 'watcher',
+      camera: run.camera,
+      outcome,
+      openMs: run.openMs,
+      firstFrameMs: run.firstFrameAt ? run.firstFrameAt - run.startedAt : null,
+      durationMs: this.now - run.startedAt,
+      frames,
+      fps: frames > 1 && span > 0 ? Math.round(((frames - 1) * 10_000) / span) / 10 : null,
+      maxGapMs: run.maxGapMs,
+    });
+  }
   private frame(frame: LumaFrame) {
     const previous = this.lastFrame;
     this.lastFrame = frame;
     this.stats.frames++;
     const now = this.now;
+    const run = this.run;
+    if (run) {
+      if (run.firstFrameAt) run.maxGapMs = Math.max(run.maxGapMs, now - run.lastFrameAt);
+      else run.firstFrameAt = now;
+      run.lastFrameAt = now;
+    }
     // Motion in each zone, by the same rule as the stillness gate; it decides nothing here.
     if (previous)
       for (const z of this.zones)

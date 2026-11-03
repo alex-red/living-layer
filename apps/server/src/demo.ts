@@ -14,6 +14,8 @@ import {
   type SceneGuess,
   type SceneDraft,
   type LampResult,
+  type LightLook,
+  WARM_KELVIN,
   type Detection,
   type PhotoCheck,
   type PhotoInventory,
@@ -220,16 +222,25 @@ export const demoLamp: LampResult = {
   explanation:
     'Virtual adapter only. No Home Assistant request was sent and no physical effect was verified.',
 };
-/** The virtual adapter for any demo light or switch. */
-export function demoLampFor(entityId: string, action: 'on' | 'off' = 'on'): LampResult {
+/** The virtual adapter for any demo light or switch; demo lights show any look. */
+export function demoLampFor(
+  entityId: string,
+  action: 'on' | 'off' = 'on',
+  look?: LightLook,
+): LampResult {
   if (![...DEMO_LIGHTS, ...DEMO_SWITCHES].includes(entityId))
     throw new LabError(
       'lamp_unknown',
       'That entity is not one of the demo lights or switches.',
       409,
     );
-  const dims = entityId.startsWith('light.') && action === 'on';
-  return { ...demoLamp, entityId, action, state: action, desired: dims ? demoLamp.desired : {} };
+  const shows = entityId.startsWith('light.') && action === 'on' && look && look.kind !== 'keep';
+  const desired: LampResult['desired'] = !shows
+    ? {}
+    : look.kind === 'warm'
+      ? { brightness_pct: look.brightness, color_temp_kelvin: WARM_KELVIN }
+      : { brightness_pct: look.brightness, rgb_color: look.rgb };
+  return { ...demoLamp, entityId, action, state: action, desired };
 }
 
 /** What a Spark class of each demo reference picture could look like, with no model call. */

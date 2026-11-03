@@ -2,6 +2,13 @@ import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:
 import { join } from 'node:path';
 import type { SavedCamera } from '@livinglayer/domain';
 
+/**
+ * Listeners newer mediamtx versions open on every interface unless told not
+ * to, set through the environment because an older one refuses a config key
+ * it doesn't know: MoQ (Media over QUIC) on port 8892.
+ */
+export const RELAY_ENV = { MTX_MOQ: 'no' };
+
 /** What the lab needs of a relay; tests pass their own. */
 export interface Relay {
   sync(cameras: SavedCamera[]): Promise<void>;
@@ -62,15 +69,16 @@ export class CameraRelay implements Relay {
   }
   private config(cameras: SavedCamera[]) {
     const s = JSON.stringify;
-    const paths = cameras
-      .filter(CameraRelay.relays)
-      .flatMap((c) => [
-        `  ${this.path(c)}:`,
-        `    source: ${s(c.url)}`,
-        '    rtspTransport: tcp',
-        '    sourceOnDemand: true',
-        '    sourceOnDemandStartTimeout: 15s',
-      ]);
+    const paths = cameras.filter(CameraRelay.relays).flatMap((c) => [
+      `  ${this.path(c)}:`,
+      `    source: ${s(c.url)}`,
+      '    rtspTransport: tcp',
+      '    sourceOnDemand: true',
+      '    sourceOnDemandStartTimeout: 15s',
+      // Kept open a minute after its last reader, so a tab reloading or a still soon
+      // after doesn't connect to the camera again and wait for its keyframe.
+      '    sourceOnDemandCloseAfter: 60s',
+    ]);
     return [
       '# Written by the lab (apps/server/src/relay.ts); changes are overwritten.',
       'logLevel: warn',
@@ -119,6 +127,7 @@ export class CameraRelay implements Relay {
     if (this.running) return;
     await this.endEarlier();
     this.proc = Bun.spawn([this.binary, file], {
+      env: { ...process.env, ...RELAY_ENV },
       stdin: 'ignore',
       stdout: Bun.file(join(this.dir, 'mediamtx.log')),
       stderr: 'ignore',

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { demoPositionSchema, modeSchema } from './api.js';
+import { demoPositionSchema, lightLookSchema, modeSchema } from './api.js';
 import { cameraCropSchema } from './camera.js';
 import { MAX_EXPOSED, exposedInputSchema } from './expose.js';
 import {
@@ -302,11 +302,15 @@ export const deskTrackBodySchema = z
   .strict();
 export type DeskTrackBody = z.input<typeof deskTrackBodySchema>;
 
-/** POST /api/desk/zone/off */
-export const deskZoneOffBodySchema = z
-  .object({ mode: modeSchema, offWhenEmpty: z.boolean() })
+/** POST /api/desk/zone/options */
+export const deskZoneOptionsBodySchema = z
+  .object({
+    mode: modeSchema,
+    offWhenEmpty: z.boolean().optional(),
+    look: lightLookSchema.optional(),
+  })
   .strict();
-export type DeskZoneOffBody = z.input<typeof deskZoneOffBodySchema>;
+export type DeskZoneOptionsBody = z.input<typeof deskZoneOptionsBodySchema>;
 
 /** POST /api/desk/camera */
 export const deskCameraBodySchema = z.object({ mode: modeSchema, fixed: z.boolean() }).strict();

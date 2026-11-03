@@ -37,6 +37,7 @@
     "bench:rooms": "bun scripts/rooms-bench.ts",
     "bench:at": "bun scripts/bench-at.ts",
     "bench:track": "bun scripts/track-bench.ts",
+    "bench:stream": "bun scripts/stream-bench.ts",
     "bench:intent": "bun scripts/intent-bench.ts",
     "bench:brush": "bun scripts/brush-bench.ts",
     "assist": "bun scripts/assist-replay.ts",

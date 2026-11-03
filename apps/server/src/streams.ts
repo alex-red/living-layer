@@ -1,8 +1,11 @@
 import { createSocket, type RemoteInfo } from 'node:dgram';
 import { networkInterfaces } from 'node:os';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
+import { z } from 'zod';
 import type { CameraCrop, NetworkStream } from '@livinglayer/domain';
 import type { Config } from './config.js';
+import { parseInput } from './errors.js';
+import { appendStreamStats } from './store.js';
 
 /** What `scripts/share-camera.sh` advertises. */
 export const CAMERA_SERVICE = '_livinglayer-cam._tcp.local';
@@ -253,4 +256,38 @@ export async function streamRoutes(
 ) {
   app.get('', async () => ({ streams: await listStreams(config, browse, known) }));
   if (crop) app.post('/crop', crop);
+  app.post('/stats', async (request, reply) => {
+    const stats = parseInput(tabStreamStatsSchema, request.body);
+    appendStreamStats(config.dataDir, { source: 'tab', ...stats });
+    return reply.code(204).send();
+  });
 }
+
+const measure = z.number().finite().nonnegative().max(1e9).nullable();
+
+/** What a tab measured playing one WebRTC stream (`openStream` in the web app), sent when it ends. */
+const tabStreamStatsSchema = z
+  .object({
+    /** The WHEP path, with any pairing token cut out. */
+    stream: z.string().max(200),
+    outcome: z.enum(['closed', 'lost', 'failed']),
+    error: z.string().max(200).optional(),
+    /** From the offer to the connection being up, and to the first decoded frame. */
+    connectMs: measure,
+    firstFrameMs: measure,
+    durationMs: measure,
+    frames: measure,
+    fps: measure,
+    kbps: measure,
+    /** Mean time a frame waited in the jitter buffer. */
+    jitterMs: measure,
+    freezes: measure,
+    freezeMs: measure,
+    /** Mean decode time per frame. */
+    decodeMs: measure,
+    width: measure,
+    height: measure,
+    codec: z.string().max(60).nullable(),
+    decoder: z.string().max(60).nullable(),
+  })
+  .strict();

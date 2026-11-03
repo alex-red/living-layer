@@ -14,6 +14,7 @@ import {
   type Detection,
   type EvidenceRun,
   type LampResult,
+  type LightLook,
   type Mode,
   type Segmentation,
 } from './api.js';
@@ -102,6 +103,8 @@ export interface DeskMemory {
     onSurface?: ZoneOnSurface;
     /** False keeps the light on when the mug leaves; unset turns it off. */
     offWhenEmpty?: boolean;
+    /** What the light does when the mug enters; unset keeps the bulb's own. */
+    look?: LightLook;
   } | null;
   lastDecision: EvidenceRun<PlacementDecision> | null;
   /**

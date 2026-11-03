@@ -9,6 +9,7 @@ import {
   DEMO_SWITCHES,
   estimateCost,
   type Mode,
+  type LightLook,
   type DemoPosition,
   DEMO_POSITIONS,
   savedIdOf,
@@ -18,7 +19,7 @@ import { type Config, type Fetcher, PROJECT_ROOT } from './config.js';
 import { EvidenceStore } from './store.js';
 import { closeCompute } from './workers/compute.js';
 import { MetaAdapter } from './meta.js';
-import { ControlAdapter } from './control.js';
+import { ControlAdapter, type SwitchOptions, type Switched } from './control.js';
 import { chosenEntities, haConnection, haRoutes, type OpenSocket } from './ha.js';
 import { fixtureRoutes } from './fixture.js';
 import { watchRequest } from './request-signal.js';
@@ -284,10 +285,15 @@ export async function buildApp(
   const entities = (mode: Mode) =>
     mode === 'demo' ? [...DEMO_LIGHTS, ...DEMO_SWITCHES] : [...liveLights(), ...liveSwitches()];
   /** Switch a live device: over MQTT when it is an MQTT device, else through Home Assistant. */
-  const switchLive = (entity: string | undefined, action: 'on' | 'off') => {
+  const switchLive = (
+    entity: string | undefined,
+    action: 'on' | 'off',
+    look?: LightLook,
+    options?: SwitchOptions,
+  ): Promise<Switched> => {
     const target = entity ?? liveLights()[0] ?? '';
     if (target && mqttControl.has(target)) return mqttControl.act(target, action);
-    return action === 'on' ? lamp.turnOn(target) : lamp.turnOff(target);
+    return action === 'on' ? lamp.turnOn(target, look, options) : lamp.turnOff(target, options);
   };
   app.register(haRoutes, {
     prefix: '/api/ha',
@@ -298,10 +304,10 @@ export async function buildApp(
     fetcher: options.fetcher,
     openSocket: options.haSocket,
   });
-  const desk = createDesk(store, async (mode, entityId, action = 'on') =>
+  const desk = createDesk(store, async (mode, entityId, action = 'on', look, options) =>
     mode === 'demo'
-      ? demoLampFor(entityId ?? demoLamp.entityId, action)
-      : switchLive(entityId, action),
+      ? demoLampFor(entityId ?? demoLamp.entityId, action, look)
+      : switchLive(entityId, action, look, options),
   );
   app.register(deskRoutes, { prefix: '/api/desk', store, desk, entities });
   app.register(fixtureRoutes, {
