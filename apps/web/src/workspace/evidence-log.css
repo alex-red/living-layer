@@ -1,0 +1,120 @@
+/* The run log in the activity drawer, and its filters. */
+/* Evidence log */
+.evidence-table {
+  overflow: hidden;
+  border-radius: var(--r-card);
+  background: var(--glass-regular);
+}
+.run-row {
+  width: 100%;
+  min-height: 40px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: none;
+  text-align: left;
+  font: 500 12px/16px var(--mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-2);
+  animation: row-in var(--t-base) var(--ease-out);
+  transition: background var(--t-fast);
+}
+.run-row:last-child {
+  border-bottom: 0;
+}
+.run-row:hover,
+.run-row.selected {
+  background: rgb(255 255 255 / 3%);
+}
+.run-row.selected {
+  box-shadow: inset 2px 0 0 var(--seen);
+}
+.run-row > span:first-child {
+  display: grid;
+  gap: 2px;
+}
+.run-row strong {
+  font-weight: 500;
+  color: var(--text);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.run-row small {
+  font-size: var(--fs-11);
+  color: var(--text-3);
+}
+.badge {
+  margin-left: 6px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.badge.live {
+  color: var(--seen);
+}
+.result {
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.result.completed {
+  color: var(--ok);
+}
+.result.no_match,
+.result.unconfirmed {
+  color: var(--unsure);
+}
+.result.failed {
+  color: var(--blocked);
+}
+.empty-evidence {
+  padding: 14px 10px;
+  color: var(--text-3);
+  font-size: var(--fs-13);
+}
+@keyframes row-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+/* Log filters */
+.log-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  margin-bottom: 12px;
+  font-size: var(--fs-12);
+  color: var(--text-2);
+}
+.log-stats {
+  margin-left: auto;
+  font: 500 12px/16px var(--mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-3);
+}
+.log-stats .failed {
+  color: var(--blocked);
+}
+.run-detail {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 400 12px/16px var(--ui);
+  color: var(--text-2);
+}
+.run-row.selected[aria-pressed='true'] .run-detail {
+  color: var(--text);
+}
+.log-more {
+  width: 100%;
+  min-height: var(--control-h);
+  border: 0;
+  border-top: 1px solid var(--line);
+  background: none;
+  color: var(--seen);
+  font-size: var(--fs-12);
+}
+.log-more:hover {
+  background: rgb(255 255 255 / 3%);
+}

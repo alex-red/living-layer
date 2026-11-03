@@ -20,6 +20,9 @@ import { BUSY } from './useLabState';
 import { aiTaskStore, setAiTask, useAiTaskPart } from './state/ai-task-store';
 import { roomLabel as labelOfRoom, selectionLabel } from './labels';
 import { viewLabel } from './progress';
+// The top bar refines the workspace's styles, as it did when both were one sheet.
+import './workspace.css';
+import './top-bar.css';
 
 /** Models, Meta access, spend, the lamp, and the live proof checklist. */
 function Readiness() {

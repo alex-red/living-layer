@@ -216,20 +216,5 @@ export function useViewOverlay(
   return useSprite(item ? { kind: 'view', item, elevation, ppu } : null);
 }
 
-// --- synchronous API (same cache) --------------------------------------------
-
-export function itemSprite(item: IsoItem, o: ItemSpriteOptions): SpriteImage {
-  return drawHere(itemRequest(item, o));
-}
 /** The room's tones, shared with the kernel's prop sprites. */
 export const TONES = PROP_TONES;
-export function propSprite(prop: IsoProp, lit: boolean): SpriteImage {
-  return drawHere({ kind: 'prop', prop, lit });
-}
-/**
- * The model as the photo's camera saw it, as a translucent silhouette with an
- * outline, to lay over the crop. `ppu` is crop pixels per item unit.
- */
-export function viewOverlay(item: IsoItem, elevation: number, ppu: number): SpriteImage {
-  return drawHere({ kind: 'view', item, elevation, ppu });
-}

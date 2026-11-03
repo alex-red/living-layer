@@ -1,0 +1,30 @@
+/* Type and glass surfaces shared by every screen. Loaded right after the controls, before any screen refines them. */
+/* Shared type */
+.tiny,
+.frame-label,
+.hud-tag,
+.live-tag {
+  font: 500 11px/14px var(--mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+.micro {
+  font-size: var(--fs-12);
+  line-height: 18px;
+  color: var(--text-3);
+}
+
+/* Glass */
+.topbar,
+.readiness,
+.evidence-table,
+.inspector,
+.feedback,
+.error {
+  border: 1px solid var(--line);
+  box-shadow: var(--glass-edge);
+  backdrop-filter: blur(20px) saturate(140%);
+  -webkit-backdrop-filter: blur(20px) saturate(140%);
+}

@@ -14,7 +14,6 @@ import {
   resizeRoom,
   settleGroup,
   withGroupLayer,
-  MAX_LAYER,
   type EvidenceRun,
   type IsoScene as Scene,
   type IsoSceneKind,
@@ -34,6 +33,7 @@ import { PhotoReview, type PhotoRun } from './PhotoReview';
 import { demoFrameUrl } from '../workspace/demoFrame';
 import { Popover } from '../workspace/Popover';
 import { Button, Check, IconButton, NumberInput, Select, Toolbar } from '../ui/controls';
+import { LayerButtons } from './LayerButtons';
 
 export type LayoutRun = EvidenceRun<{ draft: SceneDraft; scene: Scene }>;
 const EMPTY: Scene = {
@@ -819,44 +819,5 @@ export function SceneEditor({
         )}
       </Toolbar>
     </div>
-  );
-}
-
-/**
- * Send a thing back or bring it forward a draw layer, like a z-index: a
- * higher layer is drawn over a lower one wherever they meet. `[` and `]`
- * do the same in the editor.
- */
-export function LayerButtons({
-  layer,
-  disabled,
-  onLayer,
-}: {
-  layer: number;
-  disabled?: boolean;
-  onLayer: (by: 1 | -1) => void;
-}) {
-  return (
-    <span className="layer-buttons" role="group" aria-label="Draw layer">
-      <IconButton
-        label="Send back"
-        title="Draw it behind what it overlaps ([)"
-        disabled={disabled || layer <= -MAX_LAYER}
-        onClick={() => onLayer(-1)}
-      >
-        ⤓
-      </IconButton>
-      <span className="layer-value" title="Draw layer: higher is drawn over lower">
-        {layer > 0 ? `+${layer}` : layer}
-      </span>
-      <IconButton
-        label="Bring forward"
-        title="Draw it over what it overlaps (])"
-        disabled={disabled || layer >= MAX_LAYER}
-        onClick={() => onLayer(1)}
-      >
-        ⤒
-      </IconButton>
-    </span>
   );
 }

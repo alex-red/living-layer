@@ -1,4 +1,4 @@
-import { useRef, useState, type ReactNode } from 'react';
+import { useMemo, useRef, useState, type ReactNode } from 'react';
 import { useNow } from '../useNow';
 import {
   DEMO_REFERENCES,
@@ -52,9 +52,9 @@ import {
   Select,
   type ButtonVariant,
 } from '../ui/controls';
-import { itemSprite } from '../iso/sprites';
+import { useItemSprite } from '../iso/sprites';
 import type { FixturePlacing } from '../iso/IsoView';
-import { LayerButtons } from '../iso/SceneEditor';
+import { LayerButtons } from '../iso/LayerButtons';
 import {
   useCalibration,
   useCamera,
@@ -94,10 +94,11 @@ const REFERENCE_LABEL: Record<DemoReference, string> = {
 
 /** The model as a small pixel-art picture, for review; `turns` shows another side. */
 function ModelPreview({ model, turns = 0 }: { model: FixtureDraft['model']; turns?: number }) {
-  const sprite = itemSprite(turns ? { ...model, ...rotateItem(model, turns) } : model, {
+  const sprite = useItemSprite(turns ? { ...model, ...rotateItem(model, turns) } : model, {
     scale: 3,
     resolution: 48,
   });
+  if (!sprite) return null;
   return (
     <img
       className="fixture-model"
@@ -106,6 +107,38 @@ function ModelPreview({ model, turns = 0 }: { model: FixtureDraft['model']; turn
       height={sprite.height}
       alt={`The drafted model of the ${model.label.toLowerCase()}`}
     />
+  );
+}
+
+/** One template in the starter catalog, with its model drawn small. */
+function StarterCard({
+  template,
+  disabled,
+  onPick,
+}: {
+  template: StarterTemplate;
+  disabled: boolean;
+  onPick: (template: StarterTemplate) => void;
+}) {
+  const meta = starterMeta(template);
+  const model = useMemo(() => starterFixtureDraft(template).model, [template]);
+  const preview = useItemSprite(model, {
+    scale: 1.8,
+    resolution: 32,
+  });
+  return (
+    <button
+      role="listitem"
+      className="starter-card"
+      disabled={disabled}
+      onClick={() => onPick(template)}
+    >
+      {preview && <img src={preview.url} alt="" />}
+      <strong>{meta.label}</strong>
+      <small>
+        {meta.sizeCm.w}×{meta.sizeCm.d}×{meta.sizeCm.h} cm
+      </small>
+    </button>
   );
 }
 
@@ -577,28 +610,9 @@ export function NewFixturePanel() {
             Start directly from an archetype with pre-built states and poses — no photo needed.
           </p>
           <div className="starter-catalog" role="list" aria-label="Fixture starter templates">
-            {STARTER_TEMPLATES.map((t) => {
-              const meta = starterMeta(t);
-              const preview = itemSprite(starterFixtureDraft(t).model, {
-                scale: 1.8,
-                resolution: 32,
-              });
-              return (
-                <button
-                  key={t}
-                  role="listitem"
-                  className="starter-card"
-                  disabled={off}
-                  onClick={() => startFromTemplate(t)}
-                >
-                  <img src={preview.url} alt="" />
-                  <strong>{meta.label}</strong>
-                  <small>
-                    {meta.sizeCm.w}×{meta.sizeCm.d}×{meta.sizeCm.h} cm
-                  </small>
-                </button>
-              );
-            })}
+            {STARTER_TEMPLATES.map((t) => (
+              <StarterCard key={t} template={t} disabled={off} onPick={startFromTemplate} />
+            ))}
           </div>
         </Details>
         {!live && (

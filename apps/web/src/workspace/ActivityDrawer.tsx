@@ -9,6 +9,7 @@ import { usd } from '../cost';
 import { Button, Check, Field, IconButton, Select } from '../ui/controls';
 import { useAi, useLabParts, useProbes, useRunLog, useView } from './LabContext';
 import { LOG_PAGE, RESULT_GLYPH, RUN_KINDS, isProbe, runDetail } from './useLabState';
+import './evidence-log.css';
 
 const clock = (iso: string) =>
   new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });

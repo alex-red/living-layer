@@ -309,7 +309,7 @@ button.aip-step-row:hover {
 }
 .aip-mark {
   position: relative;
-  z-index: 1;
+  z-index: var(--z-content);
   display: grid;
   place-items: center;
   width: 24px;

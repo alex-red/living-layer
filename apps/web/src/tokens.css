@@ -63,6 +63,26 @@
   --glass-thick: rgb(24 28 40 / 88%);
   --glass-edge: inset 0 1px 0 rgb(255 255 255 / 6%);
 
+  /* Stacking: local layers inside a panel (content to controls), then the page's own layers in order. */
+  --z-behind: -1;
+  --z-base: 0;
+  --z-content: 1;
+  --z-overlay: 2;
+  --z-tag: 3;
+  --z-pin: 4;
+  --z-pin-tag: 5;
+  --z-controls: 6;
+  --z-sticky: 10;
+  --z-topbar: 20;
+  --z-activity: 40;
+  --z-popover-backdrop: 40;
+  --z-popover: 41;
+  --z-popover-trigger: 42;
+  --z-sheet-backdrop: 49;
+  --z-sheet: 50;
+  --z-menu: 60;
+  --z-dev: 100;
+
   /* Motion */
   --t-fast: 150ms;
   --t-base: 250ms;

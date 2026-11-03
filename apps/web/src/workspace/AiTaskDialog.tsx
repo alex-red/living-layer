@@ -1,8 +1,14 @@
-import { AIRichPreviewDialog, type AIStep } from '../AIRichPreviewDialog';
+import { lazy } from 'react';
+import { Later } from '../Later';
+import type { AIStep } from '../AIRichPreviewDialog';
 import { Button } from '../ui/controls';
 import { useAi, useLabParts, useRunLog } from './LabContext';
 import { setAiTask, useAiTask } from './state/ai-task-store';
 import { RESULT_GLYPH } from './useLabState';
+
+const AIRichPreviewDialog = lazy(() =>
+  import('../AIRichPreviewDialog').then((m) => ({ default: m.AIRichPreviewDialog })),
+);
 
 /** The lab's AI action, running or past, step by step in the AI dialog. */
 export function AiTaskDialog() {
@@ -24,52 +30,54 @@ export function AiTaskDialog() {
       ? { label: 'Re-Apply', onClick: () => void lab.reapplyAiRun(task.jobId) }
       : undefined;
   return (
-    <AIRichPreviewDialog
-      open={task.open}
-      title={task.title}
-      description={task.review ? undefined : task.description}
-      steps={steps}
-      status={task.status}
-      error={task.error}
-      startedAt={task.startedAt}
-      review={task.review}
-      onStop={lab.stopAiTask}
-      onClose={lab.closeAiTask}
-      {...(task.next
-        ? {
-            action: {
-              label: task.next.label,
-              onClick: () => {
-                const next = task.next!;
-                lab.closeAiTask();
-                next.run();
-              },
-            },
-          }
-        : after
-          ? { action: after }
-          : {})}
-      onHide={() => setAiTask({ ...task, open: false })}
-      footer={
-        runs.length ? (
-          <span className="aip-runs">
-            Its runs:
-            {runs.map((run) => (
-              <Button
-                key={run.id}
-                variant="text"
-                onClick={() => {
+    <Later>
+      <AIRichPreviewDialog
+        open={task.open}
+        title={task.title}
+        description={task.review ? undefined : task.description}
+        steps={steps}
+        status={task.status}
+        error={task.error}
+        startedAt={task.startedAt}
+        review={task.review}
+        onStop={lab.stopAiTask}
+        onClose={lab.closeAiTask}
+        {...(task.next
+          ? {
+              action: {
+                label: task.next.label,
+                onClick: () => {
+                  const next = task.next!;
                   lab.closeAiTask();
-                  lab.inspect(run);
-                }}
-              >
-                <span aria-hidden="true">{RESULT_GLYPH[run.status]}</span> {run.kind}{' '}
-                <code>{run.id.slice(0, 8)}</code>
-              </Button>
-            ))}
-          </span>
-        ) : undefined
-      }
-    />
+                  next.run();
+                },
+              },
+            }
+          : after
+            ? { action: after }
+            : {})}
+        onHide={() => setAiTask({ ...task, open: false })}
+        footer={
+          runs.length ? (
+            <span className="aip-runs">
+              Its runs:
+              {runs.map((run) => (
+                <Button
+                  key={run.id}
+                  variant="text"
+                  onClick={() => {
+                    lab.closeAiTask();
+                    lab.inspect(run);
+                  }}
+                >
+                  <span aria-hidden="true">{RESULT_GLYPH[run.status]}</span> {run.kind}{' '}
+                  <code>{run.id.slice(0, 8)}</code>
+                </Button>
+              ))}
+            </span>
+          ) : undefined
+        }
+      />
+    </Later>
   );
 }

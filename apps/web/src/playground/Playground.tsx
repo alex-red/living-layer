@@ -305,6 +305,8 @@ export function Playground() {
   const sawMotion = useRef(false);
   const watchDue = useRef(true);
   const lastState = useRef<Stillness>('settling');
+  // It runs after every render on purpose: the refs above decide when a capture is due.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (motion.state === 'moving') {
       sawMotion.current = true;

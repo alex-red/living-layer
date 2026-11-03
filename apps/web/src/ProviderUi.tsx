@@ -3,6 +3,7 @@ import { runCost, type ProviderFailure } from '@livinglayer/domain';
 import { dismissCall, useProviderCalls, type ProviderCall } from './activity';
 import { usd } from './cost';
 import { Button, IconButton } from './ui/controls';
+import './provider-ui.css';
 
 const seconds = (ms: number) => `${(ms / 1000).toFixed(ms < 10_000 ? 1 : 0)}s`;
 const tokens = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n));

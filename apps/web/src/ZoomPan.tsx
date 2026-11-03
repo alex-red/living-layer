@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type PointerEvent, type ReactNode } from '
 import { readUi, writeUi } from './session';
 import { typing } from './shortcuts';
 import { Button, IconButton } from './ui/controls';
+import './zoom-pan.css';
 
 const MAX = 8;
 const STEP = 1.25;
@@ -91,6 +92,8 @@ export function ZoomPan({
         ? clamp({ s: kept.s, x: kept.x * b.clientWidth, y: kept.y * b.clientHeight })
         : FIT,
     );
+    // The view is read again for a new reset key or when the zoom is switched off, not when `store` changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resetKey, off]);
   // Kept a moment after it settles, not on every wheel step or drag move.
   useEffect(() => {
@@ -107,6 +110,8 @@ export function ZoomPan({
     };
     const timer = window.setTimeout(save, 300);
     return () => window.clearTimeout(timer);
+    // Kept a moment after `view` settles; `store`, `off` and the key are read as they are then.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view]);
   useEffect(() => () => save(), []);
 

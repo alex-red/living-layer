@@ -1,4 +1,4 @@
-import { useRef, useState, type CSSProperties, type RefObject } from 'react';
+import { lazy, useRef, useState, type CSSProperties, type RefObject } from 'react';
 import {
   CROP_MIN,
   DEMO_POSITIONS,
@@ -6,24 +6,37 @@ import {
   isoSceneKindSchema,
   type EvidenceRun,
   type DemoPosition,
-  type SavedItem,
 } from '@livinglayer/domain';
 import { api } from '../api';
 import { Glyph } from '../Glyph';
 import { MaskOverlay } from '../MaskOverlay';
 import { TrackingOverlay } from '../TrackingOverlay';
-import { PhonePairing } from '../PhonePairing';
-import { CameraSetup, type RoomOption } from '../CameraSetup';
+import { Later } from '../Later';
+import type { RoomOption } from '../CameraSetup';
 import { ZoomPan } from '../ZoomPan';
 import { useFrameRate } from '../useFrameRate';
 import { ErrorCard } from '../ProviderUi';
 import { IsoView } from '../iso/IsoView';
 import { SurfacePin } from '../iso/SurfacePin';
-import { RoomCalibrate } from '../iso/RoomCalibrate';
 import { CalibrationOverlay } from '../iso/CalibrationOverlay';
 import type { StageView } from '../session';
 import { Button, Check, Segmented, type Option } from '../ui/controls';
-import { useLab, useLabParts, useNavigation, useView } from './LabContext';
+import {
+  useAi,
+  useCalibration,
+  useCamera,
+  useDesk,
+  useFeedback,
+  useFixtures,
+  useFollowState,
+  useNavigation,
+  useObservation,
+  useProbes,
+  useRunLog,
+  useTracking,
+  useView,
+  useLabParts,
+} from './LabContext';
 import { useFollowView } from './state/follow-store';
 import type { Lab } from './useLabState';
 import { DeskStep, Onboarding } from './Onboarding';
@@ -32,6 +45,14 @@ import { Popover } from './Popover';
 import { ToolStrip } from './ToolStrip';
 import { BrushOverlay, BrushPanel } from './Brush';
 import { demoFrameUrl } from './demoFrame';
+
+const PhonePairing = lazy(() =>
+  import('../PhonePairing').then((m) => ({ default: m.PhonePairing })),
+);
+const CameraSetup = lazy(() => import('../CameraSetup').then((m) => ({ default: m.CameraSetup })));
+const RoomCalibrate = lazy(() =>
+  import('../iso/RoomCalibrate').then((m) => ({ default: m.RoomCalibrate })),
+);
 
 /** Which layer placed a watched thing's box last, as its tag says it. */
 const WATCH_LAYER = { local: 'LOCAL', appearance: 'LOOKS', sam: 'SAM' } as const;
@@ -92,7 +113,21 @@ function FrameRate({ video, on }: { video: RefObject<HTMLVideoElement | null>; o
  * photo stays mounted under the iso view, so the camera keeps sampling.
  */
 export function Canvas() {
-  const lab = useLab();
+  const lab = useLabParts(
+    useView(),
+    useFeedback(),
+    useRunLog(),
+    useDesk(),
+    useFollowState(),
+    useCamera(),
+    useObservation(),
+    useTracking(),
+    useNavigation(),
+    useAi(),
+    useFixtures(),
+    useCalibration(),
+    useProbes(),
+  );
   const boxStart = useRef<{ x: number; y: number } | null>(null);
   const zoomStart = useRef<{ x: number; y: number } | null>(null);
   // The calibration's size and buttons, under the canvas rather than over the frame.
@@ -136,11 +171,6 @@ export function Canvas() {
   } = lab;
   const onboarding = (!workScene || choosingScene) && !pinning;
   const sel = lab.selection;
-  const focus = {
-    object: sel?.kind === 'object' ? (sel.id === 'main' ? 'tracked' : sel.id) : undefined,
-    zone: sel?.kind === 'rule' ? sel.id : undefined,
-    fixture: sel?.kind === 'fixture' ? sel.id : undefined,
-  };
   // The selected object's latest sighting, ringed on the photo when it was seen on a frame this size.
   const focusSeen =
     sel?.kind === 'object'
@@ -642,15 +672,17 @@ export function Canvas() {
             )}
             {cornerShown && <CalibrationOverlay calibration={cornerShown} />}
             {lab.calibrating && !camera && (
-              <RoomCalibrate
-                frame={dimensions}
-                initial={lab.calibrating}
-                crop={lab.imageCrop.current}
-                panel={calibratePanel}
-                busy={lab.busy === 'calibrate'}
-                onSave={(draft) => void lab.saveCalibration(draft)}
-                onCancel={() => lab.setCalibrating(null)}
-              />
+              <Later>
+                <RoomCalibrate
+                  frame={dimensions}
+                  initial={lab.calibrating}
+                  crop={lab.imageCrop.current}
+                  panel={calibratePanel}
+                  busy={lab.busy === 'calibrate'}
+                  onSave={(draft) => void lab.saveCalibration(draft)}
+                  onCancel={() => lab.setCalibrating(null)}
+                />
+              </Later>
             )}
             {pinning && !camera && (
               <SurfacePin
@@ -689,99 +721,7 @@ export function Canvas() {
           </span>
         </div>
         {brushing && <BrushPanel brush={lab.brush} busy={Boolean(busy)} />}
-        {showIso && workScene && (
-          <IsoView
-            mode={mode}
-            kind={workScene}
-            onKind={lab.setWorkScene}
-            panel={lab.isoPanel}
-            onPanel={lab.setIsoPanel}
-            surfaceId={lab.isoSurfaceId}
-            onSurfaceId={lab.setIsoSurfaceId}
-            modelOf={lab.modelOf}
-            guess={lab.guess}
-            ruleDraft={lab.ruleDraft}
-            onRuleDraft={lab.setRuleDraft}
-            placing={lab.placing}
-            onPlace={(where) => void lab.placeFixture(where)}
-            onFixture={(id) => lab.select({ kind: 'fixture', id })}
-            onZone={(id) => lab.select({ kind: 'rule', id })}
-            onFixtureMenu={(id, at) => setFixtureMenu({ id, at })}
-            onMoveFixture={(id, to) => {
-              const label = memory?.fixtures?.find((f) => f.id === id)?.label ?? 'fixture';
-              // Selecting it would close the layout editor, where it can be moved too.
-              if (lab.isoPanel !== 'scene') lab.select({ kind: 'fixture', id });
-              void lab.updateFixture(
-                id,
-                { centre: { x: to.x, y: to.y }, surfaceId: to.surfaceId },
-                `Moved the ${label.toLowerCase()}. Scans leave it where you put it.`,
-              );
-            }}
-            tool={lab.tool}
-            onAiEdit={lab.brushGroup}
-            hand={hand}
-            fixtureLook={lab.fixtureLook}
-            onResizeFixture={(id, rect) => {
-              const f = memory?.fixtures?.find((x) => x.id === id);
-              if (!f) return;
-              // The handles stretch the base as drawn; the save keeps it before turning.
-              const turned = f.turns % 2 === 1;
-              return lab.updateFixture(
-                id,
-                {
-                  centre: { x: rect.x + rect.w / 2, y: rect.y + rect.d / 2 },
-                  size: {
-                    w: turned ? rect.d : rect.w,
-                    d: turned ? rect.w : rect.d,
-                    h: f.size.h,
-                  },
-                },
-                `Resized the ${f.label.toLowerCase()}'s base. Scans leave it as you set it.`,
-              );
-            }}
-            lightsOn={lab.lightsOn}
-            focus={focus}
-            layers={{ trail: lab.showTrail, zones: lab.showZones, picture: lab.showPicture }}
-            memory={memory}
-            image={image}
-            lights={lab.lights}
-            lampOn={lab.lamp !== 'off'}
-            drawing={drawing}
-            zone={visibleZone ?? undefined}
-            // A running camera doesn't block the editors: they capture their frame from it.
-            busy={Boolean(busy) || lab.cameraPending}
-            onDraftZone={lab.setDraftZone}
-            onRun={(run) => {
-              lab.setSelected(run as EvidenceRun);
-              lab.setMessage(
-                run.kind === 'item'
-                  ? `Model drafted: ${(run.output as SavedItem).parts.length} parts. Edit it, then save.`
-                  : run.kind === 'layout'
-                    ? 'Scene drafted. Review it in the layout editor, then save.'
-                    : run.kind === 'photo'
-                      ? 'Scene drafted from the photo. Review the pin and the objects, then save.'
-                      : 'Saved.',
-              );
-              void lab.refresh();
-            }}
-            captureFrame={lab.cameraFrame}
-            onCalibrateByHand={lab.calibrateByHand}
-            onCalibrateHere={lab.calibrateHere}
-            cameraLive={camera}
-            onMemory={(m) => {
-              lab.setMemory(m);
-              // A scene saved from a photo is the room now; the next step is its surface or objects.
-              if (m.scene && lab.isoPanel === 'scene') lab.select({ kind: 'room' });
-            }}
-            onUpload={lab.upload}
-            follow={lab.followAi}
-            onMessage={(text) => {
-              lab.setMessage(text);
-              void lab.refresh();
-            }}
-            onError={lab.setError}
-          />
-        )}
+        {showIso && <IsoView hand={hand} onFixtureMenu={(id, at) => setFixtureMenu({ id, at })} />}
         {fixtureMenu && (
           <ContextMenu
             at={fixtureMenu.at}
@@ -909,14 +849,16 @@ export function Canvas() {
                     )}
                   >
                     {(close) => (
-                      <PhonePairing
-                        onUse={(phone) => {
-                          close();
-                          lab.setCameraSource(phone.id);
-                          void lab.network.scan();
-                          void lab.startCamera(phone);
-                        }}
-                      />
+                      <Later>
+                        <PhonePairing
+                          onUse={(phone) => {
+                            close();
+                            lab.setCameraSource(phone.id);
+                            void lab.network.scan();
+                            void lab.startCamera(phone);
+                          }}
+                        />
+                      </Later>
                     )}
                   </Popover>
                   <Popover
@@ -929,14 +871,16 @@ export function Canvas() {
                     )}
                   >
                     {(close) => (
-                      <CameraSetup
-                        rooms={rooms}
-                        onChange={() => void lab.network.scan()}
-                        onUse={(id) => {
-                          close();
-                          lab.setCameraSource(id);
-                        }}
-                      />
+                      <Later>
+                        <CameraSetup
+                          rooms={rooms}
+                          onChange={() => void lab.network.scan()}
+                          onUse={(id) => {
+                            close();
+                            lab.setCameraSource(id);
+                          }}
+                        />
+                      </Later>
                     )}
                   </Popover>
                   {lab.network.streams.length > 0 && (
