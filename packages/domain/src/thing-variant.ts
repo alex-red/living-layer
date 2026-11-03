@@ -2,6 +2,7 @@ import { fixtureEntities, type Fixture } from './fixture.js';
 import type { IsoBox, IsoScene, Point } from './iso.js';
 import { isoItemSchema, rotateItem, type IsoItem, type ItemPart } from './iso-item.js';
 import { unprojectRoom, type RoomCamera } from './room-camera.js';
+import type { StatsNow } from './stats.js';
 
 /**
  * A variant of a Thing ([plan](../../../docs/plans/brush-relations.md)): its
@@ -222,4 +223,19 @@ export function followPower<
     return { ...f, state: want };
   });
   return changed ? next : fixtures;
+}
+/**
+ * Things showing what their stats read now: an occupied variant while
+ * occupied (`followOccupied`), on or off as their power reads (`followPower`).
+ * The watcher saves it; the room draws it from the stats it streams, so it
+ * changes as they do. The same list when nothing changes.
+ */
+export function followStats<
+  F extends Pick<Fixture, 'id' | 'state' | 'states' | 'control' | 'lights'>,
+>(fixtures: F[], stats: StatsNow): F[] {
+  const reading = (key: 'occupied' | 'power') => (id: string) => {
+    const v = stats[id]?.[key]?.value;
+    return typeof v === 'boolean' ? v : null;
+  };
+  return followPower(followOccupied(fixtures, reading('occupied')), reading('power'));
 }

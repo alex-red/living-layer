@@ -47,7 +47,6 @@ import {
   type DemoPosition,
   type DeskMemory,
   type ExposeView,
-  type Fixture,
   type HaView,
   type DeskObservation,
   type EvidenceRun,
@@ -69,8 +68,7 @@ import {
   ruleObjects,
   followedThings,
   mugOf,
-  followOccupied,
-  followPower,
+  followStats,
 } from '@livinglayer/domain';
 import type { Appearance } from './appearance.js';
 import type { DeskTracking } from './desk.js';
@@ -236,23 +234,13 @@ export class Watcher {
       this.followVariants();
     });
   }
-  /**
-   * Things with an occupied variant show it while their occupied stat is on
-   * (`followOccupied`), and things with `on` and `off` states show the one
-   * their power stat reads (`followPower`).
-   */
+  /** Things show what their stats read: an occupied variant, on or off (`followStats`). */
   private followVariants() {
     const now = this.statRunner.current();
-    const reading = (key: 'occupied' | 'power') => (id: string) => {
-      const v = now[id]?.[key]?.value;
-      return typeof v === 'boolean' ? v : null;
-    };
-    const follow = <F extends Fixture>(fixtures: F[]) =>
-      followPower(followOccupied(fixtures, reading('occupied')), reading('power'));
     const fixtures = this.memory().fixtures ?? [];
-    if (follow(fixtures) === fixtures) return;
+    if (followStats(fixtures, now) === fixtures) return;
     this.deps.store.updateMemory(this.deps.mode, (m) => {
-      if (m.fixtures) m.fixtures = follow(m.fixtures);
+      if (m.fixtures) m.fixtures = followStats(m.fixtures, now);
     });
   }
   get mode() {

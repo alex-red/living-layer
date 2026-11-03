@@ -11,6 +11,7 @@ import {
   fixtureInput,
   fixtureGlows,
   fixtureModel,
+  followStats,
   closeViewShift,
   inRoomView,
   guessedScene,
@@ -84,6 +85,8 @@ import type { SceneView } from './SceneEditor';
 import { DayChip, DayNudges } from '../workspace/DayDock';
 import { clock, dayAt, type MugSpot } from '../workspace/demoDay';
 import { useReplay } from '../workspace/state/replay';
+import { statsStore } from '../workspace/state/stats';
+import { useStore } from '../workspace/state/store';
 
 // The editors and the room's picture load when first shown.
 const SceneEditor = lazy(() => import('./SceneEditor').then((m) => ({ default: m.SceneEditor })));
@@ -521,6 +524,19 @@ function IsoViewOf({
     (f: Fixture) => (kind === 'custom' && shift ? inRoomView(f) : f),
     [kind, shift],
   );
+  // Each thing as its stats read now (on or off, occupied), as they stream in: the saved
+  // memory only catches up when it is loaded again. Renders only when one of those changes.
+  const readings = useStore(statsStore, (now) =>
+    Object.entries(now)
+      .map(([id, n]) => `${id}:${n.power?.value ?? ''}:${n.occupied?.value ?? ''}`)
+      .join(' '),
+  );
+  const things = useMemo(
+    () => followStats(memory?.fixtures ?? [], statsStore.get()),
+    // `readings` says when a reading changed; the store holds them.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [memory?.fixtures, readings],
+  );
   // Fixtures in this scene; one being moved is drawn only where the pointer is.
   const placingId = placing?.id;
   const fixtures: IsoFixture[] = useMemo(() => {
@@ -536,7 +552,7 @@ function IsoViewOf({
         at.x >= 0 && at.y >= 0 && at.x + size.w <= scene.grid.w && at.y + size.d <= scene.grid.d
       );
     };
-    return placedFixtures({ fixtures: memory?.fixtures })
+    return placedFixtures({ fixtures: things })
       .filter((f) =>
         kind === 'custom-desk'
           ? f.scene === 'custom' && Boolean(shift) && onDesk(f)
@@ -555,7 +571,7 @@ function IsoViewOf({
         ...(f.control.kind === 'light' ? { lamp: true } : {}),
         ...foodLine(f),
       }));
-  }, [memory?.fixtures, kind, shift, shown, custom, scene, placingId, focus]);
+  }, [things, kind, shift, shown, custom, scene, placingId, focus]);
   const isoPlacing = useMemo(() => {
     if (!placing || placing.scene !== kind) return undefined;
     const turned = placing.turns % 2 === 1;
@@ -664,11 +680,11 @@ function IsoViewOf({
   const pictureFixtures = useMemo(
     () =>
       pictureScene
-        ? placedFixtures({ fixtures: memory?.fixtures })
+        ? placedFixtures({ fixtures: things })
             .filter((f) => f.scene === pictureScene && f.id !== placingId)
             .map(shown)
         : [],
-    [pictureScene, memory?.fixtures, placingId, shown],
+    [pictureScene, things, placingId, shown],
   );
 
   const target = memory ? modelTarget(memory, modelOf) : null;

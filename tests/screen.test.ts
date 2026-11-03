@@ -8,6 +8,7 @@ import {
   promoteBuiltIn,
   fixtureBox,
   followPower,
+  followStats,
   defaultFixtureStates,
   monitorItem,
   screenPart,
@@ -151,6 +152,14 @@ describe('a screen showing what its power stat reads', () => {
     { id: 'c', state: 'sleeping', states: { on: {}, off: {} }, control: { kind: 'none' } },
     { id: 'd', state: null, control: { kind: 'none' } },
   ] as unknown as Fixture[];
+  it('reads both from the stats as they stream, occupied and power', () => {
+    const shown = followStats(things, {
+      a: { power: { value: true } },
+      c: { power: { value: false } },
+    } as never);
+    expect(shown.map((f) => f.state)).toEqual(['on', null, 'sleeping', null]);
+    expect(followStats(things, {})).toBe(things);
+  });
   it('turns on and off with it, and leaves what it shouldn’t', () => {
     const on = followPower(things, () => true);
     expect(on.map((f) => f.state)).toEqual(['on', null, 'sleeping', null]);
