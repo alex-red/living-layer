@@ -67,33 +67,37 @@ const WARM = '#ffb866';
 /** A plain prop as one part in its own space, so a moved prop reuses its sprite. */
 function propPart(prop: IsoProp): ItemPart {
   const plant = prop.tone === 'plant' && prop.shape === 'cylinder';
-  return {
+  const base = {
     id: 'prop',
-    shape: plant ? 'blob' : prop.shape === 'cylinder' ? 'lathe' : 'rbox',
     at: { x: 0, y: 0, z: 0 },
     size: prop.size,
     color: PROP_TONES[prop.tone],
     taper: 1,
-    ...(prop.shape === 'cylinder' && !plant
-      ? {
-          profile: [
-            { r: 1, z: 0 },
-            { r: 1, z: 1 },
-          ],
-        }
-      : {}),
-    ...(plant ? { rough: 0.6 } : { radius: 0.06 }),
     material: TONE_MATERIAL[prop.tone] ?? 'matte',
-  };
+  } as const;
+  if (plant) return { ...base, shape: 'blob', rough: 0.6 };
+  if (prop.shape === 'cylinder')
+    return {
+      ...base,
+      shape: 'lathe',
+      profile: [
+        { r: 1, z: 0 },
+        { r: 1, z: 1 },
+      ],
+    };
+  return { ...base, shape: 'rbox', radius: 0.06 };
 }
 /** One part of a furniture model in the kernel's terms. */
-const modelPart = (p: PropPart, i: number): ItemPart => ({
-  id: `p${i}`,
-  taper: 1,
-  ...p,
-  color: p.color ?? PROP_TONES[p.tone],
-  material: p.material ?? TONE_MATERIAL[p.tone] ?? 'matte',
-});
+const modelPart = (p: PropPart, i: number): ItemPart => {
+  const { tone, ...rest } = p;
+  return {
+    id: `p${i}`,
+    taper: 1,
+    ...rest,
+    color: p.color ?? PROP_TONES[tone],
+    material: p.material ?? TONE_MATERIAL[tone] ?? 'matte',
+  };
+};
 /** What a prop's sprite depends on, for caching it. */
 export function propSpriteKey(prop: IsoProp, lit: boolean): string {
   const { w, d, h } = prop.size;

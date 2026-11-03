@@ -86,8 +86,7 @@ export function recipeFromForm(
   };
   const maxCm = { w: sizeCm.w, d: sizeCm.d, h: toCm(size.h) };
   const rawParts = propModel({ form, size, turns: 0 })!;
-  const filtered = rawParts.filter((p) => p.shape !== 'tube' || p.path);
-  const withRoles = filtered.map((p, i) => ({
+  const withRoles = rawParts.map((p, i) => ({
     part: p,
     role: guessRole(p, size),
     index: i,
@@ -124,10 +123,13 @@ export function recipeFromForm(
       tone: p.tone,
       ...(p.material ? { material: p.material } : {}),
       ...(p.shape === 'rbox' && p.radius !== undefined ? { radius: Math.min(1, p.radius) } : {}),
-      ...(p.profile ? { profile: p.profile } : {}),
-      ...(p.wall !== undefined ? { wall: p.wall } : {}),
-      ...(p.path ? { path: p.path, tubeCm: Math.max(0.1, toCm(p.radius ?? cm(1))) } : {}),
-      ...(p.rough !== undefined ? { rough: p.rough } : {}),
+      ...(p.shape === 'lathe'
+        ? { profile: p.profile, ...(p.wall !== undefined ? { wall: p.wall } : {}) }
+        : {}),
+      ...(p.shape === 'tube'
+        ? { path: p.path, tubeCm: Math.max(0.1, toCm(p.radius ?? cm(1))) }
+        : {}),
+      ...(p.shape === 'blob' && p.rough !== undefined ? { rough: p.rough } : {}),
     };
   });
   // A top keeps its plain name when there is one, so surfaces and edits can find it.

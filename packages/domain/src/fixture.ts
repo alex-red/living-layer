@@ -353,7 +353,7 @@ export function stateVariantModel(
       return {
         ...base,
         parts: base.parts.map((p, i) => {
-          if (p.shape === 'lathe' && (p.profile?.length ?? 0) >= 5) {
+          if (p.shape === 'lathe' && p.profile.length >= 5) {
             const bands = (p.paint ?? []).filter((b) => !(b.kind === 'band' && b.from >= 0.55));
             return {
               ...p,
@@ -379,7 +379,9 @@ function glowShade(p: ItemPart, lit: boolean): ItemPart {
   return {
     ...p,
     paint: lit ? [...rest, { kind: 'band' as const, ...glow, color: WARM }].slice(0, 6) : rest,
-    ...(p.inside ? { inside: { ...p.inside, wall: lit ? WARM : p.color } } : {}),
+    ...((p.shape === 'lathe' || p.shape === 'cylinder') && p.inside
+      ? { inside: { ...p.inside, wall: lit ? WARM : p.color } }
+      : {}),
   };
 }
 

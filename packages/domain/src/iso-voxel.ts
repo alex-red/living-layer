@@ -92,12 +92,16 @@ interface Box {
   size: { w: number; d: number; h: number };
 }
 type Profile = { r: number; z: number }[];
+type Inside = Extract<ItemPart, { shape: 'lathe' }>['inside'];
+/** The hollow of an open turned part; no other shape has one. */
+const insideOf = (p: ItemPart): Inside =>
+  p.shape === 'lathe' || p.shape === 'cylinder' ? p.inside : undefined;
 function lathePrim(
   part: number,
   { at, size }: Box,
   profile: Profile,
   wall = 0,
-  inside?: ItemPart['inside'],
+  inside?: Inside,
 ): Prim {
   const rx = size.w / 2;
   const ry = size.d / 2;
@@ -259,7 +263,7 @@ export function partPrims(p: ItemPart, index: number): Prim[] {
   const minSide = Math.min(p.size.w, p.size.d, p.size.h);
   switch (p.shape) {
     case 'lathe':
-      return [lathePrim(index, box, p.profile ?? CYLINDER, p.wall ?? 0, p.inside)];
+      return [lathePrim(index, box, p.profile, p.wall ?? 0, p.inside)];
     case 'cylinder':
       return [lathePrim(index, box, CYLINDER, p.wall ?? 0, p.inside)];
     case 'cone': {
@@ -293,11 +297,11 @@ export function partPrims(p: ItemPart, index: number): Prim[] {
     case 'rbox':
       return [rboxPrim(index, box, (p.radius ?? 0.1) * minSide)];
     case 'extrude':
-      return [extrudePrim(index, box, p.outline ?? [], (p.radius ?? 0) * minSide)];
+      return [extrudePrim(index, box, p.outline, (p.radius ?? 0) * minSide)];
     case 'blob':
       return [blobPrim(index, box, p.rough ?? 0.4)];
     case 'tube': {
-      const control = (p.path ?? []).map((q): V3 => [
+      const control = p.path.map((q): V3 => [
         p.at.x + q.x * p.size.w,
         p.at.y + q.y * p.size.d,
         p.at.z + q.z * p.size.h,
@@ -601,9 +605,9 @@ export function voxelize(
       prim.zone?.(x, y, z, [normals[k * 3]!, normals[k * 3 + 1]!, normals[k * 3 + 2]!]) ?? 0;
     const hex =
       zone === 2
-        ? part.inside!.liquid!
+        ? insideOf(part)!.liquid!
         : zone === 1
-          ? (part.inside?.wall ?? part.color)
+          ? (insideOf(part)?.wall ?? part.color)
           : paintAt(part, x, y, z, normals[k * 3 + 2]!);
     let c = lab(hex);
     const material = zone === 2 ? 'gloss' : (part.material ?? 'matte');

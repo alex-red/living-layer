@@ -102,11 +102,14 @@ export function toSculpt(item: IsoItem): SculptPart[] {
       size: p.size,
       color: p.color,
       material: p.material ?? 'matte',
-      profile: p.profile ?? null,
-      path: p.path ?? null,
-      outline: p.outline ?? null,
-      radius: p.radius ?? null,
-      rough: p.rough ?? null,
+      profile: p.shape === 'lathe' ? p.profile : null,
+      path: p.shape === 'tube' ? p.path : null,
+      outline: p.shape === 'extrude' ? p.outline : null,
+      radius:
+        p.shape === 'rbox' || p.shape === 'tube' || p.shape === 'extrude'
+          ? (p.radius ?? null)
+          : null,
+      rough: p.shape === 'blob' ? (p.rough ?? null) : null,
       bands:
         p.paint?.flatMap((q) =>
           q.kind === 'band' ? [{ from: q.from, to: q.to, color: q.color }] : [],

@@ -83,7 +83,8 @@ export function fitGroup(
   };
   const allowed = outside(alone) + 1e-6;
   const score = (s: IsoScene) => {
-    const pic = renderRoom(camera, sceneSolids(s), { labels: true });
+    // Read at once and kept nowhere, so it borrows the buffers (`rest` above must outlive it).
+    const pic = renderRoom(camera, sceneSolids(s), { labels: true, scratch: true });
     let both = 0;
     let drawn = 0;
     for (let i = 0; i < pic.ids.length; i++) {
