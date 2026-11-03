@@ -56,7 +56,7 @@ interface FitScore {
   /** Mean OKLab colour error inside both, times 100. */
   deltaE: number;
 }
-interface FitOutput {
+export interface FitOutput {
   item: IsoItem;
   params: ArchetypeFit;
   archetype: Archetype;
