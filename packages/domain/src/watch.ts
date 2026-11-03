@@ -190,11 +190,11 @@ export function watchStep(
   }
   const motion = frameMotion(thing.track.previous, frame, around(thing.track.box));
   const stillSteps = motion > LOCAL_TRACK.motionShare ? 0 : thing.track.stillSteps + 1;
-  const quiet =
+  const held =
     (thing.status === 'following' || thing.status === 'entangled') &&
     !thing.track.lostSteps &&
-    stillSteps > 0 &&
-    stillSteps % WATCH.recheckSteps !== 0;
+    stillSteps > 0;
+  const quiet = held && stillSteps % WATCH.recheckSteps !== 0;
   // Lost, and already searching the whole frame: an unchanged frame can't show it anywhere.
   // Fewer changed pixels than a quarter of the thing is unchanged; a share of the whole
   // frame would miss a mug put back, which covers about 0.2% of it.
@@ -204,11 +204,12 @@ export function watchStep(
     searchedAll &&
     frameMotion(thing.track.previous, frame, WHOLE) * frame.width * frame.height < (tw * th) / 4;
   const lostSteps = thing.track.lostSteps + 1;
-  const step = quiet
-    ? {
-        track: { ...thing.track, previous: frame, motion, stillSteps, velocity: { x: 0, y: 0 } },
-        verdict: 'follow' as const,
-      }
+  const keep = {
+    track: { ...thing.track, previous: frame, motion, stillSteps, velocity: { x: 0, y: 0 } },
+    verdict: 'follow' as const,
+  };
+  const matched = quiet
+    ? keep
     : unchanged
       ? {
           track: { ...thing.track, previous: frame, motion, stillSteps, lostSteps },
@@ -222,6 +223,9 @@ export function watchStep(
           quietSteps,
           exclude,
         });
+  // A recheck with nothing moving around it can't have lost it: a white mug on a plain
+  // desk often matches the place beside it about as well, and that alone isn't a loss.
+  const step = held && matched.track.lostSteps ? keep : matched;
   const track = step.track;
   const settled = track.stillSteps >= quietSteps;
   if (track.lostSteps) {

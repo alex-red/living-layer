@@ -27,6 +27,7 @@ import {
   prototypeOf,
   sightingSpot,
   startLocalTrack,
+  stepLocalTrack,
   watchStep,
   watchThing,
   missed,
@@ -143,6 +144,20 @@ describe('watching one thing', () => {
     expect(r.places.indexOf(true)).toBeGreaterThanOrEqual(WATCH.quietSteps - 1);
     expect(r.thing.layer).toBe('local');
     expect(r.thing.track.box.x).toBeCloseTo(110 / W, 2);
+  });
+  it('keeps a still thing through a recheck that can’t tell it from its neighbour', () => {
+    // A twin beside it: the once-a-second match can't say which is which.
+    const twins = scene(30, 40);
+    const texture = noise(7);
+    for (let j = 0; j < 24; j++)
+      for (let i = 0; i < 20; i++) twins.data[(40 + j) * W + 54 + i] = 120 + (texture() >> 1);
+    const thing = { ...start(), track: { ...start().track, previous: twins } };
+    expect(stepLocalTrack(thing.track, twins, null).track.lostSteps).toBe(1);
+    // Nothing moves around it, so it is still there.
+    const r = run(thing, Array(WATCH.recheckSteps + 2).fill(twins));
+    expect(r.thing.status).toBe('following');
+    expect(r.thing.track.lostSteps).toBe(0);
+    expect(r.refinds).toBe(0);
   });
   it('follows a thing found again where it is now, and judges its zones at once', () => {
     // Learned with the desk around it, as an outline drawn loosely is.

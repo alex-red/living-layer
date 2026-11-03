@@ -129,6 +129,8 @@ export interface WatcherDeps {
 }
 
 const WHOLE: UnitBox = { x: 0, y: 0, width: 1, height: 1 };
+/** How long a close look's finding stands in for another before a zone judgement, ms. */
+const CLOSE_FRESH_MS = 3000;
 /** The smallest box holding all of these. */
 function unionOf(boxes: UnitBox[]): UnitBox {
   const x = Math.min(...boxes.map((b) => b.x));
@@ -167,6 +169,8 @@ export class Watcher {
   private prototypes = new Map<string, Float32Array[]>();
   /** Each thing's own patches up close, from the same sightings: what a candidate place is checked against. */
   private templates = new Map<string, PatchTemplate[]>();
+  /** Where a close look last found each thing, and when. */
+  private closeSeen = new Map<string, { box: UnitBox; at: number }>();
   private listeners = new Set<(view: WatchView) => void>();
   private checking = false;
   private pending: { id: string; ask: 'reanchor' }[] = [];
@@ -584,6 +588,7 @@ export class Watcher {
     this.source = null;
     this.things.clear();
     this.boxOnly.clear();
+    this.closeSeen.clear();
     this.motionAt.clear();
     this.occupancy.clear();
     this.pending = [];
@@ -864,6 +869,11 @@ export class Watcher {
           box: appearanceSure(match) ? outOfRegion(match.box, region) : null,
         });
       }
+      // The grey frame of the still it was found in, not the newest: picked up meanwhile, the
+      // newest would give it a template of the empty desk, matched perfectly from then on.
+      const seen = matches.some((m) => m.box)
+        ? await lumaOf(shot.png, this.lastFrame?.height)
+        : undefined;
       for (const { id, box } of matches) {
         if (!box) continue;
         const clash = matches.some(
@@ -871,7 +881,8 @@ export class Watcher {
         );
         const thing = this.things.get(id);
         if (clash || !thing) continue;
-        this.things.set(id, refound(thing, box, this.lastFrame ?? undefined));
+        this.things.set(id, refound(thing, box, seen));
+        this.closeSeen.set(id, { box, at: this.now });
         found.add(id);
       }
       this.stats.refinds += found.size;
@@ -957,9 +968,14 @@ export class Watcher {
   private async closeCheck(id: string, thing: WatchThing): Promise<UnitBox | null> {
     const templates = this.templates.get(id);
     if (!this.model || !this.source || !templates?.length) return thing.track.box;
+    // Just found there by a close look: no second one.
+    const seen = this.closeSeen.get(id);
+    if (seen && this.now - seen.at < CLOSE_FRESH_MS && boxIoU(seen.box, thing.track.box) >= 0.8)
+      return thing.track.box;
     const shot = await this.source.snapshot();
     const look = await this.closeLook(shot, thing.track.box, templates);
     if (look.score >= APPEARANCE.closeMinScore) {
+      this.closeSeen.set(id, { box: look.box, at: this.now });
       const now = this.things.get(id);
       if (now) this.things.set(id, { ...now, track: { ...now.track, box: look.box } });
       return look.box;
