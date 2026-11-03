@@ -44,6 +44,17 @@ What isn't obvious from the code. [CONTRIBUTING.md](CONTRIBUTING.md) has setup, 
 - Fits and room renders run in Bun Workers (`COMPUTE_WORKERS`). Tests run them in place, so a worker-only bug only shows in the running server.
 - The server deletes evidence older than `EVIDENCE_RETENTION_DAYS` (30) at startup and daily. A probe or bench that needs an old run should copy what it needs or set it to 0.
 
+## The AI brush's ops
+
+A new thing the brush can do is an op, and an op touches the same places every time. `tests/op-coverage.test.ts` fails until the case or the gap is in.
+
+1. **The op.** A recipe op (a model's parts) goes in `RECIPE_OPS` (`recipe-ops.ts`) with its schema, apply function and line. Anything else is an intent op in `intent.ts`: `INTENT_KINDS`, its line in `INTENT_ABOUT`, its typed shape in `IntentOp`, any new flat fields in `sparkIntentSchema` (null when unused; add them to the `op()` helper in `demo-intent.ts` and the tests' `empty`), and its checks in `readOp`. Spark's prompt lists it from these registries, so don't edit the prompt for it.
+2. **The demo.** A pattern in `demoIntent` (`apps/server/src/demo-intent.ts`) that answers in Spark's shape, or a reason in `DEMO_GAPS` (`scripts/lib/intent-cases.ts`).
+3. **Cases.** One case in `INTENT_CASES` that it does, and one where `readIntent` asks back, then `bun run bench:intent`.
+4. **Doing it.** A step in `finishDraft` (`apps/server/src/assist.ts`) if it builds or changes something there, and what saving does in `/api/assist/save`. Any new draft field goes in `AssistDraft` (`packages/domain/src/assist.ts`).
+5. **The review.** What the panel says about it in `Brush.tsx`, and a suggestion when it fits the target.
+6. **Check it end to end** with `bun run brush --around <group> "…"` (offline, in the demo). The brush's MCP server (`bun run mcp`) lists the ops from the same registries.
+
 ## Look before and after
 
 These run in seconds and need no server. Their output goes to `out/` (ignored).

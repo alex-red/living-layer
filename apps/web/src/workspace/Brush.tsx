@@ -200,9 +200,16 @@ function suggestions(
   editing: boolean,
   label: string | null,
   recipe: FixtureRecipe | null,
+  /** The furniture the selection stands on, when it stands on some. */
+  holder: string | null = null,
 ): string[] {
   const it = label ? `the ${inSentence(label)}` : 'it';
-  if (!editing) return [`Make ${it} its own fixture`, `Model ${it} as its own furniture`];
+  if (!editing)
+    return [
+      ...(holder ? [`Make a variant of the ${inSentence(holder)} that’s occupied`] : []),
+      `Make ${it} its own fixture`,
+      `Model ${it} as its own furniture`,
+    ];
   // Its own parts, when there is a draft to name them; the largest first.
   const parts = [...(recipe?.parts ?? [])]
     .sort((a, b) => b.sizeCm.w * b.sizeCm.d * b.sizeCm.h - a.sizeCm.w * a.sizeCm.d * a.sizeCm.h)
@@ -235,6 +242,8 @@ export function BrushPanel({ brush, busy }: { brush: Brush; busy: boolean }) {
   const target = d?.target ?? resolved?.target ?? null;
   const runnerUp = resolved?.ambiguous ? resolved.candidates[1]?.target : null;
   const recipe = d?.recipe ?? null;
+  const variant = d?.variant ?? null;
+  const holder = resolved?.related.find((r) => r.relation === 'holds')?.target ?? null;
   // A model to edit: the draft's, or one the selected thing already has.
   const editing = Boolean(recipe) || Boolean(!d && resolved?.hasModel);
   const submit = (text = prompt) => {
@@ -293,6 +302,16 @@ export function BrushPanel({ brush, busy }: { brush: Brush; busy: boolean }) {
                   )}
                 </div>
               </div>
+              {variant && (
+                <p className="micro">
+                  The {inSentence(variant.label)} {variant.state.replace(/-/g, ' ')}
+                  {variant.occupant
+                    ? `, with the ${inSentence(variant.occupant.label)} where the camera sees it`
+                    : ''}
+                  : kept beside its own model.
+                  {variant.follows ? ' Shown while its Occupied stat is on.' : ''}
+                </p>
+              )}
               {d.check && <p className="micro">{d.check.report}</p>}
               {d.disagreement.map((x) => (
                 <p key={x.axis} className="micro brush-warn">
@@ -331,11 +350,11 @@ export function BrushPanel({ brush, busy }: { brush: Brush; busy: boolean }) {
               <Button
                 variant="primary"
                 size="sm"
-                busy={working === 'save' ? 'Putting it in…' : undefined}
+                busy={working === 'save' ? (variant ? 'Keeping it…' : 'Putting it in…') : undefined}
                 disabled={busy || Boolean(working)}
                 onClick={() => void brush.save()}
               >
-                Put in the room
+                {variant ? 'Keep the variant' : 'Put in the room'}
               </Button>
               <Button size="sm" variant="text" onClick={brush.clear}>
                 Discard
@@ -383,7 +402,7 @@ export function BrushPanel({ brush, busy }: { brush: Brush; busy: boolean }) {
       </form>
       {!d?.question && (
         <div className="brush-suggest">
-          {suggestions(editing, target?.label ?? null, recipe).map((s) => (
+          {suggestions(editing, target?.label ?? null, recipe, holder?.label ?? null).map((s) => (
             <Button
               key={s}
               size="sm"

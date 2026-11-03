@@ -65,6 +65,14 @@ export interface IsoProp {
   form?: PropForm;
   /** A model as data instead of a form (see recipe.ts); drawn in place of `form`. */
   recipe?: FixtureRecipe;
+  /**
+   * Named variants of its recipe (the cat tree `occupied`), its own model
+   * kept as `base`; `recipe` is the one drawn now, `state` its name.
+   */
+  states?: Record<string, FixtureRecipe>;
+  state?: string;
+  /** A variant shown while one of its stats is on: `occupied` shows that variant, empty the base. */
+  follows?: { stat: 'occupied'; state: string };
   /** Quarter turns clockwise from the model's own facing. */
   turns?: number;
   /** Its draw layer, shared by its group: higher is drawn over lower where they meet. */
@@ -298,6 +306,18 @@ const isoPropSchema = z
       .optional(),
     form: z.enum(PROP_FORMS).optional(),
     recipe: fixtureRecipeSchema.optional(),
+    states: z
+      .record(z.string().regex(/^[a-z0-9-]{1,24}$/), fixtureRecipeSchema)
+      .refine((s) => Object.keys(s).length <= 8, { message: 'At most 8 variants.' })
+      .optional(),
+    state: z
+      .string()
+      .regex(/^[a-z0-9-]{1,24}$/)
+      .optional(),
+    follows: z
+      .object({ stat: z.literal('occupied'), state: z.string().regex(/^[a-z0-9-]{1,24}$/) })
+      .strict()
+      .optional(),
     turns: z.number().int().min(0).max(3).optional(),
     /** Its draw layer, shared by its group: higher is drawn over lower where they meet. */
     layer: layerSchema.optional(),

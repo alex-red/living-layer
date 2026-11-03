@@ -90,6 +90,9 @@ describe('readIntent', () => {
     as: null,
     control: null,
     question: null,
+    subject: null,
+    occupant: null,
+    state: null,
   };
   const ctx = {
     target: { kind: 'fixture' as const, id: 'f1', label: 'Desk' },

@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { Detection, Segmentation } from './api.js';
 import type { IsoBox, IsoScene, Point } from './iso.js';
+import { ridersOf } from './iso-templates.js';
 import { fillRings, maskBits, newBits, type Bits } from './photo-scene.js';
 import type { RoomCamera } from './room-camera.js';
 import { floorSolid, renderRoom, sceneSolids, type RoomPicture } from './room-render.js';
@@ -201,6 +202,59 @@ export function resolveSelection(
     candidates: [...whole, ...scores.filter((s) => s.covered < MIN_COVERED).sort(order)],
     ambiguous: Boolean(best && whole[1] && whole[1].fills >= best.fills * CLOSE),
   };
+}
+
+/**
+ * Another thing as it stands to the selected one, so a request can be about
+ * both ("make a variant of the tree that's occupied", the cat selected).
+ * `holds`: the selected thing stands on it. `on`: it stands on the selected thing.
+ */
+export interface RelatedThing {
+  target: SelectionTarget;
+  relation: 'holds' | 'on';
+  /** The surface between them (`cat-tree:platform-2`), when one is known. */
+  surfaceId: string | null;
+}
+/** How a request names a thing: `prop:desk`, `fixture:<id>`. */
+export const thingRef = (t: Pick<SelectionTarget, 'kind' | 'id'>) => `${t.kind}:${t.id}`;
+
+/**
+ * What the selected thing stands on and what stands on it, read from the
+ * scene's surfaces (where each fixture stands) and its groups' riders, not
+ * from pixels: a cat on a cat tree overlaps the tree in the frame either way.
+ * `fixtures` stand where the room's own view puts them.
+ */
+export function relatedTargets(
+  scene: IsoScene,
+  fixtures: { id: string; label: string; surfaceId: string | null }[],
+  target: SelectionTarget | null,
+  labels: Map<string, string>,
+): RelatedThing[] {
+  if (!target || target.kind === 'object') return [];
+  const groupOf = (surfaceId: string | null) => {
+    const s = surfaceId ? scene.surfaces.find((x) => x.id === surfaceId) : undefined;
+    return s ? (scene.props.find((p) => p.id === s.propId)?.group ?? null) : null;
+  };
+  const prop = (g: string): SelectionTarget => ({
+    kind: 'prop',
+    id: g,
+    label: labels.get(g) ?? g,
+  });
+  if (target.kind === 'fixture') {
+    const own = fixtures.find((f) => f.id === target.id);
+    const g = groupOf(own?.surfaceId ?? null);
+    return g ? [{ target: prop(g), relation: 'holds', surfaceId: own!.surfaceId }] : [];
+  }
+  const related: RelatedThing[] = fixtures
+    .filter((f) => groupOf(f.surfaceId) === target.id)
+    .map((f) => ({
+      target: { kind: 'fixture', id: f.id, label: f.label },
+      relation: 'on',
+      surfaceId: f.surfaceId,
+    }));
+  for (const g of ridersOf(scene, target.id))
+    related.push({ target: prop(g), relation: 'on', surfaceId: null });
+  return related;
 }
 
 /** A scene's template groups by id, with the name a person knows each by. */

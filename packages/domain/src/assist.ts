@@ -4,7 +4,7 @@ import type { EditIntent } from './intent.js';
 import type { RecipeCheck, RecipePlace } from './recipe-build.js';
 import type { RecipeOp } from './recipe-ops.js';
 import type { FixtureRecipe } from './recipe.js';
-import type { Resolved, SelectionShape } from './selection.js';
+import type { RelatedThing, Resolved, SelectionShape, SelectionTarget } from './selection.js';
 
 /**
  * What the AI brush's routes answer, shared by the server and the page
@@ -16,6 +16,8 @@ export interface SelectResolve extends Resolved {
   frame: Segmentation['frame'];
   /** The target already has a model to edit (a saved recipe), so edits make sense from the start. */
   hasModel: boolean;
+  /** What the target stands on and what stands on it. */
+  related: RelatedThing[];
 }
 
 /** `POST /api/assist`: an `assist` run's output, a draft for the person to review. */
@@ -58,4 +60,18 @@ export interface AssistDraft {
   check: RecipeCheck | null;
   /** Refinement rounds after the first check, and the ops each applied. */
   rounds: RecipeOp[][];
+  /**
+   * Set when the request makes a variant of a piece of furniture (`add_state`):
+   * `recipe` is then the variant, saved beside the group's own model, not in its place.
+   */
+  variant?: {
+    group: string;
+    label: string;
+    state: string;
+    /** The group's own model, kept as its `base`. */
+    base: FixtureRecipe;
+    occupant: SelectionTarget | null;
+    /** Shown while the group's occupied stat is on, which saving turns on. */
+    follows: boolean;
+  } | null;
 }

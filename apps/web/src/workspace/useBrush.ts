@@ -182,8 +182,11 @@ export function useBrush({
       setMemory(memory);
       // A preset room became the person's own scene to take it: show that one.
       showOwnScene();
+      const v = last.output.variant;
       setMessage(
-        `Put ${last.output.recipe.label} in the room${last.output.place?.replaces ? `, in place of the ${inSentence(last.output.target?.label ?? 'old one')}` : ''}. The Iso view shows it.`,
+        v
+          ? `Kept the ${inSentence(v.label)}’s ${v.state.replace(/-/g, ' ')} variant beside its own model.${v.follows ? ' It shows while the camera sees it occupied.' : ''}`
+          : `Put ${last.output.recipe.label} in the room${last.output.place?.replaces ? `, in place of the ${inSentence(last.output.target?.label ?? 'old one')}` : ''}. The Iso view shows it.`,
       );
       clear();
     } catch (e) {

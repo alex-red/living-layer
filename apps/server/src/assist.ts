@@ -58,6 +58,14 @@ import {
   type Usage,
   type AssistDraft,
   addUsage,
+  groupRecipe,
+  occupantOf,
+  thingRef,
+  variantRecipe,
+  withVariant,
+  type IntentOp,
+  type Occupant,
+  type SelectionTarget,
 } from '@livinglayer/domain';
 import { sparkRefiner } from './build.js';
 import { shapeFromPhoto, type Shaped } from './brush-sculpt.js';
@@ -252,6 +260,7 @@ export async function assistRoutes(
           target: resolved.target,
           recipe: last?.recipe ?? ownRecipe,
           entities: entities(mode),
+          related: room.related(resolved.target),
         };
         let raw;
         if (live) {
@@ -282,6 +291,7 @@ export async function assistRoutes(
           place: last?.place ?? null,
           check: last?.check ?? null,
           rounds: [],
+          variant: last?.variant ?? null,
         };
         if (question) {
           for (const s of ['lookup', 'build', 'shape', 'check'])
@@ -368,6 +378,29 @@ export async function assistRoutes(
       memory = adoptPreset(memory, calibration.scene);
     }
     const before = memory.scene!;
+    if (draft.variant) {
+      // A variant is kept beside the furniture's own model; nothing else in the room moves.
+      const v = draft.variant;
+      const checked = isoSceneSchema.safeParse(
+        withVariant(before, v.group, v.state, draft.recipe, v.base, v.follows),
+      );
+      if (!checked.success)
+        throw new LabError('assist_place', 'The variant doesn’t fit in the room there.', 422);
+      memory.scene = checked.data as IsoScene;
+      if (memory.fixtures) memory.fixtures = settleFixtures(memory.fixtures, memory.scene);
+      if (v.follows) {
+        // Its occupied stat shows the variant: what SAM is asked to see is what sits on it.
+        const id = thingRef({ kind: 'prop', id: v.group });
+        const own = memory.thingStats?.[id] ?? [];
+        if (!own.some((x) => x.key === 'occupied'))
+          memory.thingStats = {
+            ...memory.thingStats,
+            [id]: [...own, { key: 'occupied', concept: occupantOf(v.occupant?.label ?? '') }],
+          };
+      }
+      store.saveMemory(memory);
+      return { memory, group: v.group };
+    }
     const replaced = draft.place.replaces;
     // An edited model keeps its group id, so what refers to it still does; anything else gets one from its name.
     const g =
@@ -665,7 +698,10 @@ export async function finishDraft(
     steps,
     signal,
   }: {
-    room: Pick<ReturnType<typeof selectionRoom>, 'camera' | 'scene'>;
+    room: Pick<ReturnType<typeof selectionRoom>, 'camera' | 'scene'> & {
+      /** A fixture as a variant draws it in; none in a replay. */
+      occupant?: (t: SelectionTarget | null) => Occupant | null;
+    };
     outline: Bits;
     /** SAM's outline of the whole thing, not cut to the selection: what a new model's place is fitted to. */
     whole?: Bits | null;
@@ -687,6 +723,10 @@ export async function finishDraft(
 ): Promise<AssistDraft> {
   const { intent } = draft;
   const targetProp = draft.target?.kind === 'prop' ? draft.target.id : null;
+  const addState = intent.ops.find(
+    (o): o is Extract<IntentOp, { op: 'add_state' }> => o.op === 'add_state',
+  );
+  if (addState) return finishVariant(draft, addState, room, steps);
   steps.run('lookup');
   const create = intent.ops.find((o) => o.op === 'create' || o.op === 'rebase');
   const turns =
@@ -859,7 +899,8 @@ export async function finishDraft(
   // 8. The camera check, and Spark's refinements of a new model not shaped from the photo
   // (never of a size asked for).
   steps.run('check');
-  if (recipe && place && (reshaped || !draft.check)) {
+  // A variant stands where its furniture does: what the selection outlined is what stands on it.
+  if (recipe && place && !draft.variant && (reshaped || !draft.check)) {
     // Only a new model is refined, and never away from a size the person asked for.
     const refine = create && !shaped && !edits.some((o) => o.op === 'resize') ? refiner : null;
     // A refinement that fails (a timeout, an overloaded model) keeps the best model so far; a stop still stops.
@@ -890,7 +931,78 @@ export async function finishDraft(
         best.check.report +
         (failed ? ` Spark’s refinement failed, so it is as built: ${failed}` : ''),
     );
-  } else await steps.done('check', draft.place ? 'Unchanged' : 'Nowhere in the room to check it');
+  } else
+    await steps.done(
+      'check',
+      draft.variant
+        ? 'A variant: drawn where its furniture stands'
+        : draft.place
+          ? 'Unchanged'
+          : 'Nowhere in the room to check it',
+    );
+  return draft;
+}
+
+/**
+ * A variant of a piece of furniture (`add_state`): its own model, or a copy
+ * of its form, with what stands on it drawn in where the camera sees it now,
+ * then the request's edits. Nothing is looked up or shaped: it is the same
+ * furniture in another state, kept beside its model when saved.
+ */
+async function finishVariant(
+  draft: AssistDraft,
+  op: Extract<IntentOp, { op: 'add_state' }>,
+  room: Parameters<typeof finishDraft>[1]['room'],
+  steps: DraftSteps,
+): Promise<AssistDraft> {
+  steps.run('lookup');
+  await steps.done('lookup', 'Not needed');
+  steps.run('build');
+  const g = op.subject.id;
+  const base = groupRecipe(room.scene, g);
+  if (!base)
+    throw new LabError(
+      'assist_op',
+      `The ${op.subject.label} has no model to make a variant of.`,
+      422,
+    );
+  const occupant = op.occupant ? (room.occupant?.(op.occupant) ?? null) : null;
+  if (op.occupant && !occupant)
+    throw new LabError('assist_op', `Couldn’t find where the ${op.occupant.label} is.`, 422);
+  const label = `${base.label} (${op.state.replace(/-/g, ' ')})`.slice(0, 60);
+  const made = variantRecipe(room.scene, g, base, occupant, label);
+  if ('reason' in made) throw new LabError('assist_op', `Couldn’t add_state: ${made.reason}`, 422);
+  let recipe = made.recipe;
+  const edits = draft.intent.ops.filter((o): o is RecipeOp => o.op in RECIPE_OPS);
+  if (edits.length) {
+    const applied = applyRecipeOps(recipe, edits);
+    if (!applied.ok)
+      throw new LabError('assist_op', `Couldn’t ${edits[applied.at]!.op}: ${applied.reason}`, 422);
+    recipe = applied.recipe;
+  }
+  draft.recipe = recipe;
+  draft.place = placeOfGroup(room.scene, g);
+  draft.check = null;
+  draft.variant = {
+    group: g,
+    label: op.subject.label,
+    state: op.state,
+    base,
+    occupant: op.occupant,
+    follows: op.state === 'occupied' && Boolean(op.occupant),
+  };
+  await steps.done(
+    'build',
+    `${op.state} variant of the ${op.subject.label}${occupant ? `, with the ${occupant.label} where the camera sees it` : ''}: ${recipe.parts.length} parts`,
+  );
+  steps.check();
+  for (const s of ['shape', 'check'] as const) {
+    steps.run(s);
+    await steps.done(
+      s,
+      s === 'shape' ? 'Not needed' : 'A variant: drawn where its furniture stands',
+    );
+  }
   return draft;
 }
 

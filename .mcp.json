@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "livinglayer-brush": {
+      "command": "bun",
+      "args": ["scripts/mcp.ts"]
+    }
+  }
+}

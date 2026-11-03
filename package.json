@@ -42,6 +42,7 @@
     "bench:brush": "bun scripts/brush-bench.ts",
     "assist": "bun scripts/assist-replay.ts",
     "brush": "bun scripts/brush.ts",
+    "mcp": "bun scripts/mcp.ts",
     "reset": "bun scripts/reset.ts",
     "room": "bun scripts/room-view.ts",
     "draft": "bun scripts/draft.ts",

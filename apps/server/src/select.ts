@@ -13,6 +13,9 @@ import {
   type Segmentation,
   type Bits,
   followedThings,
+  relatedTargets,
+  type Occupant,
+  type SelectionTarget,
 } from '@livinglayer/domain';
 import { LabError, NOT_CALIBRATED, parseInput, requireCalibration } from './errors.js';
 import type { RouteDeps } from './route-deps.js';
@@ -54,6 +57,29 @@ export function selectionRoom(memory: DeskMemory) {
   for (const f of fixtures) labels.set(`fixture:${f.id}`, f.label);
   const resolve = (mask: Bits) =>
     resolveSelection(mask, picture, labels, trackedObjects(memory, frame));
+  const placed = fixtures.map(inRoomView);
+  /** What the target stands on and what stands on it. */
+  const related = (target: SelectionTarget | null) => relatedTargets(scene, placed, target, labels);
+  /** A fixture as a variant draws it in: where the room's view puts it, in its model's colours. */
+  const occupant = (target: SelectionTarget | null): Occupant | null => {
+    const f = target?.kind === 'fixture' ? placed.find((x) => x.id === target.id) : undefined;
+    if (!f) return null;
+    const own = f.state ? (f.states?.[f.state]?.model ?? f.model) : f.model;
+    return {
+      label: f.label,
+      box: fixtureBox(f, memory.scene),
+      // Its swatches, else its parts' colours, the largest part's first.
+      colors: own.swatches.length
+        ? own.swatches.map((x) => x.hex)
+        : [
+            ...new Set(
+              own.parts
+                .toSorted((a, b) => b.size.w * b.size.d * b.size.h - a.size.w * a.size.d * a.size.h)
+                .map((p) => p.color),
+            ),
+          ],
+    };
+  };
   return {
     calibration,
     camera: calibration.camera,
@@ -61,6 +87,8 @@ export function selectionRoom(memory: DeskMemory) {
     frame,
     picture,
     resolve,
+    related,
+    occupant,
   };
 }
 
@@ -79,6 +107,7 @@ export async function selectRoutes(app: FastifyInstance, { store }: Pick<RouteDe
     const target = resolved.target;
     return {
       ...resolved,
+      related: room.related(target),
       candidates: resolved.candidates.slice(0, MAX_CANDIDATES),
       frame: room.frame,
       hasModel:

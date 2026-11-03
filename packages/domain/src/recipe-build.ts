@@ -1,6 +1,6 @@
 import { clusterColours, deltaE, rgbLab, type Lab } from './color.js';
 import type { ProductFacts } from './facts.js';
-import type { IsoScene } from './iso.js';
+import type { IsoBox, IsoScene, IsoVec } from './iso.js';
 import { archetypeOf, type Archetype } from './iso-archetypes.js';
 import {
   cm,
@@ -470,6 +470,254 @@ export function sceneWithRecipe(
   if (b)
     s = moveGroup(s, g, place.cx - (b.at.x + b.size.w / 2), place.cy - (b.at.y + b.size.d / 2));
   for (const r of riders) s = settleGroup(s, r);
+  return s;
+}
+
+/** The name a group's own model is kept under once it has variants. */
+export const BASE_STATE = 'base';
+/** What stands on a piece of furniture, as a variant draws it in. */
+export interface Occupant {
+  label: string;
+  /** Its box in the scene's tiles, where the room's view puts it now. */
+  box: IsoBox;
+  /** Its model's colours, main first. */
+  colors: string[];
+}
+/** The group's prop that carries its recipe, or its first. */
+const mainProp = (scene: IsoScene, g: string) =>
+  scene.props.find((p) => p.group === g && p.recipe) ??
+  scene.props.find((p) => p.id === g) ??
+  scene.props.find((p) => p.group === g);
+
+/**
+ * A scene point in a placed recipe's own centimetres: from its back-left
+ * corner before it was turned, as its parts are measured. The inverse of how
+ * `sceneWithRecipe` places it: each quarter turn takes (x, y) in a w × d
+ * frame to (d − y, x), so undoing one takes (x, y) to (y, w − x).
+ */
+function inRecipeCm(scene: IsoScene, g: string, recipe: FixtureRecipe, p: IsoVec): IsoVec | null {
+  const b = groupBounds(scene, g);
+  const turns = mainProp(scene, g)?.turns ?? 0;
+  if (!b) return null;
+  let [x, y] = [p.x - b.at.x, p.y - b.at.y];
+  let [fw, fd] = [b.size.w, b.size.d];
+  for (let t = 0; t < turns; t++) {
+    [x, y] = [y, fw - x];
+    [fw, fd] = [fd, fw];
+  }
+  // A prop drawn at another size than its recipe's scales its parts by as much.
+  return {
+    x: (x / fw) * recipe.sizeCm.w,
+    y: (y / fd) * recipe.sizeCm.d,
+    z: ((p.z - b.at.z) / b.size.h) * recipe.sizeCm.h,
+  };
+}
+
+/**
+ * Its own recipe with what stands on it drawn in where the camera sees it
+ * now: a cat curled on the tree's platform. The occupant is a body with a
+ * head, in its own colours, kept inside the model's footprint; the model
+ * grows taller when the occupant sits on its top. Null when it can't be
+ * placed, with why.
+ */
+export function variantRecipe(
+  scene: IsoScene,
+  g: string,
+  base: FixtureRecipe,
+  occupant: Occupant | null,
+  label: string,
+): { recipe: FixtureRecipe } | { reason: string } {
+  if (!occupant) return { recipe: { ...base, label } };
+  if (base.parts.length + 2 > MAX_RECIPE_PARTS)
+    return { reason: `The ${base.label} has too many parts to add the ${occupant.label} to.` };
+  const turns = mainProp(scene, g)?.turns ?? 0;
+  const o = occupant.box;
+  const mid = inRecipeCm(scene, g, base, {
+    x: o.at.x + o.size.w / 2,
+    y: o.at.y + o.size.d / 2,
+    z: o.at.z,
+  });
+  if (!mid) return { reason: `The ${base.label} isn't in the room.` };
+  // Its footprint in the model's own axes, never wider than the model.
+  const [ow, od] = turns % 2 ? [o.size.d, o.size.w] : [o.size.w, o.size.d];
+  const w = Math.min(base.sizeCm.w, Math.max(2, ow * ISO_TILE_CM));
+  const d = Math.min(base.sizeCm.d, Math.max(2, od * ISO_TILE_CM));
+  const h = Math.max(2, o.size.h * ISO_TILE_CM);
+  const x = Math.min(Math.max(0, mid.x - w / 2), base.sizeCm.w - w);
+  const y = Math.min(Math.max(0, mid.y - d / 2), base.sizeCm.d - d);
+  const z = Math.max(0, mid.z);
+  const tall = Math.min(300, Math.max(base.sizeCm.h, z + h));
+  const [body, accent = body] = occupant.colors.length ? occupant.colors : ['#8a8f98'];
+  const round = (v: number) => Math.round(v * 10) / 10;
+  // Lying along its longer side: the body low and long, the head at one end.
+  const long = w >= d;
+  // Curled up, the head lies a little lower than the back.
+  const head = {
+    w: long ? w * 0.36 : w * 0.7,
+    d: long ? d * 0.7 : d * 0.36,
+    h: Math.min(h * 0.75, tall - z),
+  };
+  const parts: RecipePart[] = [
+    {
+      name: 'occupant-body',
+      role: 'body',
+      shape: 'blob',
+      atCm: { x: round(x), y: round(y), z: round(z) },
+      sizeCm: { w: round(w), d: round(d), h: round(Math.min(h, tall - z)) },
+      tone: 'fabric',
+      color: body!,
+      rough: 0.2,
+    },
+    {
+      name: 'occupant-head',
+      role: 'body',
+      shape: 'blob',
+      atCm: {
+        x: round(long ? x + w - head.w : x + (w - head.w) / 2),
+        y: round(long ? y + (d - head.d) / 2 : y + d - head.d),
+        z: round(z),
+      },
+      sizeCm: { w: round(head.w), d: round(head.d), h: round(head.h) },
+      tone: 'fabric',
+      color: accent!,
+      rough: 0.1,
+    },
+  ];
+  const checked = fixtureRecipeSchema.safeParse({
+    ...base,
+    label,
+    sizeCm: { ...base.sizeCm, h: round(tall) },
+    parts: [...base.parts, ...parts],
+  });
+  return checked.success
+    ? { recipe: checked.data }
+    : { reason: checked.error.issues[0]?.message ?? 'The variant doesn’t fit the model.' };
+}
+
+/**
+ * The group's own recipe to make a variant of: the one it carries, or a copy
+ * of its form at the size it stands (`recipeFromForm`), as a first edit makes.
+ */
+export function groupRecipe(scene: IsoScene, g: string): FixtureRecipe | null {
+  const main = mainProp(scene, g);
+  if (!main) return null;
+  if (main.recipe) return main.states?.[BASE_STATE] ?? main.recipe;
+  const b = groupBounds(scene, g);
+  if (!b || !main.form) return null;
+  const [w, d] = (main.turns ?? 0) % 2 ? [b.size.d, b.size.w] : [b.size.w, b.size.d];
+  const round = (v: number) => Math.round(v * ISO_TILE_CM * 10) / 10;
+  return recipeFromForm(main.form, { w: round(w), d: round(d), h: round(b.size.h) }, main.label);
+}
+
+/**
+ * The scene with a variant kept on the group, its own model kept as `base`.
+ * A group drawn from a form is first rebuilt from its recipe in place,
+ * keeping its id, so its surfaces and what stands on them keep theirs.
+ * `follows` shows the variant while the group's occupied stat is on.
+ */
+export function withVariant(
+  scene: IsoScene,
+  g: string,
+  state: string,
+  variant: FixtureRecipe,
+  base: FixtureRecipe,
+  follows: boolean,
+): IsoScene {
+  let s = scene;
+  if (!mainProp(s, g)?.recipe) {
+    const place = placeOfGroup(s, g);
+    if (!place) return scene;
+    s = sceneWithRecipe(s, base, place, g);
+  }
+  const main = mainProp(s, g)!;
+  const states = {
+    ...main.states,
+    [BASE_STATE]: main.states?.[BASE_STATE] ?? main.recipe!,
+    [state]: variant,
+  };
+  return {
+    ...s,
+    props: s.props.map((p) =>
+      p.id === main.id
+        ? { ...p, states, ...(follows ? { follows: { stat: 'occupied' as const, state } } : {}) }
+        : p,
+    ),
+  };
+}
+
+/**
+ * The scene with a group showing one of its variants (`BASE_STATE` for its
+ * own model): its recipe swapped and its box as tall as that one is, at the
+ * same scale. Unchanged when it has no such variant or already shows it.
+ */
+export function showVariant(scene: IsoScene, g: string, state: string): IsoScene {
+  const main = mainProp(scene, g);
+  const next = main?.states?.[state];
+  if (!main?.recipe || !next || (main.state ?? BASE_STATE) === state) return scene;
+  const h = main.size.h * (next.sizeCm.h / main.recipe.sizeCm.h);
+  return {
+    ...scene,
+    props: scene.props.map((p) => {
+      if (p.id !== main.id) return p;
+      const { state: _was, ...rest } = p;
+      return {
+        ...rest,
+        recipe: next,
+        size: { ...p.size, h },
+        ...(state === BASE_STATE ? {} : { state }),
+      };
+    }),
+  };
+}
+
+/** Groups whose variant follows their occupied stat, as stat things are named (`prop:<group>`). */
+export function followingGroups(scene: IsoScene): { id: string; group: string; label: string }[] {
+  return scene.props
+    .filter((p) => p.follows && p.states?.[p.follows.state])
+    .map((p) => ({ id: `prop:${p.group}`, group: p.group, label: p.label }));
+}
+/** Where the camera sees a group, as shares of its frame: the box around its box's corners. */
+export function groupRegion(
+  camera: RoomCamera,
+  scene: IsoScene,
+  g: string,
+): { x: number; y: number; width: number; height: number } | null {
+  const b = groupBounds(scene, g);
+  if (!b) return null;
+  const xs: number[] = [];
+  const ys: number[] = [];
+  for (const dx of [0, b.size.w])
+    for (const dy of [0, b.size.d])
+      for (const dz of [0, b.size.h]) {
+        const p = projectRoom(camera, { x: b.at.x + dx, y: b.at.y + dy, z: b.at.z + dz });
+        if (!p) continue;
+        xs.push(p.x);
+        ys.push(p.y);
+      }
+  if (!xs.length) return null;
+  const { width, height } = camera.frame;
+  const x0 = Math.max(0, Math.min(...xs) / width);
+  const y0 = Math.max(0, Math.min(...ys) / height);
+  const x1 = Math.min(1, Math.max(...xs) / width);
+  const y1 = Math.min(1, Math.max(...ys) / height);
+  return x1 > x0 && y1 > y0 ? { x: x0, y: y0, width: x1 - x0, height: y1 - y0 } : null;
+}
+/**
+ * The scene with each group that follows its occupied stat showing what the
+ * stat says: its variant while occupied, its own model while empty, and as
+ * it is while the stat has no value. The same scene when nothing changes.
+ */
+export function followStats(
+  scene: IsoScene,
+  occupied: (thingId: string) => boolean | null,
+): IsoScene {
+  let s = scene;
+  for (const f of followingGroups(scene)) {
+    const on = occupied(f.id);
+    if (on === null) continue;
+    const follows = mainProp(s, f.group)!.follows!;
+    s = showVariant(s, f.group, on ? follows.state : BASE_STATE);
+  }
   return s;
 }
 

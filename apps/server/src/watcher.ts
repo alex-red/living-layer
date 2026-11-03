@@ -60,6 +60,7 @@ import {
   ruleObjects,
   followedThings,
   mugOf,
+  followStats,
 } from '@livinglayer/domain';
 import type { Appearance } from './appearance.js';
 import type { DeskTracking } from './desk.js';
@@ -214,7 +215,23 @@ export class Watcher {
       ...(deps.now ? { now: deps.now } : {}),
     });
     this.statRunner.confirm = (concept, region) => this.askSeen(concept, region);
-    this.statRunner.subscribe(() => this.emit());
+    this.statRunner.subscribe(() => {
+      this.emit();
+      this.followVariants();
+    });
+  }
+  /** Furniture whose variant follows its occupied stat shows the one the stat says (`followStats`). */
+  private followVariants() {
+    const now = this.statRunner.current();
+    const occupied = (id: string) => {
+      const v = now[id]?.occupied?.value;
+      return typeof v === 'boolean' ? v : null;
+    };
+    const scene = this.memory().scene;
+    if (!scene || followStats(scene, occupied) === scene) return;
+    this.deps.store.updateMemory(this.deps.mode, (m) => {
+      if (m.scene) m.scene = followStats(m.scene, occupied);
+    });
   }
   get mode() {
     return this.deps.mode;
