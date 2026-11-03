@@ -276,3 +276,21 @@ export async function runSteps(steps: ZoneStep[], run: StepRunner): Promise<Step
   if (run.signal.aborted) out.cancelled = true;
   return out;
 }
+
+/**
+ * The colour a zone's steps turn a light, for drawing the zone in it: the
+ * first coloured switch on entering, nested steps included, or null.
+ */
+export function actionsColor(actions: ZoneActions): [number, number, number] | null {
+  const find = (list: ZoneStep[]): [number, number, number] | null => {
+    for (const s of list) {
+      if (s.kind === 'switch' && s.to === 'on' && s.look?.kind === 'color') return s.look.rgb;
+      for (const l of childLists(s)) {
+        const rgb = find(l);
+        if (rgb) return rgb;
+      }
+    }
+    return null;
+  };
+  return find(actions.onEnter);
+}

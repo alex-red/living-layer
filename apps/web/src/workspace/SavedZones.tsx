@@ -1,12 +1,14 @@
-import { MAIN_RULE } from '@livinglayer/domain';
+import type { CSSProperties } from 'react';
+import { MAIN_RULE, actionsColor, ruleActions } from '@livinglayer/domain';
 import { useCamera, useDesk, useLabParts, useNavigation, useView } from './LabContext';
 import './saved-zones.css';
 
 /**
  * Every zone but the main one (which `ZoneLayer` draws), over the photo or
  * the camera's frames, each named and marked when something is in it: a
- * motion zone while it sees motion, any other while it is occupied. The one
- * being changed shows as its draft only.
+ * motion zone while it sees motion, any other while it is occupied. A zone
+ * whose steps turn a light a colour is drawn in it. The one being changed
+ * shows as its draft only.
  */
 export function SavedZones() {
   const lab = useLabParts(useView(), useCamera(), useDesk(), useNavigation());
@@ -27,8 +29,13 @@ export function SavedZones() {
         const { x, y, width, height } = r.zone.rect;
         const on = r.placement === 'inside';
         const state = r.motion ? (on ? 'MOTION' : 'STILL') : on ? 'OCCUPIED' : 'EMPTY';
+        const rgb = actionsColor(ruleActions(r));
         return (
-          <g key={r.id} className={`saved-zone ${r.motion ? 'motion' : ''} ${on ? 'on' : ''}`}>
+          <g
+            key={r.id}
+            className={`saved-zone ${r.motion ? 'motion' : ''} ${on ? 'on' : ''}`}
+            style={rgb ? ({ '--zone': `rgb(${rgb.join(' ')})` } as CSSProperties) : undefined}
+          >
             <rect
               x={x * size.width}
               y={y * size.height}

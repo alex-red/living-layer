@@ -1,5 +1,6 @@
 import { describe, expect, it, mock } from 'bun:test';
 import {
+  actionsColor,
   inTimeWindow,
   ruleActions,
   runSteps,
@@ -9,6 +10,7 @@ import {
   type DeskMemory,
   type EvidenceRun,
   type LampResult,
+  type LightLook,
   type Segmentation,
   type ZoneStep,
 } from '@livinglayer/domain';
@@ -117,6 +119,29 @@ describe('zone steps', () => {
     expect(ruleActions({ entityId: null })).toEqual({ onEnter: [], onLeave: [] });
     const actions = { onEnter: [{ kind: 'wait', seconds: 1 } as const], onLeave: [] };
     expect(ruleActions({ entityId: null, actions })).toBe(actions);
+  });
+
+  it('takes a zone’s colour from the first coloured light it turns on', () => {
+    const pink: LightLook = { kind: 'color', rgb: [255, 105, 180], brightness: 80 };
+    expect(
+      actionsColor({
+        onEnter: [
+          { kind: 'switch', entityId: 'light.a', to: 'on', look: { kind: 'warm', brightness: 50 } },
+          {
+            kind: 'repeat',
+            times: 2,
+            steps: [{ kind: 'switch', entityId: 'light.b', to: 'on', look: pink }],
+          },
+        ],
+        onLeave: [],
+      }),
+    ).toEqual([255, 105, 180]);
+    expect(
+      actionsColor({
+        onEnter: [],
+        onLeave: [{ kind: 'switch', entityId: 'light.a', to: 'on', look: pink }],
+      }),
+    ).toBeNull();
   });
 
   it('keeps a zone to a few shallow steps', () => {

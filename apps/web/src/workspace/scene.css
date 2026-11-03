@@ -288,16 +288,15 @@
   touch-action: none;
 }
 .zone-overlay rect {
+  /* Every zone is a dashed outline over a faint wash, as saved-zones.css draws the others. */
   fill: var(--chosen-wash);
   stroke: var(--chosen);
   stroke-width: 1.5px;
+  stroke-dasharray: 5 4;
   vector-effect: non-scaling-stroke;
-  filter: drop-shadow(0 0 12px var(--chosen-glow));
-  transition: stroke-dasharray var(--t-slow) var(--ease-out);
 }
 .zone-overlay.drawing rect {
   stroke-dasharray: 6 5;
-  filter: none;
 }
 /* Occupied: the thing stands in the zone by the last check. */
 .zone-overlay.inside rect {

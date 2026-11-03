@@ -1,4 +1,8 @@
-/* Zones beyond the main one over the picture: quiet until something is in them. */
+/*
+ * Zones beyond the main one over the picture: a dashed outline over a faint
+ * wash in the zone's colour (its light's, when its steps set one), stronger
+ * while something is in it.
+ */
 .saved-zones {
   position: absolute;
   inset: 0;
@@ -7,37 +11,33 @@
   height: 100%;
   pointer-events: none;
 }
+.saved-zone {
+  --zone: var(--chosen);
+}
+.saved-zone.motion {
+  --zone: var(--seen);
+}
 .saved-zone rect {
-  fill: none;
-  stroke: var(--chosen);
+  fill: color-mix(in srgb, var(--zone) 12%, transparent);
+  stroke: var(--zone);
   stroke-width: 1.5px;
   stroke-dasharray: 5 4;
   vector-effect: non-scaling-stroke;
   transition:
     fill var(--t-fast) var(--ease-out),
-    stroke var(--t-fast) var(--ease-out);
-}
-.saved-zone.motion rect {
-  stroke: var(--seen);
+    stroke-width var(--t-fast) var(--ease-out);
 }
 .saved-zone.on rect {
-  fill: var(--warm-wash);
-  stroke: var(--warm);
-  stroke-dasharray: none;
-  filter: drop-shadow(0 0 8px var(--warm-glow));
+  fill: color-mix(in srgb, var(--zone) 28%, transparent);
+  stroke-width: 2.5px;
+  filter: drop-shadow(0 0 8px color-mix(in srgb, var(--zone) 50%, transparent));
 }
 .saved-zone text {
   font-family: var(--mono);
   font-weight: 500;
   letter-spacing: 0.08em;
-  fill: var(--chosen);
+  fill: var(--zone);
   paint-order: stroke;
   stroke: rgb(10 12 18 / 75%);
   stroke-width: 4px;
-}
-.saved-zone.motion text {
-  fill: var(--seen);
-}
-.saved-zone.on text {
-  fill: var(--warm);
 }
