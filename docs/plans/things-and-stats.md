@@ -1,6 +1,6 @@
 # Plan: things and their stats
 
-Status: not started. Waits for [multi-tracking.md](multi-tracking.md)'s work in progress (`watch.ts`, `tracker.ts`, `assign.ts`, `desk.ts`, `watcher.ts`) to be committed, since phase 2 changes the same files.
+Status: phases 1, 3 and 4 built (November 3; see _As built_ below); phase 2, [one Thing](one-thing.md), not started: it waits for the November 4 submission.
 
 A person wants to know what the things in a room are doing, not only where they are: when the mug was last drunk from, whether the monitor is on, how much the mouse was used today, whether the cat is on its tree. Each of those is a **stat**: a small typed value about one thing, worked out from the camera or from Home Assistant, kept as a history, and shown on the thing's card, over it in the room, over the live camera and in Home Assistant.
 
@@ -129,6 +129,20 @@ In detail: [one-thing.md](one-thing.md).
 ### Phase 4: everywhere
 
 - Room badges, the camera overlay, the `stat` expose source.
+
+## As built
+
+Where it differs from the above, and what is left:
+
+- **Looks live in `settings`**, not in desk memory: `look:<mode>:<thing>:<stat>:<look>`, a power look as its mean and contrast, an empty look as the zones' empty looks are kept (`lookText`, `readLook`, shared with the watcher). Memory keeps only `thingStats`, each thing's switched-on stats (`thingStatSchema`: key, `samConfirm`, `concept`).
+- **Regions.** A followed thing's is its tracked box. An unfollowed fixture's is `fixtureInFrame` (its last sighting, else its box through the pin), not `propSolids` through the room camera; the mug and other objects use their last sighting. The overlay gets an unfollowed thing's region as `StatNow.region`.
+- **Feature patches aren't shared**: occupied embeds its own region on its 3 s tick, as the zones' occupancy does.
+- **Activity** is a running average over about a minute, not a share of a kept window: a minute of steady motion reads about two thirds.
+- **The history route** is `GET /api/things/:mode/:id/stats?days=7`. Stat values ride on the watch stream as `WatchView.stats`, and on `ExposeWatch.stats` for Home Assistant.
+- **Stale.** While nobody watches, a camera stat keeps its last value marked `stale`, and isn't counted towards today; an entity's is.
+- **Promoting a prop** (`promoteGroup`, `promote.ts`; _Make it a thing_ in the layout editor) converts the layout's model to item parts through the sculpt format, keeping the 12 biggest: a bookcase keeps its frame and few of its books. A later scan doesn't yet know the thing replaced its prop, and may draw the prop again.
+- **The cat tree** is a fixture starter (`catTreeItem`, 50 × 50 × 120 cm), not a `FURNITURE_SPECS` template: what keeps stats is a thing, so a starter is what it needs.
+- **Not done:** `bench:track`'s stats column and marked `<clip>.stats.json` intervals; the demo monitor's lit screen; room badges on the room's picture (`IllustrationView`), which draw on the model view only; checking the card, badges and overlay in the running app and in `bun run browser`.
 
 ## Open questions
 
