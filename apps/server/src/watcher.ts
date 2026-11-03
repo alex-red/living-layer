@@ -72,7 +72,7 @@ import {
 import type { Appearance } from './appearance.js';
 import type { DeskTracking } from './desk.js';
 import { LabError, parseInput, safeError } from './errors.js';
-import { DemoSource, FfmpegSource, lumaOf, type FrameSource } from './frames.js';
+import { DemoSource, FfmpegSource, LUMA_FPS, lumaOf, type FrameSource } from './frames.js';
 import { StatRunner, lookText, readLook } from './stats.js';
 import type { EvidenceStore } from './store.js';
 import type { NetworkStream } from './streams.js';
@@ -441,7 +441,7 @@ export class Watcher {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
   }
-  /** Tell the lab, at most a few times a second while frames stream in. */
+  /** Tell the lab, at most once a frame (10 a second) while frames stream in. */
   private emit(now = false) {
     if (now) {
       if (this.emitTimer) clearTimeout(this.emitTimer);
@@ -452,7 +452,7 @@ export class Watcher {
       return;
     }
     if (!this.listeners.size) return;
-    this.emitTimer ??= setTimeout(() => this.emit(true), 200);
+    this.emitTimer ??= setTimeout(() => this.emit(true), 1000 / LUMA_FPS);
   }
   private say(state: WatchView['state'], note: string) {
     this.state = state;
