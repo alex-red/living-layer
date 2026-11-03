@@ -1,3 +1,4 @@
+import { cross, dot, sub, unit, type Vec3 } from './math.js';
 import { z } from 'zod';
 import { pointSchema, type IsoVec, type Point } from './iso.js';
 import { cm } from './iso-furniture.js';
@@ -24,8 +25,6 @@ export interface RoomCamera {
   /** The room's floor, in tiles. */
   room: { w: number; d: number };
 }
-type Vec3 = [number, number, number];
-
 const vec3 = z.tuple([z.number().finite(), z.number().finite(), z.number().finite()]);
 export const roomCameraSchema = z
   .object({
@@ -41,17 +40,7 @@ export const roomCameraSchema = z
     position: vec3,
     room: z.object({ w: z.number().min(2).max(16), d: z.number().min(2).max(16) }).strict(),
   })
-  .strict();
-
-const dot = (a: Vec3, b: Vec3) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-const sub = (a: Vec3, b: Vec3): Vec3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
-const scale = (a: Vec3, s: number): Vec3 => [a[0] * s, a[1] * s, a[2] * s];
-const cross = (a: Vec3, b: Vec3): Vec3 => [
-  a[1] * b[2] - a[2] * b[1],
-  a[2] * b[0] - a[0] * b[2],
-  a[0] * b[1] - a[1] * b[0],
-];
-const unit = (a: Vec3): Vec3 => scale(a, 1 / Math.hypot(...a));
+  .strict() satisfies z.ZodType<RoomCamera>;
 
 /** A point in the camera's own axes: x right, y down, z forward. */
 export function toCamera(c: RoomCamera, { x, y, z }: IsoVec): Vec3 {
@@ -64,10 +53,8 @@ export function projectRoom(c: RoomCamera, p: IsoVec): Point | null {
   if (z <= 1e-6) return null;
   return { x: (c.f * x) / z + c.cx, y: (c.f * y) / z + c.cy };
 }
-/** How far in front of the camera a point is, along its view. */
-export const roomDepth = (c: RoomCamera, p: IsoVec) => toCamera(c, p)[2];
 /** The ray a pixel sees, in room coordinates: from the camera, not of unit length. */
-export function pixelRay(c: RoomCamera, { x, y }: Point): Vec3 {
+function pixelRay(c: RoomCamera, { x, y }: Point): Vec3 {
   const u = (x - c.cx) / c.f;
   const v = (y - c.cy) / c.f;
   return [0, 1, 2].map((k) => c.right[k]! * u + c.down[k]! * v + c.forward[k]!) as Vec3;
@@ -121,7 +108,7 @@ export function lookAt(
 }
 
 /** Typical corner cameras: a wide lens, mounted 2.4 m up, 10 cm in from each wall. */
-export const CORNER_DEFAULTS = { heightCm: 240, insetCm: 10, hfovDeg: 90 } as const;
+const CORNER_DEFAULTS = { heightCm: 240, insetCm: 10, hfovDeg: 90 } as const;
 const focalOf = (width: number, hfovDeg: number) => width / 2 / Math.tan((hfovDeg * Math.PI) / 360);
 
 /**
@@ -185,13 +172,13 @@ export interface VerticalMark {
   a: Point;
   b: Point;
 }
-export const verticalMarkSchema = z.object({ a: pointSchema, b: pointSchema }).strict();
+const verticalMarkSchema = z.object({ a: pointSchema, b: pointSchema }).strict();
 export interface HeightMark {
   foot: Point;
   top: Point;
   cm: number;
 }
-export const heightMarkSchema = z
+const heightMarkSchema = z
   .object({ foot: pointSchema, top: pointSchema, cm: z.number().min(5).max(400) })
   .strict();
 export const roomMarksSchema = z
@@ -283,7 +270,7 @@ function minimise(f: (x: number[]) => number, start: number[], steps: number[], 
 }
 
 /** How a calibration turned out. */
-export interface RoomFit {
+interface RoomFit {
   camera: RoomCamera;
   /** Root mean square distance of the marks from where the camera draws them, in pixels. */
   error: number;
@@ -666,7 +653,7 @@ export function marksFromFloor(
  * change some edges but leave the room's lined up; a camera knocked aside
  * lines them up better at another offset, or not at all.
  */
-export const CAMERA_CHECK = {
+const CAMERA_CHECK = {
   /** Thumbnail width, in pixels. */
   width: 80,
   /** Thumbnail height at most, in pixels: it is stored in one byte. */

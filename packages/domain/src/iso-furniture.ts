@@ -1,3 +1,4 @@
+import { bezier, type Vec3 } from './math.js';
 import type { IsoBox, IsoProp, IsoSize, IsoTone, IsoVec } from './iso.js';
 import type { ItemMaterial } from './iso-item.js';
 import type { FixtureRecipe } from './recipe.js';
@@ -179,7 +180,7 @@ export const FURNITURE_SPECS = {
   jar: { heightCm: 12 },
   carton: { heightCm: 24 },
 } satisfies Record<PropForm, { heightCm: number } & Record<string, number | boolean>>;
-export type FurnitureSpecs = typeof FURNITURE_SPECS;
+type FurnitureSpecs = typeof FURNITURE_SPECS;
 export type FurnitureOverrides = { [F in PropForm]?: Partial<FurnitureSpecs[F]> };
 
 let overrides: FurnitureOverrides = {};
@@ -730,14 +731,11 @@ export function propModel(
 }
 /** A point on a Bézier curve of 2 to 4 control points. */
 function bezierAt(p: IsoVec[], t: number): IsoVec {
-  let pts = p;
-  while (pts.length > 1)
-    pts = pts.slice(1).map((q, i) => ({
-      x: pts[i]!.x + (q.x - pts[i]!.x) * t,
-      y: pts[i]!.y + (q.y - pts[i]!.y) * t,
-      z: pts[i]!.z + (q.z - pts[i]!.z) * t,
-    }));
-  return pts[0]!;
+  const [x, y, z] = bezier(
+    p.map((q): Vec3 => [q.x, q.y, q.z]),
+    t,
+  );
+  return { x, y, z };
 }
 /** Segments a tube is shown to a camera in: enough that a leaning post reads as a post. */
 const TUBE_SEGMENTS = 8;

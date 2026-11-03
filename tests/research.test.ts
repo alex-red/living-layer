@@ -19,7 +19,7 @@ import {
   sizeDisagreement,
   type ProductFacts,
   type ProductLookup,
-} from '../packages/domain/src/index.js';
+} from '@livinglayer/domain';
 
 const dirs: string[] = [];
 afterEach(() => {

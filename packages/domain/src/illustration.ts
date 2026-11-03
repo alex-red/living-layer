@@ -1,12 +1,12 @@
 import { z } from 'zod';
-import type { Segmentation } from './index.js';
+import type { Segmentation } from './api.js';
 import { pointSchema, toIso, type IsoScreen, type Point, type SurfacePin } from './iso.js';
 import { ISO_PRESETS, isoSurface } from './iso-presets.js';
 import type { IsoBox, IsoScene, IsoVec } from './iso.js';
 import { pinCamera, projectPoint, unprojectPoint } from './photo-scene.js';
 
 /** A room's picture: `runId/illustration.png` in the evidence store. */
-export const illustrationRef = z.string().regex(/^[a-z0-9-]{1,64}\/illustration\.png$/);
+const illustrationRef = z.string().regex(/^[a-z0-9-]{1,64}\/illustration\.png$/);
 /** A picture or one of its layers: the base it is drawn on, or one fixture cut out of it. */
 export const pictureLayerRef = z
   .string()
@@ -27,7 +27,7 @@ const boxSchema = z
  * sprite follows the fixture from there: moved with the base's centre, and
  * scaled with its footprint.
  */
-export const pictureSpriteSchema = z
+const pictureSpriteSchema = z
   .object({
     fixtureId: z.string().min(1).max(80),
     asset: pictureLayerRef,

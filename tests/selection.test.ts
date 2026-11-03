@@ -22,7 +22,7 @@ import {
   type Detection,
   type SelectionShape,
   type SelectResolve,
-} from '../packages/domain/src/index.js';
+} from '@livinglayer/domain';
 
 /**
  * Selections drawn around what the demo camera shows: every box comes from

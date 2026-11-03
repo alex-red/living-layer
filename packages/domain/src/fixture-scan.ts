@@ -1,3 +1,4 @@
+import { pointInPolygon } from './math.js';
 import { z } from 'zod';
 import {
   CONTROL_KINDS,
@@ -31,7 +32,7 @@ import {
   type Point,
   type SurfacePin,
 } from './iso.js';
-import type { Detection, Segmentation } from './index.js';
+import type { Detection, Segmentation } from './api.js';
 import {
   convexHull,
   maskBits,
@@ -59,7 +60,7 @@ const scanBoxSchema = z
     y2: z.number().int().min(0).max(1000),
   })
   .strict();
-export const scannedThingSchema = z
+const scannedThingSchema = z
   .object({
     label: z.string().trim().min(1).max(40),
     archetype: archetypeSchema,
@@ -85,7 +86,7 @@ export const fixtureScanSchema = z
 export type FixtureScan = z.infer<typeof fixtureScanSchema>;
 
 /** How a scanned thing was mapped. */
-export type ScanMatch =
+type ScanMatch =
   /** The room already has it; nothing was added. */
   | 'existing'
   /** Placed with the model of a fixture saved in another scene, or another of its kind. */
@@ -358,16 +359,7 @@ export function draftModel(
     : { item: placeholderModel(thing.label, 'box', CUBE.color, CUBE.material), source: 'cube' };
 }
 
-const inside = (poly: Point[], p: Point) => {
-  let hit = false;
-  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
-    const a = poly[i]!;
-    const b = poly[j]!;
-    if (a.y > p.y !== b.y > p.y && p.x < ((b.x - a.x) * (p.y - a.y)) / (b.y - a.y) + a.x)
-      hit = !hit;
-  }
-  return hit;
-};
+const inside = (poly: Point[], p: Point) => pointInPolygon(poly, p.x, p.y);
 /** The nearest point of a polygon's edge to p, and how far it is. */
 function nearestEdge(poly: Point[], p: Point): { at: Point; distance: number } {
   let best = { at: poly[0]!, distance: Infinity };
@@ -676,7 +668,7 @@ export function placeSeen(
 }
 
 /** A thing a person's layout draws standing on something: the office's book, lamp or monitor. */
-export interface LayoutThing {
+interface LayoutThing {
   group: string;
   label: string;
   /** The corner nearest the origin, and the box around all its parts. */

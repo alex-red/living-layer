@@ -2,14 +2,14 @@
  * Colour maths for item models: sRGB to OKLab and back, so shading ramps,
  * clustering and colour error are measured the way people see colour.
  */
-export type Rgb = [number, number, number];
+type Rgb = [number, number, number];
 export type Lab = [number, number, number];
 
 export function hexRgb(hex: string): Rgb {
   const n = parseInt(hex.slice(1), 16);
   return [n >> 16, (n >> 8) & 255, n & 255];
 }
-export function rgbHex([r, g, b]: Rgb): string {
+function rgbHex([r, g, b]: Rgb): string {
   const h = (v: number) =>
     Math.round(Math.max(0, Math.min(255, v)))
       .toString(16)
@@ -119,7 +119,7 @@ export function nearest(lab: Lab, palette: Lab[]): Lab {
   return best;
 }
 
-export interface Cluster {
+interface Cluster {
   lab: Lab;
   hex: string;
   /** Share of the pixels in this cluster, 0 to 1. */

@@ -9,18 +9,12 @@
  * publishes each entered and left once, not retained (`zoneEvent`).
  */
 import { z } from 'zod';
-import {
-  ruleObjects,
-  ruleWho,
-  type DeskMemory,
-  type DeskObservation,
-  type EvidenceRun,
-  type PlacementDecision,
-  type ZoneRect,
-} from './index.js';
+import type { EvidenceRun } from './api.js';
+import type { DeskMemory, DeskObservation, PlacementDecision, ZoneRect } from './memory.js';
+import { ruleObjects, ruleWho } from './rules.js';
 import type { WatchStatus, WatchView } from './watch.js';
 
-export const EXPOSE_KINDS = [
+const EXPOSE_KINDS = [
   'binary_sensor',
   'sensor',
   'switch',
@@ -34,7 +28,7 @@ export const MAX_EXPOSED = 16;
 export const MAIN_ZONE = 'main';
 
 const zoneId = z.string().min(1).max(64);
-export const exposeSourceSchema = z.discriminatedUnion('kind', [
+const exposeSourceSchema = z.discriminatedUnion('kind', [
   /** The zone's last SAM verdict: inside or outside. */
   z.object({ kind: z.literal('in_zone'), zoneId }).strict(),
   /** Whether any of these zones holds its object; as a sensor, how many do. */
@@ -71,7 +65,7 @@ export const exposeSourceSchema = z.discriminatedUnion('kind', [
 ]);
 export type ExposeSource = z.infer<typeof exposeSourceSchema>;
 
-export const exposeKeySchema = z.string().regex(/^[a-z0-9_]{1,48}$/);
+const exposeKeySchema = z.string().regex(/^[a-z0-9_]{1,48}$/);
 export const exposedInputSchema = z
   .object({
     id: z.string().uuid().optional(),
@@ -511,7 +505,7 @@ export const commandTopics = (o: Pick<ExposeOptions, 'baseTopic'>) => [
   `${o.baseTopic}/+/set`,
   `${o.baseTopic}/+/press`,
 ];
-export const statusTopic = (o: Pick<ExposeOptions, 'baseTopic'>) => `${o.baseTopic}/status`;
+const statusTopic = (o: Pick<ExposeOptions, 'baseTopic'>) => `${o.baseTopic}/status`;
 export const configTopic = (o: ExposeOptions, e: Pick<ExposedEntity, 'kind' | 'key'>) =>
   `${o.discoveryPrefix}/${e.kind}/ll_${e.key}/config`;
 

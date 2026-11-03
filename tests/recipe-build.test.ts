@@ -30,7 +30,7 @@ import {
   sceneSolids,
   type FixtureRecipe,
   type RecipeCheck,
-} from '../packages/domain/src/index.js';
+} from '@livinglayer/domain';
 
 const frame = demoFrame();
 const deskMask = roomMask(frame, 'desk');

@@ -3,7 +3,7 @@ import { isoSceneKindSchema, type IsoSceneKind } from './iso.js';
 import { ISO_SCENE_PARENT } from './iso-presets.js';
 
 /** Stream URLs the server opens with ffmpeg: RTSP, or an HTTP(S) stream such as MJPEG or HLS. */
-export const CAMERA_PROTOCOLS = ['rtsp:', 'rtsps:', 'http:', 'https:'] as const;
+const CAMERA_PROTOCOLS = ['rtsp:', 'rtsps:', 'http:', 'https:'] as const;
 export const CAMERA_LIMIT = 16;
 /** The smallest crop side, as a share of the frame: past this a stream's pixels are too few to work on. */
 export const CROP_MIN = 0.1;
@@ -49,7 +49,7 @@ export function cropWithin(outer: CameraCrop | null | undefined, inner: CameraCr
   };
 }
 
-export const cameraSceneSchema = z.union([isoSceneKindSchema, z.literal('custom')]).nullable();
+const cameraSceneSchema = z.union([isoSceneKindSchema, z.literal('custom')]).nullable();
 export type CameraScene = z.infer<typeof cameraSceneSchema>;
 
 /** What the lab sends to add or change a camera. Leaving `url` out on a change keeps the stored one. */
@@ -69,7 +69,6 @@ export const cameraInputSchema = z
     scene: cameraSceneSchema,
   })
   .strict();
-export type CameraInput = z.infer<typeof cameraInputSchema>;
 
 /** A camera a person added by its stream URL, kept on the server with any credentials in it. */
 export interface SavedCamera {

@@ -19,7 +19,7 @@ const cmSize = z
     h: z.number().positive().max(300),
   })
   .strict();
-export const productPartSchema = z
+const productPartSchema = z
   .object({
     name: z.string().min(1).max(40),
     role: z.enum(RECIPE_ROLES).optional(),
@@ -103,7 +103,7 @@ export function mergeFacts(query: string, ordered: ProductFacts[]): MergedFacts 
 }
 
 /** How far a looked-up size may be from the camera's estimate before the review flags it. */
-export const SIZE_TOLERANCE = 0.25;
+const SIZE_TOLERANCE = 0.25;
 /**
  * The axes on which a looked-up size and the camera's own estimate
  * disagree by more than `SIZE_TOLERANCE`: a web answer of 131 cm against a

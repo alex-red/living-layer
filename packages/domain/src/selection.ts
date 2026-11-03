@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { Detection, Segmentation } from './index.js';
+import type { Detection, Segmentation } from './api.js';
 import type { IsoBox, IsoScene, Point } from './iso.js';
 import { fillRings, maskBits, newBits, type Bits } from './photo-scene.js';
 import type { RoomCamera } from './room-camera.js';
@@ -87,7 +87,7 @@ export interface SelectionTarget {
   label: string;
 }
 /** How well a selection points at one thing. */
-export interface TargetScore {
+interface TargetScore {
   target: SelectionTarget;
   /** The share of the thing's visible pixels inside the selection. */
   covered: number;

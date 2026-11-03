@@ -183,6 +183,8 @@ _Landed:_ `tokens.css` has `--fs-11`/`--fs-12`/`--fs-13` and the 2px radius uses
 
 **E1. `index.ts` down to re-exports.** It holds about 950 lines of its own: wire types, pricing, desk memory, rules and `upgradeMemory`. Move them into `api.ts`, `cost.ts`, `memory.ts` and `rules.ts`. That breaks the package's only runtime import cycle (`expose.ts` ↔ `index.ts`).
 
+_Landed:_ `index.ts` is re-exports. Code went to `api.ts` (wire types, limits, `DEMO_ID`), `cost.ts` (prices), `memory.ts` (zones, calibration, `DeskMemory`, `upgradeMemory`) and `rules.ts` (placement rules and gates). `expose.ts` imports from `rules.ts`, so the cycle is gone. The `iso.ts` nested re-exports moved to `index.ts`.
+
 **E2. One `math.ts`.** It takes the duplicated helpers:
 
 - `Vec3`, defined 4 times
@@ -193,13 +195,23 @@ _Landed:_ `tokens.css` has `--fs-11`/`--fs-12`/`--fs-13` and the 2px radius uses
 
 Use one key light for `iso-voxel.ts:697` and `room-render.ts:35`, which must agree.
 
+_Landed:_ `math.ts` (not re-exported from the index) holds `Vec3` and its ops, `clamp`, `quantile`/`median`, `bezier`, `pointInPolygon` and `KEY_LIGHT`. Left alone because they differ in behaviour: `item-sculpt.ts` `clamp` (maps NaN to the low bound) and `splat.ts` `quantile` (index by `q·(n−1)`, 0 when empty).
+
 **E3. Bench cases out of `room-scan.ts`.** Lines 823–1126 move into `room-cases.ts`.
+
+_Landed:_ `room-cases.ts`, re-exported from the index.
 
 **E4. Types tied to their schemas.** Add `satisfies z.ZodType<T>` where a hand-written type sits beside a schema: `IsoProp`, `IsoScene`, `RoomCamera` and `PlacementRule`. Give desk memory a schema, and run `upgradeMemory` as its preprocess step; `store.ts:96` casts parsed JSON today.
 
+_Landed:_ `satisfies z.ZodType<…>` on `isoPropSchema`, `isoSceneSchema`, `roomCameraSchema`; `ruleInputSchema` is checked against the fields `PlacementRule` shares with it (it takes `rect`, the rule stores `zone`). `deskMemorySchema` (in `memory.ts`) runs `upgradeMemory` as its preprocess step and checks the top level; nested parts are only checked for kind, since they have no schemas yet. _Follow-up:_ `store.ts` `memory()` should parse with `deskMemorySchema` instead of casting; it is not wired in.
+
 **E5. `ItemPart` as a union by `shape`.** Convert the legacy shapes when parsing. This risks saved items and goldens, so check both.
 
+_Skipped:_ the legacy shapes (`cylinder`, `box`, `cone`, `handle`, `lid`) are still written by `iso-item.ts` itself and drawn by their own branches in `iso-voxel.ts` and `item-sculpt.ts`. Converting them at parse time would change those drawings, so goldens would not stay as they are.
+
 **E6. Tidying.** Tests import `@livinglayer/domain`; 11 of them reach into `../packages/domain/src` today. Un-export the 7 unused names and the 85 used only in their own file, so `noUnusedLocals` catches dead code.
+
+_Landed:_ the 10 tests that reached into `../packages/domain/src` now import `@livinglayer/domain`. 90 exports used nowhere else were un-exported, which includes the 7 unused ones; `noUnusedLocals` then found 7 dead declarations, which were deleted. Names the other sessions start using from the package (e.g. `SpriteOptions`, `ItemView`) need exporting again.
 
 ## Order
 

@@ -1,3 +1,4 @@
+import { KEY_LIGHT, bezier } from './math.js';
 import { ISO_RISE, ISO_TILE, fromIso, toIso } from './iso.js';
 import { ITEM_MATERIALS, type ItemMaterial, type ItemPart } from './iso-item.js';
 import { hexLab, labRgb, nearest, outlineLab, rampLab, type Lab } from './color.js';
@@ -13,7 +14,7 @@ type V3 = [number, number, number];
 // Bun's Math.hypot with three arguments gives these same bits, far slower, and these run
 // per voxel. (The two-argument form rounds differently, so it stays Math.hypot.)
 const sqrt3 = (a: number, b: number, c: number) => Math.sqrt(a * a + b * b + c * c);
-export interface Prim {
+interface Prim {
   part: number;
   min: V3;
   max: V3;
@@ -184,16 +185,6 @@ function rboxPrim(part: number, { at, size }: Box, radius: number): Prim {
     },
   };
 }
-/** A point on a Bézier curve of 2 to 4 control points. */
-function bezier(p: V3[], t: number): V3 {
-  let pts = p;
-  while (pts.length > 1)
-    pts = pts.slice(1).map((q, i) => {
-      const a = pts[i]!;
-      return [a[0] + (q[0] - a[0]) * t, a[1] + (q[1] - a[1]) * t, a[2] + (q[2] - a[2]) * t];
-    });
-  return pts[0]!;
-}
 function tubePrim(part: number, control: V3[], radius: number): Prim {
   const samples = Array.from({ length: 25 }, (_, i) => bezier(control, i / 24));
   const min: V3 = [Infinity, Infinity, Infinity];
@@ -343,7 +334,7 @@ export function partPrims(p: ItemPart, index: number): Prim[] {
 }
 
 /** Where a point sits on a part's surface: `u` around (0.5 facing the viewer), `v` up. */
-export function surfaceUv(p: ItemPart, x: number, y: number, z: number): { u: number; v: number } {
+function surfaceUv(p: ItemPart, x: number, y: number, z: number): { u: number; v: number } {
   const dx = (x - (p.at.x + p.size.w / 2)) / (p.size.w / 2);
   const dy = (y - (p.at.y + p.size.d / 2)) / (p.size.d / 2);
   const theta = Math.atan2(dy, dx);
@@ -774,11 +765,7 @@ function cast(g: VoxelGrid, o: V3, d: V3, visit: (index: number, t: number) => b
 }
 
 /** The key light: from the upper left and a little in front, as in the flat scene. */
-const LIGHT: V3 = (() => {
-  const v: V3 = [0.15, 0.75, 1];
-  const l = Math.hypot(...v);
-  return v.map((c) => c / l) as V3;
-})();
+const LIGHT: V3 = KEY_LIGHT;
 /** Toward the viewer of the isometric view: along it, screen position doesn't change. */
 const VIEW: V3 = (() => {
   const v: V3 = [1, 1, ISO_TILE.height / ISO_RISE];
@@ -794,7 +781,7 @@ const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
 const ACCENT = hexLab('#e68cc4');
 const SHADOW: Lab = hexLab('#05060a');
 
-export interface SpriteOptions {
+interface SpriteOptions {
   /** Tiles per item unit: how big the model stands in the scene. */
   scale: number;
   /** Iso pixels per sprite pixel. */
@@ -1007,7 +994,7 @@ export function renderSprite(g: VoxelGrid, opts: SpriteOptions): Sprite {
   return { width, height, rgba, x: x0, y: y0, pixel };
 }
 
-export interface ItemView {
+interface ItemView {
   width: number;
   height: number;
   /** 1 where the model covers the pixel. */

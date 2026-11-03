@@ -19,7 +19,7 @@ import {
   rotateGroup,
   type FixtureRecipe,
   type IsoScene,
-} from '../packages/domain/src/index.js';
+} from '@livinglayer/domain';
 import { drawProps } from '../scripts/lib/draw.js';
 import { expectGolden } from './lib/golden.js';
 
