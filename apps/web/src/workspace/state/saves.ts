@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useMemo } from 'react';
-import type { Mode, RunKind, DemoPosition } from '@livinglayer/domain';
+import type { Mode, RunKind, DemoPosition, StoredSave } from '@livinglayer/domain';
+import { api, ApiError } from '../../api';
 import { DEMO_POSITIONS } from '@livinglayer/domain';
 import {
   clearSession,
@@ -7,8 +8,10 @@ import {
   desksToSave,
   downloadSave,
   emptyDesk,
+  mergeSaves,
   onOtherTabSave,
   parseSave,
+  parseSaves,
   prefsOf,
   readSaves,
   readSession,
@@ -263,7 +266,7 @@ export function useSavesSlice(
       desks: memories,
     };
   }
-  // Named saves: the person's own copies in this browser, and the one they last saved or loaded.
+  // Named saves: the server's, as this browser last synced them and with what it made meanwhile, and the one last saved or loaded.
   const [saves, setSaves] = useState<NamedSave[]>(readSaves);
   const [activeSaveId, setActiveSaveId] = useState(() => {
     const id = readUi('activeSave');
@@ -295,6 +298,59 @@ export function useSavesSlice(
       stop();
       window.clearTimeout(timer);
     };
+  }, []);
+  /** Take the server's list as this browser's copy, keeping saves only here; answers those still to send. */
+  function adopt(server: StoredSave[]) {
+    const { saves: merged, upload } = mergeSaves(readSaves(), parseSaves(JSON.stringify(server)));
+    if (writeSaves(merged)) setSaves(merged);
+    else setSaves(parseSaves(JSON.stringify(merged)));
+    return upload;
+  }
+  /**
+   * Send one save to the server. What it keeps may be another save's place
+   * (the name was taken there): then this copy goes, and the active save follows.
+   */
+  async function send(entry: NamedSave) {
+    const { save, saves: server } = await api('saves/save', {
+      id: entry.id,
+      name: entry.name,
+      save: entry.save,
+    });
+    // On the server now, so a copy left here without it was replaced there.
+    writeSaves(readSaves().map((s) => (s.id === entry.id ? { ...s, onServer: true } : s)));
+    adopt(server);
+    if (save.id !== entry.id && readUi('activeSave') === entry.id) {
+      setActiveSaveId(save.id);
+      writeUi('activeSave', save.id);
+    }
+  }
+  /** Bring this browser's saves and the server's together; a server that can't be reached leaves them as they are here. */
+  const syncing = useRef(false);
+  async function syncSaves() {
+    if (syncing.current) return;
+    syncing.current = true;
+    try {
+      for (const entry of adopt(await api('saves'))) await send(entry);
+    } catch {
+      /* the server is away: this browser's copy serves until the next sync */
+    } finally {
+      syncing.current = false;
+    }
+  }
+  /** A change made here, sent on; one the server can't take now goes at the next sync. */
+  function share(change: () => Promise<unknown>) {
+    void change().catch(() => {});
+  }
+  const syncLatest = useRef(syncSaves);
+  syncLatest.current = syncSaves;
+  useEffect(() => {
+    void syncLatest.current();
+    // Another device may have saved while this tab was hidden.
+    const shown = () => {
+      if (document.visibilityState === 'visible') void syncLatest.current();
+    };
+    document.addEventListener('visibilitychange', shown);
+    return () => document.removeEventListener('visibilitychange', shown);
   }, []);
   const savedEdits = useRef(0);
   /** Whether there are edits no named save holds, so loading another would lose them. */
@@ -328,6 +384,7 @@ export function useSavesSlice(
     };
     if (!storeSaves(withSave(stored, entry))) return false;
     markActive(entry);
+    share(() => send(entry));
     setMessage(same ? `Updated “${clean}”.` : `Saved as “${clean}”.`);
     return true;
   }
@@ -340,6 +397,7 @@ export function useSavesSlice(
     const next = { ...entry, save: currentSave(entry.name) };
     if (!storeSaves(withSave(stored, next))) return false;
     markActive(next);
+    share(() => send(next));
     return true;
   }
   function renameSave(id: string, name: string) {
@@ -352,16 +410,31 @@ export function useSavesSlice(
       setError(`There is already a save called “${clean}”.`);
       return false;
     }
-    return storeSaves(
-      stored.map((s) =>
-        s.id === id ? { ...s, name: clean, save: { ...s.save, name: clean } } : s,
-      ),
-    );
+    if (
+      !storeSaves(
+        stored.map((s) =>
+          s.id === id ? { ...s, name: clean, save: { ...s.save, name: clean } } : s,
+        ),
+      )
+    )
+      return false;
+    // One only here gets its new name when it is sent; another device may have taken the name meanwhile.
+    if (entry.onServer)
+      void api('saves/rename', { id, name: clean })
+        .then(adopt)
+        .catch((e: unknown) => {
+          if (e instanceof ApiError && e.code === 'save_name_taken') {
+            setError(e);
+            void syncSaves();
+          }
+        });
+    return true;
   }
   function deleteSave(id: string) {
     const stored = readSaves();
     const entry = stored.find((s) => s.id === id);
     if (!entry || !storeSaves(stored.filter((s) => s.id !== id))) return;
+    if (entry.onServer) share(() => api('saves/delete', { id }).then(adopt));
     if (id === activeSaveId) markActive(null);
     setMessage(`Deleted “${entry.name}”.`);
   }
@@ -446,6 +519,7 @@ export function useSavesSlice(
         setSaves(readSaves());
         markActive(entry);
       }
+      share(() => send(entry));
     } catch (e) {
       setError(e instanceof Error ? e : 'The save could not be read.');
     } finally {

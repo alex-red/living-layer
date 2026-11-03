@@ -1,4 +1,4 @@
-import { upgradeMemory, type DeskMemory, type Mode } from '@livinglayer/domain';
+import { SAVE_NAME_MAX, upgradeMemory, type DeskMemory, type Mode } from '@livinglayer/domain';
 import type { WorkScene } from './workspace/progress';
 
 /**
@@ -276,16 +276,20 @@ export function downloadSave(save: SessionSave) {
 }
 
 /**
- * Saves the person named, kept in this browser beside the autosave: each one
- * a whole save, so loading one puts both desks and the view back as they were.
+ * Saves the person named: each one a whole save, so loading one puts both
+ * desks and the view back as they were. The server keeps them (SQLite), shared
+ * by every browser and device on it; this browser keeps its own copy too, so
+ * they still load and save when the server can't be reached.
  */
 export interface NamedSave {
   id: string;
   name: string;
   save: SessionSave;
+  /** This browser's copy was on the server when they last synced; one that isn't any more was deleted elsewhere. */
+  onServer?: boolean;
 }
 const SAVES_KEY = 'livinglayer.saves';
-export const SAVE_NAME_MAX = 60;
+export { SAVE_NAME_MAX };
 /** A name tidied for a save: one line, trimmed, not too long; '' when nothing is left. */
 export function saveName(name: string) {
   return name.replace(/\s+/g, ' ').trim().slice(0, SAVE_NAME_MAX);
@@ -304,12 +308,42 @@ export function parseSaves(text: string | null): NamedSave[] {
     const name = typeof entry?.name === 'string' ? saveName(entry.name) : '';
     if (typeof entry?.id !== 'string' || !name) continue;
     try {
-      out.push({ id: entry.id, name, save: { ...parseSave(JSON.stringify(entry.save)), name } });
+      out.push({
+        id: entry.id,
+        name,
+        save: { ...parseSave(JSON.stringify(entry.save)), name },
+        ...(entry.onServer ? { onServer: true } : {}),
+      });
     } catch {
       /* not a save any more: leave it out */
     }
   }
   return out.sort((a, b) => b.save.savedAt.localeCompare(a.save.savedAt));
+}
+/**
+ * This browser's saves and the server's as one list, and the ones to send it:
+ * a copy only here goes up, unless it was on the server once (deleted
+ * elsewhere, so it goes here too); of two copies of one save the newer stays.
+ */
+export function mergeSaves(local: NamedSave[], server: NamedSave[]) {
+  const here = new Map(local.map((s) => [s.id, s]));
+  const there = new Set(server.map((s) => s.id));
+  const saves: NamedSave[] = [];
+  const upload: NamedSave[] = [];
+  for (const theirs of server) {
+    const mine = here.get(theirs.id);
+    if (mine && mine.save.savedAt > theirs.save.savedAt) {
+      saves.push({ ...mine, onServer: true });
+      upload.push(mine);
+    } else saves.push({ ...theirs, onServer: true });
+  }
+  for (const mine of local)
+    if (!there.has(mine.id) && !mine.onServer) {
+      saves.push(mine);
+      upload.push(mine);
+    }
+  saves.sort((a, b) => b.save.savedAt.localeCompare(a.save.savedAt));
+  return { saves, upload };
 }
 /** The list with this save added, or put in place of the one with its id. */
 export function withSave(list: NamedSave[], entry: NamedSave): NamedSave[] {

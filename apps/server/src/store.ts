@@ -21,6 +21,7 @@ import {
   type Mode,
   type StatEvent,
   type StatKey,
+  type StoredSave,
 } from '@livinglayer/domain';
 
 type Payload = { payload: string };
@@ -62,6 +63,7 @@ export class EvidenceStore {
       CREATE TABLE IF NOT EXISTS meta_spend (day TEXT PRIMARY KEY, usd REAL NOT NULL);
       CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS desk_memory (mode TEXT PRIMARY KEY, payload TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS saves (id TEXT PRIMARY KEY, name TEXT NOT NULL, saved_at TEXT NOT NULL, payload TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS placement_claims (segment_id TEXT PRIMARY KEY, created_at TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS jobs (id TEXT PRIMARY KEY, created_at TEXT NOT NULL, payload TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS meta_calls (id INTEGER PRIMARY KEY AUTOINCREMENT, created_at TEXT NOT NULL, payload TEXT NOT NULL);
@@ -398,7 +400,12 @@ export class EvidenceStore {
     const hold = (text: string) => {
       for (const id of idsIn(text)) if (!keep.has(id)) (keep.add(id), queue.push(id));
     };
-    for (const sql of ['SELECT payload AS v FROM desk_memory', 'SELECT value AS v FROM settings'])
+    // A named save's desks name the photos they need, as the desks themselves do.
+    for (const sql of [
+      'SELECT payload AS v FROM desk_memory',
+      'SELECT value AS v FROM settings',
+      'SELECT payload AS v FROM saves',
+    ])
       for (const row of this.db.query<{ v: string }, []>(sql).all()) hold(row.v);
     // What a newer run names stays too (a follow-up's previous run).
     for (const row of this.db
@@ -516,6 +523,64 @@ export class EvidenceStore {
       )
       .all(...([mode, fromDay, ...(thingId ? [thingId] : [])] as [string, string]))
       .map((r) => ({ day: r.day, thingId: r.thing_id, key: r.key as StatKey, total: r.total }));
+  }
+  /** The named saves every browser shares, newest first. */
+  listSaves(): StoredSave[] {
+    return this.db
+      .query<{ id: string; name: string; payload: string }, []>(
+        'SELECT id, name, payload FROM saves ORDER BY saved_at DESC',
+      )
+      .all()
+      .map((r) => ({ id: r.id, name: r.name, save: JSON.parse(r.payload) as StoredSave['save'] }));
+  }
+  private saveRow(id: string): StoredSave | null {
+    const row = this.db
+      .query<{ name: string; payload: string }, [string]>(
+        'SELECT name, payload FROM saves WHERE id = ?',
+      )
+      .get(id);
+    return row ? { id, name: row.name, save: JSON.parse(row.payload) as StoredSave['save'] } : null;
+  }
+  private saveNamed(name: string): { id: string } | null {
+    return this.db
+      .query<{ id: string }, [string]>('SELECT id FROM saves WHERE lower(name) = lower(?)')
+      .get(name);
+  }
+  /**
+   * Keep a named save, in one step. A name another save has puts it in that
+   * one's place; a copy older than the one kept (a browser that was away
+   * syncing what it had) leaves the newer one as it is. Answers what is kept.
+   */
+  putSave(entry: StoredSave): StoredSave {
+    return this.db.transaction(() => {
+      const id = this.saveNamed(entry.name)?.id ?? entry.id;
+      const kept = this.saveRow(id);
+      if (kept && kept.save.savedAt > entry.save.savedAt) return kept;
+      const save = { ...entry.save, name: entry.name };
+      this.db.run(
+        'INSERT INTO saves VALUES (?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET name = excluded.name, saved_at = excluded.saved_at, payload = excluded.payload',
+        [id, entry.name, save.savedAt, JSON.stringify(save)],
+      );
+      return { id, name: entry.name, save };
+    })();
+  }
+  /** Rename a save: `missing` when there is none with that id, `taken` when another has the name. */
+  renameSave(id: string, name: string): 'missing' | 'taken' | 'renamed' {
+    return this.db.transaction(() => {
+      const kept = this.saveRow(id);
+      if (!kept) return 'missing';
+      const other = this.saveNamed(name);
+      if (other && other.id !== id) return 'taken';
+      this.db.run('UPDATE saves SET name = ?, payload = ? WHERE id = ?', [
+        name,
+        JSON.stringify({ ...kept.save, name }),
+        id,
+      ]);
+      return 'renamed';
+    })();
+  }
+  deleteSave(id: string): void {
+    this.db.run('DELETE FROM saves WHERE id = ?', [id]);
   }
   close(): void {
     this.db.close();
