@@ -69,6 +69,7 @@ import {
   type PlacementDecision,
   type LampResult,
   type LightLook,
+  zoneThingId,
 } from '@livinglayer/domain';
 import { EvidenceStore } from './store.js';
 import { LabError, parseInput, safeError } from './errors.js';
@@ -334,6 +335,16 @@ export function createDesk(
     });
   }
   /**
+   * Keep a zone filling or emptying as its occupied stat's change, so asking
+   * about the room can say how long something was in it.
+   */
+  function noteZone(mode: Mode, ruleId: string, transition: PlacementDecision['transition']) {
+    if (transition !== 'entered' && transition !== 'left') return;
+    const value = transition === 'entered';
+    const event = { thingId: zoneThingId(ruleId), key: 'occupied' as const, at: Date.now(), value };
+    store.saveStats(mode, [{ ...event, source: 'camera', confidence: 1 }], []);
+  }
+  /**
    * A line in the server's log for each zone check that changes something: a
    * thing entering or leaving, or an entity switched (or failing to be).
    */
@@ -476,6 +487,7 @@ export function createDesk(
       });
       if (!step) continue;
       const { decision, event, steps } = step;
+      noteZone(mode, ruleId, decision.transition);
       await runActions(mode, ruleId, ruleLabels.get(ruleId) ?? 'Zone', steps, decision, event, {
         background: Boolean(local),
       });
@@ -554,6 +566,7 @@ export function createDesk(
       return { decision, event, steps, label: rule.label };
     });
     if (!step) return false;
+    noteZone(mode, ruleId, step.decision.transition);
     await runActions(mode, ruleId, step.label, step.steps, step.decision, step.event, {
       background: true,
     });

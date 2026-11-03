@@ -13,6 +13,7 @@ import {
   dayOf,
   demoAsk,
   demoHistory,
+  zoneThingId,
   featureDifference,
   fixtureEntity,
   fixtureInFrame,
@@ -719,13 +720,21 @@ export class StatRunner {
   }
 }
 
-/** The things that keep stats, as asking about the room sees them. */
+/**
+ * What asking about the room can read: the things that keep stats, food
+ * with a use-by day, and the zones, whose fillings are their occupied stat.
+ */
 function askThings(memory: DeskMemory): AskThing[] {
-  const labels = new Map(statThings(memory).map((t) => [t.id, t.label]));
-  return Object.entries(memory.thingStats ?? {}).flatMap(([id, stats]) => {
-    const label = labels.get(id);
-    return label && stats.length ? [{ id, label, stats: stats.map((s) => s.key) }] : [];
+  const things: AskThing[] = (memory.fixtures ?? []).flatMap((f) => {
+    const stats = (memory.thingStats?.[f.id] ?? []).map((s) => s.key);
+    const expires = f.food?.expires;
+    return stats.length || expires
+      ? [{ id: f.id, label: f.label, stats, ...(expires ? { expires } : {}) }]
+      : [];
   });
+  for (const r of memory.rules ?? [])
+    things.push({ id: zoneThingId(r.id), label: r.label, stats: ['occupied'], zone: true });
+  return things;
 }
 
 /** The lab's routes for things' stats. */
@@ -765,6 +774,9 @@ export async function statRoutes(
           const since = askSince(query, now);
           history.events = store.allStatEvents(mode, since).filter((e) => e.at <= now);
           history.watched = store.watchSpans(mode, since);
+          // Past the events' 30 days, the day totals answer.
+          if (query.window === 'days' && (query.amount ?? 7) > 30)
+            history.totals = store.statDays(mode, null, dayOf(since));
         }
         const { output: _, ...provider } = read;
         return { ...provider, output: answerAsk(query, history, now) };

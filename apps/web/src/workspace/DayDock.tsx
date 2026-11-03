@@ -123,6 +123,7 @@ function Thing({ e }: { e: DayEvent }) {
 /** The dot a cited thing is drawn with, by its id in the demo. */
 function dotOf(thingId: string): string {
   if (thingId === 'cat-tree') return 'cat';
+  if (thingId.startsWith('zone:')) return 'zone';
   if (['milk', 'leftover-chicken', 'spinach'].includes(thingId)) return 'fridge';
   return ['mug', 'lamp', 'monitor', 'mouse'].includes(thingId) ? thingId : 'other';
 }

@@ -478,13 +478,17 @@ export class MetaAdapter {
         `The question: ${JSON.stringify(question)}`,
         `It is now ${new Date(now).toLocaleString('en-GB', { weekday: 'long', hour: '2-digit', minute: '2-digit' })}.`,
         'The things (id: name, its stats):',
-        ...things.map((t) => `- ${t.id}: ${t.label} (${t.stats.join(', ')})`),
+        ...things.map(
+          (t) =>
+            `- ${t.id}: ${t.label} (${[...t.stats, ...(t.expires ? [`goes off ${t.expires}`] : [])].join(', ')})${t.zone ? ', a zone: occupied is something in it' : ''}`,
+        ),
         'The stats: lastUsed is each time a thing was picked up and put back (for a mug or cup, a drink); power is on or off; occupied is something on it (a cat on its tree); activity is how busy it is (a mouse being used: working at the desk).',
         'thing: a thing’s id from the list, or null for every thing. stat: one of that thing’s stats, or null.',
         'measure, one of:',
         ...Object.entries(ASK_MEASURE_ABOUT).map(([m, about]) => `- ${m}: ${about}`),
-        'window: minutes (the last amount minutes: an hour is 60), today (so far), yesterday, or days (the last amount days, today included: a week is 7). amount: null unless the window is minutes or days. With no time named, today.',
+        'window: minutes (the last amount minutes: an hour is 60), today (so far), yesterday, or days (the last amount days, today included: a week is 7, a month 30, at most 90). amount: null unless the window is minutes or days. With no time named, today.',
         'compare: previous for “more than yesterday” or “than the hour before” (the window before), average for “than usual”, else none.',
+        'while and whileOn: when the question counts or adds up time only while another thing was on (whileOn true) or off (false), that thing’s id; “while I was away” is the screen or the desk’s zone off. Else both null.',
         'clarify: if the question isn’t about these things or can’t be one query, a short question back; else null.',
       ].join('\n'),
     });

@@ -7,7 +7,8 @@
  * made up around it, so asking the demo room reads the same kind of history
  * a live room keeps.
  */
-import type { StatEvent, StatKey } from './stats.js';
+import { addDays } from './food.js';
+import { dayOf, type StatEvent, type StatKey } from './stats.js';
 
 /** Where the mug stands: on its coaster (inside the main zone), by the keyboard, at the desk's edge, or off the desk. */
 export type MugSpot = 'coaster' | 'keyboard' | 'edge' | 'away';
@@ -62,7 +63,22 @@ export interface AskThing {
   id: string;
   label: string;
   stats: StatKey[];
+  /** A zone, whose occupied stat is something being in it. */
+  zone?: true;
+  /** Its use-by day, `YYYY-MM-DD`, for food. */
+  expires?: string;
 }
+
+/** The thing a zone is when asking about the room: its fillings and emptyings are its occupied stat. */
+export const zoneThingId = (ruleId: string) => `zone:${ruleId}`;
+
+/** What is in the demo fridge, and in how many days from the sample day each goes off. */
+export const DEMO_FOOD: readonly { label: string; useByDays: number }[] = [
+  { label: 'Leftover chicken', useByDays: 0 },
+  { label: 'Milk', useByDays: 1 },
+  { label: 'Spinach', useByDays: 4 },
+  { label: 'Eggs', useByDays: 12 },
+];
 
 /** Questions the dock offers: each has a number, a chart or a comparison to show. */
 export const DEMO_ASK_EXAMPLES = [
@@ -71,6 +87,9 @@ export const DEMO_ASK_EXAMPLES = [
   'What was my longest stretch without a drink?',
   'Did the cat nap more than yesterday?',
   'How long did I work at my desk this week?',
+  'Was the lamp on while I was away?',
+  'How long was the mug in the main zone today?',
+  'What should I eat first?',
   'What happened today?',
 ];
 
@@ -84,11 +103,14 @@ const DEMO_ASK_THINGS: readonly AskThing[] = [
   { id: 'milk', label: 'Milk', stats: ['lastUsed'] },
   { id: 'leftover-chicken', label: 'Leftover chicken', stats: ['lastUsed'] },
   { id: 'spinach', label: 'Spinach', stats: ['lastUsed'] },
+  { id: 'eggs', label: 'Eggs', stats: ['lastUsed'] },
+  { id: zoneThingId('main'), label: 'Main zone', stats: ['occupied'], zone: true },
 ];
 const FOOD_IDS: Record<string, string> = {
   Milk: 'milk',
   'Leftover chicken': 'leftover-chicken',
   Spinach: 'spinach',
+  Eggs: 'eggs',
 };
 /** The monitor's sessions on the sample day, in minutes: it is on while the person works. */
 const SCREEN_DAY: [number, number][] = [
@@ -116,6 +138,8 @@ interface MadeDay {
   lamp: [number, number][];
   cat: [number, number][];
   food: [number, string][];
+  /** The mug in the main zone (on its coaster). */
+  zone: [number, number][];
 }
 const between = (r: () => number, a: number, b: number) => Math.round(a + r() * (b - a));
 
@@ -139,7 +163,7 @@ function madeDay(back: number): MadeDay {
     cat.push([m, m + between(r, 25, 140)]);
   const food: [number, string][] = [[between(r, 430, 470), 'Milk']];
   if (r() > 0.5) food.push([between(r, 740, 790), 'Leftover chicken']);
-  return { mug, screen, lamp, cat, food };
+  return { mug, screen, lamp, cat, food, zone: lamp };
 }
 
 /** The sample day as a made day, with the screen's sessions it doesn't script. */
@@ -159,6 +183,7 @@ function sampleDay(): MadeDay {
     lamp: spans((e) => e.lamp),
     cat: spans((e) => e.cat),
     food: DEMO_DAY.filter((e) => e.food).map((e): [number, string] => [e.at, e.food!]),
+    zone: spans((e) => (e.mug ? e.mug === 'coaster' : undefined)),
   };
 }
 
@@ -172,7 +197,9 @@ export function midnightOf(ms: number): number {
 /**
  * The demo room's history up to `at`: the sample day on `at`'s own date and
  * six made-up days before it, as the stats would have stored them. The mouse
- * is busy in steps through each screen session, as its activity level reads.
+ * is busy in steps through each screen session, as its activity level reads;
+ * the main zone is full while the mug is on its coaster; the food goes off
+ * as `DEMO_FOOD` says, counted from `at`'s day.
  */
 export function demoHistory(at: number): { things: readonly AskThing[]; events: StatEvent[] } {
   const events: StatEvent[] = [];
@@ -198,6 +225,7 @@ export function demoHistory(at: number): { things: readonly AskThing[]; events: 
     onOff('monitor', 'power', made.screen);
     onOff('lamp', 'power', made.lamp);
     onOff('cat-tree', 'occupied', made.cat);
+    onOff(zoneThingId('main'), 'occupied', made.zone);
     for (const [a, b] of made.screen) {
       // Busy in steps through the session, with a lull or two, then idle once it ends.
       for (let m = a + 2; m < b - 5; m += between(r, 8, 22))
@@ -206,7 +234,10 @@ export function demoHistory(at: number): { things: readonly AskThing[]; events: 
     }
   }
   return {
-    things: DEMO_ASK_THINGS,
+    things: DEMO_ASK_THINGS.map((t) => {
+      const food = DEMO_FOOD.find((f) => f.label === t.label);
+      return food ? { ...t, expires: addDays(dayOf(at), food.useByDays) } : t;
+    }),
     events: events.filter((e) => e.at <= at).sort((a, b) => a.at - b.at),
   };
 }

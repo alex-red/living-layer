@@ -2,11 +2,13 @@ import { describe, expect, it, mock } from 'bun:test';
 import {
   DEMO_ASK_EXAMPLES,
   answerAsk,
+  dayOf,
   demoAsk,
   demoHistory,
   midnightOf,
   promoteBuiltIn,
   readAsk,
+  zoneThingId,
   type AskHistory,
   type AskQuery,
   type DeskMemory,
@@ -14,6 +16,8 @@ import {
   type RoomAnswer,
 } from '@livinglayer/domain';
 import type { Fetcher } from '../apps/server/src/config.js';
+import { createDesk } from '../apps/server/src/desk.js';
+import { demoLamp } from '../apps/server/src/demo.js';
 import { StatRunner } from '../apps/server/src/stats.js';
 import { EvidenceStore } from '../apps/server/src/store.js';
 import { tempDir, testApp } from './lib/app.js';
@@ -34,6 +38,8 @@ const query = (q: Partial<AskQuery>): AskQuery => ({
   window: 'today',
   amount: null,
   compare: 'none',
+  while: null,
+  whileOn: null,
   clarify: null,
   ...q,
 });
@@ -124,6 +130,77 @@ describe('answerAsk', () => {
   });
 });
 
+describe('answerAsk across things', () => {
+  it('adds up the lamp’s time only while the screen was off', () => {
+    // Lamp 7:42–9:10 and 10:20–12:45; screen off before 7:45 and 12:30–13:15.
+    const a = ask('Was the lamp on while I was away?', 1000);
+    expect(a.query).toMatchObject({ thing: 'lamp', while: 'monitor', whileOn: false });
+    expect(a.text).toBe('The desk lamp was on for 18 min today while your screen was off.');
+    expect(a.cites.map((c) => clockOf(c.at))).toEqual(['07:42', '07:45', '12:30', '12:45']);
+  });
+
+  it('counts uses only while another thing was on', () => {
+    const a = answerAsk(query({ while: 'monitor', whileOn: true }), history(600), at(600));
+    // 8:20, 9:10 and 9:35 fall in the screen's 7:45 session; 7:42 doesn't.
+    expect(a.text).toBe('You had 3 drinks from your desk mug today while your screen was on.');
+  });
+
+  it('adds up how long something was in a zone', () => {
+    const a = ask('How long was the mug in the main zone today?', 1000);
+    expect(a.query!.thing).toBe(zoneThingId('main'));
+    expect(a.text).toBe('Something was in the main zone for 4 h 28 min today.');
+    expect(a.cites.at(-1)!.text).toBe('Something came into the main zone');
+  });
+});
+
+describe('answerAsk about food', () => {
+  it('lists what to eat first by its use-by day', () => {
+    expect(ask('What should I eat first?', 1000).text).toBe(
+      'Eat the leftover chicken first: it goes off today. Then milk (tomorrow), spinach (in 4 days), eggs (in 12 days).',
+    );
+  });
+
+  it('says when one food goes off, citing when it was last taken out', () => {
+    const a = ask('When does the milk go off?', 1000);
+    expect(a.text).toBe('The milk goes off tomorrow.');
+    expect(a.cites.map((c) => clockOf(c.at))).toEqual(['07:30']);
+  });
+
+  it('warns about food already past its day before what to eat first', () => {
+    const h = history(1000);
+    const a = answerAsk(
+      query({ thing: null, stat: null, measure: 'useBy' }),
+      h,
+      at(1000) + 86_400_000,
+    );
+    expect(a.text).toStartWith(
+      'The leftover chicken went off yesterday: check it before eating it.',
+    );
+  });
+});
+
+describe('answerAsk past the events’ 30 days', () => {
+  it('adds up the day totals, a bar a week', () => {
+    const h: AskHistory = {
+      ...history(1000),
+      totals: Array.from({ length: 60 }, (_, i) => ({
+        day: dayOf(at(1000) - i * 86_400_000),
+        thingId: 'monitor',
+        key: 'power' as const,
+        total: 3600,
+      })),
+    };
+    const a = answerAsk(
+      query({ thing: 'monitor', stat: 'power', measure: 'duration', window: 'days', amount: 60 }),
+      h,
+      at(1000),
+    );
+    expect(a.text).toBe('Your screen was on for 60 h in the last 60 days.');
+    expect(a.bars!.values.reduce((sum, v) => sum + v.value, 0)).toBe(60 * 60);
+    expect(a.notes.at(-1)).toContain('a bar is a week');
+  });
+});
+
 describe('readAsk', () => {
   const { things } = history(1000);
 
@@ -144,8 +221,25 @@ describe('readAsk', () => {
 
   it('keeps a window’s amount in range', () => {
     expect(readAsk(query({ window: 'minutes', amount: null }), things).amount).toBe(60);
-    expect(readAsk(query({ window: 'days', amount: 400 }), things).amount).toBe(30);
+    expect(readAsk(query({ window: 'days', amount: 400 }), things).amount).toBe(90);
     expect(readAsk(query({ window: 'today', amount: 5 }), things).amount).toBeNull();
+  });
+
+  it('asks back when “while” names a thing that is never on or off', () => {
+    expect(
+      readAsk(query({ thing: 'lamp', stat: 'power', while: 'milk' }), things).clarify,
+    ).toContain('only while something that is on or off');
+  });
+
+  it('reads “while” as while on unless it says off', () => {
+    expect(readAsk(query({ while: 'Monitor' }), things)).toMatchObject({
+      while: 'monitor',
+      whileOn: true,
+    });
+  });
+
+  it('asks back about the use-by of food that has none', () => {
+    expect(readAsk(query({ measure: 'useBy' }), things).clarify).toContain('Set its use-by');
   });
 
   it('asks to switch a stat on when no thing keeps one', () => {
@@ -182,6 +276,31 @@ describe('demoAsk', () => {
   });
 });
 
+/** A fetcher answering every Spark call with `query`, as the ask call's JSON. */
+function sparkAnswering(get: () => AskQuery) {
+  return mock<Fetcher>(
+    async () =>
+      new Response(
+        JSON.stringify({
+          id: 'resp_ask',
+          object: 'response',
+          model: 'muse-spark-1.3',
+          status: 'completed',
+          output: [
+            {
+              type: 'message',
+              role: 'assistant',
+              content: [{ type: 'output_text', text: JSON.stringify(get()), annotations: [] }],
+            },
+          ],
+          usage: { input_tokens: 400, output_tokens: 60, total_tokens: 460 },
+        }),
+        { headers: { 'content-type': 'application/json' } },
+      ),
+  );
+}
+const LIVE_ENV = { MODEL_API_KEY: 'test-key', META_LIVE_ENABLED: 'true' };
+
 describe('POST /api/things/ask', () => {
   it('answers the demo from its sample week, as of the minute sent, as an ask run', async () => {
     const t = await testApp({ name: 'ask-demo' });
@@ -197,31 +316,8 @@ describe('POST /api/things/ask', () => {
   });
 
   it('reads a live question with Spark and counts the stored events itself', async () => {
-    const fetcher = mock<Fetcher>(
-      async () =>
-        new Response(
-          JSON.stringify({
-            id: 'resp_ask',
-            object: 'response',
-            model: 'muse-spark-1.3',
-            status: 'completed',
-            output: [
-              {
-                type: 'message',
-                role: 'assistant',
-                content: [{ type: 'output_text', text: JSON.stringify(spark), annotations: [] }],
-              },
-            ],
-            usage: { input_tokens: 400, output_tokens: 60, total_tokens: 460 },
-          }),
-          { headers: { 'content-type': 'application/json' } },
-        ),
-    );
-    const t = await testApp({
-      name: 'ask-live',
-      fetcher,
-      env: { MODEL_API_KEY: 'test-key', META_LIVE_ENABLED: 'true' },
-    });
+    const fetcher = sparkAnswering(() => spark);
+    const t = await testApp({ name: 'ask-live', fetcher, env: LIVE_ENV });
     const live = (path: string, body: object) => t.post(path, { mode: 'live', ...body });
     const saved = (
       await live('fixtures/save', { fixture: promoteBuiltIn('fridge', 'milk')! })
@@ -240,6 +336,51 @@ describe('POST /api/things/ask', () => {
     expect(run.output.notes).toContain(
       'The camera wasn’t watching then, so this may miss what happened.',
     );
+  });
+
+  it('asks Spark about food by its use-by day, though it keeps no stat', async () => {
+    const fetcher = sparkAnswering(() => query({ thing: null, stat: null, measure: 'useBy' }));
+    const t = await testApp({ name: 'ask-food', fetcher, env: LIVE_ENV });
+    const expires = dayOf(Date.now() + 86_400_000);
+    await t.post('fixtures/save', {
+      mode: 'live',
+      fixture: { ...promoteBuiltIn('fridge', 'milk')!, food: { expires } },
+    });
+    const run = (
+      await t.post('things/ask', { mode: 'live', question: 'What should I eat first?' })
+    ).json<EvidenceRun<RoomAnswer>>();
+    expect(run.output.text).toBe('Eat the milk carton first: it goes off tomorrow.');
+    // Spark was told when it goes off.
+    const body = JSON.parse(String(fetcher.mock.calls[0]![1]!.body)) as { input: unknown };
+    expect(JSON.stringify(body.input)).toContain(`goes off ${expires}`);
+  });
+});
+
+describe('zones as history', () => {
+  it('keeps a motion zone filling and emptying as its occupied stat', async () => {
+    const { app, post, config } = await testApp({ name: 'ask-zone' });
+    await post('desk/rules/save', {
+      rule: {
+        label: 'Reading chair',
+        objects: 'any',
+        entityId: null,
+        motion: { share: 0.02, quietS: 1 },
+        actions: { onEnter: [], onLeave: [] },
+        rect: { x: 0.5, y: 0.3, width: 0.1, height: 0.12 },
+      },
+    });
+    await app.close();
+    const store = new EvidenceStore(config.dataDir);
+    const desk = createDesk(store, async () => demoLamp);
+    const id = store.memory('demo').rules![0]!.id;
+    await desk.motionZone('demo', id, 'started');
+    await desk.motionZone('demo', id, 'stopped');
+    const events = store.allStatEvents('demo', 0);
+    expect(events.map((e) => [e.thingId, e.key, e.value])).toEqual([
+      [zoneThingId(id), 'occupied', true],
+      [zoneThingId(id), 'occupied', false],
+    ]);
+    store.close();
   });
 });
 

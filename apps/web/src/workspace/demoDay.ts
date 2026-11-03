@@ -5,7 +5,13 @@
  * "Ask your room" from it. Times are minutes since midnight.
  */
 
-import { DEMO_DAY, type DayEvent, type DayThing, type MugSpot } from '@livinglayer/domain';
+import {
+  DEMO_DAY,
+  DEMO_FOOD,
+  type DayEvent,
+  type DayThing,
+  type MugSpot,
+} from '@livinglayer/domain';
 
 export const DAY_THINGS: Record<DayThing, string> = {
   mug: 'My desk mug',
@@ -17,14 +23,6 @@ export const DAY_THINGS: Record<DayThing, string> = {
 /** Where the replay starts and ends. */
 export const DAY_START = 6 * 60;
 export const DAY_END = 23 * 60;
-
-/** What is in the fridge, and in how many days from the sample day each goes off. */
-const DEMO_FOOD: readonly { label: string; useByDays: number }[] = [
-  { label: 'Leftover chicken', useByDays: 0 },
-  { label: 'Milk', useByDays: 1 },
-  { label: 'Spinach', useByDays: 4 },
-  { label: 'Eggs', useByDays: 12 },
-];
 
 /** The room at one minute of the day. */
 interface DayState {
