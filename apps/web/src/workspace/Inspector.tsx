@@ -1334,7 +1334,12 @@ function ZonePanel() {
         <Button
           disabled={Boolean(busy) || !zoneObservation}
           onClick={() => {
-            lab.setDraftZone(mainZone(memory)?.rect ?? { x: 0.3, y: 0.2, width: 0.4, height: 0.6 });
+            const m = mainZone(memory);
+            lab.setDraftZone(
+              m
+                ? { ...m.rect, ...(m.onSurface ? { onSurface: m.onSurface } : {}) }
+                : { x: 0.3, y: 0.2, width: 0.4, height: 0.6 },
+            );
             lab.setDrawing(true);
           }}
         >

@@ -1,0 +1,23 @@
+/* A rectangle being drawn: its body moves it, its sides and corners stretch it. */
+.rect-handles .rect-body {
+  fill: transparent;
+  stroke: none;
+  pointer-events: all;
+}
+.rect-handles .rect-side,
+.rect-handles .rect-corner {
+  vector-effect: non-scaling-stroke;
+  pointer-events: stroke;
+}
+.rect-handles .rect-side {
+  stroke: transparent;
+  stroke-width: 12px;
+}
+.rect-handles .rect-corner {
+  stroke: var(--chosen);
+  stroke-width: 9px;
+  stroke-linecap: square;
+}
+.rect-handles .rect-corner:hover {
+  stroke-width: 12px;
+}

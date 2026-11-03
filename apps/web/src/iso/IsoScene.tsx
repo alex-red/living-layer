@@ -40,6 +40,7 @@ import {
   type FoodNow,
 } from '@livinglayer/domain';
 import { BaseHandles, type BaseRect } from './BaseHandles';
+import { RectHandles, dragRect, grabOf, type Grab } from '../RectGrab';
 import { useFrameQueue } from './frame';
 import { ItemSprite } from './IsoItem';
 import { TONES, usePropSprite } from './sprites';
@@ -394,6 +395,21 @@ const SNAP = 0.25;
 const NO_OBJECTS: IsoObject[] = [];
 const NO_FIXTURES: IsoFixture[] = [];
 const NO_POINTS: Point[] = [];
+/** A rectangle in units of 0 to 1. */
+type ZoneUv = { x: number; y: number; width: number; height: number };
+/**
+ * A zone being drawn, to move and stretch: a rectangle on the surface, or one
+ * in the camera's frame (drawn on its picture), which the surface shows
+ * slanted and which is changed in the frame so it keeps its shape there.
+ */
+export interface IsoDrawn {
+  rect: ZoneUv;
+  frame?: {
+    toSurface: (p: Point) => Point;
+    fromSurface: (uv: Point) => Point;
+    onRect: (rect: ZoneUv) => void;
+  };
+}
 const NO_ZONES: IsoZone[] = [];
 const NO_CALLOUTS: IsoCallout[] = [];
 type Stand = { at: IsoVec; surfaceId: string | null };
@@ -455,6 +471,7 @@ function IsoSceneView({
   litLights,
   defaultLight = '',
   drawing = false,
+  drawn,
   onDrag,
   editing,
   hidden,
@@ -484,6 +501,8 @@ function IsoSceneView({
   /** The light a lamp without its own `lightId` stands for. */
   defaultLight?: string;
   drawing?: boolean;
+  /** The zone being drawn: pressed, it moves, and its sides and corners stretch it. */
+  drawn?: IsoDrawn | null;
   onDrag?: (a: Point, b: Point) => void;
   editing?: IsoEditing;
   /** Prop groups not drawn; the view keeps its framing. */
@@ -497,6 +516,8 @@ function IsoSceneView({
 }) {
   const svg = useRef<SVGSVGElement>(null);
   const start = useRef<Point | null>(null);
+  // What a press on the zone being drawn took hold of, and the zone as it was then.
+  const zoneGrab = useRef<{ grab: Grab; from: ZoneUv | null }>({ grab: 'draw', from: null });
   const drag = useRef<{ group: string; z: number; last: { x: number; y: number } } | null>(null);
   const [hover, setHover] = useState(false);
   /** The zone under the pointer, named while it is there. */
@@ -964,19 +985,29 @@ function IsoSceneView({
         />
       )}
       {drawing && surface && !editing && (
-        <polygon
-          className="iso-hit"
-          points={pts(surfaceQuad)}
-          aria-label={`Draw placement zone on the ${surface.label.toLowerCase()}`}
+        <g
           onPointerEnter={() => setHover(true)}
           onPointerLeave={() => setHover(false)}
           onPointerDown={(e) => {
-            start.current = surfacePoint(e);
-            e.currentTarget.setPointerCapture(e.pointerId);
+            const p = surfacePoint(e);
+            zoneGrab.current = { grab: grabOf(e.target), from: drawn?.rect ?? null };
+            start.current = p;
+            if (p) e.currentTarget.setPointerCapture(e.pointerId);
           }}
           onPointerMove={(e) => {
             const p = surfacePoint(e);
-            if (start.current && p) onDrag?.(start.current, p);
+            if (!start.current || !p) return;
+            const { grab: g, from } = zoneGrab.current;
+            // A zone kept in the frame moves and stretches there; drawing anew is on the surface.
+            const inFrame = g !== 'draw' ? drawn?.frame : undefined;
+            if (inFrame) {
+              inFrame.onRect(
+                dragRect(from, g, inFrame.fromSurface(start.current), inFrame.fromSurface(p)),
+              );
+              return;
+            }
+            const r = dragRect(from, g, start.current, p);
+            onDrag?.({ x: r.x, y: r.y }, { x: r.x + r.width, y: r.y + r.height });
           }}
           onPointerUp={() => {
             start.current = null;
@@ -984,7 +1015,22 @@ function IsoSceneView({
           onPointerCancel={() => {
             start.current = null;
           }}
-        />
+        >
+          <polygon
+            className="iso-hit"
+            points={pts(surfaceQuad)}
+            aria-label={`Draw placement zone on the ${surface.label.toLowerCase()}`}
+          />
+          {drawn && (
+            <RectHandles
+              rect={drawn.rect}
+              to={(p) => {
+                const c = toIso(onSurface(drawn.frame ? drawn.frame.toSurface(p) : p)!);
+                return { x: c.sx, y: c.sy };
+              }}
+            />
+          )}
+        </g>
       )}
     </svg>
   );

@@ -61,7 +61,7 @@ import {
   surfaceWorld,
   type Point,
 } from '@livinglayer/domain';
-import { runOutput } from '@livinglayer/domain';
+import { applyHomography, runOutput } from '@livinglayer/domain';
 import { apiAt } from '../api';
 import { ZoomPan } from '../ZoomPan';
 import type { BaseRect } from './BaseHandles';
@@ -78,7 +78,7 @@ import {
   useRunLog,
   useView,
 } from '../workspace/LabContext';
-import { IsoScene, type IsoFixture, type IsoObject, type IsoZone } from './IsoScene';
+import { IsoScene, type IsoDrawn, type IsoFixture, type IsoObject, type IsoZone } from './IsoScene';
 import { FRIDGE_ANGLES, fromAngle, type FridgeAngle } from './fridgeAngle';
 import { Later } from '../Later';
 import { LayerChips } from '../workspace/LayerChips';
@@ -113,6 +113,14 @@ const footBand = (r: ZoneRect): ZoneRect => ({
   width: r.width,
   height: r.height * 0.2,
 });
+/** The rectangle around these points on the surface. */
+function uvRect(ps: readonly { x: number; y: number }[]) {
+  const xs = ps.map((p) => p.x),
+    ys = ps.map((p) => p.y);
+  const x = Math.min(...xs),
+    y = Math.min(...ys);
+  return { x, y, width: Math.max(...xs) - x, height: Math.max(...ys) - y };
+}
 /** A rule being set up or changed; its zone is dragged out on the iso surface. */
 export interface RuleDraft {
   /** The saved rule being changed; unset for a new one. */
@@ -550,6 +558,55 @@ function IsoViewOf({
     replayLamp,
   ]);
   const { objects, note, o, mug, trail, zones, ruleTarget, ruleMap, lit, drawingRule } = model;
+  // The zone being drawn: on the surface as it was drawn here, else in the frame it was drawn on.
+  const drawnOn = drawingRule
+    ? ruleDraft?.onSurface
+    : drawing
+      ? lab.draftZone.onSurface
+      : undefined;
+  const drawn = useMemo((): IsoDrawn | null => {
+    if (drawnOn && pin && drawnOn.scene === pin.scene && drawnOn.surfaceId === surface?.id)
+      return { rect: uvRect([drawnOn.a, drawnOn.b]) };
+    const at = drawingRule
+      ? ruleDraft?.rect && ruleTarget && ruleMap
+        ? { rect: ruleDraft.rect, frame: ruleTarget.frame, map: ruleMap }
+        : null
+      : drawing && zone && o && mug
+        ? { rect: zone, frame: o.frame, map: mug.map }
+        : null;
+    if (!at) return null;
+    const { width: w, height: h } = at.frame;
+    return {
+      rect: at.rect,
+      frame: {
+        toSurface: (p) => applyHomography(at.map.toSurface, { x: p.x * w, y: p.y * h }),
+        fromSurface: (uv) => {
+          const f = applyHomography(at.map.toFrame, uv);
+          return { x: f.x / w, y: f.y / h };
+        },
+        onRect: (rect) => {
+          if (!drawingRule) return onDraftZone(rect);
+          if (!ruleDraft) return;
+          const { onSurface: _, ...draft } = ruleDraft;
+          onRuleDraft({ ...draft, rect });
+        },
+      },
+    };
+  }, [
+    drawnOn,
+    pin,
+    surface?.id,
+    drawingRule,
+    drawing,
+    ruleDraft,
+    ruleTarget,
+    ruleMap,
+    zone,
+    o,
+    mug,
+    onDraftZone,
+    onRuleDraft,
+  ]);
   // A photographed room with an office desk keeps its own place for each
   // fixture; the desk shows them where its camera puts them, moved into its view.
   const shift = useMemo(
@@ -929,6 +986,7 @@ function IsoViewOf({
                 litLights={lit}
                 defaultLight={defaultLight}
                 drawing={drawingRule || (drawing && Boolean(mug))}
+                drawn={drawn}
                 onDrag={onDrag}
                 stats={lab.showStats}
                 callouts={callouts}

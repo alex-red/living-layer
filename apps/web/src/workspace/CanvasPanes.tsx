@@ -24,6 +24,7 @@ import {
 import { api } from '../api';
 import { Glyph } from '../Glyph';
 import { MaskOverlay } from '../MaskOverlay';
+import { RectHandles, dragRect, grabOf, type Grab } from '../RectGrab';
 import { StatsOverlay, TrackingOverlay } from '../TrackingOverlay';
 import { HealthBar } from '../HealthBar';
 import './scene.css';
@@ -363,6 +364,8 @@ function ZoneLayer() {
   const live = useDragRect('zone');
   const visibleZone = (drawing && live) || lab.visibleZone;
   const { zoneShown, occupied, zoneTag } = useZoneView(live);
+  // What the press took hold of, and the zone as it was then.
+  const grab = useRef<{ grab: Grab; from: Rect | null }>({ grab: 'draw', from: null });
   const endDrag = () => {
     lab.zoneStart.current = null;
     const d = dragRectStore.get();
@@ -385,20 +388,15 @@ function ZoneLayer() {
       onPointerDown={(e) => {
         if (!drawing || busy) return;
         lab.zoneStart.current = lab.zonePoint(e);
+        grab.current = { grab: grabOf(e.target), from: visibleZone };
         e.currentTarget.setPointerCapture(e.pointerId);
       }}
       onPointerMove={(e) => {
         if (!drawing || !lab.zoneStart.current) return;
-        const p = lab.zonePoint(e),
-          a = lab.zoneStart.current;
+        const { grab: g, from } = grab.current;
         dragRectStore.set({
           kind: 'zone',
-          rect: {
-            x: Math.min(a.x, p.x),
-            y: Math.min(a.y, p.y),
-            width: Math.abs(a.x - p.x),
-            height: Math.abs(a.y - p.y),
-          },
+          rect: dragRect(from, g, lab.zoneStart.current, lab.zonePoint(e)),
         });
       }}
       onPointerUp={endDrag}
@@ -412,6 +410,13 @@ function ZoneLayer() {
         width={visibleZone.width * 1000}
         height={visibleZone.height * 1000}
       />
+      {drawing && (
+        <RectHandles
+          rect={visibleZone}
+          to={(p) => ({ x: p.x * 1000, y: p.y * 1000 })}
+          {...(cameraSize ? { scale: { x: cameraSize.width, y: cameraSize.height } } : {})}
+        />
+      )}
     </svg>
   );
   return (
@@ -467,7 +472,7 @@ function RectDraw({
   onRect: (rect: Rect) => void;
 }) {
   const { zonePoint } = useObservation();
-  const start = useRef<{ x: number; y: number } | null>(null);
+  const start = useRef<{ x: number; y: number; grab: Grab; from: Rect | null } | null>(null);
   const live = useDragRect(kind);
   const rect = live ?? drawn;
   const endDrag = () => {
@@ -485,22 +490,13 @@ function RectDraw({
       preserveAspectRatio="none"
       aria-label={label}
       onPointerDown={(e) => {
-        start.current = zonePoint(e);
+        start.current = { ...zonePoint(e), grab: grabOf(e.target), from: rect ?? null };
         e.currentTarget.setPointerCapture(e.pointerId);
       }}
       onPointerMove={(e) => {
         const a = start.current;
         if (!a) return;
-        const p = zonePoint(e);
-        dragRectStore.set({
-          kind,
-          rect: {
-            x: Math.min(a.x, p.x),
-            y: Math.min(a.y, p.y),
-            width: Math.abs(a.x - p.x),
-            height: Math.abs(a.y - p.y),
-          },
-        });
+        dragRectStore.set({ kind, rect: dragRect(a.from, a.grab, a, zonePoint(e)) });
       }}
       onPointerUp={endDrag}
       onPointerCancel={endDrag}
@@ -513,6 +509,7 @@ function RectDraw({
           height={rect.height * 1000}
         />
       )}
+      {rect && <RectHandles rect={rect} to={(p) => ({ x: p.x * 1000, y: p.y * 1000 })} />}
     </svg>
   );
 }
