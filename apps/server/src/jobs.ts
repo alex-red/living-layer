@@ -47,8 +47,6 @@ export class Jobs {
       touched: Date.now(),
     };
     const tracker = new JobTracker(job, (ended) => {
-      // An ended job can't be stopped, so its tracker (and abort controller) goes now.
-      if (id) this.trackers.delete(id);
       if (!id || !this.history) return;
       const { touched: _t, ...kept } = ended;
       this.history.saveJob(structuredClone(kept));

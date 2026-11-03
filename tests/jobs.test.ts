@@ -9,16 +9,17 @@ import { Jobs } from '../apps/server/src/jobs.js';
 afterEach(() => setSystemTime());
 
 describe('jobs', () => {
-  it('drops a finished job’s tracker, and a stale job after ten minutes', () => {
+  it('keeps a finished job stoppable, and sweeps a stale one after ten minutes', () => {
     const jobs = new Jobs();
     const one = crypto.randomUUID();
     const two = crypto.randomUUID();
     const steps = [{ id: 'a', label: 'A' }];
     jobs.start(one, steps).finish();
     const running = jobs.start(two, steps);
-    expect((jobs as unknown as { trackers: Map<string, unknown> }).trackers.has(one)).toBe(false);
-    expect(jobs.stop(one)).toBe(false);
-    expect(jobs.get(one)?.done).toBe(true);
+    // A finished job can still be asked to stop: it answers, unchanged, until it is swept.
+    expect(jobs.stop(one)).toBe(true);
+    expect(jobs.get(one)).toMatchObject({ done: true, outcome: 'done' });
+    expect(jobs.stop(crypto.randomUUID())).toBe(false);
     // Eleven minutes on, the next start sweeps the abandoned one.
     setSystemTime(new Date(Date.now() + 11 * 60_000));
     jobs.start(undefined, steps);

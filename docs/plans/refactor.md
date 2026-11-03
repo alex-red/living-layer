@@ -82,7 +82,7 @@ _Landed:_ `requestSignal(request)` (`request-signal.ts`) aborts on client discon
 _Landed:_ `draftModel` asks a mug's part masks with `Promise.all`.
 
 **C6. now: jobs per app.** `jobs` is a module singleton that every `buildApp` rebinds (`app.ts:326`). Its `trackers` map is never pruned (`jobs.ts:56`, `:74-77`), and each job keeps its step pictures for the life of the process. Make one `Jobs` per app, prune finished trackers, and move the job routes out of `fixture.ts:1622-1633` into `jobs.ts`.
-_Landed:_ one `Jobs` per `buildApp`, passed to the routes that start jobs; ended jobs drop their tracker, stale ones are pruned with theirs; `/api/jobs/:id` and its stop route live in `jobs.ts`. `tests/jobs.test.ts`.
+_Landed:_ one `Jobs` per `buildApp`, passed to the routes that start jobs; stale jobs are pruned with their trackers; `/api/jobs/:id` and its stop route live in `jobs.ts`. `tests/jobs.test.ts`.
 
 **C7. later: fitting and rendering off the event loop.** After B, measure a scan again. If one still holds the loop for more than about 200 ms, run `fitItem` and `renderRoom` in a small Bun Worker pool: domain is pure, and the RGBA buffers can be transferred.
 
