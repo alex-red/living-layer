@@ -39,6 +39,7 @@ import {
   type ZoneRect,
   promoteGroup,
   withoutPromoted,
+  foodKeeps,
   foodNow,
   type FoodNow,
   mugHistory,
@@ -69,6 +70,8 @@ import { IsoScene, type IsoFixture, type IsoObject, type IsoZone } from './IsoSc
 import { FRIDGE_ANGLES, fromAngle, type FridgeAngle } from './fridgeAngle';
 import { Later } from '../Later';
 import { LayerChips } from '../workspace/LayerChips';
+import { DESK_THINGS } from '../workspace/labels';
+import type { IsoCallout } from './Callouts';
 import { SculptFixture } from '../workspace/FixturePanel';
 import { pinScene, type WorkScene as Kind } from '../workspace/progress';
 import './iso.css';
@@ -524,6 +527,51 @@ function IsoViewOf({
     [angle, scene, objects, fixtures, zones, trail],
   );
   const viewSurface = view.scene.surfaces.find((s) => s.id === surface?.id) ?? surface;
+  /**
+   * The stats layer's cards: each thing that keeps food or stats, or is named
+   * like food, and each food thing still drawn with the room, which the card
+   * invites to be made a thing.
+   */
+  const callouts: IsoCallout[] = useMemo(() => {
+    const top = (b: {
+      at: { x: number; y: number; z: number };
+      size: { w: number; d: number; h: number };
+    }) => ({
+      x: b.at.x + b.size.w / 2,
+      y: b.at.y + b.size.d / 2,
+      z: b.at.z + b.size.h,
+    });
+    const things = view.fixtures.flatMap((shownFixture): IsoCallout[] => {
+      const f = memory?.fixtures?.find((x) => x.id === shownFixture.id);
+      const keys = (memory?.thingStats?.[shownFixture.id] ?? []).map((s) => s.key);
+      if (!f || (!f.food && !keys.length && foodKeeps(f.label) === null)) return [];
+      return [
+        {
+          id: f.id,
+          label: f.label,
+          anchor: top(shownFixture.box),
+          ...(f.food ? { food: f.food } : {}),
+          ...(keys.length ? { stats: keys } : {}),
+          ...(shownFixture.lamp ? { lamp: true } : {}),
+          onSelect: () => onFixture(f.id),
+        },
+      ];
+    });
+    const drawn = view.scene.props.flatMap((p): IsoCallout[] =>
+      p.id === p.group && p.template && DESK_THINGS.has(p.template) && foodKeeps(p.label) !== null
+        ? [
+            {
+              id: `${kind}~${p.group}`,
+              label: p.label,
+              anchor: top(p),
+              builtIn: true,
+              onSelect: () => select({ kind: 'built-in', id: `${kind}~${p.group}` }),
+            },
+          ]
+        : [],
+    );
+    return [...things, ...drawn];
+  }, [view, memory?.fixtures, memory?.thingStats, kind, onFixture, select]);
   // Turned, a fixture's box isn't where it stands: it is moved and sized from the usual corner.
   const turned = angle === 'left';
   // Dragging on the room draws a zone: a rule's draft, or the mug's.
@@ -777,6 +825,7 @@ function IsoViewOf({
             ) : (
               <IsoScene
                 scene={view.scene}
+                seeThrough={view.seeThrough}
                 surface={viewSurface}
                 objects={view.objects}
                 fixtures={view.fixtures}
@@ -793,6 +842,7 @@ function IsoViewOf({
                 drawing={drawingRule || (drawing && Boolean(mug))}
                 onDrag={onDrag}
                 stats={lab.showStats}
+                callouts={callouts}
               />
             )}
           </ZoomPan>

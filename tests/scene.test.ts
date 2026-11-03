@@ -199,6 +199,7 @@ describe('scene templates', () => {
     const fixture = cutAway(fridge, [sauce.props[0]!]).props.map((p) => p.id);
     expect(fixture).toContain('fridge:bin-right-2');
   });
+  const shown = () => ({ objects: [], fixtures: [], zones: [], trail: [] });
   it('sees the fridge from its left corner, its things turned with it', () => {
     const fridge = ISO_PRESETS.fridge;
     const milk = fridge.props.find((p) => p.id === 'milk')!;
@@ -223,6 +224,19 @@ describe('scene templates', () => {
     );
     // A point on a surface turns with the surface it is on.
     expect(left.trail[0]).toEqual({ x: 0.75, y: 0.75 });
+    // From each corner the near door is see-through, with its bins; the far one isn't.
+    expect([...left.seeThrough].sort()).toEqual([
+      'fridge:bin-left-1',
+      'fridge:bin-left-2',
+      'fridge:bin-left-3',
+      'fridge:door',
+      'fridge:door-liner',
+      'fridge:ice',
+    ]);
+    const right = fromAngle('right', { ...shown(), scene: fridge });
+    expect(right.seeThrough.has('fridge:door-right')).toBe(true);
+    expect(right.seeThrough.has('fridge:door')).toBe(false);
+    expect(fromAngle('cut', { ...shown(), scene: fridge }).seeThrough.size).toBe(0);
   });
   it('resizes the room, its walls stretched and the furniture kept inside', () => {
     const office = asCustom(ISO_PRESETS.office);

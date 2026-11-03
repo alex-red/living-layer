@@ -21,19 +21,32 @@ export const foodSchema = z
   .strict();
 export type Food = z.infer<typeof foodSchema>;
 
-/** Days an opened one usually keeps in the fridge, by name: the card offers it as its use-by. */
-const KEEPS_OPEN: [RegExp, number][] = [
-  [/\bmilk\b|\bcream\b/i, 5],
-  [/\bleftover|\btub\b|\bcontainer\b/i, 3],
-  [/\bbutter\b/i, 30],
-  [/\begg/i, 21],
-  [/\bpickle|\bjar\b|\bsauce\b|\bketchup\b|\bmustard\b|\bmayo/i, 60],
-  [/\bjuice\b/i, 7],
-  [/\byog(h)?urt\b|\bcheese\b/i, 7],
+/**
+ * Days one usually keeps in the fridge by name, opened and as bought: the
+ * card offers the first as its use-by when it is opened, and a thing made
+ * from the room starts with the second. Leftovers keep as long either way.
+ */
+const KEEPS: [RegExp, { open: number; bought: number }][] = [
+  [/\bmilk\b|\bcream\b/i, { open: 5, bought: 10 }],
+  [/\bleftover|\btub\b|\bcontainer\b/i, { open: 3, bought: 3 }],
+  [/\bbutter\b/i, { open: 30, bought: 60 }],
+  [/\begg/i, { open: 21, bought: 28 }],
+  [/\bpickle|\bjar\b|\bsauce\b|\bketchup\b|\bmustard\b|\bmayo/i, { open: 60, bought: 180 }],
+  [/\bjuice\b/i, { open: 7, bought: 14 }],
+  [/\byog(h)?urt\b|\bcheese\b/i, { open: 7, bought: 21 }],
 ];
 /** Whether a thing of this name is kept as food, and how long it keeps opened. */
 export function foodKeeps(label: string): number | null {
-  return KEEPS_OPEN.find(([re]) => re.test(label))?.[1] ?? null;
+  return KEEPS.find(([re]) => re.test(label))?.[1].open ?? null;
+}
+/**
+ * What a food thing starts with, bought `today`: full, with its usual use-by
+ * day. A guess the card shows and the person corrects; null when the name
+ * isn't food.
+ */
+export function foodDefaults(label: string, today: string): Food | null {
+  const keeps = KEEPS.find(([re]) => re.test(label))?.[1];
+  return keeps ? { expires: addDays(today, keeps.bought) } : null;
 }
 
 const DAY_MS = 86_400_000;

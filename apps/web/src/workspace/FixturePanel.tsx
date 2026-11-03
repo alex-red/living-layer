@@ -17,6 +17,7 @@ import {
   fixtureSize,
   fixtureStateNames,
   fixtureType,
+  dayOf,
   foodKeeps,
   lightSources,
   promoteBuiltIn,
@@ -1279,14 +1280,16 @@ export function BuiltInPanel({ id }: { id: string }) {
   /** A preset's built-in thing as a fixture standing in for it, where it stood. */
   async function makeThing() {
     if (scene === 'custom' || scene === 'custom-desk') return;
-    const fixture = promoteBuiltIn(scene, prop.group);
+    const fixture = promoteBuiltIn(scene, prop.group, dayOf(Date.now()));
     if (!fixture) return lab.setError('That thing has nothing to draw as a thing.');
     await call<DeskMemory>('fixtures/save', { fixture }, (m) => {
       lab.setMemory(m);
       const made = m.fixtures?.find((f) => f.scene === scene && f.builtIn === prop.group);
       if (made) lab.select({ kind: 'fixture', id: made.id });
       lab.setMessage(
-        `The ${prop.label.toLowerCase()} is a thing of its own now. Keep stats for it, or find it in the camera.`,
+        fixture.food?.expires
+          ? `The ${prop.label.toLowerCase()} is a thing of its own now, good until ${fixture.food.expires} as bought. Change its use-by day on its card.`
+          : `The ${prop.label.toLowerCase()} is a thing of its own now. Keep stats for it, or find it in the camera.`,
       );
     });
   }

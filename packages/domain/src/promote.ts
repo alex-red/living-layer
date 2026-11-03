@@ -1,6 +1,7 @@
 import type { FixtureInput } from './fixture.js';
 import type { IsoProp, IsoScene, IsoSceneKind, IsoTone } from './iso.js';
 import { ISO_PRESETS } from './iso-presets.js';
+import { foodDefaults } from './food.js';
 import { propModel, type PropPart } from './iso-furniture.js';
 import type { ItemMaterial } from './iso-item.js';
 import { PROP_TONES } from './iso-prop-sprite.js';
@@ -111,9 +112,16 @@ export function promoteGroup(
  * preset itself can't change, so the room is drawn without it
  * (`withoutPromoted`) while the fixture is there.
  */
-export function promoteBuiltIn(kind: IsoSceneKind, group: string): FixtureInput | null {
+export function promoteBuiltIn(
+  kind: IsoSceneKind,
+  group: string,
+  /** Today as `YYYY-MM-DD`: food starts with its usual use-by day from it (`foodDefaults`). */
+  today?: string,
+): FixtureInput | null {
   const made = promoteGroup(ISO_PRESETS[kind], group);
-  return made ? { ...made.fixture, scene: kind, builtIn: group } : null;
+  if (!made) return null;
+  const food = today ? foodDefaults(made.fixture.label, today) : null;
+  return { ...made.fixture, scene: kind, builtIn: group, ...(food ? { food } : {}) };
 }
 /** A preset room without the built-in things its fixtures stand in for. */
 export function withoutPromoted(
