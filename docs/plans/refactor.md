@@ -120,7 +120,10 @@ _Landed:_ `meta.ts` went from 1304 to 965 lines. One private `structured()` serv
 - `pngUrl()` for about 16 data URLs
 - `addUsage` in domain for 4 usage summers
 
+_Landed:_ `liveImage(mode, imageDataUrl, message?)` (`errors.ts`) replaces the demo-mode upload guards; `meta.mustAfford(usd, what, message?)` the spend-limit blocks (a few sites keep their own wording through `message`); `requireFrame(image, frame, message?)` (`images.ts`) the frame-size checks; `toDataUrl` (already in `images.ts`) the inline data-URL builders, JPEG ones included, since it reads the type from the bytes; `addUsage` is in domain's `api.ts`. Left as they were because they differ: the `demo_image` checks with their own condition (`fixture.ts` draft and photo), and the bare `!calibration` throws, which are one line each.
 **C10. later: routes as plugins.** Register one Fastify plugin per resource, with its prefix. That moves the fixture routes out of `desk.ts` and puts the scene routes, now spread over three files, into one. The 240–310-line handlers (`fixture.ts:429`, `:668`, `:982`) become services, and `run()` moves into `runs.ts`.
+
+_Landed:_ `runs.ts` holds `createRunner(store)` and the `Runner` type; `route-deps.ts` holds `RouteDeps`, and each plugin takes `Pick<RouteDeps, …>`. Plugins registered with their prefix in `app.ts`: assist, expose, fixtures, ha, item, jobs, room, scene, select, streams, watch, cameras (under `/api`, since `streams/crop` is there), and `pin` (under `/api/desk`). `scene.ts` is the one `/api/scene` plugin: it holds draft, classify, photo and texture (taken from `app.ts`, `fixture.ts` and `desk.ts`) and registers `photo.ts`, `scene-fit.ts` and `illustration.ts`. The two `onResponse` hooks that sync the watchers and the exposers moved to the root, since a hook added inside a plugin covers only that plugin. `tests/routes.test.ts` pins the full route list (method and path), taken before the change. `draftFixture`, `scanFixtures` and `sculptFixture` are top-level functions that take their deps and a parsed request. Not done: `deskRoutes` is not a plugin (it returns the tracking functions the watcher needs, and its handlers share one busy set with `scene/save` and `scene/from-photo/save`, so those two and `fixtures/anchor|untrack` and `item/save` stay in `desk.ts`); `cameras.ts` could not take `streams/crop` out; the three services are still 200–300 lines each, now callable without a route but not yet split into steps; the settings, text, discover, segment and lamp routes stay in `app.ts`.
 
 **C11. later, needs a decision: hot reads and retention.** `/api/status` (`store.ts:237`) and `/api/jobs` (`jobs.ts:208`) each parse about 11 MB per call. Index mode, kind and status as generated columns, and strip job pictures in SQL. A retention rule for old evidence deletes data, so agree on it first.
 
@@ -166,6 +169,8 @@ _Done when:_ the first chunk is under 400 KB.
 - A `method` option and a blob variant for `api()`, replacing four raw `fetch`es (`useLabState.ts:1022`, `:2206`, `:2694`; `PhonePairing.tsx:42`).
 - A `RunOutputs` map typed by kind, which removes 56 `as X` casts, 23 of them in `useLabState`.
 
+_Landed (server half):_ the routes' 63 inline `z.object` schemas are in `packages/domain/src/requests.ts`, hoisted to module level, named after their route (`fixturesDraftBodySchema`, `jobsQuerySchema`; the ones several routes share are `modeOnlySchema`, `idOnlySchema`, `modeIdSchema`, `modeImageSchema`, `cameraIdOnlySchema`). Each has a `z.input` type beside it (`FixturesDraftBody`, `ModeOnly`…) for the web to send. `NetworkStream` moved to domain's `camera.ts`; both `streams.ts` files re-export it. Not done: a route table, the web's `api()` change and `RunOutputs`, and response types (the server returns inferred shapes, not named ones, except `EvidenceRun`/`Segmentation` and friends already in domain).
+
 **D7. later: CSS.**
 
 - Add type, z-index and radius scales to `tokens.css`; today `12px` appears 67 times.
@@ -209,7 +214,7 @@ _Landed:_ `room-cases.ts`, re-exported from the index.
 
 **E4. Types tied to their schemas.** Add `satisfies z.ZodType<T>` where a hand-written type sits beside a schema: `IsoProp`, `IsoScene`, `RoomCamera` and `PlacementRule`. Give desk memory a schema, and run `upgradeMemory` as its preprocess step; `store.ts:96` casts parsed JSON today.
 
-_Landed:_ `satisfies z.ZodType<…>` on `isoPropSchema`, `isoSceneSchema`, `roomCameraSchema`; `ruleInputSchema` is checked against the fields `PlacementRule` shares with it (it takes `rect`, the rule stores `zone`). `deskMemorySchema` (in `memory.ts`) runs `upgradeMemory` as its preprocess step and checks the top level; nested parts are only checked for kind, since they have no schemas yet. _Follow-up:_ `store.ts` `memory()` should parse with `deskMemorySchema` instead of casting; it is not wired in.
+_Landed:_ `satisfies z.ZodType<…>` on `isoPropSchema`, `isoSceneSchema`, `roomCameraSchema`; `ruleInputSchema` is checked against the fields `PlacementRule` shares with it (it takes `rect`, the rule stores `zone`). `deskMemorySchema` (in `memory.ts`) runs `upgradeMemory` as its preprocess step and checks the top level; nested parts are only checked for kind, since they have no schemas yet. _Store half landed:_ `store.ts` `memory()` parses with `deskMemorySchema`. Memory that no longer fits is logged once per mode and kept as saved (upgraded if the upgrade can run), so nothing is lost; `tests/store-migrate.test.ts` has an old-format case and a failing one.
 
 **E5. `ItemPart` as a union by `shape`.** Convert the legacy shapes when parsing. This risks saved items and goldens, so check both.
 
