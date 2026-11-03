@@ -116,7 +116,7 @@ test('remembers a mug, draws a zone, verifies one virtual action, and retains ev
   const before = await page.request.get('/api/desk/demo');
   const objectId = (await before.json()).object.id;
   await outline(page, 'Main zone').click();
-  await page.getByRole('button', { name: 'Draw / edit zone' }).click();
+  await page.getByRole('button', { name: 'Draw zone', exact: true }).click();
   const overlay = page.getByLabel('Draw placement zone');
   await overlay.scrollIntoViewIfNeeded();
   const bounds = (await overlay.boundingBox())!;
@@ -137,7 +137,7 @@ test('remembers a mug, draws a zone, verifies one virtual action, and retains ev
   // The lamp fires only on entering: a second check while still inside takes no action.
   await expect(page.locator('.placement-result')).toContainText('inside · lamp none');
   await expect(page.locator('.placement-result')).toContainText('Still inside');
-  await page.getByRole('button', { name: 'Draw / edit zone' }).click();
+  await page.getByRole('button', { name: 'Edit zone', exact: true }).click();
   for (const [field, value] of [
     ['x', '0'],
     ['y', '0'],
@@ -312,6 +312,15 @@ test('drafts a custom room offline, saves it, and lights a rule’s lamp', async
   await page.getByRole('button', { name: 'Check rules', exact: true }).click();
   await expect(page.locator('.feedback')).toContainText('Whole desk: inside, light confirmed');
   await expect(page.locator('[data-prop="lamp"] .iso-lamp.lit')).toBeVisible();
+  // A saved zone opens its rule from the room, and the rule changes in place.
+  await page.locator('.iso-zone.rule.pickable').first().click();
+  await page.getByRole('button', { name: 'Edit zone and rule', exact: true }).click();
+  await page.getByLabel('Rule name').fill('Desk front');
+  await page.getByRole('button', { name: 'Save changes', exact: true }).click();
+  await expect(page.locator('.feedback')).toContainText('Updated "Desk front"');
+  await expect(outline(page, 'Desk front')).toHaveAttribute('aria-current', 'true');
+  const rules = (await (await page.request.get('/api/desk/demo')).json()).rules;
+  expect(rules.map((r: { label: string }) => r.label)).toEqual(['Desk front']);
 });
 
 test('drafts a scene from the demo camera, reviews the pin and objects, and saves it in one go', async ({

@@ -49,8 +49,12 @@ import './iso.css';
 
 /** What the iso canvas shows: the room, the layout editor, or an object's model. */
 export type IsoPanel = 'room' | 'scene' | 'item';
-/** A rule being set up; its zone is dragged out on the iso surface. */
+/** A rule being set up or changed; its zone is dragged out on the iso surface. */
 export interface RuleDraft {
+  /** The saved rule being changed; unset for a new one. */
+  id?: string;
+  /** The fixture the saved rule switches, kept while its entity stays the same. */
+  fixtureId?: string;
   /** What the zone counts: anything the camera follows, or these. */
   objects: 'any' | string[];
   /** Switch the entity off again when the zone empties. */
@@ -120,6 +124,7 @@ export function IsoView({
   onMoveFixture,
   onFixtureMenu,
   onResizeFixture,
+  onZone,
   tool = 'select',
   onAiEdit,
   hand = false,
@@ -172,6 +177,8 @@ export function IsoView({
   onFixtureMenu?: (id: string, at: { x: number; y: number }) => void;
   /** Stretch a fixture's base by its handles, to a footprint already turned. */
   onResizeFixture?: (id: string, rect: BaseRect) => Promise<void> | void;
+  /** A click on a saved zone in the room: `main` is the mug's. */
+  onZone?: (id: string) => void;
   /** The canvas tool: fixtures move with Select, stretch with Scale. */
   tool?: Tool;
   /** Pick a prop of the saved room for the AI brush. */
@@ -273,7 +280,8 @@ export function IsoView({
     zones.push({ id: 'main', kind: 'main', quad: zoneOnSurface(zone, o.frame, mug.map.toSurface) });
   for (const rule of memory?.rules ?? []) {
     const map = pinned && pin ? surfaceMap(pin, rule.zone.frame) : null;
-    if (map)
+    // A rule being changed shows as its draft only.
+    if (map && rule.id !== ruleDraft?.id)
       zones.push({
         id: rule.id,
         kind: 'rule',
@@ -289,7 +297,7 @@ export function IsoView({
     zones.push({
       id: 'draft',
       kind: 'draft',
-      label: ruleDraft.label || 'New zone',
+      label: ruleDraft.label.trim() || 'New zone',
       quad: zoneOnSurface(ruleDraft.rect, ruleTarget.frame, ruleMap.toSurface),
     });
   if (!layers.trail) trail.length = 0;
@@ -563,6 +571,7 @@ export function IsoView({
                 }
                 trail={trail}
                 zones={zones}
+                onZone={tool === 'select' && !hand && !ruleDraft ? onZone : undefined}
                 litLights={lit}
                 defaultLight={defaultLight}
                 drawing={drawingRule || (drawing && Boolean(mug))}

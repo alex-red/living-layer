@@ -133,6 +133,14 @@
 .iso-object.focused text {
   font-weight: 700;
 }
+/* A saved zone opens its rule with a click, inside it as well as on its edge. */
+.iso-zone.pickable {
+  pointer-events: all;
+  cursor: pointer;
+}
+.iso-zone.pickable:hover {
+  stroke-width: 2.5;
+}
 .iso-zone.focused {
   stroke-width: 2.5;
   filter: drop-shadow(0 0 14px var(--chosen-glow));

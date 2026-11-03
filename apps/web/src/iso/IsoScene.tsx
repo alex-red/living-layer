@@ -338,6 +338,7 @@ export function IsoScene({
   placing,
   trail = [],
   zones = [],
+  onZone,
   litLights,
   defaultLight = '',
   drawing = false,
@@ -360,6 +361,8 @@ export function IsoScene({
   placing?: IsoPlacing;
   trail?: Point[];
   zones?: IsoZone[];
+  /** A click on a saved zone selects its rule: `main` is the mug's. */
+  onZone?: (id: string) => void;
   /** Lights whose last action was confirmed; their lamps glow. */
   litLights?: Set<string>;
   /** The light a lamp without its own `lightId` stands for. */
@@ -580,14 +583,20 @@ export function IsoScene({
                   className={`iso-surface ${drawing ? 'drawing' : ''} ${hover ? 'hover' : ''}`}
                   points={pts(surfaceQuad)}
                 />
-                {zones.map((z) => (
-                  <polygon
-                    key={z.id}
-                    className={`iso-zone ${z.kind} ${z.inside ? 'inside' : ''} ${z.focused ? 'focused' : ''}`}
-                    data-zone={z.id}
-                    points={pts(z.quad.map((uv) => onSurface(uv)!))}
-                  />
-                ))}
+                {zones.map((z) => {
+                  const pick = onZone && !drawing && !placing && z.kind !== 'draft';
+                  return (
+                    <polygon
+                      key={z.id}
+                      className={`iso-zone ${z.kind} ${z.inside ? 'inside' : ''} ${z.focused ? 'focused' : ''} ${pick ? 'pickable' : ''}`}
+                      data-zone={z.id}
+                      points={pts(z.quad.map((uv) => onSurface(uv)!))}
+                      onClick={pick ? () => onZone(z.id) : undefined}
+                    >
+                      {pick && <title>{`${z.label ?? 'Main zone'}: click to open its rule`}</title>}
+                    </polygon>
+                  );
+                })}
                 {trail.length > 1 && (
                   <polyline
                     className="iso-trail"

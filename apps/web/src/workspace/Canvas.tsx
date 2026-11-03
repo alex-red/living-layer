@@ -57,8 +57,11 @@ function EditBanner() {
     text = 'Drag a rectangle on the photo or the iso surface. Save it in the inspector.';
     done = () => lab.setDrawing(false);
   } else if (ruleDraft) {
-    text = 'Drag on the iso surface to draw the rule’s zone.';
-    done = () => lab.select(null);
+    const name = ruleDraft.label.trim() || 'the zone';
+    text = ruleDraft.rect
+      ? `Drag again on the iso surface to redraw ${name}. Save it in the inspector.`
+      : `Drag a rectangle on the iso surface to draw ${name}.`;
+    done = () => lab.select(ruleDraft.id ? { kind: 'rule', id: ruleDraft.id } : null);
   } else if (stageView !== 'photo' && isoPanel !== 'room') {
     text = isoPanel === 'scene' ? 'Editing the room’s layout.' : 'Editing a model.';
     done = () => lab.setIsoPanel('room');
@@ -690,6 +693,7 @@ export function Canvas() {
             placing={lab.placing}
             onPlace={(where) => void lab.placeFixture(where)}
             onFixture={(id) => lab.select({ kind: 'fixture', id })}
+            onZone={(id) => lab.select({ kind: 'rule', id })}
             onFixtureMenu={(id, at) => setFixtureMenu({ id, at })}
             onMoveFixture={(id, to) => {
               const label = memory?.fixtures?.find((f) => f.id === id)?.label ?? 'fixture';

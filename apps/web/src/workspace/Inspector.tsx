@@ -1024,15 +1024,17 @@ function ZonePanel() {
         <strong>{memory.zone ? 'ZN-01' : 'a zone'}</strong>, turn on{' '}
         <strong>{lab.lights[0] ?? 'the main lamp'}</strong>.
       </p>
-      <Button
-        disabled={Boolean(busy) || !currentObservation || camera}
-        onClick={() => {
-          lab.setDraftZone(memory.zone?.rect ?? { x: 0.3, y: 0.2, width: 0.4, height: 0.6 });
-          lab.setDrawing(true);
-        }}
-      >
-        Draw / edit zone
-      </Button>
+      {!drawing && (
+        <Button
+          disabled={Boolean(busy) || !currentObservation || camera}
+          onClick={() => {
+            lab.setDraftZone(memory.zone?.rect ?? { x: 0.3, y: 0.2, width: 0.4, height: 0.6 });
+            lab.setDrawing(true);
+          }}
+        >
+          {memory.zone ? 'Edit zone' : 'Draw zone'}
+        </Button>
+      )}
       {drawing && (
         <div className="zone-editor">
           <p className="micro">
@@ -1060,24 +1062,27 @@ function ZonePanel() {
               </label>
             ))}
           </div>
-          <Button
-            variant="primary"
-            disabled={Boolean(busy) || !currentObservation}
-            onClick={() =>
-              void lab.deskAction('zone', {
-                observationId: currentObservation?.id,
-                rect: {
-                  x: draftZone.x,
-                  y: draftZone.y,
-                  width: draftZone.width,
-                  height: draftZone.height,
-                },
-                ...(draftZone.onSurface ? { onSurface: draftZone.onSurface } : {}),
-              })
-            }
-          >
-            Save zone
-          </Button>
+          <div className="save-actions">
+            <Button
+              variant="primary"
+              disabled={Boolean(busy) || !currentObservation}
+              onClick={() =>
+                void lab.deskAction('zone', {
+                  observationId: currentObservation?.id,
+                  rect: {
+                    x: draftZone.x,
+                    y: draftZone.y,
+                    width: draftZone.width,
+                    height: draftZone.height,
+                  },
+                  ...(draftZone.onSurface ? { onSurface: draftZone.onSurface } : {}),
+                })
+              }
+            >
+              Save zone
+            </Button>
+            <Button onClick={() => lab.setDrawing(false)}>Cancel</Button>
+          </div>
         </div>
       )}
       <Button
@@ -1204,6 +1209,9 @@ function RulePanel({ id }: { id: string }) {
           'tell Home Assistant only.'
         )}
       </p>
+      <Button disabled={off} onClick={() => lab.editRule(r.id)}>
+        Edit zone and rule
+      </Button>
       {shown ? (
         <p className="micro">
           Shown in Home Assistant as{' '}
@@ -1292,19 +1300,26 @@ function NewRulePanel() {
       .filter((f) => f.track)
       .map((f) => ({ id: f.id, label: `${f.label} (fixture)` })),
   ];
-  const set = (patch: Partial<typeof draft>) => lab.setRuleDraft({ ...draft, ...patch });
+  const set = (patch: Partial<typeof draft>) => {
+    const next = { ...draft, ...patch };
+    // The saved rule's fixture goes with its entity: another entity is a plain rule.
+    if (patch.entityId !== undefined && patch.entityId !== draft.entityId) delete next.fixtureId;
+    lab.setRuleDraft(next);
+  };
   const ids = objects.map((o) => o.id);
   const who =
     draft.objects === 'any' ? 'any' : draft.objects.length === 1 ? draft.objects[0]! : 'several';
+  const editing = Boolean(draft.id);
+  const back = () => lab.select(draft.id ? { kind: 'rule', id: draft.id } : null);
   return (
     <Panel
-      tiny="NEW RULE"
-      title="When something is in a zone…"
+      tiny={editing ? 'EDIT RULE' : 'NEW RULE'}
+      title={editing ? `Change “${draft.label.trim() || 'zone'}”` : 'When something is in a zone…'}
       status={
         draft.rect
-          ? `Zone drawn: ${Math.round(draft.rect.width * 100)}×${Math.round(draft.rect.height * 100)}% of the frame.`
+          ? `Zone ${Math.round(draft.rect.width * 100)}×${Math.round(draft.rect.height * 100)}% of the frame. Drag again on the iso surface to redraw it.`
           : mainSurface(lab) || lab.progress.pinned
-            ? 'Drag on the iso surface to draw the zone.'
+            ? 'Drag a rectangle on the iso surface to draw the zone.'
             : 'Pin a surface first, so the zone can be drawn on it.'
       }
       tone={draft.rect ? 'chosen' : 'seen'}
@@ -1386,6 +1401,11 @@ function NewRulePanel() {
           and off again when it empties
         </Check>
       </div>
+      {(!draft.rect || !draft.label.trim()) && (
+        <p className="micro">
+          {!draft.rect ? 'Draw the zone to save the rule.' : 'Name the zone to save the rule.'}
+        </p>
+      )}
       <div className="save-actions">
         <Button
           variant="primary"
@@ -1395,6 +1415,8 @@ function NewRulePanel() {
               'desk/rules/save',
               {
                 rule: {
+                  ...(draft.id ? { id: draft.id } : {}),
+                  ...(draft.fixtureId && draft.entityId ? { fixtureId: draft.fixtureId } : {}),
                   label: draft.label.trim(),
                   objects: draft.objects,
                   entityId: draft.entityId || null,
@@ -1406,17 +1428,17 @@ function NewRulePanel() {
               (m) => {
                 lab.setMemory(m);
                 lab.setMessage(
-                  `Saved "${draft.label.trim()}". Check rules or track something to try it.`,
+                  `${editing ? 'Updated' : 'Saved'} "${draft.label.trim()}". Check rules or track something to try it.`,
                 );
-                const saved = m.rules?.at(-1);
-                lab.select(saved ? { kind: 'rule', id: saved.id } : null);
+                const saved = draft.id ?? m.rules?.at(-1)?.id;
+                lab.select(saved ? { kind: 'rule', id: saved } : null);
               },
             )
           }
         >
-          Save rule
+          {editing ? 'Save changes' : 'Save rule'}
         </Button>
-        <Button onClick={() => lab.select(null)}>Cancel</Button>
+        <Button onClick={back}>Cancel</Button>
       </div>
       {!entities.length && (
         <ChooseDevicesLink why="No devices to turn on yet; without one, a rule only reports to Home Assistant." />

@@ -713,7 +713,8 @@ export function useLabState() {
       if (outlineOpen) return setOutlineOpen(false);
       if (pinning) return setPinning(null);
       if (drawing) return setDrawing(false);
-      if (ruleDraft) return setRuleDraft(null);
+      // A rule being changed goes back to its own panel.
+      if (ruleDraft) return select(ruleDraft.id ? { kind: 'rule', id: ruleDraft.id } : null);
       if (placing) return setPlacing(null);
       if (boxing) return setBoxing(null);
       if (zooming) return setZooming(null);
@@ -1662,13 +1663,36 @@ export function useLabState() {
   }
   /** Set up a rule counting one thing, or anything the camera follows. */
   function startRule(objectId?: string) {
-    setRuleDraft({
+    // A name to start from, so the zone can be saved as soon as it is drawn.
+    const taken = new Set(memory?.rules?.map((r) => r.label));
+    let n = (memory?.rules?.length ?? 0) + 1;
+    while (taken.has(`Zone ${n}`)) n++;
+    openRule({
       objects: objectId ? [objectId] : 'any',
       offWhenEmpty: false,
       entityId: entities[0] ?? '',
-      label: '',
+      label: `Zone ${n}`,
       rect: null,
     });
+  }
+  /** Open a saved rule in the rule builder: its zone dragged again, anything else changed. */
+  function editRule(id: string) {
+    const r = memory?.rules?.find((x) => x.id === id);
+    if (!r) return;
+    openRule({
+      id: r.id,
+      ...(r.fixtureId ? { fixtureId: r.fixtureId } : {}),
+      objects: r.objects,
+      offWhenEmpty: Boolean(r.offWhenEmpty),
+      entityId: r.entityId ?? '',
+      label: r.label,
+      rect: r.zone.rect,
+      ...(r.zone.onSurface ? { onSurface: r.zone.onSurface } : {}),
+    });
+  }
+  function openRule(draft: RuleDraft) {
+    setDrawing(false);
+    setRuleDraft(draft);
     setIsoPanel('room');
     if (stageView === 'photo') setStageView('iso');
     setSelection({ kind: 'new-rule' });
@@ -2814,6 +2838,7 @@ export function useLabState() {
     openModel,
     editLayout,
     startRule,
+    editRule,
     capsuleTone,
     filteredRuns,
     logStats,
