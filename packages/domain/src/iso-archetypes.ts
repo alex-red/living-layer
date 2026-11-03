@@ -847,3 +847,109 @@ export function monitorItem(label = 'Monitor', on = false): IsoItem {
     ],
   };
 }
+
+/** Desk things the catalogue models by name, rather than as their archetype's shape. */
+export const DESK_MODELS = ['monitor', 'keyboard', 'laptop'] as const;
+export type DeskModel = (typeof DESK_MODELS)[number];
+const DESK_WORDS: [DeskModel, RegExp][] = [
+  ['keyboard', /\bkeyboard\b/i],
+  ['laptop', /\b(laptop|macbook|chromebook)\b/i],
+  ['monitor', /\b(monitor|display|screen|imac)s?\b/i],
+];
+/** The desk model a thing is drawn with, by what it was drawn as or else its name; null for none. */
+export function deskModel(label: string, as: string): DeskModel | null {
+  if ((DESK_MODELS as readonly string[]).includes(as)) return as as DeskModel;
+  return DESK_WORDS.find(([, re]) => re.test(label))?.[0] ?? null;
+}
+
+/** A shade of a hex colour, darker below 1 and lighter above (towards white). */
+const shade = (hex: string, k: number) => {
+  const n = parseInt(hex.slice(1), 16);
+  const c = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map((v) =>
+    Math.round(k <= 1 ? v * k : v + (255 - v) * (k - 1)),
+  );
+  return `#${c.map((v) => v.toString(16).padStart(2, '0')).join('')}`;
+};
+/** A hex colour's lightness, 0 to 1, by its luma. */
+const luma = (hex: string) => {
+  const n = parseInt(hex.slice(1), 16);
+  return (0.299 * ((n >> 16) & 255) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255;
+};
+
+/** A keyboard: a low slab with a bed of keys a step up, the keys a shade off the body. */
+export function keyboardItem(label = 'Keyboard', color = '#2a2d34'): IsoItem {
+  return {
+    label,
+    parts: [
+      {
+        id: 'body',
+        shape: 'rbox',
+        at: { x: 0, y: 0, z: 0 },
+        size: { w: 1, d: 1, h: 0.55 },
+        color,
+        taper: 1,
+        radius: 0.08,
+        material: 'matte',
+      },
+      {
+        id: 'keys',
+        shape: 'rbox',
+        at: { x: 0.04, y: 0.1, z: 0.55 },
+        size: { w: 0.92, d: 0.8, h: 0.45 },
+        color: shade(color, luma(color) > 0.5 ? 0.85 : 1.25),
+        taper: 1,
+        radius: 0.05,
+        material: 'matte',
+      },
+    ],
+  };
+}
+
+/** An open laptop: its base flat on the desk and its lid standing up along the back. */
+export function laptopItem(label = 'Laptop', color = '#9ea3ab'): IsoItem {
+  return {
+    label,
+    parts: [
+      {
+        id: 'base',
+        shape: 'rbox',
+        at: { x: 0, y: 0.05, z: 0 },
+        size: { w: 1, d: 0.95, h: 0.06 },
+        color,
+        taper: 1,
+        radius: 0.06,
+        material: 'metal',
+      },
+      {
+        id: 'keys',
+        shape: 'rbox',
+        at: { x: 0.08, y: 0.45, z: 0.06 },
+        size: { w: 0.84, d: 0.4, h: 0.01 },
+        color: '#2a2d34',
+        taper: 1,
+        radius: 0.02,
+        material: 'matte',
+      },
+      {
+        id: 'lid',
+        shape: 'rbox',
+        at: { x: 0, y: 0, z: 0.06 },
+        size: { w: 1, d: 0.06, h: 0.94 },
+        color,
+        taper: 1,
+        radius: 0.04,
+        material: 'metal',
+      },
+      {
+        id: 'screen',
+        shape: 'rbox',
+        at: { x: 0.05, y: 0.055, z: 0.12 },
+        size: { w: 0.9, d: 0.02, h: 0.82 },
+        color: '#2c3858',
+        taper: 1,
+        radius: 0.02,
+        material: 'gloss',
+      },
+    ],
+  };
+}

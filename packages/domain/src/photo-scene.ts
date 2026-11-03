@@ -16,7 +16,7 @@ import {
   groupBounds,
   type TemplateId,
 } from './iso-templates.js';
-import { ARCHETYPES, type Archetype } from './iso-archetypes.js';
+import { ARCHETYPES, DESK_MODELS, type Archetype, type DeskModel } from './iso-archetypes.js';
 import { ITEM_MATERIALS, hexColorSchema, type SavedItem } from './iso-item.js';
 
 /**
@@ -30,12 +30,12 @@ import { ITEM_MATERIALS, hexColorSchema, type SavedItem } from './iso-item.js';
  */
 
 export const PHOTO_SURFACES = ['desk', 'table', 'cabinet', 'shelf'] as const;
-/** What a thing in the photo may be drawn as: a template, or an item model's archetype. */
-export const PHOTO_AS = [...new Set<string>([...TEMPLATE_IDS, ...ARCHETYPES])] as [
+/** What a thing in the photo may be drawn as: a template, an item model's archetype or a desk model. */
+export const PHOTO_AS = [...new Set<string>([...TEMPLATE_IDS, ...ARCHETYPES, ...DESK_MODELS])] as [
   string,
   ...string[],
 ];
-export type PhotoAs = TemplateId | Archetype;
+export type PhotoAs = TemplateId | Archetype | DeskModel;
 export const MAX_PHOTO_THINGS = 16;
 
 const photoBoxSchema = z
@@ -144,7 +144,7 @@ export function photoCatalog(): string {
   }).join(', ');
   return [
     `Templates: ${templates}.`,
-    `Object models: ${ARCHETYPES.join(', ')}.`,
+    `Object models: ${[...DESK_MODELS, ...ARCHETYPES].join(', ')}.`,
     `Surfaces people put things on: ${PHOTO_SURFACES.join(', ')}.`,
   ].join('\n');
 }

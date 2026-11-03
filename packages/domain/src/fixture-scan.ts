@@ -15,6 +15,10 @@ import {
   buildItem,
   defaultFit,
   floorLampItem,
+  keyboardItem,
+  laptopItem,
+  monitorItem,
+  deskModel,
   type Archetype,
 } from './iso-archetypes.js';
 import { ITEM_MATERIALS, hexColorSchema, type IsoItem } from './iso-item.js';
@@ -328,6 +332,16 @@ export function draftModel(
       ]),
       source: 'catalog',
     };
+  // A desk thing with a model of its own: a monitor, a keyboard, a laptop.
+  const desk = deskModel(thing.label, as);
+  if (desk) {
+    // A monitor keeps its dark frame and screen; a keyboard or laptop takes its colour.
+    const item =
+      desk === 'monitor'
+        ? monitorItem(thing.label)
+        : (desk === 'keyboard' ? keyboardItem : laptopItem)(thing.label, thing.color);
+    return { item, source: 'catalog' };
+  }
   // A device is a flat thing (a mouse, a remote): anything taller than it is wide isn't one.
   const flat = !thing.sizeCm || thing.sizeCm.h < Math.max(thing.sizeCm.w, thing.sizeCm.d);
   return OWN_MODEL.has(archetype) && (archetype !== 'device' || flat)

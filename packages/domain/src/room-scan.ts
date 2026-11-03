@@ -3,6 +3,7 @@ import { ISO_PRESETS } from './iso-presets.js';
 import {
   PROP_TEMPLATES,
   SCAN_TEMPLATE_IDS,
+  TEMPLATE_IDS,
   freshGroupId,
   groupBounds,
   moveGroup,
@@ -37,6 +38,7 @@ import type { CameraCrop } from './camera.js';
 import { floorSolid, renderRoom, sceneSolids } from './room-render.js';
 import { ISO_TILE_CM, cm } from './iso-furniture.js';
 import { layoutTuning } from './layout-tuning.js';
+import { deskModel } from './iso-archetypes.js';
 
 /**
  * A room's things laid out from one frame of its calibrated camera. Nothing
@@ -55,6 +57,15 @@ export interface RoomLayoutInput extends Pick<
 
 const isTemplate = (as: string): as is TemplateId =>
   (SCAN_TEMPLATE_IDS as readonly string[]).includes(as);
+/**
+ * The template that draws a thing like it, when one does: what stands on a
+ * surface is a model, not a template, but the template's drawing still says
+ * how far in from its box it touches down (a monitor's stand, a book's cover).
+ */
+const drawnLike = (t: Pick<PlacedThing, 'label' | 'as'>): TemplateId | null => {
+  const like = (TEMPLATE_IDS as readonly string[]).includes(t.as) ? t.as : deskModel(t.label, t.as);
+  return like && (TEMPLATE_IDS as readonly string[]).includes(like) ? (like as TemplateId) : null;
+};
 /** Templates that come in many sizes, drawn at Spark's estimate within reason. */
 const SIZED = new Set<string>(['desk', 'table', 'shelf', 'cabinet', 'rug']);
 /** Of those, the ones whose height varies a lot too: a bookcase can be 80 or 200 cm tall. */
@@ -458,6 +469,7 @@ export function layoutRoom(
     const points = nearPoints(camera, masks.get(t.id)!, top, walls);
     if (!points.length) return null;
     const template = isTemplate(t.as) ? t.as : null;
+    const drawn = template ?? drawnLike(t);
     // Its own size, before turning: the template's, or Spark's for what comes in many sizes.
     const sized = (v: number, of: number) => Math.min(of * T.sizeMax, Math.max(of * T.sizeMin, v));
     const spark = { w: cm(t.sizeCm.w), d: cm(t.sizeCm.d) };
@@ -505,12 +517,12 @@ export function layoutRoom(
     let x = reach.x - turned.w;
     let y = reach.y - turned.d;
     let inset = { x: 0, y: 0 };
-    if (template) {
+    if (drawn) {
       // Twice: where the outline reaches down shifts a little with where it stands.
       for (let k = 0; k < 2; k++) {
         inset = drawnInset(
           camera,
-          template,
+          drawn,
           turns,
           turned,
           { x: x + turned.w / 2, y: y + turned.d / 2 },

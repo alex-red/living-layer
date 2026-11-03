@@ -265,6 +265,28 @@ describe('the saved scene', () => {
     );
     expect(desk.item.parts.some((p) => p.id === 'shade-bowl')).toBe(false);
   });
+  it('scans what stands on a desk as fixtures, a monitor or keyboard with its own model', () => {
+    // Spark is offered furniture templates only; desk things are object models.
+    for (const id of ['monitor', 'keyboard', 'book', 'bottle'])
+      expect(photoCatalog()).not.toMatch(new RegExp(`\\b${id} \\(`));
+    expect(photoCatalog()).toMatch(/Object models: monitor, keyboard, laptop,/);
+    const thing = { label: '27-inch monitor', color: '#111111', material: 'matte' as const };
+    // By what Spark drew it as, or else by its name.
+    for (const [label, as, part] of [
+      ['27-inch monitor', 'generic', 'screen'],
+      ['black screen', 'device', 'screen'],
+      ['white keyboard', 'device', 'keys'],
+      ['mechanical thing', 'keyboard', 'keys'],
+      ['silver laptop', 'box', 'lid'],
+    ] as const) {
+      const drafted = draftModel({ ...thing, label }, as, []);
+      expect(drafted.source).toBe('catalog');
+      expect(drafted.item.parts.map((p) => p.id)).toContain(part);
+    }
+    // A keyboard takes its colour.
+    const white = draftModel({ ...thing, label: 'keyboard', color: '#eeeeee' }, 'device', []);
+    expect(white.item.parts.find((p) => p.id === 'body')!.color).toBe('#eeeeee');
+  });
 });
 
 const dirs: string[] = [];
@@ -329,12 +351,12 @@ describe('photo routes, offline', () => {
         Math.hypot(c.x - DEMO_SURFACE.corners[i]!.x, c.y - DEMO_SURFACE.corners[i]!.y),
       ).toBeLessThan(10),
     );
-    // The book and bottle are templates; the mug, which isn't, gets its shape's model.
+    // Only the desk is a template: what stands on it gets a model of its own, to be saved as a fixture.
     expect(layout.things.map((t) => [t.id, t.status])).toEqual([
       ['desk', 'placed'],
       ['mug', 'object'],
-      ['book', 'placed'],
-      ['bottle', 'placed'],
+      ['book', 'object'],
+      ['bottle', 'object'],
     ]);
     expect(Object.keys(items).sort()).toEqual(['book', 'bottle', 'mug']);
     expect(run.output.modelFrom.mug).toBe('catalog');

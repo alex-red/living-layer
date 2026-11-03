@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   ARCHETYPES,
+  DESK_MODELS,
   PROP_TEMPLATES,
-  TEMPLATE_IDS,
+  SCAN_TEMPLATE_IDS,
   draftModel,
   fixturesForSave,
   layoutRoom,
@@ -233,14 +234,14 @@ function DraftReview({
                     onChange={(e) => edit(t.id, { as: e.target.value as PhotoAs })}
                   >
                     <optgroup label="Templates">
-                      {TEMPLATE_IDS.map((id) => (
+                      {SCAN_TEMPLATE_IDS.map((id) => (
                         <option key={id} value={id}>
                           {PROP_TEMPLATES[id].label}
                         </option>
                       ))}
                     </optgroup>
                     <optgroup label="Object models">
-                      {ARCHETYPES.filter((a) => !(a in PROP_TEMPLATES)).map((a) => (
+                      {[...DESK_MODELS, ...ARCHETYPES].map((a) => (
                         <option key={a} value={a}>
                           {a}
                         </option>
