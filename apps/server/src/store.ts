@@ -32,6 +32,20 @@ export interface MetaCallRecord {
   cause: string | null;
 }
 
+/** Where streaming measurements go, one JSON line each; `bun run runs --streams` reads them. */
+export const STREAM_STATS_FILE = 'stream-stats.jsonl';
+
+/** One streaming measurement: a tab's playback, a phone's sending, or the watcher's frames. */
+export function appendStreamStats(
+  dir: string,
+  record: { source: string } & Record<string, unknown>,
+) {
+  appendFileSync(
+    join(dir, STREAM_STATS_FILE),
+    `${JSON.stringify({ at: new Date().toISOString(), ...record })}\n`,
+  );
+}
+
 export class EvidenceStore {
   private db: Database;
   constructor(private dir: string) {
@@ -56,6 +70,9 @@ export class EvidenceStore {
    */
   appendPick(pick: Record<string, unknown>): void {
     appendFileSync(join(this.dir, 'fixture-picks.jsonl'), `${JSON.stringify(pick)}\n`);
+  }
+  appendStreamStats(record: { source: string } & Record<string, unknown>): void {
+    appendStreamStats(this.dir, record);
   }
   /** Each migration runs once, in order; `PRAGMA user_version` is how many have. */
   private migrate(): void {

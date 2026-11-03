@@ -8,13 +8,15 @@
  *   bun run runs                    the latest 15
  *   bun run runs --kind photo --mode live --limit 5
  *   bun run runs c692f66f           one run: steps, assists, error → out/runs/c692f66f/
+ *   bun run runs --streams          camera streaming: tab playbacks, phone encoder, watcher frames
  */
-import { mkdirSync, writeFileSync } from 'node:fs';
-import { basename, resolve } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { basename, join, resolve } from 'node:path';
 import { runCost, type EvidenceRun, type Mode, type RunKind } from '@livinglayer/domain';
 import { flag, has, parseArgs } from './lib/args.js';
 import { loadCalls, summarizeCalls } from './lib/calls.js';
-import { openEvidence } from './lib/evidence.js';
+import { dataDir, openEvidence } from './lib/evidence.js';
+import { STREAM_STATS_FILE } from '../apps/server/src/store.js';
 
 const args = parseArgs();
 
@@ -58,6 +60,52 @@ if (has(args, 'calls')) {
         `  ${flagGlyph} ${kindCol}  ${countCol}  ${latCol}  ${tokCol}  ${failCol}  ${note}`.trimEnd(),
       );
     }
+  }
+  process.exit(0);
+}
+
+if (has(args, 'streams')) {
+  const file = join(dataDir(), STREAM_STATS_FILE);
+  const lines = existsSync(file) ? readFileSync(file, 'utf8').trim().split('\n') : [];
+  const records = lines.flatMap((l) => {
+    try {
+      return [JSON.parse(l) as Record<string, unknown> & { at: string; source: string }];
+    } catch {
+      return [];
+    }
+  });
+  const limit = Number(flag(args, 'limit') ?? 10);
+  const v = (x: unknown, unit = '') =>
+    x === null || x === undefined ? '—' : `${String(x)}${unit}`;
+  const median = (xs: unknown[]) => {
+    const ns = xs.filter((x): x is number => typeof x === 'number').sort((a, b) => a - b);
+    return ns.length ? ns[Math.floor(ns.length / 2)] : null;
+  };
+  const show: Record<string, (r: Record<string, unknown>) => string> = {
+    tab: (r) =>
+      `${String(r.outcome).padEnd(6)} ${String(r.stream).padEnd(28)} connect ${v(r.connectMs, 'ms')}  first frame ${v(r.firstFrameMs, 'ms')}  ${v(r.width)}×${v(r.height)} ${v(r.fps, 'fps')} ${v(r.kbps, 'kbps')}  jitter ${v(r.jitterMs, 'ms')}  freezes ${v(r.freezes)} (${v(r.freezeMs, 'ms')})  decode ${v(r.decodeMs, 'ms')}  ${v(r.codec)} ${v(r.decoder)}${r.error ? `  ${String(r.error)}` : ''}`,
+    phone: (r) => {
+      const capture = r.capture as Record<string, unknown> | undefined;
+      return `${String(r.phone).padEnd(14)} ${v(r.width)}×${v(r.height)} ${v(r.fps, 'fps')} ${v(r.kbps, 'kbps')} of ${v(r.targetKbps, 'kbps')}  limited by ${v(r.limitedBy)} ${JSON.stringify(r.limitedS ?? {})}  rtt ${v(r.rttMs, 'ms')}  ${v(r.codec)} ${v(r.encoder)}${r.powerEfficient ? ' (hardware)' : ''}  capture ${v(capture?.width)}×${v(capture?.height)}@${v(capture?.fps)}${r.held ? '  held' : ''}`;
+    },
+    watcher: (r) =>
+      `${String(r.outcome).padEnd(9)} ${String(r.camera).padEnd(16)} open ${v(r.openMs, 'ms')}  first frame ${v(r.firstFrameMs, 'ms')}  ${v(r.frames)} frames ${v(r.fps, 'fps')}  longest gap ${v(r.maxGapMs, 'ms')}  over ${v(Math.round(Number(r.durationMs) / 1000), 's')}`,
+  };
+  const medians: Record<string, string[]> = {
+    tab: ['connectMs', 'firstFrameMs', 'fps', 'kbps', 'jitterMs', 'decodeMs'],
+    phone: ['fps', 'kbps', 'rttMs'],
+    watcher: ['openMs', 'firstFrameMs', 'fps', 'maxGapMs'],
+  };
+  if (records.length === 0) console.log(`No streaming measurements yet (${file}).`);
+  for (const source of ['tab', 'phone', 'watcher']) {
+    const of = records.filter((r) => r.source === source);
+    if (!of.length) continue;
+    const summary = medians[source]!.map((k) => `${k} ${v(median(of.map((r) => r[k])))}`).join(
+      ', ',
+    );
+    console.log(`\n${source}: ${of.length} recorded; medians ${summary}`);
+    for (const r of of.slice(-limit))
+      console.log(`  ${r.at.replace('T', ' ').slice(0, 19)}  ${show[source]!(r)}`);
   }
   process.exit(0);
 }
