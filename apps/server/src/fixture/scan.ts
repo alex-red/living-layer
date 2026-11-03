@@ -6,6 +6,7 @@ import {
   demoSourceKey,
   layoutThings,
   mapScan,
+  onPinnedDesk,
   withLayoutMoves,
   outlineOf,
   type IsoItem,
@@ -554,6 +555,7 @@ async function scanRun(
 async function followScanned(
   { store, run, desk }: Pick<ScanDeps, 'store' | 'run' | 'desk'>,
   mode: Mode,
+  pin: ScanPin,
   { image, frame }: ScanPhoto,
   scan: FixtureScan,
   ids: (string | undefined)[],
@@ -597,6 +599,9 @@ async function followScanned(
       missed.push(label);
       continue;
     }
+    // A mug on the floor beside the desk isn't the desk's.
+    const foot = outlineOf(detection, frame)?.foot;
+    if (foot && !onPinnedDesk(pin, foot)) continue;
     if (mug) {
       const segment = await outlineRun('mug', detection);
       desk.selectMug(mode, segment.id, '1');
@@ -665,6 +670,7 @@ export async function scanFixtures(
       ({ followed, missed } = await followScanned(
         deps,
         mode,
+        pin,
         { image, png, frame },
         scan,
         ids,

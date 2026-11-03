@@ -15,6 +15,7 @@ import {
   layoutThings,
   libraryScore,
   mapScan,
+  onPinnedDesk,
   withLayoutMoves,
   placeTemplate,
   pictureToScene,
@@ -231,6 +232,23 @@ describe('mapping a scan into the room the view is part of', () => {
     });
     expect(found).toMatchObject({ match: 'existing', fixtureId: lamp.id, fixture: null });
     expect(found!.moveTo).toBeUndefined();
+  });
+  it('adds nothing that stands off the desk: a floor fan the desk’s view also sees', () => {
+    // The demo camera's desk top spans about 39–69% across and 22–52% down; this stands lower.
+    const fan = thing({ label: 'floor fan', box: { x1: 800, y1: 550, x2: 900, y2: 950 } });
+    const [found] = mapScan({
+      scan: { things: [fan] },
+      pin: ROOM_SURFACE,
+      scene: 'office',
+      custom: null,
+      library: [],
+      room: 12,
+      entities: [],
+      addNew: true,
+    });
+    expect(found).toMatchObject({ match: 'new', fixture: null });
+    expect(found!.note).toContain('Not on the desk');
+    expect(onPinnedDesk(ROOM_SURFACE, { x: 0.53, y: 0.4 })).toBe(true);
   });
   it('refuses a scene the pin doesn’t fit', () => {
     expect(

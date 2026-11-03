@@ -25,6 +25,8 @@ import {
 import { ITEM_MATERIALS, hexColorSchema, type IsoItem } from './iso-item.js';
 import { ISO_PRESETS, isoSurface, pinFits } from './iso-presets.js';
 import {
+  applyHomography,
+  surfaceMap,
   surfaceWorld,
   type IsoScene,
   type IsoSceneKind,
@@ -754,6 +756,24 @@ export function withLayoutMoves(scene: IsoScene, mapped: MappedThing[]): IsoScen
 }
 
 /**
+ * Whether a thing that touches down at `foot` (shares of the pin's frame)
+ * stands on the pinned surface, as the pin's corners map the frame onto it.
+ * A little past its edges counts (a laptop hanging over the front), and more
+ * behind it, where a riser or a monitor's stand lifts a foot back up the
+ * picture; the floor around the desk, a fan beside it or a lamp in front,
+ * does not. Without a map to judge by, everything counts.
+ */
+export function onPinnedDesk(pin: SurfacePin, foot: Point): boolean {
+  const map = surfaceMap(pin, pin.frame);
+  if (!map) return true;
+  const p = applyHomography(map.toSurface, {
+    x: foot.x * pin.frame.width,
+    y: foot.y * pin.frame.height,
+  });
+  return p.x > -0.08 && p.x < 1.08 && p.y > -0.3 && p.y < 1.08;
+}
+
+/**
  * Whether a box stands on the pinned surface, or on something standing on
  * it (a riser on the desk), its middle within a little of the edge (a laptop
  * hanging over). A desk view finds and moves only what is on its desk, not
@@ -973,6 +993,15 @@ export function mapScan({
       };
     }
     const label = thing.label.charAt(0).toUpperCase() + thing.label.slice(1);
+    // A desk's view sees the floor and the shelves around it, but adds only what is on the desk.
+    if (!onPinnedDesk(pin, share.foot))
+      return {
+        label,
+        match: 'new',
+        seen: share,
+        fixture: null,
+        note: 'Not on the desk, so not this view’s to add. Scan the room for it.',
+      };
     if (!addNew)
       return {
         label,
