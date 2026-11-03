@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import {
+  STAT_KINDS,
+  type StatKey,
   keyFromName,
   exposedEntityId,
   sensorOptions,
@@ -156,6 +158,7 @@ const SOURCE_LABEL: Record<ExposeSource['kind'], string> = {
   status: 'whether a thing is seen or missing',
   motion: 'something moves in a zone',
   occupied: 'someone is in a zone (compared with it empty)',
+  stat: 'one of a thing’s stats (power, last used, activity, occupied)',
   watching: 'the server is watching',
   check_rules: 'checking every rule',
 };
@@ -171,7 +174,19 @@ function things(memory: DeskMemory | null | undefined) {
   ];
 }
 const thingLabel = (memory: DeskMemory, id: string) =>
-  things(memory).find((t) => t.id === id)?.label ?? 'Object';
+  things(memory).find((t) => t.id === id)?.label ??
+  memory.fixtures?.find((f) => f.id === id)?.label ??
+  'Object';
+/** Each stat switched on, with its thing: what a stat entity can show. */
+function statsOn(memory: DeskMemory | null | undefined) {
+  return Object.entries(memory?.thingStats ?? {}).flatMap(([id, stats]) =>
+    stats.map((s) => ({
+      id,
+      key: s.key,
+      label: `${thingLabel(memory!, id)}: ${STAT_KINDS[s.key].label.toLowerCase()}`,
+    })),
+  );
+}
 const zoneLabel = (memory: DeskMemory, id: string) =>
   zonesIn(memory).find((z) => z.id === id)?.label ?? 'Zone';
 
@@ -193,6 +208,8 @@ function sourceSentence(memory: DeskMemory, e: Pick<ExposedEntity, 'source'>): s
       return `motion in “${zoneLabel(memory, s.zoneId)}”, held for ${s.holdS} s`;
     case 'occupied':
       return `whether “${zoneLabel(memory, s.zoneId)}” looks occupied, compared with it empty${s.samConfirm ? ', confirmed by SAM (billed)' : ''}`;
+    case 'stat':
+      return `the ${thingLabel(memory, s.thingId)}’s ${STAT_KINDS[s.key].label.toLowerCase()}`;
     case 'watching':
       return 'whether the server is watching the camera';
     case 'check_rules':
@@ -211,6 +228,7 @@ function sourceOf(
   prev: ExposeSource,
   zone: string,
   thing: string,
+  stat: { id: string; key: StatKey },
 ): ExposeSource {
   const z = 'zoneId' in prev ? prev.zoneId : 'zoneIds' in prev ? prev.zoneIds[0]! : zone;
   const t = 'objectId' in prev ? prev.objectId : 'thingId' in prev ? prev.thingId : thing;
@@ -227,6 +245,8 @@ function sourceOf(
       return { kind, zoneId: z, holdS: 'holdS' in prev ? prev.holdS : 300 };
     case 'occupied':
       return { kind, zoneId: z, holdS: 30, samConfirm: false };
+    case 'stat':
+      return prev.kind === 'stat' ? prev : { kind, thingId: stat.id, key: stat.key };
     case 'watching':
     case 'check_rules':
       return { kind };
@@ -248,6 +268,8 @@ function EntityEditor({
   const list = things(memory);
   const firstZone = zones[0]?.id ?? MAIN_ZONE;
   const firstThing = list[0]?.id ?? '';
+  const stats = statsOn(memory);
+  const firstStat = stats[0] ?? { id: '', key: 'power' as const };
   const [draft, setDraft] = useState<Omit<ExposedInput, 'key'> | null>(entity ?? null);
   const [key, setKey] = useState(entity?.key ?? '');
   const [keyEdited, setKeyEdited] = useState(Boolean(entity));
@@ -347,7 +369,7 @@ function EntityEditor({
           onChange={(e) => {
             const kind = e.target.value as ExposeSource['kind'];
             set({
-              source: sourceOf(kind, s, firstZone, firstThing),
+              source: sourceOf(kind, s, firstZone, firstThing, firstStat),
               ...(SOURCE_KINDS[kind].includes(draft.kind) ? {} : { kind: SOURCE_KINDS[kind][0]! }),
             });
           }}
@@ -358,7 +380,8 @@ function EntityEditor({
               value={k}
               disabled={
                 (['in_zone', 'any_inside', 'motion', 'occupied'].includes(k) && !zones.length) ||
-                (['zone_of', 'status'].includes(k) && !list.length)
+                (['zone_of', 'status'].includes(k) && !list.length) ||
+                (k === 'stat' && !stats.length)
               }
             >
               {SOURCE_LABEL[k]}
@@ -407,6 +430,25 @@ function EntityEditor({
           <>
             <span>Thing</span>
             {thingPicker(s.thingId, (thingId) => set({ source: { ...s, thingId } }))}
+          </>
+        )}
+        {s.kind === 'stat' && (
+          <>
+            <span>Stat</span>
+            <select
+              aria-label="Stat"
+              value={`${s.thingId}|${s.key}`}
+              onChange={(e) => {
+                const [thingId, key] = e.target.value.split('|') as [string, StatKey];
+                set({ source: { kind: 'stat', thingId, key } });
+              }}
+            >
+              {stats.map((x) => (
+                <option key={`${x.id}|${x.key}`} value={`${x.id}|${x.key}`}>
+                  {x.label}
+                </option>
+              ))}
+            </select>
           </>
         )}
         <span>As</span>

@@ -1,3 +1,4 @@
+import { ThingStats } from './ThingStats';
 import { useMemo, useRef, useState, type ReactNode } from 'react';
 import { useNow } from '../useNow';
 import {
@@ -1060,6 +1061,7 @@ export function FixturePanel({ id }: { id: string }) {
           />
         </Field>
       )}
+      <ThingStats id={f.id} label={f.label} {...(f.type ? { type: f.type } : {})} />
       <Details summary="What it is">
         <FixtureType fixture={f} disabled={off || moving} />
         <ControlPicker kind={kind} entity={entity} onKind={setKind} onEntity={setEntity} />

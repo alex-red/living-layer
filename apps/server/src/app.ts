@@ -48,6 +48,7 @@ import { RemoteCamera, remoteRoutes } from './remote.js';
 import { reconstruct } from './sam3d.js';
 import { createRunner } from './runs.js';
 import { Exposer, exposeRoutes } from './expose.js';
+import { statRoutes } from './stats.js';
 import { MqttLink, type MqttConnect } from './mqtt.js';
 import { MqttControl } from './mqtt-control.js';
 import { demoLamp, demoLampFor } from './demo.js';
@@ -493,6 +494,10 @@ export async function buildApp(
       exposeRoutes(scope, exposers, store, (mode, zoneId) => watchers[mode].learnEmpty(zoneId)),
     { prefix: '/api/expose' },
   );
+  const statRunners = { demo: watchers.demo.statRunner, live: watchers.live.statRunner };
+  app.register((scope) => statRoutes(scope, { store, runners: statRunners }), {
+    prefix: '/api/things',
+  });
   // Whatever a person changes in a desk, the watchers follow and the entities shown in Home
   // Assistant follow. A root hook, so it covers every plugin's routes.
   app.addHook('onResponse', async (request, reply) => {
@@ -501,7 +506,12 @@ export async function buildApp(
       void watchers.demo.sync();
       void watchers.live.sync();
     }
-    if (/^\/api\/(desk|fixtures|scene|item|expose|watch)\b/.test(request.url)) {
+    // Stats follow too when nobody is watching: a light switched by hand still counts.
+    if (/^\/api\/(desk|fixtures|scene|item|lamp)\b/.test(request.url)) {
+      statRunners.demo.sync();
+      statRunners.live.sync();
+    }
+    if (/^\/api\/(desk|fixtures|scene|item|expose|watch|things)\b/.test(request.url)) {
       exposers.demo.sync();
       exposers.live.sync();
     }
@@ -510,13 +520,17 @@ export async function buildApp(
     watchers[mode].subscribe(() => exposers[mode].sync());
   // Motion holds run out with no frame to say so.
   const tick = setInterval(() => {
+    statRunners.demo.sync();
+    statRunners.live.sync();
     exposers.demo.sync();
     exposers.live.sync();
   }, 5000);
   tick.unref?.();
   app.addHook('onReady', async () => {
-    for (const mode of ['demo', 'live'] as const)
+    for (const mode of ['demo', 'live'] as const) {
+      statRunners[mode].sync();
       if (store.memory(mode).watch?.on) void watchers[mode].start();
+    }
     link?.start();
   });
   // The relay only once this server holds its port: one that fails to listen must not
@@ -532,6 +546,8 @@ export async function buildApp(
     clearInterval(tick);
     watchers.demo.stop();
     watchers.live.stop();
+    statRunners.demo.flush();
+    statRunners.live.flush();
     options.relay?.stop();
     await link?.stop();
   });

@@ -9,6 +9,7 @@
  * are `entangled` until their looks tell them apart again. Pure code, so the
  * tests drive it with made-up frames and clocks.
  */
+import type { StatsNow } from './stats.js';
 import { assignTracks, MULTI } from './assign.js';
 import {
   around,
@@ -466,6 +467,8 @@ export interface WatchView {
   frames: number;
   checks: number;
   refinds: number;
+  /** Each thing's stats now, by thing id; only changes make a new message. */
+  stats?: StatsNow;
   things: {
     id: string;
     kind: WatchKind;

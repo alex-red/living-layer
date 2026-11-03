@@ -52,7 +52,16 @@ export function featureDifference(empty: PatchGrid, now: PatchGrid): number {
 /** A zone of a grey frame, sampled to a small fixed size. */
 export function zoneSample(frame: LumaFrame, zone: UnitBox): Uint8Array {
   const { width: w, height: h } = OCCUPANCY.sample;
-  const out = new Uint8Array(w * h);
+  return sampleInto(frame, zone, new Uint8Array(w * h), w, h);
+}
+/** The same into a buffer of `w × h` the caller keeps, so a sample taken every second allocates nothing. */
+export function sampleInto(
+  frame: LumaFrame,
+  zone: UnitBox,
+  out: Uint8Array,
+  w: number,
+  h: number,
+): Uint8Array {
   for (let y = 0; y < h; y++)
     for (let x = 0; x < w; x++) {
       const fx = Math.min(

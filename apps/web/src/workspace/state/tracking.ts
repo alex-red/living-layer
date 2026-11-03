@@ -15,6 +15,7 @@ import { DEMO_POSITIONS, startLocalTrack, stepLocalTrack } from '@livinglayer/do
 import { api } from '../../api';
 import { followStatsStore, followViewStore } from './follow-store';
 import { useExpose, useWatch } from '../../watch';
+import { useFeedStats } from './stats';
 import {
   CONFIRM_GAP_MS,
   FOLLOW_MS,
@@ -93,6 +94,7 @@ export function useTrackingSlice(
   } = deps;
   // The server's watcher: it follows things and fires rules with no tab open; this shows it.
   const watch = useWatch(mode);
+  useFeedStats(watch?.stats);
   const watching = Boolean(watch?.on);
   // Entities shown in Home Assistant over MQTT, with their states.
   const expose = useExpose(mode);

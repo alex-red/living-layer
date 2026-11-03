@@ -1,0 +1,122 @@
+/* A thing's stats: cyan is what the camera says, amber only a lamp's confirmed light. */
+.stat-row {
+  --stat: var(--seen);
+  display: grid;
+  gap: 6px;
+  padding: 10px;
+  margin-bottom: 8px;
+  border: 1px solid var(--line);
+  border-left: 2px solid var(--stat);
+  border-radius: var(--r-card);
+  background: var(--surface-2);
+}
+.stat-row.off {
+  --stat: var(--text-3);
+}
+.stat-row.unknown {
+  --stat: var(--unsure);
+}
+.stat-row.ok {
+  --stat: var(--ok);
+}
+.stat-row.warm {
+  --stat: var(--warm);
+}
+.stat-row header {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+}
+.stat-name {
+  font: 500 11px/14px var(--mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+.stat-value {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--stat);
+}
+.stat-since {
+  color: var(--text-2);
+  font-size: var(--fs-12);
+}
+.stat-source {
+  margin-left: auto;
+  font: 500 10px/14px var(--mono);
+  letter-spacing: 0.08em;
+  color: var(--text-3);
+}
+.stat-reason {
+  margin: 0;
+  color: var(--unsure);
+}
+.stat-learn,
+.stat-picks,
+.stat-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.stat-picks {
+  margin-top: 4px;
+}
+.stat-ribbon,
+.stat-week {
+  display: block;
+  overflow: visible;
+}
+.stat-ribbon {
+  width: 100%;
+  height: auto;
+}
+.stat-ribbon .track,
+.stat-week .bar-track {
+  fill: rgb(255 255 255 / 4%);
+}
+.stat-ribbon .on,
+.stat-ribbon .level,
+.stat-ribbon .tick,
+.stat-week .bar {
+  fill: var(--stat);
+  opacity: 0.55;
+}
+.stat-ribbon .on.entity {
+  opacity: 0.8;
+}
+.stat-ribbon .tick,
+.stat-week .bar.today {
+  opacity: 1;
+}
+.stat-ribbon .unknown {
+  fill: var(--text-3);
+  opacity: 0.4;
+}
+.stat-ribbon .grid {
+  stroke: var(--line-strong);
+}
+.stat-ribbon text,
+.stat-week text {
+  font: 500 7px var(--mono);
+  fill: var(--text-3);
+}
+.stat-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: var(--fs-12);
+  color: var(--text-2);
+}
+.stat-foot strong {
+  color: var(--text);
+  font-weight: 600;
+}
+.stat-week {
+  width: 84px;
+  height: 26px;
+  flex: none;
+}

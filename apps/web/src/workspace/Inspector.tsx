@@ -1,3 +1,4 @@
+import { ThingStats } from './ThingStats';
 import { lazy, useEffect, useRef, useState } from 'react';
 import { useNow } from '../useNow';
 import {
@@ -982,6 +983,7 @@ function MugPanel() {
           Edit model {memory.item ? '· fitted' : ''} →
         </Button>
       </div>
+      <ThingStats id={memory.object.id} label={memory.object.label} type="mug" />
       {sightings.length > 0 && (
         <Details
           summary={`History · ${sightings.length} sighting${sightings.length === 1 ? '' : 's'}`}
@@ -1111,6 +1113,7 @@ function OtherPanel({ id }: { id: string }) {
           Edit model →
         </Button>
       </div>
+      <ThingStats id={o.id} label={o.label} type={o.concept} />
       <Details summary="Forget">
         <Button
           variant="danger"

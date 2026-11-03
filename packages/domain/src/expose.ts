@@ -13,6 +13,7 @@ import type { EvidenceRun } from './api.js';
 import type { DeskMemory, DeskObservation, PlacementDecision, ZoneRect } from './memory.js';
 import { ruleObjects, ruleWho } from './rules.js';
 import type { WatchStatus, WatchView } from './watch.js';
+import { STAT_KEYS, STAT_KINDS, type StatsNow } from './stats.js';
 
 const EXPOSE_KINDS = [
   'binary_sensor',
@@ -57,6 +58,13 @@ const exposeSourceSchema = z.discriminatedUnion('kind', [
       holdS: z.number().int().min(0).max(3600),
       samConfirm: z.boolean(),
     })
+    .strict(),
+  /**
+   * One of a thing's stats: power and occupied on or off, last used as a
+   * time, activity as a share of the last minute (on from 20%).
+   */
+  z
+    .object({ kind: z.literal('stat'), thingId: z.string().min(1).max(64), key: z.enum(STAT_KEYS) })
     .strict(),
   /** Whether the server is watching the camera; as a switch, turns watching on and off. */
   z.object({ kind: z.literal('watching') }).strict(),
@@ -116,6 +124,8 @@ export interface ExposeWatch {
   on?: boolean;
   /** Each zone compared with its empty look, for zones that have one. */
   occupancy?: Record<string, ZoneOccupancy>;
+  /** Each thing's stats now. */
+  stats?: StatsNow;
 }
 /** A zone compared with how it looked empty. */
 export interface ZoneOccupancy {
@@ -248,6 +258,7 @@ export const SOURCE_KINDS: Record<ExposeSource['kind'], readonly ExposeKind[]> =
   status: ['binary_sensor', 'sensor'],
   motion: ['binary_sensor'],
   occupied: ['binary_sensor'],
+  stat: ['binary_sensor', 'sensor'],
   watching: ['binary_sensor', 'sensor', 'switch'],
   check_rules: ['button'],
 };
@@ -266,6 +277,10 @@ function missingPart(memory: DeskMemory, source: ExposeSource): string | null {
       return things.has(source.objectId) ? null : 'Its object is gone.';
     case 'status':
       return things.has(source.thingId) ? null : 'What it follows is gone.';
+    case 'stat':
+      return memory.thingStats?.[source.thingId]?.some((x) => x.key === source.key)
+        ? null
+        : `Its ${STAT_KINDS[source.key].label.toLowerCase()} stat is off.`;
     case 'watching':
     case 'check_rules':
       return null;
@@ -280,6 +295,12 @@ export function exposeProblem(memory: DeskMemory, input: ExposedInput): string |
     return `Up to ${MAX_EXPOSED} entities can be shown in Home Assistant.`;
   if (!SOURCE_KINDS[input.source.kind].includes(input.kind))
     return `That can only be a ${SOURCE_KINDS[input.source.kind].join(' or ').replace(/_/g, ' ')}.`;
+  if (
+    input.source.kind === 'stat' &&
+    input.kind === 'binary_sensor' &&
+    STAT_KINDS[input.source.key].value === 'time'
+  )
+    return 'A time can only be a sensor.';
   return missingPart(memory, input.source);
 }
 
@@ -443,6 +464,31 @@ export function evaluateExposed(
           last_occupied:
             o.lastOccupiedAt === null ? null : new Date(o.lastOccupiedAt).toISOString(),
           ...(s.samConfirm ? { sam: o.sam ?? 'not asked' } : {}),
+        });
+      }
+      case 'stat': {
+        const stat = watch?.stats?.[s.thingId]?.[s.key];
+        if (!stat || stat.value === null) return off(stat?.reason ?? 'It has no value yet.');
+        const v = stat.value;
+        const kind = STAT_KINDS[s.key].value;
+        const state =
+          kind === 'onOff'
+            ? e.kind === 'sensor'
+              ? v
+                ? 'on'
+                : 'off'
+              : binary(v === true)
+            : kind === 'time'
+              ? new Date(v as number).toISOString()
+              : e.kind === 'sensor'
+                ? String(Math.round((v as number) * 100))
+                : binary((v as number) >= 0.2);
+        return on(state, {
+          source: stat.source,
+          confidence: Math.round(stat.confidence * 100) / 100,
+          since: stat.since === null ? null : new Date(stat.since).toISOString(),
+          today: Math.round(stat.today),
+          stale: Boolean(stat.stale),
         });
       }
       case 'watching': {

@@ -18,6 +18,7 @@ import { isoItemSchema } from './iso-item.js';
 import { roomCalibrationSchema, zoneOnSurfaceSchema, zoneRectSchema } from './memory.js';
 import { MAX_PHOTO_THINGS, PHOTO_AS } from './photo-scene.js';
 import { roomMarksSchema } from './room-camera.js';
+import { STAT_KEYS, STAT_LOOKS, STATS, thingStatSchema } from './stats.js';
 import { MAX_OTHER_OBJECTS, MAX_RULES, ruleInputSchema } from './rules.js';
 import { selectionShapeSchema } from './selection.js';
 
@@ -125,6 +126,41 @@ export const exposeLearnEmptyBodySchema = z
   .object({ mode: modeSchema, zoneId: z.string().min(1).max(64) })
   .strict();
 export type ExposeLearnEmptyBody = z.input<typeof exposeLearnEmptyBodySchema>;
+
+/** POST /api/things/stats: the stats switched on for one thing, in the order shown. */
+export const thingsStatsBodySchema = z
+  .object({
+    mode: modeSchema,
+    id: z.string().min(1).max(64),
+    stats: z
+      .array(thingStatSchema)
+      .max(STATS.max)
+      .refine((s) => new Set(s.map((x) => x.key)).size === s.length, {
+        message: 'A stat is switched on once.',
+      }),
+  })
+  .strict();
+export type ThingsStatsBody = z.input<typeof thingsStatsBodySchema>;
+
+/** POST /api/things/learn: the person says how the thing looks now. */
+export const thingsLearnBodySchema = z
+  .object({
+    mode: modeSchema,
+    id: z.string().min(1).max(64),
+    key: z.enum(STAT_KEYS),
+    look: z.enum(STAT_LOOKS),
+  })
+  .strict();
+export type ThingsLearnBody = z.input<typeof thingsLearnBodySchema>;
+
+/** GET /api/things/:mode/:id/stats?days=7 */
+export const thingStatsQuerySchema = z
+  .object({
+    mode: modeSchema,
+    id: z.string().min(1).max(64),
+    days: z.coerce.number().int().min(1).max(90).default(7),
+  })
+  .strict();
 
 /** POST /api/expose/delete, POST /api/fixtures/untrack */
 export const modeIdSchema = z.object({ mode: modeSchema, id: z.string().uuid() }).strict();

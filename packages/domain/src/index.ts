@@ -31,6 +31,7 @@ export * from './illustration.js';
 export * from './fixture-scan.js';
 export * from './expose.js';
 export * from './occupancy.js';
+export * from './stats.js';
 export * from './camera.js';
 export * from './room-camera.js';
 export * from './room-render.js';

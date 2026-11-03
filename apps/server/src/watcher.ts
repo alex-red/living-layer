@@ -36,6 +36,7 @@ import {
   APPEARANCE,
   LOCAL_TRACK,
   MULTI,
+  WATCH,
   DEMO_POSITIONS,
   type DemoPosition,
   type DeskMemory,
@@ -61,6 +62,7 @@ import type { Appearance } from './appearance.js';
 import type { DeskTracking } from './desk.js';
 import { LabError, parseInput, safeError } from './errors.js';
 import { DemoSource, FfmpegSource, lumaOf, type FrameSource } from './frames.js';
+import { StatRunner, lookText, readLook } from './stats.js';
 import type { EvidenceStore } from './store.js';
 import type { NetworkStream } from './streams.js';
 
@@ -216,8 +218,17 @@ export class Watcher {
   private pace: { quietSteps?: number; placeGapMs?: number };
   /** Promises of work in flight, so tests can wait for it. */
   readonly busy = new Set<Promise<unknown>>();
+  /** Each thing's stats, fed this watcher's frames. */
+  readonly statRunner: StatRunner;
   constructor(private deps: WatcherDeps) {
     this.pace = deps.mode === 'demo' ? { quietSteps: 0, placeGapMs: 0 } : {};
+    this.statRunner = new StatRunner({
+      mode: deps.mode,
+      store: deps.store,
+      ...(deps.now ? { now: deps.now } : {}),
+    });
+    this.statRunner.confirm = (concept, region) => this.askSeen(concept, region);
+    this.statRunner.subscribe(() => this.emit());
   }
   get mode() {
     return this.deps.mode;
@@ -244,6 +255,7 @@ export class Watcher {
       appearance: Boolean(this.model),
       ai: this.ai,
       ...this.stats,
+      stats: this.statRunner.current(),
       things: [...this.things.values()].map((t) => ({
         id: t.subject.id,
         kind: t.subject.kind,
@@ -263,6 +275,7 @@ export class Watcher {
       motionAt: Object.fromEntries(this.motionAt),
       on: Boolean(this.memory().watch?.on),
       occupancy: Object.fromEntries(this.occupancy),
+      stats: this.statRunner.current(),
     };
   }
   private watchZones(memory: DeskMemory) {
@@ -286,38 +299,7 @@ export class Watcher {
     return `empty:${this.deps.mode}:${zoneId}`;
   }
   private loadEmpty(zoneId: string): EmptyLook | null {
-    try {
-      const raw = this.deps.store.setting(this.emptyKey(zoneId));
-      if (!raw) return null;
-      const saved = JSON.parse(raw) as {
-        method: 'features' | 'pixels';
-        cols: number;
-        rows: number;
-        dim: number;
-        width: number;
-        height: number;
-        data: string;
-      };
-      const bytes = Buffer.from(saved.data, 'base64');
-      return saved.method === 'features'
-        ? {
-            method: 'features',
-            grid: {
-              cols: saved.cols,
-              rows: saved.rows,
-              dim: saved.dim,
-              data: new Float32Array(bytes.buffer, bytes.byteOffset, bytes.byteLength / 4).slice(),
-            },
-          }
-        : {
-            method: 'pixels',
-            width: saved.width,
-            height: saved.height,
-            data: new Uint8Array(bytes),
-          };
-    } catch {
-      return null;
-    }
+    return readLook(this.deps.store.setting(this.emptyKey(zoneId)));
   }
   /** The zone as the feature model sees it, from a grey frame: patches of just the zone. */
   private async zoneFeatures(frame: LumaFrame, rect: ZoneRect) {
@@ -342,31 +324,15 @@ export class Watcher {
         409,
       );
     if (!frame || !zone) throw new LabError('occupancy_zone', 'That zone isn’t in view.', 409);
-    let look: EmptyLook;
-    let saved: Record<string, unknown>;
-    if (this.model) {
-      const grid = await this.zoneFeatures(frame, zone.rect);
-      look = { method: 'features', grid };
-      saved = {
-        method: 'features',
-        cols: grid.cols,
-        rows: grid.rows,
-        dim: grid.dim,
-        data: Buffer.from(grid.data.buffer, grid.data.byteOffset, grid.data.byteLength).toString(
-          'base64',
-        ),
-      };
-    } else {
-      const data = zoneSample(frame, zone.rect);
-      look = {
-        method: 'pixels',
-        width: OCCUPANCY.sample.width,
-        height: OCCUPANCY.sample.height,
-        data,
-      };
-      saved = { method: 'pixels', ...OCCUPANCY.sample, data: Buffer.from(data).toString('base64') };
-    }
-    this.deps.store.setSetting(this.emptyKey(zoneId), JSON.stringify(saved));
+    const look: EmptyLook = this.model
+      ? { method: 'features', grid: await this.zoneFeatures(frame, zone.rect) }
+      : {
+          method: 'pixels',
+          width: OCCUPANCY.sample.width,
+          height: OCCUPANCY.sample.height,
+          data: zoneSample(frame, zone.rect),
+        };
+    this.deps.store.setSetting(this.emptyKey(zoneId), lookText(look));
     this.empty.set(zoneId, look);
     this.occupancy.set(zoneId, {
       occupied: false,
@@ -408,7 +374,13 @@ export class Watcher {
         const due = now - (this.lastSam.get(id) ?? 0) >= OCCUPANCY.samGapMs;
         if (samConfirm && this.ai && occupied && next.sam !== 'yes' && due) {
           this.lastSam.set(id, now);
-          void this.track(this.askPerson(id, zone.rect));
+          void this.track(
+            this.askSeen('person', zone.rect).then((answer) => {
+              const current = this.occupancy.get(id);
+              if (current?.occupied) this.occupancy.set(id, { ...current, sam: answer });
+              this.emit(true);
+            }),
+          );
         }
       }
       this.emit();
@@ -418,21 +390,20 @@ export class Watcher {
       this.comparing = false;
     }
   }
-  /** Opted in per entity, billed: one SAM call asking whether a person is in the zone. */
-  private async askPerson(zoneId: string, rect: ZoneRect) {
-    let answer: ZoneOccupancy['sam'];
+  /** Opted in per entity or stat, billed: one SAM call asking whether `concept` is in the region. */
+  private async askSeen(concept: string, rect: ZoneRect): Promise<'yes' | 'no' | 'error'> {
     try {
       const shot = await this.source!.snapshot();
       const run = await this.deps.segment(
         this.deps.mode,
-        'person',
+        concept,
         this.source instanceof DemoSource
           ? { demoPosition: this.source.position }
           : { png: shot.png },
         this.asking.signal,
       );
       const { frame, detections } = run.output;
-      answer = detections.some((d) => {
+      return detections.some((d) => {
         const b = d.box;
         const x = b.x / frame.width;
         const y = b.y / frame.height;
@@ -446,11 +417,8 @@ export class Watcher {
         ? 'yes'
         : 'no';
     } catch {
-      answer = 'error';
+      return 'error';
     }
-    const current = this.occupancy.get(zoneId);
-    if (current?.occupied) this.occupancy.set(zoneId, { ...current, sam: answer });
-    this.emit(true);
   }
   subscribe(listener: (view: WatchView) => void) {
     this.listeners.add(listener);
@@ -513,6 +481,7 @@ export class Watcher {
         `${camera!.name} was removed. Choose another camera to watch.`,
       );
     this.model ??= await this.deps.appearance();
+    this.statRunner.embed = this.model ? (frame, rect) => this.zoneFeatures(frame, rect) : null;
     const source =
       this.deps.source?.(camera) ??
       (this.deps.mode === 'demo'
@@ -554,6 +523,8 @@ export class Watcher {
     }
     if (generation !== this.generation) return;
     run.openMs = this.now - run.startedAt;
+    this.statRunner.setWatching(true);
+    this.statRunner.sync(memory);
     const count = this.things.size;
     this.say(
       'watching',
@@ -573,6 +544,7 @@ export class Watcher {
       (async () => {
         const memory = this.memory();
         this.watchZones(memory);
+        this.statRunner.sync(memory);
         const seen = watchedThings(memory);
         const ids = new Set(seen.map((x) => x.observation.objectId));
         for (const id of [...this.things.keys()]) if (!ids.has(id)) this.things.delete(id);
@@ -601,6 +573,8 @@ export class Watcher {
     this.pending = [];
     this.held.clear();
     this.refinding.clear();
+    this.statRunner.setWatching(false);
+    this.statRunner.flush();
     this.say('off', '');
   }
   /** The demo camera: the mug was moved. */
@@ -739,6 +713,13 @@ export class Watcher {
         this.pending.push({ id, ask: step.ask });
     }
     if (this.pending.length && !this.checking) void this.track(this.check());
+    this.statRunner.frame(
+      frame,
+      this.things,
+      now,
+      this.pace.quietSteps ?? WATCH.quietSteps,
+      this.deps.mode === 'demo',
+    );
     // Demo frames come one deliberate move at a time, so each is compared.
     const every = this.deps.mode === 'demo' ? 0 : OCCUPANCY.everyMs;
     if (now - this.lastCameraCheck >= CAMERA_CHECK_MS) {
@@ -771,6 +752,7 @@ export class Watcher {
       if (moved) memory.camera = { ...memory.camera, moved: true };
       else Object.assign(memory, cameraKept(memory, memory.camera.reference));
     });
+    this.statRunner.sync();
     this.emit(true);
   }
   /** Look for a lost thing by appearance, with every other one lost by then: one embedding. */

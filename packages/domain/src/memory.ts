@@ -19,6 +19,7 @@ import {
   type Segmentation,
 } from './api.js';
 import type { PlacementRule } from './rules.js';
+import { thingStatSchema, type ThingStat } from './stats.js';
 
 // Source-normalized rectangles; the entire detection box must fit inside the zone.
 export const zoneRectSchema = z
@@ -142,6 +143,8 @@ export interface DeskMemory {
   watch?: { on: boolean; camera: WatchCamera | null };
   /** Entities shown in Home Assistant over MQTT, each with what its state comes from. Reset keeps them. */
   exposed?: ExposedEntity[];
+  /** The stats switched on for each thing, by its id; their history is in the store. Reset keeps them. */
+  thingStats?: Record<string, ThingStat[]>;
 }
 /** A camera the server reads frames from: an RTSP stream, never a tab's. */
 export interface WatchCamera {
@@ -457,5 +460,6 @@ export const deskMemorySchema = z.preprocess(
     dismissed: z.array(z.string()).optional(),
     watch: shaped<NonNullable<DeskMemory['watch']>>().optional(),
     exposed: listOf<ExposedEntity>().optional(),
+    thingStats: z.record(z.string(), z.array(thingStatSchema)).optional(),
   }),
 ) satisfies z.ZodType<DeskMemory, unknown>;

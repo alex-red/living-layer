@@ -15,6 +15,7 @@ import type { RoomMarks } from './room-camera.js';
 import type { Job } from './item-sculpt.js';
 import type { Quad } from './iso.js';
 import type { RunOf } from './run-outputs.js';
+import type { StatNow, StatsNow, ThingStatsView } from './stats.js';
 import type { WatchView } from './watch.js';
 
 /** One entity Home Assistant has that Living Layer could switch, as the lab lists it. */
@@ -80,6 +81,9 @@ interface ApiRoutes {
   assist: { body: R.AssistBody; response: EvidenceRun<AssistDraft> };
   'assist/save': { body: R.AssistSaveBody; response: { memory?: DeskMemory; group: string } };
   watch: { body: R.WatchBody; response: WatchView };
+  'things/stats': { body: R.ThingsStatsBody; response: { memory: DeskMemory; stats: StatsNow } };
+  'things/learn': { body: R.ThingsLearnBody; response: { now: StatNow; stats: StatsNow } };
+  [path: `things/${'demo' | 'live'}/${string}`]: { body: undefined; response: ThingStatsView };
   'watch/demo': { body: R.WatchDemoBody; response: unknown };
 
   'scene/classify': { body: Image; response: EvidenceRun<SceneGuess> };

@@ -19,6 +19,8 @@ import {
   type LabStatus,
   type DeskMemory,
   type Mode,
+  type StatEvent,
+  type StatKey,
 } from '@livinglayer/domain';
 
 type Payload = { payload: string };
@@ -62,7 +64,10 @@ export class EvidenceStore {
       CREATE TABLE IF NOT EXISTS desk_memory (mode TEXT PRIMARY KEY, payload TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS placement_claims (segment_id TEXT PRIMARY KEY, created_at TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS jobs (id TEXT PRIMARY KEY, created_at TEXT NOT NULL, payload TEXT NOT NULL);
-      CREATE TABLE IF NOT EXISTS meta_calls (id INTEGER PRIMARY KEY AUTOINCREMENT, created_at TEXT NOT NULL, payload TEXT NOT NULL);`);
+      CREATE TABLE IF NOT EXISTS meta_calls (id INTEGER PRIMARY KEY AUTOINCREMENT, created_at TEXT NOT NULL, payload TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS stat_events (mode TEXT NOT NULL, thing_id TEXT NOT NULL, key TEXT NOT NULL, at INTEGER NOT NULL, payload TEXT NOT NULL);
+      CREATE INDEX IF NOT EXISTS stat_events_thing ON stat_events (mode, thing_id, key, at);
+      CREATE TABLE IF NOT EXISTS stat_days (mode TEXT NOT NULL, day TEXT NOT NULL, thing_id TEXT NOT NULL, key TEXT NOT NULL, total REAL NOT NULL, PRIMARY KEY (mode, thing_id, key, day));`);
     this.migrate();
   }
   /**
@@ -431,7 +436,88 @@ export class EvidenceStore {
       this.db.run('DELETE FROM evidence WHERE id = ?', [id]);
     }
     const jobs = this.db.run('DELETE FROM jobs WHERE created_at < ?', [cutoff]).changes;
+    // A stat's changes go with the evidence; its day totals are kept for good.
+    this.db.run('DELETE FROM stat_events WHERE at < ?', [now - maxAgeMs]);
     return { runs: old.length, jobs, bytes };
+  }
+  /**
+   * Keep stats' changes and add to their day totals, in one transaction: the
+   * runner batches them every few seconds.
+   */
+  saveStats(
+    mode: Mode,
+    events: StatEvent[],
+    days: { day: string; thingId: string; key: StatKey; add: number }[],
+  ): void {
+    if (!events.length && !days.length) return;
+    const event = this.db.query(
+      'INSERT INTO stat_events (mode, thing_id, key, at, payload) VALUES (?, ?, ?, ?, ?)',
+    );
+    const day = this.db.query(
+      `INSERT INTO stat_days (mode, day, thing_id, key, total) VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT (mode, thing_id, key, day) DO UPDATE SET total = total + excluded.total`,
+    );
+    this.db.transaction(() => {
+      for (const e of events)
+        event.run(
+          mode,
+          e.thingId,
+          e.key,
+          e.at,
+          JSON.stringify({ value: e.value, source: e.source, confidence: e.confidence }),
+        );
+      for (const d of days) day.run(mode, d.day, d.thingId, d.key, d.add);
+    })();
+  }
+  /** A thing's stat changes since `since` (ms), oldest first, and the last one before it. */
+  statEvents(mode: Mode, thingId: string, since: number): StatEvent[] {
+    const read = (row: { key: string; at: number; payload: string }): StatEvent => ({
+      thingId,
+      key: row.key as StatKey,
+      at: row.at,
+      ...(JSON.parse(row.payload) as Pick<StatEvent, 'value' | 'source' | 'confidence'>),
+    });
+    type Row = { key: string; at: number; payload: string };
+    // What each stat was as the span starts, so a ribbon can begin with it.
+    const before = this.db
+      .query<Row, [string, string, number]>(
+        `SELECT key, at, payload FROM stat_events e WHERE mode = ? AND thing_id = ? AND at = (
+           SELECT MAX(at) FROM stat_events WHERE mode = e.mode AND thing_id = e.thing_id AND key = e.key AND at < ?)`,
+      )
+      .all(mode, thingId, since);
+    const after = this.db
+      .query<Row, [string, string, number]>(
+        'SELECT key, at, payload FROM stat_events WHERE mode = ? AND thing_id = ? AND at >= ? ORDER BY at',
+      )
+      .all(mode, thingId, since);
+    return [...before, ...after].map(read);
+  }
+  /** Each stat's last change, for every thing in a mode: what a restart starts from. */
+  lastStats(mode: Mode): StatEvent[] {
+    return this.db
+      .query<{ thing_id: string; key: string; at: number; payload: string }, [string]>(
+        `SELECT thing_id, key, MAX(at) AS at, payload FROM stat_events WHERE mode = ? GROUP BY thing_id, key`,
+      )
+      .all(mode)
+      .map((row) => ({
+        thingId: row.thing_id,
+        key: row.key as StatKey,
+        at: row.at,
+        ...(JSON.parse(row.payload) as Pick<StatEvent, 'value' | 'source' | 'confidence'>),
+      }));
+  }
+  /** Day totals from `fromDay` on, for one thing, or for every thing when `thingId` is null. */
+  statDays(
+    mode: Mode,
+    thingId: string | null,
+    fromDay: string,
+  ): { day: string; thingId: string; key: StatKey; total: number }[] {
+    return this.db
+      .query<{ day: string; thing_id: string; key: string; total: number }, [string, string]>(
+        `SELECT day, thing_id, key, total FROM stat_days WHERE mode = ? AND day >= ?${thingId ? ' AND thing_id = ?' : ''} ORDER BY day`,
+      )
+      .all(...([mode, fromDay, ...(thingId ? [thingId] : [])] as [string, string]))
+      .map((r) => ({ day: r.day, thingId: r.thing_id, key: r.key as StatKey, total: r.total }));
   }
   close(): void {
     this.db.close();
