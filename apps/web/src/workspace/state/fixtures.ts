@@ -1,14 +1,7 @@
 import { useRef, useCallback } from 'react';
-import type {
-  Fixture,
-  EvidenceRun,
-  MappedThing,
-  DeskMemory,
-  IsoSceneKind,
-  FixtureInput,
-} from '@livinglayer/domain';
+import type { Fixture, MappedThing, IsoSceneKind, FixtureInput } from '@livinglayer/domain';
 import { closeViewOf, fixtureAt, fixtureBox, inRoomView, fixtureInput } from '@livinglayer/domain';
-import { api, apiAt } from '../../api';
+import { api } from '../../api';
 import type { FixturePlacing } from '../../iso/IsoView';
 import { SHORTCUTS } from '../../shortcuts';
 import type { ViewSlice } from './view';
@@ -385,7 +378,7 @@ export function useFixturesSlice(
             : 'Spark drafts its model in parts from its picture three ways at once, and the best is kept. Three Spark calls, about $0.05 to $0.10.',
         },
         (jobId, signal) =>
-          apiAt<{ run: EvidenceRun; memory: DeskMemory }>(
+          api(
             'fixtures/sculpt',
             { mode, fixtureId: id, jobId, ...(note ? { note } : {}) },
             { signal },
@@ -394,7 +387,8 @@ export function useFixturesSlice(
       if (!result) return;
       setMemory(result.memory);
       setSelected(result.run);
-      const out = result.run.output as { parts: number; note: string; product?: string | null };
+      const out = result.run.output;
+      if (!('sculpted' in out)) return;
       setMessage(
         `Modelled the ${f.label.toLowerCase()}${out.product ? ` as the ${out.product}` : ''} in ${out.parts} parts${costNote(result.run)}. ${out.note} Edit it here; undo puts the old model back.`,
       );

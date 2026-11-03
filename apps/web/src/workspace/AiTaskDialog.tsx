@@ -1,4 +1,5 @@
 import { lazy } from 'react';
+import { runOutput } from '@livinglayer/domain';
 import { Later } from '../Later';
 import type { AIStep } from '../AIRichPreviewDialog';
 import { Button } from '../ui/controls';
@@ -26,7 +27,7 @@ export function AiTaskDialog() {
   const after = last
     ? { label: 'Revert', onClick: () => void lab.revertLastAiRun(), quiet: true }
     : task.review &&
-        runs.some((r) => r.status === 'completed' && (r.output as { sculpted?: string }).sculpted)
+        runs.some((r) => r.status === 'completed' && 'sculpted' in (runOutput(r, 'fixture') ?? {}))
       ? { label: 'Re-Apply', onClick: () => void lab.reapplyAiRun(task.jobId) }
       : undefined;
   return (

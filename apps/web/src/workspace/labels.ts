@@ -11,6 +11,7 @@ import {
   type IsoSurface,
   type Mode,
 } from '@livinglayer/domain';
+import { isRun } from '@livinglayer/domain';
 import type { Lab } from './useLabState';
 
 /** What the outline's helpers read of the lab. */
@@ -142,8 +143,8 @@ export function lightStates(
     if (!seen || seen.at < at) latest.set(entity, { state, at });
   };
   for (const run of runs) {
-    if (run.kind !== 'lamp' || run.mode !== memory?.mode) continue;
-    const out = run.output as Partial<LampResult> | null;
+    if (!isRun(run, 'lamp') || run.mode !== memory?.mode) continue;
+    const out: Partial<LampResult> | null = run.output;
     if (out?.stateConfirmed) note(out.entityId, out.action ?? 'on', run.createdAt);
   }
   for (const d of [memory?.lastDecision, ...(memory?.rules ?? []).map((r) => r.lastDecision)])

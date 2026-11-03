@@ -21,6 +21,7 @@ import type * as R from './requests.js';
 import type { RoomMarks } from './room-camera.js';
 import type { Job } from './item-sculpt.js';
 import type { Quad } from './iso.js';
+import type { RunOf } from './run-outputs.js';
 import type { WatchView } from './watch.js';
 
 /** One entity Home Assistant has that Living Layer could switch, as the lab lists it. */
@@ -145,6 +146,10 @@ export interface ApiRoutes {
   'fixtures/scan': {
     body: R.FixturesScanBody;
     response: { run: EvidenceRun; mapped: MappedThing[]; memory: DeskMemory };
+  };
+  'fixtures/sculpt': {
+    body: R.FixturesSculptBody;
+    response: { run: RunOf<'fixture'>; memory: DeskMemory };
   };
   'fixtures/refine3d': { body: R.FixturesRefine3dBody; response: unknown };
   'fixtures/sculpt/reapply': {

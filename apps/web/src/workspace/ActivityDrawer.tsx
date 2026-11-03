@@ -1,10 +1,5 @@
-import {
-  runCost,
-  type LampResult,
-  type Mode,
-  type RunKind,
-  type Segmentation,
-} from '@livinglayer/domain';
+import { runCost, type Mode, type RunKind } from '@livinglayer/domain';
+import { isRun } from '@livinglayer/domain';
 import { usd } from '../cost';
 import { Button, Check, Field, IconButton, Select } from '../ui/controls';
 import { useAi, useLabParts, useProbes, useRunLog, useView } from './LabContext';
@@ -44,7 +39,7 @@ function RunInspector() {
         </IconButton>
       </header>
       {runDetail(selected) && <p className="inspector-detail">{runDetail(selected)}</p>}
-      {selected.kind === 'lamp' && <p>{(selected.output as LampResult).explanation}</p>}
+      {isRun(selected, 'lamp') && <p>{selected.output.explanation}</p>}
       <dl className="inspector-facts">
         <div>
           <dt>MODE</dt>
@@ -96,7 +91,7 @@ function RunInspector() {
             onClick={() => lab.rerun(selected)}
           >
             Run again
-            {selected.kind === 'segment' && ` · “${(selected.output as Segmentation).concept}”`}
+            {isRun(selected, 'segment') && ` · “${selected.output.concept}”`}
           </Button>
         )}
         {(selected.kind === 'segment' || selected.kind === 'discover') && (

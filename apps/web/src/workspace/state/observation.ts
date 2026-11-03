@@ -1,5 +1,7 @@
 import { type PointerEvent, useCallback, useMemo } from 'react';
-import type { EvidenceRun, PlacementDecision, DeskObservation, UnitBox } from '@livinglayer/domain';
+import type { PlacementDecision, DeskObservation, UnitBox } from '@livinglayer/domain';
+import type { RunOf } from '@livinglayer/domain';
+import { isRun } from '@livinglayer/domain';
 import { zoneApplies } from '@livinglayer/domain';
 import { sceneProgress } from '../progress';
 import type { ViewSlice } from './view';
@@ -69,8 +71,7 @@ export function useObservationSlice(
   const verdictFor = useCallback(
     (o: DeskObservation) =>
       runs.find(
-        (r): r is EvidenceRun<PlacementDecision> =>
-          r.kind === 'placement' && (r.output as PlacementDecision).observationId === o.id,
+        (r): r is RunOf<'placement'> => isRun(r, 'placement') && r.output.observationId === o.id,
       )?.output,
     [runs],
   );
