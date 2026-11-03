@@ -6,11 +6,8 @@ import {
 } from '@livinglayer/domain';
 import type { Config, Fetcher } from './config.js';
 import { LabError } from './errors.js';
+import type { HaLive, HaState as State } from './ha-live.js';
 
-interface State {
-  state: string;
-  attributes: Record<string, unknown>;
-}
 /** One entity Home Assistant has that Living Layer could switch, as the lab lists it. */
 interface HaEntity {
   entityId: string;
@@ -42,9 +39,14 @@ export interface SwitchOptions {
 }
 /** A switch's result; `confirming` is the full result to come, when checked in the background. */
 export type Switched = LampResult & { confirming?: Promise<LampResult> };
+/** How long a state is waited for after an action, in all. */
+const CONFIRM_MS = CONFIRM_POLL_MS * CONFIRM_POLLS;
 /**
  * Home Assistant lights and switches. Every action is one explicit request,
- * then a short poll of the entity's state; nothing is retried.
+ * then a check of the entity's state; nothing is retried. With the websocket
+ * open (`live`), states are already in hand: an action needs no read first,
+ * goes over the socket, and is confirmed by the state Home Assistant pushes.
+ * Without it, each goes over REST and the state is polled.
  */
 export class ControlAdapter {
   constructor(
@@ -54,18 +56,23 @@ export class ControlAdapter {
     {
       allowed = () => [...config.haLights, ...config.haSwitches],
       connection = () => ({ url: config.haUrl, token: config.haToken }),
+      live = null,
     }: {
       /** What may be switched: `.env`'s lights and switches, unless the server adds the lab's. */
       allowed?: () => string[];
       /** `.env`'s URL and token, unless the server has a sign-in from the lab. */
       connection?: () => HaConnection;
+      /** The server's websocket to Home Assistant, used while it is open. */
+      live?: HaLive | null;
     } = {},
   ) {
     this.allowed = allowed;
     this.connection = connection;
+    this.live = live;
   }
   private allowed: () => string[];
   private connection: () => HaConnection;
+  private live: HaLive | null;
   /**
    * Everything Home Assistant has that turns on and off (lights, switches,
    * fans, helper toggles), read from its states. Only reads; switches nothing.
@@ -74,6 +81,15 @@ export class ControlAdapter {
     const c = this.config;
     const { url, token } = this.connection();
     if (!url || !token) throw new LabError('ha_not_connected', NOT_CONNECTED, 409);
+    const held = this.live?.all();
+    if (held)
+      return switchable(
+        [...held].map(([entity_id, s]) => ({
+          entity_id,
+          state: s.state,
+          attributes: s.attributes,
+        })),
+      );
     let response: Response;
     try {
       response = await this.fetcher(`${url}/api/states`, {
@@ -105,26 +121,7 @@ export class ControlAdapter {
       | null;
     if (!Array.isArray(states))
       throw new LabError('ha_state', 'Home Assistant returned an invalid list of states.', 502);
-    const domains: readonly string[] = SWITCHABLE_DOMAINS;
-    return states
-      .flatMap((s) => {
-        const entityId = String(s?.entity_id ?? '');
-        const domain = entityId.split('.')[0]!;
-        if (!/^[a-z_]+\.[a-z0-9_]+$/.test(entityId) || !domains.includes(domain)) return [];
-        const name = s.attributes?.friendly_name;
-        return [
-          {
-            entityId,
-            name: typeof name === 'string' && name.trim() ? name.trim().slice(0, 80) : entityId,
-            domain: domain as HaEntity['domain'],
-            state: String(s.state ?? 'unknown').slice(0, 40),
-          },
-        ];
-      })
-      .sort(
-        (a, b) =>
-          domains.indexOf(a.domain) - domains.indexOf(b.domain) || a.name.localeCompare(b.name),
-      );
+    return switchable(states);
   }
   /**
    * Switch one configured light or switch on: the main light unless a rule
@@ -185,29 +182,49 @@ export class ControlAdapter {
       return response;
     };
     const statePath = `states/${entity}`;
-    // What it can do is read once and kept, so an action needs no read first.
+    const unavailable = () =>
+      new LabError(
+        'ha_unavailable',
+        `The configured ${thing} is unavailable in Home Assistant.`,
+        409,
+      );
+    // With the socket open its state is in hand; else what it can do is read once and kept.
+    const live = this.live?.ready() ? this.live : null;
     let caps = this.caps.get(entity);
-    if (!caps || Date.now() - caps.at > CAPS_KEPT_MS) {
+    if (live) {
+      const now = live.state(entity);
+      if (!now)
+        throw new LabError('ha_unavailable', `Home Assistant has no ${entity} any more.`, 409);
+      if (UNAVAILABLE.includes(now.state)) throw unavailable();
+      caps = capsOf(now);
+    } else if (!caps || Date.now() - caps.at > CAPS_KEPT_MS) {
       const before = (await (await request(statePath)).json()) as State;
       if (!before || typeof before.state !== 'string' || !before.attributes)
         throw new LabError('ha_state', 'Home Assistant returned an invalid state.', 502);
-      if (UNAVAILABLE.includes(before.state))
-        throw new LabError(
-          'ha_unavailable',
-          `The configured ${thing} is unavailable in Home Assistant.`,
-          409,
-        );
+      if (UNAVAILABLE.includes(before.state)) throw unavailable();
       caps = capsOf(before);
       this.caps.set(entity, caps);
     }
     const desired = domain === 'light' && action === 'on' ? desiredFor(look, caps) : {};
     const asked = performance.now();
     // A light switches at once rather than fading in (Hue's default is 0.4 s).
-    await request(`services/${domain}/turn_${action}`, {
+    const data = {
       entity_id: entity,
       ...desired,
       ...(domain === 'light' ? { transition: 0 } : {}),
-    });
+    };
+    if (live)
+      try {
+        await live.callService(domain, `turn_${action}`, data);
+      } catch (error) {
+        // Not sent again over REST: it may have been taken before the socket went.
+        throw new LabError(
+          'ha_request',
+          `Home Assistant didn’t take the action over its websocket (${error instanceof Error ? error.message : 'no answer'}). The ${thing} may have changed; no retry was made.`,
+          502,
+        );
+      }
+    else await request(`services/${domain}/turn_${action}`, data);
     const switched = performance.now();
     // How long Home Assistant took to take the action, then to report the state asked for.
     const ms = () => ({
@@ -225,9 +242,52 @@ export class ControlAdapter {
       desired,
       explanation,
     });
+    const unavailableNow = (state: string) => {
+      // Read again next time, which says so before switching.
+      this.caps.delete(entity);
+      return result(
+        false,
+        state,
+        `Home Assistant took the action, but the ${thing} is ${state}. No action retry was made.`,
+      );
+    };
+    const confirmed = (state: string) =>
+      result(
+        true,
+        state,
+        `Home Assistant reports the requested state. Observe the physical ${thing} separately; this does not prove a visible change.`,
+      );
+    const notSeen = (state: string) => {
+      // It may have changed what it can do: read it again next time.
+      this.caps.delete(entity);
+      return result(
+        false,
+        state,
+        'Home Assistant accepted one action, but the requested state was not observed within the verification window. No action retry was made.',
+      );
+    };
     const confirm = async (): Promise<LampResult> => {
+      const started = performance.now();
+      // Home Assistant pushes the new state; the socket going mid-wait falls back to polling.
+      if (live) {
+        const seen = await live.waitFor(
+          entity,
+          (s) =>
+            UNAVAILABLE.includes(s.state) || (s.state === action && matches(s.attributes, desired)),
+          CONFIRM_MS,
+        );
+        if (seen.kind === 'done')
+          return UNAVAILABLE.includes(seen.state!.state)
+            ? unavailableNow(seen.state!.state)
+            : confirmed(seen.state!.state);
+        if (seen.kind === 'timeout') return notSeen(seen.state?.state ?? 'unknown');
+      }
+      const polls = Math.max(
+        1,
+        Math.ceil((CONFIRM_MS - (performance.now() - started)) / CONFIRM_POLL_MS),
+      );
       let latest: State | null = null;
-      for (let i = 0; i < CONFIRM_POLLS; i++) {
+      for (let i = 0; i < polls; i++) {
         try {
           latest = (await (await request(statePath)).json()) as State;
           if (!latest || typeof latest.state !== 'string' || !latest.attributes)
@@ -240,30 +300,12 @@ export class ControlAdapter {
             `Home Assistant accepted the action, but state verification failed. The ${thing} may have changed; inspect it before retrying. No action retry was made.`,
           );
         }
-        if (UNAVAILABLE.includes(latest.state)) {
-          // Read again next time, which says so before switching.
-          this.caps.delete(entity);
-          return result(
-            false,
-            latest.state,
-            `Home Assistant took the action, but the ${thing} is ${latest.state}. No action retry was made.`,
-          );
-        }
+        if (UNAVAILABLE.includes(latest.state)) return unavailableNow(latest.state);
         if (latest.state === action && matches(latest.attributes, desired))
-          return result(
-            true,
-            latest.state,
-            `Home Assistant reports the requested state. Observe the physical ${thing} separately; this does not prove a visible change.`,
-          );
-        if (i < CONFIRM_POLLS - 1) await this.sleep(CONFIRM_POLL_MS);
+          return confirmed(latest.state);
+        if (i < polls - 1) await this.sleep(CONFIRM_POLL_MS);
       }
-      // It may have changed what it can do: read it again next time.
-      this.caps.delete(entity);
-      return result(
-        false,
-        latest?.state ?? 'unknown',
-        'Home Assistant accepted one action, but the requested state was not observed within the verification window. No action retry was made.',
-      );
+      return notSeen(latest?.state ?? 'unknown');
     };
     if (!background) return confirm();
     return {
@@ -277,6 +319,31 @@ export class ControlAdapter {
   }
 }
 
+/** The entities in a list of states that turn on and off, by domain then name. */
+function switchable(
+  states: { entity_id?: unknown; state?: unknown; attributes?: { friendly_name?: unknown } }[],
+): HaEntity[] {
+  const domains: readonly string[] = SWITCHABLE_DOMAINS;
+  return states
+    .flatMap((s) => {
+      const entityId = String(s?.entity_id ?? '');
+      const domain = entityId.split('.')[0]!;
+      if (!/^[a-z_]+\.[a-z0-9_]+$/.test(entityId) || !domains.includes(domain)) return [];
+      const name = s.attributes?.friendly_name;
+      return [
+        {
+          entityId,
+          name: typeof name === 'string' && name.trim() ? name.trim().slice(0, 80) : entityId,
+          domain: domain as HaEntity['domain'],
+          state: String(s.state ?? 'unknown').slice(0, 40),
+        },
+      ];
+    })
+    .sort(
+      (a, b) =>
+        domains.indexOf(a.domain) - domains.indexOf(b.domain) || a.name.localeCompare(b.name),
+    );
+}
 /** What an entity can do, as switching needs it: its colour modes and warm-white range. */
 interface Caps {
   modes: string[];

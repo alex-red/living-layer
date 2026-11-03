@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import type { ExposeView, Mode, WatchView } from '@livinglayer/domain';
+import type { ExposeView, HaView, Mode, WatchView } from '@livinglayer/domain';
 import { usePageVisible } from './visible';
 import { createStore } from './workspace/state/store';
 import { feedStats } from './workspace/state/stats';
@@ -12,6 +12,12 @@ import { feedStats } from './workspace/state/stats';
 export const watchStore = createStore<WatchView | null>(null);
 /** The entities the mode shows in Home Assistant, with their states and the broker's. */
 export const exposeStore = createStore<ExposeView | null>(null);
+/**
+ * Live only: the devices it may switch, as Home Assistant reports them now
+ * (the server's websocket to it). Sent first on every connect, so a reload
+ * shows the lights as they are rather than as they were last switched.
+ */
+export const haStore = createStore<HaView | null>(null);
 
 /**
  * Keeps `watchStore` and `exposeStore` up to date for one mode, live (the
@@ -27,6 +33,7 @@ export function useWatchStream(mode: Mode): void {
   useEffect(() => {
     watchStore.set(null);
     exposeStore.set(null);
+    haStore.set(null);
     feedStats(undefined);
   }, [mode]);
   useEffect(() => {
@@ -54,6 +61,10 @@ export function useWatchStream(mode: Mode): void {
     events.addEventListener(
       'expose',
       on<ExposeView>((view) => exposeStore.set(view)),
+    );
+    events.addEventListener(
+      'ha',
+      on<HaView>((view) => haStore.set(view)),
     );
     return () => events.close();
   }, [mode, visible]);

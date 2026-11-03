@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import type { EvidenceRun, HaEntity, LampResult } from '@livinglayer/domain';
 import { api } from '../api';
+import { haStore } from '../watch';
+import { useStore } from './state/store';
 import { Button, Check, Field } from '../ui/controls';
 import { useDesk, useFeedback, useLabParts, useView } from './LabContext';
 import { Details, Panel, useCall, type Tone } from './panel';
@@ -53,22 +55,29 @@ export function DevicesPanel() {
       if (newest()) setLoading(false);
     }
   }
+  /** The server's websocket to Home Assistant; the list is asked for again when it opens. */
+  const link = useStore(haStore, (v) => v?.link) ?? ha?.link;
+  const linked = link === 'connected';
   useEffect(() => {
     if (live && ha?.connected) void load();
-  }, [live, ha?.connected]);
+  }, [live, ha?.connected, linked]);
   const names = new Map(list?.map((e) => [e.entityId, e.name]));
   const [summary, tone]: [string, Tone] = !live
     ? ['Demo: these virtual devices stand in for yours. Switch to Live to use your own.', 'seen']
     : !ha?.connected && !ha?.overMqtt.length
       ? ['Not connected yet: sign in below.', 'unsure']
-      : !ready.length
-        ? ['Connected. Tick the devices it may switch.', 'unsure']
-        : ha?.connected && !ha.enabled && !ha.overMqtt.length
-          ? [
-              `${count(ready.length)} chosen, but switching is off: HA_LIVE_ENABLED=false in .env.`,
-              'unsure',
-            ]
-          : [`${count(ready.length)} ready to switch.`, 'ok'];
+      : ha?.connected && link === 'unauthorized'
+        ? ['Home Assistant refused the token: sign in again below.', 'blocked']
+        : ha?.connected && link === 'unreachable'
+          ? ['Home Assistant isn’t answering; reconnecting…', 'unsure']
+          : !ready.length
+            ? ['Connected. Tick the devices it may switch.', 'unsure']
+            : ha?.connected && !ha.enabled && !ha.overMqtt.length
+              ? [
+                  `${count(ready.length)} chosen, but switching is off: HA_LIVE_ENABLED=false in .env.`,
+                  'unsure',
+                ]
+              : [`${count(ready.length)} ready to switch.`, 'ok'];
   return (
     <Panel tiny="HOME ASSISTANT" title="Devices it can switch" status={summary} tone={tone}>
       <p className="micro">

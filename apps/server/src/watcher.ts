@@ -47,6 +47,7 @@ import {
   type DemoPosition,
   type DeskMemory,
   type ExposeView,
+  type HaView,
   type DeskObservation,
   type EvidenceRun,
   type EmptyLook,
@@ -1164,6 +1165,7 @@ export async function watchRoutes(
     streams,
     saved = () => null,
     expose,
+    ha,
   }: {
     store: EvidenceStore;
     streams: () => Promise<NetworkStream[]>;
@@ -1174,6 +1176,13 @@ export async function watchRoutes(
       view(): ExposeView;
       subscribe(listener: (view: ExposeView) => void): () => void;
     };
+    /** The devices' states in Home Assistant, in live mode, sent on the same stream. */
+    ha?: (mode: Mode) =>
+      | {
+          view(): HaView;
+          subscribe(listener: (view: HaView) => void): () => void;
+        }
+      | undefined;
   },
 ) {
   app.get('/:mode', async (request) => {
@@ -1181,25 +1190,33 @@ export async function watchRoutes(
     return watchers[mode].view();
   });
   /**
-   * The watcher's view (`watch` events) and what the mode shows in Home
-   * Assistant (`expose` events) on one stream: a tab holds one connection for
-   * both, of the six a browser opens to a host.
+   * The watcher's view (`watch` events), what the mode shows in Home
+   * Assistant (`expose` events) and, live, its devices' states there (`ha`
+   * events) on one stream: a tab holds one connection for all, of the six a
+   * browser opens to a host. Each is sent as it is on connecting, so a reload
+   * starts from the states as they are.
    */
   app.get('/:mode/events', (request, reply) => {
     const { mode } = parseInput(modeOnlySchema, request.params);
     const watcher = watchers[mode];
     const exposer = expose?.(mode);
+    const devices = ha?.(mode);
     reply.hijack();
     reply.raw.writeHead(200, {
       'content-type': 'text/event-stream',
       'cache-control': 'no-cache',
       connection: 'keep-alive',
     });
-    const send = (event: 'watch' | 'expose') => (view: WatchView | ExposeView) =>
+    const send = (event: 'watch' | 'expose' | 'ha') => (view: WatchView | ExposeView | HaView) =>
       reply.raw.write(`event: ${event}\ndata: ${JSON.stringify(view)}\n\n`);
     send('watch')(watcher.view());
     if (exposer) send('expose')(exposer.view());
-    const offs = [watcher.subscribe(send('watch')), exposer?.subscribe(send('expose'))];
+    if (devices) send('ha')(devices.view());
+    const offs = [
+      watcher.subscribe(send('watch')),
+      exposer?.subscribe(send('expose')),
+      devices?.subscribe(send('ha')),
+    ];
     const ping = setInterval(() => reply.raw.write(': ping\n\n'), 20_000);
     request.raw.on('close', () => {
       for (const off of offs) off?.();

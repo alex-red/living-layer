@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { haChosenBodySchema, haLoginBodySchema, entityIdSchema } from '@livinglayer/domain';
 import type { Config, Fetcher } from './config.js';
 import type { ControlAdapter, HaConnection } from './control.js';
+import type { HaLive } from './ha-live.js';
 import { LabError, parseInput } from './errors.js';
 import type { EvidenceStore } from './store.js';
 
@@ -273,6 +274,7 @@ export async function haRoutes(
     config,
     store,
     lamp,
+    live,
     fixed,
     fetcher = fetch,
     openSocket = (url) => new WebSocket(url),
@@ -280,6 +282,8 @@ export async function haRoutes(
     config: Config;
     store: EvidenceStore;
     lamp: ControlAdapter;
+    /** The websocket, opened again for a new sign-in and closed for a sign-out. */
+    live?: HaLive | undefined;
     /** The ones `.env` names, always allowed and not changed here. */
     fixed: () => string[];
     fetcher?: Fetcher | undefined;
@@ -304,11 +308,13 @@ export async function haRoutes(
     });
     if (step.kind === 'code') return step;
     store.setSetting(LOGIN, JSON.stringify(step.login));
+    live?.refresh();
     return { kind: 'done', url: step.login.url, user: step.login.user };
   });
   /** Forgets the token. Home Assistant still lists it until it's deleted there. */
   app.post('/logout', async () => {
     store.deleteSetting(LOGIN);
+    live?.refresh();
     return { ok: true };
   });
   app.get('/entities', async () => ({ entities: await lamp.entities() }));

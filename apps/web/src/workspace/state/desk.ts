@@ -4,6 +4,8 @@ import { DEMO_LIGHTS, DEMO_SWITCHES } from '@livinglayer/domain';
 import { api, apiIfChanged } from '../../api';
 import { usd } from '../../cost';
 import { lightStates } from '../labels';
+import { haStore } from '../../watch';
+import { useStore } from './store';
 import { pushHistory, sameDesk } from './helpers';
 import type { ViewSlice } from './view';
 import type { FeedbackSlice } from './feedback';
@@ -145,14 +147,17 @@ export function useDeskSlice(deps: ViewSlice & FeedbackSlice & RunLogSlice): Des
     () => (mode === 'demo' ? DEMO_LIGHTS : (status?.lamp.lights ?? [])),
     [mode, status?.lamp.lights],
   );
-  /** Each light's last confirmed state in this mode, for lamps that glow. */
-  const lightsOn = useMemo(
-    () =>
-      new Set(
-        [...lightStates(memory, runs)].filter(([, s]) => s === 'on').map(([entity]) => entity),
-      ),
-    [memory, runs],
-  );
+  /**
+   * Each light's state, for lamps that glow: as Home Assistant reports it now
+   * when it is connected (live), else as it was last confirmed in this mode.
+   */
+  const haStates = useStore(haStore, (v) => (v?.link === 'connected' ? v.states : null));
+  const lightsOn = useMemo(() => {
+    const states = new Map<string, string>(lightStates(memory, runs));
+    if (mode === 'live' && haStates)
+      for (const [entity, state] of Object.entries(haStates)) states.set(entity, state);
+    return new Set([...states].filter(([, s]) => s === 'on').map(([entity]) => entity));
+  }, [memory, runs, mode, haStates]);
   /** What a rule or a fixture may switch: the lights, then the switches. */
   const entities = useMemo(
     () => [...lights, ...(mode === 'demo' ? DEMO_SWITCHES : (status?.lamp.switches ?? []))],

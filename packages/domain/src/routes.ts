@@ -25,6 +25,17 @@ export interface HaEntity {
   domain: 'fan' | 'input_boolean' | 'light' | 'switch';
   state: string;
 }
+/**
+ * The server's websocket to Home Assistant: none (no sign-in), opening,
+ * open with every state in hand, refused (the token), or gone (it retries).
+ */
+export type HaLink = 'off' | 'connecting' | 'connected' | 'unauthorized' | 'unreachable';
+/** The devices Living Layer may switch, as Home Assistant reports them now; sent on every change. */
+export interface HaView {
+  link: HaLink;
+  /** Each device's state by entity id; empty unless `link` is `connected`. */
+  states: Record<string, string>;
+}
 
 /** A phone paired to the lab as a camera, as `/api/remote` shows it. */
 interface PairingView {

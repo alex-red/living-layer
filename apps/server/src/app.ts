@@ -10,6 +10,7 @@ import {
   estimateCost,
   type Mode,
   type LightLook,
+  type HaView,
   type DemoPosition,
   DEMO_POSITIONS,
   savedIdOf,
@@ -21,6 +22,7 @@ import { closeCompute } from './workers/compute.js';
 import { MetaAdapter } from './meta.js';
 import { ControlAdapter, type SwitchOptions, type Switched } from './control.js';
 import { chosenEntities, haConnection, haRoutes, type OpenSocket } from './ha.js';
+import { HaLive } from './ha-live.js';
 import { fixtureRoutes } from './fixture/routes.js';
 import { watchRequest } from './request-signal.js';
 import { LabError, logError } from './errors.js';
@@ -89,9 +91,15 @@ export async function buildApp(
   const jobs = new Jobs();
   const meta = new MetaAdapter(config, store, options.fetcher);
   const run = createRunner(store);
+  // One websocket to Home Assistant once listening, holding every state; REST when it's down.
+  const haLive = new HaLive(
+    () => haConnection(config, store),
+    options.haSocket ?? ((url) => new WebSocket(url)),
+  );
   const lamp = new ControlAdapter(config, options.fetcher, undefined, {
     allowed: () => [...haLights(), ...haSwitches()],
     connection: () => haConnection(config, store),
+    live: haLive,
   });
   const pruneEvidence = () => {
     if (!(config.evidenceRetentionDays > 0)) return;
@@ -166,6 +174,30 @@ export async function buildApp(
   }
   const liveLights = () => [...haLights(), ...mqttLights];
   const liveSwitches = () => [...haSwitches(), ...mqttSwitches];
+  /** The devices it may switch through Home Assistant, as Home Assistant has them now. */
+  const haView = (): HaView => ({
+    link: haLive.link,
+    states: Object.fromEntries(
+      [...haLights(), ...haSwitches()].flatMap((e) => {
+        const s = haLive.state(e);
+        return s ? [[e, s.state]] : [];
+      }),
+    ),
+  });
+  /** `haView` to each listener whenever it changes; Home Assistant's other entities are ignored. */
+  const haFeed = {
+    view: haView,
+    subscribe(listener: (view: HaView) => void) {
+      let last = JSON.stringify(haView());
+      return haLive.subscribe(() => {
+        const next = haView();
+        const json = JSON.stringify(next);
+        if (json === last) return;
+        last = json;
+        listener(next);
+      });
+    },
+  };
   app.addHook('onRequest', async (request) => {
     const host = request.headers.host ?? '';
     if (!new RegExp(`^(localhost|127\\.0\\.0\\.1)(:${config.port}|:43430|:80)?$`).test(host))
@@ -249,6 +281,7 @@ export async function buildApp(
       },
       ha: {
         connected: Boolean(ha().url),
+        link: haLive.link,
         url: ha().url,
         via: ha().via,
         user: ha().user,
@@ -303,6 +336,7 @@ export async function buildApp(
     config,
     store,
     lamp,
+    live: haLive,
     fixed: () => [...config.haLights, ...config.haSwitches],
     fetcher: options.fetcher,
     openSocket: options.haSocket,
@@ -428,6 +462,7 @@ export async function buildApp(
         },
         // Made further down; asked for only once a stream opens.
         expose: (mode) => exposers[mode],
+        ha: (mode) => (mode === 'live' ? haFeed : undefined),
       }),
     { prefix: '/api/watch' },
   );
@@ -546,6 +581,7 @@ export async function buildApp(
   // The relay only once this server holds its port: one that fails to listen must not
   // take the relay from the one that does. Live watching then reads through it.
   app.addHook('onListen', async () => {
+    haLive.start();
     if (options.relay) {
       await cameras.startRelay();
       if (store.memory('live').watch?.on) void watchers.live.start();
@@ -553,6 +589,7 @@ export async function buildApp(
     await watchByDefault(true);
   });
   app.addHook('onClose', async () => {
+    haLive.stop();
     clearInterval(tick);
     watchers.demo.stop();
     watchers.live.stop();

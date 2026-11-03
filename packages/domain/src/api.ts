@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { DemoPosition } from './demo-room.js';
+import type { HaLink } from './routes.js';
 
 export const modeSchema = z.enum(['demo', 'live']);
 export type Mode = z.infer<typeof modeSchema>;
@@ -204,7 +205,9 @@ export interface LabStatus {
    * `MQTT_DEVICES` (switched without Home Assistant).
    */
   ha: {
+    /** Signed in (or `.env`'s token): there is a connection to try. `link` says how it went. */
     connected: boolean;
+    link: HaLink;
     url: string;
     /** How it's connected: `.env`'s token, a sign-in from the lab, or not at all. */
     via: 'env' | 'login' | null;
