@@ -111,7 +111,7 @@ export function fromSculpt(label: string, sculpt: Sculpt): IsoItem | null {
  * what is in it (a mug and its coffee): its top is opened and the disc
  * becomes its inside, which a closed body would hide.
  */
-export function openTops(parts: ItemPart[]): ItemPart[] {
+function openTops(parts: ItemPart[]): ItemPart[] {
   const gone = new Set<string>();
   const out = parts.map((body) => {
     if (body.shape !== 'lathe' || body.wall) return body;
