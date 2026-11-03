@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { createPortal } from 'react-dom';
 
 export interface MenuItem {
   label: string;
@@ -14,7 +15,8 @@ export interface MenuItem {
  * A right-click menu at the pointer, kept inside the window. It takes focus
  * on its first item, moves with the arrow keys, and closes on a choice, a
  * click outside, Escape, Tab, scrolling or resizing; focus goes back to
- * what opened it.
+ * what opened it. It is drawn on the body: a pane's backdrop filter would
+ * otherwise hold it in that pane's stacking and clip it to the pane.
  */
 export function ContextMenu({
   at,
@@ -83,7 +85,7 @@ export function ContextMenu({
       close();
     }
   }
-  return (
+  return createPortal(
     <div
       ref={ref}
       className="context-menu"
@@ -107,6 +109,7 @@ export function ContextMenu({
           {item.label}
         </button>
       ))}
-    </div>
+    </div>,
+    document.body,
   );
 }
