@@ -215,6 +215,7 @@ export function runDetail(run: EvidenceRun): string {
     if (!o || typeof o !== 'object') return '';
     if ('sculpted' in o)
       return `${o.label} modelled with AI · ${o.parts} parts · overlap ${Math.round(o.iou * 100)}%`;
+    if ('edited' in o) return `${o.label} edited with AI · “${o.prompt}” · ${o.note}`;
     if ('found' in o)
       return `found on the picture · ${o.found.filter((f) => f.seen).length} of ${o.found.length}`;
     if ('mapped' in o) {

@@ -5,6 +5,7 @@ import {
   fixturesControlBodySchema,
   fixturesDeleteBodySchema,
   fixturesDraftBodySchema,
+  fixturesEditBodySchema,
   fixturesFindBodySchema,
   fixturesPhotoBodySchema,
   fixturesPromoteBodySchema,
@@ -26,6 +27,7 @@ import { LabError, parseInput } from '../errors.js';
 import type { RouteDeps } from '../route-deps.js';
 import { controlFixture } from './control.js';
 import { draftFixture, refitFixture } from './draft.js';
+import { editFixture } from './edit.js';
 import { findFixture } from './find.js';
 import { promoteFixture } from './promote.js';
 import { refineFixture } from './refine.js';
@@ -75,6 +77,9 @@ export async function fixtureRoutes(
   );
   app.post('/sculpt', async (request) =>
     sculptFixture(deps, parseInput(fixturesSculptBodySchema, request.body)),
+  );
+  app.post('/edit', async (request) =>
+    editFixture(deps, parseInput(fixturesEditBodySchema, request.body)),
   );
   app.post('/sculpt/reapply', async (request) =>
     reapplySculpt(deps, parseInput(fixturesSculptReapplyBodySchema, request.body)),

@@ -5,12 +5,14 @@ import {
   runOutput,
   type DeskMemory,
   type EvidenceRun,
+  type IsoItem,
   type SavedItem,
 } from '@livinglayer/domain';
-import { apiAt } from '../api';
+import { api, apiAt } from '../api';
 import { Later } from '../Later';
 import { SculptFixture } from '../workspace/FixturePanel';
 import {
+  useAi,
   useCamera,
   useDesk,
   useFeedback,
@@ -27,7 +29,7 @@ const ItemEditor = lazy(() => import('./ItemEditor').then((m) => ({ default: m.I
  * page both show it. `objectId` absent is the mug.
  */
 export function ThingEditor({ objectId }: { objectId: string | undefined }) {
-  const lab = useLabParts(useView(), useFeedback(), useRunLog(), useDesk(), useCamera());
+  const lab = useLabParts(useView(), useFeedback(), useRunLog(), useDesk(), useCamera(), useAi());
   const { mode, memory, setMemory, setSelected, setMessage, setError, refresh } = lab;
   const [asking, setAsking] = useState(false);
   const target = memory ? modelTarget(memory, objectId) : null;
@@ -52,6 +54,32 @@ export function ThingEditor({ objectId }: { objectId: string | undefined }) {
       setAsking(false);
     }
   }
+  /** The draft changed by the person's words: Spark in Live, a recolour in the demo. Nothing is saved. */
+  async function aiEdit(prompt: string, current: IsoItem) {
+    if (!target) return null;
+    const body = { mode, fixtureId: target.id, prompt, item: current };
+    const thing = target.label.toLowerCase();
+    try {
+      const answer =
+        mode === 'live'
+          ? await lab.followAi(
+              {
+                title: `Editing the ${thing}`,
+                description: `Spark changes its model as you asked: “${prompt}”. One Spark call; nothing is saved until you save it.`,
+              },
+              (jobId, signal) => api('fixtures/edit', { ...body, jobId }, { signal }),
+            )
+          : await api('fixtures/edit', body);
+      if (!answer) return null;
+      if (mode === 'live') lab.closeAiTaskSoon(1500);
+      setMessage(`${answer.note} Save model keeps it; Undo or Revert goes back.`);
+      void refresh().catch(() => {});
+      return { item: answer.item, note: answer.note };
+    } catch (e) {
+      setError(e instanceof Error ? e : 'The edit failed.');
+      return null;
+    }
+  }
   function onRun(run: EvidenceRun) {
     setSelected(run);
     const item = runOutput(run, 'item');
@@ -73,6 +101,12 @@ export function ThingEditor({ objectId }: { objectId: string | undefined }) {
             : 'Free: the fitter measures its shape, colours and print from the same masked crop, on this machine.'
         }
         modelWithAi={sighted && <SculptFixture fixture={sighted} disabled={off} />}
+        onAiEdit={target ? aiEdit : undefined}
+        aiEditBlocked={
+          mode === 'live' && !lab.metaReady
+            ? 'Live calls aren’t available: set MODEL_API_KEY and META_LIVE_ENABLED, or raise today’s spend limit.'
+            : null
+        }
         cropUrl={
           target?.item?.fit?.crop
             ? `/api/item/crop?mode=${mode}${objectId ? `&objectId=${objectId}` : ''}&v=${encodeURIComponent(target.item.fit.crop)}`

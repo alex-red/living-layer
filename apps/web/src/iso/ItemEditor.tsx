@@ -35,6 +35,7 @@ import {
   type StarterTemplate,
   ITEM_SPRITES,
 } from '@livinglayer/domain';
+import { AiEdit, type AiEditStep } from './AiEdit';
 import { ItemSprite } from './IsoItem';
 import { useFrameQueue } from './frame';
 import { useItemSprite, useViewOverlay } from './sprites';
@@ -826,6 +827,8 @@ export function ItemEditor({
   onRefit,
   onFixtureState,
   onFixtureSize,
+  onAiEdit,
+  aiEditBlocked = null,
 }: {
   item: SavedItem | null | undefined;
   fixture?: Fixture | undefined;
@@ -851,8 +854,14 @@ export function ItemEditor({
   }) => void;
   /** Resize the fixture's base footprint/height. */
   onFixtureSize?: (size: FixtureInput['size']) => void;
+  /** Change the draft as the person asks, with AI: the answer, not saved, or null when there is none. */
+  onAiEdit?: (prompt: string, current: IsoItem) => Promise<{ item: IsoItem; note: string } | null>;
+  /** Why editing with AI can't be asked now, when it can't. */
+  aiEditBlocked?: string | null;
 }) {
   const [draft, setDraft] = useState<IsoItemDraft | null>(editable(item));
+  // The AI's edits to this draft, each with the draft it replaced, so the last can be undone.
+  const [aiSteps, setAiSteps] = useState<(AiEditStep & { before: IsoItemDraft })[]>([]);
   const [selected, setSelected] = useState(item?.parts[0]?.id ?? '');
   const [turns, setTurns] = useState(0);
   const [addShape, setAddShape] = useState<ItemPartDraft['shape']>('lathe');
@@ -882,6 +891,7 @@ export function ItemEditor({
 
   useEffect(() => {
     setDraft(editable(item));
+    setAiSteps([]);
     setSelected((s) => (item?.parts.some((p) => p.id === s) ? s : (item?.parts[0]?.id ?? '')));
     // The draft starts again from a saved change or another fixture state, not on every new `item` object.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1208,6 +1218,31 @@ export function ItemEditor({
             )}
           </div>
         </div>
+      )}
+      {onAiEdit && (
+        <AiEdit
+          label={label}
+          busy={busy}
+          blocked={aiEditBlocked ?? (valid ? null : `Fix the model first: ${problem}.`)}
+          steps={aiSteps}
+          onAsk={async (prompt) => {
+            const before = draft;
+            const answer = await onAiEdit(prompt, previewItem(before));
+            if (!answer) return false;
+            setDraft({ label: answer.item.label, parts: answer.item.parts });
+            setSelected((s) =>
+              answer.item.parts.some((p) => p.id === s) ? s : (answer.item.parts[0]?.id ?? ''),
+            );
+            setAiSteps((steps) => [...steps, { prompt, note: answer.note, before }]);
+            return true;
+          }}
+          onUndo={() => {
+            const last = aiSteps.at(-1);
+            if (!last) return;
+            setDraft(last.before);
+            setAiSteps((steps) => steps.slice(0, -1));
+          }}
+        />
       )}
       <div className="item-editor">
         <div className="item-parts">
@@ -1777,7 +1812,13 @@ export function ItemEditor({
             >
               {fixture?.state ? `Save “${fixture.state}” model` : 'Save model'}
             </Button>
-            <Button disabled={busy || !dirty} onClick={() => setDraft(editable(item))}>
+            <Button
+              disabled={busy || !dirty}
+              onClick={() => {
+                setDraft(editable(item));
+                setAiSteps([]);
+              }}
+            >
               Revert
             </Button>
             {fit?.crop && (

@@ -287,6 +287,20 @@ export const fixturesSculptBodySchema = z
   .strict();
 export type FixturesSculptBody = z.input<typeof fixturesSculptBodySchema>;
 
+/** POST /api/fixtures/edit */
+export const fixturesEditBodySchema = z
+  .object({
+    mode: modeSchema,
+    fixtureId: z.string().uuid(),
+    /** What to change, in the person's words: "make the handle thicker and red". */
+    prompt: z.string().trim().min(1).max(400),
+    /** The model as the editor has it now, saved or not, so a follow-up builds on the last edit. */
+    item: isoItemSchema,
+    jobId: z.string().uuid().optional(),
+  })
+  .strict();
+export type FixturesEditBody = z.input<typeof fixturesEditBodySchema>;
+
 /** POST /api/fixtures/sculpt/reapply */
 export const fixturesSculptReapplyBodySchema = z
   .object({ mode: modeSchema, jobId: z.string().uuid() })

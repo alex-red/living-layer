@@ -5,6 +5,7 @@ import type { CameraView, cameraInputSchema, NetworkStream } from './camera.js';
 import type { FixtureDraft } from './fixture.js';
 import type { MappedThing, MovingThing } from './fixture-scan.js';
 import type { IsoScene } from './iso.js';
+import type { IsoItem } from './iso-item.js';
 import type { SceneGuess } from './iso-presets.js';
 import type { SceneDraft } from './iso-templates.js';
 import type { DeskMemory, PlacementDecision } from './memory.js';
@@ -181,6 +182,11 @@ interface ApiRoutes {
     response: { run: RunOf<'fixture'>; memory: DeskMemory };
   };
   'fixtures/refine3d': { body: R.FixturesRefine3dBody; response: unknown };
+  /** The edited model, not saved: the editor shows it as a draft. */
+  'fixtures/edit': {
+    body: R.FixturesEditBody;
+    response: { run: RunOf<'fixture'>; item: IsoItem; note: string };
+  };
   'fixtures/sculpt/reapply': {
     body: R.FixturesSculptReapplyBody;
     response: { memory: DeskMemory; fixtureId: string; label: string };

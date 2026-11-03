@@ -238,6 +238,72 @@
   border-radius: var(--r-card);
   background: var(--surface-1);
 }
+/* Edit with AI: the request, then what it changed, above the parts and the preview. */
+.ai-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--chosen-glow);
+  border-radius: var(--r-card);
+  background: var(--chosen-wash);
+}
+.ai-edit-form {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 8px;
+  align-items: center;
+}
+.ai-edit-form textarea {
+  resize: none;
+  min-height: var(--control-h);
+  padding: 6px 8px;
+  border: 1px solid var(--control-line);
+  border-radius: var(--r-button);
+  background: var(--control-bg);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--fs-13);
+}
+.ai-edit-suggest {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.ai-edit-suggest button {
+  padding: 2px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-chip);
+  background: var(--surface-2);
+  color: var(--text-2);
+  font: inherit;
+  font-size: var(--fs-12);
+  cursor: pointer;
+}
+.ai-edit-suggest button:hover:not(:disabled) {
+  border-color: var(--chosen-glow);
+  color: var(--text);
+}
+.ai-edit-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding-left: 18px;
+  color: var(--text-2);
+  font-size: var(--fs-12);
+}
+.ai-edit-asked {
+  color: var(--text);
+}
+@media (max-width: 767px) {
+  .ai-edit-form {
+    grid-template-columns: 1fr auto;
+  }
+  .ai-edit-form .tiny {
+    grid-column: 1 / -1;
+  }
+}
 .studio-states {
   display: flex;
   flex-wrap: wrap;

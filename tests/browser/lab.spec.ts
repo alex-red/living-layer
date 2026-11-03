@@ -595,6 +595,17 @@ test('the studio page lists the things and opens one’s model, kept in its link
   await page.reload();
   await expect(mouse).toHaveAttribute('aria-current', 'true');
   await expect(page.getByRole('listbox', { name: 'Item parts' })).toBeVisible();
+  // Edited with AI: the demo recolours offline, as a draft to save or undo.
+  const ai = page.getByRole('region', { name: 'Edit with AI' });
+  await ai.getByRole('textbox').fill('make it red');
+  await ai.getByRole('button', { name: 'Edit', exact: true }).click();
+  await expect(ai.getByRole('list', { name: 'AI edits to this draft' })).toContainText(
+    'Painted it red.',
+  );
+  await expect(page.locator('.item-save-state')).toContainText('Unsaved changes');
+  await ai.getByRole('button', { name: 'Undo' }).click();
+  await expect(ai.getByRole('group', { name: 'Suggested edits' })).toBeVisible();
+  await expect(page.locator('.item-save-state')).toContainText('Saved.');
 });
 
 test('the AI brush turns the office desk into an Alex desk, follows up, and puts it in the room', async ({

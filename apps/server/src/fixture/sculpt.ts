@@ -148,7 +148,7 @@ async function photoCut(
  * The close photo its model was last fitted to, when another photo of it was
  * (POST /api/fixtures/photo): its crop, at that photo's own angle.
  */
-function storedCloseUp(store: EvidenceStore, fixture: Fixture) {
+export function storedCloseUp(store: EvidenceStore, fixture: Fixture) {
   const fit = fixtureModel(fixture).fit ?? fixture.model.fit;
   if (!fit?.crop || !fixtureOutput.fuse(store.getRun(fit.crop.split('/')[0]!))) return null;
   const png = store.readAsset(fit.crop);
@@ -158,9 +158,9 @@ function storedCloseUp(store: EvidenceStore, fixture: Fixture) {
 }
 
 /** The room picture is drawn in 2:1 isometric, so a level square shows half as deep as it is wide. */
-const ISO_ELEVATION = 30;
+export const ISO_ELEVATION = 30;
 /** What a picture with a transparent background is laid on for Spark: a neutral grey. */
-const SCULPT_BACKDROP = '#8a8f9f';
+export const SCULPT_BACKDROP = '#8a8f9f';
 /**
  * Spark's drafts of a fixture's model, asked at once and at low effort: each
  * answers in 25–55 s instead of 90–120, and the best of three matched the
@@ -433,7 +433,7 @@ const overlap = (iou: number) => `${Math.round(iou * 100)}% overlap with the pic
 const partsOf = (n: number) => `${n} part${n === 1 ? '' : 's'}`;
 
 /** A size as proportions of its longest side. */
-function proportions(s: Tiles): Tiles {
+export function proportions(s: Tiles): Tiles {
   const longest = Math.max(s.w, s.d);
   return { w: s.w / longest, d: s.d / longest, h: s.h / longest };
 }

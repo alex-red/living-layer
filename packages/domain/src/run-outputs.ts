@@ -29,6 +29,15 @@ export interface FixtureSculptOutput {
   asked?: string;
   product?: string | null;
 }
+/** A fixture run where Spark changed its model as the person asked: a draft, not saved. */
+export interface FixtureEditOutput {
+  edited: string;
+  label: string;
+  prompt: string;
+  note: string;
+  parts: number;
+  item: IsoItem;
+}
 /** A fixture run that fused another photo into the model. */
 interface FixtureFuseOutput {
   fixtureId: string;
@@ -46,13 +55,14 @@ interface FixtureRefineOutput {
 }
 /**
  * What a `fixture` run holds, by the field that tells them apart: a draft has
- * none of `scan`, `found`, `sculpted`, `views` or `shaped`, so `in` narrows.
+ * none of `scan`, `found`, `sculpted`, `edited`, `views` or `shaped`, so `in` narrows.
  */
 type FixtureRunOutput =
   | FixtureDraft
   | FixtureScanOutput
   | PictureFind
   | FixtureSculptOutput
+  | FixtureEditOutput
   | FixtureFuseOutput
   | FixtureRefineOutput;
 
@@ -105,7 +115,15 @@ export function runOutput<K extends keyof RunOutputs>(
 export const fixtureOutput = {
   draft(run: EvidenceRun | null | undefined): FixtureDraft | undefined {
     const o = runOutput(run, 'fixture');
-    return o && !('scan' in o || 'found' in o || 'sculpted' in o || 'views' in o || 'shaped' in o)
+    return o &&
+      !(
+        'scan' in o ||
+        'found' in o ||
+        'sculpted' in o ||
+        'edited' in o ||
+        'views' in o ||
+        'shaped' in o
+      )
       ? o
       : undefined;
   },
@@ -116,6 +134,10 @@ export const fixtureOutput = {
   sculpt(run: EvidenceRun | null | undefined): FixtureSculptOutput | undefined {
     const o = runOutput(run, 'fixture');
     return o && 'sculpted' in o ? o : undefined;
+  },
+  edit(run: EvidenceRun | null | undefined): FixtureEditOutput | undefined {
+    const o = runOutput(run, 'fixture');
+    return o && 'edited' in o ? o : undefined;
   },
   fuse(run: EvidenceRun | null | undefined): FixtureFuseOutput | undefined {
     const o = runOutput(run, 'fixture');

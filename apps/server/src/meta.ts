@@ -75,6 +75,8 @@ export const SPARK_CALLS = {
   fixtureScan: { tokens: 12288, timeoutMs: 90_000, effort: 'low' },
   pictureFind: { tokens: 6144, timeoutMs: DEFAULT_SPARK_TIMEOUT_MS },
   sculpt: { tokens: 16384, timeoutMs: 150_000 },
+  // One model changed by the person's words: low effort, as a fixture's sculpt drafts are.
+  sculptEdit: { tokens: 16384, timeoutMs: 150_000, effort: 'low' },
   itemCheck: { tokens: 4096, timeoutMs: DEFAULT_SPARK_TIMEOUT_MS },
   photoInventory: { tokens: 16384, timeoutMs: DEFAULT_SPARK_TIMEOUT_MS },
   // Spark's checks of a whole photo have taken 18 to 26 s, and three ran past 30.
@@ -649,6 +651,21 @@ export class MetaAdapter {
       images: [pictureDataUrl, renderDataUrl],
       signal,
       effort,
+      text: `${prompt}\n\nParts:\n${parts}`,
+    });
+  }
+  /**
+   * Spark changes a model as the person asks: its render (after a photo of
+   * the thing, when there is one) and its parts as JSON in, the parts with
+   * only what was asked changed out.
+   */
+  async sculptEdit(images: string[], prompt: string, parts: string, signal?: AbortSignal) {
+    return this.structured('sculptEdit', {
+      name: 'sculpt',
+      schema: sculptSchemaOf(12),
+      what: 'model',
+      images,
+      signal,
       text: `${prompt}\n\nParts:\n${parts}`,
     });
   }
