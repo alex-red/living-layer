@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { ProductFacts } from './facts.js';
+import { clampFiniteOrLow } from './math.js';
 import { ITEM_MATERIALS, itemPartSchema, type IsoItem, type ItemPart } from './iso-item.js';
 
 /**
@@ -41,9 +42,6 @@ export const sculptSchemaOf = (max: number) =>
 const sculptSchema = sculptSchemaOf(12);
 export type Sculpt = z.infer<typeof sculptSchema>;
 
-const clamp = (v: number, lo: number, hi: number) =>
-  Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : lo;
-
 /**
  * Spark's parts as ours: numbers kept in range, nulls left out, and any part
  * that still isn't a valid one dropped. Null when nothing is left.
@@ -58,11 +56,15 @@ export function fromSculpt(label: string, sculpt: Sculpt): IsoItem | null {
     const part = {
       id,
       shape: s.shape,
-      at: { x: clamp(s.at.x, -0.5, 1.5), y: clamp(s.at.y, -0.5, 1.5), z: clamp(s.at.z, 0, 6) },
+      at: {
+        x: clampFiniteOrLow(s.at.x, -0.5, 1.5),
+        y: clampFiniteOrLow(s.at.y, -0.5, 1.5),
+        z: clampFiniteOrLow(s.at.z, 0, 6),
+      },
       size: {
-        w: clamp(s.size.w, 0.02, 3),
-        d: clamp(s.size.d, 0.02, 3),
-        h: clamp(s.size.h, 0.02, 6),
+        w: clampFiniteOrLow(s.size.w, 0.02, 3),
+        d: clampFiniteOrLow(s.size.d, 0.02, 3),
+        h: clampFiniteOrLow(s.size.h, 0.02, 6),
       },
       color: s.color,
       taper: 1,
@@ -70,8 +72,8 @@ export function fromSculpt(label: string, sculpt: Sculpt): IsoItem | null {
       ...(profile && profile.length >= 2 ? { profile } : {}),
       ...(s.path ? { path: s.path.slice(0, 4) } : {}),
       ...(s.outline ? { outline: s.outline.slice(0, 12) } : {}),
-      ...(s.radius !== null ? { radius: clamp(s.radius, 0, 0.5) } : {}),
-      ...(s.rough !== null ? { rough: clamp(s.rough, 0, 1) } : {}),
+      ...(s.radius !== null ? { radius: clampFiniteOrLow(s.radius, 0, 0.5) } : {}),
+      ...(s.rough !== null ? { rough: clampFiniteOrLow(s.rough, 0, 1) } : {}),
       ...(s.bands?.length
         ? {
             paint: s.bands

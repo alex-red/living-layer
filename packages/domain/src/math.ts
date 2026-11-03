@@ -15,12 +15,23 @@ export const unit = (a: Vec3): Vec3 => scale(a, 1 / norm(a));
 
 export const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
 
+/** Like `clamp`, but NaN and ±Infinity give `lo` instead of passing through. */
+export const clampFiniteOrLow = (n: number, lo: number, hi: number) =>
+  Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : lo;
+
 /**
  * The value below which a share `q` of the values lie (unsorted input; the
  * value at index floor(q·n) when sorted). Undefined for no values.
  */
 export const quantile = (vs: number[], q: number) =>
   [...vs].sort((a, b) => a - b)[Math.min(vs.length - 1, Math.floor(q * vs.length))]!;
+
+/**
+ * Unlike `quantile`, takes values already sorted, indexes by q·(n−1) (so q=1
+ * is the last value) and gives 0 for none.
+ */
+export const quantileAt = (sorted: number[], q: number) =>
+  sorted.length ? sorted[Math.min(sorted.length - 1, Math.floor(q * (sorted.length - 1)))]! : 0;
 
 /** The middle value (the upper one for an even count); 0 for no values. */
 export const median = (xs: number[]) => (xs.length ? quantile(xs, 0.5) : 0);

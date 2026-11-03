@@ -7,6 +7,7 @@
  * it can't see. See docs/plans/sam3d-experiment.md.
  */
 import type { LatheFit } from './iso-archetypes.js';
+import { quantileAt } from './math.js';
 
 interface SplatPoint {
   /** Position, with z up (SAM 3D's frame). */
@@ -56,8 +57,6 @@ export function readSplat(bytes: Uint8Array): SplatPoint[] {
   return points;
 }
 
-const quantile = (sorted: number[], q: number) =>
-  sorted.length ? sorted[Math.min(sorted.length - 1, Math.floor(q * (sorted.length - 1)))]! : 0;
 const sortedOf = (values: number[]) => values.toSorted((a, b) => a - b);
 
 /** How many slices up the body its profile is read in. */
@@ -79,8 +78,8 @@ export function latheFromSplat(points: SplatPoint[], like: LatheFit): LatheFit {
   const solid = points.filter((p) => p.opacity >= MIN_OPACITY);
   if (solid.length < 200) throw new Error('The splat is too sparse to read a shape from.');
   const zs = sortedOf(solid.map((p) => p.z));
-  const z0 = quantile(zs, 0.005);
-  const z1 = quantile(zs, 0.995);
+  const z0 = quantileAt(zs, 0.005);
+  const z1 = quantileAt(zs, 0.995);
   const height = z1 - z0;
   if (height <= 0) throw new Error('The splat has no height.');
   const share = (z: number) => (z - z0) / height;
@@ -88,15 +87,15 @@ export function latheFromSplat(points: SplatPoint[], like: LatheFit): LatheFit {
   const base = solid.filter((p) => share(p.z) < 0.12);
   const xs = sortedOf(base.map((p) => p.x));
   const ys = sortedOf(base.map((p) => p.y));
-  const cx = (quantile(xs, 0.02) + quantile(xs, 0.98)) / 2;
-  const cy = (quantile(ys, 0.02) + quantile(ys, 0.98)) / 2;
+  const cx = (quantileAt(xs, 0.02) + quantileAt(xs, 0.98)) / 2;
+  const cy = (quantileAt(ys, 0.02) + quantileAt(ys, 0.98)) / 2;
   const polar = solid.map((p) => ({
     z: share(p.z),
     r: Math.hypot(p.x - cx, p.y - cy),
     a: Math.atan2(p.y - cy, p.x - cx),
   }));
   // The body's rough radius, then what stands well clear of it: the handle's side.
-  const rough = quantile(sortedOf(polar.map((p) => p.r)), 0.6);
+  const rough = quantileAt(sortedOf(polar.map((p) => p.r)), 0.6);
   const clear = polar.filter((p) => p.r > rough * 1.35 && p.z > 0.05 && p.z < 0.98);
   let handleAngle: number | null = null;
   if (clear.length > solid.length * 0.01) {
@@ -115,7 +114,7 @@ export function latheFromSplat(points: SplatPoint[], like: LatheFit): LatheFit {
     const hi = (i + 1) / SLICES;
     const slice = polar.filter((p) => p.z >= lo && p.z < hi && offHandle(p.a)).map((p) => p.r);
     if (slice.length < 20) continue;
-    radii.push({ z: (lo + hi) / 2, r: quantile(sortedOf(slice), 0.95) });
+    radii.push({ z: (lo + hi) / 2, r: quantileAt(sortedOf(slice), 0.95) });
   }
   if (radii.length < 3) throw new Error('Too few slices of the splat to read a profile.');
   const widest = Math.max(...radii.map((s) => s.r));
@@ -140,10 +139,10 @@ export function latheFromSplat(points: SplatPoint[], like: LatheFit): LatheFit {
     const loop = polar.filter((p) => !offHandle(p.a) && p.r > bodyAt(p.z) * 1.08);
     if (loop.length > solid.length * 0.005) {
       const hz = sortedOf(loop.map((p) => p.z));
-      const reach = quantile(sortedOf(loop.map((p) => p.r - bodyAt(p.z))), 0.98);
+      const reach = quantileAt(sortedOf(loop.map((p) => p.r - bodyAt(p.z))), 0.98);
       handle = {
-        top: quantile(hz, 0.98),
-        bottom: quantile(hz, 0.02),
+        top: quantileAt(hz, 0.98),
+        bottom: quantileAt(hz, 0.02),
         reach: reach * unit,
         thickness: like.handle?.thickness ?? reach * unit * 0.3,
       };
