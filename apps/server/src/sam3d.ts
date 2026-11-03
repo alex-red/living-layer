@@ -18,7 +18,7 @@ const FAL_ENDPOINT = 'https://fal.run/fal-ai/sam-3/3d-objects';
 const SCALE = 4;
 
 /** The crop over white, scaled up, and its alpha as a black and white mask. */
-export async function sam3dInput(cropPng: Buffer) {
+async function sam3dInput(cropPng: Buffer) {
   const { width = 0, height = 0 } = await sharp(cropPng).metadata();
   const size = { width: width * SCALE, height: height * SCALE };
   const image = await sharp(cropPng)

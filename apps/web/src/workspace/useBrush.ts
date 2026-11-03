@@ -27,7 +27,7 @@ export const inSentence = (name: string) =>
 export const CLOSE_SHARE = 0.015;
 const milli = (v: number) => Math.round(Math.min(1, Math.max(0, v)) * 1000);
 /** A finished stroke as a selection, in thousandths; null when it has no area. */
-export function shapeOf(stroke: BrushStroke): SelectionShape | null {
+function shapeOf(stroke: BrushStroke): SelectionShape | null {
   if (stroke.kind === 'polygon')
     return stroke.points.length >= 3
       ? {

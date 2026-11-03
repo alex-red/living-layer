@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import sharp from 'sharp';
 import { randomUUID } from 'node:crypto';
 import {
+  runOutput,
   MAX_FIXTURES,
   MAX_OTHER_OBJECTS,
   draftModel,
@@ -17,7 +18,6 @@ import {
   type IsoScene,
   type PhotoThing,
   type SavedItem,
-  type Segmentation,
   type SurfacePin,
   buildScene,
   imageRequestSchema,
@@ -32,7 +32,6 @@ import { roomPhotoBytes } from './fixture.js';
 import { validateImage } from './images.js';
 import { keepLocked } from './item.js';
 import { refitToScene } from './room.js';
-import type { PhotoDraft } from './photo.js';
 import { illustrationRoutes } from './illustration.js';
 import { photoRoutes } from './photo.js';
 import type { RouteDeps } from './route-deps.js';
@@ -174,7 +173,7 @@ export async function sceneRoutes(
       draftRun.status !== 'completed'
     )
       throw new LabError('photo_draft', 'Draft a scene from a photo first.', 409);
-    const draft = draftRun.output as PhotoDraft;
+    const draft = runOutput(draftRun, 'photo')!;
     const segment = store.getRun(draft.segmentRunId);
     if (!segment || store.latestSegment(mode) !== segment.id)
       throw new LabError(
@@ -182,7 +181,7 @@ export async function sceneRoutes(
         'A newer segmentation came after this photo draft. Draft the photo again.',
         409,
       );
-    const segmentation = segment.output as Segmentation;
+    const segmentation = runOutput(segment, 'segment')!;
     if (pin && (pin.scene !== 'custom' || !isoSurface('custom', pin.surfaceId, scene as IsoScene)))
       throw new LabError('surface_unknown', 'The pin must be on a surface of the drafted scene.');
     const picked = track.map((thingId) => {

@@ -35,7 +35,7 @@ const within = (v: number, a: number, b: number) => v >= Math.min(a, b) && v <= 
  * by the middle of the thing's base on the pinned surface (`projectBox`);
  * any other zone by the box's bottom centre in the frame.
  */
-export function standsInZone(
+function standsInZone(
   memory: Pick<DeskMemory, 'surface' | 'scene'>,
   o: Pick<DeskObservation, 'box' | 'frame'>,
   zone: { rect: ZoneRect; onSurface?: ZoneOnSurface },
@@ -61,7 +61,7 @@ const normalize = (b: Detection['box'], f: Segmentation['frame']) => ({
   height: b.height / f.height,
 });
 /** Intersection over union of two boxes, each measured against its own frame. */
-export function boxOverlap(
+function boxOverlap(
   a: Detection['box'],
   aFrame: Segmentation['frame'],
   b: Detection['box'],

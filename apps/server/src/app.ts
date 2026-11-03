@@ -4,11 +4,11 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import {
+  runOutput,
   DEMO_LIGHTS,
   DEMO_SWITCHES,
   estimateCost,
   type Mode,
-  type Segmentation,
   type DemoPosition,
   DEMO_POSITIONS,
   savedIdOf,
@@ -387,7 +387,7 @@ export async function buildApp(
       ),
     photoOf: async (segmentRun) => {
       if (segmentRun.mode === 'demo') {
-        const key = (segmentRun.output as Segmentation).sourceKey ?? '';
+        const key = runOutput(segmentRun, 'segment')?.sourceKey ?? '';
         const position = (key.split('@')[1] ?? 'centre') as DemoPosition;
         demoPicture.position = DEMO_POSITIONS[position] ? position : 'centre';
         return (await demoPicture.snapshot()).png;

@@ -15,7 +15,7 @@ import { requestSignal } from './request-signal.js';
 import type { RouteDeps } from './route-deps.js';
 
 /** One SAM segmentation, recorded and billed as a run: the lab's button, or the watcher. */
-export type Segment = (
+type Segment = (
   input: { mode: Mode; concept: string; imageDataUrl?: string; demoPosition?: DemoPosition },
   signal?: AbortSignal,
 ) => Promise<EvidenceRun<Segmentation>>;

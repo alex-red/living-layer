@@ -11,7 +11,7 @@ import type {
   LumaFrame,
   UnitBox,
 } from '@livinglayer/domain';
-import { isRun, toLuma } from '@livinglayer/domain';
+import { isRun, runFailure, toLuma } from '@livinglayer/domain';
 
 export const BUSY: Record<string, string> = {
   text: 'Checking the connection',
@@ -59,7 +59,7 @@ export const TRANSITION: Record<NonNullable<PlacementDecision['transition']>, st
 };
 /** Local following samples the camera this often, on frames this wide. */
 export const FOLLOW_MS = 100;
-export const LUMA_WIDTH = 160;
+const LUMA_WIDTH = 160;
 /**
  * Gaps between SAM checks while following the live camera. A zone crossing
  * waits briefly; re-anchoring backs off while the mug stays lost, so a mug
@@ -71,7 +71,7 @@ export const REANCHOR_GAP_MS = { first: 2000, max: 30_000 };
 export const RECOVERED_STEPS = 30;
 /** Times a wanted camera is tried again before waiting for the person, after it dropped. */
 export const REOPEN_TRIES = 4;
-export const lumaCanvas = document.createElement('canvas');
+const lumaCanvas = document.createElement('canvas');
 /** Downsample any image or video frame to grayscale for the local tracker. */
 export function lumaOf(source: HTMLImageElement | HTMLVideoElement): LumaFrame {
   const [w, h] =
@@ -161,17 +161,13 @@ export const deskIsBlank = (d: DeskMemory) =>
   !d.others?.length &&
   !d.rules?.length &&
   !d.fixtures?.length;
-export type ProbeKind = 'text' | 'discover' | 'segment' | 'lamp';
+type ProbeKind = 'text' | 'discover' | 'segment' | 'lamp';
 export const isProbe = (kind: RunKind): kind is ProbeKind =>
   ['text', 'discover', 'segment', 'lamp'].includes(kind);
 
 /** One short line on what a run returned, for the log and the inspector. */
 export function runDetail(run: EvidenceRun): string {
-  if (run.status === 'failed')
-    return (
-      ((run.output as Record<string, unknown> | null)?.error as { message?: string } | undefined)
-        ?.message ?? 'Failed'
-    );
+  if (run.status === 'failed') return runFailure(run)?.message ?? 'Failed';
   if (isRun(run, 'segment')) {
     const s = run.output;
     return `"${s.concept}" · ${s.detections.length} mask${s.detections.length === 1 ? '' : 's'}`;

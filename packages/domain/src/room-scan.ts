@@ -338,7 +338,7 @@ export interface WallGap {
   left: number;
 }
 /** A footprint: its corner nearest the origin and its size once turned, in tiles. */
-export interface Footprint {
+interface Footprint {
   x: number;
   y: number;
   w: number;

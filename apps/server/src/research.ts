@@ -31,14 +31,14 @@ export interface Researcher {
 }
 
 /** One saved product: its facts, other names it goes by, and a model a person accepted. */
-export const catalogEntrySchema = z
+const catalogEntrySchema = z
   .object({
     facts: productFactsSchema,
     aliases: z.array(z.string().min(1).max(120)).max(12).optional(),
     recipe: fixtureRecipeSchema.optional(),
   })
   .strict();
-export type CatalogEntry = z.infer<typeof catalogEntrySchema>;
+type CatalogEntry = z.infer<typeof catalogEntrySchema>;
 
 /** Products that ship with the lab, so the demo needs no lookup. */
 export const BUNDLED_CATALOG = resolve(PROJECT_ROOT, 'apps/server/catalog');
@@ -119,7 +119,7 @@ export function personFacts(
   return { ...said, query, sources: [{ kind: 'person', title: 'What you said' }], confidence: 1 };
 }
 
-export interface Research {
+interface Research {
   facts: MergedFacts;
   /** Each source asked, in order, and whether it had anything. */
   asked: { kind: FactSource['kind']; found: boolean }[];

@@ -11,7 +11,14 @@
  */
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { basename, resolve } from 'node:path';
-import { runCost, type EvidenceRun, type Mode, type RunKind } from '@livinglayer/domain';
+import {
+  runCost,
+  runFailure,
+  runOutput,
+  type EvidenceRun,
+  type Mode,
+  type RunKind,
+} from '@livinglayer/domain';
 import { flag, has, parseArgs } from './lib/args.js';
 import { loadCalls, summarizeCalls } from './lib/calls.js';
 import { openEvidence } from './lib/evidence.js';
@@ -69,9 +76,7 @@ const cost = (r: EvidenceRun) => {
   return usd == null ? '' : `$${usd.toFixed(3)}`;
 };
 const why = (r: EvidenceRun) => {
-  const out = r.output as { error?: { message?: string } | string } | null;
-  const e = out?.error;
-  return typeof e === 'string' ? e : (e?.message ?? '');
+  return runFailure(r)?.message ?? '';
 };
 
 const ref = args.positional[0];
@@ -126,7 +131,7 @@ if (job) {
   });
   if (job.error) console.log(`  error: ${job.error}`);
 }
-const assists = (run.output as { assists?: string[] } | null)?.assists;
+const assists = runOutput(run, 'photo')?.assists;
 if (assists?.length) console.log(`\n${assists.map((a) => `· ${a}`).join('\n')}`);
 let saved = 0;
 for (const a of run.assets) {

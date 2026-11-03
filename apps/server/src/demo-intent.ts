@@ -94,7 +94,7 @@ function partsOf(text: string): SparkIntentOp['parts'] {
   if (!roles.length && !exceptRoles.length) return null;
   return { names: [], roles, materials: [], exceptNames: [], exceptRoles };
 }
-export const DEMO_QUESTION =
+const DEMO_QUESTION =
   'In the demo I can make it its own fixture, change its colour, material or size, rename it, or tie it to a light. Which would you like?';
 
 export function demoIntent(sentence: string): SparkIntent {

@@ -22,19 +22,19 @@ import { BaseHandles, type BaseRect } from './BaseHandles';
 import { ItemSprite } from './IsoItem';
 import { TONES, usePropSprite } from './sprites';
 
-export function shade(hex: string, k: number): string {
+function shade(hex: string, k: number): string {
   const n = parseInt(hex.slice(1), 16);
   const c = [n >> 16, (n >> 8) & 255, n & 255].map((v) => Math.round(v * (1 - k)));
   return `rgb(${c.join(' ')})`;
 }
-export const pts = (ps: IsoVec[]) =>
+const pts = (ps: IsoVec[]) =>
   ps
     .map(toIso)
     .map((p) => `${p.sx.toFixed(1)},${p.sy.toFixed(1)}`)
     .join(' ');
 
 /** A prism's three visible faces, or a cylinder's body and lid. */
-export function Solid({
+function Solid({
   box,
   color,
   shape,
@@ -142,7 +142,7 @@ export interface IsoFixture {
   missing?: boolean;
 }
 /** A fixture waiting to be put down: it follows the pointer until a click. */
-export interface IsoPlacing {
+interface IsoPlacing {
   label: string;
   item: IsoItem;
   /** Footprint and height in tiles, already turned. */
@@ -150,7 +150,7 @@ export interface IsoPlacing {
   onPlace: (where: { at: { x: number; y: number }; surfaceId: string | null }) => void;
 }
 /** Picking and dragging whole groups, for the scene editor. */
-export interface IsoEditing {
+interface IsoEditing {
   selected?: string;
   /** Groups that cut into another; they may draw out of order. */
   flagged: Set<string>;
@@ -248,7 +248,7 @@ function FixtureMarker({
   );
 }
 /** Where a face texture is served from; a data URL is drawn as it is. */
-export const textureUrl = (ref: string) =>
+const textureUrl = (ref: string) =>
   ref.startsWith('data:') ? ref : `/api/scene/texture?asset=${encodeURIComponent(ref)}`;
 /**
  * A face's texture laid on it: the image's unit square goes to the face's

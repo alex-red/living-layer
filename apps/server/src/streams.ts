@@ -11,7 +11,7 @@ export type { NetworkStream };
 
 const TYPE = { A: 1, PTR: 12, TXT: 16, SRV: 33 } as const;
 
-export type DnsRecord =
+type DnsRecord =
   | { name: string; type: typeof TYPE.PTR; target: string }
   | { name: string; type: typeof TYPE.SRV; port: number; target: string }
   | { name: string; type: typeof TYPE.TXT; text: Record<string, string> }
@@ -138,7 +138,7 @@ export function assemble(records: DnsRecord[], from: Map<string, string> = new M
  * Asks again for SRV/TXT/A when a responder leaves them out. Never throws: no
  * network means no streams.
  */
-export function browseCameras(timeoutMs = 1200): Promise<NetworkStream[]> {
+function browseCameras(timeoutMs = 1200): Promise<NetworkStream[]> {
   return new Promise((resolve) => {
     const records: DnsRecord[] = [];
     const from = new Map<string, string>();

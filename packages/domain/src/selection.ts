@@ -104,7 +104,7 @@ export interface Resolved {
 }
 
 /** A thing counts as selected only when this much of what the camera sees of it is inside. */
-export const MIN_COVERED = 0.6;
+const MIN_COVERED = 0.6;
 /** A runner-up this close (in the share it fills) to the best makes the answer ambiguous. */
 const CLOSE = 0.6;
 

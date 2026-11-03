@@ -109,7 +109,7 @@ function useThumbs(): ReadonlyMap<TemplateId, Thumb> {
  * draws it, its real size, and how many the scene holds. Tabletop things say
  * when there is no surface yet to put them on.
  */
-export function PropPicker({
+function PropPicker({
   scene,
   onAdd,
   autoFocus,

@@ -30,7 +30,7 @@ export function roomLabel(room: WorkScene | null, memory?: DeskMemory | null): s
 }
 
 /** The surface pin this mode uses: the saved one, or the demo desk's. */
-export const pinOf = (mode: Mode, memory?: DeskMemory | null) =>
+const pinOf = (mode: Mode, memory?: DeskMemory | null) =>
   memory?.surface ?? (mode === 'demo' ? DEMO_SURFACE : null);
 
 export interface SurfaceRow {
@@ -153,7 +153,7 @@ export function lightStates(
   return new Map([...latest].map(([entity, { state }]) => [entity, state]));
 }
 /** A lamp drawn as part of a room's layout, and the light it stands for. */
-export interface BuiltInLamp {
+interface BuiltInLamp {
   /** `scene~propId`, the outline's id for it. */
   id: string;
   scene: WorkScene;
@@ -184,7 +184,7 @@ export function builtInLamps(lab: LabRead): BuiltInLamp[] {
 /** The small templates drawn standing on a desk or shelf: a book, a bottle. */
 const DESK_THINGS = new Set(['book', 'bottle', 'jar', 'carton']);
 /** A small thing drawn as part of a room's layout, such as the office's book. */
-export interface BuiltInThing {
+interface BuiltInThing {
   /** `scene~group`, the outline's id for it. */
   id: string;
   scene: WorkScene;

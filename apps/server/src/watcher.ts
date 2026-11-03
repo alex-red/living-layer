@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import sharp from 'sharp';
 import {
+  runOutput,
   modeOnlySchema,
   watchBodySchema,
   watchDemoBodySchema,
@@ -85,7 +86,7 @@ export function watchedThings(memory: DeskMemory): Seen[] {
   return seen;
 }
 /** A thing's zones as shares of the frame, each with SAM's last verdict. */
-export function zonesOf(memory: DeskMemory, objectId: string): WatchSubject['zones'] {
+function zonesOf(memory: DeskMemory, objectId: string): WatchSubject['zones'] {
   const zones: WatchSubject['zones'] = [];
   if (memory.object?.id === objectId && memory.zone)
     zones.push({
@@ -558,7 +559,7 @@ export class Watcher {
   private async seed(seen: Seen, memory: DeskMemory, picture?: Buffer, keep?: WatchThing) {
     const run = this.deps.store.getRun(seen.observation.segmentRunId);
     const photo = picture ?? (run ? await this.deps.photoOf(run) : null);
-    const detection = (run?.output as Segmentation | undefined)?.detections.find(
+    const detection = runOutput(run, 'segment')?.detections.find(
       (d) => d.objectId === seen.observation.detectionId,
     );
     const subject = this.subjectOf(seen, memory);

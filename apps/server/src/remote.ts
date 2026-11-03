@@ -21,10 +21,10 @@ import { phonePage } from './remote-page.js';
  * answer comes back as the response. Media goes peer to peer; the server only
  * carries the two SDPs.
  */
-export type PhoneEvent = { type: 'offer'; id: string; sdp: string } | { type: 'hangup' };
+type PhoneEvent = { type: 'offer'; id: string; sdp: string } | { type: 'hangup' };
 
 /** A phone's poll is held open this long when nothing is waiting for it. */
-export const POLL_MS = 25_000;
+const POLL_MS = 25_000;
 /** A phone counts as connected while it polled this recently. */
 const SEEN_MS = POLL_MS + 10_000;
 /** A QR code nobody scanned stops working after this. */
@@ -192,7 +192,7 @@ export class RemoteCamera {
  * The address a phone on the same network can reach this machine at: the
  * Wi-Fi or Ethernet one first, never loopback, link-local or a VM bridge.
  */
-export function lanAddress() {
+function lanAddress() {
   const found = Object.entries(networkInterfaces()).flatMap(([name, list]) =>
     (list ?? [])
       .filter((i) => i.family === 'IPv4' && !i.internal && !i.address.startsWith('169.254.'))

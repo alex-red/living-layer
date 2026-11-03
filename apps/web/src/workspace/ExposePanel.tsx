@@ -175,7 +175,7 @@ const zoneLabel = (memory: DeskMemory, id: string) =>
   zonesIn(memory).find((z) => z.id === id)?.label ?? 'Zone';
 
 /** What an entity shows, as a sentence. */
-export function sourceSentence(memory: DeskMemory, e: Pick<ExposedEntity, 'source'>): string {
+function sourceSentence(memory: DeskMemory, e: Pick<ExposedEntity, 'source'>): string {
   const s = e.source;
   switch (s.kind) {
     case 'in_zone': {

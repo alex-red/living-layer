@@ -12,14 +12,14 @@ export interface ValidatedImage {
   ext: FrameExt;
 }
 
-export type FrameExt = 'webp' | 'png';
+type FrameExt = 'webp' | 'png';
 /**
  * How stored frames are encoded. Lossless WebP keeps every decoded pixel (SAM
  * and the fitter see what they saw as PNG) in about 30% fewer bytes; effort 1
  * is the knee (effort 4 is as small but slower).
  */
-export const frameExt = (): FrameExt => (process.env.FRAME_FORMAT === 'png' ? 'png' : 'webp');
-export function encodeFrame(image: Sharp, ext: FrameExt = frameExt()) {
+const frameExt = (): FrameExt => (process.env.FRAME_FORMAT === 'png' ? 'png' : 'webp');
+function encodeFrame(image: Sharp, ext: FrameExt = frameExt()) {
   return (ext === 'png' ? image.png() : image.webp({ lossless: true, effort: 1 })).toBuffer({
     resolveWithObject: true,
   });

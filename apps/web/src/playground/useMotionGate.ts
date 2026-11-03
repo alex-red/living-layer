@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type RefObject } from 'react';
 
 export type Stillness = 'moving' | 'settling' | 'still';
 
-export interface MotionReading {
+interface MotionReading {
   /** Share of sampled pixels that changed since the last sample, 0–100. */
   score: number;
   state: Stillness;

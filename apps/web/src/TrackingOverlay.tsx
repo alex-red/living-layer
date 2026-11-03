@@ -10,7 +10,7 @@ import type {
 } from '@livinglayer/domain';
 
 /** One thing drawn over the live camera: where it is, as shares of the frame, and how sure. */
-export interface Sighting {
+interface Sighting {
   id: string;
   label: string;
   box: UnitBox;

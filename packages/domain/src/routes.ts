@@ -33,7 +33,7 @@ export interface HaEntity {
 }
 
 /** A phone paired to the lab as a camera, as `/api/remote` shows it. */
-export interface PairingView {
+interface PairingView {
   url: string;
   /** The QR code for `url`, as SVG markup from the server. */
   qr: string;
@@ -58,7 +58,7 @@ type CameraInput = z.input<typeof cameraInputSchema>;
  * where the server has a type for them, else written here from what the route
  * returns. A path with a `${string}` is one with an id in it.
  */
-export interface ApiRoutes {
+interface ApiRoutes {
   status: { body: undefined; response: LabStatus };
   runs: { body: undefined; response: EvidenceRun[] };
   jobs: { body: undefined; response: Job[] };
@@ -171,7 +171,7 @@ export interface ApiRoutes {
 }
 
 /** The key of `ApiRoutes` a path names: itself, else the id pattern it fits. */
-export type ApiRouteKey<P extends string> = P extends keyof ApiRoutes
+type ApiRouteKey<P extends string> = P extends keyof ApiRoutes
   ? P
   : { [K in keyof ApiRoutes]: P extends K ? K : never }[keyof ApiRoutes];
 /** Every path the table can name, id patterns included. */

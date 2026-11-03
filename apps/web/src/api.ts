@@ -9,7 +9,7 @@ import { ApiError, endCall, startCall } from './activity';
 
 export { ApiError };
 
-export interface ApiOptions {
+interface ApiOptions {
   signal?: AbortSignal;
   /** POST when there is a body, else GET; say it for a bodiless POST or a DELETE. */
   method?: 'GET' | 'POST' | 'DELETE';
