@@ -1800,3 +1800,108 @@
 .callout-meter i.on {
   background: var(--text-2);
 }
+/* A food thing's freshness, game style: a bar over it in the room and on its card. */
+.iso-health-back {
+  fill: rgb(10 12 18 / 85%);
+  stroke: var(--line-strong);
+  stroke-width: 0.4;
+}
+.iso-health-fill {
+  fill: var(--ok);
+  filter: drop-shadow(0 0 1.2px var(--ok-glow));
+}
+.iso-health.soon .iso-health-fill {
+  fill: var(--unsure);
+  filter: drop-shadow(0 0 1.2px var(--unsure));
+}
+.iso-health.bad .iso-health-fill {
+  fill: var(--blocked);
+}
+.iso-health-tick {
+  stroke: rgb(10 12 18 / 70%);
+  stroke-width: 0.35;
+}
+.callout-health {
+  display: inline-flex;
+  flex: 1;
+  gap: 0.6px;
+  padding: 0.6px;
+  border: 0.4px solid var(--line-strong);
+  border-radius: 1px;
+  background: rgb(10 12 18 / 70%);
+}
+.callout-health i {
+  flex: 1;
+  height: 3.2px;
+  border-radius: 0.4px;
+  background: rgb(255 255 255 / 6%);
+}
+.callout-row.health.ok .callout-health i.on {
+  background: linear-gradient(var(--ok), color-mix(in srgb, var(--ok) 70%, black));
+  box-shadow: 0 0 1.5px var(--ok-glow);
+}
+.callout-row.health.soon .callout-health i.on {
+  background: linear-gradient(var(--unsure), color-mix(in srgb, var(--unsure) 70%, black));
+}
+.callout-row.health.bad .callout-health i.on {
+  background: var(--blocked);
+}
+.callout-health-value {
+  min-width: 13px;
+  font: 600 5.5px/10px var(--mono);
+  text-align: right;
+}
+.callout-row.health.ok .callout-health-value {
+  color: var(--ok);
+}
+.callout-row.health.soon .callout-health-value {
+  color: var(--unsure);
+}
+.callout-row.health.bad .callout-health-value {
+  color: var(--blocked);
+}
+/* A card hovered or focused lights its line and the thing it points to. */
+.iso-callout:hover .iso-callout-line,
+.iso-callout:focus-within .iso-callout-line {
+  stroke: var(--text);
+  stroke-width: 0.9;
+  stroke-dasharray: none;
+  opacity: 1;
+}
+.iso-callout:hover .iso-callout-dot,
+.iso-callout:focus-within .iso-callout-dot {
+  r: 2.8;
+}
+.iso-callout-line,
+.iso-callout-dot {
+  transition:
+    stroke var(--t-fast),
+    opacity var(--t-fast),
+    r var(--t-fast);
+}
+.callout-card:focus-visible {
+  outline: 1px solid var(--seen);
+  outline-offset: 0.5px;
+}
+/* Compact cards, in a small pane: fewer lines in larger type. */
+.iso-callouts.compact .callout-card {
+  padding: 3px 6px 4px 7px;
+  font-size: 8.5px;
+  line-height: 14px;
+}
+.iso-callouts.compact .callout-name {
+  font-size: 7px;
+  line-height: 15px;
+}
+.iso-callouts.compact .callout-health i {
+  height: 4.2px;
+}
+.iso-callouts.compact .callout-health-value {
+  font-size: 7px;
+}
+/* With no cards, the health bars over the things are a little larger. */
+.iso-callouts.pips .iso-health {
+  transform-box: fill-box;
+  transform-origin: center;
+  transform: scale(1.3);
+}

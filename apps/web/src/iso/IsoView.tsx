@@ -40,6 +40,8 @@ import {
   promoteGroup,
   withoutPromoted,
   foodKeeps,
+  sampleFood,
+  dayOf,
   foodNow,
   type FoodNow,
   mugHistory,
@@ -618,6 +620,38 @@ function IsoViewOf({
     ? memory?.fixtures?.find((f) => f.id === target.id && f.place === 'sightings')
     : undefined;
 
+  // The food things the stats layer shows here: what Randomize gives sample values.
+  const foodThings = callouts.flatMap((c) =>
+    c.builtIn
+      ? []
+      : (memory?.fixtures?.filter((f) => f.id === c.id && foodKeeps(f.label) !== null) ?? []),
+  );
+  /**
+   * Sample values for a demo: each food thing here gets a believable use-by
+   * day, opened day and how much is left, and when it was last used if it
+   * keeps that, in the last three days.
+   */
+  async function randomize() {
+    const today = dayOf(Date.now());
+    let saved = 0;
+    for (const f of foodThings) {
+      const food = sampleFood(f.label, today);
+      if (!food) continue;
+      await send<DeskMemory>('fixtures/save', { fixture: { ...fixtureInput(f), food } }, (m) => {
+        setMemory(m);
+        saved++;
+      });
+      if (memory?.thingStats?.[f.id]?.some((s) => s.key === 'lastUsed'))
+        await send(
+          'things/used',
+          { id: f.id, at: Date.now() - Math.round(Math.random() * 3 * 86_400_000) },
+          () => {},
+        );
+    }
+    setMessage(
+      `Gave ${saved} food thing${saved === 1 ? '' : 's'} sample values. Set real ones on each card.`,
+    );
+  }
   async function send<T>(path: string, body: object, done: (r: T) => void) {
     setAsking(true);
     try {
@@ -857,6 +891,19 @@ function IsoViewOf({
               : `ISO · ${scene.label.toUpperCase()} · ${surface?.label.toUpperCase() ?? 'NO SURFACE'}${pinned ? (memory?.surface ? ' · PINNED' : ' · DEMO') : ''}`}
         </span>
         {panel === 'room' && <LayerChips view="iso" />}
+        {panel === 'room' && lab.showStats && foodThings.length > 0 && !picture && (
+          <div className="layer-chips iso sample" role="group" aria-label="Sample values">
+            <button
+              type="button"
+              className="layer-chip"
+              disabled={off}
+              title="Give every food thing here sample values: use-by, opened, how much is left and when it was last used"
+              onClick={() => void randomize()}
+            >
+              ⚄ Randomize
+            </button>
+          </div>
+        )}
         {panel === 'room' && kind === 'fridge' && !picture && (
           <div className="layer-chips iso angles" role="group" aria-label="Fridge seen from">
             {(Object.keys(FRIDGE_ANGLES) as FridgeAngle[]).map((a) => (

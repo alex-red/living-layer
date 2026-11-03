@@ -122,7 +122,7 @@ export const PROP_TEMPLATES = {
       const wall = cm(4.5);
       const door = cm(6);
       const liner = cm(1);
-      const bin = cm(11);
+      const bin = cm(12.5);
       const leaf = w / 2;
       // The fridge's floor is the freezer drawer's top; heights inside are from it.
       const floor = z0 + cm(66);
@@ -202,6 +202,65 @@ export const PROP_TEMPLATES = {
         [46, 13],
         [84, 13],
       ] as const;
+      const levels = ['Bottom', 'Middle', 'Upper'] as const;
+      // Each bin is an open glass tray against its door's lining: a floor to
+      // stand things on, a low lip toward the middle and its two ends, so
+      // what stands in it (the mayonnaise) is drawn inside, not hidden in a box.
+      const binLen = leaf - cm(6);
+      const doorBins = (['left', 'right'] as const).flatMap((door) =>
+        bins.map(([at, tall], i) => {
+          const id = `bin-${door}-${i + 1}`;
+          const label = `${door === 'left' ? 'Left' : 'Right'} door bin`;
+          const x0 = door === 'left' ? x : x + w - bin;
+          const y0 = y + d + cm(3);
+          const z = floor + cm(at);
+          // The lip faces the fridge's middle: +x on the left door, -x on the right.
+          const lipX = door === 'left' ? x0 + bin - side : x0;
+          const endX = door === 'left' ? x0 : x0 + side;
+          return {
+            props: [
+              prism(g, id, label, [x0, y0, z], [bin, binLen, side], 'glass'),
+              prism(
+                g,
+                `${id}-lip`,
+                label,
+                [lipX, y0, z + side],
+                [side, binLen, cm(tall) - side],
+                'glass',
+              ),
+              prism(
+                g,
+                `${id}-back`,
+                label,
+                [endX, y0, z + side],
+                [bin - side, side, cm(tall) - side],
+                'glass',
+              ),
+              prism(
+                g,
+                `${id}-front`,
+                label,
+                [endX, y0 + binLen - side, z + side],
+                [bin - side, side, cm(tall) - side],
+                'glass',
+              ),
+            ],
+            surface: surface(
+              g,
+              id,
+              levels[i]!,
+              `${g}:${id}`,
+              {
+                x: door === 'left' ? x0 : x0 + side,
+                y: y0 + side,
+                w: bin - side,
+                d: binLen - 2 * side,
+              },
+              z + side,
+            ),
+          };
+        }),
+      );
       return {
         props: [
           prism(g, '', 'Freezer drawer', [x, y, z0], [w, d + door, cm(64)], 'steel'),
@@ -317,27 +376,11 @@ export const PROP_TEMPLATES = {
             [cm(8), leaf - cm(10), cm(18)],
             'appliance',
           ),
-          ...bins.flatMap(([at, tall], i) => [
-            prism(
-              g,
-              `bin-left-${i + 1}`,
-              'Door bin',
-              [x, y + d + cm(3), floor + cm(at)],
-              [bin, leaf - cm(6), cm(tall)],
-              'glass',
-            ),
-            prism(
-              g,
-              `bin-right-${i + 1}`,
-              'Door bin',
-              [x + w - bin, y + d + cm(3), floor + cm(at)],
-              [bin, leaf - cm(6), cm(tall)],
-              'glass',
-            ),
-          ]),
+          ...doorBins.flatMap((b) => b.props),
         ],
         surfaces: [
           ...shelves.map((s) => s.surface),
+          ...doorBins.map((b) => b.surface),
           surface(g, 'pantry', 'Pantry drawer', `${g}:pantry`, { ...tray }, floor + side),
         ],
       };
@@ -712,8 +755,8 @@ export function resizeRoom(scene: IsoScene, grid: { w: number; d: number }): Iso
 
 /** Each fridge door's props, with its bins and (on the left) the ice maker. */
 const FRIDGE_DOOR = {
-  left: /^(door(-liner)?|ice|bin-left-\d)$/,
-  right: /^(door-right(-liner)?|bin-right-\d)$/,
+  left: /^(door(-liner)?|ice|bin-left-\d(-\w+)?)$/,
+  right: /^(door-right(-liner)?|bin-right-\d(-\w+)?)$/,
 };
 /** The ids of every fridge's door on one side: the near door from a corner, drawn see-through. */
 export function fridgeDoor(scene: IsoScene, side: 'left' | 'right'): Set<string> {
@@ -728,11 +771,12 @@ export function fridgeDoor(scene: IsoScene, side: 'left' | 'right'): Set<string>
 /** The fridge's top, right side and doors: what its cut-away view leaves out. */
 const FRIDGE_SHELL = /^(top|right|right-liner|door(-right)?(-liner)?|ice)$/;
 /** A door bin, and which door it is on. */
-const FRIDGE_BIN = /^bin-(left|right)-\d$/;
+const FRIDGE_BIN = /^bin-(left|right)-\d(-\w+)?$/;
 /**
  * A scene with each fridge's shell left out, so its shelves show from the
  * room's corner. A door's bins stay when something stands in one of them:
- * a thing of the scene, or one of `also` (fixtures, remembered objects).
+ * a thing of the scene, or one of `also` (fixtures, remembered objects); the
+ * left door, which stands aside from the shelves, stays with its bins.
  */
 export function cutAway(scene: IsoScene, also: IsoBox[] = []): IsoScene {
   const partOf = (p: IsoProp) => (p.template === 'fridge' ? p.id.slice(p.group.length + 1) : null);
@@ -748,7 +792,7 @@ export function cutAway(scene: IsoScene, also: IsoBox[] = []): IsoScene {
         y >= bin.at.y &&
         y <= bin.at.y + bin.size.d &&
         t.at.z >= bin.at.z - 1e-6 &&
-        t.at.z < bin.at.z + bin.size.h
+        t.at.z <= bin.at.z + bin.size.h + 1e-6
       );
     });
   const full = new Set<string>();
@@ -761,6 +805,8 @@ export function cutAway(scene: IsoScene, also: IsoBox[] = []): IsoScene {
     if (part === null) return true;
     const side = part.match(FRIDGE_BIN)?.[1];
     if (side) return full.has(`${p.group} ${side}`);
+    // The left door stands aside from the shelves: kept to hold its bins up when they are.
+    if (full.has(`${p.group} left`) && FRIDGE_DOOR.left.test(part)) return true;
     return !FRIDGE_SHELL.test(part);
   };
   return { ...scene, props: scene.props.filter(shown) };

@@ -46,6 +46,29 @@ const officeScene = compose('office', 'Office', { w: 10, d: 8 }, [
   ['plant', 'plant', 0.35, 6.1, 0, { optional: true }],
 ]);
 
+/**
+ * A thing standing in one of the fridge's door bins (it stands at 1.5, 1):
+ * `along` cm from the bin's hinge end, square and `w` cm across, `h` tall,
+ * set in from the door's lining.
+ */
+function doorThing(
+  template: 'bottle' | 'carton' | 'jar',
+  group: string,
+  door: 'left' | 'right',
+  bin: number,
+  along: number,
+  label: string,
+  { w, h }: { w: number; h: number },
+): Item[] {
+  const binBottoms = [8, 46, 84];
+  // A bin is 12.5 cm deep with a 1.5 cm lip: 11 cm to stand in, against the lining.
+  const x = door === 'left' ? 1.5 + cm(1 + (11 - w) / 2) : 1.5 + cm(91 - 12.5 + 1.5 + (11 - w) / 2);
+  const y = 1 + cm(74 + 3 + 1.5 + along);
+  const z = cm(66 + binBottoms[bin]! + 1.5);
+  return [
+    [template, group, x, y, z, { label, optional: true, size: { w: cm(w), d: cm(w), h: cm(h) } }],
+  ];
+}
 const fridgeScene = compose('fridge', 'Fridge', { w: 7, d: 7 }, [
   ['fridge', 'fridge', 1.5, 1, 0],
   // The things the fridge camera can follow, in its photo's order, each forward
@@ -57,6 +80,16 @@ const fridgeScene = compose('fridge', 'Fridge', { w: 7, d: 7 }, [
   ['carton', 'milk', 3.3, 3, cm(66 + 40), { label: 'Milk carton', optional: true }],
   ['butter', 'butter', 2.6, 2.7, cm(66 + 68), { optional: true }],
   ['eggs', 'eggs', 1.95, 2.7, cm(66 + 1.5), { optional: true }],
+  // In the door bins (bottom, middle, top: 8, 46 and 84 cm up, each tray's
+  // floor 1.5 cm thick), as the photos' doors hold them: the left door's
+  // sauces, the right door's juice, dressing and jam.
+  // The bottom bin has 16.5 cm to the ice maker: the short mustard goes there.
+  ...doorThing('bottle', 'mustard', 'left', 0, 16, 'Mustard', { w: 6.5, h: 15 }),
+  ...doorThing('bottle', 'mayo', 'left', 1, 5, 'Mayonnaise', { w: 7.5, h: 22 }),
+  ...doorThing('bottle', 'hot-sauce', 'left', 2, 26, 'Hot sauce', { w: 5, h: 17 }),
+  ...doorThing('carton', 'juice', 'right', 0, 6, 'Orange juice', { w: 7, h: 24 }),
+  ...doorThing('bottle', 'dressing', 'right', 1, 22, 'Salad dressing', { w: 6.5, h: 21 }),
+  ...doorThing('jar', 'jam', 'right', 2, 12, 'Jam', { w: 9, h: 11 }),
 ]);
 
 export const ISO_PRESETS: Record<IsoSceneKind, IsoScene> = {

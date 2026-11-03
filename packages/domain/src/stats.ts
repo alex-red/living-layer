@@ -94,6 +94,11 @@ const TYPE_STATS: [RegExp, StatKey[]][] = [
   [/\b(monitor|screen|display|tv|television)\b/i, ['power']],
   [/\blamp\b|\blight\b/i, ['power']],
   [/\b(mug|cup)\b/i, ['lastUsed']],
+  // Food: when it was last taken out, once a camera watches the fridge.
+  [
+    /\b(milk|eggs?|butter|leftovers?|pickles?|jar|sauce|juice|yog(h)?urt|cheese|mayonnaise|mustard|jam|dressing)\b/i,
+    ['lastUsed'],
+  ],
   [/\b(mouse|trackpad|keyboard)\b/i, ['activity']],
   [/\bcat[ -]?tree\b|\bcat tower\b|\bbed\b|\bchair\b|\bsofa\b|\bcouch\b/i, ['occupied']],
 ];
@@ -111,7 +116,8 @@ export interface StatNow {
   value: StatValue;
   /** When it took this value, ms; null when unknown. */
   since: number | null;
-  source: 'camera' | 'entity' | 'sam';
+  /** `person`: set by hand (when it was last used). */
+  source: 'camera' | 'entity' | 'sam' | 'person';
   /** 0–1: how far past the line the evidence is. */
   confidence: number;
   /** Looks still to learn before the camera can say. */

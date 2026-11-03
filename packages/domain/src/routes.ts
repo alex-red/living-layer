@@ -91,6 +91,7 @@ interface ApiRoutes {
   watch: { body: R.WatchBody; response: WatchView };
   'things/stats': { body: R.ThingsStatsBody; response: { memory: DeskMemory; stats: StatsNow } };
   'things/learn': { body: R.ThingsLearnBody; response: { now: StatNow; stats: StatsNow } };
+  'things/used': { body: R.ThingsUsedBody; response: { now: StatNow; stats: StatsNow } };
   [path: `things/${'demo' | 'live'}/${string}`]: { body: undefined; response: ThingStatsView };
   'watch/demo': { body: R.WatchDemoBody; response: unknown };
 

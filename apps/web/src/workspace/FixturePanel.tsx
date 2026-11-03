@@ -1281,6 +1281,8 @@ export function BuiltInPanel({ id }: { id: string }) {
   async function makeThing() {
     if (scene === 'custom' || scene === 'custom-desk') return;
     const fixture = promoteBuiltIn(scene, prop.group, dayOf(Date.now()));
+    // "The leftovers are", "the butter is".
+    const are = /[^s]s$/i.test(prop.label) ? 'are' : 'is';
     if (!fixture) return lab.setError('That thing has nothing to draw as a thing.');
     await call<DeskMemory>('fixtures/save', { fixture }, (m) => {
       lab.setMemory(m);
@@ -1288,8 +1290,8 @@ export function BuiltInPanel({ id }: { id: string }) {
       if (made) lab.select({ kind: 'fixture', id: made.id });
       lab.setMessage(
         fixture.food?.expires
-          ? `The ${prop.label.toLowerCase()} is a thing of its own now, good until ${fixture.food.expires} as bought. Change its use-by day on its card.`
-          : `The ${prop.label.toLowerCase()} is a thing of its own now. Keep stats for it, or find it in the camera.`,
+          ? `The ${prop.label.toLowerCase()} ${are} a thing of its own now, good until ${fixture.food.expires} as bought. Change its use-by day on its card.`
+          : `The ${prop.label.toLowerCase()} ${are} a thing of its own now. Keep stats for it, or find it in the camera.`,
       );
     });
   }

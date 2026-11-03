@@ -166,7 +166,11 @@ describe('scene templates', () => {
       'fridge:bin-right-1',
     ])
       expect(ids.has(id)).toBe(true);
-    const cut = cutAway(fridge);
+    // Without what stands in the door bins, cut away leaves out both doors and their bins.
+    const inDoors = ['mustard', 'mayo', 'hot-sauce', 'juice', 'dressing', 'jam'];
+    for (const g of inDoors) expect(fridge.props.some((p) => p.group === g)).toBe(true);
+    const bare = { ...fridge, props: fridge.props.filter((p) => !inDoors.includes(p.group)) };
+    const cut = cutAway(bare);
     const kept = new Set(cut.props.map((p) => p.id));
     for (const id of [
       'fridge:door',
@@ -178,7 +182,7 @@ describe('scene templates', () => {
       expect(kept.has(id)).toBe(false);
     for (const id of ['fridge', 'fridge:shelf-1', 'fridge:left', 'fridge:back', 'milk', 'eggs'])
       expect(kept.has(id)).toBe(true);
-    expect(cut.surfaces).toEqual(fridge.surfaces);
+    expect(cut.surfaces).toEqual(bare.surfaces);
     expect([...kept].some((id) => id.startsWith('fridge:bin-'))).toBe(false);
     // A sauce in the right door's bottom bin keeps that door's bins, not the door.
     const bin = fridge.props.find((p) => p.id === 'fridge:bin-right-1')!;
@@ -189,15 +193,26 @@ describe('scene templates', () => {
       bin.at.y + 0.3,
       bin.at.z + 0.05,
     );
-    const withSauce = cutAway({ ...fridge, props: [...fridge.props, ...sauce.props] });
+    const withSauce = cutAway({ ...bare, props: [...bare.props, ...sauce.props] });
     const shown = withSauce.props.map((p) => p.id);
     expect(shown).toContain('sauce');
     expect(shown).toEqual(expect.arrayContaining(['fridge:bin-right-1', 'fridge:bin-right-3']));
     expect(shown).not.toContain('fridge:bin-left-1');
     expect(shown).not.toContain('fridge:door-right');
     // A fixture there does the same.
-    const fixture = cutAway(fridge, [sauce.props[0]!]).props.map((p) => p.id);
+    const fixture = cutAway(bare, [sauce.props[0]!]).props.map((p) => p.id);
     expect(fixture).toContain('fridge:bin-right-2');
+    // As the preset stands, both doors' bins hold things: they stay, with the left door
+    // (it stands aside from the shelves) but not the right one.
+    const full = cutAway(fridge).props.map((p) => p.id);
+    expect(full).toEqual(
+      expect.arrayContaining(['fridge:bin-left-1-lip', 'fridge:bin-right-3', 'fridge:door', 'jam']),
+    );
+    expect(full).not.toContain('fridge:door-right');
+    // Each bin is a tray with a surface its things stand on.
+    const mustard = fridge.props.find((p) => p.id === 'mustard')!;
+    const binFloor = fridge.surfaces.find((x) => x.id === 'fridge:bin-left-1')!;
+    expect(mustard.at.z).toBeCloseTo(binFloor.z);
   });
   const shown = () => ({ objects: [], fixtures: [], zones: [], trail: [] });
   it('sees the fridge from its left corner, its things turned with it', () => {
@@ -225,14 +240,10 @@ describe('scene templates', () => {
     // A point on a surface turns with the surface it is on.
     expect(left.trail[0]).toEqual({ x: 0.75, y: 0.75 });
     // From each corner the near door is see-through, with its bins; the far one isn't.
-    expect([...left.seeThrough].sort()).toEqual([
-      'fridge:bin-left-1',
-      'fridge:bin-left-2',
-      'fridge:bin-left-3',
-      'fridge:door',
-      'fridge:door-liner',
-      'fridge:ice',
-    ]);
+    expect(left.seeThrough).toContain('fridge:door');
+    expect(left.seeThrough).toContain('fridge:bin-left-2-lip');
+    for (const id of left.seeThrough)
+      expect(id).toMatch(/^fridge:(door|door-liner|ice|bin-left-\d(-\w+)?)$/);
     const right = fromAngle('right', { ...shown(), scene: fridge });
     expect(right.seeThrough.has('fridge:door-right')).toBe(true);
     expect(right.seeThrough.has('fridge:door')).toBe(false);

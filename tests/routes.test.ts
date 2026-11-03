@@ -105,6 +105,7 @@ const ROUTES = [
   '/api/things/:mode/:id/stats [GET]',
   '/api/things/learn [POST]',
   '/api/things/stats [POST]',
+  '/api/things/used [POST]',
   '/api/watch [POST]',
   '/api/watch/:mode [GET]',
   '/api/watch/:mode/events [GET]',

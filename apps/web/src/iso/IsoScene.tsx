@@ -1,6 +1,14 @@
 import { StatBadges } from './StatBadges';
-import { CALLOUT_SIDE, Callouts, type IsoCallout } from './Callouts';
-import { memo, useRef, useState, type MouseEvent, type PointerEvent } from 'react';
+import {
+  CALLOUT_SIDE,
+  CALLOUT_WIDTH,
+  Callouts,
+  calloutDensity,
+  layoutCallouts,
+  type CalloutDensity,
+  type IsoCallout,
+} from './Callouts';
+import { memo, useEffect, useRef, useState, type MouseEvent, type PointerEvent } from 'react';
 import {
   ISO_TILE,
   PROP_FACES,
@@ -211,7 +219,7 @@ function FixtureMarker({
 }: {
   fixture: IsoFixture;
   stats: boolean;
-  /** Its card beside the room says it all: no food line over it. */
+  /** Its card beside the room says it all: no label or food line over it. */
   calledOut?: boolean;
   onSelect?: (id: string) => void;
   /** Pressed to drag it; a press that doesn't move selects it instead. */
@@ -252,13 +260,16 @@ function FixtureMarker({
       />
       {/* The sprite lets the pointer through; its box, invisible, is what is clicked and dragged. */}
       <Solid box={box} color="#000000" className="iso-hit-shape" />
-      <text x={head.sx} y={head.sy - 8}>
-        {pip}
-        {fixture.label.toUpperCase()}
-        {fixture.state && fixture.state !== 'on' && fixture.state !== 'off'
-          ? ` · ${fixture.state.toUpperCase()}`
-          : ''}
-      </text>
+      {/* A card beside the room names it, so the room doesn't too. */}
+      {!calledOut && (
+        <text x={head.sx} y={head.sy - 8}>
+          {pip}
+          {fixture.label.toUpperCase()}
+          {fixture.state && fixture.state !== 'on' && fixture.state !== 'off'
+            ? ` · ${fixture.state.toUpperCase()}`
+            : ''}
+        </text>
+      )}
       {fixture.food && !calledOut && (
         <text className={`iso-food ${fixture.food.tone}`} x={head.sx} y={head.sy - 19}>
           {fixture.food.text.toUpperCase()}
@@ -417,6 +428,7 @@ function IsoSceneView({
   const start = useRef<Point | null>(null);
   const drag = useRef<{ group: string; z: number; last: { x: number; y: number } } | null>(null);
   const [hover, setHover] = useState(false);
+  const [density, setDensity] = useState<CalloutDensity>('full');
   const [ghost, setGhost] = useState<{ at: IsoVec; surfaceId: string | null } | null>(null);
   const [stretching, setStretching] = useState<{ id: string; rect: BaseRect } | null>(null);
   // A fixture being dragged: where the press was, and where it would stand once it has moved.
@@ -462,12 +474,37 @@ function IsoSceneView({
   );
   const all = [...floor.map(toIso), ...corners];
   const pad = 24;
-  // The stats layer's cards stand in columns beside the room, so the view widens to hold them.
-  const side = stats && !editing && callouts.length > 0 ? CALLOUT_SIDE : 0;
+  // The stats layer's cards stand in columns beside the room, so the view widens to hold
+  // them; in a pane too small to read them, only each thing's health bar shows.
+  const showCards = stats && !editing && callouts.length > 0;
+  const side = showCards && density !== 'pips' ? CALLOUT_SIDE : 0;
   const minX = Math.min(...all.map((p) => p.sx)) - pad - side;
   const maxX = Math.max(...all.map((p) => p.sx)) + pad + side;
-  const minY = Math.min(...all.map((p) => p.sy)) - pad * 2;
-  const maxY = Math.max(...all.map((p) => p.sy)) + pad;
+  const roomMinY = Math.min(...all.map((p) => p.sy)) - pad * 2;
+  const roomMaxY = Math.max(...all.map((p) => p.sy)) + pad;
+  // The cards' columns may reach past the room: the view grows to hold them.
+  const cards = showCards
+    ? layoutCallouts(callouts, { minX, maxX, minY: roomMinY, maxY: roomMaxY }, density)
+    : null;
+  const minY = side && cards ? cards.extent.minY : roomMinY;
+  const maxY = side && cards ? cards.extent.maxY : roomMaxY;
+  const viewW = maxX - minX;
+  const viewH = maxY - minY;
+  // How wide a card is drawn on screen picks how much it says (`calloutDensity`).
+  useEffect(() => {
+    const el = svg.current;
+    if (!el || !showCards) return;
+    const measure = () => {
+      const r = el.getBoundingClientRect();
+      if (!r.width || !r.height) return;
+      const scale = Math.min(r.width / viewW, r.height / viewH);
+      setDensity((d) => calloutDensity(CALLOUT_WIDTH * scale, d));
+    };
+    measure();
+    const watch = new ResizeObserver(measure);
+    watch.observe(el);
+    return () => watch.disconnect();
+  }, [showCards, viewW, viewH]);
   const items: Drawable[] = [
     ...scene.props
       .filter((p) => !hidden?.has(p.group))
@@ -751,9 +788,7 @@ function IsoSceneView({
           />
         );
       })}
-      {stats && !editing && callouts.length > 0 && (
-        <Callouts callouts={callouts} bounds={{ minX, maxX, minY, maxY }} />
-      )}
+      {cards && <Callouts placed={cards.placed} density={density} />}
       {onResizeFixture &&
         !editing &&
         !drawing &&
