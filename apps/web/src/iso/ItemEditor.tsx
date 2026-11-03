@@ -1,4 +1,11 @@
-import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
+import {
+  useDeferredValue,
+  useEffect,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type PointerEvent,
+} from 'react';
 import {
   fromIso,
   ISO_RISE,
@@ -24,7 +31,7 @@ import {
   type StarterTemplate,
 } from '@livinglayer/domain';
 import { ItemSprite } from './IsoItem';
-import { itemSprite, viewOverlay } from './sprites';
+import { useItemSprite, useViewOverlay } from './sprites';
 import { Button, Check, IconButton, Segmented } from '../ui/controls';
 
 /** Colours to offer next to the sampled ones: neutral materials, not the signal hues. */
@@ -699,6 +706,33 @@ function maskBounds(img: HTMLImageElement) {
       }
   return x1 < 0 ? null : { w: width, h: height, x0, y0, x1, y1 };
 }
+/** A fixture state's small picture on its tab. */
+function StateThumb({ model }: { model: IsoItem }) {
+  const thumb = useItemSprite(model, { scale: 1.5, resolution: 32 });
+  return thumb ? <img src={thumb.url} alt="" /> : <span className="studio-state-blank" />;
+}
+/** A fixture state at editor size, framed to its sprite. */
+function StatePreview({ model, glow, label }: { model: IsoItem; glow: boolean; label: string }) {
+  const sp = useItemSprite(model, {
+    scale: PREVIEW_SCALE,
+    resolution: 64,
+    ...(glow ? { glow } : {}),
+  });
+  return (
+    <svg
+      viewBox={sp ? `${sp.x - 12} ${sp.y - 12} ${sp.width + 24} ${sp.height + 24}` : '0 0 1 1'}
+      aria-label={`${label} state preview`}
+    >
+      <ItemSprite
+        item={model}
+        origin={{ x: 0, y: 0, z: 0 }}
+        scale={PREVIEW_SCALE}
+        resolution={64}
+        glow={glow}
+      />
+    </svg>
+  );
+}
 /**
  * The crop the model was fitted to, with the model's silhouette from the same
  * camera on top. Like the fit's score, the two line up at the mask's bottom
@@ -707,7 +741,7 @@ function maskBounds(img: HTMLImageElement) {
 function PhotoCompare({ item, url, elevation }: { item: IsoItem; url: string; elevation: number }) {
   const [box, setBox] = useState<ReturnType<typeof maskBounds>>(null);
   const width = box ? box.x1 - box.x0 + 1 : 0;
-  const overlay = box ? viewOverlay(item, elevation, width) : null;
+  const overlay = useViewOverlay(box ? item : null, elevation, width);
   return (
     <div className="item-photo">
       <div className="item-photo-frame">
@@ -873,6 +907,16 @@ export function ItemEditor({
         })()
       : null;
   const part = draft?.parts.find((p) => p.id === selected);
+  // The preview follows the draft a beat behind, so a drag or a slider stays smooth while it redraws.
+  const deferredDraft = useDeferredValue(draft);
+  const deferredShown = deferredDraft ? rotateItem(deferredDraft, turns) : null;
+  const deferredSelect = deferredShown?.parts.findIndex((p) => p.id === selected) ?? -1;
+  const sprite = useItemSprite(deferredShown, {
+    scale: PREVIEW_SCALE,
+    resolution: 64,
+    ...(deferredSelect >= 0 ? { select: deferredSelect } : {}),
+    ...(fixture?.control.kind === 'light' && fixture.state === 'on' ? { glow: true } : {}),
+  });
   const update = (change: Partial<ItemPart>) =>
     setDraft(
       (d) =>
@@ -916,14 +960,7 @@ export function ItemEditor({
 
   const shown = rotateItem(draft, turns);
   const shownPart = shown.parts.find((p) => p.id === selected);
-  const selectIndex = shown.parts.findIndex((p) => p.id === selected);
   const isLitGlow = Boolean(fixture?.control.kind === 'light' && fixture.state === 'on');
-  const sprite = itemSprite(shown, {
-    scale: PREVIEW_SCALE,
-    resolution: 64,
-    ...(selectIndex >= 0 ? { select: selectIndex } : {}),
-    ...(isLitGlow ? { glow: true } : {}),
-  });
   const ghostItem =
     fixture && ghostState
       ? rotateItem(fixtureModel(fixture, ghostState === '__base__' ? null : ghostState), turns)
@@ -975,7 +1012,6 @@ export function ItemEditor({
             ].map((entry) => {
               const active = (fixture.state ?? null) === entry.id;
               const entryModel = active ? draft : fixtureModel(fixture, entry.id);
-              const thumb = itemSprite(entryModel, { scale: 1.5, resolution: 32 });
               const cmText = `${Math.round(entry.size.w * perTileCm)}×${Math.round(entry.size.d * perTileCm)}×${Math.round(entry.size.h * perTileCm)} cm`;
               return (
                 <button
@@ -988,7 +1024,7 @@ export function ItemEditor({
                     if (!active) onFixtureState({ state: entry.id });
                   }}
                 >
-                  <img src={thumb.url} alt="" />
+                  <StateThumb model={entryModel} />
                   <div>
                     <strong>{entry.label}</strong>
                     <small>{cmText}</small>
@@ -1518,11 +1554,7 @@ export function ItemEditor({
                   active ? draft : fixtureModel(fixture, entry.id),
                   turns,
                 );
-                const sp = itemSprite(entryModel, {
-                  scale: PREVIEW_SCALE,
-                  resolution: 64,
-                  ...(fixture.control.kind === 'light' && entry.id === 'on' ? { glow: true } : {}),
-                });
+                const glow = fixture.control.kind === 'light' && entry.id === 'on';
                 return (
                   <button
                     key={entry.id ?? '__base__'}
@@ -1533,18 +1565,7 @@ export function ItemEditor({
                       setView('model');
                     }}
                   >
-                    <svg
-                      viewBox={`${sp.x - 12} ${sp.y - 12} ${sp.width + 24} ${sp.height + 24}`}
-                      aria-label={`${entry.label} state preview`}
-                    >
-                      <ItemSprite
-                        item={entryModel}
-                        origin={{ x: 0, y: 0, z: 0 }}
-                        scale={PREVIEW_SCALE}
-                        resolution={64}
-                        glow={fixture.control.kind === 'light' && entry.id === 'on'}
-                      />
-                    </svg>
+                    <StatePreview model={entryModel} glow={glow} label={entry.label} />
                     <div className="studio-compare-meta">
                       <strong>{entry.label}</strong>
                       <span className="tiny">
@@ -1561,7 +1582,7 @@ export function ItemEditor({
             <svg
               ref={previewSvg}
               tabIndex={0}
-              viewBox={`${sprite.x - pad} ${sprite.y - pad} ${sprite.width + 2 * pad} ${sprite.height + 2 * pad}`}
+              viewBox={`${(sprite?.x ?? 0) - pad} ${(sprite?.y ?? 0) - pad} ${(sprite?.width ?? 0) + 2 * pad} ${(sprite?.height ?? 0) + 2 * pad}`}
               role="img"
               aria-label={`Preview of ${draft.label}`}
               onKeyDown={handleCanvasKeyDown}
@@ -1613,7 +1634,7 @@ export function ItemEditor({
                 </g>
               )}
               <ItemSprite
-                item={shown}
+                item={deferredShown ?? shown}
                 origin={{ x: 0, y: 0, z: 0 }}
                 scale={PREVIEW_SCALE}
                 selected={selected}

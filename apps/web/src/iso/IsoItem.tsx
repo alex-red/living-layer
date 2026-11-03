@@ -1,5 +1,5 @@
 import { toIso, type IsoItem, type IsoVec } from '@livinglayer/domain';
-import { itemSprite } from './sprites';
+import { useItemSprite } from './sprites';
 
 /**
  * An item model drawn by the voxel kernel as one pixel-art sprite, with item
@@ -25,7 +25,7 @@ export function ItemSprite({
   glow?: boolean;
 }) {
   const index = item.parts.findIndex((p) => p.id === selected);
-  const sprite = itemSprite(item, {
+  const sprite = useItemSprite(item, {
     scale,
     resolution,
     ...(index >= 0 ? { select: index } : {}),
@@ -38,14 +38,16 @@ export function ItemSprite({
       data-parts={item.parts.map((p) => p.id).join(' ')}
       data-colors={item.parts.map((p) => p.color).join(' ')}
     >
-      <image
-        href={sprite.url}
-        x={at.sx + sprite.x}
-        y={at.sy + sprite.y}
-        width={sprite.width}
-        height={sprite.height}
-        preserveAspectRatio="none"
-      />
+      {sprite && (
+        <image
+          href={sprite.url}
+          x={at.sx + sprite.x}
+          y={at.sy + sprite.y}
+          width={sprite.width}
+          height={sprite.height}
+          preserveAspectRatio="none"
+        />
+      )}
     </g>
   );
 }

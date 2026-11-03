@@ -20,7 +20,7 @@ import {
 } from '@livinglayer/domain';
 import { BaseHandles, type BaseRect } from './BaseHandles';
 import { ItemSprite } from './IsoItem';
-import { TONES, propSprite } from './sprites';
+import { TONES, usePropSprite } from './sprites';
 
 export function shade(hex: string, k: number): string {
   const n = parseInt(hex.slice(1), 16);
@@ -284,7 +284,9 @@ function FaceImage({ prop, face, href }: { prop: IsoProp; face: PropFace; href: 
 function PropSprite({ prop, lit }: { prop: IsoProp; lit: boolean }) {
   const className = `iso-prop tone-${prop.tone} ${prop.role === 'lamp' ? 'iso-lamp' : ''} ${lit ? 'lit' : ''}`;
   const texture = prop.texture;
-  if (texture && Object.keys(texture).length && !prop.form && !prop.recipe)
+  const photoFaces = Boolean(texture && Object.keys(texture).length && !prop.form && !prop.recipe);
+  const sprite = usePropSprite(photoFaces ? null : prop, lit);
+  if (texture && photoFaces)
     return (
       <g className={`${className} textured`}>
         <Solid box={prop} color={TONES[prop.tone]} shape={prop.shape} />
@@ -296,18 +298,19 @@ function PropSprite({ prop, lit }: { prop: IsoProp; lit: boolean }) {
         <Solid box={prop} color={TONES[prop.tone]} shape={prop.shape} className="iso-hit-shape" />
       </g>
     );
-  const sprite = propSprite(prop, lit);
   const at = toIso(prop.at);
   return (
     <g className={className}>
-      <image
-        href={sprite.url}
-        x={at.sx + sprite.x}
-        y={at.sy + sprite.y}
-        width={sprite.width}
-        height={sprite.height}
-        preserveAspectRatio="none"
-      />
+      {sprite && (
+        <image
+          href={sprite.url}
+          x={at.sx + sprite.x}
+          y={at.sy + sprite.y}
+          width={sprite.width}
+          height={sprite.height}
+          preserveAspectRatio="none"
+        />
+      )}
       {/* A model keeps its own sides; only the top it carries takes the photo. */}
       {texture?.top && <FaceImage prop={prop} face="top" href={texture.top} />}
       <Solid box={prop} color={TONES[prop.tone]} shape={prop.shape} className="iso-hit-shape" />
