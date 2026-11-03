@@ -1,7 +1,8 @@
 import type { FastifyInstance } from 'fastify';
 import sharp from 'sharp';
-import { z } from 'zod';
 import {
+  assistBodySchema,
+  assistSaveBodySchema,
   adoptPreset,
   applyRecipeOps,
   calibrationOf,
@@ -21,7 +22,6 @@ import {
   checkRecipe,
   clipMask,
   META_PRICES,
-  modeSchema,
   newBits,
   photoBox,
   photoColor,
@@ -35,7 +35,6 @@ import {
   roomMask,
   selectionBox,
   selectionMask,
-  selectionShapeSchema,
   sizeDisagreement,
   sparkCeiling,
   demoFrame,
@@ -46,7 +45,6 @@ import {
   type BuildRound,
   type FixtureRecipe,
   type IntentContext,
-  type Mode,
   type ProductFacts,
   type PropForm,
   type RecipeCheck,
@@ -58,21 +56,21 @@ import {
   type SelectionShape,
   type Usage,
   type AssistDraft,
+  addUsage,
 } from '@livinglayer/domain';
 import { sparkRefiner } from './build.js';
 import { shapeFromPhoto, type Shaped } from './brush-sculpt.js';
 import { demoPng } from './demo.js';
 import { demoIntent } from './demo-intent.js';
-import { LabError, parseInput } from './errors.js';
+import { LabError, liveImage, parseInput } from './errors.js';
 import { NOT_CALIBRATED } from './photo.js';
 import { around } from './fixture.js';
-import { validateImage } from './images.js';
-import type { Runner } from './item.js';
-import { following, type Jobs } from './jobs.js';
-import { SEARCH_CEILING, SPARK_BUDGET, type MetaAdapter } from './meta.js';
+import { toDataUrl, requireFrame, validateImage } from './images.js';
+import type { RouteDeps } from './route-deps.js';
+import { following } from './jobs.js';
+import { SEARCH_CEILING, SPARK_BUDGET } from './meta.js';
 import { BUNDLED_CATALOG, Catalog, research, type Researcher } from './research.js';
 import { selectionRoom } from './select.js';
-import type { EvidenceStore } from './store.js';
 
 /**
  * The AI brush ([plan](../../../docs/plans/ai-brush.md#7-orchestration-and-cost)):
@@ -113,19 +111,11 @@ export async function pngMask(png: Buffer): Promise<Bits> {
   for (let i = 0; i < bits.data.length; i++) bits.data[i] = data[i * info.channels]! > 127 ? 1 : 0;
   return bits;
 }
-const dataUrl = (png: Buffer) => `data:image/png;base64,${png.toString('base64')}`;
-const addUsage = (a: Usage | null, b: Usage | null | undefined): Usage | null =>
-  !b
-    ? a
-    : {
-        inputTokens: (a?.inputTokens ?? 0) + b.inputTokens,
-        outputTokens: (a?.outputTokens ?? 0) + b.outputTokens,
-        totalTokens: (a?.totalTokens ?? 0) + b.totalTokens,
-      };
+const dataUrl = toDataUrl;
 /** Ops that change a model's shape: after them the camera check runs again. */
 const SHAPES: RecipeOp['op'][] = ['resize', 'add_part', 'remove_part'];
 
-export function assistRoutes(
+export async function assistRoutes(
   app: FastifyInstance,
   {
     store,
@@ -134,33 +124,10 @@ export function assistRoutes(
     entities,
     productsDir,
     jobs,
-  }: {
-    store: EvidenceStore;
-    meta: MetaAdapter;
-    run: Runner;
-    jobs: Jobs;
-    entities: (mode: Mode) => string[];
-    /** Where accepted products are saved (`DATA_DIR/products`); live reads it before the web. */
-    productsDir: string;
-  },
+  }: Pick<RouteDeps, 'store' | 'meta' | 'run' | 'jobs' | 'entities' | 'productsDir'>,
 ) {
-  app.post('/api/assist', async (request) => {
-    const input = parseInput(
-      z
-        .object({
-          mode: modeSchema,
-          prompt: z.string().trim().min(1).max(400),
-          /** The selection; a follow-up may leave it out to keep the last one. */
-          shape: selectionShapeSchema.optional(),
-          /** Live: the frame the selection was drawn on, from the camera it was drawn over. */
-          imageDataUrl: z.string().max(7_000_000).optional(),
-          /** The assist run this request follows. */
-          previous: z.uuid().optional(),
-          jobId: z.uuid().optional(),
-        })
-        .strict(),
-      request.body,
-    );
+  app.post('', async (request) => {
+    const input = parseInput(assistBodySchema, request.body);
     const { mode } = input;
     const live = mode === 'live';
     const before = input.previous ? store.getRun(input.previous) : undefined;
@@ -171,17 +138,11 @@ export function assistRoutes(
       throw new LabError('assist_previous', 'That earlier request didn’t finish.', 409);
     const shape = input.shape ?? last?.shape;
     if (!shape) throw new LabError('invalid_request', 'Select something first.', 400);
-    if (!live && input.imageDataUrl)
-      throw new LabError('demo_image', 'Demo mode uses only the demo room’s camera.');
+    liveImage(mode, input.imageDataUrl);
     if (live && !last && !input.imageDataUrl)
       throw new LabError('invalid_request', 'Send the frame the selection was drawn on.', 400);
     const room = selectionRoom(store.memory(mode));
-    if (live && !meta.canAfford(assistCeiling()))
-      throw new LabError(
-        'spend_limit',
-        `This request could cost up to $${assistCeiling().toFixed(3)}, which would pass today's Meta spending limit. Raise the limit in Setup, or wait for the next UTC day.`,
-        429,
-      );
+    if (live) meta.mustAfford(assistCeiling(), 'This request');
     const job = jobs.start(input.jobId, STEPS, {
       title: 'Working on your selection',
       mode,
@@ -207,12 +168,7 @@ export function assistRoutes(
           if (!png) throw new LabError('assist_previous', 'The earlier frame is gone.', 409);
         } else if (live) {
           const image = await validateImage(input.imageDataUrl);
-          if (image.width !== room.frame.width || image.height !== room.frame.height)
-            throw new LabError(
-              'not_calibrated',
-              `This frame is ${image.width} × ${image.height}, but the room’s camera was calibrated on ${room.frame.width} × ${room.frame.height} frames.`,
-              409,
-            );
+          requireFrame(image, room.frame);
           png = image.bytes;
         } else png = await demoPng();
         assets.push(store.asset(id, 'frame.png', png));
@@ -392,11 +348,8 @@ export function assistRoutes(
    * monitor, the pin, fixtures, zones) moves onto the new model's top. Live,
    * a looked-up product is kept in the catalog with its model.
    */
-  app.post('/api/assist/save', async (request) => {
-    const { mode, runId } = parseInput(
-      z.object({ mode: modeSchema, runId: z.uuid() }).strict(),
-      request.body,
-    );
+  app.post('/save', async (request) => {
+    const { mode, runId } = parseInput(assistSaveBodySchema, request.body);
     const done = store.getRun(runId);
     if (!done || done.kind !== 'assist' || done.mode !== mode || done.status !== 'completed')
       throw new LabError('assist_previous', 'That request isn’t one of this mode’s.', 404);

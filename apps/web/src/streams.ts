@@ -1,32 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
-import type { CameraCrop, CameraScene } from '@livinglayer/domain';
+import type { CameraCrop, NetworkStream } from '@livinglayer/domain';
 import { api } from './api';
 
-/**
- * A camera shared on the LAN with `scripts/share-camera.sh`, a paired phone or
- * a camera saved by its stream URL, as `/api/streams` lists it. A phone's
- * `whep` is a path on the lab server; a saved camera has none, only an MJPEG
- * `preview` the server relays and a `snapshot` path for single frames.
- */
-export interface NetworkStream {
-  id: string;
-  name: string;
-  host: string;
-  whep: string;
-  /** A URL the server can read, so it can watch this camera. Passwords are hidden. */
-  rtsp?: string;
-  /** The room a saved camera is assigned to. */
-  scene?: CameraScene;
-  /**
-   * Its zoomed view, kept on the server. A saved camera's preview and stills
-   * come already cut to it; a phone's WebRTC picture is cut here, by `cropStream`.
-   */
-  crop?: CameraCrop | null;
-  snapshot?: string;
-  /** An MJPEG stream of a saved camera, relayed by the server. */
-  preview?: string;
-  source: 'mdns' | 'config' | 'phone' | 'saved';
-}
+export type { NetworkStream };
 
 export interface OpenedStream {
   media: MediaStream;

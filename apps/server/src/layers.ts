@@ -1,6 +1,6 @@
 import sharp from 'sharp';
 import { convexHull, type Detection, type Point } from '@livinglayer/domain';
-import { detectionBits, maskedCrop } from './images.js';
+import { detectionBits, maskedCrop, toDataUrl } from './images.js';
 
 /**
  * A fixture's outline when SAM has none: the silhouette of its box as the
@@ -242,7 +242,7 @@ const BACKGROUND_LEVEL = 24;
 /** A picture with its transparency laid on the black it was drawn on, for the models that read it. */
 export async function onBlack(png: Buffer): Promise<string> {
   const flat = await sharp(png).flatten({ background: '#000000' }).png().toBuffer();
-  return `data:image/png;base64,${flat.toString('base64')}`;
+  return toDataUrl(flat);
 }
 
 /**

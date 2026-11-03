@@ -1,6 +1,6 @@
+import { idOnlySchema, jobsQuerySchema } from '@livinglayer/domain';
 import type { FastifyInstance } from 'fastify';
 import sharp from 'sharp';
-import { z } from 'zod';
 import type { Job } from '@livinglayer/domain';
 import { LabError, parseInput } from './errors.js';
 
@@ -205,25 +205,22 @@ async function thumbnail(png: Buffer, size = THUMB): Promise<string> {
 }
 
 /** The jobs that have ended, newest first, for the page's history of AI runs. */
-export function jobRoutes(app: FastifyInstance, jobs: Jobs, history: JobHistory) {
+export async function jobRoutes(app: FastifyInstance, jobs: Jobs, history: JobHistory) {
   /** Where a long job the page follows has got to. */
-  app.get('/api/jobs/:id', async (request) => {
-    const { id } = parseInput(z.object({ id: z.string().uuid() }).strict(), request.params);
+  app.get('/:id', async (request) => {
+    const { id } = parseInput(idOnlySchema, request.params);
     const job = jobs.get(id);
     if (!job) throw new LabError('job_missing', 'That job isn’t running here.', 404);
     return job;
   });
   /** Stop a job the page is following: its running call is aborted and nothing more is saved. */
-  app.post('/api/jobs/:id/stop', async (request) => {
-    const { id } = parseInput(z.object({ id: z.string().uuid() }).strict(), request.params);
+  app.post('/:id/stop', async (request) => {
+    const { id } = parseInput(idOnlySchema, request.params);
     if (!jobs.stop(id)) throw new LabError('job_missing', 'That job isn’t running here.', 404);
     return jobs.get(id);
   });
-  app.get('/api/jobs', async (request) => {
-    const { pictures } = parseInput(
-      z.object({ pictures: z.enum(['0', '1']).default('0') }).strict(),
-      request.query,
-    );
+  app.get('', async (request) => {
+    const { pictures } = parseInput(jobsQuerySchema, request.query);
     // The list is light: each step's picture is fetched with its job (dropped in SQL).
     return history.listJobs({ pictures: pictures === '1' });
   });

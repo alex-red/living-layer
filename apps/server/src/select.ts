@@ -1,16 +1,14 @@
 import type { FastifyInstance } from 'fastify';
-import { z } from 'zod';
 import {
+  selectResolveBodySchema,
   ISO_PRESETS,
   calibrationOf,
   fixtureBox,
   groupLabels,
   inRoomView,
-  modeSchema,
   resolveSelection,
   roomLabels,
   selectionMask,
-  selectionShapeSchema,
   type DeskMemory,
   type SelectResolve,
   type Segmentation,
@@ -18,7 +16,7 @@ import {
 } from '@livinglayer/domain';
 import { LabError, parseInput } from './errors.js';
 import { NOT_CALIBRATED } from './photo.js';
-import type { EvidenceStore } from './store.js';
+import type { RouteDeps } from './route-deps.js';
 
 /** The most candidates a resolve sends back: the review only shows a few. */
 const MAX_CANDIDATES = 5;
@@ -81,12 +79,9 @@ export function selectionRoom(memory: DeskMemory) {
  * through the calibrated camera with no model call, so it is free; SAM's
  * outline sharpens it when the AI brush runs (`/api/assist`).
  */
-export function selectRoutes(app: FastifyInstance, { store }: { store: EvidenceStore }) {
-  app.post('/api/select/resolve', async (request): Promise<SelectResolve> => {
-    const input = parseInput(
-      z.object({ mode: modeSchema, shape: selectionShapeSchema }).strict(),
-      request.body,
-    );
+export async function selectRoutes(app: FastifyInstance, { store }: Pick<RouteDeps, 'store'>) {
+  app.post('/resolve', async (request): Promise<SelectResolve> => {
+    const input = parseInput(selectResolveBodySchema, request.body);
     const room = selectionRoom(store.memory(input.mode));
     const resolved = room.resolve(selectionMask(input.shape, room.frame));
     const target = resolved.target;

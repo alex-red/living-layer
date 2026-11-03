@@ -1,30 +1,13 @@
 import { createSocket, type RemoteInfo } from 'node:dgram';
 import { networkInterfaces } from 'node:os';
 import type { FastifyInstance } from 'fastify';
-import type { CameraCrop, CameraScene } from '@livinglayer/domain';
+import type { NetworkStream } from '@livinglayer/domain';
 import type { Config } from './config.js';
 
 /** What `scripts/share-camera.sh` advertises. */
 export const CAMERA_SERVICE = '_livinglayer-cam._tcp.local';
 
-export interface NetworkStream {
-  id: string;
-  name: string;
-  host: string;
-  /** WebRTC-HTTP egress endpoint: POST an SDP offer, get the answer back. Empty when a tab can't play it. */
-  whep: string;
-  /** A URL the server reads with ffmpeg; a saved camera's is shown with its password hidden. */
-  rtsp?: string;
-  /** The room a saved camera is assigned to. */
-  scene?: CameraScene;
-  /** A saved camera's or the phone's zoomed view; its frames come already cut to it, except the phone's, which the tab cuts. */
-  crop?: CameraCrop | null;
-  /** Where a tab gets a still from a camera only the server can read. */
-  snapshot?: string;
-  /** Where a tab gets a live MJPEG picture of a camera only the server can read. */
-  preview?: string;
-  source: 'mdns' | 'config' | 'phone' | 'saved';
-}
+export type { NetworkStream };
 
 const TYPE = { A: 1, PTR: 12, TXT: 16, SRV: 33 } as const;
 
@@ -259,12 +242,12 @@ export async function listStreams(
   return [...known(), ...found, ...configured.filter((s) => !seen.has(s.whep || s.rtsp))];
 }
 
-export function streamRoutes(
+export async function streamRoutes(
   app: FastifyInstance,
   config: Config,
   browse: () => Promise<NetworkStream[]> = browseCameras,
   /** Cameras the lab already knows of, like a paired phone or a saved camera. */
   known: () => NetworkStream[] = () => [],
 ) {
-  app.get('/api/streams', async () => ({ streams: await listStreams(config, browse, known) }));
+  app.get('', async () => ({ streams: await listStreams(config, browse, known) }));
 }

@@ -10,6 +10,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import sharp from 'sharp';
+import { toDataUrl } from './images.js';
 import type { Config, Fetcher } from './config.js';
 
 const FAL_ENDPOINT = 'https://fal.run/fal-ai/sam-3/3d-objects';
@@ -97,7 +98,7 @@ async function reconstructOnFal(
   fetcher: Fetcher,
   signal?: AbortSignal,
 ): Promise<Buffer> {
-  const url = (png: Buffer) => `data:image/png;base64,${png.toString('base64')}`;
+  const url = toDataUrl;
   const res = await fetcher(FAL_ENDPOINT, {
     method: 'POST',
     headers: { Authorization: `Key ${key}`, 'Content-Type': 'application/json' },

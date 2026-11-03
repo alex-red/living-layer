@@ -1,16 +1,17 @@
 import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
-import { z } from 'zod';
 import {
+  exposeLearnEmptyBodySchema,
+  exposeSaveBodySchema,
+  modeIdSchema,
+  modeOnlySchema,
   commandOf,
   commandTopics,
   configTopic,
   evaluateExposed,
   zoneEvent,
-  exposedInputSchema,
   exposeMessages,
   exposeProblem,
-  modeSchema,
   type ExposedEntity,
   type ExposeMessage,
   type ExposeOptions,
@@ -206,25 +207,18 @@ export class Exposer {
 }
 
 /** The lab's routes for entities shown in Home Assistant. */
-export function exposeRoutes(
+export async function exposeRoutes(
   app: FastifyInstance,
   exposers: Record<Mode, Exposer>,
   store: EvidenceStore,
   learnEmpty: (mode: Mode, zoneId: string) => Promise<'features' | 'pixels'>,
 ) {
-  // Whatever a person changes, the entities follow.
-  app.addHook('onResponse', async (request, reply) => {
-    if (request.method !== 'POST' || reply.statusCode >= 400) return;
-    if (!/^\/api\/(desk|fixtures|scene|item|expose|watch)\b/.test(request.url)) return;
-    exposers.demo.sync();
-    exposers.live.sync();
-  });
-  app.get('/api/expose/:mode', async (request) => {
-    const { mode } = parseInput(z.object({ mode: modeSchema }).strict(), request.params);
+  app.get('/:mode', async (request) => {
+    const { mode } = parseInput(modeOnlySchema, request.params);
     return exposers[mode].view();
   });
-  app.get('/api/expose/:mode/events', (request, reply) => {
-    const { mode } = parseInput(z.object({ mode: modeSchema }).strict(), request.params);
+  app.get('/:mode/events', (request, reply) => {
+    const { mode } = parseInput(modeOnlySchema, request.params);
     const exposer = exposers[mode];
     reply.hijack();
     reply.raw.writeHead(200, {
@@ -241,11 +235,8 @@ export function exposeRoutes(
       clearInterval(ping);
     });
   });
-  app.post('/api/expose/save', async (request) => {
-    const { mode, entity: input } = parseInput(
-      z.object({ mode: modeSchema, entity: exposedInputSchema }).strict(),
-      request.body,
-    );
+  app.post('/save', async (request) => {
+    const { mode, entity: input } = parseInput(exposeSaveBodySchema, request.body);
     const memory = store.memory(mode);
     const list = memory.exposed ?? [];
     if (input.id && !list.some((e) => e.id === input.id))
@@ -260,19 +251,13 @@ export function exposeRoutes(
     return memory;
   });
   /** The person says the zone is empty now: remember how it looks, to tell when someone is there. */
-  app.post('/api/expose/learn-empty', async (request) => {
-    const { mode, zoneId } = parseInput(
-      z.object({ mode: modeSchema, zoneId: z.string().min(1).max(64) }).strict(),
-      request.body,
-    );
+  app.post('/learn-empty', async (request) => {
+    const { mode, zoneId } = parseInput(exposeLearnEmptyBodySchema, request.body);
     const method = await learnEmpty(mode, zoneId);
     return { zoneId, method, view: exposers[mode].view() };
   });
-  app.post('/api/expose/delete', async (request) => {
-    const { mode, id } = parseInput(
-      z.object({ mode: modeSchema, id: z.string().uuid() }).strict(),
-      request.body,
-    );
+  app.post('/delete', async (request) => {
+    const { mode, id } = parseInput(modeIdSchema, request.body);
     const memory = store.memory(mode);
     memory.exposed = (memory.exposed ?? []).filter((e) => e.id !== id);
     store.saveMemory(memory);

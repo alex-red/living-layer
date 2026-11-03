@@ -1,9 +1,11 @@
 import type { FastifyInstance } from 'fastify';
 import { renderRoomAsync } from './workers/compute.js';
 import sharp from 'sharp';
-import { z } from 'zod';
 import {
-  ILLUSTRATION_NOTE_MAX,
+  modeOnlySchema,
+  sceneIllustrateBodySchema,
+  sceneIllustrationQuerySchema,
+  sceneSeparateBodySchema,
   ILLUSTRATION_PROMPT,
   deskIllustrationPrompt,
   withNote,
@@ -12,10 +14,8 @@ import {
   fixtureBox,
   inRoomView,
   fixtureInPicture,
-  pictureLayerRef,
   sparkCeiling,
   isoSurface,
-  modeSchema,
   calibrationOf,
   floorSolid,
   sceneSolids,
@@ -30,9 +30,9 @@ import {
   type RoomCamera,
   type Segmentation,
 } from '@livinglayer/domain';
-import { LabError, parseInput } from './errors.js';
-import { samDataUrl, validateImage } from './images.js';
-import type { Runner } from './item.js';
+import { LabError, liveImage, parseInput } from './errors.js';
+import { samDataUrl, toDataUrl, requireFrame, validateImage } from './images.js';
+import type { RouteDeps } from './route-deps.js';
 import {
   basePrompt,
   cutSprite,
@@ -44,10 +44,9 @@ import {
   outlineFits,
 } from './layers.js';
 import { roomPhotoBytes } from './fixture.js';
-import { following, type Jobs } from './jobs.js';
+import { following } from './jobs.js';
 import { listedPreview, outlinedPreview } from './scan-preview.js';
-import { SPARK_BUDGET, type MetaAdapter } from './meta.js';
-import type { EvidenceStore } from './store.js';
+import { SPARK_BUDGET } from './meta.js';
 
 /** What drawing the room reports while it runs, and how big its previews are. */
 const ROOM_STEPS = [
@@ -95,30 +94,15 @@ export interface Illustrated {
  * The scene and its pin stay what they were; the picture is how the room is
  * shown.
  */
-export function illustrationRoutes(
+export async function illustrationRoutes(
   app: FastifyInstance,
-  { store, meta, run, jobs }: { store: EvidenceStore; meta: MetaAdapter; run: Runner; jobs: Jobs },
+  { store, meta, run, jobs }: Pick<RouteDeps, 'store' | 'meta' | 'run' | 'jobs'>,
 ) {
-  app.post('/api/scene/illustrate', async (request): Promise<Illustrated> => {
-    const input = parseInput(
-      z
-        .object({
-          mode: modeSchema,
-          imageDataUrl: z.string().max(7_000_000).optional(),
-          /** The room, from its photo; or its desk, from a close camera frame. */
-          view: z.enum(['room', 'desk']).default('room'),
-          /** Report the steps under this id while the call runs, so the page can follow and stop it. */
-          jobId: z.string().uuid().optional(),
-          /** What to change this time, added to the prompt. */
-          note: z.string().trim().max(ILLUSTRATION_NOTE_MAX).optional(),
-        })
-        .strict(),
-      request.body,
-    );
+  app.post('/illustrate', async (request): Promise<Illustrated> => {
+    const input = parseInput(sceneIllustrateBodySchema, request.body);
     const { mode, view } = input;
     const live = mode === 'live';
-    if (!live && input.imageDataUrl)
-      throw new LabError('demo_image', 'Demo mode uses only the demo room’s camera.');
+    liveImage(mode, input.imageDataUrl);
     const memory = store.memory(mode);
     const pin = memory.surface;
     if (
@@ -154,11 +138,11 @@ export function illustrationRoutes(
         'The desk was pinned on frames of another size than the room’s camera: pin it again.',
         409,
       );
-    if (live && !meta.canAfford(META_PRICES.imagePerImage))
-      throw new LabError(
-        'spend_limit',
+    if (live)
+      meta.mustAfford(
+        META_PRICES.imagePerImage,
+        'Drawing the room',
         "Drawing the room would pass today's Meta spending limit. Raise the limit in Setup, or wait for the next UTC day.",
-        429,
       );
     const job = jobs.start(input.jobId, ROOM_STEPS, { title: 'Drawing the room', mode });
     return following(job, async () => {
@@ -166,17 +150,9 @@ export function illustrationRoutes(
       job.run('photo');
       const saved = live && !input.imageDataUrl ? roomPhotoBytes(memory, store) : null;
       const image = live
-        ? await validateImage(
-            input.imageDataUrl ??
-              (saved ? `data:image/png;base64,${saved.toString('base64')}` : undefined),
-          )
+        ? await validateImage(input.imageDataUrl ?? (saved ? toDataUrl(saved) : undefined))
         : null;
-      if (image && (image.width !== from.width || image.height !== from.height))
-        throw new LabError(
-          'not_calibrated',
-          `This frame is ${image.width} × ${image.height}, but the room’s camera was calibrated on ${from.width} × ${from.height} frames.`,
-          409,
-        );
+      if (image) requireFrame(image, from);
       if (image) await job.done('photo', `${image.width} × ${image.height}`, image.bytes, PREVIEW);
       else await job.done('photo', 'Demo: the saved room through the demo camera, no model call');
       job.check();
@@ -253,12 +229,11 @@ export function illustrationRoutes(
     jobId?: string,
     note?: string,
   ): Promise<Illustrated> {
-    if (!meta.canAfford(META_PRICES.imagePerImage))
-      throw new LabError(
-        'spend_limit',
-        "Drawing the desk would pass today's Meta spending limit. Raise the limit in Setup, or wait for the next UTC day.",
-        429,
-      );
+    meta.mustAfford(
+      META_PRICES.imagePerImage,
+      'Drawing the desk',
+      "Drawing the desk would pass today's Meta spending limit. Raise the limit in Setup, or wait for the next UTC day.",
+    );
     const job = jobs.start(jobId, DESK_STEPS, { title: 'Drawing the desk', mode });
     return following(job, async () => {
       job.run('photo');
@@ -272,9 +247,7 @@ export function illustrationRoutes(
       const drawn = await run('illustration', mode, async (id) => {
         job.link(id);
         const references = style
-          ? [
-              `data:image/jpeg;base64,${(await sharp(style).resize(1280, 1280, { fit: 'inside' }).jpeg().toBuffer()).toString('base64')}`,
-            ]
+          ? [toDataUrl(await sharp(style).resize(1280, 1280, { fit: 'inside' }).jpeg().toBuffer())]
           : [];
         const result = await meta.illustrate(
           [await samDataUrl(image), ...references],
@@ -324,17 +297,8 @@ export function illustrationRoutes(
    * (one image, $0.01), its background made transparent like the picture's;
    * the demo fills the places they leave from around them instead.
    */
-  app.post('/api/scene/separate', async (request) => {
-    const { mode, jobId } = parseInput(
-      z
-        .object({
-          mode: modeSchema,
-          /** The page's id for following the steps as they go. */
-          jobId: z.string().uuid().optional(),
-        })
-        .strict(),
-      request.body,
-    );
+  app.post('/separate', async (request) => {
+    const { mode, jobId } = parseInput(sceneSeparateBodySchema, request.body);
     const live = mode === 'live';
     const memory = store.memory(mode);
     const picture = memory.illustration;
@@ -361,18 +325,13 @@ export function illustrationRoutes(
         'No fixture of this room shows on its picture. Scan or add fixtures first.',
         409,
       );
-    if (
-      live &&
-      !meta.canAfford(
+    if (live)
+      meta.mustAfford(
         sparkCeiling(SPARK_BUDGET.pictureFind, 1) +
           META_PRICES.samPerImage +
           META_PRICES.imagePerImage,
-      )
-    )
-      throw new LabError(
-        'spend_limit',
+        'Lifting the fixtures',
         "Lifting the fixtures would pass today's Meta spending limit. Raise the limit in Setup, or wait for the next UTC day.",
-        429,
       );
     const png = store.readAsset(picture.asset);
     if (!png) throw new LabError('illustration_missing', 'This picture is gone.', 404);
@@ -576,8 +535,8 @@ export function illustrationRoutes(
     });
   });
   /** Put the fixtures back into the picture: it is shown whole again. */
-  app.post('/api/scene/separate/undo', async (request) => {
-    const { mode } = parseInput(z.object({ mode: modeSchema }).strict(), request.body);
+  app.post('/separate/undo', async (request) => {
+    const { mode } = parseInput(modeOnlySchema, request.body);
     const memory = store.memory(mode);
     if (memory.illustration?.layers) {
       const { layers: _, ...whole } = memory.illustration;
@@ -586,8 +545,8 @@ export function illustrationRoutes(
     return { memory: store.memory(mode) };
   });
   /** A room's picture, or one of its layers. */
-  app.get('/api/scene/illustration', async (request, reply) => {
-    const { asset } = parseInput(z.object({ asset: pictureLayerRef }).strict(), request.query);
+  app.get('/illustration', async (request, reply) => {
+    const { asset } = parseInput(sceneIllustrationQuerySchema, request.query);
     const png = store.readAsset(asset);
     if (!png) throw new LabError('illustration_missing', 'This picture is gone.', 404);
     return reply.type('image/png').header('cache-control', 'no-cache').send(png);

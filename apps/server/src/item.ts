@@ -1,8 +1,10 @@
 import type { FastifyInstance } from 'fastify';
 import { fitItemAsync } from './workers/compute.js';
 import sharp from 'sharp';
-import { z } from 'zod';
 import {
+  itemCropQuerySchema,
+  itemDraftBodySchema,
+  itemRefitBodySchema,
   DEMO_POSITIONS,
   type DemoPosition,
   applyCheck,
@@ -11,10 +13,8 @@ import {
   describeFit,
   fuseFits,
   isMugConcept,
-  isoItemSchema,
   isoSurface,
   labRgb,
-  modeSchema,
   modelTarget,
   renderView,
   scoreAgainst,
@@ -30,28 +30,18 @@ import {
   type ItemClass,
   type ItemFitRecord,
   type Mode,
-  type RunKind,
   type SavedItem,
   type Segmentation,
   type Usage,
+  addUsage,
 } from '@livinglayer/domain';
 import { demoMugCloseUp, demoPng } from './demo.js';
 import { LabError, parseInput } from './errors.js';
-import { detectionBits, findSource, maskedCrop } from './images.js';
-import type { MetaAdapter, ProviderResult } from './meta.js';
+import { detectionBits, findSource, maskedCrop, toDataUrl } from './images.js';
+import type { MetaAdapter } from './meta.js';
 import { requestSignal } from './request-signal.js';
+import type { RouteDeps } from './route-deps.js';
 import type { EvidenceStore } from './store.js';
-
-export type Runner = (
-  kind: RunKind,
-  mode: Mode,
-  operation: (
-    id: string,
-    signal?: AbortSignal,
-  ) => Promise<Partial<ProviderResult<unknown>> & { output: unknown; assets?: string[] }>,
-  /** Aborts the operation's model calls, such as when the client goes away. */
-  signal?: AbortSignal,
-) => Promise<EvidenceRun>;
 
 /** What a Spark class looks like offline: the demo mug is a glossy mug. */
 export const demoItemClass: ItemClass = {
@@ -107,15 +97,6 @@ export function pinElevation(memory: DeskMemory, mode: Mode): number | null {
   return (Math.asin(Math.max(0.1, Math.min(1, sin))) * 180) / Math.PI;
 }
 
-function addUsage(a: Usage | null, b: Usage | null | undefined): Usage | null {
-  if (!b) return a;
-  if (!a) return b;
-  return {
-    inputTokens: a.inputTokens + b.inputTokens,
-    outputTokens: a.outputTokens + b.outputTokens,
-    totalTokens: a.totalTokens + b.totalTokens,
-  };
-}
 /** The model drawn from the photo's camera in flat colours, as a PNG for Spark to compare. */
 export async function viewPng(item: IsoItem, elevation: number, width: number): Promise<Buffer> {
   const view = renderView(voxelize(item.parts, { resolution: 48 }), { elevation, ppu: width });
@@ -228,11 +209,7 @@ export async function draftModel(
   if (live) {
     const render = await viewPng(item, fitted.elevation, crop.width);
     assets.push(store.asset(runId, 'item-render.png', render));
-    const check = await meta.itemCheck(
-      cropUrl,
-      `data:image/png;base64,${render.toString('base64')}`,
-      describeFit(params),
-    );
+    const check = await meta.itemCheck(cropUrl, toDataUrl(render), describeFit(params));
     usage = addUsage(usage, check.usage);
     const nudged = applyCheck(params, check.output);
     const nudgedItem = buildItem(label, nudged);
@@ -248,9 +225,9 @@ export async function draftModel(
   return { input, fitted, params, item, score, assets, assists, usage };
 }
 
-export function itemRoutes(
+export async function itemRoutes(
   app: FastifyInstance,
-  { store, meta, run }: { store: EvidenceStore; meta: MetaAdapter; run: Runner },
+  { store, meta, run }: Pick<RouteDeps, 'store' | 'meta' | 'run'>,
 ) {
   /**
    * Draft a model of a remembered object from its current sighting's mask.
@@ -260,17 +237,8 @@ export function itemRoutes(
    * Spark compares a render with the photo and suggests bounded corrections,
    * kept only when the silhouette still matches.
    */
-  app.post('/api/item/draft', async (request) => {
-    const { mode, source, objectId } = parseInput(
-      z
-        .object({
-          mode: modeSchema,
-          source: z.enum(['sampled', 'spark']),
-          objectId: z.string().uuid().optional(),
-        })
-        .strict(),
-      request.body,
-    );
+  app.post('/draft', async (request) => {
+    const { mode, source, objectId } = parseInput(itemDraftBodySchema, request.body);
     const object = modelTarget(store.memory(mode), objectId);
     const sighting = object?.observation;
     if (object?.fixture)
@@ -302,7 +270,7 @@ export function itemRoutes(
         const crop = await itemCrop(store, mode, segment, detection);
         const cropAsset = store.asset(id, 'item-crop.png', crop.png);
         const assets = [cropAsset];
-        const cropUrl = `data:image/png;base64,${crop.png.toString('base64')}`;
+        const cropUrl = toDataUrl(crop.png);
         const assists: string[] = [];
         let usage: Usage | null = null;
         let model: string | undefined;
@@ -389,17 +357,8 @@ export function itemRoutes(
    * Fit the model to its crop again, after edits: no model calls, and the
    * parts a person locked stay as they are.
    */
-  app.post('/api/item/refit', async (request) => {
-    const { mode, objectId, item } = parseInput(
-      z
-        .object({
-          mode: modeSchema,
-          objectId: z.string().uuid().optional(),
-          item: isoItemSchema.optional(),
-        })
-        .strict(),
-      request.body,
-    );
+  app.post('/refit', async (request) => {
+    const { mode, objectId, item } = parseInput(itemRefitBodySchema, request.body);
     const target = modelTarget(store.memory(mode), objectId);
     const fit = target?.item?.fit;
     const png = fit?.crop ? store.readAsset(fit.crop) : null;
@@ -423,18 +382,8 @@ export function itemRoutes(
     return memory;
   });
   /** The masked crop a model was fitted to, to lay the model over in the editor. */
-  app.get('/api/item/crop', async (request, reply) => {
-    const { mode, objectId } = parseInput(
-      z
-        .object({
-          mode: modeSchema,
-          objectId: z.string().uuid().optional(),
-          /** Changes with the crop, so a browser never shows a stale one. */
-          v: z.string().max(200).optional(),
-        })
-        .strict(),
-      request.query,
-    );
+  app.get('/crop', async (request, reply) => {
+    const { mode, objectId } = parseInput(itemCropQuerySchema, request.query);
     const crop = modelTarget(store.memory(mode), objectId)?.item?.fit?.crop;
     const png = crop ? store.readAsset(crop) : null;
     if (!png) throw new LabError('item_source', 'This model has no crop.', 404);

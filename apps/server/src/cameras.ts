@@ -2,6 +2,9 @@ import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import {
+  cameraIdOnlySchema,
+  camerasDeleteBodySchema,
+  streamsCropBodySchema,
   CAMERA_LIMIT,
   cameraCropSchema,
   cameraInputSchema,
@@ -156,7 +159,7 @@ export class CameraRegistry {
  * `onRemoved` lets watching stop when its camera goes, and `onCropped` lets
  * it start again on the new view.
  */
-export function cameraRoutes(
+export async function cameraRoutes(
   app: FastifyInstance,
   cameras: CameraRegistry,
   {
@@ -181,30 +184,22 @@ export function cameraRoutes(
   },
 ) {
   const all = () => ({ cameras: cameras.list().map(cameraView) });
-  app.get('/api/cameras', async () => all());
-  app.post('/api/cameras/save', async (request) => {
+  app.get('/cameras', async () => all());
+  app.post('/cameras/save', async (request) => {
     const input = parseInput(cameraInputSchema, request.body);
     const camera = cameraView(cameras.save(input));
     onSaved();
     return { camera, ...all() };
   });
-  app.post('/api/cameras/delete', async (request) => {
-    const { id } = parseInput(z.object({ id: z.string().min(1).max(40) }).strict(), request.body);
+  app.post('/cameras/delete', async (request) => {
+    const { id } = parseInput(camerasDeleteBodySchema, request.body);
     if (!cameras.remove(id)) throw new LabError('camera_missing', 'That camera is gone.', 404);
     onRemoved(savedStreamId(id));
     return all();
   });
   // A saved camera or the phone keeps its zoomed view, and every later connection opens on it.
-  app.post('/api/streams/crop', async (request) => {
-    const { streamId, crop } = parseInput(
-      z
-        .object({
-          streamId: z.string().min(1).max(200),
-          crop: cameraCropSchema.nullable(),
-        })
-        .strict(),
-      request.body,
-    );
+  app.post('/streams/crop', async (request) => {
+    const { streamId, crop } = parseInput(streamsCropBodySchema, request.body);
     const id = savedIdOf(streamId);
     if (streamId.startsWith('phone:')) cameras.setPhoneCrop(crop);
     else if (id === null)
@@ -217,11 +212,8 @@ export function cameraRoutes(
     onCropped(id === null ? 'phone' : streamId);
     return { crop };
   });
-  app.get('/api/cameras/:id/snapshot', async (request, reply) => {
-    const { id } = parseInput(
-      z.object({ id: z.string().regex(/^[a-z0-9-]{1,40}$/) }).strict(),
-      request.params,
-    );
+  app.get('/cameras/:id/snapshot', async (request, reply) => {
+    const { id } = parseInput(cameraIdOnlySchema, request.params);
     const camera = cameras.get(id);
     if (!camera) throw new LabError('camera_missing', 'That camera is gone.', 404);
     let png: Buffer;
@@ -243,10 +235,7 @@ export function cameraRoutes(
       done(null, body),
     );
   const relayed = (params: unknown) => {
-    const { id } = parseInput(
-      z.object({ id: z.string().regex(/^[a-z0-9-]{1,40}$/) }).strict(),
-      params,
-    );
+    const { id } = parseInput(cameraIdOnlySchema, params);
     const camera = cameras.get(id);
     if (!camera) throw new LabError('camera_missing', 'That camera is gone.', 404);
     const whep = cameras.whepOf(camera);
@@ -254,7 +243,7 @@ export function cameraRoutes(
       throw new LabError('relay_off', `${camera.name} isn’t relayed; use its preview.`, 409);
     return { id, whep };
   };
-  app.post('/api/cameras/:id/whep', async (request, reply) => {
+  app.post('/cameras/:id/whep', async (request, reply) => {
     const { id, whep } = relayed(request.params);
     const offer = z.string().min(1).max(60_000).safeParse(request.body);
     if (!offer.success) throw new LabError('whep_offer', 'Send an SDP offer.');
@@ -276,7 +265,7 @@ export function cameraRoutes(
       .header('content-type', answer.headers.get('content-type') ?? 'application/sdp')
       .send(await answer.text());
   });
-  app.delete('/api/cameras/:id/whep/:session', async (request, reply) => {
+  app.delete('/cameras/:id/whep/:session', async (request, reply) => {
     const { session, ...params } = request.params as { session: string; id: string };
     const { whep } = relayed(params);
     if (!/^[\w-]{1,80}$/.test(session)) throw new LabError('whep_session', 'No such session.');
@@ -284,11 +273,8 @@ export function cameraRoutes(
     return reply.status(200).send();
   });
   // The camera as a live picture for a tab, for as long as the tab reads it.
-  app.get('/api/cameras/:id/stream', async (request, reply) => {
-    const { id } = parseInput(
-      z.object({ id: z.string().regex(/^[a-z0-9-]{1,40}$/) }).strict(),
-      request.params,
-    );
+  app.get('/cameras/:id/stream', async (request, reply) => {
+    const { id } = parseInput(cameraIdOnlySchema, request.params);
     const camera = cameras.get(id);
     if (!camera) throw new LabError('camera_missing', 'That camera is gone.', 404);
     const { stream, stop } = preview(cameras.readUrl(camera), camera.crop ?? null);

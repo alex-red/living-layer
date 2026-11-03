@@ -43,6 +43,23 @@ export async function samDataUrl(image: Pick<ValidatedImage, 'bytes'>): Promise<
   return toDataUrl(png);
 }
 /**
+ * Refuse, with 409 `not_calibrated`, a frame that isn't the size the room's
+ * camera was calibrated on. `message` replaces the usual wording.
+ */
+export function requireFrame(
+  image: { width: number; height: number },
+  frame: { width: number; height: number },
+  message?: string,
+) {
+  if (image.width !== frame.width || image.height !== frame.height)
+    throw new LabError(
+      'not_calibrated',
+      message ??
+        `This frame is ${image.width} × ${image.height}, but the room’s camera was calibrated on ${frame.width} × ${frame.height} frames.`,
+      409,
+    );
+}
+/**
  * The size of a PNG that SAM can take just as it came: one page, nothing to
  * orient, so its pixels are the ones `validateImage` stores. Null for anything
  * else, which goes through `samDataUrl`. Reads only the header.
@@ -69,7 +86,6 @@ export async function samReadyPng(
 }
 /** The stored source photo among a run's assets: `source.webp`, or `source.png` on older runs. */
 export const findSource = (assets: string[]) => assets.find((a) => /\/source\.(webp|png)$/.test(a));
-export const SOURCE_ASSET = /^[a-z0-9-]{1,64}\/source\.(webp|png)$/;
 
 export async function validateImage(dataUrl?: string): Promise<ValidatedImage> {
   const match = /^data:image\/(png|jpeg|webp);base64,([A-Za-z0-9+/]+={0,2})$/.exec(dataUrl ?? '');

@@ -2,15 +2,14 @@ import type { FastifyInstance } from 'fastify';
 import { renderRoomAsync } from './workers/compute.js';
 import { createHash, randomUUID } from 'node:crypto';
 import sharp from 'sharp';
-import { z } from 'zod';
 import {
+  sceneFromPhotoBodySchema,
+  sceneSetupBodySchema,
   DEMO_CALIBRATION,
   ISO_PRESETS,
   ISO_TILE_CM,
   type CameraCrop,
   type DeskMemory,
-  cameraCropSchema,
-  isoSceneKindSchema,
   type IsoScene,
   type RoomEstimate,
   type RoomMarks,
@@ -27,7 +26,6 @@ import {
   thingSolids,
   type LayoutInput,
   type RoomCalibration,
-  modeSchema,
   promptBox,
   sparkCeiling,
   META_PRICES,
@@ -41,21 +39,23 @@ import {
   type Segmentation,
   type Usage,
   type PhotoCheck,
+  addUsage,
 } from '@livinglayer/domain';
-import type { Config } from './config.js';
-import { LabError, parseInput } from './errors.js';
+import { LabError, liveImage, parseInput } from './errors.js';
 import { demoPhotoCheck, demoPhotoInventory, demoPhotoSegmentation } from './demo.js';
 import {
   maskedCrop,
   mediaTypeOf,
   samDataUrl,
+  toDataUrl,
+  requireFrame,
   validateImage,
   type ValidatedImage,
 } from './images.js';
-import { demoPhoto, type Runner } from './item.js';
-import { SPARK_BUDGET, type MetaAdapter } from './meta.js';
-import type { EvidenceStore } from './store.js';
-import { following, type JobTracker, type Jobs } from './jobs.js';
+import { demoPhoto } from './item.js';
+import type { RouteDeps } from './route-deps.js';
+import { SPARK_BUDGET } from './meta.js';
+import { following, type JobTracker } from './jobs.js';
 import { calibrateRoom, findFloorMarks, fitRoom } from './room.js';
 import { listedPreview, outlinedPreview } from './scan-preview.js';
 
@@ -126,16 +126,6 @@ const photoDraftCeiling = (check: boolean) =>
 /** At most this many objects get a fitted model in one draft; the rest can be modelled later. */
 export type { PhotoDraft };
 
-function addUsage(a: Usage | null, b: Usage | null | undefined): Usage | null {
-  if (!b) return a;
-  if (!a) return b;
-  return {
-    inputTokens: a.inputTokens + b.inputTokens,
-    outputTokens: a.outputTokens + b.outputTokens,
-    totalTokens: a.totalTokens + b.totalTokens,
-  };
-}
-
 /**
  * A scene from one frame of the room's calibrated corner camera. Spark lists
  * what is in it with loose boxes (one call), SAM outlines every box (one
@@ -145,14 +135,9 @@ function addUsage(a: Usage | null, b: Usage | null | undefined): Usage | null {
  * and one more SAM call for anything it says is missing). Nothing is saved to
  * desk memory until the person saves the review.
  */
-export function photoRoutes(
+export async function photoRoutes(
   app: FastifyInstance,
-  {
-    store,
-    meta,
-    run,
-    jobs,
-  }: { store: EvidenceStore; meta: MetaAdapter; run: Runner; jobs: Jobs; config: Config },
+  { store, meta, run, jobs }: Pick<RouteDeps, 'store' | 'meta' | 'run' | 'jobs' | 'config'>,
 ) {
   /** Save the box-prompted segmentation as a segment run, like any other. */
   function saveSegment(
@@ -314,12 +299,7 @@ export function photoRoutes(
       let result: { output: PhotoCheck; usage: Usage | null } | null = null;
       try {
         result = image
-          ? await meta.photoCheck(
-              image.dataUrl,
-              `data:image/png;base64,${drawn.toString('base64')}`,
-              listing,
-              job.signal,
-            )
+          ? await meta.photoCheck(image.dataUrl, toDataUrl(drawn), listing, job.signal)
           : { output: demoPhotoCheck, usage: null };
       } catch (e) {
         // Stopped by the person: stop here, as any step does.
@@ -463,32 +443,15 @@ export function photoRoutes(
     };
     return { output, usage };
   }
-  app.post('/api/scene/from-photo', async (request) => {
-    const input = parseInput(
-      z
-        .object({
-          mode: modeSchema,
-          imageDataUrl: z.string().max(7_000_000).optional(),
-          check: z.boolean().optional(),
-          /** The page's id for following the steps as they go. */
-          jobId: z.string().uuid().optional(),
-        })
-        .strict(),
-      request.body,
-    );
+  app.post('/from-photo', async (request) => {
+    const input = parseInput(sceneFromPhotoBodySchema, request.body);
     const { mode } = input;
     const live = mode === 'live';
-    if (!live && input.imageDataUrl)
-      throw new LabError('demo_image', 'Demo mode uses only the demo room’s camera.');
+    liveImage(mode, input.imageDataUrl);
     if (!calibrationOf(store.memory(mode)))
       throw new LabError('not_calibrated', NOT_CALIBRATED, 409);
     // Refuse up front rather than stop halfway, with the inventory already paid for.
-    if (live && !meta.canAfford(photoDraftCeiling(Boolean(input.check))))
-      throw new LabError(
-        'spend_limit',
-        `A photo draft could cost up to $${photoDraftCeiling(Boolean(input.check)).toFixed(3)}, which would pass today's Meta spending limit. Raise the limit in Setup, or wait for the next UTC day.`,
-        429,
-      );
+    if (live) meta.mustAfford(photoDraftCeiling(Boolean(input.check)), 'A photo draft');
     const job = jobs.start(input.jobId, draftSteps(Boolean(input.check)), {
       title: 'Drafting the room',
       mode,
@@ -508,12 +471,11 @@ export function photoRoutes(
         const calibration = calibrationOf(store.memory(mode));
         if (!calibration) throw new LabError('not_calibrated', NOT_CALIBRATED, 409);
         const { width, height } = calibration.camera.frame;
-        if (width !== frame.width || height !== frame.height)
-          throw new LabError(
-            'not_calibrated',
-            `This frame is ${frame.width} × ${frame.height}, but the room’s camera was calibrated on ${width} × ${height} frames. Send a frame from that camera, or calibrate again.`,
-            409,
-          );
+        requireFrame(
+          frame,
+          { width, height },
+          `This frame is ${frame.width} × ${frame.height}, but the room’s camera was calibrated on ${width} × ${height} frames. Send a frame from that camera, or calibrate again.`,
+        );
         const assets = image ? [store.asset(id, `source.${image.ext}`, image.bytes)] : [];
         await job.done(
           'photo',
@@ -573,31 +535,13 @@ export function photoRoutes(
    * which wall is the room's back (its direction) and is saved. Then the
    * draft runs through the new camera as usual, for the person to review.
    */
-  app.post('/api/scene/setup', async (request) => {
-    const input = parseInput(
-      z
-        .object({
-          mode: modeSchema,
-          imageDataUrl: z.string().max(7_000_000).optional(),
-          check: z.boolean().optional(),
-          scene: z.union([isoSceneKindSchema, z.literal('custom')]),
-          crop: cameraCropSchema.nullable().optional(),
-          jobId: z.string().uuid().optional(),
-        })
-        .strict(),
-      request.body,
-    );
+  app.post('/setup', async (request) => {
+    const input = parseInput(sceneSetupBodySchema, request.body);
     const { mode } = input;
     const live = mode === 'live';
-    if (!live && input.imageDataUrl)
-      throw new LabError('demo_image', 'Demo mode uses only the demo room’s camera.');
+    liveImage(mode, input.imageDataUrl);
     const ceiling = photoDraftCeiling(Boolean(input.check)) + 2 * META_PRICES.samPerImage;
-    if (live && !meta.canAfford(ceiling))
-      throw new LabError(
-        'spend_limit',
-        `Setting the room up could cost up to $${ceiling.toFixed(3)}, which would pass today's Meta spending limit. Raise the limit in Setup, or wait for the next UTC day.`,
-        429,
-      );
+    if (live) meta.mustAfford(ceiling, 'Setting the room up');
     const job = jobs.start(input.jobId, setupSteps(Boolean(input.check)), {
       title: 'Setting up the room',
       mode,

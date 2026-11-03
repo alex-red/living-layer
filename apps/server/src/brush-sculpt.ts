@@ -1,4 +1,5 @@
 import sharp from 'sharp';
+import { toDataUrl } from './images.js';
 import { renderRoomAsync } from './workers/compute.js';
 import {
   BRUSH_SCULPT_PARTS,
@@ -90,7 +91,7 @@ export async function shapeFromPhoto({
       .png()
       .toBuffer();
   };
-  const url = (png: Buffer) => `data:image/png;base64,${png.toString('base64')}`;
+  const url = toDataUrl;
   let current = recipe;
   let render = await drawn(current);
   const looks: { recipe: FixtureRecipe; check: RecipeCheck; note: string; render: Buffer }[] = [];

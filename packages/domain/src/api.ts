@@ -65,6 +65,16 @@ export interface Usage {
   outputTokens: number;
   totalTokens: number;
 }
+/** Two usages summed; either may be missing. */
+export function addUsage(a: Usage | null, b: Usage | null | undefined): Usage | null {
+  if (!b) return a;
+  if (!a) return b;
+  return {
+    inputTokens: a.inputTokens + b.inputTokens,
+    outputTokens: a.outputTokens + b.outputTokens,
+    totalTokens: a.totalTokens + b.totalTokens,
+  };
+}
 export type RunKind =
   | 'text'
   | 'discover'

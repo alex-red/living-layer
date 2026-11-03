@@ -1,7 +1,21 @@
 import type { FastifyInstance } from 'fastify';
 import { createHash, randomUUID } from 'node:crypto';
-import { z } from 'zod';
 import {
+  fixturesChooseBodySchema,
+  fixturesControlBodySchema,
+  fixturesDeleteBodySchema,
+  fixturesDraftBodySchema,
+  fixturesFindBodySchema,
+  fixturesPhotoBodySchema,
+  fixturesReferenceQuerySchema,
+  fixturesRefine3dBodySchema,
+  fixturesReleaseBodySchema,
+  fixturesSaveBodySchema,
+  fixturesScanBodySchema,
+  fixturesSculptBodySchema,
+  fixturesSculptReapplyBodySchema,
+  fixturesStateBodySchema,
+  fixturesUndismissBodySchema,
   DEMO_REFERENCES,
   DEMO_SURFACE,
   calibrationOf,
@@ -24,10 +38,8 @@ import {
   pinFits,
   type FixtureScan,
   type MappedThing,
-  entityIdSchema,
   META_PRICES,
   MAX_FIXTURES,
-  isoSceneKindSchema,
   promptBox,
   sparkCeiling,
   sizeInTiles,
@@ -35,15 +47,11 @@ import {
   fixtureEntity,
   fixtureEntities,
   lightSources,
-  fixtureInputSchema,
   fixtureModel,
   fixtureProblem,
   fixtureReference,
   fixtureSize,
-  fixtureStateInputSchema,
-  fixtureStateNameSchema,
   monitorItem,
-  modeSchema,
   uniqueParts,
   fromSculpt,
   MAX_DRAFTS,
@@ -69,15 +77,15 @@ import {
   type FixtureDraft,
   type FixtureState,
   type LampResult,
-  type Mode,
   type Segmentation,
   type MergedFacts,
   type ProductFacts,
   type Usage,
   withoutThings,
+  addUsage,
 } from '@livinglayer/domain';
-import { LabError, parseInput } from './errors.js';
-import { following, type Jobs } from './jobs.js';
+import { LabError, liveImage, parseInput } from './errors.js';
+import { following } from './jobs.js';
 import { listedPreview, outlinedPreview, placedPreview } from './scan-preview.js';
 import sharp from 'sharp';
 import {
@@ -88,7 +96,7 @@ import {
   demoPhotoSegmentation,
   demoReference,
 } from './demo.js';
-import { maskedCrop, samDataUrl, validateImage } from './images.js';
+import { maskedCrop, samDataUrl, toDataUrl, validateImage } from './images.js';
 import {
   cropInput,
   demoPhoto,
@@ -97,8 +105,8 @@ import {
   pinElevation,
   rescore,
   viewPng,
-  type Runner,
 } from './item.js';
+import type { RouteDeps } from './route-deps.js';
 import { SEARCH_CEILING, SPARK_BUDGET, type MetaAdapter } from './meta.js';
 import { BUNDLED_CATALOG, Catalog, research, type Researcher } from './research.js';
 import type { EvidenceStore } from './store.js';
@@ -250,16 +258,6 @@ function sculptRunOf(job: Job | null, getRun: (id: string) => EvidenceRun | unde
   }
   return null;
 }
-const sumUsage = (a: Usage | null, b: Usage | null | undefined): Usage | null =>
-  !b
-    ? a
-    : !a
-      ? b
-      : {
-          inputTokens: a.inputTokens + b.inputTokens,
-          outputTokens: a.outputTokens + b.outputTokens,
-          totalTokens: a.totalTokens + b.totalTokens,
-        };
 
 /**
  * The most a live draft can cost: Spark names the thing, SAM outlines it,
@@ -313,9 +311,7 @@ export function roomPhotoBytes(memory: DeskMemory, store: EvidenceStore): Buffer
 async function roomPhoto(memory: DeskMemory, store: EvidenceStore): Promise<string | undefined> {
   const bytes = roomPhotoBytes(memory, store);
   // A saved PNG can be large; Spark needs no more than a good JPEG.
-  return bytes
-    ? `data:image/jpeg;base64,${(await sharp(bytes).jpeg({ quality: 90 }).toBuffer()).toString('base64')}`
-    : undefined;
+  return bytes ? toDataUrl(await sharp(bytes).jpeg({ quality: 90 }).toBuffer()) : undefined;
 }
 
 /**
@@ -369,8 +365,6 @@ const samePlace = (a: Fixture, b: FixtureInput) =>
   Math.abs(a.at.y - b.at.y) < 1e-6;
 
 /** Switch one light or switch, through Home Assistant or the demo's virtual adapter. */
-export type Control = (mode: Mode, entityId: string, action: 'on' | 'off') => Promise<LampResult>;
-
 /** What a confirmed action says about every fixture on that entity; unconfirmed says nothing. */
 export function noteControl(memory: DeskMemory, result: LampResult): void {
   for (const f of memory.fixtures ?? []) {
@@ -396,893 +390,821 @@ function lastLit(
   return kept.length ? { lit: Object.fromEntries(kept) } : {};
 }
 
+type Parsed<S extends { parse: (data: unknown) => unknown }> = ReturnType<S['parse']>;
+
+/**
+ * Draft a fixture from a reference photo: one thing, filling most of the
+ * frame. Its mask is cut out and modelled by the same fitter as objects,
+ * and sized for the scene it is meant for. Nothing is saved; the draft
+ * comes back for the person to name, choose a control for, and place.
+ * Demo mode drafts from the bundled illustrations only.
+ */
+export async function draftFixture(
+  { store, meta, run, productsDir }: Pick<RouteDeps, 'store' | 'meta' | 'run' | 'productsDir'>,
+  input: Parsed<typeof fixturesDraftBodySchema>,
+) {
+  const { mode, scene } = input;
+  const live = mode === 'live';
+  if (live ? input.reference : input.imageDataUrl || !input.reference === !input.box)
+    throw new LabError(
+      'demo_image',
+      live
+        ? 'Live mode drafts from your own photo, not the bundled pictures.'
+        : 'Demo mode drafts from a bundled picture or a box in the demo office.',
+    );
+  const custom = store.memory(mode).scene;
+  if (scene === 'custom' && !custom)
+    throw new LabError(
+      'fixture_place',
+      'Save your own scene before drafting fixtures for it.',
+      409,
+    );
+  // Refuse up front rather than stop halfway, with Spark's answer already paid for.
+  if (live) meta.mustAfford(fixtureDraftCeiling(), 'A fixture draft');
+  const event = await run('fixture', mode, async (id) => {
+    let usage: Usage | null = null;
+    let model: string | undefined;
+    let requestId: string | null = null;
+    const assets: string[] = [];
+    // 1. The photo, and what is in it: Spark live, the hand-written class in the demo.
+    let png: Buffer;
+    let cls: FixtureClass;
+    let detection: Detection;
+    // What the review shows: the photo of the thing, or the part of the desk photo boxed.
+    let shown: Buffer | null = null;
+    if (input.box && !live) {
+      const box = promptBox({ box: input.box }, { width: 960, height: 640 })!;
+      const thing = await demoDeskThing(box);
+      if (!thing)
+        throw new LabError(
+          'fixture_none',
+          'Nothing is outlined there. Box the mug, the book or the bottle.',
+          422,
+        );
+      ({ png, detection, cls } = thing);
+      shown = await around(png, box);
+    } else if (input.box) {
+      // A box on the desk photo: Spark sees only what is around the box, and
+      // SAM outlines the thing from the person's own box on the whole photo.
+      const image = await validateImage(input.imageDataUrl);
+      png = image.bytes;
+      const frame = { width: image.width, height: image.height };
+      const box = promptBox({ box: input.box }, frame);
+      if (!box) throw new LabError('fixture_none', 'The box is too small to outline.', 422);
+      shown = await around(png, box);
+      const named = await meta.fixtureClass(toDataUrl(shown), input.label);
+      cls = named.output;
+      usage = named.usage;
+      model = named.model;
+      requestId = named.requestId;
+      const outlined = await meta.segmentBoxes(
+        image.dataUrl,
+        [{ id: 1, box }],
+        frame.width,
+        frame.height,
+      );
+      assets.push(store.asset(id, 'sam-output.txt', outlined.raw));
+      const found = [...outlined.output.detections].sort(
+        (a, b) => b.mask.foregroundPixels - a.mask.foregroundPixels,
+      )[0];
+      if (!found)
+        throw new LabError(
+          'fixture_none',
+          `Couldn’t outline the ${cls.label.toLowerCase()} in that box. Draw it a little larger.`,
+          422,
+        );
+      detection = found;
+    } else if (live) {
+      const image = await validateImage(input.imageDataUrl);
+      png = image.bytes;
+      const named = await meta.fixtureClass(image.dataUrl, input.label);
+      cls = named.output;
+      usage = named.usage;
+      model = named.model;
+      requestId = named.requestId;
+      // 2. SAM outlines whatever is inside Spark's box.
+      const frame = { width: image.width, height: image.height };
+      const box = promptBox(cls, frame);
+      if (!box)
+        throw new LabError('fixture_none', `The ${cls.label} is too small in the photo.`, 422);
+      const outlined = await meta.segmentBoxes(
+        image.dataUrl,
+        [{ id: 1, box }],
+        frame.width,
+        frame.height,
+      );
+      assets.push(store.asset(id, 'sam-output.txt', outlined.raw));
+      const found = [...outlined.output.detections].sort(
+        (a, b) => b.mask.foregroundPixels - a.mask.foregroundPixels,
+      )[0];
+      if (!found)
+        throw new LabError(
+          'fixture_none',
+          `Couldn’t find the ${cls.label.toLowerCase()} in the photo. Try one thing, filling most of the frame.`,
+          422,
+        );
+      detection = found;
+    } else {
+      cls = demoFixtureClass[input.reference!];
+      ({ png, detection } = await demoReference(input.reference!));
+    }
+    const label = input.label ?? cls.label;
+    const crop = await maskedCrop(png, detection);
+    const referenceAsset = store.asset(id, 'reference.png', shown ?? png);
+    const cropAsset = store.asset(id, 'item-crop.png', crop.png);
+    // 3. The same modelling as objects: part masks and Spark's check when live.
+    const drafted = await draftModel(meta, store, id, {
+      crop,
+      cropUrl: toDataUrl(crop.png),
+      label,
+      archetype: cls.archetype,
+      material: cls.material,
+      // A desk photo is taken from the pinned camera; a photo of one thing, from above.
+      elevation: input.box ? pinElevation(store.memory(mode), mode) : null,
+      live,
+      knownHeight: cls.sizeCm.h / Math.max(cls.sizeCm.w, cls.sizeCm.d),
+    });
+    usage = addUsage(usage, drafted.usage);
+    const isMonitor = /\b(monitor|display|screen)\b/i.test(label);
+    const draftedItem = isMonitor ? monitorItem(label, false) : uniqueParts(drafted.item);
+    const savedModel: SavedItem = {
+      ...draftedItem,
+      source: live ? 'spark' : 'demo',
+      segmentRunId: null,
+      swatches: drafted.fitted.swatches,
+      updatedAt: new Date().toISOString(),
+      fit: {
+        archetype: drafted.fitted.archetype,
+        params: drafted.params,
+        iou: drafted.score.iou,
+        deltaE: drafted.score.deltaE,
+        elevation: drafted.fitted.elevation,
+        views: 1,
+        crop: cropAsset,
+        cropPx: { width: crop.width, height: crop.height },
+        assists: [
+          `${live ? 'Spark' : 'Demo'}: ${cls.archetype}, ${cls.material}. ${cls.description}`,
+          ...drafted.assists,
+        ],
+      },
+    };
+    // A saved product it names (what the person typed, or what Spark read on it) has
+    // its real size; the catalog only, so this costs nothing.
+    const usual = sizeInTiles(cls.sizeCm);
+    const known = new Catalog([productsDir, BUNDLED_CATALOG]).find(
+      [input.label, cls.label, cls.description].filter(Boolean).join(' '),
+    );
+    const real = known && productSize(known.facts, usual);
+    const product = real ? (known.facts.name ?? known.facts.query) : null;
+    if (product) savedModel.fit!.assists.push(`Sized as the ${product}, from saved products`);
+    const seeded = defaultFixtureStates({
+      label,
+      archetype: drafted.fitted.archetype,
+      control: cls.control,
+      model: savedModel,
+    });
+    const draft: FixtureDraft = {
+      label,
+      archetype: drafted.fitted.archetype,
+      suggested: cls.control,
+      description: cls.description,
+      model: savedModel,
+      size: real ?? usual,
+      ...(product ? { product } : {}),
+      reference: { runId: id, asset: referenceAsset },
+      ...(seeded.state ? { state: seeded.state } : {}),
+      ...(seeded.states ? { states: seeded.states } : {}),
+    };
+    return {
+      output: draft,
+      assets: [referenceAsset, cropAsset, ...assets, ...drafted.assets],
+      usage,
+      ...(model ? { model } : {}),
+      requestId,
+    };
+  });
+  return { run: event, draft: event.output as FixtureDraft };
+}
+
+/**
+ * Scan and map a view: Spark lists what stays put in the photo the pinned
+ * camera took (one call), and each thing is mapped onto a scene the pin
+ * fits: its own, or the room it is a close view of. A thing found in the
+ * other scene is linked with it, so both are one fixture. A
+ * thing the scene already has is left alone; one a fixture elsewhere matches
+ * is placed with that fixture's model; anything else is added with a model
+ * fitted to what SAM outlined of it (one call for all of Spark's boxes), or
+ * a placeholder when SAM found nothing. The masks also say where each thing
+ * touches down, which a loose box doesn't. Demo mode scans the
+ * demo office through its camera, with no model call.
+ */
+export async function scanFixtures(
+  {
+    store,
+    meta,
+    run,
+    jobs,
+    entities,
+  }: Pick<RouteDeps, 'store' | 'meta' | 'run' | 'jobs' | 'entities'>,
+  { mode, imageDataUrl, scene, replace, addNew, jobId }: Parsed<typeof fixturesScanBodySchema>,
+) {
+  const live = mode === 'live';
+  liveImage(mode, imageDataUrl, 'Demo mode scans only the demo room’s camera.');
+  const before = store.memory(mode);
+  const pin = live ? before.surface : DEMO_SURFACE;
+  if (!pin || (pin.scene === 'custom' && !before.scene))
+    throw new LabError(
+      'scan_pin',
+      'Pin a surface first: the scan maps what it finds through the pin.',
+      409,
+    );
+  const target = scene ?? pin.scene;
+  if (!pinFits(pin, target))
+    throw new LabError(
+      'scan_scene',
+      'The pin is on another scene: scan its own scene, or the room it is a close view of.',
+      409,
+    );
+  const ceiling = sparkCeiling(SPARK_BUDGET.fixtureScan, 1) + META_PRICES.samPerImage;
+  if (live) meta.mustAfford(ceiling, 'A scan');
+  const job = jobs.start(jobId, SCAN_STEPS, { title: 'Scanning and mapping', mode });
+  return following(job, async () => {
+    job.run('photo');
+    const image = live
+      ? await validateImage(imageDataUrl ?? (await roomPhoto(before, store)))
+      : null;
+    // Things are mapped through the pin by where they are in the frame, so the
+    // photo must be the shape of the one the pin was set on.
+    if (
+      image &&
+      Math.abs(image.width / image.height - pin.frame.width / pin.frame.height) >
+        0.02 * (pin.frame.width / pin.frame.height)
+    )
+      throw new LabError(
+        'scan_frame',
+        imageDataUrl
+          ? `The pin was set on a ${pin.frame.width}×${pin.frame.height} frame, and this photo is ${image.width}×${image.height}. Scan a frame from the pinned camera, or pin the surface again on this photo.`
+          : `No photo was sent, and the room’s own photo is ${image.width}×${image.height}, while the pin was set on a ${pin.frame.width}×${pin.frame.height} frame. Start the pinned camera and scan what it shows, or pin the surface again on the room’s photo.`,
+        409,
+      );
+    const tracked = [before.object?.label, ...(before.others ?? []).map((o) => o.label)].filter(
+      (l): l is string => Boolean(l),
+    );
+    // What the room has already, so Spark names them as it does; without addNew, all it looks for.
+    const known = [
+      ...new Set([
+        ...(before.fixtures ?? []).filter((f) => f.scene === target).map((f) => f.label),
+        ...(target === 'custom' && before.scene
+          ? layoutThings(before.scene).map((t) => t.label)
+          : []),
+      ]),
+    ];
+    const only = addNew === false;
+    if (only && !known.length)
+      throw new LabError(
+        'scan_nothing_known',
+        'The room has no fixtures or desk things to look for yet. Tick “Add new fixtures it finds” to add what the scan sees.',
+        409,
+      );
+    const png = image ? image.bytes : await demoPhoto();
+    const frame = image
+      ? { width: image.width, height: image.height }
+      : { width: 960, height: 640 };
+    await job.done(
+      'photo',
+      image
+        ? `${image.width} × ${image.height}`
+        : 'Demo: the office from its corner camera, no model calls',
+      png,
+      SCAN_PREVIEW,
+    );
+    job.check();
+    // What each fitted model was fitted to, by its place in the scan.
+    const fits: ({ fit: ItemFitRecord; swatches: Swatch[] } | undefined)[] = [];
+    const event = await run('fixture', mode, async (id) => {
+      job.link(id);
+      // 1. Spark lists what stays put, each with a loose box.
+      job.run('list');
+      const result = image
+        ? await meta.fixtureScan(image.dataUrl, tracked, job.signal, { known, only })
+        : { output: demoFixtureScan, model: 'demo', requestId: null, usage: null };
+      job.check();
+      const scan: FixtureScan = result.output;
+      let usage: Usage | null = result.usage;
+      await job.done(
+        'list',
+        scan.things.length
+          ? `${scan.things.length} thing${scan.things.length === 1 ? '' : 's'}: ${scan.things.map((t) => t.label).join(', ')}`
+          : 'Nothing that stays put',
+        await listedPreview(png, frame, scan.things),
+        SCAN_PREVIEW,
+      );
+      const assets = image ? [store.asset(id, `source.${image.ext}`, image.bytes)] : [];
+      // 2. SAM outlines every thing from Spark's box, in one call.
+      job.run('outline');
+      const outlined = await outlinedThings(
+        { meta, store },
+        scan,
+        frame,
+        image ? await samDataUrl(image) : null,
+        id,
+        assets,
+        job.signal,
+      );
+      job.check();
+      await job.done(
+        'outline',
+        `${outlined.filter(Boolean).length} of ${scan.things.length} outlined`,
+        await outlinedPreview(
+          png,
+          frame,
+          scan.things.map((t) => t.label),
+          outlined,
+        ),
+        SCAN_PREVIEW,
+      );
+      // 3. Each outline is modelled by the fitter, with no further calls.
+      job.run('model');
+      const memory = store.memory(mode);
+      const outlines: (Outline | null)[] = [];
+      const models: (IsoItem | null)[] = [];
+      for (const [i, thing] of scan.things.entries()) {
+        const detection = outlined[i];
+        outlines.push(detection ? outlineOf(detection, frame) : null);
+        if (!detection) {
+          models.push(null);
+          continue;
+        }
+        const crop = await maskedCrop(png, detection);
+        const cropAsset = store.asset(id, `item-crop-${i + 1}.png`, crop.png);
+        assets.push(cropAsset);
+        const label = thing.label.charAt(0).toUpperCase() + thing.label.slice(1);
+        job.run('model', `${label} (${i + 1} of ${scan.things.length})`);
+        await job.show('model', crop.png);
+        job.check();
+        // Fitted locally, in about a second: Spark's check of each crop took the scan
+        // 30 s a thing and timed out on all six of one room's. "Model with AI" refines one.
+        const request = {
+          crop,
+          cropUrl: toDataUrl(crop.png),
+          label,
+          archetype: thing.archetype,
+          material: thing.material,
+          elevation: pinElevation(memory, mode),
+          knownHeight: thing.sizeCm.h / Math.max(thing.sizeCm.w, thing.sizeCm.d),
+        };
+        const drafted = await draftModel(meta, store, id, { ...request, live: false });
+        models.push(drafted.item);
+        usage = addUsage(usage, drafted.usage);
+        assets.push(...drafted.assets);
+        fits[i] = {
+          fit: {
+            archetype: drafted.fitted.archetype,
+            params: drafted.params,
+            iou: drafted.score.iou,
+            deltaE: drafted.score.deltaE,
+            elevation: drafted.fitted.elevation,
+            views: 1,
+            cropPx: { width: crop.width, height: crop.height },
+            crop: cropAsset,
+            assists: [
+              `Scan: ${thing.archetype}, ${thing.material}, outlined by SAM`,
+              ...drafted.assists,
+            ],
+          },
+          swatches: drafted.fitted.swatches,
+        };
+      }
+      const fitted = models.filter(Boolean).length;
+      await job.done(
+        'model',
+        fitted
+          ? `${fitted} model${fitted === 1 ? '' : 's'} fitted to their outlines`
+          : 'No outlines to fit',
+      );
+      // 4. Each is mapped through the pin onto the scene.
+      job.run('map');
+      const library = memory.fixtures ?? [];
+      const mapped = mapScan({
+        scan,
+        pin,
+        scene: target,
+        custom: memory.scene ?? null,
+        library,
+        room: MAX_FIXTURES - library.length,
+        entities: entities(mode),
+        outlines,
+        models,
+        dismissed: memory.dismissed ?? [],
+        replace: Boolean(replace),
+        addNew: addNew !== false,
+      });
+      await job.done(
+        'map',
+        mappedSummary(mapped),
+        await placedPreview(png, frame, mapped),
+        SCAN_PREVIEW,
+      );
+      return { ...result, usage, output: { scan, mapped }, assets };
+    });
+    // Stopped while the last step ran: nothing is saved.
+    job.check();
+    job.run('save');
+    const { mapped } = event.output as { scan: FixtureScan; mapped: MappedThing[] };
+    // Read again: the scan took a while, and the memory may have changed meanwhile.
+    const memory = store.memory(mode);
+    const library = memory.fixtures ?? [];
+    const now = new Date().toISOString();
+    // A link joins the other scene's group, named after its first fixture.
+    const linkWith = (m: MappedThing) => {
+      const other = m.linkTo ? library.find((f) => f.id === m.linkTo) : undefined;
+      if (!other) return undefined;
+      other.link = fixtureGroup(other);
+      return other.link;
+    };
+    for (const m of mapped) {
+      const here = m.match === 'existing' ? library.find((f) => f.id === m.fixtureId) : undefined;
+      // The scan placed it again, so it stays the scan's to place.
+      if (here && m.moveTo)
+        Object.assign(here, m.moveTo, {
+          scanned: true,
+          ...(m.seen ? { seen: m.seen } : {}),
+          updatedAt: now,
+        });
+      const fit = fits[mapped.indexOf(m)];
+      if (here && m.remodel && fit)
+        here.model = {
+          ...uniqueParts(m.remodel),
+          source: 'sampled',
+          segmentRunId: null,
+          swatches: fit.swatches,
+          updatedAt: now,
+          fit: fit.fit,
+        };
+      const link = here && linkWith(m);
+      if (here && link) {
+        for (const f of linkedFixtures(library, here)) f.link = link;
+        here.link = link;
+      }
+    }
+    const added: Fixture[] = mapped.flatMap((m, i) => {
+      if (!m.fixture) return [];
+      const link = linkWith(m);
+      const fit = m.match === 'fitted' ? fits[i] : undefined;
+      const known = m.match === 'library' ? library.find((f) => f.id === m.fixtureId) : undefined;
+      const { model, states: _states, ...rest } = m.fixture;
+      return [
+        {
+          ...rest,
+          id: randomUUID(),
+          model: known
+            ? { ...known.model, ...uniqueParts(model), updatedAt: now }
+            : {
+                ...uniqueParts(model),
+                source: fit ? 'sampled' : 'placeholder',
+                segmentRunId: null,
+                swatches: fit?.swatches ?? [],
+                updatedAt: now,
+                fit: fit?.fit ?? null,
+              },
+          ...(known?.states ? { states: known.states } : {}),
+          state: known?.state ?? null,
+          ...(link ? { link } : {}),
+          scanned: true,
+          ...(m.seen ? { seen: m.seen } : {}),
+          createdAt: now,
+          updatedAt: now,
+        },
+      ];
+    });
+    // A fixture saved meanwhile may have taken a place the scan counted on.
+    memory.fixtures = [...library, ...added].slice(0, MAX_FIXTURES);
+    if (target === 'custom' && memory.scene) memory.scene = withLayoutMoves(memory.scene, mapped);
+    store.saveMemory(memory);
+    await job.done(
+      'save',
+      `${memory.fixtures.length} fixture${memory.fixtures.length === 1 ? '' : 's'} in the workspace`,
+    );
+    job.finish();
+    return { run: event, mapped, memory };
+  });
+}
+
+/**
+ * Model a fixture in our own parts with Spark, starting from its current
+ * model and the picture of it: its cut-out from the room's picture when it
+ * was lifted, else the crop its model was fitted to, else the crop of it a
+ * room draft kept (seen from the room's camera). Spark revises the parts
+ * against a render of the model (one call), then once more against a render
+ * of its own draft (a second), and the draft whose silhouette matches the
+ * picture better is kept, with any parts the person locked. Live only.
+ */
+export async function sculptFixture(
+  {
+    store,
+    meta,
+    run,
+    jobs,
+    productsDir,
+  }: Pick<RouteDeps, 'store' | 'meta' | 'run' | 'jobs' | 'productsDir'>,
+  { mode, fixtureId, jobId, note }: Parsed<typeof fixturesSculptBodySchema>,
+) {
+  if (mode !== 'live')
+    throw new LabError(
+      'sculpt_demo',
+      'Modelling with AI asks Spark, so it runs in Live mode. The demo’s fixtures keep their fitted models.',
+    );
+  const memory = store.memory(mode);
+  const fixture = memory.fixtures?.find((f) => f.id === fixtureId);
+  if (!fixture) throw new LabError('fixture_missing', 'That fixture is gone.', 404);
+  // The picture of it: its cut-out, or its own or a linked copy's, else its fitted crop,
+  // else the room draft's crop, looked at from where the room's camera is.
+  const group = new Set([
+    fixture.id,
+    ...linkedFixtures(memory.fixtures ?? [], fixture).map((f) => f.id),
+  ]);
+  const activeModel = fixtureModel(fixture);
+  const activeRef = fixtureReference(fixture);
+  const activeSize = fixtureSize(fixture);
+  const sprite = memory.illustration?.layers?.sprites.find((x) => group.has(x.fixtureId));
+  const crop = activeModel.fit?.crop ?? fixture.model.fit?.crop;
+  const camera = calibrationOf(memory)?.camera;
+  const drafted = () => {
+    if (!activeRef || fixture.scene !== 'custom' || !memory.scene || !camera) return null;
+    const box = fixtureBox(fixture, memory.scene);
+    const centre = {
+      x: box.at.x + box.size.w / 2,
+      y: box.at.y + box.size.d / 2,
+      z: box.at.z,
+    };
+    return {
+      png: store.readAsset(activeRef.asset),
+      elevation: elevationAt(camera, centre),
+    };
+  };
+  const pictured = sprite
+    ? { png: store.readAsset(sprite.asset), elevation: ISO_ELEVATION }
+    : crop
+      ? {
+          png: store.readAsset(crop),
+          elevation: (activeModel.fit ?? fixture.model.fit)!.elevation,
+        }
+      : drafted();
+  if (!pictured?.png)
+    throw new LabError(
+      'sculpt_picture',
+      `There is no picture of the ${fixture.label.toLowerCase()} to model it from. Lift the fixtures off the room’s picture, or draft it from a photo.`,
+      409,
+    );
+  // A note is looked up as a product first: the catalog, then the web.
+  const ceiling =
+    SCULPT_DRAFTS * sparkCeiling(SPARK_BUDGET.sculpt, 2) +
+    (note
+      ? sparkCeiling(SPARK_BUDGET.productLookup, 0) + SEARCH_CEILING * META_PRICES.webSearchPerQuery
+      : 0);
+  meta.mustAfford(ceiling, 'Modelling it');
+  const png = pictured.png;
+  const { elevation } = pictured;
+  const input = await cropInput(png, fixture.label);
+  const greyscale = await isGreyscale(png);
+  const { width = 0, height = 0 } = await sharp(png).metadata();
+  const small = Math.max(width, height) < SCULPT_SMALL_PX;
+  // A room camera's crop is shown at least 3× larger, so Spark doesn't read it as a speck.
+  const shown = async (b: Buffer, enlarge = false) => {
+    let image = sharp(b).flatten({ background: SCULPT_BACKDROP });
+    if (enlarge && small)
+      image = image.resize({
+        width: Math.max(1, width) * Math.ceil((SCULPT_SMALL_PX * 3) / Math.max(width, height)),
+        kernel: 'lanczos3',
+      });
+    return toDataUrl(await image.png().toBuffer());
+  };
+  // Its proportions: the fixture's, until a lookup gives the product's own.
+  const proportions = (s: { w: number; d: number; h: number }) => {
+    const longest = Math.max(s.w, s.d);
+    return { w: s.w / longest, d: s.d / longest, h: s.h / longest };
+  };
+  let size = proportions(activeSize);
+  const steps = note
+    ? [SCULPT_STEPS[0]!, { id: 'lookup', label: 'Look it up' }, ...SCULPT_STEPS.slice(1)]
+    : SCULPT_STEPS;
+  const job = jobs.start(jobId, steps, {
+    title: `Modelling the ${fixture.label.toLowerCase()}`,
+    mode,
+  });
+  const overlap = (iou: number) => `${Math.round(iou * 100)}% overlap with the picture`;
+  const parts = (n: number) => `${n} part${n === 1 ? '' : 's'}`;
+  const sculptSteps = async (id: string) => {
+    job.link(id);
+    const assets = [store.asset(id, 'picture.png', png)];
+    await job.done(
+      'picture',
+      sprite ? 'Its cut-out from the room’s picture' : 'The photo crop its model was fitted to',
+      png,
+    );
+    let usage: Usage | null = null;
+    let model: string | undefined;
+    let requestId: string | null = null;
+    let facts: MergedFacts | null = null;
+    let productTiles: { w: number; d: number; h: number } | null = null;
+    // A note is looked up alongside the drafts, not before them (the web took 48 s): what
+    // the catalog knows goes into Spark's prompt at once; what the web finds sizes the
+    // saved model and is kept, so the same thing next time comes from the catalog.
+    const catalog = new Catalog([productsDir, BUNDLED_CATALOG]);
+    const web: Researcher = {
+      kind: 'web',
+      lookup: async (q, need) => {
+        const r = await meta.lookupProduct(q, need, job.signal);
+        usage = addUsage(usage, r.usage);
+        return r.output.facts;
+      },
+    };
+    const need = ['parts', 'colors'] as const;
+    if (note) {
+      job.run('lookup');
+      const known = await research(note, need, [catalog], { signal: job.signal }).catch(() => null);
+      facts = known?.facts.sources.length ? known.facts : null;
+      const real = facts && productSize(facts, activeSize);
+      if (real) {
+        productTiles = real;
+        size = proportions(real);
+      }
+    }
+    // The lookup only helps: when it fails, Spark models from the note and the picture.
+    const looked = note
+      ? research(note, need, [catalog, web], { signal: job.signal }).then(
+          (found) => ({ found, failed: null }),
+          (e: unknown) => ({
+            found: null,
+            failed: e instanceof Error ? e.message : 'It failed.',
+          }),
+        )
+      : null;
+    const context = { note: note ?? null, facts, greyscale, small };
+    const from: IsoItem = { label: activeModel.label, parts: activeModel.parts };
+    job.run('current');
+    const render = await viewPng(from, elevation, input.width);
+    assets.push(store.asset(id, 'render-1.png', render));
+    await job.done(
+      'current',
+      `${parts(from.parts.length)}, ${overlap(scoreAgainst(from, input, elevation).iou)}`,
+      render,
+    );
+    job.run('draft');
+    const [picture, current] = await Promise.all([shown(png, true), shown(render)]);
+    const prompt = sculptPrompt(fixture.label, size, context);
+    const answers = await Promise.allSettled(
+      Array.from({ length: SCULPT_DRAFTS }, () =>
+        meta.sculpt(
+          picture,
+          current,
+          prompt,
+          JSON.stringify(toSculpt(from)),
+          job.signal,
+          12,
+          'low',
+        ),
+      ),
+    );
+    job.check();
+    const drafts: { item: IsoItem; iou: number; note: string }[] = [];
+    for (const answer of answers) {
+      if (answer.status !== 'fulfilled') continue;
+      usage = addUsage(usage, answer.value.usage);
+      model = answer.value.model;
+      requestId = answer.value.requestId;
+      const item = fromSculpt(activeModel.label, answer.value.output);
+      if (item)
+        drafts.push({
+          item,
+          iou: scoreAgainst(item, input, elevation).iou,
+          note: answer.value.output.note,
+        });
+    }
+    const best = drafts.sort((a, b) => b.iou - a.iou)[0];
+    if (!best) {
+      const failed = answers.find((a) => a.status === 'rejected');
+      if (failed) throw failed.reason;
+      throw new LabError(
+        'sculpt_empty',
+        `Spark’s model of the ${fixture.label.toLowerCase()} had no usable parts. Try again.`,
+        502,
+      );
+    }
+    const drafted = await viewPng(best.item, elevation, input.width);
+    assets.push(store.asset(id, 'render-2.png', drafted));
+    await job.done(
+      'draft',
+      `${parts(best.item.parts.length)}, ${overlap(best.iou)}, the best of ${drafts.length}. ${best.note}`,
+      drafted,
+    );
+    if (best.iou < SCULPT_FLOOR)
+      throw new LabError(
+        'sculpt_miss',
+        `Spark’s best model of the ${fixture.label.toLowerCase()} overlaps the picture by ${Math.round(best.iou * 100)}%, so it is something else; its model is kept as it was. Say what it is and try again.`,
+        502,
+      );
+    if (looked && note) {
+      const { found, failed } = await looked;
+      job.check();
+      const product = found?.facts.sources.length ? found.facts : null;
+      if (product?.origin.name === 'web' || product?.origin.size === 'web')
+        try {
+          catalog.save({ ...product, query: note });
+        } catch {
+          /* keeping it is a convenience; the model doesn't depend on it */
+        }
+      facts = product ?? facts;
+      const real = facts && productSize(facts, activeSize);
+      if (real) productTiles = real;
+      await job.done(
+        'lookup',
+        product && found
+          ? `${product.name ?? 'Found it'} (${found.asked.map((a) => `${a.kind}${a.found ? ' ✓' : ' –'}`).join(' · ')})`
+          : failed
+            ? `Couldn’t look it up (${failed}); modelled from your note and the picture`
+            : 'Nothing found; modelled from your note and the picture',
+      );
+    }
+    job.run('keep');
+    const item = keepLocked(best.item, activeModel);
+    const final = await viewPng(item, elevation, input.width);
+    assets.push(store.asset(id, 'render-final.png', final));
+    const kept = item.parts.length - best.item.parts.length;
+    await job.done(
+      'keep',
+      `The best of ${drafts.length} drafts, ${overlap(best.iou)}` +
+        (kept > 0 ? `, with ${parts(kept)} you locked` : ''),
+      final,
+    );
+    return {
+      output: {
+        sculpted: fixture.id,
+        label: fixture.label,
+        parts: item.parts.length,
+        iou: best.iou,
+        note: best.note,
+        item,
+        ...(note ? { asked: note, product: facts?.name ?? null } : {}),
+        // The product's size in tiles, laid as this fixture stands; the save gives it the fixture.
+        ...(productTiles ? { size: productTiles } : {}),
+        greyscale,
+      },
+      model,
+      requestId,
+      usage,
+      assets,
+    };
+  };
+  // A failure shows on the step that was running; the run records it too.
+  return following(job, async () => {
+    const event = await run('fixture', mode, (id) => sculptSteps(id));
+    // Stopped while the last step ran: nothing is saved.
+    job.check();
+    const out = event.output as SculptOutput;
+    const fresh = store.memory(mode);
+    fresh.fixtures = withSculpt(fresh.fixtures ?? [], fixture, out, activeModel.swatches);
+    store.saveMemory(fresh);
+    await job.done(
+      'save',
+      `Saved${group.size > 1 ? ` here and in ${group.size - 1} linked view${group.size > 2 ? 's' : ''}` : ''}` +
+        (out.size
+          ? `, sized as the product: ${[out.size.w, out.size.d, out.size.h].map((t) => Math.round(t * 30)).join(' × ')} cm`
+          : ''),
+    );
+    job.finish();
+    return { memory: fresh, run: event };
+  });
+}
+
 /**
  * Fixtures: things placed in a room by hand, never tracked. Saving checks
  * where one stands and what it switches; controlling one is an explicit
  * action recorded like the lamp test.
  */
-export function fixtureRoutes(
+export async function fixtureRoutes(
   app: FastifyInstance,
-  {
-    store,
-    meta,
-    run,
-    control,
-    entities,
-    productsDir,
-    sam3d = null,
-    jobs,
-  }: {
-    store: EvidenceStore;
-    meta: MetaAdapter;
-    run: Runner;
-    jobs: Jobs;
-    control: Control;
-    entities: (mode: Mode) => string[];
-    /** Where looked-up products are kept, as the AI brush keeps them. */
-    productsDir: string;
-    /** SAM 3D on a masked crop, giving a splat's PLY bytes; null when it isn't set up. */
-    sam3d?: ((crop: Buffer, signal?: AbortSignal) => Promise<Buffer>) | null;
-  },
+  deps: Pick<
+    RouteDeps,
+    'store' | 'meta' | 'run' | 'jobs' | 'control' | 'entities' | 'productsDir' | 'sam3d'
+  >,
 ) {
-  /**
-   * Draft a fixture from a reference photo: one thing, filling most of the
-   * frame. Its mask is cut out and modelled by the same fitter as objects,
-   * and sized for the scene it is meant for. Nothing is saved; the draft
-   * comes back for the person to name, choose a control for, and place.
-   * Demo mode drafts from the bundled illustrations only.
-   */
-  app.post('/api/fixtures/draft', async (request) => {
-    const input = parseInput(
-      z
-        .object({
-          mode: modeSchema,
-          scene: z.union([isoSceneKindSchema, z.literal('custom')]),
-          /** Demo: one of the bundled pictures. */
-          reference: z.enum(DEMO_REFERENCES).optional(),
-          /** Live: the person's photo of the thing, or the desk photo a box is drawn on. */
-          imageDataUrl: z.string().max(7_000_000).optional(),
-          /**
-           * A box drawn around the thing on a desk photo, in thousandths: the
-           * live photo sent with it, or the demo camera's frame in the demo.
-           */
-          box: z
-            .object({
-              x1: z.number().int().min(0).max(1000),
-              y1: z.number().int().min(0).max(1000),
-              x2: z.number().int().min(0).max(1000),
-              y2: z.number().int().min(0).max(1000),
-            })
-            .strict()
-            .refine((b) => b.x2 > b.x1 && b.y2 > b.y1, { message: 'The box must have an area.' })
-            .optional(),
-          /** What the person says it is; Spark is told, and it names the draft. */
-          label: z.string().trim().min(1).max(40).optional(),
-        })
-        .strict(),
-      request.body,
-    );
-    const { mode, scene } = input;
-    const live = mode === 'live';
-    if (live ? input.reference : input.imageDataUrl || !input.reference === !input.box)
-      throw new LabError(
-        'demo_image',
-        live
-          ? 'Live mode drafts from your own photo, not the bundled pictures.'
-          : 'Demo mode drafts from a bundled picture or a box in the demo office.',
-      );
-    const custom = store.memory(mode).scene;
-    if (scene === 'custom' && !custom)
-      throw new LabError(
-        'fixture_place',
-        'Save your own scene before drafting fixtures for it.',
-        409,
-      );
-    // Refuse up front rather than stop halfway, with Spark's answer already paid for.
-    if (live && !meta.canAfford(fixtureDraftCeiling()))
-      throw new LabError(
-        'spend_limit',
-        `A fixture draft could cost up to $${fixtureDraftCeiling().toFixed(3)}, which would pass today's Meta spending limit. Raise the limit in Setup, or wait for the next UTC day.`,
-        429,
-      );
-    const event = await run('fixture', mode, async (id) => {
-      let usage: Usage | null = null;
-      let model: string | undefined;
-      let requestId: string | null = null;
-      const assets: string[] = [];
-      // 1. The photo, and what is in it: Spark live, the hand-written class in the demo.
-      let png: Buffer;
-      let cls: FixtureClass;
-      let detection: Detection;
-      // What the review shows: the photo of the thing, or the part of the desk photo boxed.
-      let shown: Buffer | null = null;
-      if (input.box && !live) {
-        const box = promptBox({ box: input.box }, { width: 960, height: 640 })!;
-        const thing = await demoDeskThing(box);
-        if (!thing)
-          throw new LabError(
-            'fixture_none',
-            'Nothing is outlined there. Box the mug, the book or the bottle.',
-            422,
-          );
-        ({ png, detection, cls } = thing);
-        shown = await around(png, box);
-      } else if (input.box) {
-        // A box on the desk photo: Spark sees only what is around the box, and
-        // SAM outlines the thing from the person's own box on the whole photo.
-        const image = await validateImage(input.imageDataUrl);
-        png = image.bytes;
-        const frame = { width: image.width, height: image.height };
-        const box = promptBox({ box: input.box }, frame);
-        if (!box) throw new LabError('fixture_none', 'The box is too small to outline.', 422);
-        shown = await around(png, box);
-        const named = await meta.fixtureClass(
-          `data:image/png;base64,${shown.toString('base64')}`,
-          input.label,
-        );
-        cls = named.output;
-        usage = named.usage;
-        model = named.model;
-        requestId = named.requestId;
-        const outlined = await meta.segmentBoxes(
-          image.dataUrl,
-          [{ id: 1, box }],
-          frame.width,
-          frame.height,
-        );
-        assets.push(store.asset(id, 'sam-output.txt', outlined.raw));
-        const found = [...outlined.output.detections].sort(
-          (a, b) => b.mask.foregroundPixels - a.mask.foregroundPixels,
-        )[0];
-        if (!found)
-          throw new LabError(
-            'fixture_none',
-            `Couldn’t outline the ${cls.label.toLowerCase()} in that box. Draw it a little larger.`,
-            422,
-          );
-        detection = found;
-      } else if (live) {
-        const image = await validateImage(input.imageDataUrl);
-        png = image.bytes;
-        const named = await meta.fixtureClass(image.dataUrl, input.label);
-        cls = named.output;
-        usage = named.usage;
-        model = named.model;
-        requestId = named.requestId;
-        // 2. SAM outlines whatever is inside Spark's box.
-        const frame = { width: image.width, height: image.height };
-        const box = promptBox(cls, frame);
-        if (!box)
-          throw new LabError('fixture_none', `The ${cls.label} is too small in the photo.`, 422);
-        const outlined = await meta.segmentBoxes(
-          image.dataUrl,
-          [{ id: 1, box }],
-          frame.width,
-          frame.height,
-        );
-        assets.push(store.asset(id, 'sam-output.txt', outlined.raw));
-        const found = [...outlined.output.detections].sort(
-          (a, b) => b.mask.foregroundPixels - a.mask.foregroundPixels,
-        )[0];
-        if (!found)
-          throw new LabError(
-            'fixture_none',
-            `Couldn’t find the ${cls.label.toLowerCase()} in the photo. Try one thing, filling most of the frame.`,
-            422,
-          );
-        detection = found;
-      } else {
-        cls = demoFixtureClass[input.reference!];
-        ({ png, detection } = await demoReference(input.reference!));
-      }
-      const label = input.label ?? cls.label;
-      const crop = await maskedCrop(png, detection);
-      const referenceAsset = store.asset(id, 'reference.png', shown ?? png);
-      const cropAsset = store.asset(id, 'item-crop.png', crop.png);
-      // 3. The same modelling as objects: part masks and Spark's check when live.
-      const drafted = await draftModel(meta, store, id, {
-        crop,
-        cropUrl: `data:image/png;base64,${crop.png.toString('base64')}`,
-        label,
-        archetype: cls.archetype,
-        material: cls.material,
-        // A desk photo is taken from the pinned camera; a photo of one thing, from above.
-        elevation: input.box ? pinElevation(store.memory(mode), mode) : null,
-        live,
-        knownHeight: cls.sizeCm.h / Math.max(cls.sizeCm.w, cls.sizeCm.d),
-      });
-      if (drafted.usage)
-        usage = usage
-          ? {
-              inputTokens: usage.inputTokens + drafted.usage.inputTokens,
-              outputTokens: usage.outputTokens + drafted.usage.outputTokens,
-              totalTokens: usage.totalTokens + drafted.usage.totalTokens,
-            }
-          : drafted.usage;
-      const isMonitor = /\b(monitor|display|screen)\b/i.test(label);
-      const draftedItem = isMonitor ? monitorItem(label, false) : uniqueParts(drafted.item);
-      const savedModel: SavedItem = {
-        ...draftedItem,
-        source: live ? 'spark' : 'demo',
-        segmentRunId: null,
-        swatches: drafted.fitted.swatches,
-        updatedAt: new Date().toISOString(),
-        fit: {
-          archetype: drafted.fitted.archetype,
-          params: drafted.params,
-          iou: drafted.score.iou,
-          deltaE: drafted.score.deltaE,
-          elevation: drafted.fitted.elevation,
-          views: 1,
-          crop: cropAsset,
-          cropPx: { width: crop.width, height: crop.height },
-          assists: [
-            `${live ? 'Spark' : 'Demo'}: ${cls.archetype}, ${cls.material}. ${cls.description}`,
-            ...drafted.assists,
-          ],
-        },
-      };
-      // A saved product it names (what the person typed, or what Spark read on it) has
-      // its real size; the catalog only, so this costs nothing.
-      const usual = sizeInTiles(cls.sizeCm);
-      const known = new Catalog([productsDir, BUNDLED_CATALOG]).find(
-        [input.label, cls.label, cls.description].filter(Boolean).join(' '),
-      );
-      const real = known && productSize(known.facts, usual);
-      const product = real ? (known.facts.name ?? known.facts.query) : null;
-      if (product) savedModel.fit!.assists.push(`Sized as the ${product}, from saved products`);
-      const seeded = defaultFixtureStates({
-        label,
-        archetype: drafted.fitted.archetype,
-        control: cls.control,
-        model: savedModel,
-      });
-      const draft: FixtureDraft = {
-        label,
-        archetype: drafted.fitted.archetype,
-        suggested: cls.control,
-        description: cls.description,
-        model: savedModel,
-        size: real ?? usual,
-        ...(product ? { product } : {}),
-        reference: { runId: id, asset: referenceAsset },
-        ...(seeded.state ? { state: seeded.state } : {}),
-        ...(seeded.states ? { states: seeded.states } : {}),
-      };
-      return {
-        output: draft,
-        assets: [referenceAsset, cropAsset, ...assets, ...drafted.assets],
-        usage,
-        ...(model ? { model } : {}),
-        requestId,
-      };
-    });
-    return { run: event, draft: event.output as FixtureDraft };
-  });
-  /**
-   * Scan and map a view: Spark lists what stays put in the photo the pinned
-   * camera took (one call), and each thing is mapped onto a scene the pin
-   * fits: its own, or the room it is a close view of. A thing found in the
-   * other scene is linked with it, so both are one fixture. A
-   * thing the scene already has is left alone; one a fixture elsewhere matches
-   * is placed with that fixture's model; anything else is added with a model
-   * fitted to what SAM outlined of it (one call for all of Spark's boxes), or
-   * a placeholder when SAM found nothing. The masks also say where each thing
-   * touches down, which a loose box doesn't. Demo mode scans the
-   * demo office through its camera, with no model call.
-   */
-  app.post('/api/fixtures/scan', async (request) => {
-    const { mode, imageDataUrl, scene, replace, addNew, jobId } = parseInput(
-      z
-        .object({
-          mode: modeSchema,
-          imageDataUrl: z.string().max(7_000_000).optional(),
-          /** The scene to map into; the pin's own when left out. */
-          scene: z.union([isoSceneKindSchema, z.literal('custom')]).optional(),
-          /** Move fixtures placed by hand too, and the layout's things, to where the scan finds them. */
-          replace: z.boolean().optional(),
-          /** Add what the room doesn't have yet; false only looks for what it has. */
-          addNew: z.boolean().optional(),
-          /** The page's id for following the steps as they go. */
-          jobId: z.string().uuid().optional(),
-        })
-        .strict(),
-      request.body,
-    );
-    const live = mode === 'live';
-    if (!live && imageDataUrl)
-      throw new LabError('demo_image', 'Demo mode scans only the demo room’s camera.');
-    const before = store.memory(mode);
-    const pin = live ? before.surface : DEMO_SURFACE;
-    if (!pin || (pin.scene === 'custom' && !before.scene))
-      throw new LabError(
-        'scan_pin',
-        'Pin a surface first: the scan maps what it finds through the pin.',
-        409,
-      );
-    const target = scene ?? pin.scene;
-    if (!pinFits(pin, target))
-      throw new LabError(
-        'scan_scene',
-        'The pin is on another scene: scan its own scene, or the room it is a close view of.',
-        409,
-      );
-    const ceiling = sparkCeiling(SPARK_BUDGET.fixtureScan, 1) + META_PRICES.samPerImage;
-    if (live && !meta.canAfford(ceiling))
-      throw new LabError(
-        'spend_limit',
-        `A scan could cost up to $${ceiling.toFixed(3)}, which would pass today's Meta spending limit. Raise the limit in Setup, or wait for the next UTC day.`,
-        429,
-      );
-    const job = jobs.start(jobId, SCAN_STEPS, { title: 'Scanning and mapping', mode });
-    return following(job, async () => {
-      job.run('photo');
-      const image = live
-        ? await validateImage(imageDataUrl ?? (await roomPhoto(before, store)))
-        : null;
-      // Things are mapped through the pin by where they are in the frame, so the
-      // photo must be the shape of the one the pin was set on.
-      if (
-        image &&
-        Math.abs(image.width / image.height - pin.frame.width / pin.frame.height) >
-          0.02 * (pin.frame.width / pin.frame.height)
-      )
-        throw new LabError(
-          'scan_frame',
-          imageDataUrl
-            ? `The pin was set on a ${pin.frame.width}×${pin.frame.height} frame, and this photo is ${image.width}×${image.height}. Scan a frame from the pinned camera, or pin the surface again on this photo.`
-            : `No photo was sent, and the room’s own photo is ${image.width}×${image.height}, while the pin was set on a ${pin.frame.width}×${pin.frame.height} frame. Start the pinned camera and scan what it shows, or pin the surface again on the room’s photo.`,
-          409,
-        );
-      const tracked = [before.object?.label, ...(before.others ?? []).map((o) => o.label)].filter(
-        (l): l is string => Boolean(l),
-      );
-      // What the room has already, so Spark names them as it does; without addNew, all it looks for.
-      const known = [
-        ...new Set([
-          ...(before.fixtures ?? []).filter((f) => f.scene === target).map((f) => f.label),
-          ...(target === 'custom' && before.scene
-            ? layoutThings(before.scene).map((t) => t.label)
-            : []),
-        ]),
-      ];
-      const only = addNew === false;
-      if (only && !known.length)
-        throw new LabError(
-          'scan_nothing_known',
-          'The room has no fixtures or desk things to look for yet. Tick “Add new fixtures it finds” to add what the scan sees.',
-          409,
-        );
-      const png = image ? image.bytes : await demoPhoto();
-      const frame = image
-        ? { width: image.width, height: image.height }
-        : { width: 960, height: 640 };
-      await job.done(
-        'photo',
-        image
-          ? `${image.width} × ${image.height}`
-          : 'Demo: the office from its corner camera, no model calls',
-        png,
-        SCAN_PREVIEW,
-      );
-      job.check();
-      // What each fitted model was fitted to, by its place in the scan.
-      const fits: ({ fit: ItemFitRecord; swatches: Swatch[] } | undefined)[] = [];
-      const event = await run('fixture', mode, async (id) => {
-        job.link(id);
-        // 1. Spark lists what stays put, each with a loose box.
-        job.run('list');
-        const result = image
-          ? await meta.fixtureScan(image.dataUrl, tracked, job.signal, { known, only })
-          : { output: demoFixtureScan, model: 'demo', requestId: null, usage: null };
-        job.check();
-        const scan: FixtureScan = result.output;
-        let usage: Usage | null = result.usage;
-        await job.done(
-          'list',
-          scan.things.length
-            ? `${scan.things.length} thing${scan.things.length === 1 ? '' : 's'}: ${scan.things.map((t) => t.label).join(', ')}`
-            : 'Nothing that stays put',
-          await listedPreview(png, frame, scan.things),
-          SCAN_PREVIEW,
-        );
-        const assets = image ? [store.asset(id, `source.${image.ext}`, image.bytes)] : [];
-        // 2. SAM outlines every thing from Spark's box, in one call.
-        job.run('outline');
-        const outlined = await outlinedThings(
-          { meta, store },
-          scan,
-          frame,
-          image ? await samDataUrl(image) : null,
-          id,
-          assets,
-          job.signal,
-        );
-        job.check();
-        await job.done(
-          'outline',
-          `${outlined.filter(Boolean).length} of ${scan.things.length} outlined`,
-          await outlinedPreview(
-            png,
-            frame,
-            scan.things.map((t) => t.label),
-            outlined,
-          ),
-          SCAN_PREVIEW,
-        );
-        // 3. Each outline is modelled by the fitter, with no further calls.
-        job.run('model');
-        const memory = store.memory(mode);
-        const outlines: (Outline | null)[] = [];
-        const models: (IsoItem | null)[] = [];
-        for (const [i, thing] of scan.things.entries()) {
-          const detection = outlined[i];
-          outlines.push(detection ? outlineOf(detection, frame) : null);
-          if (!detection) {
-            models.push(null);
-            continue;
-          }
-          const crop = await maskedCrop(png, detection);
-          const cropAsset = store.asset(id, `item-crop-${i + 1}.png`, crop.png);
-          assets.push(cropAsset);
-          const label = thing.label.charAt(0).toUpperCase() + thing.label.slice(1);
-          job.run('model', `${label} (${i + 1} of ${scan.things.length})`);
-          await job.show('model', crop.png);
-          job.check();
-          // Fitted locally, in about a second: Spark's check of each crop took the scan
-          // 30 s a thing and timed out on all six of one room's. "Model with AI" refines one.
-          const request = {
-            crop,
-            cropUrl: `data:image/png;base64,${crop.png.toString('base64')}`,
-            label,
-            archetype: thing.archetype,
-            material: thing.material,
-            elevation: pinElevation(memory, mode),
-            knownHeight: thing.sizeCm.h / Math.max(thing.sizeCm.w, thing.sizeCm.d),
-          };
-          const drafted = await draftModel(meta, store, id, { ...request, live: false });
-          models.push(drafted.item);
-          usage = sumUsage(usage, drafted.usage);
-          assets.push(...drafted.assets);
-          fits[i] = {
-            fit: {
-              archetype: drafted.fitted.archetype,
-              params: drafted.params,
-              iou: drafted.score.iou,
-              deltaE: drafted.score.deltaE,
-              elevation: drafted.fitted.elevation,
-              views: 1,
-              cropPx: { width: crop.width, height: crop.height },
-              crop: cropAsset,
-              assists: [
-                `Scan: ${thing.archetype}, ${thing.material}, outlined by SAM`,
-                ...drafted.assists,
-              ],
-            },
-            swatches: drafted.fitted.swatches,
-          };
-        }
-        const fitted = models.filter(Boolean).length;
-        await job.done(
-          'model',
-          fitted
-            ? `${fitted} model${fitted === 1 ? '' : 's'} fitted to their outlines`
-            : 'No outlines to fit',
-        );
-        // 4. Each is mapped through the pin onto the scene.
-        job.run('map');
-        const library = memory.fixtures ?? [];
-        const mapped = mapScan({
-          scan,
-          pin,
-          scene: target,
-          custom: memory.scene ?? null,
-          library,
-          room: MAX_FIXTURES - library.length,
-          entities: entities(mode),
-          outlines,
-          models,
-          dismissed: memory.dismissed ?? [],
-          replace: Boolean(replace),
-          addNew: addNew !== false,
-        });
-        await job.done(
-          'map',
-          mappedSummary(mapped),
-          await placedPreview(png, frame, mapped),
-          SCAN_PREVIEW,
-        );
-        return { ...result, usage, output: { scan, mapped }, assets };
-      });
-      // Stopped while the last step ran: nothing is saved.
-      job.check();
-      job.run('save');
-      const { mapped } = event.output as { scan: FixtureScan; mapped: MappedThing[] };
-      // Read again: the scan took a while, and the memory may have changed meanwhile.
-      const memory = store.memory(mode);
-      const library = memory.fixtures ?? [];
-      const now = new Date().toISOString();
-      // A link joins the other scene's group, named after its first fixture.
-      const linkWith = (m: MappedThing) => {
-        const other = m.linkTo ? library.find((f) => f.id === m.linkTo) : undefined;
-        if (!other) return undefined;
-        other.link = fixtureGroup(other);
-        return other.link;
-      };
-      for (const m of mapped) {
-        const here = m.match === 'existing' ? library.find((f) => f.id === m.fixtureId) : undefined;
-        // The scan placed it again, so it stays the scan's to place.
-        if (here && m.moveTo)
-          Object.assign(here, m.moveTo, {
-            scanned: true,
-            ...(m.seen ? { seen: m.seen } : {}),
-            updatedAt: now,
-          });
-        const fit = fits[mapped.indexOf(m)];
-        if (here && m.remodel && fit)
-          here.model = {
-            ...uniqueParts(m.remodel),
-            source: 'sampled',
-            segmentRunId: null,
-            swatches: fit.swatches,
-            updatedAt: now,
-            fit: fit.fit,
-          };
-        const link = here && linkWith(m);
-        if (here && link) {
-          for (const f of linkedFixtures(library, here)) f.link = link;
-          here.link = link;
-        }
-      }
-      const added: Fixture[] = mapped.flatMap((m, i) => {
-        if (!m.fixture) return [];
-        const link = linkWith(m);
-        const fit = m.match === 'fitted' ? fits[i] : undefined;
-        const known = m.match === 'library' ? library.find((f) => f.id === m.fixtureId) : undefined;
-        const { model, states: _states, ...rest } = m.fixture;
-        return [
-          {
-            ...rest,
-            id: randomUUID(),
-            model: known
-              ? { ...known.model, ...uniqueParts(model), updatedAt: now }
-              : {
-                  ...uniqueParts(model),
-                  source: fit ? 'sampled' : 'placeholder',
-                  segmentRunId: null,
-                  swatches: fit?.swatches ?? [],
-                  updatedAt: now,
-                  fit: fit?.fit ?? null,
-                },
-            ...(known?.states ? { states: known.states } : {}),
-            state: known?.state ?? null,
-            ...(link ? { link } : {}),
-            scanned: true,
-            ...(m.seen ? { seen: m.seen } : {}),
-            createdAt: now,
-            updatedAt: now,
-          },
-        ];
-      });
-      // A fixture saved meanwhile may have taken a place the scan counted on.
-      memory.fixtures = [...library, ...added].slice(0, MAX_FIXTURES);
-      if (target === 'custom' && memory.scene) memory.scene = withLayoutMoves(memory.scene, mapped);
-      store.saveMemory(memory);
-      await job.done(
-        'save',
-        `${memory.fixtures.length} fixture${memory.fixtures.length === 1 ? '' : 's'} in the workspace`,
-      );
-      job.finish();
-      return { run: event, mapped, memory };
-    });
-  });
-  /**
-   * Model a fixture in our own parts with Spark, starting from its current
-   * model and the picture of it: its cut-out from the room's picture when it
-   * was lifted, else the crop its model was fitted to, else the crop of it a
-   * room draft kept (seen from the room's camera). Spark revises the parts
-   * against a render of the model (one call), then once more against a render
-   * of its own draft (a second), and the draft whose silhouette matches the
-   * picture better is kept, with any parts the person locked. Live only.
-   */
-  app.post('/api/fixtures/sculpt', async (request) => {
-    const { mode, fixtureId, jobId, note } = parseInput(
-      z
-        .object({
-          mode: modeSchema,
-          fixtureId: z.string().uuid(),
-          /** The page's id for following the steps as they go. */
-          jobId: z.string().uuid().optional(),
-          /** What the person says it is or wants of it: "it's a Dyson bladeless fan". */
-          note: z.string().trim().min(1).max(300).optional(),
-        })
-        .strict(),
-      request.body,
-    );
-    if (mode !== 'live')
-      throw new LabError(
-        'sculpt_demo',
-        'Modelling with AI asks Spark, so it runs in Live mode. The demo’s fixtures keep their fitted models.',
-      );
-    const memory = store.memory(mode);
-    const fixture = memory.fixtures?.find((f) => f.id === fixtureId);
-    if (!fixture) throw new LabError('fixture_missing', 'That fixture is gone.', 404);
-    // The picture of it: its cut-out, or its own or a linked copy's, else its fitted crop,
-    // else the room draft's crop, looked at from where the room's camera is.
-    const group = new Set([
-      fixture.id,
-      ...linkedFixtures(memory.fixtures ?? [], fixture).map((f) => f.id),
-    ]);
-    const activeModel = fixtureModel(fixture);
-    const activeRef = fixtureReference(fixture);
-    const activeSize = fixtureSize(fixture);
-    const sprite = memory.illustration?.layers?.sprites.find((x) => group.has(x.fixtureId));
-    const crop = activeModel.fit?.crop ?? fixture.model.fit?.crop;
-    const camera = calibrationOf(memory)?.camera;
-    const drafted = () => {
-      if (!activeRef || fixture.scene !== 'custom' || !memory.scene || !camera) return null;
-      const box = fixtureBox(fixture, memory.scene);
-      const centre = {
-        x: box.at.x + box.size.w / 2,
-        y: box.at.y + box.size.d / 2,
-        z: box.at.z,
-      };
-      return {
-        png: store.readAsset(activeRef.asset),
-        elevation: elevationAt(camera, centre),
-      };
-    };
-    const pictured = sprite
-      ? { png: store.readAsset(sprite.asset), elevation: ISO_ELEVATION }
-      : crop
-        ? {
-            png: store.readAsset(crop),
-            elevation: (activeModel.fit ?? fixture.model.fit)!.elevation,
-          }
-        : drafted();
-    if (!pictured?.png)
-      throw new LabError(
-        'sculpt_picture',
-        `There is no picture of the ${fixture.label.toLowerCase()} to model it from. Lift the fixtures off the room’s picture, or draft it from a photo.`,
-        409,
-      );
-    // A note is looked up as a product first: the catalog, then the web.
-    const ceiling =
-      SCULPT_DRAFTS * sparkCeiling(SPARK_BUDGET.sculpt, 2) +
-      (note
-        ? sparkCeiling(SPARK_BUDGET.productLookup, 0) +
-          SEARCH_CEILING * META_PRICES.webSearchPerQuery
-        : 0);
-    if (!meta.canAfford(ceiling))
-      throw new LabError(
-        'spend_limit',
-        `Modelling it could cost up to $${ceiling.toFixed(3)}, which would pass today's Meta spending limit. Raise the limit in Setup, or wait for the next UTC day.`,
-        429,
-      );
-    const png = pictured.png;
-    const { elevation } = pictured;
-    const input = await cropInput(png, fixture.label);
-    const greyscale = await isGreyscale(png);
-    const { width = 0, height = 0 } = await sharp(png).metadata();
-    const small = Math.max(width, height) < SCULPT_SMALL_PX;
-    // A room camera's crop is shown at least 3× larger, so Spark doesn't read it as a speck.
-    const shown = async (b: Buffer, enlarge = false) => {
-      let image = sharp(b).flatten({ background: SCULPT_BACKDROP });
-      if (enlarge && small)
-        image = image.resize({
-          width: Math.max(1, width) * Math.ceil((SCULPT_SMALL_PX * 3) / Math.max(width, height)),
-          kernel: 'lanczos3',
-        });
-      return `data:image/png;base64,${(await image.png().toBuffer()).toString('base64')}`;
-    };
-    // Its proportions: the fixture's, until a lookup gives the product's own.
-    const proportions = (s: { w: number; d: number; h: number }) => {
-      const longest = Math.max(s.w, s.d);
-      return { w: s.w / longest, d: s.d / longest, h: s.h / longest };
-    };
-    let size = proportions(activeSize);
-    const steps = note
-      ? [SCULPT_STEPS[0]!, { id: 'lookup', label: 'Look it up' }, ...SCULPT_STEPS.slice(1)]
-      : SCULPT_STEPS;
-    const job = jobs.start(jobId, steps, {
-      title: `Modelling the ${fixture.label.toLowerCase()}`,
-      mode,
-    });
-    const overlap = (iou: number) => `${Math.round(iou * 100)}% overlap with the picture`;
-    const parts = (n: number) => `${n} part${n === 1 ? '' : 's'}`;
-    const sculptSteps = async (id: string) => {
-      job.link(id);
-      const assets = [store.asset(id, 'picture.png', png)];
-      await job.done(
-        'picture',
-        sprite ? 'Its cut-out from the room’s picture' : 'The photo crop its model was fitted to',
-        png,
-      );
-      let usage: Usage | null = null;
-      let model: string | undefined;
-      let requestId: string | null = null;
-      let facts: MergedFacts | null = null;
-      let productTiles: { w: number; d: number; h: number } | null = null;
-      // A note is looked up alongside the drafts, not before them (the web took 48 s): what
-      // the catalog knows goes into Spark's prompt at once; what the web finds sizes the
-      // saved model and is kept, so the same thing next time comes from the catalog.
-      const catalog = new Catalog([productsDir, BUNDLED_CATALOG]);
-      const web: Researcher = {
-        kind: 'web',
-        lookup: async (q, need) => {
-          const r = await meta.lookupProduct(q, need, job.signal);
-          usage = sumUsage(usage, r.usage);
-          return r.output.facts;
-        },
-      };
-      const need = ['parts', 'colors'] as const;
-      if (note) {
-        job.run('lookup');
-        const known = await research(note, need, [catalog], { signal: job.signal }).catch(
-          () => null,
-        );
-        facts = known?.facts.sources.length ? known.facts : null;
-        const real = facts && productSize(facts, activeSize);
-        if (real) {
-          productTiles = real;
-          size = proportions(real);
-        }
-      }
-      // The lookup only helps: when it fails, Spark models from the note and the picture.
-      const looked = note
-        ? research(note, need, [catalog, web], { signal: job.signal }).then(
-            (found) => ({ found, failed: null }),
-            (e: unknown) => ({
-              found: null,
-              failed: e instanceof Error ? e.message : 'It failed.',
-            }),
-          )
-        : null;
-      const context = { note: note ?? null, facts, greyscale, small };
-      const from: IsoItem = { label: activeModel.label, parts: activeModel.parts };
-      job.run('current');
-      const render = await viewPng(from, elevation, input.width);
-      assets.push(store.asset(id, 'render-1.png', render));
-      await job.done(
-        'current',
-        `${parts(from.parts.length)}, ${overlap(scoreAgainst(from, input, elevation).iou)}`,
-        render,
-      );
-      job.run('draft');
-      const [picture, current] = await Promise.all([shown(png, true), shown(render)]);
-      const prompt = sculptPrompt(fixture.label, size, context);
-      const answers = await Promise.allSettled(
-        Array.from({ length: SCULPT_DRAFTS }, () =>
-          meta.sculpt(
-            picture,
-            current,
-            prompt,
-            JSON.stringify(toSculpt(from)),
-            job.signal,
-            12,
-            'low',
-          ),
-        ),
-      );
-      job.check();
-      const drafts: { item: IsoItem; iou: number; note: string }[] = [];
-      for (const answer of answers) {
-        if (answer.status !== 'fulfilled') continue;
-        usage = sumUsage(usage, answer.value.usage);
-        model = answer.value.model;
-        requestId = answer.value.requestId;
-        const item = fromSculpt(activeModel.label, answer.value.output);
-        if (item)
-          drafts.push({
-            item,
-            iou: scoreAgainst(item, input, elevation).iou,
-            note: answer.value.output.note,
-          });
-      }
-      const best = drafts.sort((a, b) => b.iou - a.iou)[0];
-      if (!best) {
-        const failed = answers.find((a) => a.status === 'rejected');
-        if (failed) throw failed.reason;
-        throw new LabError(
-          'sculpt_empty',
-          `Spark’s model of the ${fixture.label.toLowerCase()} had no usable parts. Try again.`,
-          502,
-        );
-      }
-      const drafted = await viewPng(best.item, elevation, input.width);
-      assets.push(store.asset(id, 'render-2.png', drafted));
-      await job.done(
-        'draft',
-        `${parts(best.item.parts.length)}, ${overlap(best.iou)}, the best of ${drafts.length}. ${best.note}`,
-        drafted,
-      );
-      if (best.iou < SCULPT_FLOOR)
-        throw new LabError(
-          'sculpt_miss',
-          `Spark’s best model of the ${fixture.label.toLowerCase()} overlaps the picture by ${Math.round(best.iou * 100)}%, so it is something else; its model is kept as it was. Say what it is and try again.`,
-          502,
-        );
-      if (looked && note) {
-        const { found, failed } = await looked;
-        job.check();
-        const product = found?.facts.sources.length ? found.facts : null;
-        if (product?.origin.name === 'web' || product?.origin.size === 'web')
-          try {
-            catalog.save({ ...product, query: note });
-          } catch {
-            /* keeping it is a convenience; the model doesn't depend on it */
-          }
-        facts = product ?? facts;
-        const real = facts && productSize(facts, activeSize);
-        if (real) productTiles = real;
-        await job.done(
-          'lookup',
-          product && found
-            ? `${product.name ?? 'Found it'} (${found.asked.map((a) => `${a.kind}${a.found ? ' ✓' : ' –'}`).join(' · ')})`
-            : failed
-              ? `Couldn’t look it up (${failed}); modelled from your note and the picture`
-              : 'Nothing found; modelled from your note and the picture',
-        );
-      }
-      job.run('keep');
-      const item = keepLocked(best.item, activeModel);
-      const final = await viewPng(item, elevation, input.width);
-      assets.push(store.asset(id, 'render-final.png', final));
-      const kept = item.parts.length - best.item.parts.length;
-      await job.done(
-        'keep',
-        `The best of ${drafts.length} drafts, ${overlap(best.iou)}` +
-          (kept > 0 ? `, with ${parts(kept)} you locked` : ''),
-        final,
-      );
-      return {
-        output: {
-          sculpted: fixture.id,
-          label: fixture.label,
-          parts: item.parts.length,
-          iou: best.iou,
-          note: best.note,
-          item,
-          ...(note ? { asked: note, product: facts?.name ?? null } : {}),
-          // The product's size in tiles, laid as this fixture stands; the save gives it the fixture.
-          ...(productTiles ? { size: productTiles } : {}),
-          greyscale,
-        },
-        model,
-        requestId,
-        usage,
-        assets,
-      };
-    };
-    // A failure shows on the step that was running; the run records it too.
-    return following(job, async () => {
-      const event = await run('fixture', mode, (id) => sculptSteps(id));
-      // Stopped while the last step ran: nothing is saved.
-      job.check();
-      const out = event.output as SculptOutput;
-      const fresh = store.memory(mode);
-      fresh.fixtures = withSculpt(fresh.fixtures ?? [], fixture, out, activeModel.swatches);
-      store.saveMemory(fresh);
-      await job.done(
-        'save',
-        `Saved${group.size > 1 ? ` here and in ${group.size - 1} linked view${group.size > 2 ? 's' : ''}` : ''}` +
-          (out.size
-            ? `, sized as the product: ${[out.size.w, out.size.d, out.size.h].map((t) => Math.round(t * 30)).join(' × ')} cm`
-            : ''),
-      );
-      job.finish();
-      return { memory: fresh, run: event };
-    });
-  });
+  const { store, meta, run, control, entities, sam3d = null, jobs } = deps;
+  app.post('/draft', async (request) =>
+    draftFixture(deps, parseInput(fixturesDraftBodySchema, request.body)),
+  );
+  app.post('/scan', async (request) =>
+    scanFixtures(deps, parseInput(fixturesScanBodySchema, request.body)),
+  );
+  app.post('/sculpt', async (request) =>
+    sculptFixture(deps, parseInput(fixturesSculptBodySchema, request.body)),
+  );
   /**
    * Put a past modelling job's model back on its fixture, as it saved it then,
    * with no model call: the model it replaces is kept as an earlier draft.
    */
-  app.post('/api/fixtures/sculpt/reapply', async (request) => {
-    const { mode, jobId } = parseInput(
-      z.object({ mode: modeSchema, jobId: z.string().uuid() }).strict(),
-      request.body,
-    );
+  app.post('/sculpt/reapply', async (request) => {
+    const { mode, jobId } = parseInput(fixturesSculptReapplyBodySchema, request.body);
     const found = sculptRunOf(jobs.get(jobId), (id) => store.getRun(id));
     if (!found || found.run.mode !== mode)
       throw new LabError('reapply_missing', 'That AI run has no model to apply again.', 404);
@@ -1305,17 +1227,8 @@ export function fixtureRoutes(
    * crop is than the last one's. Its crop becomes the fixture's picture. The
    * demo uses its own close photos: the mug's, or a bundled picture by name.
    */
-  app.post('/api/fixtures/photo', async (request) => {
-    const { mode, fixtureId, imageDataUrl } = parseInput(
-      z
-        .object({
-          mode: modeSchema,
-          fixtureId: z.string().uuid(),
-          imageDataUrl: z.string().max(7_000_000).optional(),
-        })
-        .strict(),
-      request.body,
-    );
+  app.post('/photo', async (request) => {
+    const { mode, fixtureId, imageDataUrl } = parseInput(fixturesPhotoBodySchema, request.body);
     const live = mode === 'live';
     if (live !== Boolean(imageDataUrl))
       throw new LabError(
@@ -1325,12 +1238,7 @@ export function fixtureRoutes(
     const memory = store.memory(mode);
     const fixture = memory.fixtures?.find((f) => f.id === fixtureId);
     if (!fixture) throw new LabError('fixture_missing', 'That fixture is gone.', 404);
-    if (live && !meta.canAfford(fixtureDraftCeiling()))
-      throw new LabError(
-        'spend_limit',
-        `Fitting another photo could cost up to $${fixtureDraftCeiling().toFixed(3)}, which would pass today's Meta spending limit. Raise the limit in Setup, or wait for the next UTC day.`,
-        429,
-      );
+    if (live) meta.mustAfford(fixtureDraftCeiling(), 'Fitting another photo');
     const active = fixtureModel(fixture);
     const previous = active.fit ?? null;
     const event = await run('fixture', mode, async (id) => {
@@ -1391,7 +1299,7 @@ export function fixtureRoutes(
       const size = fixtureSize(fixture);
       const drafted = await draftModel(meta, store, id, {
         crop,
-        cropUrl: `data:image/png;base64,${crop.png.toString('base64')}`,
+        cropUrl: toDataUrl(crop.png),
         label: fixture.label,
         archetype,
         material: cls?.material ?? null,
@@ -1399,7 +1307,7 @@ export function fixtureRoutes(
         live,
         knownHeight: size.h / Math.max(size.w, size.d),
       });
-      usage = sumUsage(usage, drafted.usage);
+      usage = addUsage(usage, drafted.usage);
       assets.push(...drafted.assets);
       let { params, item, score } = drafted;
       let views = 1;
@@ -1461,13 +1369,8 @@ export function fixtureRoutes(
    * takes minutes, longer than a request may stay open, so it answers at
    * once and the page follows the job. Only turned bodies, for now.
    */
-  app.post('/api/fixtures/refine3d', async (request) => {
-    const { mode, fixtureId, jobId } = parseInput(
-      z
-        .object({ mode: modeSchema, fixtureId: z.string().uuid(), jobId: z.string().uuid() })
-        .strict(),
-      request.body,
-    );
+  app.post('/refine3d', async (request) => {
+    const { mode, fixtureId, jobId } = parseInput(fixturesRefine3dBodySchema, request.body);
     if (!sam3d)
       throw new LabError(
         'sam3d_off',
@@ -1576,21 +1479,8 @@ export function fixtureRoutes(
    * with what it was chosen over (`fixture-picks.jsonl` in the data folder),
    * as examples of which modeller people prefer for which things.
    */
-  app.post('/api/fixtures/choose', async (request) => {
-    const { mode, fixtureId, draft } = parseInput(
-      z
-        .object({
-          mode: modeSchema,
-          fixtureId: z.string().uuid(),
-          draft: z
-            .number()
-            .int()
-            .min(0)
-            .max(MAX_DRAFTS - 1),
-        })
-        .strict(),
-      request.body,
-    );
+  app.post('/choose', async (request) => {
+    const { mode, fixtureId, draft } = parseInput(fixturesChooseBodySchema, request.body);
     const memory = store.memory(mode);
     const fixture = memory.fixtures?.find((f) => f.id === fixtureId);
     if (!fixture) throw new LabError('fixture_missing', 'That fixture is gone.', 404);
@@ -1624,11 +1514,8 @@ export function fixtureRoutes(
     });
     return memory;
   });
-  app.post('/api/fixtures/save', async (request) => {
-    const { mode, fixture: input } = parseInput(
-      z.object({ mode: modeSchema, fixture: fixtureInputSchema }).strict(),
-      request.body,
-    );
+  app.post('/save', async (request) => {
+    const { mode, fixture: input } = parseInput(fixturesSaveBodySchema, request.body);
     const memory = store.memory(mode);
     const fixtures = memory.fixtures ?? [];
     const previous = input.id ? fixtures.find((f) => f.id === input.id) : undefined;
@@ -1776,32 +1663,9 @@ export function fixtureRoutes(
     store.saveMemory(memory);
     return memory;
   });
-  /**
-   * The photo a drafted room's pin was set on, at the pin's frame size, for
-   * checking the pin's corners on it after the page has lost its photo.
-   */
-  app.get('/api/scene/photo', async (request, reply) => {
-    const { mode } = parseInput(z.object({ mode: modeSchema }).strict(), request.query);
-    const memory = store.memory(mode);
-    const bytes = mode === 'live' ? roomPhotoBytes(memory, store) : null;
-    if (!bytes || !memory.surface)
-      throw new LabError('photo_missing', 'This room has no photo of its own kept.', 404);
-    const { width, height } = memory.surface.frame;
-    // A photo of another shape is from another camera: stretched, its desk would
-    // pass for the pinned camera's, and the pin would be dragged onto the wrong view.
-    const size = await sharp(bytes).metadata();
-    if (Math.abs(size.width! / size.height! - width / height) > 0.02 * (width / height))
-      throw new LabError(
-        'photo_shape',
-        `The room’s photo is ${size.width}×${size.height}, and the pin was set on ${width}×${height} frames from another camera. Start that camera to check the pin on what it shows.`,
-        409,
-      );
-    const png = await sharp(bytes).resize(width, height, { fit: 'fill' }).png().toBuffer();
-    return reply.type('image/png').header('cache-control', 'no-cache').send(png);
-  });
   /** The reference photo a fixture was drafted from, for review and the inspector. */
-  app.get('/api/fixtures/reference', async (request, reply) => {
-    const { runId } = parseInput(z.object({ runId: z.string().uuid() }).strict(), request.query);
+  app.get('/reference', async (request, reply) => {
+    const { runId } = parseInput(fixturesReferenceQuerySchema, request.query);
     const drafted = store.getRun(runId);
     const png = drafted?.kind === 'fixture' ? store.readAsset(`${runId}/reference.png`) : null;
     if (!png) throw new LabError('fixture_reference', 'That draft has no reference photo.', 404);
@@ -1819,17 +1683,8 @@ export function fixtureRoutes(
    * call). The demo picks the render's outlines under that box.
    * Saved as an ordinary segmentation of the fixture's name.
    */
-  app.post('/api/fixtures/find', async (request) => {
-    const { mode, id, imageDataUrl } = parseInput(
-      z
-        .object({
-          mode: modeSchema,
-          id: z.string().uuid(),
-          imageDataUrl: z.string().max(7_000_000).optional(),
-        })
-        .strict(),
-      request.body,
-    );
+  app.post('/find', async (request) => {
+    const { mode, id, imageDataUrl } = parseInput(fixturesFindBodySchema, request.body);
     const memory = store.memory(mode);
     const fixture = memory.fixtures?.find((f) => f.id === id);
     if (!fixture)
@@ -1847,8 +1702,7 @@ export function fixtureRoutes(
     const concept = fixture.label.trim().toLowerCase();
     if (mode === 'live' && !imageDataUrl)
       throw new LabError('fixture_frame', 'Send a camera frame to look in.', 400);
-    if (mode === 'demo' && imageDataUrl)
-      throw new LabError('demo_image', 'Demo mode uses only the demo room’s camera.');
+    liveImage(mode, imageDataUrl);
     return run('segment', mode, async (runId) => {
       // Grown by half its size each way: the place is a guess, SAM finds the edge.
       const grow = (b: typeof expected, sx: number, sy: number, w: number, h: number) => {
@@ -1908,19 +1762,9 @@ export function fixtureRoutes(
     });
   });
   /** Delete one fixture, or several at once (`fixtureIds`), in one save. */
-  app.post('/api/fixtures/delete', async (request) => {
+  app.post('/delete', async (request) => {
     const { mode, fixtureId, fixtureIds, dismiss } = parseInput(
-      z
-        .object({
-          mode: modeSchema,
-          fixtureId: z.string().uuid().optional(),
-          fixtureIds: z.array(z.string().uuid()).min(1).max(MAX_FIXTURES).optional(),
-          dismiss: z.boolean().optional(),
-        })
-        .strict()
-        .refine((b) => Boolean(b.fixtureId) !== Boolean(b.fixtureIds), {
-          message: 'Give fixtureId or fixtureIds.',
-        }),
+      fixturesDeleteBodySchema,
       request.body,
     );
     const ids = new Set(fixtureIds ?? [fixtureId!]);
@@ -1939,24 +1783,16 @@ export function fixtureRoutes(
     return memory;
   });
   /** Hand every fixture of a scene back to scans, to place and refit on the next one. */
-  app.post('/api/fixtures/release', async (request) => {
-    const { mode, scene } = parseInput(
-      z
-        .object({ mode: modeSchema, scene: z.union([isoSceneKindSchema, z.literal('custom')]) })
-        .strict(),
-      request.body,
-    );
+  app.post('/release', async (request) => {
+    const { mode, scene } = parseInput(fixturesReleaseBodySchema, request.body);
     const memory = store.memory(mode);
     for (const f of memory.fixtures ?? []) if (f.scene === scene) f.scanned = true;
     store.saveMemory(memory);
     return memory;
   });
   /** Let scans find a dismissed name again. */
-  app.post('/api/fixtures/undismiss', async (request) => {
-    const { mode, label } = parseInput(
-      z.object({ mode: modeSchema, label: z.string().min(1).max(40) }).strict(),
-      request.body,
-    );
+  app.post('/undismiss', async (request) => {
+    const { mode, label } = parseInput(fixturesUndismissBodySchema, request.body);
     const memory = store.memory(mode);
     memory.dismissed = (memory.dismissed ?? []).filter((d) => d !== label);
     store.saveMemory(memory);
@@ -1966,25 +1802,14 @@ export function fixtureRoutes(
    * Switch a fixture's active state, or add/edit/remove a custom state with its
    * own unique fixture model, size or reference.
    */
-  app.post('/api/fixtures/state', async (request) => {
+  app.post('/state', async (request) => {
     const {
       mode,
       fixtureId,
       state,
       fixture: stateInput,
       remove,
-    } = parseInput(
-      z
-        .object({
-          mode: modeSchema,
-          fixtureId: z.string().uuid(),
-          state: fixtureStateNameSchema.nullable().optional(),
-          fixture: fixtureStateInputSchema.optional(),
-          remove: fixtureStateNameSchema.optional(),
-        })
-        .strict(),
-      request.body,
-    );
+    } = parseInput(fixturesStateBodySchema, request.body);
     const memory = store.memory(mode);
     const target = memory.fixtures?.find((f) => f.id === fixtureId);
     if (!target)
@@ -2052,22 +1877,9 @@ export function fixtureRoutes(
    * Switch a fixture's light or switch, a fixture's state/pose, or a configured
    * entity directly: a lamp that is part of the room's layout has no fixture of its own.
    */
-  app.post('/api/fixtures/control', async (request) => {
+  app.post('/control', async (request) => {
     const { mode, fixtureId, entityId, part, action } = parseInput(
-      z
-        .object({
-          mode: modeSchema,
-          fixtureId: z.string().uuid().optional(),
-          entityId: entityIdSchema.optional(),
-          /** One of the fixture's light sources, switched by its own entity. */
-          part: z.string().min(1).max(24).optional(),
-          action: fixtureStateNameSchema,
-        })
-        .strict()
-        .refine((x) => Boolean(x.fixtureId) !== Boolean(x.entityId), {
-          message: 'Name a fixture or an entity, not both.',
-        })
-        .refine((x) => !x.part || x.fixtureId, { message: 'A light source is a fixture’s.' }),
+      fixturesControlBodySchema,
       request.body,
     );
     let entity = entityId ?? null;

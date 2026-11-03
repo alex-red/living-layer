@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { renderRoomAsync } from './workers/compute.js';
-import { z } from 'zod';
 import {
+  sceneFitBodySchema,
   calibrationOf,
   DEMO_CAMERA,
   DEMO_ROOM,
@@ -11,8 +11,6 @@ import {
   groupBounds,
   groupInFrame,
   ISO_TILE_CM,
-  isoSceneSchema,
-  modeSchema,
   roomMask,
   sceneSolids,
   type IsoScene,
@@ -20,12 +18,10 @@ import {
   type Segmentation,
 } from '@livinglayer/domain';
 import { samWhole } from './assist.js';
-import { LabError, parseInput } from './errors.js';
-import { samDataUrl, validateImage } from './images.js';
-import type { Runner } from './item.js';
-import type { MetaAdapter } from './meta.js';
+import { LabError, liveImage, parseInput } from './errors.js';
+import { samDataUrl, requireFrame, validateImage } from './images.js';
+import type { RouteDeps } from './route-deps.js';
 import { NOT_CALIBRATED } from './photo.js';
-import type { EvidenceStore } from './store.js';
 
 /**
  * Fit one prop of the scene being edited to where the room's camera sees it:
@@ -34,30 +30,19 @@ import type { EvidenceStore } from './store.js';
  * round if that fits better, until its drawing matches (`fitGroup`). Nothing
  * is saved: the editor takes the scene and the person saves it.
  */
-export function sceneFitRoutes(
+export async function sceneFitRoutes(
   app: FastifyInstance,
-  { store, meta, run }: { store: EvidenceStore; meta: MetaAdapter; run: Runner },
+  { store, meta, run }: Pick<RouteDeps, 'store' | 'meta' | 'run'>,
 ) {
-  app.post('/api/scene/fit', async (request): Promise<SceneFit> => {
-    const { mode, scene, group, imageDataUrl } = parseInput(
-      z
-        .object({
-          mode: modeSchema,
-          scene: isoSceneSchema,
-          group: z.string().min(1).max(48),
-          imageDataUrl: z.string().max(7_000_000).optional(),
-        })
-        .strict(),
-      request.body,
-    );
+  app.post('/fit', async (request): Promise<SceneFit> => {
+    const { mode, scene, group, imageDataUrl } = parseInput(sceneFitBodySchema, request.body);
     const camera = mode === 'demo' ? DEMO_CAMERA : calibrationOf(store.memory(mode))?.camera;
     if (!camera) throw new LabError('not_calibrated', NOT_CALIBRATED, 409);
     if (!groupBounds(scene as IsoScene, group))
       throw new LabError('fit_group', 'That prop isn’t in the scene.', 404);
     if (mode === 'live' && !imageDataUrl)
       throw new LabError('fit_frame', 'Send a frame of the room’s camera to fit it to.', 400);
-    if (mode === 'demo' && imageDataUrl)
-      throw new LabError('demo_image', 'Demo mode uses only the demo room’s camera.');
+    liveImage(mode, imageDataUrl);
     const { width, height } = camera.frame;
     // Its drawing's box, grown by a quarter each way: where it stands is the guess being corrected.
     const box = groupInFrame(camera, scene as IsoScene, group, 1 / 4);
@@ -76,12 +61,7 @@ export function sceneFitRoutes(
         return { output };
       }
       const image = await validateImage(imageDataUrl!);
-      if (image.width !== width || image.height !== height)
-        throw new LabError(
-          'not_calibrated',
-          `This frame is ${image.width} × ${image.height}, but the room’s camera was calibrated on ${width} × ${height} frames.`,
-          409,
-        );
+      requireFrame(image, { width, height });
       const result = await meta.segmentBoxes(
         await samDataUrl(image),
         [{ id: 1, box }],

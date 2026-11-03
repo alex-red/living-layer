@@ -1,26 +1,24 @@
 import type { FastifyInstance } from 'fastify';
 import { createHash } from 'node:crypto';
-import { z } from 'zod';
 import {
+  modeImageSchema,
+  modeOnlySchema,
+  roomCalibrateBodySchema,
   ISO_PRESETS,
   META_PRICES,
-  cameraCropSchema,
   cameraEdges,
   MOVED_CAMERA,
   cameraFromMarks,
   fitLimit,
   convexHull,
   demoSourceKey,
-  isoSceneKindSchema,
   isoSurface,
   maskBits,
   marksFromFloor,
   marksFromWalls,
-  modeSchema,
   pinOf,
   ISO_TILE_CM,
   type IsoScene,
-  roomMarksSchema,
   type CameraCrop,
   type DeskMemory,
   type EvidenceRun,
@@ -30,12 +28,11 @@ import {
   type RoomMarks,
   type Segmentation,
 } from '@livinglayer/domain';
-import { LabError, parseInput } from './errors.js';
+import { LabError, liveImage, parseInput } from './errors.js';
 import { demoPng, demoSegmentation } from './demo.js';
 import { lumaOf } from './frames.js';
-import { samDataUrl, validateImage, type ValidatedImage } from './images.js';
-import type { Runner } from './item.js';
-import type { MetaAdapter } from './meta.js';
+import { samDataUrl, requireFrame, validateImage, type ValidatedImage } from './images.js';
+import type { RouteDeps } from './route-deps.js';
 import type { EvidenceStore } from './store.js';
 
 export interface FloorMarks {
@@ -46,11 +43,6 @@ export interface FloorMarks {
   marks: RoomMarks | null;
   frame: Segmentation['frame'];
 }
-
-/** A room's size in centimetres, as a person measures it. */
-const roomCm = z
-  .object({ w: z.number().min(60).max(480), d: z.number().min(60).max(480) })
-  .strict();
 
 /** What a room calibration needs besides the marks; `room` is the inner floor in centimetres. */
 export interface CalibrateInput {
@@ -71,7 +63,7 @@ export interface CalibrateInput {
  * where the frame shows them, their far ends. Nothing is saved.
  */
 export async function findFloorMarks(
-  { store, meta, run }: { store: EvidenceStore; meta: MetaAdapter; run: Runner },
+  { store, meta, run }: Pick<RouteDeps, 'store' | 'meta' | 'run'>,
   mode: Mode,
   image: ValidatedImage | null,
 ): Promise<FloorMarks> {
@@ -246,47 +238,28 @@ export function fitRoom(
  * nothing: the person drags them into place and gives the room's size, and
  * `room/calibrate` fits the camera and saves it (`calibrateRoom`).
  */
-export function roomRoutes(
+export async function roomRoutes(
   app: FastifyInstance,
-  { store, meta, run }: { store: EvidenceStore; meta: MetaAdapter; run: Runner },
+  { store, meta, run }: Pick<RouteDeps, 'store' | 'meta' | 'run'>,
 ) {
-  app.post('/api/room/floor', async (request): Promise<FloorMarks> => {
-    const input = parseInput(
-      z.object({ mode: modeSchema, imageDataUrl: z.string().max(7_000_000).optional() }).strict(),
-      request.body,
-    );
+  app.post('/floor', async (request): Promise<FloorMarks> => {
+    const input = parseInput(modeImageSchema, request.body);
     const live = input.mode === 'live';
-    if (!live && input.imageDataUrl)
-      throw new LabError('demo_image', 'Demo mode uses only the demo room’s camera.');
-    if (live && !meta.canAfford(2 * META_PRICES.samPerImage))
-      throw new LabError(
-        'spend_limit',
+    liveImage(input.mode, input.imageDataUrl);
+    if (live)
+      meta.mustAfford(
+        2 * META_PRICES.samPerImage,
+        'Finding the floor and walls',
         "Finding the floor and walls would pass today's Meta spending limit. Raise the limit, or place the marks by hand.",
-        429,
       );
     const image = live ? await validateImage(input.imageDataUrl) : null;
     return findFloorMarks({ store, meta, run }, input.mode, image);
   });
 
-  app.post('/api/room/calibrate', async (request) => {
-    const input = parseInput(
-      z
-        .object({
-          mode: modeSchema,
-          imageDataUrl: z.string().max(7_000_000).optional(),
-          marks: roomMarksSchema,
-          room: roomCm,
-          heightCm: z.number().min(100).max(400).optional(),
-          scene: z.union([isoSceneKindSchema, z.literal('custom')]),
-          /** The zoomed view the frame was taken through, so the lens is fitted whole. */
-          crop: cameraCropSchema.nullable().optional(),
-        })
-        .strict(),
-      request.body,
-    );
+  app.post('/calibrate', async (request) => {
+    const input = parseInput(roomCalibrateBodySchema, request.body);
     const live = input.mode === 'live';
-    if (!live && input.imageDataUrl)
-      throw new LabError('demo_image', 'Demo mode uses only the demo room’s camera.');
+    liveImage(input.mode, input.imageDataUrl);
     const image = live ? await validateImage(input.imageDataUrl) : null;
     const { imageDataUrl: _, ...rest } = input;
     return calibrateRoom(store, { ...rest, image });
@@ -297,25 +270,21 @@ export function roomRoutes(
    * false alarm, or zones about to be drawn again): the current frame becomes
    * the one later frames are compared with, and zones apply again.
    */
-  app.post('/api/room/keep', async (request) => {
-    const input = parseInput(
-      z.object({ mode: modeSchema, imageDataUrl: z.string().max(7_000_000).optional() }).strict(),
-      request.body,
-    );
+  app.post('/keep', async (request) => {
+    const input = parseInput(modeImageSchema, request.body);
     const live = input.mode === 'live';
-    if (!live && input.imageDataUrl)
-      throw new LabError('demo_image', 'Demo mode uses only the demo room’s camera.');
+    liveImage(input.mode, input.imageDataUrl);
     const memory = store.memory(input.mode);
     const calibration = memory.camera;
     if (!calibration)
       throw new LabError('not_calibrated', 'Calibrate the room’s camera first.', 409);
     const image = live ? await validateImage(input.imageDataUrl) : null;
     const { frame } = calibration.camera;
-    if (image && (image.width !== frame.width || image.height !== frame.height))
-      throw new LabError(
-        'not_calibrated',
+    if (image)
+      requireFrame(
+        image,
+        frame,
         `This frame is ${image.width}×${image.height}, but the camera was calibrated at ${frame.width}×${frame.height}. Calibrate it again.`,
-        409,
       );
     const luma = await lumaOf(image ? image.bytes : await demoPng());
     const { moved: _, ...kept } = calibration;
@@ -331,8 +300,8 @@ export function roomRoutes(
     return store.memory(input.mode);
   });
 
-  app.post('/api/room/forget', async (request) => {
-    const { mode } = parseInput(z.object({ mode: modeSchema }).strict(), request.body);
+  app.post('/forget', async (request) => {
+    const { mode } = parseInput(modeOnlySchema, request.body);
     const memory = store.memory(mode);
     store.saveMemory({ ...memory, camera: null });
     return store.memory(mode);
