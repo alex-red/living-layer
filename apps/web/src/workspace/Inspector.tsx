@@ -898,7 +898,7 @@ function MugPanel() {
     useNavigation(),
     useProbes(),
   );
-  const { memory, mode, camera, busy, status, follow, localZone } = lab;
+  const { memory, mode, camera, busy, status, follow, localZone, trackingAi } = lab;
   const { currentObservation, sightings } = lab;
   const now = useNow();
   const observationStale = memory?.observation
@@ -935,25 +935,36 @@ function MugPanel() {
       tone={currentObservation ? 'chosen' : observationStale ? 'unsure' : 'seen'}
       aside={o && <Freshness observedAt={o.observedAt} />}
     >
-      <Button
-        variant="primary"
-        disabled={!lab.canTrack}
-        onClick={() => void lab.track()}
-        title="Segment the mug in the current frame, match it to the remembered mug, and check the zone"
-      >
-        {busy === 'track'
-          ? 'Tracking…'
-          : mode === 'live' && camera
-            ? 'Capture & track'
-            : 'Track the mug'}
-        <Glyph type="arrow" />
-      </Button>
+      {trackingAi ? (
+        <Button
+          variant="primary"
+          disabled={!lab.canTrack}
+          onClick={() => void lab.track()}
+          title="Segment the mug in the current frame, match it to the remembered mug, and check the zone"
+        >
+          {busy === 'track'
+            ? 'Tracking…'
+            : mode === 'live' && camera
+              ? 'Capture & track'
+              : 'Track the mug'}
+          <Glyph type="arrow" />
+        </Button>
+      ) : (
+        <LocalOutline
+          target="mug"
+          disabled={follow || !o}
+          working={busy === 'track'}
+          onOutline={(d) => void lab.track({ outline: d })}
+        />
+      )}
       <p className="micro">
-        {mode === 'demo'
-          ? 'Move the mug with the buttons under the canvas, then track it.'
-          : 'Move the mug, start the camera, then capture & track.'}
+        {!trackingAi
+          ? 'Draw round the mug where it is now to find it in this frame, on this machine.'
+          : mode === 'demo'
+            ? 'Move the mug with the buttons under the canvas, then track it.'
+            : 'Move the mug, start the camera, then capture & track.'}
       </p>
-      {status && <Cost>{estimateLabel(status.meta.estimates.segment, 'track')}</Cost>}
+      {status && trackingAi && <Cost>{estimateLabel(status.meta.estimates.segment, 'track')}</Cost>}
       <WatchControl />
       {!lab.canWatch && (
         <>
