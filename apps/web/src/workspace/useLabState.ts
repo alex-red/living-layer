@@ -328,8 +328,15 @@ export function runDetail(run: EvidenceRun): string {
     case 'lamp':
       return `state ${(run.output as LampResult).state}`;
     case 'placement': {
+      // What the zone saw happen, then what its light did.
       const p = run.output as PlacementDecision;
-      return `${p.decision} · lamp ${p.action}`;
+      const what = p.transition?.replace('_', ' ') ?? p.decision;
+      const light = p.lamp
+        ? `${p.lamp.entityId} ${p.lamp.action ?? 'on'}: ${p.action}`
+        : p.action === 'none'
+          ? 'no light switched'
+          : `light ${p.action}`;
+      return `${what} · ${light}`;
     }
     default:
       return '';
