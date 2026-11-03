@@ -96,6 +96,17 @@ const steps: Step[] = [
     look: (out) => !/^$/.test(out.trim()),
   },
   {
+    // Reports exports nothing else imports (`scripts/dead-exports.ts`). Reports until it is clean.
+    name: 'dead exports',
+    cmd: ['bun', 'run', 'dead-exports'],
+    gate: false,
+    read: (out) => {
+      const n = /(\d+) unused exports/.exec(out)?.[1];
+      return n === undefined ? 'did not run' : `${n} unused exports`;
+    },
+    look: (out) => /^[1-9]\d* unused exports/m.test(out),
+  },
+  {
     name: 'room bench',
     cmd: ['bun', 'scripts/room-bench.ts'],
     gate: false,
