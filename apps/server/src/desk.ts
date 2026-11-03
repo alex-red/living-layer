@@ -19,6 +19,7 @@ import {
   FIXTURE_MOVED,
   type Fixture,
   isoItemSchema,
+  lightLookSchema,
   objectById,
   withSighting,
   type UnitBox,
@@ -60,6 +61,7 @@ import {
   type EvidenceRun,
   type PlacementDecision,
   type LampResult,
+  type LightLook,
   type IsoScene,
   type SurfacePin,
   sceneIllustrationSchema,
@@ -70,6 +72,7 @@ import { LabError, parseInput, safeError } from './errors.js';
 import { keepLocked, rescore } from './item.js';
 import type { PhotoDraft } from './photo.js';
 import { noteControl } from './fixture.js';
+import type { SwitchOptions, Switched } from './control.js';
 import { refitToScene } from './room.js';
 
 /** A zone drawn in the room must name a surface the room has. */
@@ -85,7 +88,13 @@ export function deskRoutes(
   app: FastifyInstance,
   store: EvidenceStore,
   /** Switch the main lamp (no entity) or a light or switch, on unless told off. */
-  turnOn: (mode: Mode, entityId?: string, action?: 'on' | 'off') => Promise<LampResult>,
+  turnOn: (
+    mode: Mode,
+    entityId?: string,
+    action?: 'on' | 'off',
+    look?: LightLook,
+    options?: SwitchOptions,
+  ) => Promise<Switched>,
   /** The lights and switches rules may name. */
   entities: (mode: Mode) => string[] = () => [],
 ) {
@@ -240,12 +249,47 @@ export function deskRoutes(
     store.save(event);
     memory.lastDecision = event;
     store.saveMemory(memory);
+    const look = memory.zone?.look;
+    await dispatch(
+      mode,
+      'Main zone',
+      decision,
+      event,
+      start,
+      // The watcher's own checks don't wait for Home Assistant to report the state.
+      () => turnOn(mode, undefined, switching!, look, { background: Boolean(local) }),
+      (latest) => {
+        if (!latest.lastDecision || latest.lastDecision.id === event.id)
+          latest.lastDecision = event;
+      },
+    );
+    return event;
+  }
+  /**
+   * Switch what a decision asks for, if anything, and record how it went:
+   * once Home Assistant takes the action and, when its state is checked in
+   * the background, again once it reports it, so the next check isn't held
+   * up. `record` puts the decision back in desk memory, as it may have
+   * changed meanwhile; a newer decision there is left as it is.
+   */
+  async function dispatch(
+    mode: Mode,
+    zone: string,
+    decision: PlacementDecision,
+    event: EvidenceRun<PlacementDecision>,
+    start: number,
+    act: () => Promise<Switched>,
+    record: (memory: DeskMemory) => void,
+  ) {
+    let confirming: Promise<LampResult> | undefined;
     if (decision.action === 'pending') {
       active.add(mode);
       try {
-        decision.lamp = await turnOn(mode, undefined, switching!);
-        decision.action = decision.lamp.stateConfirmed ? 'confirmed' : 'unconfirmed';
-        event.status = decision.lamp.stateConfirmed ? 'completed' : 'unconfirmed';
+        const { confirming: later, ...lamp } = await act();
+        confirming = later;
+        decision.lamp = lamp;
+        decision.action = lamp.stateConfirmed ? 'confirmed' : 'unconfirmed';
+        event.status = lamp.stateConfirmed ? 'completed' : 'unconfirmed';
       } catch (error) {
         const safe = safeError(error);
         decision.action = 'failed';
@@ -255,15 +299,23 @@ export function deskRoutes(
         active.delete(mode);
       }
     }
-    event.durationMs = Math.round(performance.now() - start);
-    store.updateRun(event);
-    // The desk may have changed during the lamp call: apply only what it brought.
-    store.updateMemory(mode, (latest) => {
-      latest.lastDecision = event;
-      if (decision.lamp) noteControl(latest, decision.lamp);
+    const save = () => {
+      event.durationMs = Math.round(performance.now() - start);
+      store.updateRun(event);
+      store.updateMemory(mode, (latest) => {
+        record(latest);
+        if (decision.lamp) noteControl(latest, decision.lamp);
+      });
+    };
+    save();
+    if (!confirming) return logZone(mode, zone, decision);
+    void confirming.then((lamp) => {
+      decision.lamp = lamp;
+      decision.action = lamp.stateConfirmed ? 'confirmed' : 'unconfirmed';
+      event.status = lamp.stateConfirmed ? 'completed' : 'unconfirmed';
+      save();
+      logZone(mode, zone, decision);
     });
-    logZone(mode, 'Main zone', decision);
-    return event;
   }
   /**
    * A line in the server's log for each zone check that changes something: a
@@ -383,34 +435,23 @@ export function deskRoutes(
         }
         store.save(event);
         rule.lastDecision = event;
-        return { decision, event, switching, entityId: rule.entityId };
+        return { decision, event, switching, entityId: rule.entityId, look: rule.look };
       });
       if (!step) continue;
-      const { decision, event, switching, entityId } = step;
-      const start = performance.now();
-      if (decision.action === 'pending') {
-        active.add(mode);
-        try {
-          decision.lamp = await turnOn(mode, entityId!, switching!);
-          decision.action = decision.lamp.stateConfirmed ? 'confirmed' : 'unconfirmed';
-          event.status = decision.lamp.stateConfirmed ? 'completed' : 'unconfirmed';
-        } catch (error) {
-          const safe = safeError(error);
-          decision.action = 'failed';
-          decision.error = { code: safe.code, message: safe.message };
-          event.status = 'failed';
-        } finally {
-          active.delete(mode);
-        }
-      }
-      event.durationMs = Math.round(performance.now() - start);
-      store.updateRun(event);
-      store.updateMemory(mode, (memory) => {
-        const rule = memory.rules?.find((r) => r.id === ruleId);
-        if (rule) rule.lastDecision = event;
-        if (decision.lamp) noteControl(memory, decision.lamp);
-      });
-      logZone(mode, ruleLabels.get(ruleId) ?? 'Zone', decision);
+      const { decision, event, switching, entityId, look } = step;
+      await dispatch(
+        mode,
+        ruleLabels.get(ruleId) ?? 'Zone',
+        decision,
+        event,
+        performance.now(),
+        () => turnOn(mode, entityId!, switching!, look, { background: Boolean(local) }),
+        (memory) => {
+          const rule = memory.rules?.find((r) => r.id === ruleId);
+          if (rule && (!rule.lastDecision || rule.lastDecision.id === event.id))
+            rule.lastDecision = event;
+        },
+      );
       events.push(event);
     }
     return events;
@@ -520,16 +561,29 @@ export function deskRoutes(
     );
     return trackMug(mode, segmentRunId);
   });
-  /** Whether the main zone's light goes off when the mug leaves (it does unless told not to). */
-  app.post('/api/desk/zone/off', async (request) => {
-    const { mode, offWhenEmpty } = parseInput(
-      z.object({ mode: modeSchema, offWhenEmpty: z.boolean() }).strict(),
+  /**
+   * How the main zone switches its light: whether it goes off when the mug
+   * leaves (it does unless told not to), and how it looks when it comes on.
+   */
+  app.post('/api/desk/zone/options', async (request) => {
+    const { mode, offWhenEmpty, look } = parseInput(
+      z
+        .object({
+          mode: modeSchema,
+          offWhenEmpty: z.boolean().optional(),
+          look: lightLookSchema.optional(),
+        })
+        .strict(),
       request.body,
     );
     available(mode);
     const memory = store.memory(mode);
     if (!memory.zone) throw new LabError('zone_missing', 'Draw and save the zone first.', 409);
-    memory.zone = { ...memory.zone, offWhenEmpty };
+    memory.zone = {
+      ...memory.zone,
+      ...(offWhenEmpty !== undefined ? { offWhenEmpty } : {}),
+      ...(look ? { look } : {}),
+    };
     store.saveMemory(memory);
     return memory;
   });
@@ -835,6 +889,7 @@ export function deskRoutes(
       entityId: input.entityId,
       ...(input.fixtureId ? { fixtureId: input.fixtureId } : {}),
       ...(input.offWhenEmpty ? { offWhenEmpty: true } : {}),
+      ...(input.look && input.entityId?.startsWith('light.') ? { look: input.look } : {}),
       zone: {
         sourceKey: o.sourceKey,
         rect: input.rect,

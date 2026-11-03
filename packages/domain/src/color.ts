@@ -9,7 +9,7 @@ export function hexRgb(hex: string): Rgb {
   const n = parseInt(hex.slice(1), 16);
   return [n >> 16, (n >> 8) & 255, n & 255];
 }
-function rgbHex([r, g, b]: Rgb): string {
+export function rgbHex([r, g, b]: Rgb): string {
   const h = (v: number) =>
     Math.round(Math.max(0, Math.min(255, v)))
       .toString(16)

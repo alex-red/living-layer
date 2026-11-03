@@ -1,5 +1,11 @@
 import { z } from 'zod';
-import type { Detection, EvidenceRun, Segmentation } from './api.js';
+import {
+  lightLookSchema,
+  type Detection,
+  type EvidenceRun,
+  type LightLook,
+  type Segmentation,
+} from './api.js';
 import { entityIdSchema } from './fixture.js';
 import { isoSurface, projectBox, surfaceMap } from './iso.js';
 import {
@@ -153,6 +159,8 @@ export interface PlacementRule {
   fixtureId?: string;
   /** Switch the entity off when the zone empties. */
   offWhenEmpty?: boolean;
+  /** What a light does when the zone turns it on; unset keeps the bulb's own. */
+  look?: LightLook;
   zone: {
     sourceKey: string;
     rect: ZoneRect;
@@ -179,6 +187,7 @@ export const ruleInputSchema = z
     entityId: entityIdSchema.nullable(),
     fixtureId: z.string().uuid().optional(),
     offWhenEmpty: z.boolean().optional(),
+    look: lightLookSchema.optional(),
     rect: zoneRectSchema,
     onSurface: zoneOnSurfaceSchema.optional(),
   })
@@ -187,7 +196,7 @@ export const ruleInputSchema = z
   .refine((r) => r.entityId || !r.offWhenEmpty, {
     message: 'Nothing to switch off.',
   }) satisfies z.ZodType<
-  Pick<PlacementRule, 'label' | 'objects' | 'entityId' | 'fixtureId' | 'offWhenEmpty'> & {
+  Pick<PlacementRule, 'label' | 'objects' | 'entityId' | 'fixtureId' | 'offWhenEmpty' | 'look'> & {
     id?: string;
     rect: ZoneRect;
     onSurface?: ZoneOnSurface;

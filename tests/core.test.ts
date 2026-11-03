@@ -274,9 +274,13 @@ describe('lamp acceptance vs observation', () => {
       .mockResolvedValueOnce(json(state('off', attrs)))
       .mockResolvedValueOnce(json([]))
       .mockResolvedValueOnce(json(state('on', { brightness: 217, color_temp_kelvin: 3000 })));
-    const result = await new ControlAdapter(haConfig(), fetcher, async () => {}).turnOn();
+    const result = await new ControlAdapter(haConfig(), fetcher, async () => {}).turnOn(
+      'light.desk',
+      { kind: 'warm', brightness: 85 },
+    );
     expect(result.stateConfirmed).toBe(true);
     expect(result.physicalEffectVerified).toBe(false);
+    // Warm white, held to the light's own range.
     expect(JSON.parse(String(fetcher.mock.calls[1]?.[1]?.body))).toEqual({
       entity_id: 'light.desk',
       brightness_pct: 85,
@@ -284,6 +288,75 @@ describe('lamp acceptance vs observation', () => {
       transition: 0,
     });
     expect(fetcher.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(1);
+  });
+  it('keeps a light’s own colour unless the zone asks for one, and shows a colour on a colour bulb', async () => {
+    const colour = { supported_color_modes: ['color_temp', 'xy'] };
+    let lit: Record<string, unknown> = {};
+    const bodies: unknown[] = [];
+    const fetcher = mock<Fetcher>().mockImplementation(async (_url, init) => {
+      if (init?.method !== 'POST')
+        return json(state(bodies.length ? 'on' : 'off', { ...colour, ...lit }));
+      bodies.push(JSON.parse(String(init.body)));
+      return json([]);
+    });
+    const adapter = new ControlAdapter(haConfig(), fetcher, async () => {});
+    expect((await adapter.turnOn('light.desk')).stateConfirmed).toBe(true);
+    expect(bodies[0]).toEqual({ entity_id: 'light.desk', transition: 0 });
+    // A red at 60%: the bulb reports its own nearest colour, judged by hue and saturation.
+    lit = { brightness: 153, hs_color: [2, 97], rgb_color: [255, 20, 10] };
+    const red = await adapter.turnOn('light.desk', {
+      kind: 'color',
+      rgb: [255, 0, 0],
+      brightness: 60,
+    });
+    expect(bodies[1]).toEqual({
+      entity_id: 'light.desk',
+      rgb_color: [255, 0, 0],
+      brightness_pct: 60,
+      transition: 0,
+    });
+    expect(red).toMatchObject({ stateConfirmed: true, desired: { rgb_color: [255, 0, 0] } });
+    // Showing blue instead isn't the colour asked for.
+    lit = { brightness: 153, hs_color: [240, 100] };
+    expect(
+      (await adapter.turnOn('light.desk', { kind: 'color', rgb: [255, 0, 0], brightness: 60 }))
+        .stateConfirmed,
+    ).toBe(false);
+    // What it can do was read once, before the first action; then each action goes straight out.
+    const methods = fetcher.mock.calls.map(([, init]) => init?.method ?? 'GET');
+    // Read, switch, confirm; then switch, confirm, with no read first.
+    expect(methods.slice(0, 5)).toEqual(['GET', 'POST', 'GET', 'POST', 'GET']);
+  });
+  it('gives a colour look to a white bulb as its brightness', async () => {
+    const fetcher = mock<Fetcher>()
+      .mockResolvedValueOnce(json(state('off', { supported_color_modes: ['brightness'] })))
+      .mockResolvedValueOnce(json([]))
+      .mockResolvedValueOnce(json(state('on', { brightness: 102 })));
+    const result = await new ControlAdapter(haConfig(), fetcher, async () => {}).turnOn(
+      'light.desk',
+      { kind: 'color', rgb: [0, 0, 255], brightness: 40 },
+    );
+    expect(JSON.parse(String(fetcher.mock.calls[1]?.[1]?.body))).toEqual({
+      entity_id: 'light.desk',
+      brightness_pct: 40,
+      transition: 0,
+    });
+    expect(result.stateConfirmed).toBe(true);
+  });
+  it('returns once the action is taken when asked, confirming the state after', async () => {
+    let reads = 0;
+    const fetcher = mock<Fetcher>().mockImplementation(async (_url, init) =>
+      init?.method === 'POST'
+        ? json([])
+        : json(state(reads++ < 2 ? 'off' : 'on', { supported_color_modes: ['onoff'] })),
+    );
+    const switched = await new ControlAdapter(haConfig(), fetcher, async () => {}).turnOn(
+      'light.desk',
+      undefined,
+      { background: true },
+    );
+    expect(switched).toMatchObject({ accepted: true, stateConfirmed: false, state: 'switching' });
+    expect(await switched.confirming).toMatchObject({ stateConfirmed: true, state: 'on' });
   });
   it('keeps an accepted action unconfirmed if the desired state never appears', async () => {
     const fetcher = mock<Fetcher>().mockImplementation(async (_url, init) =>

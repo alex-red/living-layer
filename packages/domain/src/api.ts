@@ -47,6 +47,31 @@ export interface Segmentation {
   frame: { width: number; height: number };
   detections: Detection[];
 }
+const brightnessSchema = z.number().int().min(1).max(100);
+/**
+ * What a light does when a zone turns it on. `keep`: whatever colour and
+ * brightness it had last (Home Assistant restores them). `warm`: warm white,
+ * 2700 K, at a brightness. `color`: a colour at a brightness, on a bulb that
+ * can show one. A zone with none set keeps the bulb's own.
+ */
+export const lightLookSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('keep') }).strict(),
+  z.object({ kind: z.literal('warm'), brightness: brightnessSchema }).strict(),
+  z
+    .object({
+      kind: z.literal('color'),
+      rgb: z.tuple([
+        z.number().int().min(0).max(255),
+        z.number().int().min(0).max(255),
+        z.number().int().min(0).max(255),
+      ]),
+      brightness: brightnessSchema,
+    })
+    .strict(),
+]);
+export type LightLook = z.infer<typeof lightLookSchema>;
+/** The warm white a `warm` look asks for, kelvin. */
+export const WARM_KELVIN = 2700;
 export interface LampResult {
   entityId: string;
   /** What was asked for; results from before switches could be turned off lack it. */
@@ -57,7 +82,11 @@ export interface LampResult {
   /** Milliseconds Home Assistant took to take the action, then to report the state asked for. */
   ms?: { switch: number; confirm: number };
   state: string;
-  desired: { brightness_pct?: number; color_temp_kelvin?: number };
+  desired: {
+    brightness_pct?: number;
+    color_temp_kelvin?: number;
+    rgb_color?: [number, number, number];
+  };
   explanation: string;
 }
 export interface Usage {

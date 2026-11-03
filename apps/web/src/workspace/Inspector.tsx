@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNow } from '../useNow';
 import {
   MAX_OTHER_OBJECTS,
@@ -8,7 +8,10 @@ import {
   keyFromName,
   objectById,
   ruleWho,
+  hexRgb,
+  rgbHex,
   type DeskMemory,
+  type LightLook,
   type EvidenceRun,
   type PlacementDecision,
   ILLUSTRATION_NOTE_MAX,
@@ -1188,6 +1191,7 @@ function ZonePanel() {
           and off again when the mug leaves
         </Check>
       )}
+      {memory.zone && lab.lights[0]?.startsWith('light.') && <MainZoneLook />}
       <Details summary="Camera">
         <Check
           checked={Boolean(memory.fixedCamera)}
@@ -1206,6 +1210,95 @@ function ZonePanel() {
         </p>
       </Details>
     </Panel>
+  );
+}
+
+/**
+ * How a light looks when its zone turns it on: its own colour and brightness
+ * (Home Assistant restores them), warm white, or a colour, at a brightness.
+ */
+function LookPicker({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: LightLook | undefined;
+  onChange: (look: LightLook) => void;
+  disabled?: boolean;
+}) {
+  const look = value ?? { kind: 'keep' };
+  const brightness = look.kind === 'keep' ? 80 : look.brightness;
+  const rgb = look.kind === 'color' ? look.rgb : ([255, 120, 40] as [number, number, number]);
+  return (
+    <div className="look-picker">
+      <Select
+        aria-label="Light look"
+        value={look.kind}
+        disabled={disabled}
+        onChange={(kind) =>
+          onChange(
+            kind === 'keep'
+              ? { kind }
+              : kind === 'warm'
+                ? { kind, brightness }
+                : { kind, rgb, brightness },
+          )
+        }
+        options={[
+          { value: 'keep', label: 'in its own colour' },
+          { value: 'warm', label: 'in warm white' },
+          { value: 'color', label: 'in a colour' },
+        ]}
+      />
+      {look.kind === 'color' && (
+        <input
+          type="color"
+          aria-label="Light colour"
+          disabled={disabled}
+          value={rgbHex(look.rgb)}
+          onChange={(e) => onChange({ ...look, rgb: hexRgb(e.target.value) })}
+        />
+      )}
+      {look.kind !== 'keep' && (
+        <label className="look-brightness">
+          <input
+            type="range"
+            min={1}
+            max={100}
+            aria-label="Light brightness"
+            disabled={disabled}
+            value={look.brightness}
+            onChange={(e) => onChange({ ...look, brightness: Number(e.target.value) })}
+          />
+          <output>{look.brightness}%</output>
+        </label>
+      )}
+    </div>
+  );
+}
+
+/** The main zone's light look, saved a moment after the last change (a colour is dragged). */
+function MainZoneLook() {
+  const lab = useLab();
+  const { call, off } = useCall();
+  const saved = lab.memory?.zone?.look;
+  const [look, setLook] = useState(saved);
+  const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  useEffect(() => setLook(saved), [JSON.stringify(saved)]);
+  useEffect(() => () => clearTimeout(timer.current), []);
+  return (
+    <LookPicker
+      value={look}
+      disabled={off}
+      onChange={(next) => {
+        setLook(next);
+        clearTimeout(timer.current);
+        timer.current = setTimeout(
+          () => void call<DeskMemory>('desk/zone/options', { look: next }, lab.setMemory),
+          400,
+        );
+      }}
+    />
   );
 }
 
@@ -1441,6 +1534,12 @@ function NewRulePanel() {
             { value: '', label: 'nothing: tell Home Assistant only' },
           ]}
         />
+        {draft.entityId.startsWith('light.') && (
+          <>
+            <span />
+            <LookPicker value={draft.look} onChange={(look) => set({ look })} />
+          </>
+        )}
         <span />
         <Check
           checked={draft.offWhenEmpty && Boolean(draft.entityId)}
@@ -1470,6 +1569,9 @@ function NewRulePanel() {
                   objects: draft.objects,
                   entityId: draft.entityId || null,
                   ...(draft.offWhenEmpty && draft.entityId ? { offWhenEmpty: true } : {}),
+                  ...(draft.look && draft.entityId.startsWith('light.')
+                    ? { look: draft.look }
+                    : {}),
                   rect: draft.rect,
                   ...(draft.onSurface ? { onSurface: draft.onSurface } : {}),
                 },
