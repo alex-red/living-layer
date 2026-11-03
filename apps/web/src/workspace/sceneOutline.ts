@@ -246,7 +246,7 @@ function ruleRow(r: PlacementRule, mainLight: string): RuleRow {
   return {
     id: r.id,
     label: r.label,
-    detail: `${entity ? `→ ${entity}` : '→ Home Assistant only'}${r.placement === 'inside' ? ' · occupied' : r.placement === 'outside' ? ' · empty' : ''}`,
+    detail: `${entity ? `→ ${entity}` : '→ Home Assistant only'}${r.placement === 'inside' ? (r.motion ? ' · moving' : ' · occupied') : r.placement === 'outside' ? (r.motion ? ' · still' : ' · empty') : ''}`,
     ran: Boolean(r.lastDecision),
     inside: r.placement === 'inside',
   };

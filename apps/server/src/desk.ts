@@ -375,7 +375,8 @@ export function createDesk(
     const events: EvidenceRun<PlacementDecision>[] = [];
     const ruleLabels = new Map(
       (store.memory(mode).rules ?? [])
-        .filter((r) => !only || r.id === only)
+        // Motion zones are judged by the watcher's frames (`motionZone`), not by things.
+        .filter((r) => !r.motion && (!only || r.id === only))
         .map((r) => [r.id, r.label]),
     );
     // Each rule is judged and saved against the memory as it is then; none is held over an await.
@@ -438,44 +439,88 @@ export function createDesk(
       });
       if (!step) continue;
       const { decision, event, steps } = step;
-      const record = (memory: DeskMemory) => {
-        const rule = memory.rules?.find((r) => r.id === ruleId);
-        if (rule && (!rule.lastDecision || rule.lastDecision.id === event.id))
-          rule.lastDecision = event;
-        if (!memory.lastDecision || memory.lastDecision.id === event.id)
-          memory.lastDecision = event;
-      };
-      const only = steps.length === 1 && steps[0]!.kind === 'switch' ? steps[0]! : null;
-      if (steps.length && !only)
-        await runZoneSteps(
-          mode,
-          ruleId,
-          ruleLabels.get(ruleId) ?? 'Zone',
-          steps,
-          decision,
-          event,
-          record,
-        );
-      else {
-        // One switch is switched as a zone always has: in the background when the watcher saw it.
-        if (steps.length) stopZoneSteps(mode, ruleId);
-        await dispatch(
-          mode,
-          ruleLabels.get(ruleId) ?? 'Zone',
-          decision,
-          event,
-          performance.now(),
-          // The main zone's old entity is empty: the main light.
-          () =>
-            turnOn(mode, only!.entityId || undefined, only!.to, only!.look, {
-              background: Boolean(local),
-            }),
-          record,
-        );
-      }
+      await runActions(mode, ruleId, ruleLabels.get(ruleId) ?? 'Zone', steps, decision, event, {
+        background: Boolean(local),
+      });
       events.push(event);
     }
     return events;
+  }
+  /**
+   * Run what a zone's change asks for and record how it went. One switch is
+   * switched as a zone always has (in the background when the watcher saw
+   * it); more steps go to `runZoneSteps`.
+   */
+  async function runActions(
+    mode: Mode,
+    ruleId: string,
+    label: string,
+    steps: ZoneStep[],
+    decision: PlacementDecision,
+    event: EvidenceRun<PlacementDecision>,
+    { background }: { background: boolean },
+  ) {
+    const record = (memory: DeskMemory) => {
+      const rule = memory.rules?.find((r) => r.id === ruleId);
+      if (rule && (!rule.lastDecision || rule.lastDecision.id === event.id))
+        rule.lastDecision = event;
+      if (!memory.lastDecision || memory.lastDecision.id === event.id) memory.lastDecision = event;
+    };
+    const only = steps.length === 1 && steps[0]!.kind === 'switch' ? steps[0]! : null;
+    if (steps.length && !only)
+      return runZoneSteps(mode, ruleId, label, steps, decision, event, record);
+    if (steps.length) stopZoneSteps(mode, ruleId);
+    await dispatch(
+      mode,
+      label,
+      decision,
+      event,
+      performance.now(),
+      // The main zone's old entity is empty: the main light.
+      () => turnOn(mode, only!.entityId || undefined, only!.to, only!.look, { background }),
+      record,
+    );
+  }
+  /**
+   * A motion zone started or stopped seeing motion, as the watcher found on
+   * its frames: record it like a zone filling or emptying and run its steps.
+   * Says whether there were steps, so the watcher lets their light settle.
+   */
+  async function motionZone(mode: Mode, ruleId: string, change: 'started' | 'stopped') {
+    const step = store.updateMemory(mode, (memory) => {
+      const rule = memory.rules?.find((r) => r.id === ruleId);
+      if (!rule?.motion) return null;
+      const moving = change === 'started';
+      const decision: PlacementDecision = {
+        decision: moving ? 'inside' : 'outside',
+        transition: moving ? 'entered' : 'left',
+        reason: moving
+          ? `Motion in "${rule.label}".`
+          : `No motion in "${rule.label}" for ${rule.motion.quietS} s.`,
+        observationId: null,
+        objectId: null,
+        segmentRunId: null,
+        zoneId: rule.id,
+        ruleId: rule.id,
+        action: 'none',
+      };
+      rule.placement = moving ? 'inside' : 'outside';
+      const actions = ruleActions(rule);
+      const steps = moving ? actions.onEnter : actions.onLeave;
+      const event = evidence('placement', mode, decision);
+      if (steps.length) {
+        decision.action = 'pending';
+        event.status = 'unconfirmed';
+      }
+      store.save(event);
+      rule.lastDecision = event;
+      return { decision, event, steps, label: rule.label };
+    });
+    if (!step) return false;
+    await runActions(mode, ruleId, step.label, step.steps, step.decision, step.event, {
+      background: true,
+    });
+    return step.steps.length > 0;
   }
   function stopZoneSteps(mode: Mode, ruleId: string) {
     const key = `${mode}:${ruleId}`;
@@ -857,6 +902,7 @@ export function createDesk(
     loseFixture,
     findFixture,
     verifyRules,
+    motionZone,
     /** Stop a zone's steps still running: it was changed or deleted. */
     stopZoneSteps,
     placeLocally,
@@ -972,14 +1018,26 @@ export async function deskRoutes(
     const memory = store.memory(mode);
     if (input.objects !== 'any' && input.objects.some((id) => !objectById(memory, id)?.observation))
       throw new LabError('rule_object', 'Confirm that object in a segmentation first.', 409);
-    const o = ruleSighting(memory, input.objects);
-    if (!o) throw new LabError('rule_object', 'Confirm something in a segmentation first.', 409);
+    // A thing zone belongs to the image of the newest sighting it counts; a
+    // motion zone to the calibrated camera's frames, whose pixels it watches.
+    const o = input.motion ? null : ruleSighting(memory, input.objects);
+    if (!input.motion && !o)
+      throw new LabError('rule_object', 'Confirm something in a segmentation first.', 409);
+    const frame = o?.frame ?? calibrationOf(memory)?.camera.frame;
+    if (!frame)
+      throw new LabError(
+        'not_calibrated',
+        'Calibrate the camera first: a motion zone is drawn on its frames.',
+        409,
+      );
     if (input.entityId !== null && !entities(mode).includes(input.entityId))
       throw new LabError('rule_light', 'Choose one of the configured lights or switches.', 400);
     if (input.fixtureId && input.objects !== 'any' && input.objects.includes(input.fixtureId))
       throw new LabError('rule_fixture', 'A fixture can’t switch itself on by moving.', 400);
     checkOnSurface(memory, input.onSurface);
-    if (input.actions) checkActions(memory, input.actions, entities(mode), input.objects);
+    // A motion zone has no things for a step to ask about.
+    if (input.actions)
+      checkActions(memory, input.actions, entities(mode), input.motion ? [] : input.objects);
     if (input.fixtureId) {
       const fixture = memory.fixtures?.find((f) => f.id === input.fixtureId);
       if (!fixture || !input.entityId || !fixtureEntities(fixture).includes(input.entityId))
@@ -997,10 +1055,11 @@ export async function deskRoutes(
       ...(input.offWhenEmpty ? { offWhenEmpty: true } : {}),
       ...(input.look && input.entityId?.startsWith('light.') ? { look: input.look } : {}),
       ...(input.actions ? { actions: input.actions } : {}),
+      ...(input.motion ? { motion: input.motion } : {}),
       zone: {
-        sourceKey: o.sourceKey,
+        sourceKey: o?.sourceKey ?? 'camera',
         rect: input.rect,
-        frame: o.frame,
+        frame,
         ...(input.onSurface ? { onSurface: input.onSurface } : {}),
       },
       // A new or moved zone starts a new inside/outside story.
@@ -1015,7 +1074,12 @@ export async function deskRoutes(
     store.saveMemory(memory);
     desk.stopZoneSteps(mode, rule.id);
     store.save(
-      evidence('zone', mode, { ...rule.zone, id: rule.id, ruleId: rule.id, observationId: o.id }),
+      evidence('zone', mode, {
+        ...rule.zone,
+        id: rule.id,
+        ruleId: rule.id,
+        observationId: o?.id ?? null,
+      }),
     );
     return memory;
   });
@@ -1032,7 +1096,7 @@ export async function deskRoutes(
     if (!rule) throw new LabError('zone_missing', 'That zone is gone. Refresh and try again.', 409);
     if (label) rule.label = label;
     if (actions) {
-      checkActions(memory, actions, entities(mode), rule.objects);
+      checkActions(memory, actions, entities(mode), rule.motion ? [] : rule.objects);
       rule.actions = actions;
       // The main zone's empty entity stays, for what reads it as the main lamp's zone.
       if (rule.id !== MAIN_RULE) {

@@ -9,6 +9,7 @@ import {
 } from './api.js';
 import { entityIdSchema, fixtureEntities } from './fixture.js';
 import { stepEntities, zoneActionsSchema, type ZoneActions } from './zone-actions.js';
+import { motionTriggerSchema, type MotionTrigger } from './motion-zone.js';
 import { isoSurface, projectBox, surfaceMap } from './iso.js';
 import {
   MAIN_RULE,
@@ -231,6 +232,11 @@ export interface PlacementRule {
    * entity as a step each way (`ruleActions`).
    */
   actions?: ZoneActions;
+  /**
+   * Set for a motion zone: it counts no things, and is occupied while pixels
+   * move in it on the watched camera (`nextMotion`). Its `objects` is `any`.
+   */
+  motion?: MotionTrigger;
   zone: {
     sourceKey: string;
     rect: ZoneRect;
@@ -259,6 +265,7 @@ export const ruleInputSchema = z
     offWhenEmpty: z.boolean().optional(),
     look: lightLookSchema.optional(),
     actions: zoneActionsSchema.optional(),
+    motion: motionTriggerSchema.optional(),
     rect: zoneRectSchema,
     onSurface: zoneOnSurfaceSchema.optional(),
   })
@@ -269,10 +276,13 @@ export const ruleInputSchema = z
   })
   .refine((r) => !r.actions || (r.entityId === null && !r.offWhenEmpty && !r.look), {
     message: 'A zone with steps switches through them, not an entity of its own.',
+  })
+  .refine((r) => !r.motion || (r.objects === 'any' && r.entityId === null && !r.fixtureId), {
+    message: 'A motion zone counts no things and switches through its steps.',
   }) satisfies z.ZodType<
   Pick<
     PlacementRule,
-    'label' | 'objects' | 'entityId' | 'fixtureId' | 'offWhenEmpty' | 'look' | 'actions'
+    'label' | 'objects' | 'entityId' | 'fixtureId' | 'offWhenEmpty' | 'look' | 'actions' | 'motion'
   > & {
     id?: string;
     rect: ZoneRect;
@@ -288,6 +298,8 @@ function followedIds(memory: DeskMemory): string[] {
  * toward the entity it switches: it can't switch itself on by moving.
  */
 export function ruleObjects(memory: DeskMemory, rule: PlacementRule): string[] {
+  // A motion zone is judged by pixels, not by things.
+  if (rule.motion) return [];
   const ids =
     rule.objects === 'any'
       ? followedIds(memory)
@@ -317,7 +329,11 @@ export function withoutThings(rules: PlacementRule[] | undefined, gone: string[]
   });
 }
 /** What a rule counts, in words: "anything", "the mug", "the mug or the book". */
-export function ruleWho(memory: DeskMemory, rule: Pick<PlacementRule, 'objects'>): string {
+export function ruleWho(
+  memory: DeskMemory,
+  rule: Pick<PlacementRule, 'objects' | 'motion'>,
+): string {
+  if (rule.motion) return 'motion';
   if (rule.objects === 'any') return 'anything';
   const names = rule.objects.map(
     (id) => `the ${objectById(memory, id)?.label ?? 'forgotten thing'}`,

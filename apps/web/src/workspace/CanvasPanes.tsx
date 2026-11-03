@@ -451,7 +451,7 @@ function RectDraw({
   rect: drawn,
   onRect,
 }: {
-  kind: 'box' | 'zoom';
+  kind: 'box' | 'zoom' | 'motion';
   label: string;
   rect: Rect | null | undefined;
   onRect: (rect: Rect) => void;
@@ -507,12 +507,23 @@ function RectDraw({
   );
 }
 
-/** The box drawn around a thing to add as a fixture, and the camera's zoomed view. */
+/** The box drawn around a thing to add as a fixture, the camera's zoomed view, and a motion zone. */
 function DrawLayers() {
-  const lab = useLabParts(useView(), useCamera());
-  const { camera, mode, image, boxing, zooming } = lab;
+  const lab = useLabParts(useView(), useCamera(), useNavigation());
+  const { camera, mode, image, boxing, zooming, ruleDraft } = lab;
   return (
     <>
+      {ruleDraft?.motion && (camera || mode === 'demo' || image) && (
+        <RectDraw
+          kind="motion"
+          label="Draw the motion zone"
+          rect={ruleDraft.rect}
+          onRect={(rect) => {
+            const { onSurface: _, ...draft } = ruleDraft;
+            lab.setRuleDraft({ ...draft, rect });
+          }}
+        />
+      )}
       {boxing && !camera && (mode === 'demo' || image) && (
         <RectDraw
           kind="box"

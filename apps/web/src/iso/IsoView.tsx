@@ -37,6 +37,7 @@ import {
   type SurfacePin,
   type ZoneOnSurface,
   type ZoneActions,
+  type MotionTrigger,
   ruleActions,
   type ZoneRect,
   promoteGroup,
@@ -104,6 +105,8 @@ export interface RuleDraft {
   objects: 'any' | string[];
   /** What it does as something enters and as it empties; none only tells Home Assistant. */
   actions: ZoneActions;
+  /** Set for a motion zone, drawn on the camera's picture rather than in the room. */
+  motion?: MotionTrigger;
   label: string;
   rect: ZoneRect | null;
   /** Where in the room it was drawn, when it was drawn here. */
@@ -481,7 +484,8 @@ function IsoViewOf({
         for (const s of ruleActions(rule).onEnter)
           // The main zone's old empty entity is the main lamp, lit by `lampOn`.
           if (s.kind === 'switch' && s.to === 'on' && s.entityId) lit.add(s.entityId);
-    const drawingRule = Boolean(ruleDraft && ruleMap);
+    // A motion zone is drawn on the camera's picture: a plushie stands above the surface.
+    const drawingRule = Boolean(ruleDraft && ruleMap && !ruleDraft.motion);
     return { objects, note, o, mug, trail, zones, ruleTarget, ruleMap, lit, drawingRule };
   }, [
     memory,
@@ -647,6 +651,7 @@ function IsoViewOf({
       // Drawn in the room, so it is the room's zone, not one image's.
       const onSurface =
         pin && surface ? { scene: pin.scene, surfaceId: surface.id, a, b } : undefined;
+      if (ruleDraft?.motion) return;
       if (drawingRule && ruleTarget && ruleMap) {
         const rect = zoneFromSurface(a, b, ruleTarget.frame, ruleMap.toFrame);
         if (rect && ruleDraft) onRuleDraft({ ...ruleDraft, rect, onSurface });

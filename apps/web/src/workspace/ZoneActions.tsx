@@ -100,6 +100,8 @@ interface Ctx {
   disabled: boolean;
   /** Steps left before the zone's limit. */
   room: number;
+  /** A motion zone's: its questions are about motion, not things. */
+  motion: boolean;
 }
 
 const KIND_LABEL: Record<ZoneStep['kind'], string> = {
@@ -136,6 +138,7 @@ export function ZoneActionsEditor({
   things,
   disabled = false,
   who = 'something',
+  motion,
 }: {
   value: ZoneActions;
   onChange: (next: ZoneActions) => void;
@@ -144,23 +147,39 @@ export function ZoneActionsEditor({
   disabled?: boolean;
   /** What enters, in words: "the mug", "anything". */
   who?: string;
+  /** For a motion zone: when motion starts and stops, after `quietS` still. */
+  motion?: { quietS: number };
 }) {
   const used = countSteps(value.onEnter) + countSteps(value.onLeave);
-  const ctx: Ctx = { entities, things, disabled, room: MAX_ZONE_STEPS - used };
+  const ctx: Ctx = {
+    entities,
+    things,
+    disabled,
+    room: MAX_ZONE_STEPS - used,
+    motion: Boolean(motion),
+  };
   return (
     <div className="zone-actions">
       <Trigger
         mark="→"
-        title={`When ${who} enters`}
-        hint="Runs once each time the zone fills."
+        title={motion ? 'When motion starts' : `When ${who} enters`}
+        hint={
+          motion
+            ? 'Runs once as something moves in the zone.'
+            : 'Runs once each time the zone fills.'
+        }
         steps={value.onEnter}
         onChange={(onEnter) => onChange({ ...value, onEnter })}
         ctx={ctx}
       />
       <Trigger
         mark="←"
-        title="When it empties"
-        hint="Runs once as the last thing leaves."
+        title={motion ? 'When motion stops' : 'When it empties'}
+        hint={
+          motion
+            ? `Runs once it has been still for ${motion.quietS} s.`
+            : 'Runs once as the last thing leaves.'
+        }
         steps={value.onLeave}
         onChange={(onLeave) => onChange({ ...value, onLeave })}
         ctx={ctx}
@@ -579,8 +598,11 @@ function ConditionFields({
               });
           }}
           options={[
-            { value: 'occupied', label: 'the zone is still occupied' },
-            { value: 'empty', label: 'the zone is empty' },
+            {
+              value: 'occupied',
+              label: ctx.motion ? 'it is still moving' : 'the zone is still occupied',
+            },
+            { value: 'empty', label: ctx.motion ? 'it has gone still' : 'the zone is empty' },
             ...ctx.things.flatMap((t) => [
               { value: `in:${t.id}`, label: `the ${t.label} is inside` },
               { value: `out:${t.id}`, label: `the ${t.label} is not inside` },

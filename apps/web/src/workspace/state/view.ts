@@ -28,11 +28,11 @@ import type { Dispatch, RefObject, SetStateAction } from 'react';
  * zone's readout); the lab's state gets the rectangle once the drag ends.
  */
 export const dragRectStore = createStore<{
-  kind: 'zone' | 'box' | 'zoom';
+  kind: 'zone' | 'box' | 'zoom' | 'motion';
   rect: ZoneRect;
 } | null>(null);
 /** The rectangle being dragged for `kind`, or null when none is. */
-export const useDragRect = (kind: 'zone' | 'box' | 'zoom') =>
+export const useDragRect = (kind: 'zone' | 'box' | 'zoom' | 'motion') =>
   useStore(dragRectStore, (d) => (d?.kind === kind ? d.rect : null));
 
 /** The View slice of the lab's state. */

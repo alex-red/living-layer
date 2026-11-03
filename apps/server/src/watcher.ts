@@ -17,6 +17,11 @@ import {
   outOfRegion,
   searchRegion,
   frameMotion,
+  nextMotion,
+  MOTION_ZONE,
+  STILL,
+  type MotionState,
+  type MotionTrigger,
   maskBits,
   missed,
   placed,
@@ -188,6 +193,11 @@ export class Watcher {
   private zones: { id: string; rect: ZoneRect }[] = [];
   /** When pixels last changed in each zone. */
   private motionAt = new Map<string, number>();
+  /** Motion zones, whose own motion runs their steps, and where each stands. */
+  private motionZones: { id: string; rect: ZoneRect; trigger: MotionTrigger }[] = [];
+  private motionState = new Map<string, MotionState>();
+  /** Until when motion zones ignore motion: a light one of them switched is still settling. */
+  private settledAt = 0;
   /** Zones some entity asks to be compared with their empty look, and whether SAM may confirm. */
   private occupancyZones = new Map<string, { samConfirm: boolean }>();
   private empty = new Map<string, EmptyLook>();
@@ -294,6 +304,11 @@ export class Watcher {
   }
   private watchZones(memory: DeskMemory) {
     this.zones = zonesIn(memory).map((z) => ({ id: z.id, rect: z.rect }));
+    this.motionZones = (memory.rules ?? []).flatMap((r) =>
+      r.motion ? [{ id: r.id, rect: r.zone.rect, trigger: r.motion }] : [],
+    );
+    for (const id of [...this.motionState.keys()])
+      if (!this.motionZones.some((z) => z.id === id)) this.motionState.delete(id);
     this.occupancyZones.clear();
     for (const e of memory.exposed ?? [])
       if (e.source.kind === 'occupied') {
@@ -461,6 +476,32 @@ export class Watcher {
     void work.finally(() => this.busy.delete(work));
     return work;
   }
+  /**
+   * Step each motion zone on this frame; one that starts or stops has the
+   * desk record it and run its steps. Whichever does, every motion zone then
+   * ignores motion a moment, while a light it switched settles.
+   */
+  private moveZones(previous: LumaFrame, frame: LumaFrame, now: number) {
+    const whole = frameMotion(previous, frame, WHOLE);
+    for (const z of this.motionZones) {
+      const share = frameMotion(previous, frame, z.rect);
+      const was = this.motionState.get(z.id) ?? STILL;
+      const step = nextMotion(was, z.trigger, {
+        share,
+        whole,
+        now,
+        settledAt: this.settledAt,
+        // Demo frames come one deliberate move at a time, so one is enough.
+        ...(this.deps.mode === 'demo' ? { startFrames: 1 } : {}),
+      });
+      this.motionState.set(z.id, step.state);
+      if (!step.event) continue;
+      this.settledAt = now + MOTION_ZONE.settleMs;
+      void this.track(this.deps.tracking.motionZone(this.deps.mode, z.id, step.event)).catch(
+        (error) => console.warn(`[watch] motion zone ${z.id}: ${safeError(error).message}`),
+      );
+    }
+  }
   /** Wait until no check, refind or start is running. */
   async idle() {
     while (this.busy.size) await Promise.allSettled([...this.busy]);
@@ -485,6 +526,7 @@ export class Watcher {
     const memory = this.memory();
     this.watchZones(memory);
     this.motionAt.clear();
+    this.motionState.clear();
     const camera = memory.watch?.camera ?? null;
     if (this.deps.mode === 'live' && !camera)
       return this.say('camera_lost', 'Choose a camera the server can read (RTSP) to watch.');
@@ -587,6 +629,7 @@ export class Watcher {
     this.boxOnly.clear();
     this.closeSeen.clear();
     this.motionAt.clear();
+    this.motionState.clear();
     this.occupancy.clear();
     this.pending = [];
     this.held.clear();
@@ -725,6 +768,7 @@ export class Watcher {
       for (const z of this.zones)
         if (frameMotion(previous, frame, z.rect) > LOCAL_TRACK.motionShare)
           this.motionAt.set(z.id, now);
+    if (previous && this.motionZones.length) this.moveZones(previous, frame, now);
     // Together, so no two things settle on one place. Things being looked for hold still meanwhile.
     for (const [id, step] of watchFrame(
       [...this.things.values()],

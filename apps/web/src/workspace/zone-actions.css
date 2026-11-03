@@ -254,3 +254,19 @@
   font-size: var(--fs-12);
   line-height: 18px;
 }
+.zone-slider {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-13);
+  color: var(--text-2);
+}
+.zone-slider input[type='range'] {
+  flex: 1 1 100px;
+  min-width: 0;
+}
+.zone-slider output {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}

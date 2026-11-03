@@ -13,6 +13,7 @@ import {
   type ZoneStep,
   type ZoneActions,
   ruleActions,
+  MOTION_ZONE,
   type EvidenceRun,
   type PlacementDecision,
   type SelectionShape,
@@ -27,7 +28,7 @@ import {
 import { api } from '../api';
 import { estimateLabel } from '../cost';
 import { Glyph } from '../Glyph';
-import { Button, Check, Field, Select } from '../ui/controls';
+import { Button, Check, Field, NumberInput, Segmented, Select } from '../ui/controls';
 import {
   useCalibration,
   useCamera,
@@ -1517,11 +1518,11 @@ function SavedZoneActions({ ruleId, who }: { ruleId: string; who: string }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps -- `shownKey` stands for the value's content
   useEffect(() => setDraft(shown), [shownKey]);
   if (!rule || !memory) return null;
-  const things = zoneThings(memory).filter(
-    (t) => rule.objects === 'any' || rule.objects.includes(t.id),
-  );
+  const things = rule.motion
+    ? []
+    : zoneThings(memory).filter((t) => rule.objects === 'any' || rule.objects.includes(t.id));
   const dirty = JSON.stringify(draft) !== shownKey;
-  const problem = actionsProblem(draft, rule.objects);
+  const problem = actionsProblem(draft, rule.motion ? [] : rule.objects);
   return (
     <div className="zone-section">
       <span className="tiny">Actions</span>
@@ -1532,6 +1533,7 @@ function SavedZoneActions({ ruleId, who }: { ruleId: string; who: string }) {
         things={things}
         disabled={off}
         who={who}
+        {...(rule.motion ? { motion: rule.motion } : {})}
       />
       {dirty && (
         <div className="save-actions">
@@ -1603,11 +1605,13 @@ function RulePanel({ id }: { id: string }) {
       title={r.label}
       status={
         !d
-          ? 'Not checked yet. Track the object or check the zones.'
+          ? r.motion
+            ? 'No motion seen yet. It is watched on the camera while watching is on.'
+            : 'Not checked yet. Track the object or check the zones.'
           : d.decision === 'inside'
-            ? `Occupied (${inside ?? 'something'}).${d.action === 'pending' ? ' Running its steps…' : ''}`
+            ? `${r.motion ? 'Motion now' : `Occupied (${inside ?? 'something'})`}.${d.action === 'pending' ? ' Running its steps…' : ''}`
             : d.decision === 'outside'
-              ? `Empty.${d.action === 'pending' ? ' Running its steps…' : ''}`
+              ? `${r.motion ? 'Still' : 'Empty'}.${d.action === 'pending' ? ' Running its steps…' : ''}`
               : `Blocked: ${d.reason}`
       }
       tone={
@@ -1622,7 +1626,11 @@ function RulePanel({ id }: { id: string }) {
         <div className="zone-section">
           <span className="tiny">Watches</span>
           <div className="zone-area drawn">
-            <span>{who.charAt(0).toUpperCase() + who.slice(1)}</span>
+            <span>
+              {r.motion
+                ? `Motion in ${Math.round(r.motion.share * 100)}% of it · stops after ${r.motion.quietS} s`
+                : who.charAt(0).toUpperCase() + who.slice(1)}
+            </span>
             <Button variant="text" size="sm" disabled={off} onClick={() => lab.editRule(r.id)}>
               Redraw or change →
             </Button>
@@ -1671,18 +1679,21 @@ function RulePanel({ id }: { id: string }) {
           Also show in Home Assistant
         </Button>
       )}
-      <Button
-        variant="primary"
-        disabled={off}
-        onClick={() =>
-          void call<Events>('desk/rules/verify', {}, (res) => {
-            lab.setMemory(res.memory, false);
-            lab.setMessage(verdictSummary(res.memory, res.events));
-          })
-        }
-      >
-        Check zones
-      </Button>
+      {/* A motion zone is judged on the watched camera's frames, not by a check. */}
+      {!r.motion && (
+        <Button
+          variant="primary"
+          disabled={off}
+          onClick={() =>
+            void call<Events>('desk/rules/verify', {}, (res) => {
+              lab.setMemory(res.memory, false);
+              lab.setMessage(verdictSummary(res.memory, res.events));
+            })
+          }
+        >
+          Check zones
+        </Button>
+      )}
       <Details summary="Delete">
         <Button
           variant="danger"
@@ -1732,21 +1743,38 @@ function NewRulePanel() {
   const who = memory ? ruleWho(memory, draft) : 'something';
   const editing = Boolean(draft.id);
   const back = () => lab.select(draft.id ? { kind: 'rule', id: draft.id } : null);
+  const { motion } = draft;
+  /** Thing zone or motion zone; the area is drawn again, on the room or on the picture. */
+  const setType = (type: 'things' | 'motion') => {
+    const { motion: _, onSurface: __, ...rest } = draft;
+    if (type === 'motion') {
+      lab.setRuleDraft({
+        ...rest,
+        objects: 'any',
+        motion: { share: MOTION_ZONE.share, quietS: MOTION_ZONE.quietS },
+        rect: null,
+      });
+      if (lab.stageView === 'iso') lab.setStageView('split');
+    } else lab.setRuleDraft({ ...rest, rect: null });
+  };
   const problem = !draft.label.trim()
     ? 'Name the zone to save it.'
     : !draft.rect
       ? 'Draw the zone to save it.'
-      : actionsProblem(draft.actions, draft.objects);
+      : actionsProblem(draft.actions, motion ? [] : draft.objects);
+  const where = motion ? 'the camera picture' : 'the room';
   return (
     <Panel
       tiny={editing ? 'EDIT ZONE' : 'NEW ZONE'}
       title={draft.label.trim() || 'New zone'}
       status={
         draft.rect
-          ? 'Drawn. Drag again on the room to redraw it.'
-          : mainSurface(lab) || lab.progress.pinned
-            ? 'Drag a rectangle on the room to draw the zone.'
-            : 'Pin a surface first, so the zone can be drawn on it.'
+          ? `Drawn. Drag again on ${where} to redraw it.`
+          : motion
+            ? 'Drag a rectangle on the camera picture around what should be watched for motion.'
+            : mainSurface(lab) || lab.progress.pinned
+              ? 'Drag a rectangle on the room to draw the zone.'
+              : 'Pin a surface first, so the zone can be drawn on it.'
       }
       tone={draft.rect ? 'chosen' : 'seen'}
     >
@@ -1763,40 +1791,87 @@ function NewRulePanel() {
           />
         </div>
         <div className="zone-section">
-          <span className="tiny">Watches</span>
-          <div className="zone-chips" role="group" aria-label="What the zone watches">
-            <button
-              type="button"
-              className="zone-chip"
-              aria-pressed={draft.objects === 'any'}
-              onClick={() => set({ objects: 'any' })}
-            >
-              Anything
-            </button>
-            {things.map((t) => (
+          <span className="tiny">Type</span>
+          <Segmented
+            label="Zone type"
+            value={motion ? 'motion' : 'things'}
+            onChange={setType}
+            options={[
+              { value: 'things', label: 'Things inside', title: 'Things the camera follows' },
+              { value: 'motion', label: 'Motion', title: 'Anything moving in it' },
+            ]}
+          />
+        </div>
+        {motion ? (
+          <div className="zone-section">
+            <span className="tiny">Motion</span>
+            <label className="zone-slider">
+              <span>Moves in at least</span>
+              <input
+                type="range"
+                aria-label="How much must move"
+                min={MOTION_ZONE.minShare * 100}
+                max={30}
+                value={Math.round(motion.share * 100)}
+                onChange={(e) =>
+                  set({ motion: { ...motion, share: Number(e.target.value) / 100 } })
+                }
+              />
+              <output>{Math.round(motion.share * 100)}% of it</output>
+            </label>
+            <div className="za-row">
+              <span className="za-word">Stops after</span>
+              <NumberInput
+                aria-label="Seconds still before it stops"
+                className="za-num"
+                min={1}
+                max={MOTION_ZONE.maxQuietS}
+                value={motion.quietS}
+                onChange={(quietS) => set({ motion: { ...motion, quietS } })}
+              />
+              <span className="za-word">s still</span>
+            </div>
+            <p className="micro">
+              Lower is more sensitive. A light switching across the whole picture isn’t motion.
+            </p>
+          </div>
+        ) : (
+          <div className="zone-section">
+            <span className="tiny">Watches</span>
+            <div className="zone-chips" role="group" aria-label="What the zone watches">
               <button
-                key={t.id}
                 type="button"
                 className="zone-chip"
-                aria-pressed={picked(t.id)}
-                onClick={() => toggle(t.id)}
+                aria-pressed={draft.objects === 'any'}
+                onClick={() => set({ objects: 'any' })}
               >
-                {t.label}
+                Anything
               </button>
-            ))}
+              {things.map((t) => (
+                <button
+                  key={t.id}
+                  type="button"
+                  className="zone-chip"
+                  aria-pressed={picked(t.id)}
+                  onClick={() => toggle(t.id)}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+            <p className="micro">
+              {draft.objects === 'any'
+                ? 'Occupied while anything the camera follows stands inside.'
+                : `Occupied while ${who} stands inside.`}
+            </p>
           </div>
-          <p className="micro">
-            {draft.objects === 'any'
-              ? 'Occupied while anything the camera follows stands inside.'
-              : `Occupied while ${who} stands inside.`}
-          </p>
-        </div>
+        )}
         <div className="zone-section">
           <span className="tiny">Area</span>
           <div className={`zone-area ${draft.rect ? 'drawn' : ''}`}>
             {draft.rect
               ? `${Math.round(draft.rect.width * 100)} × ${Math.round(draft.rect.height * 100)}% of the frame`
-              : 'Not drawn yet: drag on the room view'}
+              : `Not drawn yet: drag on ${motion ? 'the camera picture' : 'the room view'}`}
           </div>
         </div>
         <div className="zone-section">
@@ -1805,8 +1880,9 @@ function NewRulePanel() {
             value={draft.actions}
             onChange={(actions) => set({ actions })}
             entities={entities}
-            things={watched}
+            things={motion ? [] : watched}
             who={who}
+            {...(motion ? { motion } : {})}
           />
         </div>
         {problem && <p className="micro">{problem}</p>}
@@ -1821,9 +1897,10 @@ function NewRulePanel() {
                   rule: {
                     ...(draft.id ? { id: draft.id } : {}),
                     label: draft.label.trim(),
-                    objects: draft.objects,
+                    objects: motion ? 'any' : draft.objects,
                     entityId: null,
                     actions: draft.actions,
+                    ...(motion ? { motion } : {}),
                     rect: draft.rect,
                     ...(draft.onSurface ? { onSurface: draft.onSurface } : {}),
                   },

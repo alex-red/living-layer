@@ -185,6 +185,7 @@ export function useNavigationSlice(
       objects: r.objects,
       // An older rule's entity reads as a step each way, and is saved as steps.
       actions: ruleActions(r),
+      ...(r.motion ? { motion: r.motion } : {}),
       label: r.label,
       rect: r.zone.rect,
       ...(r.zone.onSurface ? { onSurface: r.zone.onSurface } : {}),
@@ -194,7 +195,9 @@ export function useNavigationSlice(
     setDrawing(false);
     setRuleDraft(draft);
     setIsoPanel('room');
-    if (stageView === 'photo') setStageView('iso');
+    // A motion zone is drawn on the camera's picture; any other in the room.
+    if (draft.motion ? stageView === 'iso' : stageView === 'photo')
+      setStageView(draft.motion ? 'split' : 'iso');
     setSelection({ kind: 'new-rule' });
   }
   const [asking, setAsking] = useState(false);

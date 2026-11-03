@@ -35,9 +35,10 @@ function EditBanner() {
     done = () => lab.setDrawing(false);
   } else if (ruleDraft) {
     const name = ruleDraft.label.trim() || 'the zone';
+    const where = ruleDraft.motion ? 'the camera picture' : 'the iso surface';
     text = ruleDraft.rect
-      ? `Drag again on the iso surface to redraw ${name}. Save it in the inspector.`
-      : `Drag a rectangle on the iso surface to draw ${name}.`;
+      ? `Drag again on ${where} to redraw ${name}. Save it in the inspector.`
+      : `Drag a rectangle on ${where} to draw ${name}.`;
     done = () => lab.select(ruleDraft.id ? { kind: 'rule', id: ruleDraft.id } : null);
   } else if (stageView !== 'photo' && isoPanel !== 'room') {
     text = isoPanel === 'scene' ? 'Editing the room’s layout.' : 'Editing a model.';
