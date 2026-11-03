@@ -1204,10 +1204,32 @@ function FixtureCamera({ fixture: f, disabled }: { fixture: Fixture; disabled: b
             : 'Not followed. Draw round it on the camera’s picture so it can follow and decide rules.'}
       </p>
       <BoxOnlyNote id={f.id} seen={f.track?.observation} />
+      {found.length > 0 && (
+        <>
+          <p className="micro" role="status">
+            {found.length === 1
+              ? 'Outlined on the picture. Is that it? Confirm it to follow it.'
+              : 'Outlined on the picture. Pick the one that’s it to follow it.'}
+          </p>
+          <div className="save-actions">
+            {found.map((d) => (
+              <Button
+                key={d.objectId}
+                variant="primary"
+                disabled={disabled || Boolean(busy)}
+                onClick={() => void lab.anchorFixture(f.id, d.objectId)}
+              >
+                {busy === 'anchor-fixture' ? 'Following…' : `It’s outline #${d.objectId}`}
+              </Button>
+            ))}
+          </div>
+        </>
+      )}
       {!trackingAi && (
         <LocalOutline
           target={f.id}
           disabled={disabled}
+          waiting={found.length > 0}
           working={busy === 'outline-fixture'}
           onOutline={(d) => void lab.outlineFixture(f.id, d)}
         />
@@ -1228,15 +1250,6 @@ function FixtureCamera({ fixture: f, disabled }: { fixture: Fixture; disabled: b
           </Button>
         )}
       </div>
-      {found.map((d) => (
-        <Button
-          key={d.objectId}
-          disabled={disabled || Boolean(busy)}
-          onClick={() => void lab.anchorFixture(f.id, d.objectId)}
-        >
-          It’s outline #{d.objectId}
-        </Button>
-      ))}
     </Details>
   );
 }

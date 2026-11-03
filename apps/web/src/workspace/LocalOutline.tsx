@@ -40,10 +40,13 @@ export function LocalOutline({
   target,
   disabled = false,
   working,
+  waiting = false,
   onOutline,
 }: {
   target: string;
   disabled?: boolean;
+  /** An outline is waiting to be confirmed, so drawing again is the lesser step. */
+  waiting?: boolean;
   /** Whether the outline is being made now. */
   working: boolean;
   onOutline: (drawn: { shape: SelectionShape; held: string | null }) => void;
@@ -61,10 +64,16 @@ export function LocalOutline({
   return (
     <>
       {!mine ? (
-        <Button variant="primary" disabled={off} onClick={() => lab.startOutlining(target)}>
-          Draw round it on the picture
-          <Glyph type="arrow" />
-        </Button>
+        waiting ? (
+          <Button variant="text" disabled={off} onClick={() => lab.startOutlining(target)}>
+            Not it? Draw round it again
+          </Button>
+        ) : (
+          <Button variant="primary" disabled={off} onClick={() => lab.startOutlining(target)}>
+            Draw round it on the picture
+            <Glyph type="arrow" />
+          </Button>
+        )
       ) : !mine.shape ? (
         <>
           <p className="micro">

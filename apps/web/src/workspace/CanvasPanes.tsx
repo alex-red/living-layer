@@ -317,13 +317,17 @@ function TrailLayer() {
 
 /** What SAM outlined in this frame. */
 function MasksLayer() {
-  const lab = useLabParts(useView(), useCamera(), useObservation());
+  const lab = useLabParts(useView(), useCamera(), useObservation(), useDesk());
   const { camera, segmentation, overlay, dimensions } = lab;
   // A segmentation of a frame the camera just gave (it sized the stage) outlines its matches on the
-  // stream; the tracking layer draws remembered things' outlines itself.
+  // stream; the tracking layer draws remembered things' outlines itself, so a run a thing was
+  // already seen in is left to it, and one still to confirm (a new outline) is drawn here.
+  const sighted = lab.memory?.fixtures?.some(
+    (f) => f.track?.observation.segmentRunId === lab.segmentRunId,
+  );
   const cameraMasks =
     camera &&
-    !(camera && lab.tracking) &&
+    !(lab.tracking && sighted) &&
     segmentation?.frame.width === dimensions.width &&
     segmentation.frame.height === dimensions.height;
   if (!(segmentation && overlay && (!camera || cameraMasks))) return null;
