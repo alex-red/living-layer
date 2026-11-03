@@ -1,9 +1,11 @@
 import type { FastifyInstance } from 'fastify';
 import { renderRoomAsync } from './workers/compute.js';
 import sharp from 'sharp';
-import { z } from 'zod';
 import {
-  ILLUSTRATION_NOTE_MAX,
+  modeOnlySchema,
+  sceneIllustrateBodySchema,
+  sceneIllustrationQuerySchema,
+  sceneSeparateBodySchema,
   ILLUSTRATION_PROMPT,
   deskIllustrationPrompt,
   withNote,
@@ -12,10 +14,8 @@ import {
   fixtureBox,
   inRoomView,
   fixtureInPicture,
-  pictureLayerRef,
   sparkCeiling,
   isoSurface,
-  modeSchema,
   calibrationOf,
   floorSolid,
   sceneSolids,
@@ -100,21 +100,7 @@ export function illustrationRoutes(
   { store, meta, run, jobs }: { store: EvidenceStore; meta: MetaAdapter; run: Runner; jobs: Jobs },
 ) {
   app.post('/api/scene/illustrate', async (request): Promise<Illustrated> => {
-    const input = parseInput(
-      z
-        .object({
-          mode: modeSchema,
-          imageDataUrl: z.string().max(7_000_000).optional(),
-          /** The room, from its photo; or its desk, from a close camera frame. */
-          view: z.enum(['room', 'desk']).default('room'),
-          /** Report the steps under this id while the call runs, so the page can follow and stop it. */
-          jobId: z.string().uuid().optional(),
-          /** What to change this time, added to the prompt. */
-          note: z.string().trim().max(ILLUSTRATION_NOTE_MAX).optional(),
-        })
-        .strict(),
-      request.body,
-    );
+    const input = parseInput(sceneIllustrateBodySchema, request.body);
     const { mode, view } = input;
     const live = mode === 'live';
     liveImage(mode, input.imageDataUrl);
@@ -313,16 +299,7 @@ export function illustrationRoutes(
    * the demo fills the places they leave from around them instead.
    */
   app.post('/api/scene/separate', async (request) => {
-    const { mode, jobId } = parseInput(
-      z
-        .object({
-          mode: modeSchema,
-          /** The page's id for following the steps as they go. */
-          jobId: z.string().uuid().optional(),
-        })
-        .strict(),
-      request.body,
-    );
+    const { mode, jobId } = parseInput(sceneSeparateBodySchema, request.body);
     const live = mode === 'live';
     const memory = store.memory(mode);
     const picture = memory.illustration;
@@ -560,7 +537,7 @@ export function illustrationRoutes(
   });
   /** Put the fixtures back into the picture: it is shown whole again. */
   app.post('/api/scene/separate/undo', async (request) => {
-    const { mode } = parseInput(z.object({ mode: modeSchema }).strict(), request.body);
+    const { mode } = parseInput(modeOnlySchema, request.body);
     const memory = store.memory(mode);
     if (memory.illustration?.layers) {
       const { layers: _, ...whole } = memory.illustration;
@@ -570,7 +547,7 @@ export function illustrationRoutes(
   });
   /** A room's picture, or one of its layers. */
   app.get('/api/scene/illustration', async (request, reply) => {
-    const { asset } = parseInput(z.object({ asset: pictureLayerRef }).strict(), request.query);
+    const { asset } = parseInput(sceneIllustrationQuerySchema, request.query);
     const png = store.readAsset(asset);
     if (!png) throw new LabError('illustration_missing', 'This picture is gone.', 404);
     return reply.type('image/png').header('cache-control', 'no-cache').send(png);

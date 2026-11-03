@@ -1,10 +1,9 @@
 import type { FastifyInstance } from 'fastify';
-import { z } from 'zod';
 import {
+  deskAutoPinBodySchema,
   ISO_PRESETS,
   calibrationOf,
   pinOf,
-  modeSchema,
   type EvidenceRun,
   type Quad,
   type Segmentation,
@@ -28,16 +27,7 @@ export interface AutoPin {
  */
 export function pinRoutes(app: FastifyInstance, { store }: { store: EvidenceStore }) {
   app.post('/api/desk/auto-pin', async (request): Promise<AutoPin> => {
-    const input = parseInput(
-      z
-        .object({
-          mode: modeSchema,
-          imageDataUrl: z.string().max(7_000_000).optional(),
-          surfaceId: z.string().min(1).max(40).optional(),
-        })
-        .strict(),
-      request.body,
-    );
+    const input = parseInput(deskAutoPinBodySchema, request.body);
     liveImage(input.mode, input.imageDataUrl);
     const memory = store.memory(input.mode);
     const calibration = calibrationOf(memory);

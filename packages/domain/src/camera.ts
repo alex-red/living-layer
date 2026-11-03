@@ -138,3 +138,26 @@ export function cameraForScene<T extends { scene?: CameraScene }>(
     cameras.find((c) => c.scene && c.scene !== 'custom' && room(c.scene) === room(scene)) ?? null
   );
 }
+
+/**
+ * A camera shared on the LAN with `scripts/share-camera.sh`, a paired phone or
+ * a camera saved by its stream URL, as `/api/streams` lists it.
+ */
+export interface NetworkStream {
+  id: string;
+  name: string;
+  host: string;
+  /** WebRTC-HTTP egress endpoint: POST an SDP offer, get the answer back. Empty when a tab can't play it. */
+  whep: string;
+  /** A URL the server reads with ffmpeg; a saved camera's is shown with its password hidden. */
+  rtsp?: string;
+  /** The room a saved camera is assigned to. */
+  scene?: CameraScene;
+  /** A saved camera's or the phone's zoomed view; its frames come already cut to it, except the phone's, which the tab cuts. */
+  crop?: CameraCrop | null;
+  /** Where a tab gets a still from a camera only the server can read. */
+  snapshot?: string;
+  /** Where a tab gets a live MJPEG picture of a camera only the server can read. */
+  preview?: string;
+  source: 'mdns' | 'config' | 'phone' | 'saved';
+}

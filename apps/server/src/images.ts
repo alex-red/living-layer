@@ -61,7 +61,6 @@ export function requireFrame(
 }
 /** The stored source photo among a run's assets: `source.webp`, or `source.png` on older runs. */
 export const findSource = (assets: string[]) => assets.find((a) => /\/source\.(webp|png)$/.test(a));
-export const SOURCE_ASSET = /^[a-z0-9-]{1,64}\/source\.(webp|png)$/;
 
 export async function validateImage(dataUrl?: string): Promise<ValidatedImage> {
   const match = /^data:image\/(png|jpeg|webp);base64,([A-Za-z0-9+/]+={0,2})$/.exec(dataUrl ?? '');

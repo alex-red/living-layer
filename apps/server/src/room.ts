@@ -1,26 +1,24 @@
 import type { FastifyInstance } from 'fastify';
 import { createHash } from 'node:crypto';
-import { z } from 'zod';
 import {
+  modeImageSchema,
+  modeOnlySchema,
+  roomCalibrateBodySchema,
   ISO_PRESETS,
   META_PRICES,
-  cameraCropSchema,
   cameraEdges,
   MOVED_CAMERA,
   cameraFromMarks,
   fitLimit,
   convexHull,
   demoSourceKey,
-  isoSceneKindSchema,
   isoSurface,
   maskBits,
   marksFromFloor,
   marksFromWalls,
-  modeSchema,
   pinOf,
   ISO_TILE_CM,
   type IsoScene,
-  roomMarksSchema,
   type CameraCrop,
   type DeskMemory,
   type EvidenceRun,
@@ -46,11 +44,6 @@ export interface FloorMarks {
   marks: RoomMarks | null;
   frame: Segmentation['frame'];
 }
-
-/** A room's size in centimetres, as a person measures it. */
-const roomCm = z
-  .object({ w: z.number().min(60).max(480), d: z.number().min(60).max(480) })
-  .strict();
 
 /** What a room calibration needs besides the marks; `room` is the inner floor in centimetres. */
 export interface CalibrateInput {
@@ -251,10 +244,7 @@ export function roomRoutes(
   { store, meta, run }: { store: EvidenceStore; meta: MetaAdapter; run: Runner },
 ) {
   app.post('/api/room/floor', async (request): Promise<FloorMarks> => {
-    const input = parseInput(
-      z.object({ mode: modeSchema, imageDataUrl: z.string().max(7_000_000).optional() }).strict(),
-      request.body,
-    );
+    const input = parseInput(modeImageSchema, request.body);
     const live = input.mode === 'live';
     liveImage(input.mode, input.imageDataUrl);
     if (live)
@@ -268,21 +258,7 @@ export function roomRoutes(
   });
 
   app.post('/api/room/calibrate', async (request) => {
-    const input = parseInput(
-      z
-        .object({
-          mode: modeSchema,
-          imageDataUrl: z.string().max(7_000_000).optional(),
-          marks: roomMarksSchema,
-          room: roomCm,
-          heightCm: z.number().min(100).max(400).optional(),
-          scene: z.union([isoSceneKindSchema, z.literal('custom')]),
-          /** The zoomed view the frame was taken through, so the lens is fitted whole. */
-          crop: cameraCropSchema.nullable().optional(),
-        })
-        .strict(),
-      request.body,
-    );
+    const input = parseInput(roomCalibrateBodySchema, request.body);
     const live = input.mode === 'live';
     liveImage(input.mode, input.imageDataUrl);
     const image = live ? await validateImage(input.imageDataUrl) : null;
@@ -296,10 +272,7 @@ export function roomRoutes(
    * the one later frames are compared with, and zones apply again.
    */
   app.post('/api/room/keep', async (request) => {
-    const input = parseInput(
-      z.object({ mode: modeSchema, imageDataUrl: z.string().max(7_000_000).optional() }).strict(),
-      request.body,
-    );
+    const input = parseInput(modeImageSchema, request.body);
     const live = input.mode === 'live';
     liveImage(input.mode, input.imageDataUrl);
     const memory = store.memory(input.mode);
@@ -329,7 +302,7 @@ export function roomRoutes(
   });
 
   app.post('/api/room/forget', async (request) => {
-    const { mode } = parseInput(z.object({ mode: modeSchema }).strict(), request.body);
+    const { mode } = parseInput(modeOnlySchema, request.body);
     const memory = store.memory(mode);
     store.saveMemory({ ...memory, camera: null });
     return store.memory(mode);

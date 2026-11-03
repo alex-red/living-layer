@@ -1,10 +1,11 @@
 import type { FastifyInstance } from 'fastify';
 import sharp from 'sharp';
-import { z } from 'zod';
 import {
+  modeOnlySchema,
+  watchBodySchema,
+  watchDemoBodySchema,
   appearanceSure,
   asked,
-  demoPositionSchema,
   appearanceRegion,
   cameraEdges,
   cameraMoved,
@@ -16,7 +17,6 @@ import {
   frameMotion,
   maskBits,
   missed,
-  modeSchema,
   patchWeights,
   prototypeOf,
   refound,
@@ -822,11 +822,11 @@ export function watchRoutes(
     void watchers.live.sync();
   });
   app.get('/api/watch/:mode', async (request) => {
-    const { mode } = parseInput(z.object({ mode: modeSchema }).strict(), request.params);
+    const { mode } = parseInput(modeOnlySchema, request.params);
     return watchers[mode].view();
   });
   app.get('/api/watch/:mode/events', (request, reply) => {
-    const { mode } = parseInput(z.object({ mode: modeSchema }).strict(), request.params);
+    const { mode } = parseInput(modeOnlySchema, request.params);
     const watcher = watchers[mode];
     reply.hijack();
     reply.raw.writeHead(200, {
@@ -844,16 +844,7 @@ export function watchRoutes(
     });
   });
   app.post('/api/watch', async (request) => {
-    const { mode, on, streamId } = parseInput(
-      z
-        .object({
-          mode: modeSchema,
-          on: z.boolean(),
-          streamId: z.string().min(1).max(300).optional(),
-        })
-        .strict(),
-      request.body,
-    );
+    const { mode, on, streamId } = parseInput(watchBodySchema, request.body);
     const memory = store.memory(mode);
     let camera = memory.watch?.camera ?? null;
     if (on && mode === 'live') {
@@ -874,10 +865,7 @@ export function watchRoutes(
     return setWatching(store, watchers[mode], on, camera);
   });
   app.post('/api/watch/demo', async (request) => {
-    const { position } = parseInput(
-      z.object({ position: demoPositionSchema }).strict(),
-      request.body,
-    );
+    const { position } = parseInput(watchDemoBodySchema, request.body);
     await watchers.demo.showDemo(position);
     return { position, label: DEMO_POSITIONS[position].label };
   });

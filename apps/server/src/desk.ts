@@ -1,14 +1,26 @@
 import type { FastifyInstance } from 'fastify';
-import { SOURCE_ASSET } from './images.js';
 import { randomUUID } from 'node:crypto';
-import { z } from 'zod';
 import {
-  roomCalibrationSchema,
-  zoneOnSurfaceSchema,
+  deskCameraBodySchema,
+  deskObjectsForgetBodySchema,
+  deskObjectsSelectBodySchema,
+  deskObjectsTrackBodySchema,
+  deskRestoreBodySchema,
+  deskRulesDeleteBodySchema,
+  deskRulesSaveBodySchema,
+  deskSelectBodySchema,
+  deskSurfaceBodySchema,
+  deskTrackBodySchema,
+  deskVerifyBodySchema,
+  deskZoneBodySchema,
+  fixturesAnchorBodySchema,
+  itemSaveBodySchema,
+  modeIdSchema,
+  modeOnlySchema,
+  sceneFromPhotoSaveBodySchema,
+  sceneSaveBodySchema,
+  sceneTextureQuerySchema,
   type ZoneOnSurface,
-  modeSchema,
-  zoneRectSchema,
-  surfacePinSchema,
   isoSurface,
   fixtureEntities,
   settleFixtures,
@@ -18,7 +30,6 @@ import {
   linkedFixtures,
   FIXTURE_MOVED,
   type Fixture,
-  isoItemSchema,
   objectById,
   modelTarget,
   setModel,
@@ -26,22 +37,15 @@ import {
   ruleObjects,
   ruleSighting,
   withoutThings,
-  ruleInputSchema,
-  exposedInputSchema,
-  MAX_EXPOSED,
   MAX_OTHER_OBJECTS,
   MAX_RULES,
   MAX_FIXTURES,
-  MAX_DISMISSED,
   placeSeen,
   pinInOrder,
   calibrationOf,
   type PlacementRule,
-  isoSceneSchema,
   uniqueParts,
   draftModel,
-  PHOTO_AS,
-  MAX_PHOTO_THINGS,
   type PhotoThing,
   type SavedItem,
   placementGate,
@@ -60,8 +64,6 @@ import {
   type LampResult,
   type IsoScene,
   type SurfacePin,
-  sceneIllustrationSchema,
-  textureRef,
 } from '@livinglayer/domain';
 import { EvidenceStore } from './store.js';
 import { LabError, parseInput, safeError } from './errors.js';
@@ -375,20 +377,11 @@ export function deskRoutes(
   const sameConcept = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
 
   app.get('/api/desk/:mode', async (request) => {
-    const { mode } = parseInput(z.object({ mode: modeSchema }), request.params);
+    const { mode } = parseInput(modeOnlySchema, request.params);
     return store.memory(mode);
   });
   app.post('/api/desk/select', async (request) => {
-    const { mode, segmentRunId, detectionId } = parseInput(
-      z
-        .object({
-          mode: modeSchema,
-          segmentRunId: z.string().uuid(),
-          detectionId: z.string().min(1).max(80),
-        })
-        .strict(),
-      request.body,
-    );
+    const { mode, segmentRunId, detectionId } = parseInput(deskSelectBodySchema, request.body);
     available(mode);
     const { run, segmentation } = latestMugSegmentation(mode, segmentRunId);
     const detection = segmentation.detections.find((d) => d.objectId === detectionId);
@@ -434,17 +427,11 @@ export function deskRoutes(
     return { memory: store.memory(mode), event, rules };
   }
   app.post('/api/desk/track', async (request) => {
-    const { mode, segmentRunId } = parseInput(
-      z.object({ mode: modeSchema, segmentRunId: z.string().uuid() }).strict(),
-      request.body,
-    );
+    const { mode, segmentRunId } = parseInput(deskTrackBodySchema, request.body);
     return trackMug(mode, segmentRunId);
   });
   app.post('/api/desk/camera', async (request) => {
-    const { mode, fixed } = parseInput(
-      z.object({ mode: modeSchema, fixed: z.boolean() }).strict(),
-      request.body,
-    );
+    const { mode, fixed } = parseInput(deskCameraBodySchema, request.body);
     available(mode);
     const memory = store.memory(mode);
     memory.fixedCamera = fixed;
@@ -460,10 +447,7 @@ export function deskRoutes(
    * fixtures a scan placed stand again where the scan saw them, under the new pin.
    */
   app.post('/api/desk/surface', async (request) => {
-    const { mode, pin } = parseInput(
-      z.object({ mode: modeSchema, pin: surfacePinSchema.nullable() }).strict(),
-      request.body,
-    );
+    const { mode, pin } = parseInput(deskSurfaceBodySchema, request.body);
     available(mode);
     const memory = store.memory(mode);
     if (pin && !isoSurface(pin.scene, pin.surfaceId, memory.scene))
@@ -485,14 +469,7 @@ export function deskRoutes(
   /** Remember another object from the newest segmentation, by hand, like the mug. */
   app.post('/api/desk/objects/select', async (request) => {
     const { mode, segmentRunId, detectionId, label } = parseInput(
-      z
-        .object({
-          mode: modeSchema,
-          segmentRunId: z.string().uuid(),
-          detectionId: z.string().min(1).max(80),
-          label: z.string().trim().min(1).max(40),
-        })
-        .strict(),
+      deskObjectsSelectBodySchema,
       request.body,
     );
     available(mode);
@@ -566,12 +543,7 @@ export function deskRoutes(
     return { memory: store.memory(mode), events };
   }
   app.post('/api/desk/objects/track', async (request) => {
-    const { mode, objectId, segmentRunId } = parseInput(
-      z
-        .object({ mode: modeSchema, objectId: z.string().uuid(), segmentRunId: z.string().uuid() })
-        .strict(),
-      request.body,
-    );
+    const { mode, objectId, segmentRunId } = parseInput(deskObjectsTrackBodySchema, request.body);
     return trackObject(mode, objectId, segmentRunId);
   });
   /**
@@ -665,24 +637,14 @@ export function deskRoutes(
   }
   app.post('/api/fixtures/anchor', async (request) => {
     const { mode, id, segmentRunId, detectionId } = parseInput(
-      z
-        .object({
-          mode: modeSchema,
-          id: z.string().uuid(),
-          segmentRunId: z.string().uuid(),
-          detectionId: z.string().min(1).max(80),
-        })
-        .strict(),
+      fixturesAnchorBodySchema,
       request.body,
     );
     return anchorFixture(mode, id, segmentRunId, detectionId);
   });
   /** Stop following a fixture; it stays where it was last seen. */
   app.post('/api/fixtures/untrack', async (request) => {
-    const { mode, id } = parseInput(
-      z.object({ mode: modeSchema, id: z.string().uuid() }).strict(),
-      request.body,
-    );
+    const { mode, id } = parseInput(modeIdSchema, request.body);
     available(mode);
     const memory = store.memory(mode);
     const fixture = memory.fixtures?.find((f) => f.id === id);
@@ -695,10 +657,7 @@ export function deskRoutes(
     return memory;
   });
   app.post('/api/desk/objects/forget', async (request) => {
-    const { mode, objectId } = parseInput(
-      z.object({ mode: modeSchema, objectId: z.string().uuid() }).strict(),
-      request.body,
-    );
+    const { mode, objectId } = parseInput(deskObjectsForgetBodySchema, request.body);
     available(mode);
     const memory = store.memory(mode);
     memory.others = (memory.others ?? []).filter((o) => o.id !== objectId);
@@ -712,10 +671,7 @@ export function deskRoutes(
    * newest sighting among the things it counts.
    */
   app.post('/api/desk/rules/save', async (request) => {
-    const { mode, rule: input } = parseInput(
-      z.object({ mode: modeSchema, rule: ruleInputSchema }).strict(),
-      request.body,
-    );
+    const { mode, rule: input } = parseInput(deskRulesSaveBodySchema, request.body);
     available(mode);
     const memory = store.memory(mode);
     if (input.objects !== 'any' && input.objects.some((id) => !objectById(memory, id)?.observation))
@@ -764,10 +720,7 @@ export function deskRoutes(
     return memory;
   });
   app.post('/api/desk/rules/delete', async (request) => {
-    const { mode, ruleId } = parseInput(
-      z.object({ mode: modeSchema, ruleId: z.string().uuid() }).strict(),
-      request.body,
-    );
+    const { mode, ruleId } = parseInput(deskRulesDeleteBodySchema, request.body);
     available(mode);
     const memory = store.memory(mode);
     memory.rules = (memory.rules ?? []).filter((r) => r.id !== ruleId);
@@ -775,7 +728,7 @@ export function deskRoutes(
     return memory;
   });
   app.post('/api/desk/rules/verify', async (request) => {
-    const { mode } = parseInput(z.object({ mode: modeSchema }).strict(), request.body);
+    const { mode } = parseInput(modeOnlySchema, request.body);
     available(mode);
     const events = await verifyRules(mode);
     return { memory: store.memory(mode), events };
@@ -785,10 +738,7 @@ export function deskRoutes(
    * scene no longer has is cleared, since it would point at nothing.
    */
   app.post('/api/scene/save', async (request) => {
-    const { mode, scene } = parseInput(
-      z.object({ mode: modeSchema, scene: isoSceneSchema.nullable() }).strict(),
-      request.body,
-    );
+    const { mode, scene } = parseInput(sceneSaveBodySchema, request.body);
     available(mode);
     let memory = store.memory(mode);
     const before = memory.scene ?? null;
@@ -817,13 +767,12 @@ export function deskRoutes(
    */
   /** A face texture of a scene drafted from a photo, before the room had a calibrated camera. */
   app.get('/api/scene/texture', async (request, reply) => {
-    const { asset } = parseInput(z.object({ asset: textureRef }).strict(), request.query);
+    const { asset } = parseInput(sceneTextureQuerySchema, request.query);
     const png = store.readAsset(asset);
     if (!png) throw new LabError('texture_missing', 'This texture is gone.', 404);
     return reply.type('image/png').header('cache-control', 'no-cache').send(png);
   });
   app.post('/api/scene/from-photo/save', async (request) => {
-    const tiles = z.number().finite();
     const {
       mode,
       runId,
@@ -832,35 +781,7 @@ export function deskRoutes(
       track,
       as = {},
       fixtures = [],
-    } = parseInput(
-      z
-        .object({
-          mode: modeSchema,
-          runId: z.string().uuid(),
-          scene: isoSceneSchema,
-          pin: surfacePinSchema.nullable(),
-          track: z.array(z.string().min(1).max(24)).max(1 + MAX_OTHER_OBJECTS),
-          /** What the person changed things to be drawn as, by thing id. */
-          as: z.record(z.string().min(1).max(24), z.enum(PHOTO_AS)).optional(),
-          /** Things no template draws and nobody tracks, where the review laid them out. */
-          fixtures: z
-            .array(
-              z
-                .object({
-                  id: z.string().min(1).max(24),
-                  at: z.object({ x: tiles, y: tiles, z: tiles }).strict(),
-                  /** As it stands, turned. */
-                  size: z.object({ w: tiles, d: tiles, h: tiles }).strict(),
-                  turns: z.number().int().min(0).max(3).optional(),
-                })
-                .strict(),
-            )
-            .max(MAX_PHOTO_THINGS)
-            .optional(),
-        })
-        .strict(),
-      request.body,
-    );
+    } = parseInput(sceneFromPhotoSaveBodySchema, request.body);
     available(mode);
     const draftRun = store.getRun(runId);
     if (
@@ -1026,16 +947,7 @@ export function deskRoutes(
   });
   /** Save an edited model of the remembered object, or remove it. */
   app.post('/api/item/save', async (request) => {
-    const { mode, item, objectId } = parseInput(
-      z
-        .object({
-          mode: modeSchema,
-          item: isoItemSchema.nullable(),
-          objectId: z.string().uuid().optional(),
-        })
-        .strict(),
-      request.body,
-    );
+    const { mode, item, objectId } = parseInput(itemSaveBodySchema, request.body);
     const memory = store.memory(mode);
     const target = modelTarget(memory, objectId);
     if (!target)
@@ -1057,17 +969,7 @@ export function deskRoutes(
     return memory;
   });
   app.post('/api/desk/zone', async (request) => {
-    const { mode, observationId, rect, onSurface } = parseInput(
-      z
-        .object({
-          mode: modeSchema,
-          observationId: z.string().uuid(),
-          rect: zoneRectSchema,
-          onSurface: zoneOnSurfaceSchema.optional(),
-        })
-        .strict(),
-      request.body,
-    );
+    const { mode, observationId, rect, onSurface } = parseInput(deskZoneBodySchema, request.body);
     available(mode);
     const memory = store.memory(mode);
     if (!memory.observation || memory.observation.id !== observationId)
@@ -1092,7 +994,7 @@ export function deskRoutes(
     return memory;
   });
   app.post('/api/desk/reset', async (request) => {
-    const { mode } = parseInput(z.object({ mode: modeSchema }).strict(), request.body);
+    const { mode } = parseInput(modeOnlySchema, request.body);
     available(mode);
     const memory: DeskMemory = {
       mode,
@@ -1148,45 +1050,7 @@ export function deskRoutes(
    * the rest is the lab's own output coming back. Evidence is untouched.
    */
   app.post('/api/desk/restore', async (request) => {
-    const { mode, memory } = parseInput(
-      z
-        .object({
-          mode: modeSchema,
-          memory: z
-            .object({
-              mode: modeSchema,
-              object: z
-                .object({ id: z.string().min(1), label: z.string(), createdAt: z.string() })
-                .nullable(),
-              surface: surfacePinSchema.nullable().optional(),
-              camera: roomCalibrationSchema.nullable().optional(),
-              scene: isoSceneSchema.nullable().optional(),
-              scenePhoto: z.string().regex(SOURCE_ASSET).nullable().optional(),
-              illustration: sceneIllustrationSchema.nullable().optional(),
-              deskIllustration: sceneIllustrationSchema.nullable().optional(),
-              others: z
-                .array(z.object({ id: z.string().min(1) }).loose())
-                .max(MAX_OTHER_OBJECTS)
-                .optional(),
-              rules: z
-                .array(z.object({ id: z.string().min(1) }).loose())
-                .max(MAX_RULES)
-                .optional(),
-              fixtures: z
-                .array(z.object({ id: z.string().min(1) }).loose())
-                .max(MAX_FIXTURES)
-                .optional(),
-              dismissed: z.array(z.string().min(1).max(40)).max(MAX_DISMISSED).optional(),
-              exposed: z
-                .array(exposedInputSchema.required({ id: true }))
-                .max(MAX_EXPOSED)
-                .optional(),
-            })
-            .loose(),
-        })
-        .strict(),
-      request.body,
-    );
+    const { mode, memory } = parseInput(deskRestoreBodySchema, request.body);
     if (memory.mode !== mode)
       throw new LabError('restore_mode', `This save is for ${memory.mode} mode, not ${mode}.`, 400);
     available(mode);
@@ -1202,12 +1066,7 @@ export function deskRoutes(
     return store.memory(mode);
   });
   app.post('/api/desk/verify', async (request) => {
-    const { mode, observationId, zoneId } = parseInput(
-      z
-        .object({ mode: modeSchema, observationId: z.string().uuid(), zoneId: z.string().uuid() })
-        .strict(),
-      request.body,
-    );
+    const { mode, observationId, zoneId } = parseInput(deskVerifyBodySchema, request.body);
     available(mode);
     const memory = store.memory(mode);
     if (memory.observation?.id !== observationId || memory.zone?.id !== zoneId)

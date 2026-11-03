@@ -1,7 +1,22 @@
 import type { FastifyInstance } from 'fastify';
 import { createHash, randomUUID } from 'node:crypto';
-import { z } from 'zod';
 import {
+  fixturesChooseBodySchema,
+  fixturesControlBodySchema,
+  fixturesDeleteBodySchema,
+  fixturesDraftBodySchema,
+  fixturesFindBodySchema,
+  fixturesPhotoBodySchema,
+  fixturesReferenceQuerySchema,
+  fixturesRefine3dBodySchema,
+  fixturesReleaseBodySchema,
+  fixturesSaveBodySchema,
+  fixturesScanBodySchema,
+  fixturesSculptBodySchema,
+  fixturesSculptReapplyBodySchema,
+  fixturesStateBodySchema,
+  fixturesUndismissBodySchema,
+  modeOnlySchema,
   DEMO_REFERENCES,
   DEMO_SURFACE,
   calibrationOf,
@@ -24,10 +39,8 @@ import {
   pinFits,
   type FixtureScan,
   type MappedThing,
-  entityIdSchema,
   META_PRICES,
   MAX_FIXTURES,
-  isoSceneKindSchema,
   promptBox,
   sparkCeiling,
   sizeInTiles,
@@ -35,15 +48,11 @@ import {
   fixtureEntity,
   fixtureEntities,
   lightSources,
-  fixtureInputSchema,
   fixtureModel,
   fixtureProblem,
   fixtureReference,
   fixtureSize,
-  fixtureStateInputSchema,
-  fixtureStateNameSchema,
   monitorItem,
-  modeSchema,
   uniqueParts,
   fromSculpt,
   MAX_DRAFTS,
@@ -422,35 +431,7 @@ export function fixtureRoutes(
    * Demo mode drafts from the bundled illustrations only.
    */
   app.post('/api/fixtures/draft', async (request) => {
-    const input = parseInput(
-      z
-        .object({
-          mode: modeSchema,
-          scene: z.union([isoSceneKindSchema, z.literal('custom')]),
-          /** Demo: one of the bundled pictures. */
-          reference: z.enum(DEMO_REFERENCES).optional(),
-          /** Live: the person's photo of the thing, or the desk photo a box is drawn on. */
-          imageDataUrl: z.string().max(7_000_000).optional(),
-          /**
-           * A box drawn around the thing on a desk photo, in thousandths: the
-           * live photo sent with it, or the demo camera's frame in the demo.
-           */
-          box: z
-            .object({
-              x1: z.number().int().min(0).max(1000),
-              y1: z.number().int().min(0).max(1000),
-              x2: z.number().int().min(0).max(1000),
-              y2: z.number().int().min(0).max(1000),
-            })
-            .strict()
-            .refine((b) => b.x2 > b.x1 && b.y2 > b.y1, { message: 'The box must have an area.' })
-            .optional(),
-          /** What the person says it is; Spark is told, and it names the draft. */
-          label: z.string().trim().min(1).max(40).optional(),
-        })
-        .strict(),
-      request.body,
-    );
+    const input = parseInput(fixturesDraftBodySchema, request.body);
     const { mode, scene } = input;
     const live = mode === 'live';
     if (live ? input.reference : input.imageDataUrl || !input.reference === !input.box)
@@ -647,20 +628,7 @@ export function fixtureRoutes(
    */
   app.post('/api/fixtures/scan', async (request) => {
     const { mode, imageDataUrl, scene, replace, addNew, jobId } = parseInput(
-      z
-        .object({
-          mode: modeSchema,
-          imageDataUrl: z.string().max(7_000_000).optional(),
-          /** The scene to map into; the pin's own when left out. */
-          scene: z.union([isoSceneKindSchema, z.literal('custom')]).optional(),
-          /** Move fixtures placed by hand too, and the layout's things, to where the scan finds them. */
-          replace: z.boolean().optional(),
-          /** Add what the room doesn't have yet; false only looks for what it has. */
-          addNew: z.boolean().optional(),
-          /** The page's id for following the steps as they go. */
-          jobId: z.string().uuid().optional(),
-        })
-        .strict(),
+      fixturesScanBodySchema,
       request.body,
     );
     const live = mode === 'live';
@@ -954,19 +922,7 @@ export function fixtureRoutes(
    * picture better is kept, with any parts the person locked. Live only.
    */
   app.post('/api/fixtures/sculpt', async (request) => {
-    const { mode, fixtureId, jobId, note } = parseInput(
-      z
-        .object({
-          mode: modeSchema,
-          fixtureId: z.string().uuid(),
-          /** The page's id for following the steps as they go. */
-          jobId: z.string().uuid().optional(),
-          /** What the person says it is or wants of it: "it's a Dyson bladeless fan". */
-          note: z.string().trim().min(1).max(300).optional(),
-        })
-        .strict(),
-      request.body,
-    );
+    const { mode, fixtureId, jobId, note } = parseInput(fixturesSculptBodySchema, request.body);
     if (mode !== 'live')
       throw new LabError(
         'sculpt_demo',
@@ -1242,10 +1198,7 @@ export function fixtureRoutes(
    * with no model call: the model it replaces is kept as an earlier draft.
    */
   app.post('/api/fixtures/sculpt/reapply', async (request) => {
-    const { mode, jobId } = parseInput(
-      z.object({ mode: modeSchema, jobId: z.string().uuid() }).strict(),
-      request.body,
-    );
+    const { mode, jobId } = parseInput(fixturesSculptReapplyBodySchema, request.body);
     const found = sculptRunOf(jobs.get(jobId), (id) => store.getRun(id));
     if (!found || found.run.mode !== mode)
       throw new LabError('reapply_missing', 'That AI run has no model to apply again.', 404);
@@ -1269,16 +1222,7 @@ export function fixtureRoutes(
    * demo uses its own close photos: the mug's, or a bundled picture by name.
    */
   app.post('/api/fixtures/photo', async (request) => {
-    const { mode, fixtureId, imageDataUrl } = parseInput(
-      z
-        .object({
-          mode: modeSchema,
-          fixtureId: z.string().uuid(),
-          imageDataUrl: z.string().max(7_000_000).optional(),
-        })
-        .strict(),
-      request.body,
-    );
+    const { mode, fixtureId, imageDataUrl } = parseInput(fixturesPhotoBodySchema, request.body);
     const live = mode === 'live';
     if (live !== Boolean(imageDataUrl))
       throw new LabError(
@@ -1420,12 +1364,7 @@ export function fixtureRoutes(
    * once and the page follows the job. Only turned bodies, for now.
    */
   app.post('/api/fixtures/refine3d', async (request) => {
-    const { mode, fixtureId, jobId } = parseInput(
-      z
-        .object({ mode: modeSchema, fixtureId: z.string().uuid(), jobId: z.string().uuid() })
-        .strict(),
-      request.body,
-    );
+    const { mode, fixtureId, jobId } = parseInput(fixturesRefine3dBodySchema, request.body);
     if (!sam3d)
       throw new LabError(
         'sam3d_off',
@@ -1535,20 +1474,7 @@ export function fixtureRoutes(
    * as examples of which modeller people prefer for which things.
    */
   app.post('/api/fixtures/choose', async (request) => {
-    const { mode, fixtureId, draft } = parseInput(
-      z
-        .object({
-          mode: modeSchema,
-          fixtureId: z.string().uuid(),
-          draft: z
-            .number()
-            .int()
-            .min(0)
-            .max(MAX_DRAFTS - 1),
-        })
-        .strict(),
-      request.body,
-    );
+    const { mode, fixtureId, draft } = parseInput(fixturesChooseBodySchema, request.body);
     const memory = store.memory(mode);
     const fixture = memory.fixtures?.find((f) => f.id === fixtureId);
     if (!fixture) throw new LabError('fixture_missing', 'That fixture is gone.', 404);
@@ -1583,10 +1509,7 @@ export function fixtureRoutes(
     return memory;
   });
   app.post('/api/fixtures/save', async (request) => {
-    const { mode, fixture: input } = parseInput(
-      z.object({ mode: modeSchema, fixture: fixtureInputSchema }).strict(),
-      request.body,
-    );
+    const { mode, fixture: input } = parseInput(fixturesSaveBodySchema, request.body);
     const memory = store.memory(mode);
     const fixtures = memory.fixtures ?? [];
     const previous = input.id ? fixtures.find((f) => f.id === input.id) : undefined;
@@ -1739,7 +1662,7 @@ export function fixtureRoutes(
    * checking the pin's corners on it after the page has lost its photo.
    */
   app.get('/api/scene/photo', async (request, reply) => {
-    const { mode } = parseInput(z.object({ mode: modeSchema }).strict(), request.query);
+    const { mode } = parseInput(modeOnlySchema, request.query);
     const memory = store.memory(mode);
     const bytes = mode === 'live' ? roomPhotoBytes(memory, store) : null;
     if (!bytes || !memory.surface)
@@ -1759,7 +1682,7 @@ export function fixtureRoutes(
   });
   /** The reference photo a fixture was drafted from, for review and the inspector. */
   app.get('/api/fixtures/reference', async (request, reply) => {
-    const { runId } = parseInput(z.object({ runId: z.string().uuid() }).strict(), request.query);
+    const { runId } = parseInput(fixturesReferenceQuerySchema, request.query);
     const drafted = store.getRun(runId);
     const png = drafted?.kind === 'fixture' ? store.readAsset(`${runId}/reference.png`) : null;
     if (!png) throw new LabError('fixture_reference', 'That draft has no reference photo.', 404);
@@ -1778,16 +1701,7 @@ export function fixtureRoutes(
    * Saved as an ordinary segmentation of the fixture's name.
    */
   app.post('/api/fixtures/find', async (request) => {
-    const { mode, id, imageDataUrl } = parseInput(
-      z
-        .object({
-          mode: modeSchema,
-          id: z.string().uuid(),
-          imageDataUrl: z.string().max(7_000_000).optional(),
-        })
-        .strict(),
-      request.body,
-    );
+    const { mode, id, imageDataUrl } = parseInput(fixturesFindBodySchema, request.body);
     const memory = store.memory(mode);
     const fixture = memory.fixtures?.find((f) => f.id === id);
     if (!fixture)
@@ -1867,17 +1781,7 @@ export function fixtureRoutes(
   /** Delete one fixture, or several at once (`fixtureIds`), in one save. */
   app.post('/api/fixtures/delete', async (request) => {
     const { mode, fixtureId, fixtureIds, dismiss } = parseInput(
-      z
-        .object({
-          mode: modeSchema,
-          fixtureId: z.string().uuid().optional(),
-          fixtureIds: z.array(z.string().uuid()).min(1).max(MAX_FIXTURES).optional(),
-          dismiss: z.boolean().optional(),
-        })
-        .strict()
-        .refine((b) => Boolean(b.fixtureId) !== Boolean(b.fixtureIds), {
-          message: 'Give fixtureId or fixtureIds.',
-        }),
+      fixturesDeleteBodySchema,
       request.body,
     );
     const ids = new Set(fixtureIds ?? [fixtureId!]);
@@ -1897,12 +1801,7 @@ export function fixtureRoutes(
   });
   /** Hand every fixture of a scene back to scans, to place and refit on the next one. */
   app.post('/api/fixtures/release', async (request) => {
-    const { mode, scene } = parseInput(
-      z
-        .object({ mode: modeSchema, scene: z.union([isoSceneKindSchema, z.literal('custom')]) })
-        .strict(),
-      request.body,
-    );
+    const { mode, scene } = parseInput(fixturesReleaseBodySchema, request.body);
     const memory = store.memory(mode);
     for (const f of memory.fixtures ?? []) if (f.scene === scene) f.scanned = true;
     store.saveMemory(memory);
@@ -1910,10 +1809,7 @@ export function fixtureRoutes(
   });
   /** Let scans find a dismissed name again. */
   app.post('/api/fixtures/undismiss', async (request) => {
-    const { mode, label } = parseInput(
-      z.object({ mode: modeSchema, label: z.string().min(1).max(40) }).strict(),
-      request.body,
-    );
+    const { mode, label } = parseInput(fixturesUndismissBodySchema, request.body);
     const memory = store.memory(mode);
     memory.dismissed = (memory.dismissed ?? []).filter((d) => d !== label);
     store.saveMemory(memory);
@@ -1930,18 +1826,7 @@ export function fixtureRoutes(
       state,
       fixture: stateInput,
       remove,
-    } = parseInput(
-      z
-        .object({
-          mode: modeSchema,
-          fixtureId: z.string().uuid(),
-          state: fixtureStateNameSchema.nullable().optional(),
-          fixture: fixtureStateInputSchema.optional(),
-          remove: fixtureStateNameSchema.optional(),
-        })
-        .strict(),
-      request.body,
-    );
+    } = parseInput(fixturesStateBodySchema, request.body);
     const memory = store.memory(mode);
     const target = memory.fixtures?.find((f) => f.id === fixtureId);
     if (!target)
@@ -2011,20 +1896,7 @@ export function fixtureRoutes(
    */
   app.post('/api/fixtures/control', async (request) => {
     const { mode, fixtureId, entityId, part, action } = parseInput(
-      z
-        .object({
-          mode: modeSchema,
-          fixtureId: z.string().uuid().optional(),
-          entityId: entityIdSchema.optional(),
-          /** One of the fixture's light sources, switched by its own entity. */
-          part: z.string().min(1).max(24).optional(),
-          action: fixtureStateNameSchema,
-        })
-        .strict()
-        .refine((x) => Boolean(x.fixtureId) !== Boolean(x.entityId), {
-          message: 'Name a fixture or an entity, not both.',
-        })
-        .refine((x) => !x.part || x.fixtureId, { message: 'A light source is a fixture’s.' }),
+      fixturesControlBodySchema,
       request.body,
     );
     let entity = entityId ?? null;

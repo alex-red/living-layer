@@ -2,15 +2,14 @@ import type { FastifyInstance } from 'fastify';
 import { renderRoomAsync } from './workers/compute.js';
 import { createHash, randomUUID } from 'node:crypto';
 import sharp from 'sharp';
-import { z } from 'zod';
 import {
+  sceneFromPhotoBodySchema,
+  sceneSetupBodySchema,
   DEMO_CALIBRATION,
   ISO_PRESETS,
   ISO_TILE_CM,
   type CameraCrop,
   type DeskMemory,
-  cameraCropSchema,
-  isoSceneKindSchema,
   type IsoScene,
   type RoomEstimate,
   type RoomMarks,
@@ -27,7 +26,6 @@ import {
   thingSolids,
   type LayoutInput,
   type RoomCalibration,
-  modeSchema,
   promptBox,
   sparkCeiling,
   META_PRICES,
@@ -452,18 +450,7 @@ export function photoRoutes(
     return { output, usage };
   }
   app.post('/api/scene/from-photo', async (request) => {
-    const input = parseInput(
-      z
-        .object({
-          mode: modeSchema,
-          imageDataUrl: z.string().max(7_000_000).optional(),
-          check: z.boolean().optional(),
-          /** The page's id for following the steps as they go. */
-          jobId: z.string().uuid().optional(),
-        })
-        .strict(),
-      request.body,
-    );
+    const input = parseInput(sceneFromPhotoBodySchema, request.body);
     const { mode } = input;
     const live = mode === 'live';
     liveImage(mode, input.imageDataUrl);
@@ -555,19 +542,7 @@ export function photoRoutes(
    * draft runs through the new camera as usual, for the person to review.
    */
   app.post('/api/scene/setup', async (request) => {
-    const input = parseInput(
-      z
-        .object({
-          mode: modeSchema,
-          imageDataUrl: z.string().max(7_000_000).optional(),
-          check: z.boolean().optional(),
-          scene: z.union([isoSceneKindSchema, z.literal('custom')]),
-          crop: cameraCropSchema.nullable().optional(),
-          jobId: z.string().uuid().optional(),
-        })
-        .strict(),
-      request.body,
-    );
+    const input = parseInput(sceneSetupBodySchema, request.body);
     const { mode } = input;
     const live = mode === 'live';
     liveImage(mode, input.imageDataUrl);

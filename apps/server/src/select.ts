@@ -1,16 +1,14 @@
 import type { FastifyInstance } from 'fastify';
-import { z } from 'zod';
 import {
+  selectResolveBodySchema,
   ISO_PRESETS,
   calibrationOf,
   fixtureBox,
   groupLabels,
   inRoomView,
-  modeSchema,
   resolveSelection,
   roomLabels,
   selectionMask,
-  selectionShapeSchema,
   type DeskMemory,
   type SelectResolve,
   type Segmentation,
@@ -83,10 +81,7 @@ export function selectionRoom(memory: DeskMemory) {
  */
 export function selectRoutes(app: FastifyInstance, { store }: { store: EvidenceStore }) {
   app.post('/api/select/resolve', async (request): Promise<SelectResolve> => {
-    const input = parseInput(
-      z.object({ mode: modeSchema, shape: selectionShapeSchema }).strict(),
-      request.body,
-    );
+    const input = parseInput(selectResolveBodySchema, request.body);
     const room = selectionRoom(store.memory(input.mode));
     const resolved = room.resolve(selectionMask(input.shape, room.frame));
     const target = resolved.target;

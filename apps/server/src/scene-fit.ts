@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { renderRoomAsync } from './workers/compute.js';
-import { z } from 'zod';
 import {
+  sceneFitBodySchema,
   calibrationOf,
   DEMO_CAMERA,
   DEMO_ROOM,
@@ -11,8 +11,6 @@ import {
   groupBounds,
   groupInFrame,
   ISO_TILE_CM,
-  isoSceneSchema,
-  modeSchema,
   roomMask,
   sceneSolids,
   type IsoScene,
@@ -39,17 +37,7 @@ export function sceneFitRoutes(
   { store, meta, run }: { store: EvidenceStore; meta: MetaAdapter; run: Runner },
 ) {
   app.post('/api/scene/fit', async (request): Promise<SceneFit> => {
-    const { mode, scene, group, imageDataUrl } = parseInput(
-      z
-        .object({
-          mode: modeSchema,
-          scene: isoSceneSchema,
-          group: z.string().min(1).max(48),
-          imageDataUrl: z.string().max(7_000_000).optional(),
-        })
-        .strict(),
-      request.body,
-    );
+    const { mode, scene, group, imageDataUrl } = parseInput(sceneFitBodySchema, request.body);
     const camera = mode === 'demo' ? DEMO_CAMERA : calibrationOf(store.memory(mode))?.camera;
     if (!camera) throw new LabError('not_calibrated', NOT_CALIBRATED, 409);
     if (!groupBounds(scene as IsoScene, group))

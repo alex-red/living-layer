@@ -1,8 +1,10 @@
 import type { FastifyInstance } from 'fastify';
 import { fitItemAsync } from './workers/compute.js';
 import sharp from 'sharp';
-import { z } from 'zod';
 import {
+  itemCropQuerySchema,
+  itemDraftBodySchema,
+  itemRefitBodySchema,
   DEMO_POSITIONS,
   type DemoPosition,
   applyCheck,
@@ -11,10 +13,8 @@ import {
   describeFit,
   fuseFits,
   isMugConcept,
-  isoItemSchema,
   isoSurface,
   labRgb,
-  modeSchema,
   modelTarget,
   renderView,
   scoreAgainst,
@@ -249,16 +249,7 @@ export function itemRoutes(
    * kept only when the silhouette still matches.
    */
   app.post('/api/item/draft', async (request) => {
-    const { mode, source, objectId } = parseInput(
-      z
-        .object({
-          mode: modeSchema,
-          source: z.enum(['sampled', 'spark']),
-          objectId: z.string().uuid().optional(),
-        })
-        .strict(),
-      request.body,
-    );
+    const { mode, source, objectId } = parseInput(itemDraftBodySchema, request.body);
     const object = modelTarget(store.memory(mode), objectId);
     const sighting = object?.observation;
     if (object?.fixture)
@@ -378,16 +369,7 @@ export function itemRoutes(
    * parts a person locked stay as they are.
    */
   app.post('/api/item/refit', async (request) => {
-    const { mode, objectId, item } = parseInput(
-      z
-        .object({
-          mode: modeSchema,
-          objectId: z.string().uuid().optional(),
-          item: isoItemSchema.optional(),
-        })
-        .strict(),
-      request.body,
-    );
+    const { mode, objectId, item } = parseInput(itemRefitBodySchema, request.body);
     const target = modelTarget(store.memory(mode), objectId);
     const fit = target?.item?.fit;
     const png = fit?.crop ? store.readAsset(fit.crop) : null;
@@ -412,17 +394,7 @@ export function itemRoutes(
   });
   /** The masked crop a model was fitted to, to lay the model over in the editor. */
   app.get('/api/item/crop', async (request, reply) => {
-    const { mode, objectId } = parseInput(
-      z
-        .object({
-          mode: modeSchema,
-          objectId: z.string().uuid().optional(),
-          /** Changes with the crop, so a browser never shows a stale one. */
-          v: z.string().max(200).optional(),
-        })
-        .strict(),
-      request.query,
-    );
+    const { mode, objectId } = parseInput(itemCropQuerySchema, request.query);
     const crop = modelTarget(store.memory(mode), objectId)?.item?.fit?.crop;
     const png = crop ? store.readAsset(crop) : null;
     if (!png) throw new LabError('item_source', 'This model has no crop.', 404);

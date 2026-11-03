@@ -1,3 +1,4 @@
+import { remoteAnswerSchema, remoteTokenParamsSchema } from '@livinglayer/domain';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { execFile } from 'node:child_process';
@@ -6,7 +7,6 @@ import { networkInterfaces } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import QRCode from 'qrcode';
-import { z } from 'zod';
 import type { CameraCrop } from '@livinglayer/domain';
 import type { Config } from './config.js';
 import { LabError, parseInput } from './errors.js';
@@ -257,7 +257,6 @@ async function certificate(config: Config) {
 export function phoneApp(remote: RemoteCamera, https?: { cert: Buffer; key: Buffer }) {
   const options = { logger: false, bodyLimit: 64_000 };
   const app = (https ? Fastify({ ...options, https }) : Fastify(options)) as FastifyInstance;
-  const tokenParams = z.object({ token: z.string().regex(/^[\w-]{32}$/) });
   app.addHook('onSend', async (_request, reply) => {
     void reply.header('Cache-Control', 'no-store');
     void reply.header('X-Content-Type-Options', 'nosniff');
@@ -273,7 +272,7 @@ export function phoneApp(remote: RemoteCamera, https?: { cert: Buffer; key: Buff
     });
   });
   app.get('/r/:token', async (request, reply) => {
-    const { token } = parseInput(tokenParams, request.params);
+    const { token } = parseInput(remoteTokenParamsSchema, request.params);
     const nonce = randomBytes(16).toString('base64');
     return reply
       .header(
@@ -284,7 +283,7 @@ export function phoneApp(remote: RemoteCamera, https?: { cert: Buffer; key: Buff
       .send(phonePage(nonce, remote.current()?.token === token));
   });
   app.get('/r/:token/next', async (request, reply) => {
-    const { token } = parseInput(tokenParams, request.params);
+    const { token } = parseInput(remoteTokenParamsSchema, request.params);
     const event = await remote.next(token, {
       name: phoneName(request.headers['user-agent']),
       address: request.ip.replace(/^::ffff:/, ''),
@@ -292,11 +291,8 @@ export function phoneApp(remote: RemoteCamera, https?: { cert: Buffer; key: Buff
     return event ?? reply.code(204).send();
   });
   app.post('/r/:token/answer', async (request, reply) => {
-    const { token } = parseInput(tokenParams, request.params);
-    const { id, sdp } = parseInput(
-      z.object({ id: z.string().uuid(), sdp: z.string().min(1).max(60_000) }).strict(),
-      request.body,
-    );
+    const { token } = parseInput(remoteTokenParamsSchema, request.params);
+    const { id, sdp } = parseInput(remoteAnswerSchema, request.body);
     remote.answer(token, id, sdp);
     return reply.code(204).send();
   });
@@ -369,9 +365,8 @@ export function remoteRoutes(app: FastifyInstance, config: Config, remote: Remot
     remote.end();
     return { pairing: null };
   });
-  const tokenParams = z.object({ token: z.string().regex(/^[\w-]{32}$/) });
   app.post('/api/remote/:token/whep', async (request, reply) => {
-    const { token } = parseInput(tokenParams, request.params);
+    const { token } = parseInput(remoteTokenParamsSchema, request.params);
     if (typeof request.body !== 'string' || !request.body.startsWith('v=0'))
       throw new LabError('invalid_request', 'Send an SDP offer.', 415);
     const answer = await remote.connect(token, request.body);
@@ -382,7 +377,7 @@ export function remoteRoutes(app: FastifyInstance, config: Config, remote: Remot
       .send(answer);
   });
   app.delete('/api/remote/:token/whep', async (request, reply) => {
-    const { token } = parseInput(tokenParams, request.params);
+    const { token } = parseInput(remoteTokenParamsSchema, request.params);
     remote.hangup(token);
     return reply.code(204).send();
   });

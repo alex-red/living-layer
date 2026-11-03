@@ -3,9 +3,10 @@ import staticFiles from '@fastify/static';
 import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
-import { z } from 'zod';
 import {
-  modeSchema,
+  lampBodySchema,
+  modeOnlySchema,
+  settingsSpendLimitBodySchema,
   imageRequestSchema,
   segmentRequestSchema,
   demoSourceKey,
@@ -25,7 +26,6 @@ import {
   DEMO_POSITIONS,
   savedIdOf,
   controlKindOf,
-  entityIdSchema,
 } from '@livinglayer/domain';
 import { type Config, type Fetcher, PROJECT_ROOT } from './config.js';
 import { EvidenceStore } from './store.js';
@@ -427,10 +427,7 @@ export async function buildApp(
   }
   /** Change the daily Meta spending limit; null goes back to the one in `.env`. */
   app.post('/api/settings/spend-limit', async (request) => {
-    const { usd } = parseInput(
-      z.object({ usd: z.number().positive().max(1000).nullable() }).strict(),
-      request.body,
-    );
+    const { usd } = parseInput(settingsSpendLimitBodySchema, request.body);
     store.setSpendLimit(usd === null ? null : Math.round(usd * 100) / 100);
     return {
       spendLimit: store.spendLimit(config.spendLimitUsd),
@@ -438,7 +435,7 @@ export async function buildApp(
     };
   });
   app.post('/api/text', async (request) => {
-    const { mode } = parseInput(z.object({ mode: modeSchema }).strict(), request.body);
+    const { mode } = parseInput(modeOnlySchema, request.body);
     return run('text', mode, async () =>
       mode === 'demo'
         ? { output: { text: 'Demo connection ready. No model request was sent.' } }
@@ -565,16 +562,7 @@ export async function buildApp(
   );
   /** Switch one device by hand: the main light on, unless it names another and which way. */
   app.post('/api/lamp', async (request) => {
-    const { mode, entityId, action } = parseInput(
-      z
-        .object({
-          mode: modeSchema,
-          entityId: entityIdSchema.optional(),
-          action: z.enum(['on', 'off']).default('on'),
-        })
-        .strict(),
-      request.body,
-    );
+    const { mode, entityId, action } = parseInput(lampBodySchema, request.body);
     if (entityId && !entities(mode).includes(entityId))
       throw new LabError(
         'lamp_unknown',

@@ -1,7 +1,8 @@
 import type { FastifyInstance } from 'fastify';
 import sharp from 'sharp';
-import { z } from 'zod';
 import {
+  assistBodySchema,
+  assistSaveBodySchema,
   adoptPreset,
   applyRecipeOps,
   calibrationOf,
@@ -21,7 +22,6 @@ import {
   checkRecipe,
   clipMask,
   META_PRICES,
-  modeSchema,
   newBits,
   photoBox,
   photoColor,
@@ -35,7 +35,6 @@ import {
   roomMask,
   selectionBox,
   selectionMask,
-  selectionShapeSchema,
   sizeDisagreement,
   sparkCeiling,
   demoFrame,
@@ -138,22 +137,7 @@ export function assistRoutes(
   },
 ) {
   app.post('/api/assist', async (request) => {
-    const input = parseInput(
-      z
-        .object({
-          mode: modeSchema,
-          prompt: z.string().trim().min(1).max(400),
-          /** The selection; a follow-up may leave it out to keep the last one. */
-          shape: selectionShapeSchema.optional(),
-          /** Live: the frame the selection was drawn on, from the camera it was drawn over. */
-          imageDataUrl: z.string().max(7_000_000).optional(),
-          /** The assist run this request follows. */
-          previous: z.uuid().optional(),
-          jobId: z.uuid().optional(),
-        })
-        .strict(),
-      request.body,
-    );
+    const input = parseInput(assistBodySchema, request.body);
     const { mode } = input;
     const live = mode === 'live';
     const before = input.previous ? store.getRun(input.previous) : undefined;
@@ -375,10 +359,7 @@ export function assistRoutes(
    * a looked-up product is kept in the catalog with its model.
    */
   app.post('/api/assist/save', async (request) => {
-    const { mode, runId } = parseInput(
-      z.object({ mode: modeSchema, runId: z.uuid() }).strict(),
-      request.body,
-    );
+    const { mode, runId } = parseInput(assistSaveBodySchema, request.body);
     const done = store.getRun(runId);
     if (!done || done.kind !== 'assist' || done.mode !== mode || done.status !== 'completed')
       throw new LabError('assist_previous', 'That request isn’t one of this mode’s.', 404);
