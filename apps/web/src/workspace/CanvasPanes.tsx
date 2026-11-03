@@ -37,6 +37,7 @@ import {
   useView,
 } from './LabContext';
 import { useFollowView } from './state/follow-store';
+import { LayerChips, useLayers, usePicture } from './LayerChips';
 import type { Lab } from './useLabState';
 import { ContextMenu } from './ContextMenu';
 import { Popover } from './Popover';
@@ -69,12 +70,6 @@ const VIEWS: Option<StageView>[] = [
 function FrameRate({ video, on }: { video: RefObject<HTMLVideoElement | null>; on: boolean }) {
   const fps = useFrameRate(video, on);
   return <span>{fps === null ? '– FPS' : `${fps} FPS`}</span>;
-}
-
-/** Whether the room has a picture, which offers the Picture layer. */
-function usePicture(): boolean {
-  const { memory } = useDesk();
-  return Boolean(memory?.illustration || memory?.deskIllustration);
 }
 
 /** Whether the work scene has any fixture. */
@@ -131,9 +126,8 @@ function useZoneView() {
 /** The bar over the canvas: what is shown, the layers and the stage view. */
 export function SceneToolbar() {
   const lab = useLabParts(useView(), useDesk(), useCamera());
-  const { mode, camera, image, overlay, stageView, pinning, memory } = lab;
-  const picture = usePicture();
-  const calibration = memory?.camera ?? null;
+  const { mode, camera, image, stageView, pinning } = lab;
+  const layers = useLayers();
   const chosenStream = lab.network.streams.find((s) => s.id === lab.cameraSource);
   return (
     <div className="scene-toolbar">
@@ -154,17 +148,7 @@ export function SceneToolbar() {
           <Button size="sm" className="layers-button" aria-expanded={open} onClick={toggle}>
             Layers
             <small>
-              {
-                [
-                  overlay,
-                  lab.showTrail,
-                  lab.showZones,
-                  lab.tracking,
-                  ...(picture ? [lab.showPicture] : []),
-                  ...(calibration ? [lab.showCorner] : []),
-                ].filter(Boolean).length
-              }
-              /{4 + Number(picture) + Number(Boolean(calibration))}
+              {layers.filter((l) => l.on).length}/{layers.length}
             </small>
           </Button>
         )}
@@ -172,44 +156,7 @@ export function SceneToolbar() {
         {() => (
           <div className="layers-menu">
             <span className="tiny">SHOW ON THE CANVAS</span>
-            {(
-              [
-                ['Masks', 'What SAM outlined in this frame', overlay, lab.setOverlay],
-                ['Trail', 'Where the mug has been', lab.showTrail, lab.setShowTrail],
-                [
-                  'Zones',
-                  'Saved zones, on the photo and in the room',
-                  lab.showZones,
-                  lab.setShowZones,
-                ],
-                [
-                  'Tracking',
-                  'Tracked objects and fixtures over the live camera',
-                  lab.tracking,
-                  lab.setTracking,
-                ],
-                ...(picture
-                  ? ([
-                      [
-                        'Picture',
-                        'The room as its drawing, not its model',
-                        lab.showPicture,
-                        lab.setShowPicture,
-                      ],
-                    ] as const)
-                  : []),
-                ...(calibration
-                  ? ([
-                      [
-                        'Corner',
-                        'The far corner and walls the room’s camera was calibrated on',
-                        lab.showCorner,
-                        lab.setShowCorner,
-                      ],
-                    ] as const)
-                  : []),
-              ] as const
-            ).map(([name, hint, on, set]) => (
+            {layers.map(({ name, hint, on, set }) => (
               <Check key={name} className="overlay-toggle" checked={on} onChange={set}>
                 {name}
                 <small>{hint}</small>
@@ -791,6 +738,7 @@ export function PhotoStage({
       <span className="frame-label">
         {dimensions.width} × {dimensions.height} <span>FRAME 00</span>
       </span>
+      <LayerChips view="photo" />
     </div>
   );
 }

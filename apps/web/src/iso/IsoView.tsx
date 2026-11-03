@@ -57,6 +57,7 @@ import {
 } from '../workspace/LabContext';
 import { IsoScene, type IsoFixture, type IsoObject, type IsoZone } from './IsoScene';
 import { Later } from '../Later';
+import { LayerChips } from '../workspace/LayerChips';
 import { pinScene, type WorkScene as Kind } from '../workspace/progress';
 import './iso.css';
 import type { SceneView } from './SceneEditor';
@@ -737,6 +738,7 @@ function IsoViewOf({
               ? 'SCENE EDITOR'
               : `ISO · ${scene.label.toUpperCase()} · ${surface?.label.toUpperCase() ?? 'NO SURFACE'}${pinned ? (memory?.surface ? ' · PINNED' : ' · DEMO') : ''}`}
         </span>
+        {panel === 'room' && <LayerChips view="iso" />}
       </div>
       {panel === 'room' && (
         <p className="iso-note" role="status">

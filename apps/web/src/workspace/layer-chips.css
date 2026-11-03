@@ -1,0 +1,47 @@
+/* One-click layer switches in a view's corner: quiet until hovered, an off layer struck through. */
+.layer-chips {
+  position: absolute;
+  z-index: var(--z-tag);
+  left: 40px;
+  bottom: 14px;
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: var(--r-chip);
+  background: var(--glass-thin);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  opacity: 0.7;
+  transition: opacity var(--t-fast);
+}
+.layer-chips.iso {
+  left: 12px;
+  bottom: 10px;
+}
+.layer-chips:hover,
+.layer-chips:focus-within {
+  opacity: 1;
+}
+.layer-chip {
+  padding: 2px 7px;
+  border: 0;
+  border-radius: var(--r-chip);
+  font: 500 11px/14px var(--mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  text-decoration: line-through;
+  background: transparent;
+  cursor: pointer;
+  transition:
+    background var(--t-fast),
+    color var(--t-fast);
+}
+.layer-chip:hover {
+  color: var(--text);
+}
+.layer-chip[aria-pressed='true'] {
+  color: var(--text);
+  text-decoration: none;
+  background: var(--control-bg-hover);
+}
