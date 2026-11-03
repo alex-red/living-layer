@@ -1,12 +1,15 @@
 import { describe, expect, it, mock } from 'bun:test';
 import {
   MOTION_ZONE,
+  ALL_STILL,
   STILL,
   nextMotion,
+  stepMotionZones,
   ruleInputSchema,
   type DeskMemory,
   type LampResult,
   type MotionState,
+  type MotionZone,
 } from '@livinglayer/domain';
 import { testApp } from './lib/app.js';
 import { EvidenceStore } from '../apps/server/src/store.js';
@@ -69,6 +72,72 @@ describe('motion zones', () => {
       ruleInputSchema.safeParse({ ...rule, objects: ['11111111-1111-4111-8111-111111111111'] })
         .success,
     ).toBe(false);
+  });
+});
+
+/** Three plushies side by side on the office desk, as zoned on its camera. */
+const lights = { started: true, stopped: false };
+const plushies: MotionZone[] = [
+  { id: 'pink', rect: { x: 0.31, y: 0.417, width: 0.041, height: 0.083 }, trigger, steps: lights },
+  { id: 'blue', rect: { x: 0.353, y: 0.387, width: 0.039, height: 0.079 }, trigger, steps: lights },
+  {
+    id: 'yellow',
+    rect: { x: 0.394, y: 0.364, width: 0.039, height: 0.075 },
+    trigger,
+    steps: lights,
+  },
+];
+/** Steps the zones through frames of each one's changed share, 100 ms apart: each frame's events, and whether it settles. */
+function runZones(zones: MotionZone[], frames: Record<string, number>[]) {
+  let state = ALL_STILL;
+  return frames.map((shares, i) => {
+    const step = stepMotionZones(zones, state, { shares, whole: 0, now: 1000 + i * 100 });
+    state = step.state;
+    return { events: step.events.map((e) => `${e.id} ${e.event}`), settle: step.settle };
+  });
+}
+const events = (frames: ReturnType<typeof runZones>) => frames.flatMap((f) => f.events);
+
+describe('motion zones side by side', () => {
+  it('start the one a hand reaches, not the neighbour its arm crossed first', () => {
+    const arm = { pink: 0.4, blue: 0, yellow: 0 };
+    const hand = { pink: 0, blue: 0.5, yellow: 0 };
+    const frames = runZones(plushies, [
+      arm,
+      arm,
+      arm,
+      hand,
+      hand,
+      hand,
+      hand,
+      hand,
+      hand,
+      hand,
+      hand,
+    ]);
+    expect(events(frames)).toEqual(['blue started']);
+    // After the contest's time from when the arm first counted.
+    expect(frames.findIndex((f) => f.events.length)).toBe(1 + MOTION_ZONE.contestMs / 100);
+  });
+
+  it('start a zone with no neighbour on the frame it qualifies', () => {
+    const far: MotionZone = {
+      ...plushies[0]!,
+      rect: { x: 0.8, y: 0.1, width: 0.04, height: 0.08 },
+    };
+    const frames = runZones([far, plushies[1]!], [{ pink: 0.3 }, { pink: 0.3 }]);
+    expect(frames.map((f) => f.events)).toEqual([[], ['pink started']]);
+  });
+
+  it('settle only when the zone runs steps for what it saw', () => {
+    const quiet = { ...plushies[1]!, rect: { x: 0.8, y: 0.1, width: 0.04, height: 0.08 } };
+    const silent = { ...quiet, steps: { started: false, stopped: false } };
+    const moving = [{ blue: 0.3 }, { blue: 0.3 }];
+    expect(runZones([quiet], moving)[1]).toEqual({ events: ['blue started'], settle: true });
+    expect(runZones([silent], moving)[1]).toEqual({ events: ['blue started'], settle: false });
+    // Going still runs nothing here, so it leaves the other zones watching.
+    const stopped = runZones([quiet], [...moving, ...Array(trigger.quietS * 10).fill({})]).at(-1)!;
+    expect(stopped).toEqual({ events: ['blue stopped'], settle: false });
   });
 });
 

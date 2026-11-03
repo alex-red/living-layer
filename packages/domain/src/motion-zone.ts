@@ -5,8 +5,14 @@
  * frame where much of the whole picture changes is a light switched or the
  * camera's exposure, not motion, and so is the moment after a zone switched a
  * light itself: either would otherwise set every zone off, and loop.
+ *
+ * Zones side by side contest a start: an arm reaching for one crosses its
+ * neighbour first, so the first to move isn't the one touched. Once one of
+ * them would start, they gather motion a moment and only the one that moved
+ * most starts.
  */
 import { z } from 'zod';
+import { around, type UnitBox } from './tracker.js';
 
 export interface MotionTrigger {
   /** Share of the zone's pixels that must change between frames, 0–1. */
@@ -25,6 +31,8 @@ export const MOTION_ZONE = {
   lightShare: 0.25,
   /** How long motion is ignored after a motion zone switched something, ms. */
   settleMs: 2500,
+  /** How long neighbouring zones gather motion before the one that moved most starts, ms. */
+  contestMs: 800,
   minShare: 0.01,
   maxShare: 0.5,
   maxQuietS: 600,
@@ -78,4 +86,124 @@ export function nextMotion(
   return streak >= (frame.startFrames ?? MOTION_ZONE.startFrames)
     ? { state: { moving: true, streak: 0, lastAt: frame.now }, event: 'started' }
     : { state: { ...state, streak, lastAt: frame.now }, event: null };
+}
+
+export interface MotionZone {
+  id: string;
+  rect: UnitBox;
+  trigger: MotionTrigger;
+  /** Whether it has steps to run when motion starts, and when it stops. */
+  steps: { started: boolean; stopped: boolean };
+}
+/** Neighbours deciding which of them starts: since when, and each one's motion so far. */
+interface MotionContest {
+  since: number;
+  sums: Record<string, number>;
+}
+/** Every motion zone's state, and the contests open between neighbours (by their first zone). */
+export interface MotionZones {
+  zones: Record<string, MotionState>;
+  contests: Record<string, MotionContest>;
+}
+export const ALL_STILL: MotionZones = { zones: {}, contests: {} };
+
+const touches = (a: UnitBox, b: UnitBox) =>
+  a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+
+/** Zones that touch once each is grown by its own size, joined into groups: those reachable past one another. */
+function neighbourhoods(zones: readonly MotionZone[]): MotionZone[][] {
+  const near = (a: MotionZone, b: MotionZone) =>
+    touches(around(a.rect), b.rect) || touches(around(b.rect), a.rect);
+  const groups: MotionZone[][] = [];
+  const seen = new Set<string>();
+  for (const zone of zones) {
+    if (seen.has(zone.id)) continue;
+    seen.add(zone.id);
+    const group = [zone];
+    for (let i = 0; i < group.length; i++)
+      for (const other of zones)
+        if (!seen.has(other.id) && near(group[i]!, other)) {
+          seen.add(other.id);
+          group.push(other);
+        }
+    groups.push(group);
+  }
+  return groups;
+}
+
+/**
+ * One frame's step for every motion zone, each zone's changed share in
+ * `shares`. A zone alone steps as `nextMotion` says. A still zone with
+ * neighbours that would start opens a contest instead: for `contestMs` the
+ * still zones of its group add up the shares they move by, then the one with
+ * the most starts and the rest stay still. Zones already moving aren't held.
+ * `settle` says whether a zone that started or stopped runs steps for it: only
+ * then may a light have switched, for every zone to wait out.
+ */
+export function stepMotionZones(
+  zones: readonly MotionZone[],
+  was: MotionZones,
+  frame: {
+    shares: Record<string, number>;
+    whole: number;
+    now: number;
+    settledAt?: number;
+    startFrames?: number;
+    /** The demo's frames come only when something moves, so it decides on the frame. */
+    contestMs?: number;
+  },
+): {
+  state: MotionZones;
+  events: { id: string; event: 'started' | 'stopped' }[];
+  settle: boolean;
+} {
+  const { whole, now, settledAt, startFrames } = frame;
+  const contestMs = frame.contestMs ?? MOTION_ZONE.contestMs;
+  const ignored = whole >= MOTION_ZONE.lightShare || now < (settledAt ?? 0);
+  const state: MotionZones = { zones: {}, contests: {} };
+  const events: { id: string; event: 'started' | 'stopped' }[] = [];
+  for (const group of neighbourhoods(zones)) {
+    const key = group[0]!.id;
+    const open = was.contests[key];
+    const sums = { ...open?.sums };
+    let starting = false;
+    for (const zone of group) {
+      const from = was.zones[zone.id] ?? STILL;
+      const share = frame.shares[zone.id] ?? 0;
+      const step = nextMotion(from, zone.trigger, {
+        share,
+        whole,
+        now,
+        ...(settledAt !== undefined ? { settledAt } : {}),
+        ...(startFrames !== undefined ? { startFrames } : {}),
+      });
+      if (from.moving || group.length === 1) {
+        state.zones[zone.id] = step.state;
+        if (step.event) events.push({ id: zone.id, event: step.event });
+        continue;
+      }
+      if (!ignored && share >= zone.trigger.share) sums[zone.id] = (sums[zone.id] ?? 0) + share;
+      if (step.event === 'started') starting = true;
+      state.zones[zone.id] = step.event ? { ...step.state, moving: false } : step.state;
+    }
+    const since = open?.since ?? (starting ? now : null);
+    if (since === null) continue;
+    if (now - since < contestMs) {
+      state.contests[key] = { since, sums };
+      continue;
+    }
+    let winner: MotionZone | null = null;
+    for (const zone of group)
+      if (!state.zones[zone.id]!.moving && (sums[zone.id] ?? 0) > (winner ? sums[winner.id]! : 0))
+        winner = zone;
+    for (const zone of group)
+      if (!state.zones[zone.id]!.moving)
+        state.zones[zone.id] =
+          zone === winner
+            ? { moving: true, streak: 0, lastAt: now }
+            : { ...state.zones[zone.id]!, streak: 0 };
+    if (winner) events.push({ id: winner.id, event: 'started' });
+  }
+  const settle = events.some((e) => zones.find((z) => z.id === e.id)?.steps[e.event]);
+  return { state, events, settle };
 }
