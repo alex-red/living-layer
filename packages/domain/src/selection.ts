@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { Detection, Segmentation } from './index.js';
+import type { Detection, Segmentation } from './api.js';
 import type { IsoBox, IsoScene, Point } from './iso.js';
 import { fillRings, maskBits, newBits, type Bits } from './photo-scene.js';
 import type { RoomCamera } from './room-camera.js';

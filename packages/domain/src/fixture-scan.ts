@@ -31,7 +31,7 @@ import {
   type Point,
   type SurfacePin,
 } from './iso.js';
-import type { Detection, Segmentation } from './index.js';
+import type { Detection, Segmentation } from './api.js';
 import {
   convexHull,
   maskBits,

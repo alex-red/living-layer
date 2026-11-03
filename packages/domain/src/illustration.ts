@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { Segmentation } from './index.js';
+import type { Segmentation } from './api.js';
 import { pointSchema, toIso, type IsoScreen, type Point, type SurfacePin } from './iso.js';
 import { ISO_PRESETS, isoSurface } from './iso-presets.js';
 import type { IsoBox, IsoScene, IsoVec } from './iso.js';

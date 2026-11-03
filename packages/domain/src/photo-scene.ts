@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import type { Detection, RoomCalibration, Segmentation } from './index.js';
+import type { Detection, Segmentation } from './api.js';
+import type { RoomCalibration } from './memory.js';
 import {
   applyHomography,
   homography,

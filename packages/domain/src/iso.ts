@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import type { Detection, Segmentation, ZoneRect } from './index.js';
+import type { Detection, Segmentation } from './api.js';
+import type { ZoneRect } from './memory.js';
 import { ISO_TONES, PROP_FORMS, type PropForm } from './iso-furniture.js';
 import { fixtureRecipeSchema, type FixtureRecipe } from './recipe.js';
 import { TEMPLATE_IDS, type TemplateId } from './iso-templates.js';

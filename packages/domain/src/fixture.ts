@@ -19,7 +19,7 @@ import {
   type IsoScene,
   type IsoSceneKind,
 } from './iso.js';
-import type { DeskObservation } from './index.js';
+import type { DeskObservation } from './memory.js';
 
 /**
  * A fixture is a thing in a room that belongs there: a lamp, a wall switch, a

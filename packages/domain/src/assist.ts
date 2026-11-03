@@ -1,4 +1,4 @@
-import type { Segmentation } from './index.js';
+import type { Segmentation } from './api.js';
 import type { MergedFacts, sizeDisagreement } from './facts.js';
 import type { EditIntent } from './intent.js';
 import type { RecipeCheck, RecipePlace } from './recipe-build.js';

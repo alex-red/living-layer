@@ -1,4 +1,4 @@
-import type { RoomCalibration } from './index.js';
+import type { RoomCalibration } from './memory.js';
 import type { Point } from './iso.js';
 import { cameraFromMarks, fitLimit, roomSizeFor, type RoomMarks } from './room-camera.js';
 import { layoutTuning } from './layout-tuning.js';

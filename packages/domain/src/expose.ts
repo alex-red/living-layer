@@ -9,15 +9,9 @@
  * publishes each entered and left once, not retained (`zoneEvent`).
  */
 import { z } from 'zod';
-import {
-  ruleObjects,
-  ruleWho,
-  type DeskMemory,
-  type DeskObservation,
-  type EvidenceRun,
-  type PlacementDecision,
-  type ZoneRect,
-} from './index.js';
+import type { EvidenceRun } from './api.js';
+import type { DeskMemory, DeskObservation, PlacementDecision, ZoneRect } from './memory.js';
+import { ruleObjects, ruleWho } from './rules.js';
 import type { WatchStatus, WatchView } from './watch.js';
 
 export const EXPOSE_KINDS = [

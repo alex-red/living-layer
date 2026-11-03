@@ -12,7 +12,8 @@ import {
   settleGroup,
   type TemplateId,
 } from './iso-templates.js';
-import type { RoomCalibration, Segmentation } from './index.js';
+import type { Segmentation } from './api.js';
+import type { RoomCalibration } from './memory.js';
 import {
   PHOTO_SURFACES,
   detectionFromBits,
