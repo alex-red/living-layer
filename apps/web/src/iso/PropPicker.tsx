@@ -11,7 +11,7 @@ import {
 } from '@livinglayer/domain';
 import { Popover } from '../workspace/Popover';
 import { Button } from '../ui/controls';
-import { propSprite, type SpriteImage } from './sprites';
+import { loadSprite, type SpriteImage } from './sprites';
 
 type Shelf = 'all' | 'furniture' | 'tabletop' | 'room';
 const SHELVES: { id: Shelf; label: string }[] = [
@@ -65,14 +65,16 @@ const thumbs = new Map<TemplateId, Thumb>();
  * A template drawn by the same kernel as the room, framed tight around its
  * sprites. A big model takes a few hundred milliseconds the first time.
  */
-function thumb(id: TemplateId): Thumb {
+async function thumb(id: TemplateId): Promise<Thumb> {
   const hit = thumbs.get(id);
   if (hit) return hit;
-  const layers = depthOrder(built(id)).map((p) => {
-    const s = propSprite(p, p.role === 'lamp');
-    const at = toIso(p.at);
-    return { ...s, x: at.sx + s.x, y: at.sy + s.y, key: p.id };
-  });
+  const layers = await Promise.all(
+    depthOrder(built(id)).map(async (p) => {
+      const s = await loadSprite({ kind: 'prop', prop: p, lit: p.role === 'lamp' });
+      const at = toIso(p.at);
+      return { ...s, x: at.sx + s.x, y: at.sy + s.y, key: p.id };
+    }),
+  );
   const x0 = Math.min(...layers.map((l) => l.x));
   const y0 = Math.min(...layers.map((l) => l.y));
   const x1 = Math.max(...layers.map((l) => l.x + l.width));
@@ -81,22 +83,23 @@ function thumb(id: TemplateId): Thumb {
   thumbs.set(id, t);
   return t;
 }
-/** Draws the thumbnails one per task, so opening the editor never stalls on them. */
+/** Draws the thumbnails one at a time in the sprite worker, so opening the editor never stalls on them. */
 function useThumbs(): ReadonlyMap<TemplateId, Thumb> {
   const [, redraw] = useState(0);
   useEffect(() => {
-    let timer: ReturnType<typeof setTimeout>;
-    const next = () => {
+    let live = true;
+    const next = async () => {
       const id = TEMPLATE_IDS.find((i) => !thumbs.has(i));
-      if (!id) return;
-      timer = setTimeout(() => {
-        thumb(id);
-        redraw((n) => n + 1);
-        next();
-      }, 0);
+      if (!id || !live) return;
+      await thumb(id);
+      if (!live) return;
+      redraw((n) => n + 1);
+      void next();
     };
-    next();
-    return () => clearTimeout(timer);
+    void next();
+    return () => {
+      live = false;
+    };
   }, []);
   return thumbs;
 }
