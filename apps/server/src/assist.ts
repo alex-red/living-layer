@@ -11,6 +11,7 @@ import {
   sceneWithRecipe,
   fitGroup,
   fitKept,
+  mirrorRecipe,
   ISO_TILE_CM,
   maskBits,
   settleFixtures,
@@ -87,10 +88,10 @@ const STEPS = [
   { id: 'check', label: 'Check it against the camera' },
 ];
 
-/** The most one request can cost live: reading it, SAM, a lookup with searches, two looks at the photo. */
+/** The most one request can cost live: reading it, SAM twice, a lookup with searches, two looks at the photo. */
 export const assistCeiling = () =>
   sparkCeiling(SPARK_BUDGET.intent, 1) +
-  META_PRICES.samPerImage +
+  2 * META_PRICES.samPerImage +
   sparkCeiling(SPARK_BUDGET.productLookup, 0) +
   SEARCH_CEILING * META_PRICES.webSearchPerQuery +
   2 * Math.max(sparkCeiling(SPARK_BUDGET.refine, 1), sparkCeiling(SPARK_BUDGET.sculpt, 2));
@@ -219,6 +220,7 @@ export function assistRoutes(
         let whole: Bits | null = null;
         let resolved: Resolved;
         let samMissed: string | null = null;
+        let byName = false;
         const crop = await around(png, selectionBox(shape, room.frame));
         if (last && !input.shape) {
           outline =
@@ -239,6 +241,28 @@ export function assistRoutes(
             ({ outline, samMissed, open } = keepOutline(room, shape, resolved.target, sam.cut));
             // Only when the cut outline was SAM's own, of the target: else it outlined something else.
             if (!samMissed) whole = open && sam.whole ? filledRows(sam.whole) : sam.whole;
+            else if (resolved.target) {
+              // A loose box leaks onto what looks like the thing (a wood floor under a wood
+              // desk), and the room's drawing may be what is wrong: SAM is asked for it by name.
+              const named = await samNamed(
+                png,
+                shape,
+                room.frame,
+                resolved.target,
+                drawnOf(room, resolved.target),
+                id,
+                job.signal,
+              ).catch((e: unknown) => {
+                // A second look that fails leaves the room's drawing, as before it was asked.
+                if (job.signal.aborted) throw e;
+                return null;
+              });
+              if (named) {
+                ({ cut: outline, whole } = named);
+                samMissed = null;
+                byName = true;
+              }
+            }
           } else {
             // The demo outlines what its fixed frame draws there.
             outline = demoOutline(shape, room.frame, drawnOf(room, resolved.target));
@@ -251,7 +275,8 @@ export function assistRoutes(
         await job.done(
           'select',
           (resolved.target ? resolved.target.label : 'Something the room doesn’t have yet') +
-            (samMissed ? ` (SAM outlined ${samMissed}; outlined from the room instead)` : ''),
+            (samMissed ? ` (SAM outlined ${samMissed}; outlined from the room instead)` : '') +
+            (byName ? ' (outlined by SAM from its name)' : ''),
           crop,
         );
         job.check();
@@ -469,6 +494,28 @@ export function assistRoutes(
     store.asset(runId, 'sam-output.txt', outlined.raw);
     return { cut: samMask(outlined.output, shape, frame), whole: samWhole(outlined.output, frame) };
   }
+  /** SAM's outline of the target found by its name (`namedOutline`); null when it isn't one. */
+  async function samNamed(
+    png: Buffer,
+    shape: SelectionShape,
+    frame: Segmentation['frame'],
+    target: NonNullable<Resolved['target']>,
+    drawn: Bits | null,
+    runId: string,
+    signal?: AbortSignal,
+  ): Promise<{ cut: Bits; whole: Bits } | null> {
+    const found = await meta.segment(
+      dataUrl(png),
+      samConcept(target.label),
+      frame.width,
+      frame.height,
+      {
+        ...(signal ? { signal } : {}),
+      },
+    );
+    store.asset(runId, 'sam-named-output.txt', found.raw);
+    return namedOutline(found.output, shape, frame, drawn);
+  }
 }
 
 /** SAM's largest outline for a box prompt, cut to the selection; the selection itself when SAM found none. */
@@ -500,6 +547,8 @@ export function drawnOf(
 }
 /** How much of the room's drawing of a thing must lie inside SAM's outline for SAM's to be kept. */
 const KEEP_SAM_OVER = 0.6;
+/** How much better a new model's mirror image must match its outline to be taken over it as built. */
+const MIRROR_MARGIN = 0.02;
 /**
  * The outline a live request works on. SAM outlines what stands out in the
  * box, which can be what stands on the thing (a keyboard on a desk): its
@@ -534,6 +583,94 @@ export function keepOutline(
   const inside = selectionMask(shape, room.frame);
   for (let i = 0; i < drawn.data.length; i++) drawn.data[i] = drawn.data[i]! & inside.data[i]!;
   return { outline: drawn, samMissed: of?.label ?? 'nothing the room has', open: false };
+}
+
+/**
+ * A label as SAM's text prompt: a short noun phrase, so what comes before any
+ * “with …”. SAM found nothing for “desk with drawers” and the desk for “light wood desk”.
+ */
+export function samConcept(label: string): string {
+  return label
+    .split(/\s+(?:with|on|in)\s+/i)[0]!
+    .trim()
+    .toLowerCase();
+}
+/** How much of each other SAM's outline found by name and the room's drawing of the thing must share. */
+const NAMED_OVERLAP = 0.3;
+/**
+ * SAM's outline of a thing it found by name, filled across like a kept one:
+ * of what it found, the one with most of itself in the selection, cut to the
+ * selection and whole. The room's drawing may be well off (that is why it is
+ * asked), so the two need only share `NAMED_OVERLAP` of each: a mug on a desk
+ * shares almost none of the desk's drawing. Null when nothing passes.
+ */
+export function namedOutline(
+  sam: Pick<Segmentation, 'detections'>,
+  shape: SelectionShape,
+  frame: Segmentation['frame'],
+  drawn: Bits | null,
+): { cut: Bits; whole: Bits } | null {
+  const inside = selectionMask(shape, frame);
+  let best: { whole: Bits; within: number } | null = null;
+  for (const d of sam.detections) {
+    const whole = filledRows(maskBits(d, frame, 1));
+    let within = 0;
+    for (let i = 0; i < whole.data.length; i++) within += whole.data[i]! & inside.data[i]!;
+    if (within && (!best || within > best.within)) best = { whole, within };
+  }
+  if (!best) return null;
+  if (drawn) {
+    let mine = 0;
+    let found = 0;
+    let shared = 0;
+    for (let i = 0; i < drawn.data.length; i++) {
+      mine += drawn.data[i]!;
+      found += best.whole.data[i]!;
+      shared += drawn.data[i]! & best.whole.data[i]!;
+    }
+    if (!mine || shared / mine < NAMED_OVERLAP || shared / found < NAMED_OVERLAP) return null;
+  }
+  const cut = { ...best.whole, data: best.whole.data.map((v, i) => v & inside.data[i]!) };
+  return { cut, whole: best.whole };
+}
+
+/**
+ * Where a new model in an old one's place stands: moved to where the camera
+ * sees the thing (`fitGroup`), as built or mirrored left for right, whichever
+ * matches the outline better by `MIRROR_MARGIN`. Never turned half way round:
+ * the room's turn says which way its front faces, which an outline can't, and
+ * a desk turned round has its drawers facing the wall. Null when no place is
+ * enough better than where the old one stood (`fitKept`).
+ */
+export function fitNewModel(
+  room: Pick<ReturnType<typeof selectionRoom>, 'camera' | 'scene'>,
+  recipe: FixtureRecipe,
+  at: RecipePlace,
+  whole: Bits,
+): { recipe: FixtureRecipe; place: RecipePlace; fit: NonNullable<AssistDraft['fit']> } | null {
+  const fitOf = (r: FixtureRecipe) =>
+    fitGroup(room.camera, sceneWithRecipe(room.scene, r, at, 'candidate'), 'candidate', whole, {
+      halfTurn: false,
+    });
+  const asBuilt = fitOf(recipe);
+  const mirror = mirrorRecipe(recipe);
+  const other = fitOf(mirror);
+  const mirrored = Boolean(other && (!asBuilt || other.iou > asBuilt.iou + MIRROR_MARGIN));
+  const fit = mirrored ? other : asBuilt;
+  // Judged against the model as built where the old one stood.
+  const from = asBuilt?.from ?? fit?.from ?? 0;
+  if (!fit || !fitKept({ from, iou: fit.iou })) return null;
+  return {
+    recipe: mirrored ? mirror : recipe,
+    place: { ...at, cx: at.cx + fit.moved.x, cy: at.cy + fit.moved.y },
+    fit: {
+      from,
+      iou: fit.iou,
+      movedCm: { x: fit.moved.x * ISO_TILE_CM, y: fit.moved.y * ISO_TILE_CM },
+      turned: false,
+      mirrored,
+    },
+  };
 }
 
 /** How a draft's steps are reported: the job live, the console in a replay. */
@@ -660,27 +797,10 @@ export async function finishDraft(
     (targetProp ? placeOfGroup(room.scene, targetProp) : null) ??
     (box ? { cx: box.cx, cy: box.cy, z: 0, turns: 0, replaces: null } : null);
   if (!draft.previous && create && recipe && draft.place?.replaces && whole) {
-    const at = draft.place;
-    const fit = fitGroup(
-      room.camera,
-      sceneWithRecipe(room.scene, recipe, at, 'candidate'),
-      'candidate',
-      whole,
-    );
-    if (fit && fitKept(fit)) {
-      draft.place = {
-        ...at,
-        cx: at.cx + fit.moved.x,
-        cy: at.cy + fit.moved.y,
-        turns: fit.turned ? (at.turns + 2) % 4 : at.turns,
-      };
-      draft.fit = {
-        from: fit.from,
-        iou: fit.iou,
-        movedCm: { x: fit.moved.x * ISO_TILE_CM, y: fit.moved.y * ISO_TILE_CM },
-        turned: fit.turned,
-      };
-    } else draft.fit = null;
+    const fitted = fitNewModel(room, recipe, draft.place, whole);
+    if (fitted) ({ recipe, place: draft.place, fit: draft.fit } = fitted);
+    else draft.fit = null;
+    draft.recipe = recipe;
   }
   // Checked against all of the thing once its place was fitted to it, not the part selected,
   // and against the photo's colours as well as its outline.
@@ -753,7 +873,7 @@ export async function finishDraft(
     await steps.done(
       'check',
       (draft.fit
-        ? `Moved ${Math.round(moved!)} cm${draft.fit.turned ? ' and turned round' : ''} to where the camera sees it. `
+        ? `Moved ${Math.round(moved!)} cm${draft.fit.turned ? ' and turned round' : ''}${draft.fit.mirrored ? ', mirrored left for right,' : ''} to where the camera sees it. `
         : '') +
         best.check.report +
         (failed ? ` Spark’s refinement failed, so it is as built: ${failed}` : ''),

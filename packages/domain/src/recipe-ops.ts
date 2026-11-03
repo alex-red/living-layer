@@ -159,6 +159,25 @@ function resizeWhole(recipe: FixtureRecipe, to: z.infer<typeof sizeChange>): Fix
   return { ...recipe, sizeCm, parts };
 }
 /**
+ * The model's mirror image, left for right: each part's x reflected across
+ * its width (a tube's path with it), and left and right swapped in part
+ * names. Unlike half a turn its front stays its front: a desk with its drawer
+ * unit on the other side, still facing the room.
+ */
+export function mirrorRecipe(recipe: FixtureRecipe): FixtureRecipe {
+  const w = recipe.sizeCm.w;
+  const swap = (name: string) =>
+    name.replace(/\b(left|right)\b/g, (s) => (s === 'left' ? 'right' : 'left'));
+  const parts = recipe.parts.map((p) => ({
+    ...p,
+    name: swap(p.name),
+    atCm: { ...p.atCm, x: w - p.atCm.x - p.sizeCm.w },
+    ...(p.path ? { path: p.path.map((q) => ({ ...q, x: 1 - q.x })) } : {}),
+  }));
+  const surfaces = recipe.surfaces?.map((s) => ({ ...s, part: swap(s.part) }));
+  return { ...recipe, parts, ...(surfaces ? { surfaces } : {}) };
+}
+/**
  * Parts another size. Each keeps the model's edge it touches (a drawer
  * front stays on the front), else its middle; heights grow from its bottom.
  */

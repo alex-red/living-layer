@@ -44,10 +44,17 @@ export interface AssistDraft {
   /**
    * How the place was fitted to SAM's whole outline through the camera, when
    * a new model took an old one's place: IoU before and after, how far its
-   * middle moved in centimetres, and whether it was turned half way round.
+   * middle moved in centimetres, whether it was turned half way round (older
+   * runs) and whether it was mirrored left for right.
    * Absent or null when it stands where the old one did.
    */
-  fit?: { from: number; iou: number; movedCm: { x: number; y: number }; turned: boolean } | null;
+  fit?: {
+    from: number;
+    iou: number;
+    movedCm: { x: number; y: number };
+    turned: boolean;
+    mirrored?: boolean;
+  } | null;
   check: RecipeCheck | null;
   /** Refinement rounds after the first check, and the ops each applied. */
   rounds: RecipeOp[][];

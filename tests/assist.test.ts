@@ -5,17 +5,26 @@ import { join } from 'node:path';
 import { buildApp } from '../apps/server/src/app.js';
 import { parseConfig, type Fetcher } from '../apps/server/src/config.js';
 import { demoIntent } from '../apps/server/src/demo-intent.js';
-import { demoPng } from '../apps/server/src/demo.js';
-import { keepOutline } from '../apps/server/src/assist.js';
+import { demoPng, demoSegmentation } from '../apps/server/src/demo.js';
+import { fitNewModel, keepOutline, namedOutline, samConcept } from '../apps/server/src/assist.js';
 import { syntheticStream } from '../apps/server/src/sam.js';
 import {
   cm,
   DEMO_CALIBRATION,
+  fixtureRecipeSchema,
+  floorSolid,
   ISO_PRESETS,
+  mirrorRecipe,
+  placeOfGroup,
+  renderRoom,
   roomMask,
+  sceneSolids,
+  sceneWithRecipe,
   type AssistDraft,
   type DeskMemory,
   type EvidenceRun,
+  type FixtureRecipe,
+  type RecipePlace,
   type SelectionShape,
 } from '../packages/domain/src/index.js';
 import { demoRoom, shapeOf } from '../scripts/lib/brush.js';
@@ -317,6 +326,8 @@ describe('the AI brush live, against a mocked Meta API', () => {
     const run = res.json<EvidenceRun<AssistDraft>>();
     expect(run.output.target).toMatchObject({ kind: 'prop', id: 'desk' });
     expect(run.output.recipe?.label).toContain('Alex');
+    // SAM was asked again by the desk's name and answered the mug again: the room's drawing stands.
+    expect(s.asked.filter((a) => a === 'sam')).toHaveLength(2);
     expect(await s.step(jobId, 'select')).toContain('SAM outlined nothing the room has');
   });
 
@@ -381,5 +392,58 @@ describe('the outline a live request keeps', () => {
     // The keyboard on it: the room's desk mostly lies outside it, so the room's own drawing is used.
     const kept = keepOutline(room, around('desk'), desk, mask('keyboard'));
     expect(kept.samMissed).toBe('Keyboard');
+  });
+  it('asks SAM for a thing by a short name', () => {
+    expect(samConcept('Light wood desk with drawers')).toBe('light wood desk');
+    expect(samConcept('White mug with blue inside')).toBe('white mug');
+    expect(samConcept('Desk')).toBe('desk');
+  });
+  it('keeps SAM’s outline found by name where the room drew the thing well off, not a mug on it', async () => {
+    const drawn = mask('desk');
+    // The room's drawing of the desk 60 pixels left and 30 down of where the camera sees it.
+    const off = { ...drawn, data: new Uint8Array(drawn.data.length) };
+    for (let y = 0; y + 30 < drawn.height; y++)
+      for (let x = 60; x < drawn.width; x++)
+        off.data[(y + 30) * drawn.width + x - 60] = drawn.data[y * drawn.width + x]!;
+    expect(keepOutline(room, around('desk'), desk, drawn).samMissed).toBeNull();
+    const named = namedOutline(
+      (await demoSegmentation('desk')).output,
+      around('desk'),
+      room.frame,
+      off,
+    );
+    expect(named).not.toBeNull();
+    let both = 0;
+    for (let i = 0; i < drawn.data.length; i++) both += named!.whole.data[i]! & drawn.data[i]!;
+    expect(both / drawn.data.reduce((a, v) => a + v, 0)).toBeGreaterThan(0.9);
+    // A mug on the desk, answered for “desk”, shares next to nothing of its drawing.
+    const mug = await demoSegmentation('mug');
+    expect(namedOutline(mug.output, around('desk'), room.frame, off)).toBeNull();
+  });
+});
+
+describe('where a new model stands', () => {
+  const room = demoRoom();
+  const alex = fixtureRecipeSchema.parse(
+    JSON.parse(readFileSync('testdata/recipes/alex-desk.json', 'utf8')),
+  );
+  const at = placeOfGroup(room.scene, 'desk')!;
+  /** The outline the camera would see of `recipe` standing at `place`. */
+  const seen = (recipe: FixtureRecipe, place: RecipePlace) => {
+    const s = sceneWithRecipe(room.scene, recipe, place);
+    const pic = renderRoom(room.camera, [floorSolid(s.grid), ...sceneSolids(s)], { labels: true });
+    return roomMask(pic, 'candidate')!;
+  };
+  it('mirrors it when the photo has its drawer unit on the other side, never turning it round', () => {
+    const fitted = fitNewModel(room, alex, at, seen(mirrorRecipe(alex), at))!;
+    expect(fitted.fit).toMatchObject({ mirrored: true, turned: false });
+    expect(fitted.place.turns).toBe(at.turns);
+    expect(fitted.recipe.parts.find((p) => p.name === 'drawer-unit')!.atCm.x).toBe(0);
+  });
+  it('keeps it as built when the photo matches it, only moved', () => {
+    const fitted = fitNewModel(room, alex, at, seen(alex, { ...at, cx: at.cx + 1 }))!;
+    expect(fitted.fit).toMatchObject({ mirrored: false, turned: false });
+    expect(fitted.recipe).toBe(alex);
+    expect(fitted.place.cx).toBeCloseTo(at.cx + 1, 1);
   });
 });

@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import {
   applyRecipeOps,
   fixtureRecipeSchema,
+  mirrorRecipe,
   RECIPE_OPS,
   recipeOpSchema,
   selectParts,
@@ -145,5 +146,18 @@ describe('recipe ops', () => {
     expect(recipeOpSchema.safeParse({ op: 'explode' }).success).toBe(false);
     const kinds = recipeOpSchema.options.map((o) => o.shape.op.value);
     expect(Object.keys(RECIPE_OPS).sort()).toEqual([...kinds].sort());
+  });
+});
+
+describe('a model’s mirror image', () => {
+  it('puts the drawer unit on the other side, swaps left and right in names, and undoes itself', () => {
+    const m = mirrorRecipe(ALEX);
+    expect(fixtureRecipeSchema.safeParse(m).success).toBe(true);
+    // 131 cm wide: the unit at 95 to 131 is now at 0 to 36, the left panel the right one.
+    expect(part(m, 'drawer-unit').atCm.x).toBe(0);
+    expect(part(m, 'panel-right').atCm.x).toBe(128.5);
+    expect(m.parts.some((p) => p.name === 'panel-left')).toBe(false);
+    expect(m.surfaces).toEqual(ALEX.surfaces);
+    expect(mirrorRecipe(m)).toEqual(ALEX);
   });
 });
