@@ -33,7 +33,7 @@ import { MetaAdapter, type ProviderResult } from './meta.js';
 import { ControlAdapter } from './control.js';
 import { chosenEntities, haConnection, haRoutes, type OpenSocket } from './ha.js';
 import { fixtureRoutes } from './fixture.js';
-import { LabError, parseInput, safeError } from './errors.js';
+import { LabError, logError, parseInput, safeError } from './errors.js';
 import { validateImage } from './images.js';
 import { deskRoutes } from './desk.js';
 import { itemRoutes } from './item.js';
@@ -172,7 +172,7 @@ export async function buildApp(
       throw new LabError('origin', 'Requests from this origin are not allowed.', 403);
     }
   });
-  app.setErrorHandler((error, _request, reply) => {
+  app.setErrorHandler((error, request, reply) => {
     const status =
       error && typeof error === 'object' && 'statusCode' in error ? Number(error.statusCode) : 500;
     const normalized =
@@ -183,6 +183,8 @@ export async function buildApp(
             'The request could not be processed.',
             status >= 400 && status < 500 ? status : 500,
           );
+    if (!(error instanceof LabError) && normalized.statusCode >= 500)
+      logError(error, `${request.method} ${request.url}`);
     const runId = (error as { runId?: string }).runId;
     void reply.code(normalized.statusCode).send({
       error: {
