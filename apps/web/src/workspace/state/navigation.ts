@@ -76,7 +76,7 @@ export function useNavigationSlice(
       setWorkScene(null);
     else if (workScene === 'custom-desk' && memory && !viewOf('custom', memory))
       setWorkScene('custom');
-  }, [workScene, memory]);
+  }, [workScene, memory, setWorkScene]);
   /** Choose the room to work in: the demo preset, or start drafting one from a photo. */
   function pickScene(next: WorkScene, from: 'preset' | 'photo' = 'preset') {
     setWorkScene(next);
@@ -219,7 +219,7 @@ export function useNavigationSlice(
     }
   }
   // A guess for another mode or room no longer applies.
-  useEffect(() => setGuess(null), [mode]);
+  useEffect(() => setGuess(null), [mode, setGuess]);
   return useStableSlice({
     askGuess,
     asking,

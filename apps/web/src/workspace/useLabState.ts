@@ -158,14 +158,28 @@ export function useLabState(): LabSlices {
       };
       frame.src = handedOff;
     }
-    return () => {
+    // Late answers are dropped from here on, and the camera is let go.
+    const leave = () => {
       mounted.current = false;
       followViewStore.set(null);
       aiTaskStore.set(null);
       cameraGeneration.current++;
       releaseStream();
     };
-  }, []);
+    return leave;
+  }, [
+    boot,
+    cameraGeneration,
+    captureCanvas,
+    changeMode,
+    mounted,
+    refresh,
+    releaseStream,
+    restoreDesk,
+    setDeskReady,
+    setError,
+    setMessage,
+  ]);
   return {
     view,
     feedback,

@@ -272,7 +272,11 @@ export function useTrackingSlice(
     }
   }
   // The sampling loop reads the newest zone and handler through a ref, so renders don't restart it.
-  const followLatest = useRef({ zone: null as UnitBox | null, check: followCheck });
+  const followLatest = useRef({
+    zone: null as UnitBox | null,
+    check: followCheck,
+    step: applyStep,
+  });
   useEffect(() => {
     if (!follow || !camera || busy || mode !== 'live') return;
     const timer = window.setInterval(() => {
@@ -280,13 +284,13 @@ export function useTrackingSlice(
       const current = localTrack.current;
       if (!el?.videoWidth || !current) return;
       const step = stepLocalTrack(current, lumaOf(el), followLatest.current.zone);
-      applyStep(step);
+      followLatest.current.step(step);
       const gap = step.verdict === 'confirm' ? CONFIRM_GAP_MS : reanchorGap.current;
       if (step.verdict !== 'follow' && Date.now() - lastCheck.current > gap)
         void followLatest.current.check(step.verdict);
     }, FOLLOW_MS);
     return () => window.clearInterval(timer);
-  }, [follow, camera, busy, mode]);
+  }, [follow, camera, busy, mode, video, localTrack, lastCheck, reanchorGap]);
   /** The selected network camera, when the server can read it too (it offers RTSP). */
   const watchCamera = network.streams.find((s) => s.id === cameraSource && s.rtsp);
   /** Whether the server can watch this mode's camera: always in the demo, else an RTSP camera. */
@@ -313,16 +317,22 @@ export function useTrackingSlice(
   // Watching shows the camera the server watches, live: once when watching starts or the
   // page loads with it on. A camera the person stops afterwards stays off.
   const watchedId = mode === 'live' && watching ? watch?.camera?.id : undefined;
+  // What the watcher's effects read when they run: the newest watch, mode and camera.
+  const watchNow = useRef({ watch, mode, camera, cameraSource });
+  watchNow.current = { watch, mode, camera, cameraSource };
   useEffect(() => {
     if (!watchedId) return;
+    const { camera, cameraSource } = watchNow.current;
     if (camera && cameraSource !== watchedId) dropCamera();
     setCameraSource(watchedId);
     setCameraWanted(true);
     setReopenTries(0);
-  }, [watchedId]);
+  }, [watchedId, dropCamera, setCameraSource, setCameraWanted, setReopenTries]);
   // What the watcher's SAM checks changed (sightings, verdicts, a lamp) shows once it lands.
   const seenChecks = useRef(0);
+  const checks = watch?.checks;
   useEffect(() => {
+    const { watch, mode } = watchNow.current;
     if (!watch || watch.checks === seenChecks.current) return;
     const first = seenChecks.current === 0 && watch.checks > 0 && !watch.on;
     seenChecks.current = watch.checks;
@@ -333,15 +343,15 @@ export function useTrackingSlice(
         if (action === 'confirmed') light();
       })
       .catch(() => {});
-  }, [watch?.checks]);
+  }, [checks, refresh, light]);
   // A fixture marked missing (or found again) changes how the room draws it.
   const missingFixtures = (watch?.things ?? []).filter(
     (t) => t.kind === 'fixture' && t.status === 'missing',
   ).length;
   useEffect(() => {
-    if (watch) void refresh().catch(() => {});
-  }, [missingFixtures]);
-  followLatest.current = { zone: localZone, check: followCheck };
+    if (watchNow.current.watch) void refresh().catch(() => {});
+  }, [missingFixtures, refresh]);
+  followLatest.current = { zone: localZone, check: followCheck, step: applyStep };
   return useStableSlice({
     canWatch,
     expose,

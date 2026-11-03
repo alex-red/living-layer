@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import type { IsoScene, Job, DeskMemory } from '@livinglayer/domain';
 import { DEMO_CAMERA, groupInFrame } from '@livinglayer/domain';
 import { api } from '../../api';
@@ -64,13 +64,16 @@ export function useAiSlice(
   const [lastAiRun, setLastAiRun] = useState<{ jobId: string; desk: DeskMemory } | null>(null);
   /** Past AI actions, newest first, without their pictures: each is fetched to review. */
   const [aiHistory, setAiHistory] = useState<Job[]>([]);
-  const loadAiHistory = () =>
-    api<Job[]>('jobs')
-      .then((list) => mounted.current && setAiHistory(list))
-      .catch(() => {});
+  const loadAiHistory = useCallback(
+    () =>
+      api<Job[]>('jobs')
+        .then((list) => mounted.current && setAiHistory(list))
+        .catch(() => {}),
+    [mounted],
+  );
   useEffect(() => {
     void loadAiHistory();
-  }, []);
+  }, [loadAiHistory]);
   /** Open a past AI action in the dialog, read-only, to see what each step did. */
   async function reviewAiRun(jobId: string) {
     if (aiRun.current) return;

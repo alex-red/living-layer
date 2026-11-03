@@ -273,7 +273,10 @@ export function useCameraSlice(
         .play()
         .catch(() => setError('Camera playback failed. Stop the camera and try an upload.'));
     }
-  }, [camera]);
+  }, [camera, setError]);
+  // The newest open function, for a timer that waits and then opens the camera.
+  const startCameraNow = useRef(startCamera);
+  startCameraNow.current = startCamera;
   // A camera that was on and wasn't stopped by the person opens again: after a reload,
   // back in live mode, after calibrating or pinning, or once a dropped stream can be reached.
   // A few tries, further apart each time.
@@ -297,7 +300,7 @@ export function useCameraSlice(
           if (cancelled || state !== 'granted') return;
         }
         setReopenTries((t) => t + 1);
-        void startCamera(remote);
+        void startCameraNow.current(remote);
       },
       reopenTries ? 2000 * 2 ** (reopenTries - 1) : 500,
     );
@@ -327,14 +330,18 @@ export function useCameraSlice(
     void startCamera();
   }
   // A room with a camera assigned to it uses that camera, unless the one chosen is assigned there too.
+  // It looks again when the room or the camera list changes, not when the person picks a camera.
+  const pickedCamera = useRef({ camera, cameraSource });
+  pickedCamera.current = { camera, cameraSource };
   useEffect(() => {
+    const { camera, cameraSource } = pickedCamera.current;
     if (camera) return;
     const room = workScene === 'custom-desk' ? 'custom' : workScene;
     const current = network.streams.filter((s) => s.id === cameraSource);
     if (cameraForScene(current, room)) return;
     const assigned = cameraForScene(network.streams, room);
     if (assigned) setCameraSource(assigned.id);
-  }, [workScene, network.streams]);
+  }, [workScene, network.streams, setCameraSource]);
   /** The frame to look in: the camera's, captured now, or the current photo; the demo desk itself in demo mode. */
   function frameNow(): string | undefined {
     if (mode === 'demo') return undefined;

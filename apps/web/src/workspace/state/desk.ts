@@ -75,9 +75,10 @@ export function useDeskSlice(deps: ViewSlice & FeedbackSlice & RunLogSlice): Des
     : 0;
   const spendTone = spendShare >= 1 ? 'blocked' : spendShare >= 0.8 ? 'unsure' : 'ok';
   const [limitDraft, setLimitDraft] = useState('');
+  const spendLimit = status?.meta.spendLimit;
   useEffect(() => {
-    if (status) setLimitDraft(String(status.meta.spendLimit));
-  }, [status?.meta.spendLimit]);
+    if (spendLimit !== undefined) setLimitDraft(String(spendLimit));
+  }, [spendLimit]);
   async function saveSpendLimit(usdLimit: number | null) {
     try {
       const saved = await api<{ spendLimit: number }>('settings/spend-limit', { usd: usdLimit });

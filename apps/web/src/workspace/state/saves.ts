@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useMemo } from 'react';
 import type { Mode, RunKind, DemoPosition } from '@livinglayer/domain';
 import { DEMO_POSITIONS } from '@livinglayer/domain';
 import {
@@ -124,42 +124,71 @@ export function useSavesSlice(
   } = deps;
   const [savedAt, setSavedAt] = useState(boot.save?.savedAt ?? '');
   const [storageOk, setStorageOk] = useState(true);
-  const prefs: Prefs = {
-    mode,
-    workScene,
-    stageView,
-    overlay,
-    trail: showTrail,
-    zones: showZones,
-    picture: showPicture,
-    corner: showCorner,
-    fixtureLook,
-    concept,
-    demoPosition,
-    cameraSource,
-    cameraOn: cameraWanted,
-    tracking,
-    drawer,
-    tool,
-    isoPanel,
-    modelOf: modelOf ?? '',
-    isoSurfaceId: isoSurfaceId ?? '',
-    outlineOpen,
-    logKind,
-    logMode,
-    failuresOnly,
-  };
+  const prefs: Prefs = useMemo(
+    () => ({
+      mode,
+      workScene,
+      stageView,
+      overlay,
+      trail: showTrail,
+      zones: showZones,
+      picture: showPicture,
+      corner: showCorner,
+      fixtureLook,
+      concept,
+      demoPosition,
+      cameraSource,
+      cameraOn: cameraWanted,
+      tracking,
+      drawer,
+      tool,
+      isoPanel,
+      modelOf: modelOf ?? '',
+      isoSurfaceId: isoSurfaceId ?? '',
+      outlineOpen,
+      logKind,
+      logMode,
+      failuresOnly,
+    }),
+    [
+      mode,
+      workScene,
+      stageView,
+      overlay,
+      showTrail,
+      showZones,
+      showPicture,
+      showCorner,
+      fixtureLook,
+      concept,
+      demoPosition,
+      cameraSource,
+      cameraWanted,
+      tracking,
+      drawer,
+      tool,
+      isoPanel,
+      modelOf,
+      isoSurfaceId,
+      outlineOpen,
+      logKind,
+      logMode,
+      failuresOnly,
+    ],
+  );
   function saveNow() {
     const ok = writeSession(prefs, memories);
     setStorageOk(ok);
     if (ok) setSavedAt(new Date().toISOString());
     return ok;
   }
+  const saveLatest = useRef(saveNow);
+  saveLatest.current = saveNow;
   useEffect(() => {
     if (!deskReady) return;
-    const timer = window.setTimeout(saveNow, 400);
+    const timer = window.setTimeout(() => saveLatest.current(), 400);
     return () => window.clearTimeout(timer);
-  }, [deskReady, memories, ...Object.values(prefs)]);
+  }, [deskReady, memories, prefs]);
   // A reload or a closed tab can come sooner than the pause autosave waits for, so save on the way out too.
   const flush = useRef(() => {});
   flush.current = () => {

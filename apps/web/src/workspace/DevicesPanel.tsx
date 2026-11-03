@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { EvidenceRun, LampResult } from '@livinglayer/domain';
 import { api } from '../api';
 import { Button, Check, Field } from '../ui/controls';
@@ -284,7 +284,11 @@ function ChooseStep({
   const fixed = new Set(ha.fromEnv);
   const [picked, setPicked] = useState(() => new Set(ha.chosen));
   const [query, setQuery] = useState('');
-  useEffect(() => setPicked(new Set(ha.chosen)), [ha.chosen.join()]);
+  // Picked starts again when the chosen devices change, not when the list is only fetched anew.
+  const chosenKey = ha.chosen.join();
+  const chosenNow = useRef(ha.chosen);
+  chosenNow.current = ha.chosen;
+  useEffect(() => setPicked(new Set(chosenNow.current)), [chosenKey]);
   const changed = picked.size !== ha.chosen.length || ha.chosen.some((e) => !picked.has(e));
   const q = query.trim().toLowerCase();
   const shown = (list ?? []).filter(
