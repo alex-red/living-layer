@@ -146,6 +146,32 @@ describe('fitting a thing to its outline through the room camera', () => {
     expect(fitKept(fit)).toBe(false);
     expect(middle(fit.scene, 'monitor')).toEqual(middle(DEMO_ROOM, 'monitor'));
   });
+
+  it('never puts a desk into the wall, even where its outline would fit best there', () => {
+    // The desk drawn against the back of the grid, through the back wall (0 to 0.2 tiles).
+    const into = roomMask(
+      renderRoom(DEMO_CAMERA, [floorSolid(DEMO_ROOM.grid), ...sceneSolids(misplace(0, -1.2))], {
+        labels: true,
+      }),
+      'desk',
+    )!;
+    const fit = fitGroup(DEMO_CAMERA, DEMO_ROOM, 'desk', into)!;
+    const b = groupBounds(fit.scene, 'desk')!;
+    expect(b.at.y).toBeGreaterThanOrEqual(0.2 - 1e-6);
+    expect(fit.moved.y).toBeLessThan(-0.9);
+  });
+
+  it('stands a model turned near a wall where it was put, not where turning nudged it', () => {
+    const alex = assembleRecipe(
+      'desk',
+      new Catalog([BUNDLED_CATALOG]).find('IKEA Alex desk')!.facts,
+    );
+    // 60 cm deep across x once turned, its back on the left wall; unturned it would cross it.
+    const place = { cx: 1.2, cy: 4, z: 0, turns: 3, replaces: null };
+    const b = groupBounds(sceneWithRecipe(DEMO_ROOM, alex, place, 'alex'), 'alex')!;
+    expect(b.at.x + b.size.w / 2).toBeCloseTo(1.2, 6);
+    expect(b.at.y + b.size.d / 2).toBeCloseTo(4, 6);
+  });
 });
 
 const dirs: string[] = [];

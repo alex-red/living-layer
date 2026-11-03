@@ -9,7 +9,14 @@ import {
   type PropForm,
   type PropPart,
 } from './iso-furniture.js';
-import { groupBounds, placeRecipe, ridersOf, rotateGroup, settleGroup } from './iso-templates.js';
+import {
+  groupBounds,
+  moveGroup,
+  placeRecipe,
+  ridersOf,
+  rotateGroup,
+  settleGroup,
+} from './iso-templates.js';
 import { convexHull, fillRings, newBits, type Bits } from './photo-scene.js';
 import { applyRecipeOps, type RecipeOp } from './recipe-ops.js';
 import {
@@ -405,6 +412,11 @@ export function sceneWithRecipe(
   const built = placeRecipe(recipe, g, place.cx - w / 2, place.cy - d / 2, place.z);
   s = { ...s, props: [...s.props, ...built.props], surfaces: [...s.surfaces, ...built.surfaces] };
   for (let t = 0; t < place.turns; t++) s = rotateGroup(s, g);
+  // Each quarter turn nudges a long model back inside the room, which moved one turned near a
+  // wall away from it: it is put back about its middle, kept inside the room once.
+  const b = groupBounds(s, g);
+  if (b)
+    s = moveGroup(s, g, place.cx - (b.at.x + b.size.w / 2), place.cy - (b.at.y + b.size.d / 2));
   for (const r of riders) s = settleGroup(s, r);
   return s;
 }

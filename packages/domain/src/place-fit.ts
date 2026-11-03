@@ -63,6 +63,25 @@ export function fitGroup(
     const s = turned ? rotateGroup(rotateGroup(alone, g), g) : alone;
     return moveGroup(s, g, dx, dy);
   };
+  // The floor inside the back and left walls: a camera a little off draws a desk against a wall
+  // best matching its outline from inside the wall. How far a footprint pokes out of it, in tiles;
+  // a place may poke out no further than where it stands.
+  const floor = {
+    x0: groupBounds(scene, 'wall-left')?.size.w ?? 0,
+    y0: groupBounds(scene, 'wall-back')?.size.d ?? 0,
+    x1: scene.grid.w,
+    y1: scene.grid.d,
+  };
+  const outside = (s: IsoScene) => {
+    const b = groupBounds(s, g)!;
+    return (
+      Math.max(0, floor.x0 - b.at.x) +
+      Math.max(0, b.at.x + b.size.w - floor.x1) +
+      Math.max(0, floor.y0 - b.at.y) +
+      Math.max(0, b.at.y + b.size.d - floor.y1)
+    );
+  };
+  const allowed = outside(alone) + 1e-6;
   const score = (s: IsoScene) => {
     const pic = renderRoom(camera, sceneSolids(s), { labels: true });
     let both = 0;
@@ -95,8 +114,10 @@ export function fitGroup(
     let best = { dx: 0, dy: 0, turned, iou: turned ? -1 : from };
     const at = (dx: number, dy: number) => {
       if (Math.hypot(dx, dy) > reach + 1e-9) return;
+      const s = placed(dx, dy, turned);
+      if (outside(s) > allowed) return;
       tried++;
-      const iou = score(placed(dx, dy, turned));
+      const iou = score(s);
       if (iou > best.iou + 1e-9) best = { dx, dy, turned, iou };
     };
     for (let i = -4; i <= 4; i++)
