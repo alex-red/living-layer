@@ -5,6 +5,7 @@ What isn't obvious from the code. [CONTRIBUTING.md](CONTRIBUTING.md) has setup, 
 ## Ground rules
 
 - Don't start the dev server or run a build unless asked. If one is already running, use it to look. A probe that leaves the dev server's demo changed puts it back with `bun run reset demo`.
+- The dev server (`bun run dev`) is the web on 127.0.0.1:43430 and the API on 43431 (`PORT`); other servers listening on this machine belong to other projects. Browser tests run on free ports of their own.
 - Commit with `bun run commit -m "…" -- <files>`: it verifies just those files on HEAD in a clean worktree and commits only them, since other sessions edit and stage in this checkout.
 - When another session has edits in a file you changed too, commit only your hunks: `bun run commit --hunks <file> --match "<text in your lines>"` writes `out/<file>.patch`; read it, then `bun run commit -m "…" --patch out/<file>.patch [-- <other files>]`. It commits through a temporary index, so the file on disk and what others staged stay as they are. Don't hand-swap a file's contents to commit part of it: that has undone lines committed meanwhile.
 - When a check fails for no reason you can see, run `git status --short`: another session's half-done edit may be on disk. `bun run verify --at staged` or `--at <ref>` judges a snapshot in a clean worktree.
