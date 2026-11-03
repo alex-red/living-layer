@@ -14,10 +14,12 @@ export function AiTaskDialog() {
   }));
   // The model calls it made, as the run log keeps them, to inspect each one.
   const runs = (task.job?.runIds ?? []).flatMap((id) => lab.runs.find((r) => r.id === id) ?? []);
-  // A past modelling run whose model was drawn can put it back on its fixture.
-  const reapply =
-    task.review &&
-    runs.some((r) => r.status === 'completed' && (r.output as { sculpted?: string }).sculpted)
+  // The last run can be reverted; an older modelling run can put its model back on its fixture.
+  const last = lab.lastAiRun?.jobId === task.jobId && task.status === 'done';
+  const after = last
+    ? { label: 'Revert', onClick: () => void lab.revertLastAiRun(), quiet: true }
+    : task.review &&
+        runs.some((r) => r.status === 'completed' && (r.output as { sculpted?: string }).sculpted)
       ? { label: 'Re-Apply', onClick: () => void lab.reapplyAiRun(task.jobId) }
       : undefined;
   return (
@@ -43,8 +45,8 @@ export function AiTaskDialog() {
               },
             },
           }
-        : reapply
-          ? { action: reapply }
+        : after
+          ? { action: after }
           : {})}
       onHide={() => lab.setAiTask({ ...task, open: false })}
       footer={

@@ -47,8 +47,12 @@ export interface AIRichPreviewDialogProps {
   review?: boolean;
   /** Replaces the foot's note once the work has ended, such as links to the runs it made. */
   footer?: ReactNode;
-  /** What to do next once the work has ended, such as finishing by hand what it couldn't. */
-  action?: { label: string; onClick: () => void };
+  /**
+   * What to do next once the work has ended, such as finishing by hand what it
+   * couldn't. A `quiet` one, such as taking the work back, sits beside Close
+   * and takes no focus, so Enter never runs it.
+   */
+  action?: { label: string; onClick: () => void; quiet?: boolean };
 }
 
 const time = (t: string | number | undefined) =>
@@ -319,6 +323,13 @@ export function AIRichPreviewDialog({
                 <Button className="aip-stop" onClick={onStop} autoFocus>
                   <span className="aip-stop-glyph" aria-hidden="true" />
                   Stop
+                </Button>
+              </>
+            ) : action?.quiet ? (
+              <>
+                <Button onClick={action.onClick}>{action.label}</Button>
+                <Button variant="primary" onClick={onClose} autoFocus>
+                  {status === 'done' && !review ? 'Done' : 'Close'}
                 </Button>
               </>
             ) : action ? (

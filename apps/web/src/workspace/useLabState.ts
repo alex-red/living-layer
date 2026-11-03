@@ -121,6 +121,7 @@ export const BUSY: Record<string, string> = {
   reapply: 'Applying the model again',
   camera: 'Updating the camera setting',
   undo: 'Undoing',
+  revert: 'Reverting the AI run',
   redo: 'Redoing',
   restore: 'Loading the save',
 };
@@ -750,6 +751,7 @@ export function useLabState() {
         undo.current[m] = [];
         redo.current[m] = [];
       }
+      setLastAiRun(null);
       const next = prefsOf(save.prefs);
       changeMode(next.mode);
       setWorkScene(next.workScene);
@@ -2092,6 +2094,8 @@ export function useLabState() {
   const aiClose = useRef<ReturnType<typeof setTimeout>>(undefined);
   const updateAiTask = (jobId: string, change: Partial<AiTask>) =>
     setAiTask((t) => (t?.jobId === jobId ? { ...t, ...change } : t));
+  /** The last AI action that finished, with the desk from just before it, to revert to. */
+  const [lastAiRun, setLastAiRun] = useState<{ jobId: string; desk: DeskMemory } | null>(null);
   /** Past AI actions, newest first, without their pictures: each is fetched to review. */
   const [aiHistory, setAiHistory] = useState<Job[]>([]);
   const loadAiHistory = () =>
@@ -2142,6 +2146,36 @@ export function useLabState() {
       setError(e instanceof Error ? e : 'That run’s model could not be applied again.');
     } finally {
       setBusy((b) => (b === 'reapply' ? '' : b));
+    }
+  }
+  /**
+   * Put the desk back as it was before the last AI action: what it saved goes,
+   * and so do edits made since. Undo brings it all back.
+   */
+  async function revertLastAiRun() {
+    const last = lastAiRun;
+    const current = last && memories[last.desk.mode];
+    if (!last || !current || busy || aiRun.current) return;
+    setBusy('revert');
+    setError('');
+    try {
+      await restoreDesk(last.desk);
+      const m = last.desk.mode;
+      undo.current[m] = [...undo.current[m], current].slice(-UNDO_LIMIT);
+      redo.current[m] = [];
+      edits.current++;
+      setHistoryTick((t) => t + 1);
+      setLastAiRun(null);
+      const title = aiHistory.find((j) => j.id === last.jobId)?.title ?? aiTask?.title;
+      closeAiTask();
+      setMessage(
+        `Reverted${title ? `: ${title.toLowerCase()}` : ' the last AI run'}. The desk is as it was before it; undo with ${SHORTCUTS.find((k) => k.action === 'undo')!.keys}.`,
+      );
+      void refresh().catch(() => {});
+    } catch (e) {
+      setError(e instanceof Error ? e : 'The AI run could not be reverted.');
+    } finally {
+      setBusy((b) => (b === 'revert' ? '' : b));
     }
   }
   /** Stop the running AI action: the server aborts its model call and saves nothing. */
@@ -2231,6 +2265,8 @@ export function useLabState() {
   ): Promise<T | null> {
     const generation = ++aiGeneration.current;
     const jobId = crypto.randomUUID();
+    // The desk as it was, for reverting what this action saves.
+    const before = memory;
     const abort = new AbortController();
     aiRun.current = { generation, jobId, abort };
     clearTimeout(aiClose.current);
@@ -2256,7 +2292,10 @@ export function useLabState() {
     void poll();
     try {
       const result = await call(jobId, abort.signal);
-      if (current()) return result;
+      if (current()) {
+        if (before) setLastAiRun({ jobId, desk: before });
+        return result;
+      }
       dropped('its result');
       return null;
     } catch (e) {
@@ -2861,6 +2900,8 @@ export function useLabState() {
     aiHistory,
     reviewAiRun,
     reapplyAiRun,
+    lastAiRun,
+    revertLastAiRun,
     stopAiTask,
     closeAiTask,
     selection,
