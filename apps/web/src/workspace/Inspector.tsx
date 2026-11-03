@@ -14,6 +14,7 @@ import {
   type LightLook,
   type EvidenceRun,
   type PlacementDecision,
+  type SelectionShape,
   ILLUSTRATION_NOTE_MAX,
 } from '@livinglayer/domain';
 import { api } from '../api';
@@ -37,6 +38,7 @@ import {
 import { useFollowStats, useFollowView } from './state/follow-store';
 import { Cost, Details, Panel, useCall } from './panel';
 import { ScanFixtures } from './ScanFixtures';
+import { LocalOutline } from './LocalOutline';
 import { ChooseDevicesLink } from './ChooseDevicesLink';
 import { Later } from '../Later';
 import { ago, mainSurface, roomLabel, surfaceRows, type LabRead } from './labels';
@@ -694,8 +696,14 @@ function AddPanel({
     useNavigation(),
     useProbes(),
   );
-  const { mode, image, camera, canVision, busy, status, concept, scene } = lab;
+  const { mode, image, camera, canVision, busy, status, concept, scene, trackingAi } = lab;
   const needPhoto = mode === 'live' && !image && !camera;
+  // Without AI, what it is comes from the name and where it is from a box drawn round it.
+  const outline = (name: string, drawn: { shape: SelectionShape; held: string | null }) => {
+    lab.setConcept(name);
+    void lab.execute('segment', name, drawn);
+  };
+  const drawing = lab.outlining?.target === 'object' ? lab.outlining : null;
   return (
     <Panel
       tiny={preset ? 'SUGGESTED BY SPARK' : 'ADD AN OBJECT'}
@@ -705,13 +713,21 @@ function AddPanel({
           ? `${preset.appearance}. Find its outline, then confirm it.`
           : needPhoto
             ? 'Add a photo of the desk first: start the camera, or upload one.'
-            : camera
-              ? 'Name what to look for; SAM outlines every match the camera shows.'
-              : 'Name what to look for; SAM outlines every match in this frame.'
+            : !trackingAi
+              ? 'Name what it is, then draw round it on the picture; it is outlined on this machine.'
+              : camera
+                ? 'Name what to look for; SAM outlines every match the camera shows.'
+                : 'Name what to look for; SAM outlines every match in this frame.'
       }
       tone={needPhoto ? 'unsure' : 'seen'}
     >
-      {preset ? (
+      {preset && !trackingAi ? (
+        <LocalOutline
+          target="object"
+          working={busy === 'segment'}
+          onOutline={(d) => outline(preset.category, d)}
+        />
+      ) : preset ? (
         <Button
           variant="primary"
           disabled={!canVision}
@@ -735,24 +751,43 @@ function AddPanel({
               maxLength={80}
               onChange={(e) => lab.setConcept(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === 'Enter' && canVision && concept.trim()) void lab.execute('segment');
+                if (e.key !== 'Enter' || busy || !concept.trim()) return;
+                if (trackingAi) {
+                  if (canVision) void lab.execute('segment');
+                } else if (drawing?.shape)
+                  outline(concept.trim(), { shape: drawing.shape, held: drawing.held });
               }}
             />
-            <span>↵ TO RUN</span>
+            <span>{trackingAi || drawing?.shape ? '↵ TO RUN' : 'NAME IT'}</span>
           </div>
-          <Button
-            variant="primary"
-            disabled={!canVision || !concept.trim()}
-            onClick={() => void lab.execute('segment')}
-          >
-            {busy === 'segment' ? 'Decoding…' : 'Segment object'}
-            <Glyph type="arrow" />
-          </Button>
+          {trackingAi ? (
+            <Button
+              variant="primary"
+              disabled={!canVision || !concept.trim()}
+              onClick={() => void lab.execute('segment')}
+            >
+              {busy === 'segment' ? 'Decoding…' : 'Segment object'}
+              <Glyph type="arrow" />
+            </Button>
+          ) : (
+            <LocalOutline
+              target="object"
+              disabled={!concept.trim()}
+              working={busy === 'segment'}
+              onOutline={(d) => outline(concept.trim(), d)}
+            />
+          )}
         </>
       )}
-      {status && <Cost>{estimateLabel(status.meta.estimates.segment, 'image')}</Cost>}
+      {status && trackingAi && <Cost>{estimateLabel(status.meta.estimates.segment, 'image')}</Cost>}
       <MaskResults />
-      {!preset && (
+      {!preset && !trackingAi && (
+        <p className="micro">
+          Discovering objects and testing for false matches ask Spark and SAM: let tracking call AI,
+          under the spending readout at the top, to use them.
+        </p>
+      )}
+      {!preset && trackingAi && (
         <Details summary="Not sure what’s there?" open={!scene}>
           <p className="micro">Spark suggests up to three objects on the desk.</p>
           <Button disabled={!canVision} onClick={() => void lab.execute('discover')}>
@@ -783,16 +818,18 @@ function AddPanel({
           )}
         </Details>
       )}
-      <Details summary="Check for false matches">
-        <p className="micro">Ask for something that isn’t there: a good result is no outline.</p>
-        <Button
-          variant="text"
-          disabled={!canVision}
-          onClick={() => void lab.execute('segment', 'unicorn')}
-        >
-          Test absent target <span>↗</span>
-        </Button>
-      </Details>
+      {trackingAi && (
+        <Details summary="Check for false matches">
+          <p className="micro">Ask for something that isn’t there: a good result is no outline.</p>
+          <Button
+            variant="text"
+            disabled={!canVision}
+            onClick={() => void lab.execute('segment', 'unicorn')}
+          >
+            Test absent target <span>↗</span>
+          </Button>
+        </Details>
+      )}
     </Panel>
   );
 }
@@ -806,14 +843,17 @@ const WATCH_STATE = {
 } as const;
 /**
  * The server's watcher: on, it follows every confirmed thing in the camera
- * and fires rules on SAM's answers whether or not a tab is open.
+ * and judges its zones whether or not a tab is open, on this machine unless
+ * tracking may call SAM.
  */
 function WatchControl() {
-  const lab = useLabParts(useView(), useTracking());
-  const { watch, watching, canWatch, mode } = lab;
+  const lab = useLabParts(useView(), useDesk(), useTracking());
+  const { watch, watching, canWatch, mode, trackingAi } = lab;
   const stats =
     watch &&
-    `${watch.frames} frame${watch.frames === 1 ? '' : 's'} · ${watch.checks} SAM check${watch.checks === 1 ? '' : 's'}${watch.appearance ? ` · ${watch.refinds} found by appearance` : ''}`;
+    `${watch.frames} frame${watch.frames === 1 ? '' : 's'} · ${watch.ai ? `${watch.checks} SAM check${watch.checks === 1 ? '' : 's'}` : 'local only, no SAM calls'}${watch.appearance ? ` · ${watch.refinds} found by appearance` : ''}`;
+  // Followed, but close to a look-alike while one moved: which is which waits for a person.
+  const entangled = watching && watch ? watch.things.filter((t) => t.status === 'entangled') : [];
   return (
     <>
       <Button
@@ -822,7 +862,7 @@ function WatchControl() {
         title={
           watching
             ? 'Pause watching until the server starts again: it watches by default'
-            : 'The server follows every confirmed thing in the camera and checks zone crossings with SAM, with or without this tab'
+            : 'The server follows every confirmed thing in the camera and judges its zones, with or without this tab'
         }
       >
         {watching ? 'Pause watching' : 'Watch on the server'}
@@ -831,9 +871,16 @@ function WatchControl() {
         {watching && watch
           ? `${WATCH_STATE[watch.state]}${watch.camera ? ` ${watch.camera.name}` : ''} · ${stats}. ${watch.note}`
           : canWatch
-            ? `Follows everything confirmed with no tab open, asking SAM only at zone edges${mode === 'live' ? '' : ' (here, each move is a frame)'}.`
+            ? `Follows everything confirmed with no tab open, on this machine${trackingAi ? ', asking SAM only for a thing it has lost' : ''}${mode === 'live' ? '' : ' (here, each move is a frame)'}.`
             : 'Needs an RTSP network camera (see scripts/share-camera.sh). Follow it in this tab instead.'}
       </p>
+      {entangled.length > 0 && (
+        <p className="micro">
+          Which one? {entangled.map((t) => t.label).join(', ')} came close to a look-alike, so which
+          is which isn’t sure and {entangled.length === 1 ? 'its' : 'their'} zones wait. Find it
+          again and confirm it by hand to tell them apart.
+        </p>
+      )}
     </>
   );
 }
@@ -1032,7 +1079,7 @@ function OtherPanel({ id }: { id: string }) {
         >
           Track
         </Button>
-      ) : (
+      ) : lab.trackingAi ? (
         <Button
           variant="primary"
           disabled={!canVision}
@@ -1040,11 +1087,19 @@ function OtherPanel({ id }: { id: string }) {
         >
           Find it in this frame
         </Button>
+      ) : (
+        <LocalOutline
+          target={`object ${o.id}`}
+          working={lab.busy === 'segment'}
+          onOutline={(d) => void lab.execute('segment', o.concept, d)}
+        />
       )}
       <p className="micro">
         {canTrack
           ? `The newest outlines are of “${o.concept}”. Match one to the ${o.label}.`
-          : 'Outline it in this frame, then track it.'}
+          : lab.trackingAi
+            ? 'Outline it in this frame, then track it.'
+            : 'Draw round it to outline it on this machine, then track it.'}
       </p>
       <div className="insp-links">
         {lab.entities.length > 0 && o.observation && (

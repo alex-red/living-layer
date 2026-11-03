@@ -1,12 +1,5 @@
 import type { z } from 'zod';
-import type {
-  EvidenceRun,
-  imageRequestSchema,
-  LabStatus,
-  Scene,
-  Segmentation,
-  segmentRequestSchema,
-} from './api.js';
+import type { EvidenceRun, imageRequestSchema, LabStatus, Scene, Segmentation } from './api.js';
 import type { AssistDraft, SelectResolve } from './assist.js';
 import type { CameraView, cameraInputSchema, NetworkStream } from './camera.js';
 import type { FixtureDraft } from './fixture.js';
@@ -48,7 +41,6 @@ interface PairingView {
  */
 type Wide<B, K extends string, V> = Omit<B, K> & { [P in K]: V };
 type Image = z.input<typeof imageRequestSchema>;
-type Segment = z.input<typeof segmentRequestSchema>;
 type CameraInput = z.input<typeof cameraInputSchema>;
 
 /**
@@ -65,6 +57,7 @@ interface ApiRoutes {
   [path: `jobs/${string}`]: { body: undefined; response: Job };
   [path: `jobs/${string}/stop`]: { body: undefined; response: Job };
   'settings/spend-limit': { body: R.SettingsSpendLimitBody; response: { spendLimit: number } };
+  'settings/tracking-ai': { body: R.SettingsTrackingAiBody; response: { on: boolean } };
 
   'desk/demo': { body: undefined; response: DeskMemory };
   'desk/live': { body: undefined; response: DeskMemory };
@@ -82,7 +75,7 @@ interface ApiRoutes {
   };
 
   discover: { body: Image; response: EvidenceRun<Scene> };
-  segment: { body: Segment; response: EvidenceRun<Segmentation> };
+  segment: { body: R.SegmentBody; response: EvidenceRun<Segmentation> };
   'select/resolve': { body: R.SelectResolveBody; response: SelectResolve };
   assist: { body: R.AssistBody; response: EvidenceRun<AssistDraft> };
   'assist/save': { body: R.AssistSaveBody; response: { memory?: DeskMemory; group: string } };

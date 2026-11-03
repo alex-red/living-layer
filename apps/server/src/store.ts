@@ -304,6 +304,14 @@ export class EvidenceStore {
         ['spend_limit_usd', String(usd)],
       );
   }
+  /** Whether tracking may call SAM or Spark: off unless someone turned it on in the lab. */
+  trackingAi(): boolean {
+    return this.setting('tracking_ai') === 'on';
+  }
+  setTrackingAi(on: boolean): void {
+    if (on) this.setSetting('tracking_ai', 'on');
+    else this.deleteSetting('tracking_ai');
+  }
   /** A value kept in `settings`, or null. */
   setting(key: string): string | null {
     const row = this.db

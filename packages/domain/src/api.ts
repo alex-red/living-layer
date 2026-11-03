@@ -185,6 +185,12 @@ export interface LabStatus {
     spentToday: number;
   };
   /**
+   * `ai`: whether tracking may call SAM or Spark (finding a thing's outline,
+   * finding a lost thing again, asking whether a person is in a zone). Off
+   * until someone turns it on: tracking is local first.
+   */
+  tracking: { ai: boolean };
+  /**
    * `lights`: every light entity rules may switch, the main one first.
    * `switches`: every switch entity fixtures and rules may turn on and off.
    */

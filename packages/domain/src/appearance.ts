@@ -23,6 +23,12 @@ interface AppearanceMatch {
   score: number;
   /** How far the best window leads the best one elsewhere. */
   lead: number;
+  /**
+   * How much more it looks like this thing than like its lost look-alikes
+   * there (`rivals`); absent when there are none. Two white mugs score alike
+   * on each other's prototypes, so the gap is what says which one this is.
+   */
+  distinct?: number;
 }
 export const APPEARANCE = {
   /** The model's patch size, in pixels. */
@@ -163,15 +169,26 @@ function similarityMap(grid: PatchGrid, prototypes: Float32Array[]): Float32Arra
 /**
  * The window of `size` (a share of the image) whose patches are most like
  * the prototypes, with how far it leads the best window that doesn't overlap
- * it. Null when the grid is smaller than one window.
+ * it. Null when the grid is smaller than one window. Patches under an
+ * `exclude` box (things followed there) are left out, so a look-alike that
+ * is already accounted for isn't found again; `rivals` are prototypes of lost
+ * look-alikes, and the match says how much more it looks like this one.
  */
 export function findByAppearance(
   grid: PatchGrid,
   prototypes: Float32Array[],
   size: { width: number; height: number },
+  { exclude = [] as UnitBox[], rivals = [] as Float32Array[] } = {},
 ): AppearanceMatch | null {
   if (!prototypes.length) return null;
   const map = similarityMap(grid, prototypes);
+  for (const e of exclude) {
+    const c0 = Math.max(0, Math.floor(e.x * grid.cols));
+    const r0 = Math.max(0, Math.floor(e.y * grid.rows));
+    const c1 = Math.min(grid.cols, Math.ceil((e.x + e.width) * grid.cols));
+    const r1 = Math.min(grid.rows, Math.ceil((e.y + e.height) * grid.rows));
+    for (let r = r0; r < r1; r++) for (let c = c0; c < c1; c++) map[r * grid.cols + c] = -1;
+  }
   const w = Math.max(1, Math.min(grid.cols, Math.round(size.width * grid.cols)));
   const h = Math.max(1, Math.min(grid.rows, Math.round(size.height * grid.rows)));
   // A summed-area table makes every window's mean one lookup.
@@ -201,7 +218,16 @@ export function findByAppearance(
     for (let c = 0; c + w <= grid.cols; c++)
       if (Math.abs(c - best.c) >= w || Math.abs(r - best.r) >= h)
         second = Math.max(second, mean(c, r));
+  let distinct: number | undefined;
+  if (rivals.length) {
+    const other = similarityMap(grid, rivals);
+    let sum = 0;
+    for (let r = best.r; r < best.r + h; r++)
+      for (let c = best.c; c < best.c + w; c++) sum += other[r * grid.cols + c]!;
+    distinct = best.score - sum / (w * h);
+  }
   return {
+    ...(distinct === undefined ? {} : { distinct }),
     box: {
       x: best.c / grid.cols,
       y: best.r / grid.rows,
@@ -213,9 +239,12 @@ export function findByAppearance(
   };
 }
 
-/** A confident match: like the thing, and unlike anywhere else. */
+/** A confident match: like the thing, unlike anywhere else, and more like it than its lost look-alikes. */
 export const appearanceSure = (m: AppearanceMatch | null): m is AppearanceMatch =>
-  m !== null && m.score >= APPEARANCE.minScore && m.lead >= APPEARANCE.minLead;
+  m !== null &&
+  m.score >= APPEARANCE.minScore &&
+  m.lead >= APPEARANCE.minLead &&
+  (m.distinct === undefined || m.distinct >= APPEARANCE.minLead);
 
 /** The size, in pixels and a multiple of the patch, an image of `width × height` is embedded at. */
 export function embedSize(width: number, height: number, side = APPEARANCE.side) {

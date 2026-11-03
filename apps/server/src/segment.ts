@@ -1,22 +1,39 @@
 import type { FastifyInstance } from 'fastify';
 import { createHash } from 'node:crypto';
+import sharp from 'sharp';
 import {
   demoSourceKey,
-  segmentRequestSchema,
+  detectionFromBits,
+  LOCAL_OUTLINE_MODEL,
+  outlineIn,
+  segmentBodySchema,
+  selectionMask,
   type DemoPosition,
   type EvidenceRun,
   type Mode,
   type Segmentation,
+  type SelectionShape,
 } from '@livinglayer/domain';
-import { demoSegmentation } from './demo.js';
+import { demoPng, demoSegmentation } from './demo.js';
 import { LabError, liveImage, parseInput } from './errors.js';
 import { samDataUrl, samReadyPng, validateImage } from './images.js';
 import { requestSignal } from './request-signal.js';
 import type { RouteDeps } from './route-deps.js';
+import { requireTrackingAi } from './settings.js';
 
-/** One SAM segmentation, recorded and billed as a run: the lab's button, or the watcher. */
+/**
+ * One segmentation, recorded as a run: the lab's button, or the watcher. With
+ * a `shape`, the thing inside it is outlined on this machine; otherwise SAM
+ * outlines every match of the concept, billed.
+ */
 type Segment = (
-  input: { mode: Mode; concept: string; imageDataUrl?: string; demoPosition?: DemoPosition },
+  input: {
+    mode: Mode;
+    concept: string;
+    imageDataUrl?: string;
+    demoPosition?: DemoPosition;
+    shape?: SelectionShape;
+  },
   signal?: AbortSignal,
 ) => Promise<EvidenceRun<Segmentation>>;
 
@@ -30,6 +47,7 @@ export function createSegment({
       'segment',
       input.mode,
       async (id) => {
+        if (input.shape) return outlineLocally(input, input.shape, id);
         if (input.mode === 'demo') {
           liveImage(input.mode, input.imageDataUrl);
           const result = await demoSegmentation(input.concept, input.demoPosition);
@@ -77,10 +95,67 @@ export function createSegment({
       signal,
     ) as Promise<EvidenceRun<Segmentation>>;
   };
+
+  /**
+   * The thing inside the shape a person drew, outlined with no model call
+   * (`outlineIn`): on the demo's render, or on the frame sent. Recorded as an
+   * ordinary segmentation with one detection, so confirming and following it
+   * go the same way as SAM's.
+   */
+  async function outlineLocally(input: Parameters<Segment>[0], shape: SelectionShape, id: string) {
+    liveImage(input.mode, input.imageDataUrl);
+    if (input.mode !== 'demo' && input.demoPosition)
+      throw new LabError('demo_position', 'Demo positions apply only in demo mode.');
+    const image =
+      input.mode === 'demo'
+        ? { bytes: await demoPng(input.demoPosition), ext: 'png' }
+        : await validateImage(input.imageDataUrl);
+    const { data, info } = await sharp(image.bytes)
+      .removeAlpha()
+      .raw()
+      .toBuffer({ resolveWithObject: true });
+    const frame = { width: info.width, height: info.height };
+    const outline = outlineIn(
+      { ...frame, data: new Uint8Array(data.buffer, data.byteOffset, data.length) },
+      selectionMask(shape, frame),
+    );
+    const detection = outline && detectionFromBits('1', outline.bits);
+    const output: Segmentation = {
+      concept: input.concept,
+      frame,
+      detections: detection ? [{ ...detection, confidence: null }] : [],
+      sourceKey:
+        input.mode === 'demo'
+          ? demoSourceKey(input.demoPosition)
+          : createHash('sha256').update(image.bytes).digest('hex'),
+    };
+    return {
+      output,
+      model: LOCAL_OUTLINE_MODEL,
+      assets: [
+        store.asset(id, `source.${image.ext}`, image.bytes),
+        store.asset(
+          id,
+          'local-outline.json',
+          JSON.stringify({
+            shape,
+            share: outline?.share ?? 0,
+            fallback: outline?.fallback ?? null,
+          }),
+        ),
+      ],
+    };
+  }
 }
 
-export async function segmentRoutes(app: FastifyInstance, { segment }: { segment: Segment }) {
-  app.post('/', { prefixTrailingSlash: 'no-slash' }, async (request) =>
-    segment(parseInput(segmentRequestSchema, request.body), requestSignal(request)),
-  );
+export async function segmentRoutes(
+  app: FastifyInstance,
+  { segment, store }: { segment: Segment } & Pick<RouteDeps, 'store'>,
+) {
+  app.post('/', { prefixTrailingSlash: 'no-slash' }, async (request) => {
+    const input = parseInput(segmentBodySchema, request.body);
+    liveImage(input.mode, input.imageDataUrl);
+    if (!input.shape) requireTrackingAi(store, 'SAM');
+    return segment(input, requestSignal(request));
+  });
 }

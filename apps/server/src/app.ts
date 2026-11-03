@@ -237,6 +237,7 @@ export async function buildApp(
             ? 'Live calls enabled. A call that could take today’s spend past the limit is refused before it is sent.'
             : 'Set MODEL_API_KEY and META_LIVE_ENABLED to make live calls.',
       },
+      tracking: { ai: store.trackingAi() },
       lamp: {
         configured: liveLights().length + liveSwitches().length > 0,
         lights: liveLights(),
@@ -354,7 +355,7 @@ export async function buildApp(
   app.register(textRoutes, { prefix: '/api/text', meta, run });
   app.register(discoverRoutes, { prefix: '/api/discover', store, meta, run });
   const segment = createSegment({ store, meta, run });
-  app.register(segmentRoutes, { prefix: '/api/segment', segment });
+  app.register(segmentRoutes, { prefix: '/api/segment', segment, store });
   app.register(lampRoutes, { prefix: '/api/lamp', run, entities, switchLive });
   app.register(itemRoutes, { prefix: '/api/item', store, meta, run });
   app.register(sceneRoutes, { prefix: '/api/scene', store, meta, run, jobs, config, desk });

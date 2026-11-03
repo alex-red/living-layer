@@ -78,7 +78,13 @@ export function Canvas() {
   const onboarding = (!workScene || choosingScene) && !pinning;
   const showIso = useShowIso();
   // The hand gives way to anything being drawn, pinned or placed.
-  const hand = lab.tool === 'hand' && !lab.drawing && !pinning && !lab.placing && !lab.boxing;
+  const hand =
+    lab.tool === 'hand' &&
+    !lab.drawing &&
+    !pinning &&
+    !lab.placing &&
+    !lab.boxing &&
+    !lab.outlining;
   return (
     <section className="ws-canvas" aria-label="Scene and segmentation">
       <SceneToolbar />

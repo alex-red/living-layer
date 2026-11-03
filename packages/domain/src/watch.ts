@@ -2,16 +2,19 @@
  * Always-on watching: what the server's watcher decides for each followed
  * thing on each frame. A thing whose region didn't change keeps its box and
  * costs microseconds, with a full match once a second in case it crept; a
- * changed one is matched locally (`stepLocalTrack`), a few milliseconds; a thing the local match
- * has lost is looked for by appearance before SAM is asked; and SAM is asked
- * only to find a thing nothing else can: a zone crossing is judged where the
- * local match has it, with no SAM call. Pure
- * code, so the tests drive it with made-up frames and clocks.
+ * changed one is matched locally (`stepLocalTrack`), a few milliseconds; a
+ * thing the local match has lost is looked for by appearance, then over the
+ * whole frame (or by SAM, when tracking may call it); a zone crossing is
+ * judged where the local match has it. Two look-alikes carried close together
+ * are `entangled` until their looks tell them apart again. Pure code, so the
+ * tests drive it with made-up frames and clocks.
  */
+import { assignTracks, MULTI } from './assign.js';
 import {
   around,
   boxIoU,
   frameMotion,
+  matchTemplate,
   stepLocalTrack,
   LOCAL_TRACK,
   type LocalTrack,
@@ -33,10 +36,12 @@ export interface WatchSubject {
 }
 /**
  * `following`: the local match is good. `unsure`: weak or ambiguous for a few
- * frames, box held still. `missing`: SAM couldn't find it either, several
- * times; only motion where it was wakes it up again.
+ * frames, box held still. `entangled`: followed, but it came close to a
+ * look-alike while one of them moved, so which is which isn't sure; its zones
+ * wait. `missing`: nothing could find it, several times; motion where it was,
+ * or a match over the whole frame after the view changed, wakes it up again.
  */
-export type WatchStatus = 'following' | 'unsure' | 'missing';
+export type WatchStatus = 'following' | 'unsure' | 'entangled' | 'missing';
 /** Which layer placed the box last: the local match, the feature model, or SAM. */
 type WatchLayer = 'local' | 'appearance' | 'sam';
 export interface WatchThing {
@@ -50,7 +55,7 @@ export interface WatchThing {
   crossedAt: number | null;
   /** The soonest its zones may be judged again, ms. */
   nextPlace: number;
-  /** When SAM was last asked about this thing, ms. */
+  /** When it was last looked for past the local match (SAM, or the whole-frame search), ms. */
   lastAsk: number;
   /** The wait before asking SAM again while it stays lost; doubles each time. */
   reanchorGap: number;
@@ -60,6 +65,8 @@ export interface WatchThing {
   goodSteps: number;
   /** Whether the feature model was already tried since the match was lost. */
   refound: boolean;
+  /** The look-alike it is entangled with, or null. */
+  partner: string | null;
 }
 export const WATCH = {
   /** Frames on the other side of a zone edge before the crossing is judged. */
@@ -88,6 +95,12 @@ export const WATCH = {
    * is a thousand times the cost of the motion check.
    */
   recheckSteps: 10,
+  /** A missing thing is matched over the whole frame again, when the view changed, at most this often, ms. */
+  missingLookMs: 10_000,
+  /** Two look-alikes entangle when their boxes come within this many box widths while one moves. */
+  nearWidths: 1,
+  /** A step counts as moving the box when it moved this share of its width or more. */
+  movedShare: 0.25,
 };
 
 export function watchThing(subject: WatchSubject, track: LocalTrack, now: number): WatchThing {
@@ -104,6 +117,7 @@ export function watchThing(subject: WatchSubject, track: LocalTrack, now: number
     misses: 0,
     goodSteps: 0,
     refound: false,
+    partner: null,
   };
 }
 
@@ -127,8 +141,36 @@ export function watchStep(
   if (thing.status === 'missing') {
     const motion = frameMotion(thing.track.previous, frame, around(thing.track.box));
     const track = { ...thing.track, previous: frame, motion };
-    if (motion <= LOCAL_TRACK.motionShare)
-      return { thing: { ...thing, track }, ask: null, refind: false, place: false };
+    if (motion <= LOCAL_TRACK.motionShare) {
+      // Put back somewhere else while nobody was near where it was: look over the
+      // whole frame now and then, once the view has changed, with no model call.
+      const { width: tw, height: th } = thing.track.template;
+      const changed =
+        frameMotion(thing.track.previous, frame, WHOLE) * frame.width * frame.height >=
+        (tw * th) / 4;
+      if (!changed || now - thing.lastAsk < WATCH.missingLookMs)
+        return { thing: { ...thing, track }, ask: null, refind: false, place: false };
+      const match = matchTemplate(frame, thing.track.template, thing.track.box, 1, exclude);
+      const found =
+        match && match.score >= LOCAL_TRACK.lostScore && match.lead >= LOCAL_TRACK.minLead;
+      if (!found)
+        return { thing: { ...thing, track, lastAsk: now }, ask: null, refind: false, place: false };
+      return {
+        thing: {
+          ...thing,
+          track: { ...track, box: match.box, score: match.score, lead: match.lead, lostSteps: 0 },
+          status: 'following',
+          layer: 'local',
+          lastAsk: now,
+          misses: 0,
+          refound: false,
+          reanchorGap: WATCH.reanchorGapMs.first,
+        },
+        ask: null,
+        refind: false,
+        place: false,
+      };
+    }
     // Something moved where it was: look again, from the start of the back-off.
     return {
       thing: {
@@ -147,7 +189,7 @@ export function watchStep(
   const motion = frameMotion(thing.track.previous, frame, around(thing.track.box));
   const stillSteps = motion > LOCAL_TRACK.motionShare ? 0 : thing.track.stillSteps + 1;
   const quiet =
-    thing.status === 'following' &&
+    (thing.status === 'following' || thing.status === 'entangled') &&
     !thing.track.lostSteps &&
     stillSteps > 0 &&
     stillSteps % WATCH.recheckSteps !== 0;
@@ -162,7 +204,7 @@ export function watchStep(
   const lostSteps = thing.track.lostSteps + 1;
   const step = quiet
     ? {
-        track: { ...thing.track, previous: frame, motion, stillSteps },
+        track: { ...thing.track, previous: frame, motion, stillSteps, velocity: { x: 0, y: 0 } },
         verdict: 'follow' as const,
       }
     : unchanged
@@ -195,7 +237,7 @@ export function watchStep(
     ...thing,
     track,
     status: 'following',
-    layer: thing.status === 'following' ? thing.layer : 'local',
+    layer: thing.status === 'unsure' ? 'local' : thing.layer,
     crossingSteps: crossed ? thing.crossingSteps + 1 : 0,
     crossedAt: crossed ? (thing.crossedAt ?? now) : null,
     goodSteps,
@@ -213,6 +255,14 @@ export function watchStep(
 }
 /** What one frame means for one thing, from `watchFrame`. */
 type WatchStepResult = ReturnType<typeof watchStep>;
+const sameConcept = (a: WatchThing, b: WatchThing) =>
+  a.subject.concept.trim().toLowerCase() === b.subject.concept.trim().toLowerCase();
+/** Whether two boxes are within `WATCH.nearWidths` box widths of each other. */
+function near(a: UnitBox, b: UnitBox) {
+  const dx = Math.max(0, a.x - (b.x + b.width), b.x - (a.x + a.width));
+  const dy = Math.max(0, a.y - (b.y + b.height), b.y - (a.y + a.height));
+  return Math.hypot(dx, dy) < WATCH.nearWidths * Math.max(a.width, b.width);
+}
 /**
  * One frame for every followed thing together. Each one's search skips the
  * others' boxes, so a lost thing can't settle on a look-alike that is already
@@ -220,23 +270,30 @@ type WatchStepResult = ReturnType<typeof watchStep>;
  * look-alikes side by side aren't each other's runner-up. If two boxes still
  * end up on one place, the thing that came further gives way: it holds its
  * last box and counts as lost for the step, and nothing is judged for it.
- * `hold` is a thing SAM is being asked about: it isn't stepped, but its box
- * is kept clear. Boxes that already overlapped (a phone on a book, two mugs
+ * `hold` are things SAM is being asked about: they aren't stepped, but their
+ * boxes are kept clear. Boxes that already overlapped (a phone on a book, two mugs
  * touching) aren't kept off each other.
+ *
+ * Two things of one concept that come close while either moves are
+ * entangled: both are followed, but neither's zones are judged. Once they
+ * are apart and still, each one's template is scored on both places and the
+ * two are assigned jointly (`assignTracks`); with a margin of `MULTI.minMargin`
+ * they are sure again (swapped, if that is what their looks say), else they
+ * stay entangled until a person confirms one.
  */
 export function watchFrame(
   things: WatchThing[],
   frame: LumaFrame,
   now: number,
   pace: { quietSteps?: number; placeGapMs?: number } = {},
-  hold?: string,
+  hold: ReadonlySet<string> = new Set(),
 ): Map<string, WatchStepResult> {
   const shown = (t: WatchThing) => t.status !== 'missing';
   const apart = (a: WatchThing, b: WatchThing) =>
     boxIoU(a.track.box, b.track.box) < LOCAL_TRACK.claimIoU;
   const steps = new Map<string, WatchStepResult>();
   for (const t of things) {
-    if (t.subject.id === hold) continue;
+    if (hold.has(t.subject.id)) continue;
     const exclude = things
       .filter((o) => o !== t && shown(o) && apart(o, t))
       .map((o) => o.track.box);
@@ -271,7 +328,87 @@ export function watchFrame(
         place: false,
       });
     }
+  entangle(things, steps, frame, pace.quietSteps ?? WATCH.quietSteps);
   return steps;
+}
+
+/** Entangles look-alikes that came close while moving, and lets go of pairs whose looks tell them apart. */
+function entangle(
+  things: WatchThing[],
+  steps: Map<string, WatchStepResult>,
+  frame: LumaFrame,
+  quietSteps: number,
+) {
+  const after = (t: WatchThing) => steps.get(t.subject.id)?.thing ?? t;
+  const partner = new Map(things.map((t) => [t.subject.id, t.partner]));
+  const stepped = things.filter((t) => steps.has(t.subject.id) && t.status !== 'missing');
+  for (let i = 0; i < stepped.length; i++)
+    for (let j = i + 1; j < stepped.length; j++) {
+      const a = stepped[i]!;
+      const b = stepped[j]!;
+      if (!sameConcept(a, b)) continue;
+      const [na, nb] = [after(a).track.box, after(b).track.box];
+      const moving = (t: WatchThing, n: UnitBox) =>
+        Math.hypot(n.x - t.track.box.x, n.y - t.track.box.y) >= WATCH.movedShare * n.width;
+      if (near(na, nb) && (moving(a, na) || moving(b, nb))) {
+        partner.set(a.subject.id, b.subject.id);
+        partner.set(b.subject.id, a.subject.id);
+      }
+    }
+  // A partner forgotten, or entangled with another since, lets this one go.
+  for (const [id, p] of partner)
+    if (p !== null && partner.get(p) !== id && steps.has(id)) partner.set(id, null);
+  for (const a of stepped) {
+    const p = partner.get(a.subject.id);
+    const b = stepped.find((t) => t.subject.id === p);
+    if (!b || a.subject.id > b.subject.id) continue;
+    const [ta, tb] = [after(a), after(b)];
+    const ready = (t: WatchThing) => !t.track.lostSteps && t.track.stillSteps >= quietSteps;
+    if (!ready(ta) || !ready(tb) || near(ta.track.box, tb.track.box)) continue;
+    // Each one's look, scored where each of them is now.
+    const score = (t: WatchThing, at: UnitBox) =>
+      matchTemplate(frame, t.track.template, at, 0)?.score ?? -1;
+    const { pick, margins } = assignTracks([
+      [1 - score(ta, ta.track.box), 1 - score(ta, tb.track.box)],
+      [1 - score(tb, ta.track.box), 1 - score(tb, tb.track.box)],
+    ]);
+    if (pick[0] === null || pick[1] === null) continue;
+    if (Math.min(margins[0] ?? 0, margins[1] ?? 0) < MULTI.minMargin) continue;
+    if (pick[0] === 1) {
+      // Their looks say they swapped: each takes the other's place.
+      const [ba, bb] = [ta.track.box, tb.track.box];
+      steps.set(a.subject.id, {
+        ...steps.get(a.subject.id)!,
+        thing: { ...ta, track: { ...ta.track, box: bb } },
+      });
+      steps.set(b.subject.id, {
+        ...steps.get(b.subject.id)!,
+        thing: { ...tb, track: { ...tb.track, box: ba } },
+      });
+    }
+    partner.set(a.subject.id, null);
+    partner.set(b.subject.id, null);
+  }
+  for (const [id, step] of steps) {
+    const p = partner.get(id) ?? null;
+    if (p === null) {
+      if (step.thing.partner !== null)
+        steps.set(id, { ...step, thing: { ...step.thing, partner: null } });
+      continue;
+    }
+    const lost = step.thing.track.lostSteps > 0;
+    steps.set(id, {
+      ...step,
+      thing: {
+        ...step.thing,
+        partner: p,
+        status: lost ? 'unsure' : 'entangled',
+        crossingSteps: 0,
+        crossedAt: null,
+      },
+      place: false,
+    });
+  }
 }
 /**
  * Its zones were judged where it is followed. Blocked, they aren't judged
@@ -318,12 +455,14 @@ export function missed(thing: WatchThing): WatchThing {
 export interface WatchView {
   mode: 'demo' | 'live';
   on: boolean;
-  /** `paused`: following goes on, but SAM can't be asked (spending limit, live calls off). */
+  /** `paused`: following goes on, but SAM can't be asked though tracking may call it (spending limit, live calls off). */
   state: 'off' | 'starting' | 'watching' | 'paused' | 'camera_lost';
   note: string;
   camera: { id: string; name: string } | null;
   /** Whether the feature model is loaded, so lost things are looked for before SAM is asked. */
   appearance: boolean;
+  /** Whether tracking may call SAM; without it a lost thing is looked for on this machine only. */
+  ai: boolean;
   frames: number;
   checks: number;
   refinds: number;

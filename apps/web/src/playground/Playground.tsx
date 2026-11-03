@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties, type PointerEvent } from 'react';
 import type { LabStatus, Scene, Segmentation, ZoneRect } from '@livinglayer/domain';
 import { footInZone, runCost } from '@livinglayer/domain';
-import { api } from '../api';
+import { api, ApiError } from '../api';
 import { usd } from '../cost';
 import { Glyph } from '../Glyph';
 import { sendToLab } from '../handoff';
@@ -63,6 +63,17 @@ function Brackets() {
       <span className="pg-tick br" />
     </>
   );
+}
+
+/**
+ * Why a detection failed, as the playground can act on it: it names things
+ * with Spark and outlines them with SAM, which tracking calls only once AI
+ * is turned on for it in the lab.
+ */
+function detectFailure(e: unknown): string {
+  if (e instanceof ApiError && e.code === 'tracking_ai_off')
+    return 'The playground asks Spark and SAM, and tracking may not call AI yet. Turn on “Let tracking call AI” under the lab’s spending readout to use it.';
+  return e instanceof Error ? e.message : 'Detection failed.';
 }
 
 export function Playground() {
@@ -161,8 +172,7 @@ export function Playground() {
       if (masked.status === 'no_match')
         setDetectError(`No ${masked.output.concept} in this frame.`);
     } catch (e) {
-      if (run === detectRun.current)
-        setDetectError(e instanceof Error ? e.message : 'Detection failed.');
+      if (run === detectRun.current) setDetectError(detectFailure(e));
     } finally {
       if (run === detectRun.current) setDetecting('');
       void loadStatus();
@@ -285,9 +295,7 @@ export function Playground() {
       });
     } catch (e) {
       setWatch(false);
-      setDetectError(
-        `${e instanceof Error ? e.message : 'Detection failed.'} Watching has stopped.`,
-      );
+      setDetectError(`${detectFailure(e)} Watching has stopped.`);
     } finally {
       setWatchBusy(false);
       void loadStatus();

@@ -1,5 +1,11 @@
 import { useRef, useCallback } from 'react';
-import type { Fixture, MappedThing, IsoSceneKind, FixtureInput } from '@livinglayer/domain';
+import type {
+  Fixture,
+  MappedThing,
+  IsoSceneKind,
+  FixtureInput,
+  SelectionShape,
+} from '@livinglayer/domain';
 import { closeViewOf, fixtureAt, fixtureBox, inRoomView, fixtureInput } from '@livinglayer/domain';
 import { api } from '../../api';
 import type { FixturePlacing } from '../../iso/IsoView';
@@ -34,6 +40,7 @@ export function useFixturesSlice(
     busy,
     closeAiTaskSoon,
     costNote,
+    demoPosition,
     followAi,
     frameNow,
     image,
@@ -49,6 +56,7 @@ export function useFixturesSlice(
     setIsoPanel,
     setMemory,
     setMessage,
+    setOutlining,
     setPlacing,
     setSegmentRunId,
     setSegmentation,
@@ -83,6 +91,41 @@ export function useFixturesSlice(
       );
     } catch (e) {
       setError(e instanceof Error ? e : 'Could not look for it.');
+    } finally {
+      setBusy('');
+      void refresh().catch(() => {});
+    }
+  }
+  /**
+   * Outline a fixture from what a person drew round it on the picture, on this
+   * machine with no model call: a segmentation of its name with one outline,
+   * confirmed with `anchorFixture` like SAM's.
+   */
+  async function outlineFixture(id: string, drawn: { shape: SelectionShape; held: string | null }) {
+    const fixture = memory?.fixtures?.find((f) => f.id === id);
+    if (!fixture) return;
+    setBusy('outline-fixture');
+    setError('');
+    try {
+      const imageDataUrl = drawn.held ?? frameNow();
+      if (mode === 'live' && !imageDataUrl)
+        throw new Error('Start the camera or add a photo of the desk to outline it on.');
+      const run = await api('segment', {
+        mode,
+        concept: fixture.label.trim().toLowerCase(),
+        shape: drawn.shape,
+        ...(mode === 'demo' ? { demoPosition } : { imageDataUrl }),
+      });
+      setSegmentation(run.output);
+      setSegmentRunId(run.id);
+      setOutlining(null);
+      setMessage(
+        run.output.detections.length
+          ? 'Outlined it on this machine, no model call. Confirm it’s the outline.'
+          : 'Nothing stood out inside what you drew. Draw it closer round the thing.',
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e : 'Could not outline it.');
     } finally {
       setBusy('');
       void refresh().catch(() => {});
@@ -532,6 +575,7 @@ export function useFixturesSlice(
       findFixture,
       illustrate,
       inRoomViewOf,
+      outlineFixture,
       placeFixture,
       refineFixture3d,
       scanFixtures,
@@ -553,6 +597,10 @@ export interface FixturesSlice {
   findFixture: (id: string) => Promise<void>;
   illustrate: (view?: 'room' | 'desk', note?: string) => Promise<void>;
   inRoomViewOf: (f: Pick<Fixture, 'scene'>) => boolean;
+  outlineFixture: (
+    id: string,
+    drawn: { shape: SelectionShape; held: string | null },
+  ) => Promise<void>;
   placeFixture: (where: {
     at: {
       x: number;

@@ -4,14 +4,17 @@ import { liveImage, parseInput } from './errors.js';
 import { validateImage } from './images.js';
 import { demoScene } from './demo.js';
 import type { RouteDeps } from './route-deps.js';
+import { requireTrackingAi } from './settings.js';
 
-/** Name what a photo shows, with no layout: Spark's discovery, or the demo's. */
+/** Name what a photo shows, with no layout, to pick what to follow: Spark's discovery, or the demo's. Only once tracking may call AI. */
 export async function discoverRoutes(
   app: FastifyInstance,
   { store, meta, run }: Pick<RouteDeps, 'store' | 'meta' | 'run'>,
 ) {
   app.post('/', { prefixTrailingSlash: 'no-slash' }, async (request) => {
     const input = parseInput(imageRequestSchema, request.body);
+    liveImage(input.mode, input.imageDataUrl);
+    requireTrackingAi(store, 'Spark');
     return run('discover', input.mode, async (id) => {
       if (input.mode === 'demo') {
         liveImage(input.mode, input.imageDataUrl);

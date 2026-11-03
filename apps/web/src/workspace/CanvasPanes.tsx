@@ -1,4 +1,4 @@
-import { lazy, useRef, type CSSProperties, type RefObject } from 'react';
+import { lazy, useRef, useState, type CSSProperties, type RefObject } from 'react';
 import {
   CROP_MIN,
   DEMO_POSITIONS,
@@ -42,6 +42,7 @@ import { ContextMenu } from './ContextMenu';
 import { Popover } from './Popover';
 import { ToolStrip } from './ToolStrip';
 import { BrushOverlay } from './Brush';
+import { shapeOf, type BrushStroke } from './useBrush';
 import { demoFrameUrl } from './demoFrame';
 
 const PhonePairing = lazy(() =>
@@ -105,6 +106,7 @@ export function useBrushing(): { brushable: boolean; brushing: boolean } {
     !drawing &&
     !pinning &&
     !lab.boxing &&
+    !lab.outlining &&
     !lab.calibrating &&
     (camera || mode === 'demo' || Boolean(image));
   return { brushable, brushing: Boolean(brushing) };
@@ -254,13 +256,15 @@ export function StageTools() {
                 : undefined,
         }}
         note={
-          lab.tool === 'scale' && showIso && roomFixtures && sel?.kind !== 'fixture'
-            ? 'Select a fixture, then drag the handles on its base.'
-            : lab.tool === 'hand'
-              ? 'Drag to pan. Scroll to zoom.'
-              : lab.tool === 'brush' && brushing && !lab.brush.shape
-                ? 'Drag a box, or click points and press Enter. Esc clears.'
-                : undefined
+          lab.outlining && !lab.outlining.shape
+            ? 'Drag a box round the thing, or click points and press Enter. Esc cancels.'
+            : lab.tool === 'scale' && showIso && roomFixtures && sel?.kind !== 'fixture'
+              ? 'Select a fixture, then drag the handles on its base.'
+              : lab.tool === 'hand'
+                ? 'Drag to pan. Scroll to zoom.'
+                : lab.tool === 'brush' && brushing && !lab.brush.shape
+                  ? 'Drag a box, or click points and press Enter. Esc clears.'
+                  : undefined
         }
       />
       {showIso && picture && lab.showPicture && roomFixtures && (
@@ -532,6 +536,46 @@ function BrushLayer() {
   );
 }
 
+/**
+ * A box or polygon drawn round a thing to outline it on this machine, with
+ * the brush's own drawing. Live, the frame is held when it is finished, so
+ * the outline is of what was drawn on.
+ */
+function OutlineLayer() {
+  const lab = useLabParts(useView(), useCamera(), useObservation());
+  const [stroke, setStroke] = useState<BrushStroke | null>(null);
+  const { outlining, mode, camera, image } = lab;
+  if (!outlining || lab.drawing || lab.pinning || !(camera || mode === 'demo' || image))
+    return null;
+  const draw = {
+    stroke,
+    setStroke,
+    shape: outlining.shape,
+    finish: async (next: BrushStroke) => {
+      setStroke(null);
+      const shape = shapeOf(next);
+      if (shape)
+        lab.setOutlining({
+          ...outlining,
+          shape,
+          held: mode === 'live' ? (lab.frameNow() ?? null) : null,
+        });
+    },
+  };
+  return (
+    <>
+      {outlining.held && camera && (
+        <img className="brush-held" src={outlining.held} alt="The frame held for the outline" />
+      )}
+      <BrushOverlay
+        brush={draw}
+        point={lab.zonePoint}
+        label="Outline a thing: drag a box, or click points around it"
+      />
+    </>
+  );
+}
+
 /** The selected object's latest sighting, ringed on the photo when it was seen on a frame this size. */
 function FocusLayer() {
   const lab = useLabParts(useView(), useDesk(), useCamera(), useObservation());
@@ -614,7 +658,11 @@ function FollowLayers() {
             aria-hidden="true"
           >
             {t.label.toUpperCase()} · {WATCH_LAYER[t.layer]}
-            {t.status === 'following' ? ` · ${t.score.toFixed(2)}` : ` · ${t.status.toUpperCase()}`}
+            {t.status === 'following'
+              ? ` · ${t.score.toFixed(2)}`
+              : t.status === 'entangled'
+                ? ' · WHICH ONE?'
+                : ` · ${t.status.toUpperCase()}`}
           </span>
         ))}
       {tracked && (
@@ -723,6 +771,7 @@ export function PhotoStage({
         <ZoneLayer />
         <DrawLayers />
         <BrushLayer />
+        <OutlineLayer />
         <FocusLayer />
         <FollowLayers />
         <CalibrationLayers calibratePanel={calibratePanel} />

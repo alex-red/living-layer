@@ -56,11 +56,14 @@ export function sightings({
       id: t.id,
       label: t.label,
       box: t.box,
-      tone: t.status === 'following' ? 'follow' : t.status,
+      // Entangled: followed, but which of two look-alikes it is isn't sure.
+      tone: t.status === 'following' ? 'follow' : t.status === 'entangled' ? 'unsure' : t.status,
       note:
         t.status === 'following'
           ? `${LAYER[t.layer]} · ${t.score.toFixed(2)}`
-          : t.status.toUpperCase(),
+          : t.status === 'entangled'
+            ? 'WHICH ONE?'
+            : t.status.toUpperCase(),
     });
   }
   const remembered: { label: string; o: DeskObservation | null | undefined; missing?: boolean }[] =

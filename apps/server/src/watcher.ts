@@ -30,9 +30,11 @@ import {
   nextOccupied,
   pixelDifference,
   zoneSample,
+  boxIoU,
   OCCUPANCY,
   APPEARANCE,
   LOCAL_TRACK,
+  MULTI,
   DEMO_POSITIONS,
   type DemoPosition,
   type DeskMemory,
@@ -131,12 +133,30 @@ export interface WatcherDeps {
   now?: () => number;
 }
 
+const WHOLE: UnitBox = { x: 0, y: 0, width: 1, height: 1 };
+/** The smallest box holding all of these. */
+function unionOf(boxes: UnitBox[]): UnitBox {
+  const x = Math.min(...boxes.map((b) => b.x));
+  const y = Math.min(...boxes.map((b) => b.y));
+  return {
+    x,
+    y,
+    width: Math.max(...boxes.map((b) => b.x + b.width)) - x,
+    height: Math.max(...boxes.map((b) => b.y + b.height)) - y,
+  };
+}
+const alike = (a: WatchThing, b: WatchThing) =>
+  a.subject.concept.trim().toLowerCase() === b.subject.concept.trim().toLowerCase();
+
 /**
- * The server watching one mode's camera. Every thing with a SAM sighting is
- * followed frame by frame. A thing that settles across a zone's edge has its
- * zones judged where it is followed (`placeLocally`), with no SAM call; SAM
- * is asked one thing at a time, only to find a lost thing, and its answer
- * goes through the same track paths as the lab's buttons.
+ * The server watching one mode's camera. Every confirmed thing is followed
+ * frame by frame, on this machine. A thing that settles across a zone's
+ * edge has its zones judged where it is followed (`placeLocally`). A lost
+ * thing is looked for by appearance, every lost one in one embedding; when
+ * that fails, tracking that may call AI asks SAM, once per concept for every
+ * thing of it that needs one, and the answer goes through the same track
+ * paths as the lab's buttons. Without AI it is looked for over the whole
+ * frame instead, and marked missing when that fails too.
  */
 /** How often a live camera's view is checked against its calibration frame. */
 const CAMERA_CHECK_MS = 10_000;
@@ -149,6 +169,10 @@ export class Watcher {
   private listeners = new Set<(view: WatchView) => void>();
   private checking = false;
   private pending: { id: string; ask: 'reanchor' }[] = [];
+  /** The things SAM or the whole-frame search is looking for now, held still meanwhile. */
+  private held = new Set<string>();
+  /** Lost things waiting for the next appearance search, done for all of them at once. */
+  private refinding = new Set<string>();
   /** Zone judgements, one at a time: each may switch a light. */
   private placing: Promise<void> = Promise.resolve();
   /** Things with a judgement queued or running: one each, judged from where it is then. */
@@ -196,6 +220,10 @@ export class Watcher {
   private get now() {
     return this.deps.now?.() ?? Date.now();
   }
+  /** Whether tracking may call SAM: off unless someone turned it on in the lab's settings. */
+  private get ai() {
+    return this.deps.store.trackingAi();
+  }
   private memory() {
     return this.deps.store.memory(this.deps.mode);
   }
@@ -209,6 +237,7 @@ export class Watcher {
       note: this.note,
       camera: camera ? { id: camera.id, name: camera.name } : null,
       appearance: Boolean(this.model),
+      ai: this.ai,
       ...this.stats,
       things: [...this.things.values()].map((t) => ({
         id: t.subject.id,
@@ -372,7 +401,7 @@ export class Watcher {
         };
         this.occupancy.set(id, next);
         const due = now - (this.lastSam.get(id) ?? 0) >= OCCUPANCY.samGapMs;
-        if (samConfirm && occupied && next.sam !== 'yes' && due) {
+        if (samConfirm && this.ai && occupied && next.sam !== 'yes' && due) {
           this.lastSam.set(id, now);
           void this.track(this.askPerson(id, zone.rect));
         }
@@ -462,6 +491,8 @@ export class Watcher {
     this.source?.stop();
     this.things.clear();
     this.pending = [];
+    this.held.clear();
+    this.refinding.clear();
     this.stats = { frames: 0, checks: 0, refinds: 0, places: 0 };
     this.say('starting', 'Starting…');
     const memory = this.memory();
@@ -522,7 +553,7 @@ export class Watcher {
     this.say(
       'watching',
       count
-        ? `Watching ${count} thing${count === 1 ? '' : 's'}.${memory.fixedCamera ? '' : ' Mark the camera fixed so zones carry over to new frames.'}`
+        ? `Watching ${count} thing${count === 1 ? '' : 's'}${this.ai ? '' : ', on this machine only'}.${memory.fixedCamera ? '' : ' Mark the camera fixed so zones carry over to new frames.'}`
         : 'Watching, but nothing is confirmed yet: confirm the mug or an object first.',
     );
   }
@@ -563,6 +594,8 @@ export class Watcher {
     this.motionAt.clear();
     this.occupancy.clear();
     this.pending = [];
+    this.held.clear();
+    this.refinding.clear();
     this.say('off', '');
   }
   /** The demo camera: the mug was moved. */
@@ -643,7 +676,7 @@ export class Watcher {
         [proto, ...(this.prototypes.get(id) ?? [])].slice(0, APPEARANCE.maxPrototypes),
       );
     } catch {
-      // Without a prototype, a lost thing goes straight to SAM.
+      // Without a prototype, a lost thing goes straight to SAM or the whole-frame search.
     }
   }
 
@@ -686,11 +719,16 @@ export class Watcher {
       for (const z of this.zones)
         if (frameMotion(previous, frame, z.rect) > LOCAL_TRACK.motionShare)
           this.motionAt.set(z.id, now);
-    // Together, so no two things settle on one place. One being checked holds still until SAM answers.
-    const held = this.checking ? this.pending[0]?.id : undefined;
-    for (const [id, step] of watchFrame([...this.things.values()], frame, now, this.pace, held)) {
+    // Together, so no two things settle on one place. Things being looked for hold still meanwhile.
+    for (const [id, step] of watchFrame(
+      [...this.things.values()],
+      frame,
+      now,
+      this.pace,
+      this.held,
+    )) {
       this.things.set(id, step.thing);
-      if (step.refind) void this.track(this.refind(id));
+      if (step.refind) this.refind(id);
       if (step.place) this.place(id);
       if (step.ask && !this.pending.some((p) => p.id === id))
         this.pending.push({ id, ask: step.ask });
@@ -721,41 +759,129 @@ export class Watcher {
     });
     this.emit(true);
   }
-  /** Look for a lost thing by appearance; SAM is asked only if this can't find it. */
-  private async refind(id: string) {
-    const protos = this.prototypes.get(id);
-    if (!this.model || !protos?.length || !this.source) return;
+  /** Look for a lost thing by appearance, with every other one lost by then: one embedding. */
+  private refind(id: string) {
+    if (this.refinding.size) return void this.refinding.add(id);
+    this.refinding.add(id);
+    void this.track(
+      Promise.resolve().then(async () => {
+        const ids = [...this.refinding];
+        this.refinding.clear();
+        await this.lookByAppearance(ids, false);
+      }),
+    );
+  }
+  /**
+   * Look for lost things by how they look: around where each was last
+   * (`searchRegion`), all in one embedding of the region holding them, or the
+   * whole frame (`whole`, when nothing else may look). Followed things' boxes
+   * are left out, and lost look-alikes are each other's rivals; two that
+   * settle on one place both stay lost. Returns the ids found.
+   */
+  private async lookByAppearance(ids: string[], whole: boolean): Promise<Set<string>> {
+    const found = new Set<string>();
+    const model = this.model;
+    if (!model || !this.source) return found;
     try {
       const shot = await this.source.snapshot();
-      const thing = this.things.get(id);
-      if (!thing) return;
-      // Looked for around where it was last, at the zoom its prototypes were made at.
-      const { region, side } = searchRegion(thing.track.box, shot);
-      const grid = await this.model.embed(shot.png, region, side);
-      const match = findByAppearance(grid, protos, intoRegion(thing.track.box, region));
-      if (!appearanceSure(match)) return;
-      this.things.set(id, refound(thing, outOfRegion(match.box, region)));
-      this.stats.refinds++;
-      this.emit(true);
+      const wanted = ids.flatMap((id) => {
+        const thing = this.things.get(id);
+        const protos = this.prototypes.get(id);
+        return thing && protos?.length ? [{ id, thing, protos }] : [];
+      });
+      if (!wanted.length) return found;
+      const searches = wanted.map((w) => searchRegion(w.thing.track.box, shot));
+      const one = !whole && searches.length === 1 ? searches[0]! : null;
+      const region = one?.region ?? (whole ? WHOLE : unionOf(searches.map((r) => r.region)));
+      // Several at once, or the whole frame: at the largest side the search embeds at.
+      const side = one?.side ?? 2 * APPEARANCE.side;
+      const grid = await model.embed(shot.png, region, side);
+      const followed = [...this.things.values()]
+        .filter((t) => t.status === 'following' || t.status === 'entangled')
+        .map((t) => intoRegion(t.track.box, region));
+      const matches = wanted.map((w) => ({
+        id: w.id,
+        match: findByAppearance(grid, w.protos, intoRegion(w.thing.track.box, region), {
+          exclude: followed,
+          rivals: wanted.filter((o) => o !== w && alike(o.thing, w.thing)).flatMap((o) => o.protos),
+        }),
+      }));
+      for (const { id, match } of matches) {
+        if (!appearanceSure(match)) continue;
+        const clash = matches.some(
+          (o) =>
+            o.id !== id &&
+            appearanceSure(o.match) &&
+            boxIoU(o.match.box, match.box) >= LOCAL_TRACK.claimIoU,
+        );
+        const thing = this.things.get(id);
+        if (clash || !thing) continue;
+        this.things.set(id, refound(thing, outOfRegion(match.box, region)));
+        found.add(id);
+      }
+      this.stats.refinds += found.size;
+      if (found.size) this.emit(true);
     } catch {
-      // The next loss goes to SAM.
+      // Whatever it didn't find goes on to SAM or the whole-frame search.
     }
+    return found;
   }
-  /** Ask SAM about the things that need it, one at a time. */
+  /**
+   * Look for the things that need more than the local match, a batch at a
+   * time: by SAM when tracking may call it, once per concept, else over the
+   * whole frame on this machine.
+   */
   private async check() {
     if (this.checking) return;
     this.checking = true;
     const generation = this.generation;
     try {
       while (this.pending.length && generation === this.generation) {
-        const { id, ask } = this.pending[0]!;
-        const thing = this.things.get(id);
-        if (thing) await this.ask(thing, ask);
-        this.pending.shift();
+        const first = this.things.get(this.pending[0]!.id);
+        const batch = this.pending.filter((p) => {
+          const t = this.things.get(p.id);
+          return t && first && (!this.ai || alike(t, first));
+        });
+        const things = batch.map((p) => this.things.get(p.id)!);
+        for (const t of things) this.held.add(t.subject.id);
+        try {
+          if (!things.length) this.pending.shift();
+          else if (this.ai) await this.ask(things);
+          else await this.relocate(things);
+        } finally {
+          for (const t of things) this.held.delete(t.subject.id);
+        }
+        this.pending = this.pending.filter((p) => !batch.includes(p));
       }
     } finally {
       this.checking = false;
     }
+  }
+  /** Without AI: look over the whole frame by appearance; what isn't found counts a miss. */
+  private async relocate(things: WatchThing[]) {
+    for (const t of things) this.things.set(t.subject.id, asked(t, 'reanchor', this.now));
+    const found = await this.lookByAppearance(
+      things.map((t) => t.subject.id),
+      true,
+    );
+    const lost = things.filter((t) => !found.has(t.subject.id));
+    for (const t of lost) this.miss(t, 'Nothing on this machine');
+    if (found.size && !lost.length)
+      this.say(this.state, `Found again by how it looks (${things[0]!.subject.label}).`);
+  }
+  /** Nothing found it: a miss, and after enough of them it is missing. */
+  private miss(thing: WatchThing, who: string) {
+    const id = thing.subject.id;
+    const next = missed(this.things.get(id) ?? thing);
+    this.things.set(id, next);
+    if (next.status === 'missing' && thing.subject.kind === 'fixture')
+      this.deps.tracking.loseFixture(this.deps.mode, id);
+    this.say(
+      this.state,
+      next.status === 'missing'
+        ? `${who} can find the ${thing.subject.label}. Marked missing until something moves where it was, or it shows up elsewhere.`
+        : `${who} can see the ${thing.subject.label} either. Looking again later.`,
+    );
   }
   /** Judge a thing's zones where it is followed now, after any judgement still running. */
   private place(id: string) {
@@ -800,10 +926,16 @@ export class Watcher {
       );
     }
   }
-  private async ask(thing: WatchThing, ask: 'reanchor') {
+  /**
+   * One SAM call for things of one concept, on one snapshot, each followed
+   * into it through the lab's own track path, which assigns its detections to
+   * every look-alike at once. A thing whose pick barely beats the other way
+   * round is entangled with its nearest look-alike rather than trusted.
+   */
+  private async ask(things: WatchThing[]) {
     const { mode, tracking } = this.deps;
-    const id = thing.subject.id;
-    this.things.set(id, asked(thing, ask, this.now));
+    const first = things[0]!;
+    for (const t of things) this.things.set(t.subject.id, asked(t, 'reanchor', this.now));
     let picture: Buffer;
     let run: EvidenceRun<Segmentation>;
     try {
@@ -811,7 +943,7 @@ export class Watcher {
       picture = shot.png;
       run = await this.deps.segment(
         mode,
-        thing.subject.concept,
+        first.subject.concept,
         this.source instanceof DemoSource
           ? { demoPosition: this.source.position }
           : { png: picture },
@@ -822,57 +954,71 @@ export class Watcher {
       if (['spend_limit', 'meta_not_ready'].includes(safe.code))
         return this.say(
           'paused',
-          `${safe.message} Following goes on; no rule can fire until SAM can be asked.`,
+          `${safe.message} Following and local zone judgements go on; a lost thing waits until SAM can be asked.`,
         );
       return this.say(
         this.state,
-        `SAM couldn’t be asked about the ${thing.subject.label}: ${safe.message}`,
+        `SAM couldn’t be asked about the ${first.subject.label}: ${safe.message}`,
       );
     }
-    try {
-      if (!run.output.detections.length)
-        throw new LabError(
-          'track_lost',
-          `SAM found no ${thing.subject.concept} in this frame.`,
-          409,
-        );
-      const memory =
-        thing.subject.kind === 'mug'
-          ? (await tracking.trackMug(mode, run.id)).memory
-          : thing.subject.kind === 'object'
-            ? (await tracking.trackObject(mode, id, run.id)).memory
-            : (await tracking.trackFixture(mode, id, run.id)).memory;
-      this.stats.checks++;
-      this.watchZones(memory);
-      const seen = watchedThings(memory).find((s) => s.observation.objectId === id);
-      const before = this.things.get(id) ?? thing;
-      if (seen) await this.seed(seen, memory, picture, before);
-      // Other things' zone verdicts may have changed with it.
-      for (const [other, t] of this.things)
-        if (other !== id)
-          this.things.set(other, {
-            ...t,
-            subject: { ...t.subject, zones: zonesOf(memory, other) },
-          });
-      if (this.state === 'paused') this.state = 'watching';
-      this.say(this.state, `Found again with SAM (${thing.subject.label}).`);
-    } catch (error) {
-      const safe = safeError(error);
-      const current = this.things.get(id) ?? thing;
-      if (safe.code === 'track_lost') {
-        const next = missed(current);
-        this.things.set(id, next);
-        if (next.status === 'missing' && thing.subject.kind === 'fixture')
-          tracking.loseFixture(mode, id);
-        return this.say(
-          this.state,
-          next.status === 'missing'
-            ? `SAM can’t find the ${thing.subject.label}. Marked missing until something moves where it was.`
-            : `SAM can’t see the ${thing.subject.label} either. Looking again later.`,
-        );
+    for (const thing of things) {
+      const id = thing.subject.id;
+      try {
+        if (!run.output.detections.length)
+          throw new LabError(
+            'track_lost',
+            `SAM found no ${thing.subject.concept} in this frame.`,
+            409,
+          );
+        const result =
+          thing.subject.kind === 'mug'
+            ? await tracking.trackMug(mode, run.id)
+            : thing.subject.kind === 'object'
+              ? await tracking.trackObject(mode, id, run.id)
+              : await tracking.trackFixture(mode, id, run.id);
+        const memory = result.memory;
+        this.stats.checks++;
+        this.watchZones(memory);
+        const seen = watchedThings(memory).find((s) => s.observation.objectId === id);
+        const before = this.things.get(id) ?? thing;
+        if (seen) await this.seed(seen, memory, picture, before);
+        // Other things' zone verdicts may have changed with it.
+        for (const [other, t] of this.things)
+          if (other !== id)
+            this.things.set(other, {
+              ...t,
+              subject: { ...t.subject, zones: zonesOf(memory, other) },
+            });
+        if (result.margin < MULTI.minMargin) this.entangleNearest(id);
+        if (this.state === 'paused') this.state = 'watching';
+        this.say(this.state, `Found again with SAM (${thing.subject.label}).`);
+      } catch (error) {
+        const safe = safeError(error);
+        if (safe.code === 'track_lost') this.miss(thing, 'SAM can’t');
+        else
+          this.say(this.state, `The ${thing.subject.label} couldn’t be checked: ${safe.message}`);
       }
-      this.say(this.state, `The ${thing.subject.label} couldn’t be checked: ${safe.message}`);
     }
+  }
+  /** SAM's pick for it was about as good either way: it and its nearest look-alike wait to be told apart. */
+  private entangleNearest(id: string) {
+    const thing = this.things.get(id);
+    if (!thing) return;
+    const centre = (b: UnitBox) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
+    const c = centre(thing.track.box);
+    const other = [...this.things.values()]
+      .filter((t) => t !== thing && t.status !== 'missing' && alike(t, thing))
+      .sort((a, b) => {
+        const [p, q] = [centre(a.track.box), centre(b.track.box)];
+        return Math.hypot(p.x - c.x, p.y - c.y) - Math.hypot(q.x - c.x, q.y - c.y);
+      })[0];
+    if (!other) return;
+    this.things.set(id, { ...thing, status: 'entangled', partner: other.subject.id });
+    this.things.set(other.subject.id, {
+      ...other,
+      status: 'entangled',
+      partner: id,
+    });
   }
 }
 

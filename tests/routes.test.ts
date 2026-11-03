@@ -93,6 +93,7 @@ const ROUTES = [
   '/api/segment [POST]',
   '/api/select/resolve [POST]',
   '/api/settings/spend-limit [POST]',
+  '/api/settings/tracking-ai [POST]',
   '/api/status [GET]',
   '/api/streams [GET]',
   '/api/streams/crop [POST]',

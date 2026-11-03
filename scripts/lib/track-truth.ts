@@ -226,10 +226,16 @@ export function replayClip(
         box: px(f.box),
         mask: { width: 0, height: 0, foregroundPixels: 0, svgPath: '' },
       }));
-      const pick = pickTracked(detections, frameSize, {
-        box: px(sighting.get(t.id)!),
-        frame: frameSize,
-      });
+      // Assigned with its look-alikes' last sightings, as the server's track paths do.
+      const others = truth.things
+        .filter((o) => o.id !== t.id && o.concept === t.concept && sighting.has(o.id))
+        .map((o) => ({ box: px(sighting.get(o.id)!), frame: frameSize }));
+      const pick = pickTracked(
+        detections,
+        frameSize,
+        { box: px(sighting.get(t.id)!), frame: frameSize },
+        others,
+      );
       replay.asks.push({
         frame: k,
         thing: t.id,

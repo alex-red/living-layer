@@ -5,6 +5,8 @@ export * from './rules.js';
 export * from './fixture.js';
 export * from './tracker.js';
 export * from './watch.js';
+export * from './assign.js';
+export * from './outline.js';
 export * from './appearance.js';
 export * from './iso.js';
 export * from './iso-item.js';

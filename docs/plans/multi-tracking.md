@@ -1,6 +1,24 @@
 # Plan: many things at once
 
-Status: proposed. Builds on [tracking.md](tracking.md) (always-on watching, built). [current.md](current.md) defers new tracking work until the submission checks are done, so phase 0 is the only part that fits before November 4; the rest comes after.
+Status: phases 0–4 built in part (see each phase's _as built_), with tracking made [local first](#local-first); phases 5 and 6 not started. Builds on [tracking.md](tracking.md) (always-on watching, built). Nothing here is measured on real clips yet: the five recordings of phase 0 are still to make, so every number below is from made-up frames or the still office clip.
+
+## Local first
+
+Added November 3. Tracking runs on this machine unless someone turns AI on for it (_Let tracking call AI_ in the lab's settings, `tracking_ai`). That changes what each layer is for: SAM stops being the layer that finds a lost thing, and becomes an opt-in one.
+
+| Step                         | AI off (default)                                                 | AI on                                       |
+| ---------------------------- | ---------------------------------------------------------------- | ------------------------------------------- |
+| First outline                | a box dragged around it, outlined locally (`outlineIn`)          | the same, or SAM by concept                 |
+| Following, zones             | local (layers 0–1, `placeLocally`)                               | the same                                    |
+| Lost: first look             | appearance around where it was, all lost things in one embedding | the same                                    |
+| Lost: re-anchor              | appearance over the whole frame                                  | SAM, one call per concept                   |
+| Missing                      | whole-frame template match every 10 s once the view changed      | the same                                    |
+| Look-alikes                  | joint assignment, `entangled` until told apart or confirmed      | the same, and SAM's answer assigned jointly |
+| Suggesting objects, fixtures | refused (`tracking_ai_off`)                                      | Spark's discovery, SAM pointed at a fixture |
+
+What this costs: with AI off, a lost thing the feature model can't find stays lost (and turns `missing`) where SAM would have found it. Without the feature model (`bun run fetch-model`) only the template is left. That is the trade the setting names. Measure it on the phase 0 clips: re-acquisitions and missing frames, AI off against on.
+
+As built: `requireTrackingAi` (`apps/server/src/settings.ts`) on `/api/segment` without a shape, `/api/discover` and `/api/fixtures/find`; the watcher's `relocate` and its `samConfirm` gate (`watcher.ts`); `outlineIn` (`packages/domain/src/outline.ts`) behind `/api/segment` with a `shape`, recorded as a segmentation with `model: 'local-outline'`. Tests: `tests/local-first.test.ts` (refusals, a local outline of the demo mug confirmed and followed, a loss looked for locally with no SAM run), `tests/multi-track.test.ts` (the outline on a made-up picture).
 
 ## Goal
 
@@ -75,14 +93,15 @@ The cheapest fix: things stop competing for the same place.
 
 ### Phase 1 as built (exclusion; entangled pairs still to do)
 
-- **Zones are about to be judged on the local box** (`place`, `placeLocally`, another session's work, not yet committed when this was written), with no SAM call. So a local swap now switches a light, and this phase matters more than when the plan was written. The bench counts these: `zones judged` and `on another` (a judgement made while the box sat on another thing), with `wrongPlaces: 0` in `TRACK_TARGETS`.
+- **Zones are judged on the local box** (`place`, `placeLocally`), with no SAM call. So a local swap switches a light, and this phase matters more than when the plan was written. The bench counts these: `zones judged` and `on another` (a judgement made while the box sat on another thing), with `wrongPlaces: 0` in `TRACK_TARGETS`.
 - **Exclusion inside the search, not after it.** `matchTemplate` takes `exclude` boxes: a place overlapping one by `LOCAL_TRACK.claimIoU` (0.3) or more is neither the match nor the runner-up. `watchFrame` (`watch.ts`) steps every thing with the others' boxes excluded, so a lost thing's widening search can't settle on a followed look-alike, and two look-alikes side by side aren't each other's runner-up. Boxes that already overlap (a phone on a book) aren't kept off each other. Re-matching after a collision, as planned, was dropped: excluding up front is the same search, once.
 - **Collisions left over:** two things that both moved onto one place in the same frame; the one that came further holds its last box and counts as lost for the step.
 - **`hold`:** the thing SAM is being asked about isn't stepped, but its box stays excluded.
 - **The watcher** steps through `watchFrame`; the bench's cost loop does too. `bench:track` adds an `all, one by one` row: the same clip stepped the old way, for before and after on one tree.
 - **On made-up frames** (`tests/track-truth.test.ts`): a mug carried off with an identical one in view, stepped one by one, follows the other, sure, and judges its zones there; stepped together it stays `unsure`, refinds, and picks its own up again when it's put back, with no wrong judgement. Two look-alikes side by side stay sure of themselves.
 - **Cost** on `office-still`, warmed up, one by one against together: 5 things 1.6 against 1.6 ms a frame, 17 things 5.7 against 5.7 ms. Excluded boxes are only checked when they reach into the searched area.
-- **Not done yet:** `entangled` (a status the lab has to show), keeping runner-up boxes. Both wait for the `swap` and `cross` clips to show whether exclusion alone leaves swaps.
+- **Entangled, built November 3.** In `watchFrame` (`entangle`): two things of one concept whose boxes come within `WATCH.nearWidths` (1) box width while either moved a quarter of its width that step become `entangled`, each naming the other (`partner`). They go on being followed, their crossings aren't counted and `place` is never set. Once both are matched, still for `quietSteps` and apart, each one's template is scored at both boxes (`matchTemplate` with radius 0), and `assignTracks` decides; a margin of `MULTI.minMargin` on both lets them go, swapping boxes if the looks say so. A partner forgotten or entangled with another lets go too. A thing re-confirmed by hand starts with no partner. The lab draws it as unsure, `WHICH ONE?`. On made-up frames (`tests/multi-track.test.ts`): identical textures carried past each other stay entangled; different ones are let go, each where its own look is.
+- **Not done yet:** keeping runner-up boxes. Waits for the `swap` and `cross` clips to show whether exclusion and entanglement leave swaps.
 
 ## Phase 2: motion and joint assignment
 
@@ -98,6 +117,13 @@ What the SORT family gets right, on our own boxes.
 - **`pickTracked` goes.** Every place that maps detections to things (the watcher's ask, `trackObject`, `trackFixture`, `trackMug`, the lab's manual track) calls `assignTracks` for all things of that concept at once. A detection is given to at most one thing; one left over is reported ("SAM sees another mug") but never attached to anything without a person.
 - **All tunables in one place:** `MULTI` in `watch.ts`, swept with `bun run bench:track --set multi.gate=…` like `LAYOUT_TUNING`.
 
+### Phase 2 as built (motion, joint assignment for SAM's answers)
+
+- **Motion.** `LocalTrack.velocity`, an alpha–beta filter rather than a full Kalman filter (the same thing in steady state, with no covariance to tune): each match adds `velocityGain` (0.4) of its surprise, a lost step keeps `velocityKeep` (0.5), and a still step (layer 0) zeroes it. `stepLocalTrack` searches around `predicted(track)` and measures the distance penalty from there. On a made-up thing carried 4 px a frame, it reads about 3 px a frame after six steps. Size isn't modelled: a fixed camera barely changes it.
+- **`assignTracks`** (`packages/domain/src/assign.ts`): Hungarian on a square matrix padded with a "go without" column per thing (`MULTI.unassigned`, 1.5) and a filler row per candidate; each thing's margin is the extra cost of the best assignment that denies it its pick, found by solving again (n ≤ 24, cheap).
+- **`pickTracked`** keeps its signature and gains `others`, the look-alikes' last sightings: with them it assigns jointly (cost `1 − IoU + centre distance`, going without priced at 10 so a lone SAM answer is always taken) and returns the `margin`. `trackMug`, `trackObject` and `trackFixture` pass every followed thing of the same concept on a frame of that size (`lookAlikes` in `desk.ts`) and refuse with `track_lost` when the others took every detection. The watcher entangles a thing SAM placed with a margin under `minMargin`.
+- **Not done:** appearance in the cost (phase 4's discriminative scores aren't wired into `assignTracks`), and the `--set multi.*` sweep. The bench's replay (`scripts/lib/track-truth.ts`) assigns its stand-in answers with the look-alikes' last sightings, as the server does.
+
 ## Phase 3: one SAM call for many things (layer 3)
 
 SAM 3.1's multiplexing, done with the API we have.
@@ -109,6 +135,11 @@ SAM 3.1's multiplexing, done with the API we have.
 - **Spending.** The per-thing back-off and `maxMisses` stay; the 2 s confirm gap becomes per call, not per thing. Expected effect: on `busy`, SAM calls drop from one per moved thing to about one per burst. Measured on the replayed clips.
 - **Rules.** An `entangled` thing holds its last verdict and isn't judged locally (`place`) until it is resolved with a margin above `minMargin`.
 
+### Phase 3 as built (batched text asks)
+
+- `check()` takes the first pending thing and every other pending one of its concept, holds them all still (`watchFrame`'s `hold` is now a set), and makes one SAM call on one snapshot; each is then tracked into that run in turn. With AI off, the whole batch goes to `relocate` instead, whatever the concepts.
+- **Not done:** box prompts (`segmentBoxes`), confirming the look-alikes that didn't ask, and the "Which one?" question. Two things from one run both entering one rule's zone: the second is blocked by the rule's claim (`<run>:<rule>`), as before.
+
 ## Phase 4: appearance that tells look-alikes apart (layer 2)
 
 Today's prototypes answer "is this a mug?". With two mugs the question is "is this my mug or the other one?".
@@ -117,6 +148,12 @@ Today's prototypes answer "is this a mug?". With two mugs the question is "is th
 - **Discriminative prototypes.** When two followed things share a concept, keep each thing's prototypes and also its look-alikes' ones; a thing's score is its own similarity minus the best look-alike's at that place. Two white mugs that differ only by a logo or a handle side then lead each other by more than the raw score would, and the gap is the margin phase 2 needs. Measured by the lead between the two mugs on the `swap` clip.
 - **Prototype hygiene.** Prototypes are learned only from SAM masks with a margin above `minMargin` and no overlap with another thing, so an entangled frame never teaches a thing the other's look.
 - **Close-ups help most here.** Across a room a mug is about 17 × 23 pixels. [streaming.md](streaming.md) phase 3 (full-resolution stills) is what makes two mugs tell apart; until then the bench will show where the 448 px grid can't, and phase 3's "ask the person" covers it.
+
+### Phase 4 as built (one embedding, rivals)
+
+- **`lookByAppearance`** in the watcher replaces `refind`: lost things queued in the same tick share one snapshot and one embedding, of the one thing's `searchRegion` or, for several, of the region holding all of theirs at 896 px (`2 × APPEARANCE.side`); `relocate` embeds the whole frame at 896 px. Two that settle on one window both stay lost.
+- **`findByAppearance`** takes `exclude` (followed things' boxes, their patches left out) and `rivals` (lost look-alikes' prototypes); with rivals the match carries `distinct`, its own similarity minus the rivals' at that window, and `appearanceSure` asks it to reach `minLead` too. Rivals are only lost look-alikes: one followed elsewhere is excluded instead, since a mug found away from it can't be it.
+- **Not done:** prototype hygiene (prototypes are still learned from every confirmed outline, entangled or not) and the `swap` clip's measurement.
 
 ## Phase 5 (experiment): a video tracker as a worker
 
@@ -162,4 +199,3 @@ Each phase: `bun run bench:track` on every clip before and after (`bun run bench
 - **How many things really matter?** 16 is the API's mask limit, not a need. If the real use is the mug plus four, phases 1–3 matter and 6's limits don't.
 - **Asking the person.** When two look-alikes can't be told apart, is a "Which one?" prompt acceptable, or should the pair just stay `entangled` until one moves alone?
 - **The 4090.** Is it reachable from the lab's machine on the LAN, and allowed to run always-on? Phase 5 depends on it.
-- **Overlap with other sessions.** `watch.ts`, `desk.ts` and `memory.ts` have uncommitted zone-event changes from another session; phase 1 starts after those land.

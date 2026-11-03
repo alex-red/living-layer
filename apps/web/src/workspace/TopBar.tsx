@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Glyph } from '../Glyph';
-import { Button, IconButton, Segmented } from '../ui/controls';
+import { Button, Check, IconButton, Segmented } from '../ui/controls';
 import { estimateLabel, usd } from '../cost';
 import { SHORTCUTS } from '../shortcuts';
 import {
@@ -178,6 +178,18 @@ function Readiness() {
             )}
           </div>
         </form>
+      )}
+      {status && (
+        <div className="tracking-ai">
+          <Check checked={lab.trackingAi} onChange={(on) => void lab.saveTrackingAi(on)}>
+            <strong>Let tracking call AI (SAM, Spark)</strong>
+          </Check>
+          <p>
+            Off, outlines, following, finding lost things and zone decisions all run on this
+            machine. On, SAM outlines matches by name and finds lost things again, and Spark
+            suggests objects: billed.
+          </p>
+        </div>
       )}
     </div>
   );
@@ -575,7 +587,7 @@ export function TopBar() {
               className={`budget-pill ${lab.metaReady ? 'ok' : 'unsure'}`}
               aria-expanded={open}
               aria-label="Readiness and spending"
-              title="Models, spending, the lamp and live proof"
+              title="Models, spending, whether tracking may call AI, the lamp and live proof"
               onClick={toggle}
             >
               <span className="dot" aria-hidden="true" />

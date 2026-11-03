@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { demoPositionSchema, lightLookSchema, modeSchema } from './api.js';
+import { demoPositionSchema, lightLookSchema, modeSchema, segmentRequestSchema } from './api.js';
 import { cameraCropSchema } from './camera.js';
 import { MAX_EXPOSED, exposedInputSchema } from './expose.js';
 import {
@@ -48,6 +48,20 @@ export const settingsSpendLimitBodySchema = z
   .object({ usd: z.number().positive().max(1000).nullable() })
   .strict();
 export type SettingsSpendLimitBody = z.input<typeof settingsSpendLimitBodySchema>;
+
+/** POST /api/settings/tracking-ai: whether tracking may call SAM or Spark. */
+export const settingsTrackingAiBodySchema = z.object({ on: z.boolean() }).strict();
+export type SettingsTrackingAiBody = z.input<typeof settingsTrackingAiBodySchema>;
+
+/**
+ * POST /api/segment. With `shape`, the thing inside it is outlined on the
+ * server with no model call (`outlineIn`); without, SAM outlines every match
+ * of `concept`, which tracking allows only once AI is turned on for it.
+ */
+export const segmentBodySchema = segmentRequestSchema
+  .extend({ shape: selectionShapeSchema.optional() })
+  .strict();
+export type SegmentBody = z.input<typeof segmentBodySchema>;
 
 /** GET /api/desk/:mode, GET /api/expose/:mode, GET /api/expose/:mode/events, GET /api/scene/photo, GET /api/watch/:mode, GET /api/watch/:mode/events, POST /api/desk/reset, POST /api/desk/rules/verify, POST /api/room/forget, POST /api/scene/separate/undo, POST /api/text */
 export const modeOnlySchema = z.object({ mode: modeSchema }).strict();

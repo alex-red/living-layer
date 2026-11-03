@@ -15,6 +15,12 @@ export interface TestAppOptions extends BuildOptions {
   name?: string;
   /** A data folder to start from, copied: the store as an earlier test left it. */
   from?: string;
+  /**
+   * Whether tracking may call SAM and Spark (the demo's stand-ins, offline).
+   * On unless a test says otherwise, so the flows built on SAM's answers keep
+   * their tests; the lab itself starts with it off.
+   */
+  trackingAi?: boolean;
 }
 
 const dirs: string[] = [];
@@ -36,13 +42,22 @@ export function tempDir(name = 'test') {
  * passed, and no web files served. The folder and the app go when the test ends.
  * `post` sends a demo-mode body to `/api/<path>` unless it names another mode.
  */
-export async function testApp({ env = {}, name, from, fetcher, ...options }: TestAppOptions = {}) {
+export async function testApp({
+  env = {},
+  name,
+  from,
+  fetcher,
+  trackingAi = true,
+  ...options
+}: TestAppOptions = {}) {
   const dataDir = env.DATA_DIR ?? tempDir(name);
   if (from) cpSync(from, dataDir, { recursive: true });
   const config = parseConfig({ ...env, DATA_DIR: dataDir });
   const sent = (fetcher ?? mock<Fetcher>()) as Mock<Fetcher>;
   const app = await buildApp(config, { serveWeb: false, ...options, fetcher: sent });
   apps.push(app);
+  if (trackingAi)
+    await app.inject({ method: 'POST', url: '/api/settings/tracking-ai', payload: { on: true } });
   const post = (path: string, body: object = {}) =>
     app.inject({ method: 'POST', url: `/api/${path}`, payload: { mode: 'demo', ...body } });
   const get = (path: string) => app.inject({ method: 'GET', url: `/api/${path}` });

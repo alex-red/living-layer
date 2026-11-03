@@ -67,6 +67,7 @@ export function useLabState(): LabSlices {
     isoPanel,
     mounted,
     outlineOpen,
+    outlining,
     pinning,
     placing,
     refresh,
@@ -84,6 +85,7 @@ export function useLabState(): LabSlices {
     setIsoPanel,
     setMessage,
     setOutlineOpen,
+    setOutlining,
     setPinning,
     setPlacing,
     setShowKeys,
@@ -107,6 +109,7 @@ export function useLabState(): LabSlices {
       if (ruleDraft) return select(ruleDraft.id ? { kind: 'rule', id: ruleDraft.id } : null);
       if (placing) return setPlacing(null);
       if (boxing) return setBoxing(null);
+      if (outlining) return setOutlining(null);
       if (zooming) return setZooming(null);
       if (isoPanel !== 'room') return setIsoPanel('room');
       if (choosingScene && workScene) return setChoosingScene(false);

@@ -11,6 +11,7 @@ import { LabError, liveImage } from '../errors.js';
 import { demoPhotoSegmentation } from '../demo.js';
 import { samDataUrl, validateImage } from '../images.js';
 import { type RouteDeps } from '../route-deps.js';
+import { requireTrackingAi } from '../settings.js';
 import { type Parsed } from './shared.js';
 
 /**
@@ -18,7 +19,9 @@ import { type Parsed } from './shared.js';
  * outline it is: SAM is pointed at where it should stand, from where the
  * camera last saw it or its place in the room drawn through the pin (one
  * call). The demo picks the render's outlines under that box.
- * Saved as an ordinary segmentation of the fixture's name.
+ * Saved as an ordinary segmentation of the fixture's name. Only once
+ * tracking may call AI; otherwise a person outlines it locally (`/api/segment`
+ * with a shape) and anchors that.
  */
 export async function findFixture(
   { store, meta, run }: Pick<RouteDeps, 'store' | 'meta' | 'run'>,
@@ -28,6 +31,7 @@ export async function findFixture(
   const fixture = memory.fixtures?.find((f) => f.id === id);
   if (!fixture)
     throw new LabError('fixture_unknown', 'That fixture is not in this desk memory.', 404);
+  requireTrackingAi(store, 'SAM');
   const pin = memory.surface ?? (mode === 'demo' ? DEMO_SURFACE : null);
   if (!pin)
     throw new LabError('fixture_view', 'Pin the desk first, so the camera’s view is known.', 409);

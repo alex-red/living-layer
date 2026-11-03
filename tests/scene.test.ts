@@ -434,7 +434,8 @@ describe('extra rules and lights', () => {
     ).json<Checked>();
     const cup = added.memory.others![0]!;
     expect(cup).toMatchObject({ label: 'Cup', concept: 'mug' });
-    const later = await s.segment('right');
+    // Where the cup was: the mug, still at the centre, has the nearer claim to a mug further off.
+    const later = await s.segment('front');
     const tracked = (
       await s.post('desk/objects/track', { objectId: cup.id, segmentRunId: later.id })
     ).json<Checked>();

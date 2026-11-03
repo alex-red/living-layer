@@ -186,6 +186,8 @@ describe('local API and provenance', () => {
     const c = config();
     const fetcher = mock<Fetcher>();
     let app = await buildApp(c, { fetcher });
+    // Discovery and SAM's outlines are tracking's AI calls: the demo's stand-ins, once allowed.
+    await app.inject({ method: 'POST', url: '/api/settings/tracking-ai', payload: { on: true } });
     for (const [url, body] of [
       ['discover', {}],
       ['segment', { concept: 'mug' }],

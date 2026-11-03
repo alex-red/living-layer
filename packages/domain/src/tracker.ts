@@ -66,6 +66,13 @@ export interface LocalTrack {
   motion: number;
   /** Consecutive steps with the area around the mug still. */
   stillSteps: number;
+  /**
+   * How far the box moved per step lately, as shares of the frame: the search
+   * starts where that puts it, so a thing being carried is looked for ahead of
+   * its last box. An alpha–beta filter, the steady state of a constant-velocity
+   * Kalman filter; on a still desk it stays at zero.
+   */
+  velocity: { x: number; y: number };
 }
 export const LOCAL_TRACK = {
   /** Below this correlation the match is treated as lost. */
@@ -89,7 +96,21 @@ export const LOCAL_TRACK = {
    * belongs to that thing, so a search doesn't settle there.
    */
   claimIoU: 0.3,
+  /** How much of each step's surprise goes into the velocity. */
+  velocityGain: 0.4,
+  /** How much velocity a lost step keeps, so a guess ahead fades rather than runs off. */
+  velocityKeep: 0.5,
 };
+
+/** The box moved on by the track's velocity, kept inside the frame. */
+function predicted(track: Pick<LocalTrack, 'box' | 'velocity'>): UnitBox {
+  const { box, velocity } = track;
+  return {
+    ...box,
+    x: Math.min(1 - box.width, Math.max(0, box.x + velocity.x)),
+    y: Math.min(1 - box.height, Math.max(0, box.y + velocity.y)),
+  };
+}
 
 /** Intersection over union of two boxes, 0–1. */
 export function boxIoU(a: UnitBox, b: UnitBox): number {
@@ -308,6 +329,7 @@ export function startLocalTrack(
         previous: frame,
         motion: 0,
         stillSteps: 0,
+        velocity: { x: 0, y: 0 },
       }
     : null;
 }
@@ -346,8 +368,10 @@ export function stepLocalTrack(
   };
   const settled = still.stillSteps >= quietSteps;
   const radius = Math.min(1, LOCAL_TRACK.searchRadius * (1 + track.lostSteps));
-  const match = matchTemplate(frame, track.template, track.box, radius, exclude);
+  const ahead = predicted(track);
+  const match = matchTemplate(frame, track.template, ahead, radius, exclude);
   if (!match || match.score < LOCAL_TRACK.lostScore || match.lead < LOCAL_TRACK.minLead) {
+    const keep = LOCAL_TRACK.velocityKeep;
     const next = {
       ...track,
       ...still,
@@ -355,6 +379,7 @@ export function stepLocalTrack(
       lead: match?.lead ?? 0,
       lostSteps: track.lostSteps + 1,
       crossingSteps: 0,
+      velocity: { x: track.velocity.x * keep, y: track.velocity.y * keep },
     };
     return {
       track: next,
@@ -362,9 +387,14 @@ export function stepLocalTrack(
     };
   }
   const crossed = zone !== null && inZone(match.box, zone) !== track.inside;
+  const gain = LOCAL_TRACK.velocityGain;
   const next = {
     ...track,
     ...still,
+    velocity: {
+      x: track.velocity.x + gain * (match.box.x - ahead.x),
+      y: track.velocity.y + gain * (match.box.y - ahead.y),
+    },
     box: match.box,
     score: match.score,
     lead: match.lead,

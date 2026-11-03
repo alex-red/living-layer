@@ -1,6 +1,11 @@
 import { useCallback } from 'react';
-import type { EvidenceRun, DeskMemory, PlacementDecision } from '@livinglayer/domain';
-import { isRun, runOutput } from '@livinglayer/domain';
+import type {
+  EvidenceRun,
+  DeskMemory,
+  PlacementDecision,
+  SelectionShape,
+} from '@livinglayer/domain';
+import { isRun, runOutput, LOCAL_OUTLINE_MODEL } from '@livinglayer/domain';
 import { apiAt } from '../../api';
 import { isProbe } from './helpers';
 import type { ViewSlice } from './view';
@@ -54,6 +59,7 @@ export function useProbesSlice(
     setLamp,
     setMemory,
     setMessage,
+    setOutlining,
     setPinning,
     setScene,
     setSegmentRunId,
@@ -61,10 +67,21 @@ export function useProbesSlice(
     setSelected,
     setStageView,
     stopFollow,
+    trackingAi,
   } = deps;
-  async function execute(kind: 'text' | 'discover' | 'segment' | 'lamp', overrideConcept?: string) {
+  /**
+   * One probe. A segment with `outline` outlines what was drawn round on this
+   * machine, on the frame it was drawn on, with no model call.
+   */
+  async function execute(
+    kind: 'text' | 'discover' | 'segment' | 'lamp',
+    overrideConcept?: string,
+    outline?: { shape: SelectionShape; held: string | null },
+  ) {
     // A running camera is looked at as it is now, not as it was last captured.
-    const photo = ['discover', 'segment'].includes(kind) ? frameNow() : undefined;
+    const photo = ['discover', 'segment'].includes(kind)
+      ? (outline?.held ?? frameNow())
+      : undefined;
     setBusy(kind);
     setError('');
     try {
@@ -73,6 +90,7 @@ export function useProbesSlice(
         ...(photo ? { imageDataUrl: photo } : {}),
         ...(kind === 'segment' ? { concept: overrideConcept ?? concept } : {}),
         ...(kind === 'segment' && mode === 'demo' ? { demoPosition } : {}),
+        ...(kind === 'segment' && outline ? { shape: outline.shape } : {}),
       });
       if (isRun(run, 'discover')) setScene(run.output);
       if (kind === 'discover' || kind === 'segment') setLamp('off');
@@ -81,12 +99,17 @@ export function useProbesSlice(
         setSegmentation(run.output);
         setSegmentRunId(run.id);
         setDrawing(false);
+        if (outline) setOutlining(null);
       }
       setSelected(run);
       setMessage(
-        kind === 'segment' && run.status === 'no_match'
-          ? 'No match. The previous mask has been cleared.'
-          : `${mode === 'demo' ? 'Demo' : 'Live'} ${kind} run saved ·${run.durationMs} ms${costNote(run)}.`,
+        outline
+          ? run.status === 'no_match'
+            ? 'Nothing stood out inside what you drew. Draw it closer round the thing.'
+            : `Outlined on this machine, no model call ·${run.durationMs} ms. Confirm the outline.`
+          : kind === 'segment' && run.status === 'no_match'
+            ? 'No match. The previous mask has been cleared.'
+            : `${mode === 'demo' ? 'Demo' : 'Live'} ${kind} run saved ·${run.durationMs} ms${costNote(run)}.`,
       );
       await refresh();
     } catch (e) {
@@ -160,11 +183,15 @@ export function useProbesSlice(
       if (camera) return 'Capture or stop the camera first.';
       if (run.kind === 'lamp')
         return mode === 'live' && !lampReady ? 'The lamp is not set up.' : null;
+      if (run.model === LOCAL_OUTLINE_MODEL)
+        return 'It was outlined from what you drew: draw round it again to outline it again.';
+      if ((run.kind === 'discover' || run.kind === 'segment') && !trackingAi)
+        return 'Tracking may not call AI: turn it on under the spending readout to repeat this.';
       if (mode === 'live' && !metaReady) return 'Live Meta calls are not available.';
       if (run.kind !== 'text' && mode === 'live' && !image) return 'Add a desk photo first.';
       return null;
     },
-    [mode, busy, camera, lampReady, metaReady, image],
+    [mode, busy, camera, lampReady, metaReady, image, trackingAi],
   );
   function rerun(run: EvidenceRun) {
     if (!isProbe(run.kind) || rerunBlock(run)) return;
@@ -224,6 +251,7 @@ export interface ProbesSlice {
   execute: (
     kind: 'text' | 'discover' | 'segment' | 'lamp',
     overrideConcept?: string,
+    outline?: { shape: SelectionShape; held: string | null },
   ) => Promise<void>;
   rerun: (run: EvidenceRun) => void;
   rerunBlock: (run: EvidenceRun) => string | null;

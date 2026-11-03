@@ -28,9 +28,12 @@ const DRAG = 0.01;
 export function BrushOverlay({
   brush,
   point,
+  label = 'AI brush: drag a box, or click points around a thing',
 }: {
-  brush: Brush;
+  /** The brush, or anything else drawn the same way (a thing outlined on this machine). */
+  brush: Pick<Brush, 'stroke' | 'setStroke' | 'finish' | 'shape'>;
   point: (e: PointerEvent<SVGSVGElement>) => Share;
+  label?: string;
 }) {
   const down = useRef<{ at: Share; dragging: boolean } | null>(null);
   const [hover, setHover] = useState<Share | null>(null);
@@ -57,7 +60,7 @@ export function BrushOverlay({
       className="zone-overlay drawing brush-overlay"
       viewBox="0 0 1000 1000"
       preserveAspectRatio="none"
-      aria-label="AI brush: drag a box, or click points around a thing"
+      aria-label={label}
       onPointerDown={(e) => {
         down.current = { at: point(e), dragging: false };
         e.currentTarget.setPointerCapture(e.pointerId);

@@ -60,6 +60,7 @@ import { pinScene } from './progress';
 import { Details, Panel, useCall } from './panel';
 import { ChooseDevicesLink } from './ChooseDevicesLink';
 import { ScanFixtures } from './ScanFixtures';
+import { LocalOutline } from './LocalOutline';
 import { useScenes, type WorkScene } from './fixture-scenes';
 import { removeFromLayout, type LayoutLab } from './removeFromLayout';
 import { controlKindOf } from '@livinglayer/domain';
@@ -1171,13 +1172,15 @@ const TRACK_STATUS = {
   missing: 'missing: the camera lost it, so it stands where it was last seen',
 } as const;
 /**
- * Following a fixture with the camera: SAM looks where it should stand, a
- * person confirms which outline it is, and from then on its place follows
- * what the camera sees and it can decide rules, like an object.
+ * Following a fixture with the camera: SAM looks where it should stand (or,
+ * while tracking may not call AI, a person draws round it and it is outlined
+ * on this machine), a person confirms which outline it is, and from then on
+ * its place follows what the camera sees and it can decide rules, like an
+ * object.
  */
 function FixtureCamera({ fixture: f, disabled }: { fixture: Fixture; disabled: boolean }) {
-  const lab = useLabParts(useFeedback(), useCamera(), useTracking(), useFixtures());
-  const { busy, segmentation, segmentRunId, watch } = lab;
+  const lab = useLabParts(useFeedback(), useDesk(), useCamera(), useTracking(), useFixtures());
+  const { busy, segmentation, segmentRunId, watch, trackingAi } = lab;
   const now = useNow();
   const found =
     segmentRunId && segmentation?.concept === f.label.trim().toLowerCase()
@@ -1189,16 +1192,28 @@ function FixtureCamera({ fixture: f, disabled }: { fixture: Fixture; disabled: b
       <p className="micro">
         {f.track
           ? `Followed: ${TRACK_STATUS[f.track.status]} · seen ${ago(f.track.observation.observedAt, now)}${watched ? ' · the server is watching it' : ''}.`
-          : 'Not followed. Find it in the camera so it can follow and decide rules.'}
+          : trackingAi
+            ? 'Not followed. Find it in the camera so it can follow and decide rules.'
+            : 'Not followed. Draw round it on the camera’s picture so it can follow and decide rules.'}
       </p>
+      {!trackingAi && (
+        <LocalOutline
+          target={f.id}
+          disabled={disabled}
+          working={busy === 'outline-fixture'}
+          onOutline={(d) => void lab.outlineFixture(f.id, d)}
+        />
+      )}
       <div className="save-actions">
-        <Button
-          disabled={disabled || Boolean(busy)}
-          onClick={() => void lab.findFixture(f.id)}
-          title="Point SAM at where it should stand in the camera's view (one call)"
-        >
-          {busy === 'find-fixture' ? 'Looking…' : f.track ? 'Find it again' : 'Find in camera'}
-        </Button>
+        {trackingAi && (
+          <Button
+            disabled={disabled || Boolean(busy)}
+            onClick={() => void lab.findFixture(f.id)}
+            title="Point SAM at where it should stand in the camera's view (one call)"
+          >
+            {busy === 'find-fixture' ? 'Looking…' : f.track ? 'Find it again' : 'Find in camera'}
+          </Button>
+        )}
         {f.track && (
           <Button variant="text" disabled={disabled} onClick={() => void lab.untrackFixture(f.id)}>
             Stop following

@@ -1,3 +1,4 @@
+import { assignTracks } from './assign.js';
 import { z } from 'zod';
 import {
   lightLookSchema,
@@ -85,26 +86,54 @@ function boxOverlap(
  * Pick which detection is the remembered object: the one overlapping its last
  * box most, or the nearest when none overlap. With no previous box, only a
  * lone detection is safe to take; several mean a person has to choose.
+ *
+ * `others` are the look-alikes followed beside it (things of the same
+ * concept, by their last boxes): every detection is then assigned to all of
+ * them at once (`assignTracks`), so it never takes a neighbour's, and it gets
+ * null when the others account for every detection. `margin` is how much
+ * better that assignment is than the best other; under `MULTI.minMargin` it
+ * is a guess between look-alikes.
  */
 export function pickTracked(
   detections: Detection[],
   frame: Segmentation['frame'],
   previous?: { box: Detection['box']; frame: Segmentation['frame'] },
-): { detection: Detection; overlap: number | null } | null {
+  others: { box: Detection['box']; frame: Segmentation['frame'] }[] = [],
+): { detection: Detection; overlap: number | null; margin: number } | null {
   if (!detections.length) return null;
   if (!previous)
-    return detections.length === 1 ? { detection: detections[0]!, overlap: null } : null;
-  const last = normalize(previous.box, previous.frame);
-  const scored = detections.map((d) => {
+    return detections.length === 1
+      ? { detection: detections[0]!, overlap: null, margin: Infinity }
+      : null;
+  const fit = (last: { box: Detection['box']; frame: Segmentation['frame'] }, d: Detection) => {
+    const l = normalize(last.box, last.frame);
     const n = normalize(d.box, frame);
     const distance = Math.hypot(
-      n.x + n.width / 2 - (last.x + last.width / 2),
-      n.y + n.height / 2 - (last.y + last.height / 2),
+      n.x + n.width / 2 - (l.x + l.width / 2),
+      n.y + n.height / 2 - (l.y + l.height / 2),
     );
-    return { d, overlap: boxOverlap(d.box, frame, previous.box, previous.frame), distance };
-  });
-  scored.sort((a, b) => b.overlap - a.overlap || a.distance - b.distance);
-  return { detection: scored[0]!.d, overlap: scored[0]!.overlap };
+    return { overlap: boxOverlap(d.box, frame, last.box, last.frame), distance };
+  };
+  if (!others.length) {
+    const scored = detections.map((d) => ({ d, ...fit(previous, d) }));
+    scored.sort((a, b) => b.overlap - a.overlap || a.distance - b.distance);
+    return { detection: scored[0]!.d, overlap: scored[0]!.overlap, margin: Infinity };
+  }
+  const cost = [previous, ...others].map((last) =>
+    detections.map((d) => {
+      const f = fit(last, d);
+      return 1 - f.overlap + f.distance;
+    }),
+  );
+  // SAM's answer is taken whenever there is one to take: going without costs more than any pair.
+  const { pick, margins } = assignTracks(cost, 10);
+  const j = pick[0];
+  if (j === null || j === undefined) return null;
+  return {
+    detection: detections[j]!,
+    overlap: fit(previous, detections[j]!).overlap,
+    margin: margins[0] ?? 0,
+  };
 }
 /** Whether the saved zone applies to the current observation, and whether only by assumption. */
 export function zoneApplies(memory: DeskMemory): { applies: boolean; carried: boolean } {

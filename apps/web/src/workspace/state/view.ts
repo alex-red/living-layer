@@ -6,6 +6,7 @@ import type {
   IsoSceneKind,
   Quad,
   SceneGuess,
+  SelectionShape,
 } from '@livinglayer/domain';
 import { DEMO_POSITIONS } from '@livinglayer/domain';
 import type { DraftZone, FixturePlacing, IsoPanel, RuleDraft } from '../../iso/IsoView';
@@ -88,6 +89,21 @@ export function useViewSlice(): ViewSlice {
   const [placing, setPlacing] = useState<FixturePlacing | null>(null);
   /** A box being drawn around a thing on the desk photo, to draft a fixture from. */
   const [boxing, setBoxing] = useState<{ rect: ZoneRect | null } | null>(null);
+  /**
+   * A box or polygon drawn round a thing on the picture, to outline it on this
+   * machine with no model call. `target` names what for (`'object'` for a new
+   * one, a fixture's id); `held` is the live frame it was drawn on.
+   */
+  const [outlining, setOutlining] = useState<{
+    target: string;
+    shape: SelectionShape | null;
+    held: string | null;
+  } | null>(null);
+  /** Start drawing round a thing on the picture, which the iso view alone hides. */
+  function startOutlining(target: string) {
+    setOutlining({ target, shape: null, held: null });
+    if (stageView === 'iso') setStageView('photo');
+  }
   /** A zoomed view being drawn over the live camera, as shares of what it shows now. */
   const [zooming, setZooming] = useState<{ rect: ZoneRect | null } | null>(null);
   const [guess, setGuess] = useState<SceneGuess | null>(null);
@@ -121,6 +137,7 @@ export function useViewSlice(): ViewSlice {
     mode,
     modelOf,
     outlineOpen,
+    outlining,
     overlay,
     pinning,
     placing,
@@ -141,6 +158,7 @@ export function useViewSlice(): ViewSlice {
     setMode,
     setModelOf,
     setOutlineOpen,
+    setOutlining,
     setOverlay,
     setPinning,
     setPlacing,
@@ -161,6 +179,7 @@ export function useViewSlice(): ViewSlice {
     showTrail,
     showZones,
     stageView,
+    startOutlining,
     tool,
     workScene,
     zoneStart,
@@ -196,6 +215,11 @@ export interface ViewSlice {
   mode: 'demo' | 'live';
   modelOf: string | undefined;
   outlineOpen: boolean;
+  outlining: {
+    target: string;
+    shape: SelectionShape | null;
+    held: string | null;
+  } | null;
   overlay: boolean;
   pinning: {
     scene: IsoSceneKind | 'custom';
@@ -233,6 +257,13 @@ export interface ViewSlice {
   setMode: Dispatch<SetStateAction<'demo' | 'live'>>;
   setModelOf: Dispatch<SetStateAction<string | undefined>>;
   setOutlineOpen: Dispatch<SetStateAction<boolean>>;
+  setOutlining: Dispatch<
+    SetStateAction<{
+      target: string;
+      shape: SelectionShape | null;
+      held: string | null;
+    } | null>
+  >;
   setOverlay: Dispatch<SetStateAction<boolean>>;
   setPinning: Dispatch<
     SetStateAction<{
@@ -266,6 +297,7 @@ export interface ViewSlice {
   showTrail: boolean;
   showZones: boolean;
   stageView: StageView;
+  startOutlining: (target: string) => void;
   tool: Tool;
   workScene: WorkScene | null;
   zoneStart: RefObject<{

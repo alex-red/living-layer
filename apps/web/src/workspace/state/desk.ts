@@ -89,6 +89,22 @@ export function useDeskSlice(deps: ViewSlice & FeedbackSlice & RunLogSlice): Des
       setError(e instanceof Error ? e : 'The limit could not be saved.');
     }
   }
+  /** Whether tracking may call SAM or Spark; off until someone turns it on. */
+  const trackingAi = Boolean(status?.tracking.ai);
+  async function saveTrackingAi(on: boolean) {
+    try {
+      const saved = await api('settings/tracking-ai', { on });
+      setMessage(
+        saved.on
+          ? 'Tracking may call AI now: SAM outlines by name and finds lost things, Spark suggests objects. Billed.'
+          : 'Tracking runs on this machine only: no SAM or Spark calls.',
+      );
+      setError('');
+      void refresh().catch(() => {});
+    } catch (e) {
+      setError(e instanceof Error ? e : 'The setting could not be saved.');
+    }
+  }
   const proofCount = status ? Object.values(status.liveEvidence).filter(Boolean).length : 0;
   const lights = useMemo(
     () => (mode === 'demo' ? DEMO_LIGHTS : (status?.lamp.lights ?? [])),
@@ -124,6 +140,7 @@ export function useDeskSlice(deps: ViewSlice & FeedbackSlice & RunLogSlice): Des
     refresh,
     restoreDesk,
     saveSpendLimit,
+    saveTrackingAi,
     setDeskReady,
     setHistoryTick,
     setLimitDraft,
@@ -131,6 +148,7 @@ export function useDeskSlice(deps: ViewSlice & FeedbackSlice & RunLogSlice): Des
     spendShare,
     spendTone,
     status,
+    trackingAi,
     undo,
   });
 }
@@ -155,6 +173,7 @@ export interface DeskSlice {
   }>;
   restoreDesk: (next: DeskMemory) => Promise<DeskMemory>;
   saveSpendLimit: (usdLimit: number | null) => Promise<void>;
+  saveTrackingAi: (on: boolean) => Promise<void>;
   setDeskReady: Dispatch<SetStateAction<boolean>>;
   setHistoryTick: Dispatch<SetStateAction<number>>;
   setLimitDraft: Dispatch<SetStateAction<string>>;
@@ -162,5 +181,6 @@ export interface DeskSlice {
   spendShare: number;
   spendTone: string;
   status: LabStatus | undefined;
+  trackingAi: boolean;
   undo: RefObject<Record<'demo' | 'live', DeskMemory[]>>;
 }

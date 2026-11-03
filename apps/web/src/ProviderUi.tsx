@@ -116,6 +116,8 @@ function hintFor(code?: string, detail?: ProviderFailure): string | null {
       return 'Check the network and that the local server is running.';
     case 'spend_limit':
       return 'Raise the daily spending limit in Setup, or wait until midnight UTC.';
+    case 'tracking_ai_off':
+      return 'Or let tracking call AI, under the spending readout at the top: SAM and Spark calls are billed.';
     case 'meta_not_ready':
       return 'Set MODEL_API_KEY and META_LIVE_ENABLED, or switch to Demo.';
     case 'provider_error':

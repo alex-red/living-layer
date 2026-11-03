@@ -474,6 +474,57 @@ export function createDesk(
   }
   const sameConcept = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
   /**
+   * The last sightings of the other followed things of this concept, on
+   * frames of this size: the detections are assigned to all of them at once,
+   * so a thing never takes its look-alike's.
+   */
+  function lookAlikes(
+    memory: DeskMemory,
+    objectId: string,
+    concept: string,
+    frame: Segmentation['frame'],
+  ) {
+    const all = [
+      ...(memory.object && memory.observation ? [{ concept: 'mug', o: memory.observation }] : []),
+      ...(memory.others ?? []).map((t) => ({ concept: t.concept, o: t.observation })),
+      ...(memory.fixtures ?? []).map((f) => ({
+        concept: f.track?.concept ?? '',
+        o: f.track?.observation,
+      })),
+    ];
+    return all.flatMap(({ concept: c, o }) =>
+      o &&
+      o.objectId !== objectId &&
+      (isMugConcept(concept) ? isMugConcept(c) : sameConcept(c, concept)) &&
+      o.frame.width === frame.width &&
+      o.frame.height === frame.height
+        ? [o]
+        : [],
+    );
+  }
+  /** The detection that is this thing, or `track_lost` when its look-alikes account for all of them. */
+  function pick(
+    memory: DeskMemory,
+    objectId: string,
+    concept: string,
+    segmentation: Segmentation,
+    last: DeskObservation,
+  ) {
+    const match = pickTracked(
+      segmentation.detections,
+      segmentation.frame,
+      last,
+      lookAlikes(memory, objectId, concept, segmentation.frame),
+    );
+    if (!match)
+      throw new LabError(
+        'track_lost',
+        `Every ${concept} SAM found is another one followed here. Nothing changed.`,
+        409,
+      );
+    return match;
+  }
+  /**
    * One step of tracking: match the newest mug segmentation to the remembered
    * mug without asking, then verify it. Identity must have been confirmed by
    * hand once, and an ambiguous or empty frame changes nothing.
@@ -494,11 +545,11 @@ export function createDesk(
         'SAM found no mug in this frame. Nothing changed; the last sighting stands.',
         409,
       );
-    const match = pickTracked(segmentation.detections, segmentation.frame, memory.observation)!;
+    const match = pick(memory, memory.object.id, 'mug', segmentation, memory.observation);
     observe(memory, run, segmentation, match.detection, 'tracked', match.overlap);
     const event = await verify(mode, memory);
     const rules = await verifyRules(mode, memory.object.id);
-    return { memory: store.memory(mode), event, rules };
+    return { memory: store.memory(mode), event, rules, margin: match.margin };
   }
   /** Follow another object into the newest segmentation of its own concept, then check its rules. */
   async function trackObject(mode: Mode, objectId: string, segmentRunId: string) {
@@ -520,7 +571,7 @@ export function createDesk(
         `SAM found no ${target.concept} in this frame. Nothing changed.`,
         409,
       );
-    const match = pickTracked(segmentation.detections, segmentation.frame, target.observation)!;
+    const match = pick(memory, target.id, target.concept, segmentation, target.observation);
     target.history = [target.observation, ...(target.history ?? [])].slice(0, HISTORY_LIMIT);
     target.observation = sightingOf(
       target.id,
@@ -533,7 +584,7 @@ export function createDesk(
     store.saveMemory(memory);
     store.save(evidence('observation', mode, target.observation));
     const events = await verifyRules(mode, target.id);
-    return { memory: store.memory(mode), events };
+    return { memory: store.memory(mode), events, margin: match.margin };
   }
   /**
    * A new sighting of a fixture: remembered with its history, and its place
@@ -602,11 +653,13 @@ export function createDesk(
         `SAM found no ${fixture.track.concept} in this frame. Nothing changed.`,
         409,
       );
-    const match = pickTracked(
-      segmentation.detections,
-      segmentation.frame,
+    const match = pick(
+      memory,
+      fixture.id,
+      fixture.track.concept,
+      segmentation,
       fixture.track.observation,
-    )!;
+    );
     sightFixture(
       memory,
       fixture,
@@ -614,7 +667,7 @@ export function createDesk(
       sightingOf(fixture.id, run, segmentation, match.detection, 'tracked', match.overlap),
     );
     const events = await verifyRules(mode, fixture.id);
-    return { memory: store.memory(mode), events };
+    return { memory: store.memory(mode), events, margin: match.margin };
   }
   /** The watcher lost a fixture: it keeps its last place, drawn as missing. */
   function loseFixture(mode: Mode, fixtureId: string) {
