@@ -639,7 +639,8 @@ sizeCm: its usual real width, depth and height in centimetres."
 Leave out furniture (desks, tables, chairs, shelves), walls and floors, and these objects, which are followed separately: mug.
 For each give: a short grounded label (no names, owners or brands); the archetype that best describes its shape (mug, cup, bottle, can, book, box, plant, lamp, device, cat, generic; generic only when none fits); its main material (matte, gloss, metal, glass, fabric, wood); control: light for a lamp, bulb or light strip, switch for anything else that turns on and off, none for everything else; its main colour as lowercase #rrggbb; box, a loose box around it as x1, y1, x2, y2 from 0 to 1000 across and down the photo; and sizeCm, its usual real width, depth and height in centimetres.
 List only these things, which the model already has, and nothing else: lamp. Label each with its name from this list.
-Use at most 8 things, only what is clearly visible, biggest first. Return an empty list if there are none."
+Use at most 8 things, only what is clearly visible, biggest first. Return an empty list if there are none.
+Leave moving empty."
 ,
                   "type": "input_text",
                 },
@@ -665,6 +666,57 @@ Use at most 8 things, only what is clearly visible, biggest first. Return an emp
                 "$schema": "https://json-schema.org/draft/2020-12/schema",
                 "additionalProperties": false,
                 "properties": {
+                  "moving": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "box": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "x1": {
+                              "maximum": 1000,
+                              "minimum": 0,
+                              "type": "integer",
+                            },
+                            "x2": {
+                              "maximum": 1000,
+                              "minimum": 0,
+                              "type": "integer",
+                            },
+                            "y1": {
+                              "maximum": 1000,
+                              "minimum": 0,
+                              "type": "integer",
+                            },
+                            "y2": {
+                              "maximum": 1000,
+                              "minimum": 0,
+                              "type": "integer",
+                            },
+                          },
+                          "required": [
+                            "x1",
+                            "y1",
+                            "x2",
+                            "y2",
+                          ],
+                          "type": "object",
+                        },
+                        "label": {
+                          "maxLength": 40,
+                          "minLength": 1,
+                          "type": "string",
+                        },
+                      },
+                      "required": [
+                        "label",
+                        "box",
+                      ],
+                      "type": "object",
+                    },
+                    "maxItems": 4,
+                    "type": "array",
+                  },
                   "things": {
                     "items": {
                       "additionalProperties": false,
@@ -789,6 +841,7 @@ Use at most 8 things, only what is clearly visible, biggest first. Return an emp
                 },
                 "required": [
                   "things",
+                  "moving",
                 ],
                 "type": "object",
               },
@@ -812,7 +865,8 @@ Use at most 8 things, only what is clearly visible, biggest first. Return an emp
 "This photo shows part of a room someone is modelling. List the fixtures in it: things that stay put and could be placed in a model of the room, like a lamp, a monitor, a keyboard, a mouse, a speaker, a plant, a wall switch or a fan.
 Leave out furniture (desks, tables, chairs, shelves), walls and floors.
 For each give: a short grounded label (no names, owners or brands); the archetype that best describes its shape (mug, cup, bottle, can, book, box, plant, lamp, device, cat, generic; generic only when none fits); its main material (matte, gloss, metal, glass, fabric, wood); control: light for a lamp, bulb or light strip, switch for anything else that turns on and off, none for everything else; its main colour as lowercase #rrggbb; box, a loose box around it as x1, y1, x2, y2 from 0 to 1000 across and down the photo; and sizeCm, its usual real width, depth and height in centimetres.
-Use at most 8 things, only what is clearly visible, biggest first. Return an empty list if there are none."
+Use at most 8 things, only what is clearly visible, biggest first. Return an empty list if there are none.
+Apart from them, under moving, list things on it that get picked up and moved about, like a mug, a cup, a phone, glasses or a water bottle in use, each with a short grounded label and a loose box as above; never a fixture listed already. At most 4; an empty list if there are none."
 ,
                   "type": "input_text",
                 },
@@ -838,6 +892,57 @@ Use at most 8 things, only what is clearly visible, biggest first. Return an emp
                 "$schema": "https://json-schema.org/draft/2020-12/schema",
                 "additionalProperties": false,
                 "properties": {
+                  "moving": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "box": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "x1": {
+                              "maximum": 1000,
+                              "minimum": 0,
+                              "type": "integer",
+                            },
+                            "x2": {
+                              "maximum": 1000,
+                              "minimum": 0,
+                              "type": "integer",
+                            },
+                            "y1": {
+                              "maximum": 1000,
+                              "minimum": 0,
+                              "type": "integer",
+                            },
+                            "y2": {
+                              "maximum": 1000,
+                              "minimum": 0,
+                              "type": "integer",
+                            },
+                          },
+                          "required": [
+                            "x1",
+                            "y1",
+                            "x2",
+                            "y2",
+                          ],
+                          "type": "object",
+                        },
+                        "label": {
+                          "maxLength": 40,
+                          "minLength": 1,
+                          "type": "string",
+                        },
+                      },
+                      "required": [
+                        "label",
+                        "box",
+                      ],
+                      "type": "object",
+                    },
+                    "maxItems": 4,
+                    "type": "array",
+                  },
                   "things": {
                     "items": {
                       "additionalProperties": false,
@@ -962,6 +1067,7 @@ Use at most 8 things, only what is clearly visible, biggest first. Return an emp
                 },
                 "required": [
                   "things",
+                  "moving",
                 ],
                 "type": "object",
               },

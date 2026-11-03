@@ -622,6 +622,7 @@ describe('scanning live, with a mocked Meta API', () => {
             box: { x1: 360, y1: 270, x2: 640, y2: 730 },
           }),
         ],
+        moving: [],
       });
     });
     const s = await setup(

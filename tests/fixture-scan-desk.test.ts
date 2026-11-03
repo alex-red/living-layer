@@ -3,8 +3,10 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { buildApp } from '../apps/server/src/app.js';
+import { demoSegmentation } from '../apps/server/src/demo.js';
 import { parseConfig, type Fetcher } from '../apps/server/src/config.js';
 import {
+  drawnRound,
   fixtureInFrame,
   fixtureOutlineBox,
   LOCAL_OUTLINE_MODEL,
@@ -278,5 +280,25 @@ describe('scanning the demo desk', () => {
     }
     const memory = (await s.app.inject('/api/desk/demo')).json<DeskMemory>();
     expect(memory.fixtures!.map((f) => f.track?.status)).toEqual(['seen', 'seen']);
+  });
+  it('lists the mug as a thing that moves, never a fixture, and it can be the desk’s mug', async () => {
+    const { one, ...s } = await scanned();
+    const { moving } = one;
+    expect(moving.map((m) => m.label)).toEqual(['mug']);
+    expect(one.memory.fixtures!.map((f) => f.label)).not.toContain('Mug');
+    const shape = drawnRound(moving[0]!.box);
+    const run = (await s.post('segment', { concept: 'mug', shape })).json<
+      EvidenceRun<Segmentation>
+    >();
+    expect(run.model).toBe(LOCAL_OUTLINE_MODEL);
+    const truth = (await demoSegmentation('mug')).output.detections[0]!.box;
+    const got = run.output.detections[0]!.box;
+    expect(Math.abs(got.x - truth.x) + Math.abs(got.y - truth.y)).toBeLessThan(6);
+    const selected = await s.post('desk/select', {
+      segmentRunId: run.id,
+      detectionId: run.output.detections[0]!.objectId,
+    });
+    expect(selected.statusCode, selected.body).toBe(200);
+    expect(selected.json<DeskMemory>().object?.label).toBeTruthy();
   });
 });

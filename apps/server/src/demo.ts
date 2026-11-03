@@ -380,7 +380,7 @@ export async function demoDeskThing(box: {
 
 /**
  * What a Spark scan of the demo desk could look like: the book and
- * the bottle stay put; the mug is the object the camera follows.
+ * the bottle stay put; the mug moves, so the camera follows it as an object.
  */
 export const demoFixtureScan: FixtureScan = {
   things: [
@@ -403,4 +403,5 @@ export const demoFixtureScan: FixtureScan = {
       sizeCm: DEMO_DESK_SIZES.bottle!,
     },
   ],
+  moving: [{ label: 'mug', box: demoPhotoInventory.things.find((t) => t.id === 'mug')!.box }],
 };

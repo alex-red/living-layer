@@ -584,8 +584,8 @@ function SurfacePanel({ id, closeView }: { id: string; closeView?: boolean }) {
           </Button>
           <p className="micro">
             Scans what the camera shows, adds what the room hasn’t got, and follows each one,
-            outlined on this machine. A mug or anything else that moves isn’t a fixture: add it by
-            hand.
+            outlined on this machine: what stays put as a fixture, a mug or anything else that moves
+            as an object.
           </p>
           {mode === 'live' && <Cost>1 Spark and 1 SAM call for the scan; following is free.</Cost>}
         </>

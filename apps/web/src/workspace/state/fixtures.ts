@@ -1,5 +1,6 @@
 import { useRef, useCallback } from 'react';
 import type {
+  DeskMemory,
   Fixture,
   MappedThing,
   IsoSceneKind,
@@ -11,11 +12,12 @@ import {
   closeViewOf,
   fixtureAt,
   fixtureBox,
+  drawnRound,
   fixtureOutlineBox,
   inRoomView,
   fixtureInput,
 } from '@livinglayer/domain';
-import { api } from '../../api';
+import { api, apiAt } from '../../api';
 import type { FixturePlacing } from '../../iso/IsoView';
 import { SHORTCUTS } from '../../shortcuts';
 import type { ViewSlice } from './view';
@@ -334,8 +336,10 @@ export function useFixturesSlice(
    * Everything on the desk from one look: a scan that adds what it hasn't got
    * yet, then each scanned thing the camera sees followed from where the scan
    * saw it, outlined on this machine in the frame it scanned (no model call
-   * past the scan's own) and confirmed. A thing already followed keeps its
-   * track.
+   * past the scan's own) and confirmed. A fixture is followed where it
+   * stands; a thing that moves (a mug, a phone) is remembered as the mug, if
+   * there is none yet, or as another object. What is already followed keeps
+   * its track.
    */
   async function findOnDesk(scene: IsoSceneKind | 'custom') {
     const scanned = await scan(scene, true, true);
@@ -343,38 +347,77 @@ export function useFixturesSlice(
     const saved = scanned.memory;
     const pin = mode === 'live' ? saved.surface : DEMO_SURFACE;
     if (!pin) return;
-    const todo = (saved.fixtures ?? []).flatMap((f) => {
+    const fixtures = (saved.fixtures ?? []).flatMap((f) => {
       if (f.scene !== scene || !f.scanned || f.track) return [];
       const shape = fixtureOutlineBox(f, pin, saved.scene ?? null);
-      return shape ? [{ fixture: f, shape }] : [];
+      return shape ? [{ label: f.label, fixtureId: f.id, shape }] : [];
     });
-    if (!todo.length) return;
+    const followed = new Set(
+      [saved.object?.label, ...(saved.others ?? []).flatMap((o) => [o.label, o.concept])].map((l) =>
+        l?.trim().toLowerCase(),
+      ),
+    );
+    let mugFree = !saved.object;
+    const moving = scanned.moving.flatMap((m) => {
+      const mug = /\b(mug|cup)\b/i.test(m.label);
+      if (mug ? !mugFree : followed.has(m.label.trim().toLowerCase())) return [];
+      if (mug) mugFree = false;
+      const shape = drawnRound(m.box);
+      return shape ? [{ label: m.label, mug, shape }] : [];
+    });
+    if (!fixtures.length && !moving.length) return;
     setBusy('follow-desk');
     let next = saved;
+    const found: string[] = [];
     const missed: string[] = [];
+    const outline = async (concept: string, shape: SelectionShape) => {
+      const run = await api('segment', {
+        mode,
+        concept,
+        shape,
+        ...(mode === 'demo' ? { demoPosition } : { imageDataUrl: scanned.photo }),
+      });
+      const detection = run.output.detections[0];
+      return detection ? { runId: run.id, detectionId: detection.objectId } : null;
+    };
     try {
-      for (const { fixture, shape } of todo) {
-        const run = await api('segment', {
-          mode,
-          concept: fixture.label.trim().toLowerCase(),
-          shape,
-          ...(mode === 'demo' ? { demoPosition } : { imageDataUrl: scanned.photo }),
-        });
-        if (!run.output.detections.length) {
-          missed.push(fixture.label);
+      for (const f of fixtures) {
+        const got = await outline(f.label.trim().toLowerCase(), f.shape);
+        if (!got) {
+          missed.push(f.label);
           continue;
         }
         next = await api('fixtures/anchor', {
           mode,
-          id: fixture.id,
-          segmentRunId: run.id,
-          detectionId: run.output.detections[0]!.objectId,
+          id: f.fixtureId,
+          segmentRunId: got.runId,
+          detectionId: got.detectionId,
         });
+        found.push(f.label);
+      }
+      for (const m of moving) {
+        // The mug is found as a mug, whatever Spark called it, so it can be the desk's mug.
+        const got = await outline(m.mug ? 'mug' : m.label.trim().toLowerCase(), m.shape);
+        if (!got) {
+          missed.push(m.label);
+          continue;
+        }
+        const ids = { mode, segmentRunId: got.runId, detectionId: got.detectionId };
+        next =
+          m.mug && !next.object
+            ? await apiAt<DeskMemory>('desk/select', ids)
+            : (
+                await apiAt<{ memory: DeskMemory }>('desk/objects/select', {
+                  ...ids,
+                  label: m.label,
+                })
+              ).memory;
+        found.push(m.label);
       }
       setMemory(next);
-      const followed = todo.length - missed.length;
+      const list = (labels: string[]) => labels.join(', ').toLowerCase();
       setMessage(
-        `Following ${followed} thing${followed === 1 ? '' : 's'} on the desk, outlined on this machine${missed.length ? `; couldn’t outline ${missed.join(', ').toLowerCase()}: draw round ${missed.length === 1 ? 'it' : 'them'} in ${missed.length === 1 ? 'its' : 'their'} panel` : ''}.${watching ? '' : ' Watch on the server to keep following them.'}`,
+        `${found.length ? `Following ${list(found)}, outlined on this machine` : 'Nothing on the desk could be outlined'}${missed.length ? `; draw round ${list(missed)} in ${missed.length === 1 ? 'its' : 'their'} panel` : ''}.${watching || !found.length ? '' : ' Watch on the server to keep following them.'}`,
       );
     } catch (e) {
       setMemory(next);

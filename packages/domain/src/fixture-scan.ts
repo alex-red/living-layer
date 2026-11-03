@@ -80,11 +80,27 @@ const scannedThingSchema = z
   })
   .strict();
 export type ScannedThing = z.infer<typeof scannedThingSchema>;
-/** What Spark says about a view's photo: the things that stay put, never where they go. */
-export const fixtureScanSchema = z
-  .object({ things: z.array(scannedThingSchema).max(MAX_SCAN_THINGS) })
+/** The most things that move (a mug, a phone) a scan lists beside its fixtures. */
+export const MAX_SCAN_MOVING = 4;
+/** A thing on the desk that gets picked up and moved: followed as an object, never a fixture. */
+const movingThingSchema = z
+  .object({ label: z.string().trim().min(1).max(40), box: scanBoxSchema })
   .strict();
-export type FixtureScan = z.infer<typeof fixtureScanSchema>;
+export type MovingThing = z.infer<typeof movingThingSchema>;
+/**
+ * What Spark says about a view's photo: the things that stay put, never
+ * where they go, and apart from them the things that move. A scan stored
+ * before `moving` was asked for has none.
+ */
+export const fixtureScanSchema = z
+  .object({
+    things: z.array(scannedThingSchema).max(MAX_SCAN_THINGS),
+    moving: z.array(movingThingSchema).max(MAX_SCAN_MOVING),
+  })
+  .strict();
+export type FixtureScan = Omit<z.infer<typeof fixtureScanSchema>, 'moving'> & {
+  moving?: MovingThing[];
+};
 
 /** How a scanned thing was mapped. */
 type ScanMatch =
@@ -1054,26 +1070,39 @@ export function fixtureInFrame(
 }
 
 /**
- * A box drawn round where the pinned camera should see a fixture, grown by
+ * A box drawn round a scan's loose box (thousandths of the photo), grown by
  * `grow` of its size each way, as if a person had drawn it: outlining inside
- * it on this machine follows the fixture with no model call. Null when the
- * camera can't see it.
+ * it on this machine finds the thing with no model call.
  */
+export function drawnRound(
+  box: { x1: number; y1: number; x2: number; y2: number },
+  grow = 0.15,
+): SelectionShape | null {
+  const w = box.x2 - box.x1;
+  const h = box.y2 - box.y1;
+  const clamp = (v: number) => Math.round(Math.max(0, Math.min(1000, v)));
+  const out = {
+    x1: clamp(box.x1 - w * grow),
+    y1: clamp(box.y1 - h * grow),
+    x2: clamp(box.x2 + w * grow),
+    y2: clamp(box.y2 + h * grow),
+  };
+  return out.x2 > out.x1 && out.y2 > out.y1 ? { kind: 'rect', box: out } : null;
+}
+
+/** `drawnRound` where the pinned camera should see a fixture; null when it can't see it. */
 export function fixtureOutlineBox(
   fixture: Parameters<typeof fixtureInFrame>[0],
   pin: SurfacePin,
   custom: IsoScene | null,
-  grow = 0.15,
 ): SelectionShape | null {
   const b = fixtureInFrame(fixture, pin, custom);
   if (!b) return null;
   const { width: W, height: H } = pin.frame;
-  const milli = (v: number, of: number) => Math.round(Math.max(0, Math.min(1, v / of)) * 1000);
-  const box = {
-    x1: milli(b.x - b.width * grow, W),
-    y1: milli(b.y - b.height * grow, H),
-    x2: milli(b.x + b.width * (1 + grow), W),
-    y2: milli(b.y + b.height * (1 + grow), H),
-  };
-  return box.x2 > box.x1 && box.y2 > box.y1 ? { kind: 'rect', box } : null;
+  return drawnRound({
+    x1: (b.x / W) * 1000,
+    y1: (b.y / H) * 1000,
+    x2: ((b.x + b.width) / W) * 1000,
+    y2: ((b.y + b.height) / H) * 1000,
+  });
 }

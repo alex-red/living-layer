@@ -6,6 +6,7 @@ import {
   type EvidenceRun,
   type Fixture,
   type MappedThing,
+  type MovingThing,
   type ScannedThing,
   type SurfacePin,
 } from '@livinglayer/domain';
@@ -67,4 +68,9 @@ export async function setup(
   return { app, post, dataDir };
 }
 
-export type Scanned = { run: EvidenceRun; mapped: MappedThing[]; memory: DeskMemory };
+export type Scanned = {
+  run: EvidenceRun;
+  mapped: MappedThing[];
+  memory: DeskMemory;
+  moving: MovingThing[];
+};
