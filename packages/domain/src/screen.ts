@@ -1,13 +1,12 @@
 import { fixtureBox, fixtureModel, type Fixture } from './fixture.js';
 import type { IsoScene, IsoVec } from './iso.js';
 import { rotateItem } from './iso-item.js';
+import { screenPart } from './item-screen.js';
 import { projectRoom, type RoomCamera } from './room-camera.js';
 import type { LumaFrame } from './tracker.js';
 
 /** What names a thing whose picture is a screen: its power is read off the screen alone. */
 const SCREEN = /\b(monitor|screen|display|tv|television)\b/i;
-/** A panel is this thin against its width and height, at most. */
-const THIN = 0.2;
 
 /** Four points in shares of the frame, clockwise from the top left as the camera sees them. */
 export type UnitQuad = [
@@ -18,8 +17,8 @@ export type UnitQuad = [
 ];
 
 /**
- * A screen's face in the room camera's frame: the biggest thin upright part
- * of its model (a monitor's panel), its side toward the camera. A box round
+ * A screen's face in the room camera's frame: its model's screen
+ * (`screenPart`, a monitor's panel), its side toward the camera. A box round
  * the whole thing takes in its stand, the wall behind and whatever is in
  * front, and the room's light drifts those as much as the screen going on
  * does. Null for what isn't a screen, has no panel, or isn't in this room.
@@ -36,31 +35,28 @@ export function screenInFrame(
   const box = fixtureBox(fixture, scene);
   // One item unit is the footprint's longer side, as the room draws it.
   const k = Math.max(box.size.w, box.size.d);
-  let best: { area: number; face: IsoVec[] } | null = null;
-  for (const p of rotateItem(fixtureModel(fixture), fixture.turns).parts) {
-    const at = { x: box.at.x + p.at.x * k, y: box.at.y + p.at.y * k, z: box.at.z + p.at.z * k };
-    const w = p.size.w * k;
-    const d = p.size.d * k;
-    const h = p.size.h * k;
-    // Thin along x, it faces along x; thin along y, along y. Either way upright.
-    const alongX = w <= THIN * Math.min(d, h);
-    const alongY = d <= THIN * Math.min(w, h);
-    if (!alongX && !alongY) continue;
-    const area = alongX ? d * h : w * h;
-    if (best && area <= best.area) continue;
-    const middle = { x: at.x + w / 2, y: at.y + d / 2 };
-    // The side nearer the camera.
-    const face = alongX
-      ? at.x + (camera.position[0] > middle.x ? w : 0)
-      : at.y + (camera.position[1] > middle.y ? d : 0);
-    const corner = (u: number, z: number): IsoVec =>
-      alongX
-        ? { x: face, y: at.y + u * d, z: at.z + z * h }
-        : { x: at.x + u * w, y: face, z: at.z + z * h };
-    best = { area, face: [corner(0, 1), corner(1, 1), corner(1, 0), corner(0, 0)] };
-  }
-  if (!best) return null;
-  const seen = best.face.map((v) => projectRoom(camera, v));
+  const turned = rotateItem(fixtureModel(fixture), fixture.turns);
+  const id = screenPart(turned);
+  const p = id && turned.parts.find((x) => x.id === id);
+  if (!p) return null;
+  const at = { x: box.at.x + p.at.x * k, y: box.at.y + p.at.y * k, z: box.at.z + p.at.z * k };
+  const w = p.size.w * k;
+  const d = p.size.d * k;
+  const h = p.size.h * k;
+  // Thinner along x, it faces along x; else along y.
+  const alongX = w / Math.min(d, h) <= d / Math.min(w, h);
+  const middle = { x: at.x + w / 2, y: at.y + d / 2 };
+  // The side nearer the camera.
+  const face = alongX
+    ? at.x + (camera.position[0] > middle.x ? w : 0)
+    : at.y + (camera.position[1] > middle.y ? d : 0);
+  const corner = (u: number, z: number): IsoVec =>
+    alongX
+      ? { x: face, y: at.y + u * d, z: at.z + z * h }
+      : { x: at.x + u * w, y: face, z: at.z + z * h };
+  const seen = [corner(0, 1), corner(1, 1), corner(1, 0), corner(0, 0)].map((v) =>
+    projectRoom(camera, v),
+  );
   if (seen.some((p) => !p)) return null;
   const { width: W, height: H } = camera.frame;
   const pts = seen.map((p) => ({ x: p!.x / W, y: p!.y / H }));

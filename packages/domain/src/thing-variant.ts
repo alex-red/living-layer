@@ -1,4 +1,4 @@
-import type { Fixture } from './fixture.js';
+import { fixtureEntities, type Fixture } from './fixture.js';
 import type { IsoBox, IsoScene, Point } from './iso.js';
 import { isoItemSchema, rotateItem, type IsoItem, type ItemPart } from './iso-item.js';
 import { unprojectRoom, type RoomCamera } from './room-camera.js';
@@ -197,6 +197,29 @@ export function followOccupied<F extends Pick<Fixture, 'id' | 'state' | 'states'
     if ((want ?? null) === (f.state ?? null)) return f;
     changed = true;
     return { ...f, state: want ?? null };
+  });
+  return changed ? next : fixtures;
+}
+/**
+ * Things with `on` and `off` states (a monitor) showing what the camera's
+ * power stat says, as a lamp shows its light's. A thing that switches an
+ * entity is left to it, and one in another state of its own (a cat's
+ * `sleeping`) or with no value yet stays as it is. The same list when
+ * nothing changes.
+ */
+export function followPower<
+  F extends Pick<Fixture, 'id' | 'state' | 'states' | 'control' | 'lights'>,
+>(fixtures: F[], power: (thingId: string) => boolean | null): F[] {
+  let changed = false;
+  const next = fixtures.map((f) => {
+    if (!f.states?.on || !f.states.off || fixtureEntities(f).length) return f;
+    if (f.state && f.state !== 'on' && f.state !== 'off') return f;
+    const on = power(f.id);
+    if (on === null) return f;
+    const want = on ? 'on' : 'off';
+    if (f.state === want) return f;
+    changed = true;
+    return { ...f, state: want };
   });
   return changed ? next : fixtures;
 }

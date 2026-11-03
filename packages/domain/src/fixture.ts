@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { ISO_PRESETS, isoSurface } from './iso-presets.js';
 import { ITEM_MATERIALS, isoItemSchema, mugItem, type SavedItem } from './iso-item.js';
 import { withStarterPrint } from './starter-prints.js';
+import { screenPart } from './item-screen.js';
 import {
   archetypeSchema,
   buildItem,
@@ -358,11 +359,13 @@ export function stateVariantModel(
     };
   }
   if (state === 'on' || state === 'off') {
-    if (base.parts.some((p) => p.id === 'screen')) {
+    // Its own screen, however its model names it, so it keeps its shape and the way it faces.
+    const screen = screenPart(base);
+    if (screen) {
       return {
         ...base,
         parts: base.parts.map((p) =>
-          p.id === 'screen' ? { ...p, color: state === 'on' ? '#68b5e8' : '#2c3858' } : p,
+          p.id === screen ? { ...p, color: state === 'on' ? '#68b5e8' : '#2c3858' } : p,
         ),
       };
     }
@@ -495,9 +498,7 @@ export function defaultFixtureStates(f: {
   const isMonitor =
     /\b(monitor|display|screen)\b/i.test(f.label) || f.model.parts.some((p) => p.id === 'screen');
   if (isMonitor) {
-    const base = f.model.parts.some((p) => p.id === 'screen')
-      ? f.model
-      : { ...f.model, ...monitorItem(f.label, false) };
+    const base = screenPart(f.model) ? f.model : { ...f.model, ...monitorItem(f.label, false) };
     return {
       states: {
         off: { model: stateVariantModel(base, 'off', f.control) },

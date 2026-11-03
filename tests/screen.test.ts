@@ -7,6 +7,10 @@ import {
   ISO_PRESETS,
   promoteBuiltIn,
   fixtureBox,
+  followPower,
+  defaultFixtureStates,
+  monitorItem,
+  screenPart,
   frameMean,
   powerLook,
   projectRoom,
@@ -130,5 +134,75 @@ describe('a screen’s face in the room camera', () => {
     const region = runner.current().screen?.power?.region;
     const quad = screenInFrame(fixture, null, DEMO_CAMERA)!;
     expect(region).toEqual(quadBox(quad));
+  });
+});
+
+describe('a screen showing what its power stat reads', () => {
+  const things = [
+    { id: 'a', state: null, states: { on: {}, off: {} }, control: { kind: 'none' } },
+    // Switched by an entity: that sets its state.
+    {
+      id: 'b',
+      state: null,
+      states: { on: {}, off: {} },
+      control: { kind: 'switch', entityId: 'switch.desk' },
+    },
+    // In a state of its own.
+    { id: 'c', state: 'sleeping', states: { on: {}, off: {} }, control: { kind: 'none' } },
+    { id: 'd', state: null, control: { kind: 'none' } },
+  ] as unknown as Fixture[];
+  it('turns on and off with it, and leaves what it shouldn’t', () => {
+    const on = followPower(things, () => true);
+    expect(on.map((f) => f.state)).toEqual(['on', null, 'sleeping', null]);
+    expect(followPower(on, () => true)).toBe(on);
+    // No reading yet: as it is.
+    expect(followPower(on, () => null)).toBe(on);
+    expect(followPower(on, () => false).map((f) => f.state)).toEqual([
+      'off',
+      null,
+      'sleeping',
+      null,
+    ]);
+  });
+});
+
+describe('a screen in a model Spark drew', () => {
+  // A monitor as Spark modelled the office's, facing +x: its parts named as it liked.
+  const part = (id: string, at: number[], size: number[]) => ({
+    id,
+    shape: 'rbox' as const,
+    at: { x: at[0]!, y: at[1]!, z: at[2]! },
+    size: { w: size[0]!, d: size[1]!, h: size[2]! },
+    color: '#111111',
+    taper: 1,
+    material: 'matte' as const,
+  });
+  const spark = {
+    label: 'Monitor',
+    parts: [
+      part('rbox-4', [0.172, 0, 0.172], [0.028, 1, 0.5625]),
+      part('rbox-3', [0.125, 0.2, 0.239], [0.055, 0.6, 0.394]),
+      part('rbox-5', [0.197, 0.0125, 0.2], [0.02, 0.975, 0.522]),
+      part('rbox-1', [0.031, 0.3125, 0], [0.281, 0.375, 0.023]),
+      part('rbox-2', [0.078, 0.461, 0.023], [0.039, 0.078, 0.481]),
+    ],
+  };
+  it('is the front panel, away from its stand, and a named screen is that', () => {
+    expect(screenPart(spark)).toBe('rbox-5');
+    expect(screenPart(monitorItem())).toBe('screen');
+    expect(screenPart({ parts: [spark.parts[3]!] })).toBeNull();
+  });
+  it('lights in the thing’s own model, which keeps facing its own way', () => {
+    const saved = { ...spark, source: 'spark', segmentRunId: null, swatches: [], updatedAt: '' };
+    const { states } = defaultFixtureStates({ label: 'Monitor', model: saved as never });
+    for (const [state, color] of [
+      ['on', '#68b5e8'],
+      ['off', '#2c3858'],
+    ] as const) {
+      const parts = states![state]!.model.parts;
+      expect(parts.map((p) => p.id)).toEqual(spark.parts.map((p) => p.id));
+      expect(parts.find((p) => p.id === 'rbox-5')!.color).toBe(color);
+      expect(parts.find((p) => p.id === 'rbox-4')!.color).toBe('#111111');
+    }
   });
 });
