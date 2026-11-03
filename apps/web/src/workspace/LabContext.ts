@@ -1,4 +1,4 @@
-import { createContext, useContext, useMemo, type Context } from 'react';
+import { createContext, useContext, useRef, type Context } from 'react';
 import type { Lab, LabSlices } from './state/lab';
 
 /** One context per slice, so a pane re-renders only when the slices it reads change. */
@@ -53,57 +53,44 @@ export const useProbes = () => useSlice('probes');
 /** The saves slice of the lab alone. */
 export const useSaves = () => useSlice('saves');
 
+type Merged<T extends object[]> = T extends [infer A extends object, ...infer R extends object[]]
+  ? A & Merged<R>
+  : unknown;
+
+/**
+ * Several slices as one flat object, for a pane that reads fields from each.
+ * It is the same object while none of its slices has changed, so the pane
+ * renders only for a change in a slice it names.
+ */
+export function useLabParts<T extends object[]>(...parts: T): Merged<T> {
+  const last = useRef<{ parts: T; merged: Merged<T> } | null>(null);
+  const kept = last.current;
+  if (kept && kept.parts.length === parts.length && kept.parts.every((p, i) => p === parts[i]))
+    return kept.merged;
+  const merged = Object.assign({}, ...parts) as Merged<T>;
+  last.current = { parts, merged };
+  return merged;
+}
+
 /**
  * The whole lab as one flat object. It renders with every slice, so a pane
- * that needs only some of them reads those through the hooks above.
+ * that needs only some of them names those with `useLabParts`.
  */
 export function useLab(): Lab {
-  const view = useView();
-  const feedback = useFeedback();
-  const runlog = useRunLog();
-  const desk = useDesk();
-  const followState = useFollowState();
-  const camera = useCamera();
-  const observation = useObservation();
-  const tracking = useTracking();
-  const navigation = useNavigation();
-  const ai = useAi();
-  const fixtures = useFixtures();
-  const calibration = useCalibration();
-  const probes = useProbes();
-  const saves = useSaves();
-  return useMemo(
-    () => ({
-      ...view,
-      ...feedback,
-      ...runlog,
-      ...desk,
-      ...followState,
-      ...camera,
-      ...observation,
-      ...tracking,
-      ...navigation,
-      ...ai,
-      ...fixtures,
-      ...calibration,
-      ...probes,
-      ...saves,
-    }),
-    [
-      view,
-      feedback,
-      runlog,
-      desk,
-      followState,
-      camera,
-      observation,
-      tracking,
-      navigation,
-      ai,
-      fixtures,
-      calibration,
-      probes,
-      saves,
-    ],
-  );
+  return useLabParts(
+    useView(),
+    useFeedback(),
+    useRunLog(),
+    useDesk(),
+    useFollowState(),
+    useCamera(),
+    useObservation(),
+    useTracking(),
+    useNavigation(),
+    useAi(),
+    useFixtures(),
+    useCalibration(),
+    useProbes(),
+    useSaves(),
+  ) as Lab;
 }

@@ -3,7 +3,17 @@ import { Glyph } from '../Glyph';
 import { Button, IconButton, Segmented } from '../ui/controls';
 import { estimateLabel, usd } from '../cost';
 import { SHORTCUTS } from '../shortcuts';
-import { useLab } from './LabContext';
+import {
+  useCamera,
+  useDesk,
+  useFeedback,
+  useLabParts,
+  useNavigation,
+  useObservation,
+  useProbes,
+  useSaves,
+  useView,
+} from './LabContext';
 import { SAVE_NAME_MAX, type NamedSave } from '../session';
 import { Popover } from './Popover';
 import { BUSY } from './useLabState';
@@ -13,7 +23,7 @@ import { viewLabel } from './progress';
 
 /** Models, Meta access, spend, the lamp, and the live proof checklist. */
 function Readiness() {
-  const lab = useLab();
+  const lab = useLabParts(useView(), useFeedback(), useDesk(), useProbes());
   const { status, mode, busy, metaReady, lampReady, spendTone, spendShare, proofCount } = lab;
   return (
     <div className="readiness-pop">
@@ -170,7 +180,7 @@ function Readiness() {
 
 /** One named save: load it, keep the desks in it, rename, export or delete it. */
 function SaveRow({ entry }: { entry: NamedSave }) {
-  const lab = useLab();
+  const lab = useLabParts(useFeedback(), useSaves());
   const active = lab.activeSave?.id === entry.id;
   const [state, setState] = useState<'idle' | 'renaming' | 'deleting' | 'loading'>('idle');
   const [draft, setDraft] = useState(entry.name);
@@ -295,7 +305,7 @@ function SaveRow({ entry }: { entry: NamedSave }) {
 
 /** Saves, history, shortcuts and starting over. */
 function MoreMenu({ close }: { close: () => void }) {
-  const lab = useLab();
+  const lab = useLabParts(useView(), useFeedback(), useDesk(), useSaves());
   const { undo, redo, mode, busy } = lab;
   const [resetting, setResetting] = useState(false);
   const [name, setName] = useState('');
@@ -406,7 +416,7 @@ function MoreMenu({ close }: { close: () => void }) {
 }
 
 export function KeysDialog() {
-  const { setShowKeys } = useLab();
+  const { setShowKeys } = useView();
   return (
     <div className="keys-backdrop" onClick={() => setShowKeys(false)}>
       <div
@@ -445,7 +455,15 @@ export function KeysDialog() {
  * capsule), and the session: data source, undo, spend and the menu.
  */
 export function TopBar() {
-  const lab = useLab();
+  const lab = useLabParts(
+    useView(),
+    useFeedback(),
+    useDesk(),
+    useCamera(),
+    useObservation(),
+    useNavigation(),
+    useSaves(),
+  );
   const { mode, busy, camera, cameraPending, status, undo, redo, progress } = lab;
   const roomLabel = labelOfRoom(progress.room, lab.memory);
   const crumbs: { label: string; onClick?: () => void }[] = [];

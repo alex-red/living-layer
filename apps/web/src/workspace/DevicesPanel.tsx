@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import type { EvidenceRun, LampResult } from '@livinglayer/domain';
 import { api } from '../api';
 import { Button, Check, Field } from '../ui/controls';
-import { useLab } from './LabContext';
+import { useDesk, useFeedback, useLabParts, useNavigation, useView } from './LabContext';
 import { Details, Panel, useCall, type Tone } from './panel';
 
 /** One device Home Assistant has that Living Layer could switch (`GET /api/ha/entities`). */
@@ -28,7 +28,7 @@ HA_TOKEN=paste-the-long-lived-token-here`;
  * Living Layer may switch, try each one, then use them in rules and fixtures.
  */
 export function DevicesPanel() {
-  const lab = useLab();
+  const lab = useLabParts(useView(), useDesk());
   const { mode, status } = lab;
   const ha = status?.ha;
   const ready = lab.entities;
@@ -109,7 +109,7 @@ export function DevicesPanel() {
  * token of its own and keeps only that), or `.env`'s URL and token.
  */
 function ConnectStep() {
-  const lab = useLab();
+  const lab = useLabParts(useFeedback(), useDesk());
   const ha = lab.status?.ha;
   const { call, off } = useCall();
   const [url, setUrl] = useState('http://homeassistant.local:8123');
@@ -278,7 +278,7 @@ function ChooseStep({
   loading: boolean;
   onReload: () => void;
 }) {
-  const lab = useLab();
+  const lab = useLabParts(useFeedback(), useDesk());
   const ha = lab.status!.ha;
   const { call, off } = useCall();
   const fixed = new Set(ha.fromEnv);
@@ -398,7 +398,7 @@ function ChooseStep({
 
 /** Step three: switch each one by hand, to see it works before a rule does. */
 function TryStep({ names }: { names: Map<string, string> }) {
-  const lab = useLab();
+  const lab = useLabParts(useView(), useDesk());
   const { call, off } = useCall();
   const [results, setResults] = useState<Record<string, LampResult>>({});
   const live = lab.mode === 'live';
@@ -454,7 +454,7 @@ const count = (n: number) => `${n} device${n === 1 ? '' : 's'}`;
 
 /** Where a panel with nothing to switch sends someone: the Home Assistant panel. */
 export function ChooseDevicesLink({ why }: { why: string }) {
-  const lab = useLab();
+  const lab = useLabParts(useNavigation());
   return (
     <p className="micro">
       {why}{' '}

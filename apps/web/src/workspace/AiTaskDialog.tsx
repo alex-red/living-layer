@@ -1,12 +1,12 @@
 import { AIRichPreviewDialog, type AIStep } from '../AIRichPreviewDialog';
 import { Button } from '../ui/controls';
-import { useLab } from './LabContext';
+import { useAi, useLabParts, useRunLog } from './LabContext';
 import { setAiTask, useAiTask } from './state/ai-task-store';
 import { RESULT_GLYPH } from './useLabState';
 
 /** The lab's AI action, running or past, step by step in the AI dialog. */
 export function AiTaskDialog() {
-  const lab = useLab();
+  const lab = useLabParts(useRunLog(), useAi());
   const task = useAiTask();
   if (!task) return null;
   const steps: AIStep[] = (task.job?.steps ?? []).map((s) => ({

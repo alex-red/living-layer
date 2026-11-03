@@ -23,7 +23,7 @@ import { RoomCalibrate } from '../iso/RoomCalibrate';
 import { CalibrationOverlay } from '../iso/CalibrationOverlay';
 import type { StageView } from '../session';
 import { Button, Check, Segmented, type Option } from '../ui/controls';
-import { useLab } from './LabContext';
+import { useLab, useLabParts, useNavigation, useView } from './LabContext';
 import { useFollowView } from './state/follow-store';
 import type { Lab } from './useLabState';
 import { DeskStep, Onboarding } from './Onboarding';
@@ -44,7 +44,7 @@ const VIEWS: Option<StageView>[] = [
 
 /** What the canvas is busy with, if it has taken over: one edit mode at a time. */
 function EditBanner() {
-  const lab = useLab();
+  const lab = useLabParts(useView(), useNavigation());
   const { pinning, drawing, isoPanel, stageView, ruleDraft } = lab;
   let text = '';
   let done: (() => void) | null = null;

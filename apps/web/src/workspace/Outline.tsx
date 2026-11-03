@@ -11,7 +11,16 @@ import { Button, IconButton } from '../ui/controls';
 import { ContextMenu, type MenuItem } from './ContextMenu';
 import { stateLabel } from './ExposePanel';
 import { removeFromLayout } from './FixturePanel';
-import { useLab } from './LabContext';
+import {
+  useCamera,
+  useDesk,
+  useFeedback,
+  useLabParts,
+  useNavigation,
+  useObservation,
+  useTracking,
+  useView,
+} from './LabContext';
 import {
   builtInLamps,
   builtInThings,
@@ -59,7 +68,7 @@ function Row({
   /** In select mode: whether it is picked. The glyph becomes a check box. */
   checked?: boolean;
 }) {
-  const lab = useLab();
+  const lab = useLabParts(useView(), useNavigation());
   const current = checked === undefined && sameSelection(lab.selection, target);
   return (
     <li>
@@ -104,7 +113,15 @@ function Row({
  * whether it is done, so the outline is also the checklist.
  */
 export function Outline() {
-  const lab = useLab();
+  const lab = useLabParts(
+    useView(),
+    useFeedback(),
+    useDesk(),
+    useCamera(),
+    useObservation(),
+    useTracking(),
+    useNavigation(),
+  );
   const { progress, memory, busy, pinning } = lab;
   const step = Object.fromEntries(progress.steps.map((s) => [s.id, s]));
   const rows = surfaceRows(lab);
@@ -334,7 +351,14 @@ export function Outline() {
  * at once. Shift-click picks a run of them, Escape leaves.
  */
 function FixtureRows() {
-  const lab = useLab();
+  const lab = useLabParts(
+    useView(),
+    useFeedback(),
+    useDesk(),
+    useCamera(),
+    useObservation(),
+    useNavigation(),
+  );
   const { memory, busy } = lab;
   const { call, off } = useCall();
   const fixtures = memory?.fixtures ?? [];

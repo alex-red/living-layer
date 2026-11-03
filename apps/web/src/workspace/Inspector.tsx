@@ -17,7 +17,20 @@ import { api } from '../api';
 import { estimateLabel } from '../cost';
 import { Glyph } from '../Glyph';
 import { Button, Check, Field, Select } from '../ui/controls';
-import { useLab } from './LabContext';
+import {
+  useCalibration,
+  useCamera,
+  useDesk,
+  useFeedback,
+  useFixtures,
+  useFollowState,
+  useLabParts,
+  useNavigation,
+  useObservation,
+  useProbes,
+  useTracking,
+  useView,
+} from './LabContext';
 import { useFollowStats, useFollowView } from './state/follow-store';
 import { Cost, Details, Panel, useCall } from './panel';
 import {
@@ -29,9 +42,9 @@ import {
 } from './FixturePanel';
 import { EntityPanel, NewEntityPanel } from './ExposePanel';
 import { ChooseDevicesLink, DevicesPanel } from './DevicesPanel';
-import { ago, mainSurface, roomLabel, surfaceRows } from './labels';
+import { ago, mainSurface, roomLabel, surfaceRows, type LabRead } from './labels';
 import { pinScene, viewLabel, type Selection } from './progress';
-import { TRANSITION, centre } from './useLabState';
+import { TRANSITION, centre, type Lab } from './useLabState';
 
 type Events = { memory: DeskMemory; events: EvidenceRun<PlacementDecision>[] };
 
@@ -69,7 +82,15 @@ const verdictSummary = (memory: DeskMemory | undefined, events: EvidenceRun<Plac
 
 /** Masks from the newest segmentation: confirm the mug, or remember another object. */
 function MaskResults() {
-  const lab = useLab();
+  const lab = useLabParts(
+    useView(),
+    useFeedback(),
+    useDesk(),
+    useCamera(),
+    useObservation(),
+    useNavigation(),
+    useProbes(),
+  );
   const { segmentation, sorted, confirmedId, segmentRunId, memory, mode, busy } = lab;
   const { call, off } = useCall();
   const [names, setNames] = useState<Record<string, string>>({});
@@ -183,7 +204,7 @@ function MaskResults() {
 }
 
 function SetupPanel() {
-  const lab = useLab();
+  const lab = useLabParts(useObservation(), useNavigation());
   const { progress } = lab;
   return (
     <Panel
@@ -227,7 +248,7 @@ function SetupPanel() {
  * picture with the mug and zones on its desk.
  */
 function PictureControls({ view = 'room' }: { view?: 'room' | 'desk' }) {
-  const lab = useLab();
+  const lab = useLabParts(useView(), useFeedback(), useDesk(), useCamera(), useFixtures());
   const { memory, mode, image, busy, dimensions } = lab;
   const pinned = memory?.surface?.scene === 'custom';
   const calibrated = Boolean(memory?.camera || mode === 'demo');
@@ -318,7 +339,7 @@ function PictureControls({ view = 'room' }: { view?: 'room' | 'desk' }) {
  * over a base drawn without them, so moving a fixture moves the thing.
  */
 function LiftFixtures() {
-  const lab = useLab();
+  const lab = useLabParts(useView(), useFeedback(), useDesk(), useFixtures());
   const { memory, mode, busy } = lab;
   const pinScene = memory?.surface?.scene;
   const count = (memory?.fixtures ?? []).filter((f) => f.scene === pinScene).length;
@@ -353,7 +374,15 @@ function LiftFixtures() {
   );
 }
 function RoomPanel() {
-  const lab = useLab();
+  const lab = useLabParts(
+    useView(),
+    useFeedback(),
+    useDesk(),
+    useCamera(),
+    useObservation(),
+    useNavigation(),
+    useCalibration(),
+  );
   const { progress, memory, mode, image, busy, guess, workScene } = lab;
   const room = progress.room!;
   const rows = surfaceRows(lab);
@@ -456,7 +485,16 @@ function RoomPanel() {
 
 /** Pin a surface to the camera frame: the bridge between the photo and the iso room. */
 function SurfacePanel({ id, closeView }: { id: string; closeView?: boolean }) {
-  const lab = useLab();
+  const lab = useLabParts(
+    useView(),
+    useFeedback(),
+    useDesk(),
+    useCamera(),
+    useObservation(),
+    useNavigation(),
+    useCalibration(),
+    useProbes(),
+  );
   const { memory, mode, image, busy, progress, pinning } = lab;
   const rows = surfaceRows(lab);
   const row = [...rows.view, ...rows.room].find((r) => r.surface.id === id);
@@ -621,7 +659,15 @@ function AddPanel({
 }: {
   concept?: { label: string; category: string; appearance: string };
 }) {
-  const lab = useLab();
+  const lab = useLabParts(
+    useView(),
+    useFeedback(),
+    useDesk(),
+    useCamera(),
+    useObservation(),
+    useNavigation(),
+    useProbes(),
+  );
   const { mode, image, camera, canVision, busy, status, concept, scene } = lab;
   const needPhoto = mode === 'live' && !image && !camera;
   return (
@@ -737,7 +783,7 @@ const WATCH_STATE = {
  * and fires rules on SAM's answers whether or not a tab is open.
  */
 function WatchControl() {
-  const lab = useLab();
+  const lab = useLabParts(useView(), useTracking());
   const { watch, watching, canWatch, mode } = lab;
   const stats =
     watch &&
@@ -767,7 +813,17 @@ function WatchControl() {
 }
 
 function MugPanel() {
-  const lab = useLab();
+  const lab = useLabParts(
+    useView(),
+    useFeedback(),
+    useDesk(),
+    useFollowState(),
+    useCamera(),
+    useObservation(),
+    useTracking(),
+    useNavigation(),
+    useProbes(),
+  );
   const { memory, mode, camera, busy, status, follow, localZone } = lab;
   const { currentObservation, sightings } = lab;
   const now = useNow();
@@ -907,7 +963,14 @@ function MugPanel() {
 }
 
 function OtherPanel({ id }: { id: string }) {
-  const lab = useLab();
+  const lab = useLabParts(
+    useFeedback(),
+    useDesk(),
+    useCamera(),
+    useObservation(),
+    useNavigation(),
+    useProbes(),
+  );
   const { memory, segmentation, segmentRunId, canVision } = lab;
   const { call, off } = useCall();
   const now = useNow();
@@ -991,7 +1054,7 @@ function OtherPanel({ id }: { id: string }) {
  * again from the old marks, or keep the calibration and redraw zones.
  */
 function CameraMoved() {
-  const lab = useLab();
+  const lab = useLabParts(useView(), useFeedback(), useDesk(), useCalibration());
   const { memory, mode, busy, pinning } = lab;
   if (!memory?.camera?.moved) return null;
   return (
@@ -1016,7 +1079,14 @@ function CameraMoved() {
 
 /** The mug's own zone and the main lamp. */
 function ZonePanel() {
-  const lab = useLab();
+  const lab = useLabParts(
+    useView(),
+    useFeedback(),
+    useDesk(),
+    useObservation(),
+    useNavigation(),
+    useProbes(),
+  );
   const { memory, mode, busy, drawing, draftZone, currentObservation, zoneObservation, lampReady } =
     lab;
   if (!memory?.object)
@@ -1200,7 +1270,7 @@ function ZonePanel() {
 }
 
 function RulePanel({ id }: { id: string }) {
-  const lab = useLab();
+  const lab = useLabParts(useFeedback(), useDesk(), useNavigation());
   const { memory } = lab;
   const { call, off } = useCall();
   const r = memory?.rules?.find((x) => x.id === id);
@@ -1323,7 +1393,14 @@ function RulePanel({ id }: { id: string }) {
 
 /** A rule as a sentence: when [anything, a thing or several] is inside [a zone you drag] turn on [light]. */
 function NewRulePanel() {
-  const lab = useLab();
+  const lab = useLabParts(
+    useView(),
+    useFeedback(),
+    useDesk(),
+    useCamera(),
+    useObservation(),
+    useNavigation(),
+  );
   const { memory, ruleDraft: draft, entities } = lab;
   const { call, off } = useCall();
   if (!draft) return <SetupPanel />;
@@ -1486,7 +1563,7 @@ function NewRulePanel() {
   );
 }
 
-function body(lab: ReturnType<typeof useLab>, s: Selection | null) {
+function body(lab: LabRead & Pick<Lab, 'workScene'>, s: Selection | null) {
   const { progress, workScene } = lab;
   if (!s || !workScene || !progress.room) return <SetupPanel />;
   switch (s.kind) {
@@ -1530,7 +1607,7 @@ function body(lab: ReturnType<typeof useLab>, s: Selection | null) {
 
 /** Properties and actions for whatever the outline has selected. */
 export function Inspector() {
-  const lab = useLab();
+  const lab = useLabParts(useView(), useDesk(), useCamera(), useObservation(), useNavigation());
   return (
     <aside className="ws-inspector" aria-label="Inspector">
       {lab.selection && lab.progress.room && (

@@ -14,7 +14,14 @@ import {
   type ExposeSource,
 } from '@livinglayer/domain';
 import { Button, Check } from '../ui/controls';
-import { useLab } from './LabContext';
+import {
+  useDesk,
+  useFeedback,
+  useLabParts,
+  useNavigation,
+  useTracking,
+  useView,
+} from './LabContext';
 import { Details, Panel, useCall, type Tone } from './panel';
 
 /** A ready-made entity: what it is for, and how it starts. */
@@ -241,7 +248,7 @@ function EntityEditor({
   entity?: ExposedEntity;
   onSaved: (id: string) => void;
 }) {
-  const lab = useLab();
+  const lab = useLabParts(useFeedback(), useDesk());
   const { memory } = lab;
   const { call, off } = useCall();
   const zones = memory ? zonesIn(memory) : [];
@@ -499,7 +506,7 @@ function EntityEditor({
 
 /** Teach a zone how it looks empty, so an occupied entity can tell when someone is there. */
 function EmptyLook({ zoneId, learned }: { zoneId: string; learned: boolean }) {
-  const lab = useLab();
+  const lab = useLabParts(useFeedback(), useTracking());
   const { call, off } = useCall();
   return (
     <div className="save-actions">
@@ -525,7 +532,7 @@ function EmptyLook({ zoneId, learned }: { zoneId: string; learned: boolean }) {
 
 /** What the broker is doing, in one line; in the demo, what it would have sent. */
 function BrokerNote() {
-  const lab = useLab();
+  const lab = useLabParts(useView(), useTracking());
   const view = lab.expose;
   if (!view) return null;
   return (
@@ -567,7 +574,7 @@ MQTT_LIVE_ENABLED=true`;
  * `.env` lines that connect it. Picking entities still works meanwhile.
  */
 function MqttSetup() {
-  const lab = useLab();
+  const lab = useLabParts(useFeedback());
   return (
     <div className="expose-setup" role="note">
       <strong>Not publishing yet: connect MQTT first</strong>
@@ -602,7 +609,7 @@ function MqttSetup() {
 }
 
 export function NewEntityPanel() {
-  const lab = useLab();
+  const lab = useLabParts(useView(), useDesk(), useNavigation());
   const unset = lab.mode === 'live' && !(lab.status?.mqtt.configured && lab.status.mqtt.enabled);
   return (
     <Panel
@@ -626,7 +633,7 @@ export function NewEntityPanel() {
 }
 
 export function EntityPanel({ id }: { id: string }) {
-  const lab = useLab();
+  const lab = useLabParts(useFeedback(), useDesk(), useTracking(), useNavigation());
   const { memory } = lab;
   const { call, off } = useCall();
   const [editing, setEditing] = useState(false);

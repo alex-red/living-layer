@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import { api } from '../api';
 import { readUi, writeUi } from '../session';
-import { useLab } from './LabContext';
+import { useDesk, useFeedback, useLabParts, useView } from './LabContext';
 
 export type Tone = 'ok' | 'seen' | 'chosen' | 'unsure' | 'blocked' | 'warm' | 'idle';
 const TONE_GLYPH: Record<Tone, string> = {
@@ -82,7 +82,7 @@ export function Details({
 }
 /** One request from the inspector, with its own busy flag. */
 export function useCall() {
-  const lab = useLab();
+  const lab = useLabParts(useView(), useFeedback(), useDesk());
   const [pending, setPending] = useState(false);
   async function call<T>(path: string, body: object, done: (r: T) => void) {
     setPending(true);
@@ -100,6 +100,6 @@ export function useCall() {
 }
 /** Prices only matter when they are spent: live mode only. */
 export function Cost({ children }: { children: string }) {
-  const { mode } = useLab();
+  const { mode } = useView();
   return mode === 'live' ? <p className="micro cost">{children}</p> : null;
 }
