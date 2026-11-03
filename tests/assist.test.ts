@@ -254,7 +254,11 @@ describe('the AI brush live, against a mocked Meta API', () => {
 
   async function live(
     env: Record<string, string> = {},
-    { samWire = '', refineFails = false }: { samWire?: string; refineFails?: boolean } = {},
+    {
+      samWire = '',
+      refineFails = false,
+      sculpt,
+    }: { samWire?: string; refineFails?: boolean; sculpt?: object } = {},
   ) {
     const asked: string[] = [];
     const fetcher = mock<Fetcher>().mockImplementation(async (_url, init) => {
@@ -266,6 +270,7 @@ describe('the AI brush live, against a mocked Meta API', () => {
       const name = body.text.format.name as string;
       asked.push(name);
       if (name === 'edit_intent') return spark(demoIntent(HEADLINE));
+      if (name === 'sculpt' && sculpt) return spark(sculpt);
       if (name === 'recipe_refine' && refineFails)
         return new Response(JSON.stringify({ error: { message: 'overloaded' } }), {
           status: 400,
@@ -347,6 +352,36 @@ describe('the AI brush live, against a mocked Meta API', () => {
     expect(run.output.recipe).not.toBeNull();
     expect(run.output.rounds).toEqual([]);
     expect(await s.step(jobId, 'check')).toContain('refinement failed');
+  });
+
+  it('keeps the model as built when Spark’s shapes match the photo less well', async () => {
+    // One small block where the desk was: far less of the desk's outline than the Alex as built.
+    const block = {
+      id: 'block',
+      shape: 'rbox',
+      at: { x: 0, y: 0, z: 0 },
+      size: { w: 0.1, d: 0.1, h: 0.1 },
+      color: '#ffffff',
+      material: 'matte',
+      profile: null,
+      path: null,
+      outline: null,
+      radius: null,
+      rough: null,
+      wall: null,
+      inside: null,
+      bands: null,
+    };
+    const s = await live({}, { sculpt: { parts: [block], note: 'Made it a block.' } });
+    const jobId = crypto.randomUUID();
+    const res = await s.assist(
+      { shape: around('desk'), prompt: HEADLINE, imageDataUrl: s.imageDataUrl, jobId },
+      'live',
+    );
+    expect(res.statusCode, res.body).toBe(200);
+    const run = res.json<EvidenceRun<AssistDraft>>();
+    expect(run.output.recipe?.parts.length).toBeGreaterThan(1);
+    expect(await s.step(jobId, 'shape')).toContain('matched the photo less well');
   });
 
   it('refuses a frame of another size, and a request today’s limit can’t cover', async () => {

@@ -23,6 +23,7 @@ import {
   placeOfGroup,
   propModel,
   recipeFromForm,
+  defaultSize,
   refineRecipe,
   RECIPE_TARGET,
   renderRoom,
@@ -135,8 +136,20 @@ describe("sizing a thing from the camera's outline", () => {
     expect(box.cutTop).toBe(true);
   });
 
-  it('gives nothing for a thing that stands on another', () => {
+  it('gives nothing for a thing that stands on another, unless measured at its height', () => {
     expect(photoBox(DEMO_CAMERA, roomMask(frame, 'lamp'), DEMO_ROOM.grid)).toBeNull();
+    const lamp = groupBounds(DEMO_ROOM, 'lamp')!;
+    const box = photoBox(DEMO_CAMERA, roomMask(frame, 'lamp'), DEMO_ROOM.grid, {
+      floor: lamp.at.z,
+    })!;
+    expect(Math.abs(box.h / (lamp.size.h * 30) - 1)).toBeLessThan(0.1);
+  });
+
+  it('builds a new model at its template’s size when nothing measured it', () => {
+    // Not 40 cm square: a monitor built that small could never be shaped out to the one there is.
+    expect(defaultSize('monitor')).toEqual({ w: 61, d: 20 });
+    expect(defaultSize('keyboard')).toEqual({ w: 44, d: 14 });
+    expect(defaultSize('foliage')).toEqual({ w: 40, d: 40 });
   });
 });
 

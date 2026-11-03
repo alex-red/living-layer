@@ -14,6 +14,7 @@ import {
   groupBounds,
   moveGroup,
   placeRecipe,
+  PROP_TEMPLATES,
   ridersOf,
   rotateGroup,
   settleGroup,
@@ -299,6 +300,11 @@ export function formOfName(name: string): PropForm | null {
   );
 }
 
+/**
+ * A new model's footprint when nothing measured it, in cm: the usual size
+ * of its form, else the room's template of that name (a monitor's 61 cm),
+ * else 40 cm square. A monitor built 40 cm wide could never be shaped past it.
+ */
 export function defaultSize(form: PropForm): { w: number; d: number } {
   const DEFAULTS: Partial<Record<PropForm, { w: number; d: number }>> = {
     desk: { w: 120, d: 75 },
@@ -313,7 +319,18 @@ export function defaultSize(form: PropForm): { w: number; d: number } {
     jar: { w: 9, d: 9 },
     carton: { w: 7, d: 7 },
   };
-  return DEFAULTS[form] ?? { w: 40, d: 40 };
+  const template = (PROP_TEMPLATES as Partial<Record<string, { size: { w: number; d: number } }>>)[
+    form
+  ];
+  return (
+    DEFAULTS[form] ??
+    (template
+      ? {
+          w: Math.round(template.size.w * ISO_TILE_CM),
+          d: Math.round(template.size.d * ISO_TILE_CM),
+        }
+      : { w: 40, d: 40 })
+  );
 }
 
 /**
@@ -337,7 +354,8 @@ const FIT_SCALE = 4;
  * counts as the box's). A coordinate search from a small box where the
  * outline's bottom meets the floor, kept inside the room's `grid`. Depth
  * is the least sure: from a high corner the back of a thing is mostly
- * hidden. Only for things on the floor. In cm; its middle in tiles.
+ * hidden. It stands on the floor, or at `floor` tiles up for a thing
+ * standing on something (a monitor on a desk). In cm; its middle in tiles.
  * `cutTop` when the outline reaches the frame's top edge: the thing runs on
  * out of the picture, where a box's drawing costs nothing, so `h` isn't measured.
  */
@@ -345,6 +363,7 @@ export function photoBox(
   camera: RoomCamera,
   mask: Bits,
   grid?: IsoScene['grid'],
+  { floor = 0 }: { floor?: number } = {},
 ): {
   w: number;
   d: number;
@@ -369,7 +388,7 @@ export function photoBox(
   const target = newBits(W, H);
   fillRings(target, [convexHull(points)]);
   const area = target.data.reduce((a, b) => a + b, 0);
-  const start = unprojectRoom(camera, { x: (x0 + x1) / 2, y: y1 }, 0);
+  const start = unprojectRoom(camera, { x: (x0 + x1) / 2, y: y1 }, floor);
   if (!start) return null;
   const score = ([cx, cy, w, d, h]: number[]) => {
     if (w! < 0.05 || d! < 0.05 || h! < 0.05) return -1;
@@ -382,7 +401,7 @@ export function photoBox(
     const corners: { x: number; y: number }[] = [];
     for (const dx of [-w! / 2, w! / 2])
       for (const dy of [-d! / 2, d! / 2])
-        for (const z of [0, h!]) {
+        for (const z of [floor, floor + h!]) {
           const p = projectRoom(camera, { x: cx! + dx, y: cy! + dy, z });
           if (!p) return -1;
           corners.push({ x: p.x / FIT_SCALE, y: p.y / FIT_SCALE });
@@ -411,7 +430,7 @@ export function photoBox(
       }
     if (!moved) for (let k = 0; k < 5; k++) steps[k]! /= 2;
   }
-  // Nothing on the floor fits it: it stands on something, or is mostly hidden.
+  // Nothing standing there fits it: it stands on something else, or is mostly hidden.
   if (bestScore < 0.5) return null;
   const [cx, cy, w, d, h] = best as [number, number, number, number, number];
   return { w: toCm(w), d: toCm(d), h: toCm(h), cx, cy, iou: bestScore, cutTop: y0 <= 1 };

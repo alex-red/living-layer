@@ -7,6 +7,8 @@ import {
   adoptPreset,
   applyRecipeOps,
   calibrationOf,
+  defaultSize,
+  draftScore,
   ISO_PRESETS,
   isoSceneSchema,
   pinOf,
@@ -689,14 +691,8 @@ export async function finishDraft(
   const targetProp = draft.target?.kind === 'prop' ? draft.target.id : null;
   steps.run('lookup');
   const create = intent.ops.find((o) => o.op === 'create' || o.op === 'rebase');
-  const turns =
-    (draft.place ?? (targetProp ? placeOfGroup(room.scene, targetProp) : null))?.turns ?? 0;
-  const box = modelAxes(photoBox(room.camera, outline, room.scene.grid), turns);
-  const color = photoColor(rgba, outline);
-  draft.photo = {
-    sizeCm: box ? { w: box.w, d: box.d, h: box.h } : null,
-    color,
-  };
+  const stands = draft.place ?? (targetProp ? placeOfGroup(room.scene, targetProp) : null);
+  const turns = stands?.turns ?? 0;
   // Spark names a form only when one is close; a mug's isn't, and the old default made it drawers.
   const named = [
     intent.product,
@@ -708,15 +704,29 @@ export async function finishDraft(
     room.scene.props.find((p) => p.group === targetProp && p.form)?.form ??
     named.reduce<PropForm | null>((f, n) => f ?? (n ? formOfName(n) : null), null) ??
     'cabinet';
-  // A thing running out of the top of the picture has no height the camera can measure: the camera
-  // gives its footprint, and its height comes from a lookup or, failing one, its template.
-  const seenH = box?.cutTop ? null : (box?.h ?? null);
   // From high in a corner, what stands on a thing (a monitor, a laptop, toys on a desk) hides its
   // back, and SAM's outline of it stops short: its depth isn't the camera's, but the room's own.
   const drawn = targetProp ? groupBounds(room.scene, targetProp) : null;
   const hidden = Boolean(targetProp && drawn && ridersOf(room.scene, targetProp).length);
-  const seenD = hidden ? null : (box?.d ?? null);
-  const drawnD = drawn && Math.round(modelAxes(drawn.size, turns)!.d * ISO_TILE_CM);
+  // Nor of a thing standing on another: the camera sees a monitor's face, not how far back its foot goes.
+  const raised = (stands?.z ?? 0) > 0;
+  const drawnD = drawn
+    ? Math.round(modelAxes(drawn.size, turns)!.d * ISO_TILE_CM)
+    : defaultSize(form).d;
+  // Measured standing where the thing it replaces stood: a monitor on the desk, not on the floor.
+  const box = modelAxes(
+    photoBox(room.camera, outline, room.scene.grid, { floor: stands?.z ?? 0 }),
+    turns,
+  );
+  const color = photoColor(rgba, outline);
+  draft.photo = {
+    sizeCm: box ? { w: box.w, d: box.d, h: box.h } : null,
+    color,
+  };
+  // A thing running out of the top of the picture has no height the camera can measure: the camera
+  // gives its footprint, and its height comes from a lookup or, failing one, its template.
+  const seenH = box?.cutTop ? null : (box?.h ?? null);
+  const seenD = hidden || raised ? null : (box?.d ?? null);
   if (create) {
     const query = intent.product ?? draft.target?.label ?? 'furniture';
     const camera: Researcher = {
@@ -727,7 +737,7 @@ export async function finishDraft(
               query,
               sizeCm: {
                 w: box.w,
-                d: seenD ?? drawnD ?? box.d,
+                d: seenD ?? drawnD,
                 h: seenH ?? furnitureSpec(form).heightCm,
               },
               sources: [{ kind: 'photo', title: 'The room’s camera' }],
@@ -762,6 +772,11 @@ export async function finishDraft(
       ...(box && hidden
         ? [
             `what stands on it hides its back, so its depth isn’t the camera’s (${fromPhoto ? `the room’s ${drawnD} cm` : 'the lookup’s'})`,
+          ]
+        : []),
+      ...(box && raised
+        ? [
+            `it stands on something, so its depth isn’t the camera’s (${fromPhoto ? `${drawn ? 'the room’s' : 'the usual'} ${drawnD} cm` : 'the lookup’s'})`,
           ]
         : []),
     ];
@@ -833,7 +848,14 @@ export async function finishDraft(
       steps.check();
       failed = e instanceof Error ? e.message : 'it failed';
     }
-    if (shaped) {
+    // Spark's best look stands only if it matches the photo better than the model as built.
+    if (shaped && draftScore(shaped.check) < draftScore(before))
+      await steps.done(
+        'shape',
+        `Spark’s shapes matched the photo less well (IoU ${shaped.check.iou.toFixed(2)}, as built ${before.iou.toFixed(2)}), so it is as built`,
+        shaped.render,
+      );
+    else if (shaped) {
       draft.recipe = recipe = shaped.recipe;
       await steps.done(
         'shape',
