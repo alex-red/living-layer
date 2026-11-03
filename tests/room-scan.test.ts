@@ -79,6 +79,7 @@ describe('laying out a room from its calibrated camera', () => {
       expect(Math.abs(desk.size.d * 30 - 140)).toBeLessThan(2);
       expect(desk.at.y).toBeGreaterThanOrEqual(shelf.at.y + shelf.size.d - 0.02);
     });
+  // About 2 s alone; with the browser suite building beside it, past the 5 s default.
   it('turns a wall marked askew back to the things standing against it', () => {
     // A desk along the back wall, four things on it against that wall.
     const scene = sceneOf([
@@ -127,7 +128,7 @@ describe('laying out a room from its calibrated camera', () => {
     expect(Math.abs(refined.calibration.camera.room.w - 12)).toBeLessThan(0.2);
     // Off the other way they only seem to stand out from it, which nothing says is wrong.
     expect(refineWalls({ ...s, calibration: turnWall(calibration, 'back', -6)! })).toBeNull();
-  });
+  }, 15_000);
   it('builds a bookcase as tall as Spark says, with its top up there', () => {
     const c = ROOM_CASES[0]!;
     const scene = c.scene();
