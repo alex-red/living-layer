@@ -6,7 +6,7 @@ import {
   exposedEntityId,
   sensorOptions,
   zonesIn,
-  MAIN_ZONE,
+  MAIN_RULE,
   SOURCE_KINDS,
   type DeskMemory,
   type ExposedEntity,
@@ -14,6 +14,9 @@ import {
   type ExposedState,
   type ExposeKind,
   type ExposeSource,
+  mugOf,
+  otherObjects,
+  placedFixtures,
 } from '@livinglayer/domain';
 import { Button, Check } from '../ui/controls';
 import {
@@ -166,9 +169,9 @@ const SOURCE_LABEL: Record<ExposeSource['kind'], string> = {
 /** The mug, other objects and tracked fixtures, which entities can follow. */
 function things(memory: DeskMemory | null | undefined) {
   return [
-    ...(memory?.object ? [{ id: memory.object.id, label: memory.object.label }] : []),
-    ...(memory?.others ?? []).map((o) => ({ id: o.id, label: o.label })),
-    ...(memory?.fixtures ?? [])
+    ...(mugOf(memory) ? [{ id: mugOf(memory)!.id, label: mugOf(memory)!.label }] : []),
+    ...(otherObjects(memory) ?? []).map((o) => ({ id: o.id, label: o.label })),
+    ...placedFixtures(memory)
       .filter((f) => f.track)
       .map((f) => ({ id: f.id, label: `${f.label} (fixture)` })),
   ];
@@ -266,7 +269,7 @@ function EntityEditor({
   const { call, off } = useCall();
   const zones = memory ? zonesIn(memory) : [];
   const list = things(memory);
-  const firstZone = zones[0]?.id ?? MAIN_ZONE;
+  const firstZone = zones[0]?.id ?? MAIN_RULE;
   const firstThing = list[0]?.id ?? '';
   const stats = statsOn(memory);
   const firstStat = stats[0] ?? { id: '', key: 'power' as const };

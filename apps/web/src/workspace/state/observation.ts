@@ -1,5 +1,6 @@
 import { type PointerEvent, useCallback, useMemo } from 'react';
 import type { PlacementDecision, DeskObservation, UnitBox } from '@livinglayer/domain';
+import { mainZone, mugHistory, mugOf, mugSighting } from '@livinglayer/domain';
 import type { RunOf } from '@livinglayer/domain';
 import { isRun } from '@livinglayer/domain';
 import { zoneApplies } from '@livinglayer/domain';
@@ -34,21 +35,21 @@ export function useObservationSlice(
     segmentation,
     workScene,
   } = deps;
+  const seen = mugSighting(memory);
+  const main = mainZone(memory);
   const currentObservation =
-    memory?.observation &&
-    segmentation?.sourceKey === memory.observation.sourceKey &&
-    segmentRunId === memory.observation.segmentRunId
-      ? memory.observation
+    seen && segmentation?.sourceKey === seen.sourceKey && segmentRunId === seen.segmentRunId
+      ? seen
       : null;
   // Where a zone is drawn: the mug in this frame, or, on the running camera, its last sighting
   // from a frame the camera gives, since the stream shows that same view.
   const zoneObservation =
     currentObservation ??
     (camera &&
-    memory?.observation &&
-    memory.observation.frame.width === cameraSize?.width &&
-    memory.observation.frame.height === cameraSize.height
-      ? memory.observation
+    seen &&
+    seen.frame.width === cameraSize?.width &&
+    seen.frame.height === cameraSize.height
+      ? seen
       : null);
   const zone = useMemo(
     () => (memory && zoneObservation ? zoneApplies(memory) : null),
@@ -56,18 +57,18 @@ export function useObservationSlice(
   );
   // New frames from following only have a zone by the fixed-camera assumption.
   const localZone: UnitBox | null =
-    memory?.zone &&
-    memory.fixedCamera &&
-    memory.zone.frame?.width === memory.observation?.frame.width &&
-    memory.zone.frame?.height === memory.observation?.frame.height
-      ? memory.zone.rect
+    main &&
+    memory?.fixedCamera &&
+    main.frame?.width === seen?.frame.width &&
+    main.frame?.height === seen?.frame.height
+      ? main.rect
       : null;
-  const visibleZone = drawing ? draftZone : zone?.applies && memory?.zone ? memory.zone.rect : null;
+  const visibleZone = drawing ? draftZone : zone?.applies && main ? main.rect : null;
   // Where the mug has been, newest first, with the verdict each sighting got.
-  const sightings = useMemo(
-    () => (memory?.observation ? [memory.observation, ...(memory.history ?? [])] : []),
-    [memory],
-  );
+  const sightings = useMemo(() => {
+    const last = mugSighting(memory);
+    return last ? [last, ...mugHistory(memory)] : [];
+  }, [memory]);
   const verdictFor = useCallback(
     (o: DeskObservation) =>
       runs.find(
@@ -100,7 +101,7 @@ export function useObservationSlice(
     Boolean(workScene) &&
     !busy &&
     !follow &&
-    Boolean(memory?.object && memory.observation) &&
+    Boolean(mugOf(memory) && mugSighting(memory)) &&
     (mode === 'demo' || (metaReady && (Boolean(image) || camera)));
   const confirmedId = currentObservation?.detectionId;
   const progress = useMemo(

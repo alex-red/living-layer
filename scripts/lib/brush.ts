@@ -175,8 +175,7 @@ export function shapeOf(
 }
 
 /** The demo room as its camera sees it, for selections in tests and scripts. */
-export const demoRoom = () =>
-  selectionRoom({ mode: 'demo', object: null, observation: null, zone: null, lastDecision: null });
+export const demoRoom = () => selectionRoom({ mode: 'demo', lastDecision: null });
 /** The groups and fixtures a room's camera sees, front to back as named. */
 export const seenIn = (room: Pick<ReturnType<typeof selectionRoom>, 'picture'>) =>
   room.picture.names.filter((n) => n !== 'floor' && !n.startsWith('wall'));

@@ -7,7 +7,14 @@ import { DEMO_CAMERA } from './demo-room.js';
 import { CAMERA_EDGES_MAX, marksOf, roomCameraSchema, roomMarksSchema } from './room-camera.js';
 import { cameraCropSchema } from './camera.js';
 import { upgradeItem, type SavedItem } from './iso-item.js';
-import { fixtureModel, linkedFixtures, type Fixture } from './fixture.js';
+import {
+  fixtureModel,
+  isStockModel,
+  linkedFixtures,
+  stockModel,
+  type Fixture,
+  type FixtureTrack,
+} from './fixture.js';
 import type { ExposedEntity } from './expose.js';
 import {
   modeSchema,
@@ -91,39 +98,48 @@ export interface DeskObservation {
   /** Overlap (IoU) with the previous observation's box, when there was one. */
   overlap?: number | null;
 }
+/**
+ * The main zone as it was kept before it became the rule `main`: `frame` is
+ * the size of the image it was drawn on; older zones lack it.
+ */
+interface OldZone {
+  id: string;
+  sourceKey: string;
+  rect: ZoneRect;
+  frame?: Segmentation['frame'];
+  onSurface?: ZoneOnSurface;
+  /** False keeps the light on when the mug leaves; unset turned it off. */
+  offWhenEmpty?: boolean;
+  look?: LightLook;
+}
+/**
+ * Desk memory as kept before every thing was a fixture: the mug in fields of
+ * its own, other objects in `others`, the main zone apart from the rules.
+ * `upgradeMemory` turns it into today's.
+ */
+interface OldMemory {
+  object?: { id: string; label: string; createdAt: string } | null;
+  observation?: DeskObservation | null;
+  zone?: OldZone | null;
+  history?: DeskObservation[];
+  placement?: 'inside' | 'outside' | null;
+  others?: TrackedObject[];
+  item?: SavedItem | null;
+}
 export interface DeskMemory {
   mode: Mode;
-  object: { id: string; label: string; createdAt: string } | null;
-  observation: DeskObservation | null;
-  /** `frame` is the size of the image the zone was drawn on; older zones lack it. */
-  zone: {
-    id: string;
-    sourceKey: string;
-    rect: ZoneRect;
-    frame?: Segmentation['frame'];
-    onSurface?: ZoneOnSurface;
-    /** False keeps the light on when the mug leaves; unset turns it off. */
-    offWhenEmpty?: boolean;
-    /** What the light does when the mug enters; unset keeps the bulb's own. */
-    look?: LightLook;
-  } | null;
+  /** The newest decision of any rule, for the activity line. */
   lastDecision: EvidenceRun<PlacementDecision> | null;
   /**
    * Opt-in: the camera hasn't moved, so a zone carries over to any new frame of
    * the same size. Off, a zone only applies to the exact image it was drawn on.
    */
   fixedCamera?: boolean;
-  /** Earlier observations of the object, newest first. */
-  history?: DeskObservation[];
-  /** The last inside/outside verdict, so the lamp fires only on entering the zone. */
-  placement?: 'inside' | 'outside' | null;
   /** Corners that tie frames of one size to a surface of an isometric scene. */
   surface?: SurfacePin | null;
   /** The room's one camera, calibrated against the room itself. */
   camera?: RoomCalibration | null;
-  /** Further remembered objects, each followed like the mug. */
-  others?: TrackedObject[];
-  /** Further zones, each tied to one object and one light or switch. */
+  /** Zones, the main one (`main`) among them, each counting things and switching one light or switch. */
   rules?: PlacementRule[];
   /** The person's own isometric scene, built from templates or drafted by Spark. */
   scene?: IsoScene | null;
@@ -133,9 +149,11 @@ export interface DeskMemory {
   illustration?: SceneIllustration | null;
   /** The room's desk close up, redrawn from a close camera frame in the room picture's style. */
   deskIllustration?: SceneIllustration | null;
-  /** A detailed model of the remembered object, drafted from its mask and editable. */
-  item?: SavedItem | null;
-  /** Things placed in a room by hand: lamps, switches, a mouse. Reset keeps them. */
+  /**
+   * Every thing: placed by hand or a scan (a lamp, a switch, a mouse), or by
+   * where the camera saw it (`place: 'sightings'`: the mug, other objects).
+   * Reset keeps the hand-placed ones.
+   */
   fixtures?: Fixture[];
   /** Names the person said aren't fixtures, so scans skip them. */
   dismissed?: string[];
@@ -199,52 +217,108 @@ export function adoptPreset(memory: DeskMemory, kind: IsoSceneKind): DeskMemory 
     scene: { ...preset, kind: 'custom' },
     ...(calibration ? { camera: own(calibration) } : {}),
     surface: memory.surface ? own(memory.surface) : memory.surface,
-    zone: memory.zone ? onSurface(memory.zone) : memory.zone,
     ...(memory.rules
       ? { rules: memory.rules.map((r) => ({ ...r, zone: onSurface(r.zone) })) }
       : {}),
     ...(memory.fixtures ? { fixtures: memory.fixtures.map(own) } : {}),
   };
 }
+/** The rule of the main zone: it counts the mug and switches the main light. */
+export const MAIN_RULE = 'main';
+/** The mug: the first thing of its type placed by where it was seen. */
+export function mugOf(memory: DeskMemory | null | undefined): Fixture | null {
+  return memory?.fixtures?.find((f) => f.place === 'sightings' && f.type === 'mug') ?? null;
+}
+/*
+ * What the desk used to keep in fields of its own, read off things and rules:
+ * the mug's sighting, history and model, the main zone and its verdict, and
+ * the other objects. For the readers that still think in those terms.
+ */
+/** The mug's last sighting. */
+export const mugSighting = (m: DeskMemory | null | undefined): DeskObservation | null =>
+  mugOf(m)?.track?.observation ?? null;
+/** The mug's earlier sightings, newest first. */
+export const mugHistory = (m: DeskMemory | null | undefined): DeskObservation[] =>
+  mugOf(m)?.track?.history ?? [];
+/** The mug's own model, or null while it has only the stock one. */
+export function mugModel(m: DeskMemory | null | undefined): SavedItem | null {
+  const mug = mugOf(m);
+  return mug ? ownModel(mug) : null;
+}
+/** The main zone as it was kept: its id, where it was drawn, and how it switches its light. */
+export function mainZone(m: DeskMemory | null | undefined) {
+  const r = m?.rules?.find((x) => x.id === MAIN_RULE);
+  return r
+    ? {
+        id: r.id,
+        ...r.zone,
+        ...(r.offWhenEmpty !== undefined ? { offWhenEmpty: r.offWhenEmpty } : {}),
+        ...(r.look ? { look: r.look } : {}),
+      }
+    : null;
+}
+/** The main zone's last verdict. */
+export const mainPlacement = (m: DeskMemory | null | undefined) =>
+  m?.rules?.find((x) => x.id === MAIN_RULE)?.placement ?? null;
+/** The other objects, as they were kept beside the mug. */
+export function otherObjects(m: DeskMemory | null | undefined) {
+  if (!m) return [];
+  return otherThings(m).map((f) => ({
+    id: f.id,
+    label: f.label,
+    concept: f.track?.concept ?? '',
+    createdAt: f.createdAt,
+    observation: f.track?.observation ?? null,
+    history: f.track?.history ?? [],
+    item: ownModel(f),
+  }));
+}
+/** The things the camera follows: each one with a sighting. */
+export function followedThings(memory: DeskMemory): (Fixture & { track: FixtureTrack })[] {
+  return (memory.fixtures ?? []).filter((f): f is Fixture & { track: FixtureTrack } =>
+    Boolean(f.track),
+  );
+}
+/** Fixtures placed by hand or a scan, without the things the camera places by their sightings. */
+export const placedFixtures = (
+  memory: Pick<DeskMemory, 'fixtures'> | null | undefined,
+): Fixture[] => (memory?.fixtures ?? []).filter((f) => f.place !== 'sightings');
+/** Things placed by their sightings, other than the mug: what used to be "other objects". */
+export function otherThings(memory: DeskMemory): Fixture[] {
+  const mug = mugOf(memory);
+  return (memory.fixtures ?? []).filter((f) => f.place === 'sightings' && f !== mug);
+}
+/** A thing's model as drafted for it, or null while it is only its stock one. */
+const ownModel = (f: Fixture): SavedItem | null =>
+  f.place === 'sightings' && isStockModel(f.model) ? null : fixtureModel(f);
 /**
- * Desk memory as it would be with one thing seen somewhere else: the mug,
- * another object or a followed fixture. A copy, for judging zones at a box
- * that isn't a remembered sighting (the watcher's own following).
+ * Desk memory as it would be with one thing seen somewhere else. A copy,
+ * for judging zones at a box that isn't a remembered sighting (the
+ * watcher's own following).
  */
 export function withSighting(
   memory: DeskMemory,
   objectId: string,
   observation: DeskObservation,
 ): DeskMemory {
-  if (memory.object?.id === objectId) return { ...memory, observation };
   return {
     ...memory,
-    others: memory.others?.map((o) => (o.id === objectId ? { ...o, observation } : o)),
     fixtures: memory.fixtures?.map((f) =>
       f.id === objectId && f.track ? { ...f, track: { ...f.track, observation } } : f,
     ),
   };
 }
-/** The observation and name of the mug or another remembered object, by id. */
+/** The observation and name of a followed thing, by id. */
 export function objectById(
   memory: DeskMemory,
   objectId: string,
 ): { label: string; concept: string; observation: DeskObservation | null } | null {
-  if (memory.object?.id === objectId)
-    return { label: memory.object.label, concept: 'mug', observation: memory.observation };
-  const other = memory.others?.find((o) => o.id === objectId);
-  if (other) return { label: other.label, concept: other.concept, observation: other.observation };
-  // A fixture found in the camera's view is followed like an object.
-  const fixture = memory.fixtures?.find((f) => f.id === objectId && f.track);
-  return fixture?.track
-    ? {
-        label: fixture.label,
-        concept: fixture.track.concept,
-        observation: fixture.track.observation,
-      }
+  const thing = memory.fixtures?.find((f) => f.id === objectId && f.track);
+  return thing?.track
+    ? { label: thing.label, concept: thing.track.concept, observation: thing.track.observation }
     : null;
 }
-/** The mug (no id, or its id), another remembered object or a fixture, with its model. */
+/** The mug (no id, or its id) or another thing, with its model. */
 export function modelTarget(
   memory: DeskMemory,
   objectId?: string,
@@ -253,60 +327,164 @@ export function modelTarget(
   label: string;
   observation: DeskObservation | null;
   item: SavedItem | null;
-  /** A fixture is never seen by the camera: its model comes from its reference photo. */
+  /** Placed by hand: its model comes from its reference photo, not a sighting. */
   fixture?: boolean;
 } | null {
-  if (!objectId || objectId === memory.object?.id)
-    return memory.object
-      ? {
-          id: memory.object.id,
-          label: memory.object.label,
-          observation: memory.observation,
-          item: memory.item ?? null,
-        }
-      : null;
-  const other = memory.others?.find((o) => o.id === objectId);
-  if (other)
-    return {
-      id: other.id,
-      label: other.label,
-      observation: other.observation,
-      item: other.item ?? null,
-    };
-  const fixture = memory.fixtures?.find((f) => f.id === objectId);
-  return fixture
+  const thing = objectId ? memory.fixtures?.find((f) => f.id === objectId) : mugOf(memory);
+  if (!thing) return null;
+  return thing.place === 'sightings'
     ? {
-        id: fixture.id,
-        label: fixture.label,
+        id: thing.id,
+        label: thing.label,
+        observation: thing.track?.observation ?? null,
+        item: ownModel(thing),
+      }
+    : {
+        id: thing.id,
+        label: thing.label,
         observation: null,
-        item: fixtureModel(fixture),
+        item: fixtureModel(thing),
         fixture: true,
-      }
-    : null;
+      };
 }
-/** Store a model on the mug, another remembered object, or a fixture (which always keeps one). */
+/** Store a thing's model; null puts a followed thing back on its stock model. */
 export function setModel(memory: DeskMemory, objectId: string, item: SavedItem | null): void {
-  if (objectId === memory.object?.id) memory.item = item;
-  else {
-    const other = memory.others?.find((o) => o.id === objectId);
-    if (other) other.item = item;
-    const fixture = memory.fixtures?.find((f) => f.id === objectId);
-    if (fixture && item) {
-      const now = new Date().toISOString();
-      const targets = [fixture, ...linkedFixtures(memory.fixtures ?? [], fixture)];
-      for (const f of targets) {
-        if (fixture.state) {
-          f.states = {
-            ...f.states,
-            [fixture.state]: { ...(f.states?.[fixture.state] ?? {}), model: item },
-          };
-        } else {
-          f.model = item;
-        }
-        f.updatedAt = now;
-      }
-    }
+  const fixture = memory.fixtures?.find((f) => f.id === objectId);
+  if (!fixture) return;
+  const now = new Date().toISOString();
+  if (fixture.place === 'sightings') {
+    fixture.model = item ?? stockModel(fixture.label);
+    fixture.updatedAt = now;
+    return;
   }
+  if (!item) return;
+  for (const f of [fixture, ...linkedFixtures(memory.fixtures ?? [], fixture)]) {
+    if (fixture.state)
+      f.states = {
+        ...f.states,
+        [fixture.state]: { ...(f.states?.[fixture.state] ?? {}), model: item },
+      };
+    else f.model = item;
+    f.updatedAt = now;
+  }
+}
+/**
+ * A thing placed by its sightings, as the mug and other objects are: drawn
+ * where the camera saw it, so its own place is only nominal (the pin's
+ * scene, its corner, a mug's size).
+ */
+export function sightedThing(
+  memory: Pick<DeskMemory, 'surface' | 'scene'>,
+  thing: {
+    id: string;
+    label: string;
+    concept: string;
+    observation: DeskObservation;
+    history?: DeskObservation[];
+    model?: SavedItem | null;
+    type?: Fixture['type'];
+    createdAt?: string;
+  },
+): Fixture {
+  const now = new Date().toISOString();
+  return {
+    id: thing.id,
+    label: thing.label.slice(0, 40),
+    scene: memory.surface?.scene ?? (memory.scene ? 'custom' : 'office'),
+    surfaceId: null,
+    at: { x: 0, y: 0 },
+    turns: 0,
+    size: { w: 0.4, d: 0.4, h: 0.4 },
+    model: thing.model ?? stockModel(thing.label),
+    reference: null,
+    control: { kind: 'none' },
+    ...(thing.type ? { type: thing.type } : {}),
+    place: 'sightings',
+    track: {
+      concept: thing.concept,
+      observation: thing.observation,
+      history: thing.history ?? [],
+      status: 'seen',
+    },
+    createdAt: thing.createdAt ?? now,
+    updatedAt: now,
+  };
+}
+/**
+ * Memory kept before every thing was a fixture, as it is now: the mug and
+ * each other object become things placed by their sightings (keeping their
+ * ids, so rules, stats and Home Assistant's sources still name them), and
+ * the main zone the rule `main`, on the main light (`entityId: ''`), with its
+ * verdict and decision. The old fields go. A thing never seen is dropped:
+ * there was nothing to follow.
+ */
+function oneList(memory: DeskMemory & OldMemory): DeskMemory {
+  const { object, observation, zone, history, placement, others, item, ...rest } = memory;
+  if (
+    object === undefined &&
+    observation === undefined &&
+    zone === undefined &&
+    history === undefined &&
+    placement === undefined &&
+    others === undefined &&
+    item === undefined
+  )
+    return memory;
+  const things: Fixture[] = [];
+  if (object && observation)
+    things.push(
+      sightedThing(rest, {
+        id: object.id,
+        label: object.label,
+        concept: 'mug',
+        observation,
+        ...(history ? { history } : {}),
+        model: item ?? stockModel('Mug'),
+        type: 'mug',
+        createdAt: object.createdAt,
+      }),
+    );
+  for (const o of others ?? [])
+    if (o.observation)
+      things.push(
+        sightedThing(rest, {
+          id: o.id,
+          label: o.label,
+          concept: o.concept,
+          observation: o.observation,
+          ...(o.history ? { history: o.history } : {}),
+          ...(o.item ? { model: o.item } : {}),
+          createdAt: o.createdAt,
+        }),
+      );
+  const main: PlacementRule[] =
+    zone && object && observation
+      ? [
+          {
+            id: MAIN_RULE,
+            label: 'Main zone',
+            objects: [object.id],
+            entityId: '',
+            // The main zone turned its light off as the mug left unless told not to.
+            ...(zone.offWhenEmpty !== false ? { offWhenEmpty: true } : {}),
+            ...(zone.look ? { look: zone.look } : {}),
+            zone: {
+              sourceKey: zone.sourceKey,
+              rect: zone.rect,
+              frame: zone.frame ?? observation.frame,
+              ...(zone.onSurface ? { onSurface: zone.onSurface } : {}),
+            },
+            placement: placement ?? null,
+            inside: placement === 'inside' ? [object.id] : [],
+            lastDecision: rest.lastDecision,
+          },
+        ]
+      : [];
+  return {
+    ...rest,
+    fixtures: [...(rest.fixtures ?? []), ...things],
+    rules: [...main, ...(rest.rules ?? []).filter((r) => r.id !== MAIN_RULE)],
+  };
 }
 /** The demo's frames before it was a camera in the office: an illustrated desk, close up. */
 const OLD_DEMO_ID = 'illustrated-desk-v1';
@@ -348,10 +526,11 @@ export function upgradeMemory(memory: DeskMemory): DeskMemory {
       }),
     };
   const old = (key?: string) => key?.startsWith(OLD_DEMO_ID) ?? false;
+  const was = next as DeskMemory & OldMemory;
   if (
     next.mode === 'demo' &&
-    (old(next.observation?.sourceKey) ||
-      old(next.zone?.sourceKey) ||
+    (old(was.observation?.sourceKey) ||
+      old(was.zone?.sourceKey) ||
       next.rules?.some((r) => old(r.zone?.sourceKey)))
   )
     next = {
@@ -370,10 +549,10 @@ export function upgradeMemory(memory: DeskMemory): DeskMemory {
       scenePhoto: null,
       illustration: null,
       deskIllustration: null,
-      fixtures: (next.fixtures ?? []).filter((f) => f.scene !== 'custom'),
-    };
+      fixtures: (next.fixtures ?? []).filter((f) => f.scene !== 'custom' && !f.track),
+    } as DeskMemory & OldMemory;
   if (next.illustration && !next.illustration.drawnFrom) next = { ...next, illustration: null };
-  return upgradeItems(next);
+  return upgradeItems(oneList(next as DeskMemory & OldMemory));
 }
 /**
  * Models saved with the first part shapes (cylinder, cone, box, handle, lid)
@@ -408,16 +587,7 @@ function upgradeItems(memory: DeskMemory): DeskMemory {
       ? model
       : { ...model, ...(drafts ? { drafts } : {}), ...(states ? { states } : {}) };
   });
-  const others = each(memory.others, (o) => modelOf(o, 'item'));
-  const item = memory.item ? upgradeItem(memory.item) : memory.item;
-  return item === memory.item && others === memory.others && fixtures === memory.fixtures
-    ? memory
-    : {
-        ...memory,
-        ...(item !== undefined ? { item } : {}),
-        ...(others ? { others } : {}),
-        ...(fixtures ? { fixtures } : {}),
-      };
+  return fixtures === memory.fixtures ? memory : { ...memory, ...(fixtures ? { fixtures } : {}) };
 }
 
 /** Any object, typed as `T`: the nested parts have their own schemas elsewhere, or none yet. */
@@ -440,22 +610,15 @@ export const deskMemorySchema = z.preprocess(
   },
   z.looseObject({
     mode: modeSchema,
-    object: shaped<NonNullable<DeskMemory['object']>>().nullable(),
-    observation: shaped<DeskObservation>().nullable(),
-    zone: shaped<NonNullable<DeskMemory['zone']>>().nullable(),
     lastDecision: shaped<NonNullable<DeskMemory['lastDecision']>>().nullable(),
     fixedCamera: z.boolean().optional(),
-    history: listOf<DeskObservation>().optional(),
-    placement: z.enum(['inside', 'outside']).nullable().optional(),
     surface: surfacePinSchema.nullable().optional(),
     camera: roomCalibrationSchema.nullable().optional(),
-    others: listOf<TrackedObject>().optional(),
     rules: listOf<PlacementRule>().optional(),
     scene: shaped<IsoScene>().nullable().optional(),
     scenePhoto: z.string().nullable().optional(),
     illustration: shaped<SceneIllustration>().nullable().optional(),
     deskIllustration: shaped<SceneIllustration>().nullable().optional(),
-    item: shaped<SavedItem>().nullable().optional(),
     fixtures: listOf<Fixture>().optional(),
     dismissed: z.array(z.string()).optional(),
     watch: shaped<NonNullable<DeskMemory['watch']>>().optional(),

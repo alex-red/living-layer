@@ -5,6 +5,11 @@ import {
   ISO_PRESETS,
   isoSceneKindSchema,
   type DemoPosition,
+  mainPlacement,
+  mugOf,
+  mugSighting,
+  otherObjects,
+  placedFixtures,
 } from '@livinglayer/domain';
 import { api } from '../api';
 import { Glyph } from '../Glyph';
@@ -76,7 +81,7 @@ function FrameRate({ video, on }: { video: RefObject<HTMLVideoElement | null>; o
 function useRoomFixtures(): boolean {
   const { memory } = useDesk();
   const { workScene } = useView();
-  return (memory?.fixtures ?? []).some((f) => f.scene === workScene);
+  return placedFixtures(memory).some((f) => f.scene === workScene);
 }
 
 /** Whether the iso room is shown beside or instead of the photo. */
@@ -114,10 +119,10 @@ function useZoneView() {
   // The zone over the photo or, on the running camera, over the frames it gives.
   const zoneShown = Boolean(zoneObservation && visibleZone && (drawing || lab.showZones));
   // The mug stands in the main zone by the last check: said in words on the tag, not by colour alone.
-  const occupied = !drawing && memory?.placement === 'inside';
+  const occupied = !drawing && mainPlacement(memory) === 'inside';
   const zoneTag = visibleZone
     ? `ZN-01${!drawing && zone?.carried ? ' · CARRIED' : ''}${
-        occupied ? ` · ✓ ${(memory?.object?.label ?? 'mug').toUpperCase()} IN` : ''
+        occupied ? ` · ✓ ${(mugOf(memory)?.label ?? 'mug').toUpperCase()} IN` : ''
       }${drawing ? ` · ${Math.round(visibleZone.width * 100)}×${Math.round(visibleZone.height * 100)}%` : ''}`
     : '';
   return { zoneShown, occupied, zoneTag };
@@ -321,7 +326,7 @@ function ZoneLayer() {
       aria-label={
         drawing
           ? 'Draw placement zone'
-          : `Saved placement zone${occupied ? `, ${memory?.object?.label ?? 'mug'} inside` : ''}`
+          : `Saved placement zone${occupied ? `, ${mugOf(memory)?.label ?? 'mug'} inside` : ''}`
       }
       onPointerDown={(e) => {
         if (!drawing || busy) return;
@@ -531,8 +536,8 @@ function FocusLayer() {
   const focusSeen =
     sel?.kind === 'object'
       ? sel.id === 'main'
-        ? memory?.observation
-        : memory?.others?.find((o) => o.id === sel.id)?.observation
+        ? mugSighting(memory)
+        : otherObjects(memory)?.find((o) => o.id === sel.id)?.observation
       : null;
   const focusBox =
     focusSeen &&

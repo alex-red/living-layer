@@ -17,6 +17,12 @@ import {
   type PlacementDecision,
   type SelectionShape,
   ILLUSTRATION_NOTE_MAX,
+  mainZone,
+  mugModel,
+  mugOf,
+  mugSighting,
+  otherObjects,
+  placedFixtures,
 } from '@livinglayer/domain';
 import { api } from '../api';
 import { estimateLabel } from '../cost';
@@ -123,7 +129,7 @@ function MaskResults() {
       </p>
     );
   const mug = isMugConcept(segmentation.concept);
-  const others = memory?.others ?? [];
+  const others = otherObjects(memory) ?? [];
   return (
     <div className="mask-results">
       <table className="detections">
@@ -198,7 +204,7 @@ function MaskResults() {
                       (r) => {
                         lab.setMemory(r.memory);
                         lab.setMessage(`Remembered the ${name.trim()}.`);
-                        const added = r.memory.others?.at(-1);
+                        const added = otherObjects(r.memory)?.at(-1);
                         if (added) lab.select({ kind: 'object', id: added.id });
                       },
                     )
@@ -363,7 +369,7 @@ function LiftFixtures() {
   const lab = useLabParts(useView(), useFeedback(), useDesk(), useFixtures());
   const { memory, mode, busy } = lab;
   const pinScene = memory?.surface?.scene;
-  const count = (memory?.fixtures ?? []).filter((f) => f.scene === pinScene).length;
+  const count = placedFixtures(memory).filter((f) => f.scene === pinScene).length;
   const layers = memory?.illustration?.layers;
   const blocked = Boolean(busy) || !count || (mode === 'live' && !lab.metaReady);
   return (
@@ -569,10 +575,10 @@ function SurfacePanel({ id, closeView }: { id: string; closeView?: boolean }) {
         <Button
           variant="primary"
           onClick={() =>
-            lab.select(memory?.object ? { kind: 'object', id: 'main' } : { kind: 'add' })
+            lab.select(mugOf(memory) ? { kind: 'object', id: 'main' } : { kind: 'add' })
           }
         >
-          {memory?.object ? `Open ${memory.object.label}` : 'Find objects'} <Glyph type="arrow" />
+          {mugOf(memory) ? `Open ${mugOf(memory)!.label}` : 'Find objects'} <Glyph type="arrow" />
         </Button>
       ) : needPhoto ? (
         <div className="save-actions">
@@ -671,7 +677,7 @@ function SurfacePanel({ id, closeView }: { id: string; closeView?: boolean }) {
           </p>
           <Button
             variant="danger"
-            disabled={Boolean(busy) || !memory?.object}
+            disabled={Boolean(busy) || !mugOf(memory)}
             onClick={() => void lab.deskAction('reset')}
           >
             Reset desk memory
@@ -901,10 +907,10 @@ function MugPanel() {
   const { memory, mode, camera, busy, status, follow, localZone } = lab;
   const { currentObservation, sightings } = lab;
   const now = useNow();
-  const observationStale = memory?.observation
-    ? now - Date.parse(memory.observation.observedAt) > OBSERVATION_MAX_AGE_MS
+  const observationStale = mugSighting(memory)
+    ? now - Date.parse(mugSighting(memory)!.observedAt) > OBSERVATION_MAX_AGE_MS
     : false;
-  if (!memory?.object)
+  if (!memory || !mugOf(memory))
     return (
       <Panel
         tiny="OBJECT · MAIN"
@@ -917,12 +923,12 @@ function MugPanel() {
         </Button>
       </Panel>
     );
-  const o = memory.observation;
+  const o = mugSighting(memory);
   const seen = o ? ago(o.observedAt, now) : '';
   return (
     <Panel
       tiny="OBJECT · MAIN"
-      title={memory.object.label}
+      title={mugOf(memory)!.label}
       status={
         !o
           ? 'Remembered, but not seen yet. Track it in a frame.'
@@ -977,13 +983,13 @@ function MugPanel() {
       )}
       <div className="insp-links">
         <Button variant="text" onClick={() => lab.select({ kind: 'rule', id: 'main' })}>
-          {memory.zone ? 'Zone and light' : 'Draw its zone'} →
+          {mainZone(memory) ? 'Zone and light' : 'Draw its zone'} →
         </Button>
         <Button variant="text" disabled={Boolean(busy)} onClick={() => lab.openModel(undefined)}>
-          Edit model {memory.item ? '· fitted' : ''} →
+          Edit model {mugModel(memory) ? '· fitted' : ''} →
         </Button>
       </div>
-      <ThingStats id={memory.object.id} label={memory.object.label} type="mug" />
+      <ThingStats id={mugOf(memory)!.id} label={mugOf(memory)!.label} type="mug" />
       {sightings.length > 0 && (
         <Details
           summary={`History · ${sightings.length} sighting${sightings.length === 1 ? '' : 's'}`}
@@ -1049,7 +1055,7 @@ function OtherPanel({ id }: { id: string }) {
   const { memory, segmentation, segmentRunId, canVision } = lab;
   const { call, off } = useCall();
   const now = useNow();
-  const o = memory?.others?.find((x) => x.id === id);
+  const o = otherObjects(memory)?.find((x) => x.id === id);
   if (!o) return <SetupPanel />;
   const canTrack =
     segmentation &&
@@ -1174,7 +1180,7 @@ function ZonePanel() {
   const { memory, mode, busy, drawing, draftZone, currentObservation, zoneObservation, lampReady } =
     lab;
   const { call, off } = useCall();
-  if (!memory?.object)
+  if (!memory || !mugOf(memory))
     return (
       <Panel
         tiny="RULE · MAIN"
@@ -1189,7 +1195,7 @@ function ZonePanel() {
     );
   const d = memory.lastDecision?.output;
   const lampName = mode === 'demo' ? 'virtual lamp' : 'lamp';
-  const status = !memory.zone
+  const status = !mainZone(memory)
     ? zoneObservation
       ? 'Draw the zone the mug should be in.'
       : 'Track the mug in this frame, then draw its zone.'
@@ -1212,21 +1218,21 @@ function ZonePanel() {
       }
     >
       <p className="rule-sentence">
-        When <strong>{memory.object.label}</strong> is inside{' '}
-        <strong>{memory.zone ? 'ZN-01' : 'a zone'}</strong>, turn on{' '}
+        When <strong>{mugOf(memory)!.label}</strong> is inside{' '}
+        <strong>{mainZone(memory) ? 'ZN-01' : 'a zone'}</strong>, turn on{' '}
         <strong>{lab.lights[0] ?? 'the main lamp'}</strong>
-        {memory.zone?.offWhenEmpty !== false && ', and off again when it leaves'}.
+        {mainZone(memory)?.offWhenEmpty !== false && ', and off again when it leaves'}.
       </p>
       <CameraMoved />
       {!drawing && (
         <Button
           disabled={Boolean(busy) || !zoneObservation}
           onClick={() => {
-            lab.setDraftZone(memory.zone?.rect ?? { x: 0.3, y: 0.2, width: 0.4, height: 0.6 });
+            lab.setDraftZone(mainZone(memory)?.rect ?? { x: 0.3, y: 0.2, width: 0.4, height: 0.6 });
             lab.setDrawing(true);
           }}
         >
-          {memory.zone ? 'Edit zone' : 'Draw zone'}
+          {mainZone(memory) ? 'Edit zone' : 'Draw zone'}
         </Button>
       )}
       {drawing && (
@@ -1285,13 +1291,13 @@ function ZonePanel() {
           Boolean(busy) ||
           drawing ||
           !currentObservation ||
-          !memory.zone ||
+          !mainZone(memory) ||
           (mode === 'live' && !lampReady)
         }
         onClick={() =>
           void lab.deskAction('verify', {
             observationId: currentObservation?.id,
-            zoneId: memory.zone?.id,
+            zoneId: mainZone(memory)?.id,
           })
         }
       >
@@ -1304,7 +1310,7 @@ function ZonePanel() {
       {mode === 'live' && !lampReady && (
         <ChooseDevicesLink why="The lamp isn’t set up yet (or try it in Demo)." />
       )}
-      {!currentObservation && memory.zone && (
+      {!currentObservation && mainZone(memory) && (
         <p className="micro">
           Track the mug in this frame first: a still photo doesn’t say where it is now.
         </p>
@@ -1334,9 +1340,9 @@ function ZonePanel() {
           </p>
         </Details>
       )}
-      {memory.zone && (
+      {mainZone(memory) && (
         <Check
-          checked={memory.zone.offWhenEmpty !== false}
+          checked={mainZone(memory)!.offWhenEmpty !== false}
           disabled={off}
           onChange={(offWhenEmpty) =>
             void call<DeskMemory>('desk/zone/options', { offWhenEmpty }, lab.setMemory)
@@ -1345,7 +1351,7 @@ function ZonePanel() {
           and off again when the mug leaves
         </Check>
       )}
-      {memory.zone && lab.lights[0]?.startsWith('light.') && <MainZoneLook />}
+      {mainZone(memory) && lab.lights[0]?.startsWith('light.') && <MainZoneLook />}
       <Details summary="Camera">
         <Check
           checked={Boolean(memory.fixedCamera)}
@@ -1355,7 +1361,7 @@ function ZonePanel() {
           The camera is fixed: keep the zone for new frames of the same size
         </Check>
         <p className="micro">
-          {!memory.zone
+          {!mainZone(memory)
             ? 'No zone saved yet.'
             : memory.fixedCamera
               ? 'The zone carries over to new frames of this size.'
@@ -1435,7 +1441,7 @@ function LookPicker({
 function MainZoneLook() {
   const lab = useLabParts(useDesk());
   const { call, off } = useCall();
-  const saved = lab.memory?.zone?.look;
+  const saved = mainZone(lab.memory)?.look;
   const [look, setLook] = useState(saved);
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const savedKey = JSON.stringify(saved);
@@ -1594,14 +1600,14 @@ function NewRulePanel() {
   const { call, off } = useCall();
   if (!draft) return <SetupPanel />;
   const objects = [
-    ...(memory?.object && memory.observation
-      ? [{ id: memory.object.id, label: memory.object.label }]
+    ...(mugOf(memory) && mugSighting(memory)
+      ? [{ id: mugOf(memory)!.id, label: mugOf(memory)!.label }]
       : []),
-    ...(memory?.others ?? [])
+    ...(otherObjects(memory) ?? [])
       .filter((o) => o.observation)
       .map((o) => ({ id: o.id, label: o.label })),
     // A fixture the camera follows can decide a rule too.
-    ...(memory?.fixtures ?? [])
+    ...placedFixtures(memory)
       .filter((f) => f.track)
       .map((f) => ({ id: f.id, label: `${f.label} (fixture)` })),
   ];

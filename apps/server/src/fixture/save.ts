@@ -21,6 +21,7 @@ import {
   type Fixture,
   type FixtureInput,
   type FixtureState,
+  placedFixtures,
 } from '@livinglayer/domain';
 import { LabError } from '../errors.js';
 import { rescore } from '../item.js';
@@ -102,7 +103,7 @@ export async function saveFixture(
   const previous = input.id ? fixtures.find((f) => f.id === input.id) : undefined;
   if (input.id && !previous)
     throw new LabError('fixture_unknown', 'That fixture is not in this desk memory.', 404);
-  if (!previous && fixtures.length >= MAX_FIXTURES)
+  if (!previous && placedFixtures(memory).length >= MAX_FIXTURES)
     throw new LabError('fixture_limit', `Up to ${MAX_FIXTURES} fixtures are allowed.`, 409);
   const problem = fixtureProblem(input, memory.scene);
   if (problem) throw new LabError('fixture_place', problem, 400);

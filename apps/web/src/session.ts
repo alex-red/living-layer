@@ -302,17 +302,10 @@ export function writeSaves(list: NamedSave[]): boolean {
 export function emptyDesk(mode: Mode): DeskMemory {
   return {
     mode,
-    object: null,
-    observation: null,
-    zone: null,
     lastDecision: null,
     fixedCamera: false,
     surface: null,
     scene: null,
-    history: [],
-    placement: null,
-    others: [],
     rules: [],
-    item: null,
   };
 }

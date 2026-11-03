@@ -1,4 +1,5 @@
 import { describe, expect, it, mock, spyOn } from 'bun:test';
+import { history, mainZone, mug, sighting } from './lib/mug.js';
 import { randomUUID } from 'node:crypto';
 import { testApp } from './lib/app.js';
 import { EvidenceStore } from '../apps/server/src/store.js';
@@ -17,6 +18,9 @@ import {
   type EvidenceRun,
   type PlacementDecision,
   type Segmentation,
+  MAIN_RULE,
+  upgradeMemory,
+  type PlacementRule,
 } from '@livinglayer/domain';
 import { demoLamp } from '../apps/server/src/demo.js';
 
@@ -38,7 +42,7 @@ async function setup() {
     await post('desk/select', { segmentRunId: segment.id, detectionId: '7' })
   ).json<DeskMemory>();
   const zone = async (rect = inside) =>
-    (await post('desk/zone', { observationId: memory.observation!.id, rect })).json<DeskMemory>();
+    (await post('desk/zone', { observationId: sighting(memory)!.id, rect })).json<DeskMemory>();
   return { app, c, post, memory, segment, zone, fetcher };
 }
 
@@ -46,7 +50,7 @@ describe('desk placement', () => {
   it('persists object identity and zone across restart; links selection, decision, and virtual action without provider traffic', async () => {
     const s = await setup();
     const zoned = await s.zone();
-    const ids = { observationId: zoned.observation!.id, zoneId: zoned.zone!.id };
+    const ids = { observationId: sighting(zoned)!.id, zoneId: mainZone(zoned)!.id };
     const event = (await s.post('desk/verify', ids)).json();
     expect(event.output).toMatchObject({
       decision: 'inside',
@@ -58,8 +62,8 @@ describe('desk placement', () => {
     await s.app.close();
     const { app } = await testApp({ env: { DATA_DIR: s.c.dataDir } });
     const restored = (await app.inject('/api/desk/demo')).json<DeskMemory>();
-    expect(restored.object!.id).toBe(s.memory.object!.id);
-    expect(restored.zone).toEqual(zoned.zone);
+    expect(mug(restored)!.id).toBe(mug(s.memory)!.id);
+    expect(mainZone(restored)).toEqual(mainZone(zoned));
     expect(restored.lastDecision!.id).toBe(event.id);
     const again = await app.inject({
       method: 'POST',
@@ -76,7 +80,7 @@ describe('desk placement', () => {
     expect(exportData.runs.map((r: EvidenceRun) => r.kind)).toEqual(
       expect.arrayContaining(['observation', 'zone', 'placement']),
     );
-    expect(exportData.desk.demo.object.id).toBe(s.memory.object!.id);
+    expect(mug(exportData.desk.demo)!.id).toBe(mug(s.memory)!.id);
     expect((await app.inject('/api/status')).json().liveEvidence.lamp).toBe(false);
     await app.close();
   });
@@ -92,13 +96,13 @@ describe('desk placement', () => {
     expect(
       (
         await s.post('desk/zone', {
-          observationId: s.memory.observation!.id,
+          observationId: sighting(s.memory)!.id,
           rect: { ...inside, x: 0.95 },
         })
       ).statusCode,
     ).toBe(400);
     const zoned = await s.zone(outside);
-    const ids = { observationId: zoned.observation!.id, zoneId: zoned.zone!.id };
+    const ids = { observationId: sighting(zoned)!.id, zoneId: mainZone(zoned)!.id };
     expect((await s.post('desk/verify', { ...ids, zoneId: randomUUID() })).statusCode).toBe(409);
     expect((await s.post('desk/verify', ids)).json().output).toMatchObject({
       decision: 'outside',
@@ -106,15 +110,15 @@ describe('desk placement', () => {
     });
     const changed = await s.zone();
     expect(
-      (await s.post('desk/verify', { ...ids, zoneId: changed.zone!.id })).json().output.action,
+      (await s.post('desk/verify', { ...ids, zoneId: mainZone(changed)!.id })).json().output.action,
     ).toBe('confirmed');
     await s.app.close();
   });
   it('blocks old or superseded observations, including after a no-match or failed segmentation', async () => {
     const s = await setup();
     const z = await s.zone();
-    const ids = { observationId: z.observation!.id, zoneId: z.zone!.id };
-    spyOn(Date, 'now').mockReturnValue(Date.parse(z.observation!.observedAt) + 300001);
+    const ids = { observationId: sighting(z)!.id, zoneId: mainZone(z)!.id };
+    spyOn(Date, 'now').mockReturnValue(Date.parse(sighting(z)!.observedAt) + 300001);
     expect((await s.post('desk/verify', ids)).json().output.reason).toContain('stale');
     mock.restore();
     await s.post('segment', { concept: 'unicorn' });
@@ -130,38 +134,41 @@ describe('desk placement', () => {
   it('keeps the stable object ID across fresh manual observations; reset does not re-enable consumed segmentation', async () => {
     const s = await setup();
     const z = await s.zone();
-    await s.post('desk/verify', { observationId: z.observation!.id, zoneId: z.zone!.id });
+    await s.post('desk/verify', { observationId: sighting(z)!.id, zoneId: mainZone(z)!.id });
     await s.post('desk/reset');
     const selected = (
       await s.post('desk/select', { segmentRunId: s.segment.id, detectionId: '7' })
     ).json<DeskMemory>();
     const zone = (
-      await s.post('desk/zone', { observationId: selected.observation!.id, rect: inside })
+      await s.post('desk/zone', { observationId: sighting(selected)!.id, rect: inside })
     ).json<DeskMemory>();
     expect(
       (
-        await s.post('desk/verify', { observationId: zone.observation!.id, zoneId: zone.zone!.id })
+        await s.post('desk/verify', {
+          observationId: sighting(zone)!.id,
+          zoneId: mainZone(zone)!.id,
+        })
       ).json().output.action,
     ).toBe('none');
     const segment = (await s.post('segment', { concept: 'mug' })).json();
     const fresh = (
       await s.post('desk/select', { segmentRunId: segment.id, detectionId: '7' })
     ).json<DeskMemory>();
-    expect(fresh.object!.id).toBe(selected.object!.id);
-    expect(fresh.observation!.id).not.toBe(selected.observation!.id);
+    expect(mug(fresh)!.id).toBe(mug(selected)!.id);
+    expect(sighting(fresh)!.id).not.toBe(sighting(selected)!.id);
     await s.app.close();
   });
   it('rejects mismatched source images and boundary-crossing boxes', async () => {
     const s = await setup();
     const z = await s.zone();
-    expect(placementGate({ ...z, zone: { ...z.zone!, sourceKey: 'different' } }).decision).toBe(
-      'blocked',
-    );
+    // The main zone, drawn on another image, or somewhere else.
+    const moved = (zone: Partial<PlacementRule['zone']>): DeskMemory => ({
+      ...z,
+      rules: z.rules!.map((r) => (r.id === MAIN_RULE ? { ...r, zone: { ...r.zone, ...zone } } : r)),
+    });
+    expect(placementGate(moved({ sourceKey: 'different' })).decision).toBe('blocked');
     expect(
-      placementGate({
-        ...z,
-        zone: { ...z.zone!, rect: { x: 0.56, y: 0.3, width: 0.1, height: 0.12 } },
-      }).decision,
+      placementGate(moved({ rect: { x: 0.56, y: 0.3, width: 0.1, height: 0.12 } })).decision,
     ).toBe('outside');
     await s.app.close();
   });
@@ -197,7 +204,7 @@ describe('desk placement', () => {
     const request = {
       method: 'POST' as const,
       url: '/api/desk/verify',
-      payload: { mode: 'demo', observationId: z.observation!.id, zoneId: z.zone!.id },
+      payload: { mode: 'demo', observationId: sighting(z)!.id, zoneId: mainZone(z)!.id },
     };
     const pending = app.inject(request);
     await waitFor(() => action.mock.calls.length === 1);
@@ -221,7 +228,7 @@ describe('desk memory during a slow lamp call', () => {
       await s.post('desk/rules/save', {
         rule: {
           label: 'Coaster',
-          objects: [s.memory.object!.id],
+          objects: [mug(s.memory)!.id],
           entityId: 'light.demo_desk',
           rect: { x: 0, y: 0, width: 1, height: 1 },
         },
@@ -299,7 +306,7 @@ describe('desk tracking', () => {
     const map = surfaceMap(DEMO_SURFACE, DEMO_SURFACE.frame)!;
     const rect = zoneFromSurface(a, b, DEMO_SURFACE.frame, map.toFrame)!;
     const saved = await s.post('desk/zone', {
-      observationId: s.memory.observation!.id,
+      observationId: sighting(s.memory)!.id,
       rect,
       onSurface: { scene: 'office', surfaceId: 'desk:top', a, b },
     });
@@ -310,7 +317,7 @@ describe('desk tracking', () => {
     expect(steps.map((t) => t.event.output.transition)).toEqual(['stayed_outside', 'entered']);
     expect(steps.every((t) => !t.event.output.assumedFixedCamera)).toBe(true);
     const wrong = await s.post('desk/zone', {
-      observationId: steps.at(-1)!.memory.observation!.id,
+      observationId: sighting(steps.at(-1)!.memory)!.id,
       rect,
       onSurface: { scene: 'office', surfaceId: 'nowhere', a, b },
     });
@@ -318,7 +325,8 @@ describe('desk tracking', () => {
     await s.app.close();
   });
   it('blocks every decision once the camera has moved', () => {
-    const memory = {
+    // Kept the way it was before the mug was a thing; the upgrade makes it one.
+    const memory = upgradeMemory({
       mode: 'live',
       object: { id: 'o', label: 'Mug', createdAt: new Date().toISOString() },
       observation: {
@@ -335,7 +343,7 @@ describe('desk tracking', () => {
       zone: { id: 'z', sourceKey: 'k', rect: inside, frame: { width: 960, height: 640 } },
       lastDecision: null,
       camera: { ...DEMO_CALIBRATION, moved: true },
-    } as DeskMemory;
+    } as unknown as DeskMemory);
     expect(placementGate(memory)).toMatchObject({ decision: 'blocked' });
     expect(placementGate({ ...memory, camera: DEMO_CALIBRATION }).decision).toBe('inside');
   });
@@ -371,12 +379,12 @@ describe('desk tracking', () => {
       transition: 'entered',
       lamp: { action: 'on', desired: { rgb_color: [255, 0, 0], brightness_pct: 60 } },
     });
-    expect(red.memory.zone).toMatchObject({ look, offWhenEmpty: false });
+    expect(mainZone(red.memory)).toMatchObject({ look, offWhenEmpty: false });
     expect(steps[0]!.event.output.assumedFixedCamera).toBe(true);
     const last = steps.at(-1)!.memory;
-    expect(last.observation).toMatchObject({ identity: 'tracked' });
-    expect(last.history).toHaveLength(5);
-    expect(last.history![0]!.box.y).toBe(178);
+    expect(sighting(last)).toMatchObject({ identity: 'tracked' });
+    expect(history(last)).toHaveLength(5);
+    expect(history(last)![0]!.box.y).toBe(178);
     expect(s.fetcher).not.toHaveBeenCalled();
     await s.app.close();
   });
@@ -384,7 +392,7 @@ describe('desk tracking', () => {
     const s = await setup();
     await s.zone();
     const moved = (await track(s, 'right')).json<Tracked>();
-    expect(moved.memory.zone).toBeNull();
+    expect(mainZone(moved.memory)).toBeNull();
     expect(moved.event.output).toMatchObject({ decision: 'blocked', action: 'none' });
     expect(moved.event.output.transition).toBeUndefined();
     await s.app.close();
@@ -402,7 +410,7 @@ describe('desk tracking', () => {
     const lost = await s.post('desk/track', { segmentRunId: empty.id });
     expect(lost.statusCode).toBe(400);
     const after = (await s.app.inject('/api/desk/demo')).json<DeskMemory>();
-    expect(after.observation!.id).toBe(before.observation!.id);
+    expect(sighting(after)!.id).toBe(sighting(before)!.id);
     await s.app.close();
   });
   it('matches the detection overlapping the last box, and refuses to guess between several', () => {

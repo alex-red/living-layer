@@ -12,6 +12,7 @@ import {
   type SelectResolve,
   type Segmentation,
   type Bits,
+  followedThings,
 } from '@livinglayer/domain';
 import { LabError, NOT_CALIBRATED, parseInput, requireCalibration } from './errors.js';
 import type { RouteDeps } from './route-deps.js';
@@ -21,15 +22,9 @@ const MAX_CANDIDATES = 5;
 
 /** Tracked objects with a sighting on frames of this size, by their last box. */
 function trackedObjects(memory: DeskMemory, frame: Segmentation['frame']) {
-  const all = [
-    ...(memory.object ? [{ ...memory.object, observation: memory.observation }] : []),
-    ...(memory.others ?? []),
-  ];
-  return all.flatMap((o) =>
-    o.observation &&
-    o.observation.frame.width === frame.width &&
-    o.observation.frame.height === frame.height
-      ? [{ id: o.id, label: o.label, box: o.observation.box }]
+  return followedThings(memory).flatMap(({ id, label, place, track: { observation: o } }) =>
+    place === 'sightings' && o.frame.width === frame.width && o.frame.height === frame.height
+      ? [{ id, label, box: o.box }]
       : [],
   );
 }

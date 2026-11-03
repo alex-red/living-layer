@@ -8,6 +8,9 @@ import {
   type DeskMemory,
   type IsoSceneKind,
   type Mode,
+  mainZone,
+  mugOf,
+  otherObjects,
 } from '@livinglayer/domain';
 
 /**
@@ -116,8 +119,8 @@ export function sceneProgress({
       ? pin.scene === 'custom' && Boolean(memory?.scene) && (view ? pin.surfaceId === deskId : true)
       : pinFits(pin, pinScene(view ?? room))),
   );
-  const objects = (memory?.object ? 1 : 0) + (memory?.others?.length ?? 0);
-  const rules = (memory?.zone ? 1 : 0) + (memory?.rules?.length ?? 0);
+  const objects = (mugOf(memory) ? 1 : 0) + (otherObjects(memory)?.length ?? 0);
+  const rules = (mainZone(memory) ? 1 : 0) + (memory?.rules?.length ?? 0);
   const ran = Boolean(memory?.lastDecision || memory?.rules?.some((r) => r.lastDecision));
   const roomLabel = room === 'custom' ? (memory?.scene?.label ?? 'your room') : room;
   const deskLabel = view ? viewLabel(view) : room ? 'Main surface' : 'Office desk';
@@ -185,7 +188,7 @@ export function selectionForStep(id: StepId, memory?: DeskMemory | null): Select
     case 'desk':
       return { kind: 'view' };
     case 'objects':
-      return memory?.object ? { kind: 'object', id: 'main' } : { kind: 'add' };
+      return mugOf(memory) ? { kind: 'object', id: 'main' } : { kind: 'add' };
     case 'rule':
     case 'run':
       return { kind: 'rule', id: 'main' };

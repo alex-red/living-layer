@@ -11,6 +11,7 @@ import type {
   UnitBox,
   WatchView,
 } from '@livinglayer/domain';
+import { mainPlacement, mugSighting } from '@livinglayer/domain';
 import { DEMO_POSITIONS, startLocalTrack, stepLocalTrack } from '@livinglayer/domain';
 import { api } from '../../api';
 import { followStatsStore, followViewStore } from './follow-store';
@@ -181,7 +182,7 @@ export function useTrackingSlice(
     if (!o || !src) return;
     setError('');
     try {
-      const next = await seedTrack(src, o, segmentation, memory?.placement === 'inside');
+      const next = await seedTrack(src, o, segmentation, mainPlacement(memory) === 'inside');
       if (!next)
         throw new Error('The mug is too small or too plain to follow locally. Keep using Track.');
       localTrack.current = next;
@@ -217,7 +218,7 @@ export function useTrackingSlice(
       }
       return stopFollow();
     }
-    const o = result.memory.observation;
+    const o = mugSighting(result.memory);
     try {
       const next =
         o &&
@@ -225,7 +226,7 @@ export function useTrackingSlice(
           result.frame ?? '',
           o,
           result.segmentation,
-          result.memory.placement === 'inside',
+          mainPlacement(result.memory) === 'inside',
         ));
       if (!next) throw new Error('SAM found the mug, but it is too small to keep following.');
       localTrack.current = next;

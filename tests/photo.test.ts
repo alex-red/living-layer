@@ -1,4 +1,5 @@
 import { describe, expect, it, mock, setDefaultTimeout } from 'bun:test';
+import { item, mug, others, sighting } from './lib/mug.js';
 import { readFileSync } from 'node:fs';
 import sharp from 'sharp';
 import { tempDir, testApp } from './lib/app.js';
@@ -380,12 +381,12 @@ describe('photo routes, offline', () => {
     const memory = saved.json<DeskMemory>();
     expect(memory.scene?.label).toBe('From the room camera');
     expect(memory.surface?.scene).toBe('custom');
-    expect(memory.object?.label).toBe('Cream mug');
-    expect(memory.observation?.detectionId).toBe('2');
-    expect(memory.item?.source).toBe('placeholder');
+    expect(mug(memory)?.label).toBe('Cream mug');
+    expect(sighting(memory)?.detectionId).toBe('2');
+    expect(item(memory)?.source).toBe('placeholder');
     // The tracked bottle is drawn from its sightings, not as part of the room.
     expect(memory.scene!.props.some((p) => p.template === 'bottle')).toBe(false);
-    expect(memory.others?.map((o) => [o.label, o.concept, Boolean(o.item)])).toEqual([
+    expect(others(memory)?.map((o) => [o.label, o.concept, Boolean(o.item)])).toEqual([
       ['Sage bottle', 'sage bottle', true],
     ]);
     // The room is drawn from its templates: nothing from the photo is pasted on.

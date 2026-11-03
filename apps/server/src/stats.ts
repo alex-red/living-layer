@@ -65,18 +65,6 @@ function statThings(memory: DeskMemory): StatThing[] {
     height: box.height / frame.height,
   });
   const things: StatThing[] = [];
-  if (memory.object)
-    things.push({
-      id: memory.object.id,
-      label: memory.object.label,
-      region: memory.observation ? unit(memory.observation.box, memory.observation.frame) : null,
-    });
-  for (const o of memory.others ?? [])
-    things.push({
-      id: o.id,
-      label: o.label,
-      region: o.observation ? unit(o.observation.box, o.observation.frame) : null,
-    });
   const pin = memory.surface ?? null;
   for (const f of memory.fixtures ?? []) {
     const seen = f.track?.observation;

@@ -10,7 +10,10 @@ import {
 import { entityIdSchema } from './fixture.js';
 import { isoSurface, projectBox, surfaceMap } from './iso.js';
 import {
+  MAIN_RULE,
   calibrationOf,
+  followedThings,
+  mugOf,
   objectById,
   zoneOnSurfaceSchema,
   zoneRectSchema,
@@ -150,9 +153,15 @@ export function pickTracked(
     margin: margins[0] ?? 0,
   };
 }
-/** Whether the saved zone applies to the current observation, and whether only by assumption. */
+/** Whether the main zone applies to the mug's sighting, and whether only by assumption. */
 export function zoneApplies(memory: DeskMemory): { applies: boolean; carried: boolean } {
-  return zoneAppliesTo(memory.observation, memory.zone, memory.fixedCamera, calibrationOf(memory));
+  const main = memory.rules?.find((r) => r.id === MAIN_RULE);
+  return zoneAppliesTo(
+    mugOf(memory)?.track?.observation,
+    main?.zone,
+    memory.fixedCamera,
+    calibrationOf(memory),
+  );
 }
 /**
  * Whether a zone applies to an observation: one drawn in the room applies to
@@ -246,13 +255,9 @@ export const ruleInputSchema = z
     onSurface?: ZoneOnSurface;
   }
 >;
-/** Everything the camera follows: the mug, other objects and tracked fixtures. */
+/** Everything the camera follows: each thing with a sighting. */
 function followedIds(memory: DeskMemory): string[] {
-  return [
-    ...(memory.object && memory.observation ? [memory.object.id] : []),
-    ...(memory.others ?? []).filter((o) => o.observation).map((o) => o.id),
-    ...(memory.fixtures ?? []).filter((f) => f.track).map((f) => f.id),
-  ];
+  return followedThings(memory).map((f) => f.id);
 }
 /**
  * The things a rule counts that are still remembered. A fixture never counts
@@ -401,40 +406,24 @@ export function ruleGate(
     objectId,
   };
 }
+/**
+ * The main zone's verdict on the mug: the rule `main`'s, with what to do
+ * first when there is no mug or no zone yet.
+ */
 export function placementGate(
   memory: DeskMemory,
   now = Date.now(),
 ): Pick<PlacementDecision, 'decision' | 'reason' | 'assumedFixedCamera'> {
-  const o = memory.observation;
-  const z = memory.zone;
-  if (!o || !memory.object || o.objectId !== memory.object.id)
+  if (!mugOf(memory)?.track)
     return { decision: 'blocked', reason: 'Select and manually confirm a mug mask first.' };
-  const age = now - Date.parse(o.observedAt);
-  if (!Number.isFinite(age) || age < 0 || age > OBSERVATION_MAX_AGE_MS)
-    return {
-      decision: 'blocked',
-      reason: 'Observation is stale. Segment a new frame and confirm the mug.',
-    };
-  if (calibrationOf(memory)?.moved) return { decision: 'blocked', reason: MOVED_CAMERA };
-  const zone = zoneApplies(memory);
-  if (!z || !zone.applies)
+  const main = memory.rules?.find((r) => r.id === MAIN_RULE);
+  if (!main)
     return {
       decision: 'blocked',
       reason: memory.fixedCamera
         ? 'Draw and save a zone on a frame of this size.'
         : 'Draw and save a zone on this observation image, or mark the camera as fixed.',
     };
-  const who = o.identity === 'tracked' ? 'tracked' : 'manually confirmed';
-  const assumption = zone.carried ? ' (zone carried over: camera assumed fixed)' : '';
-  return standsInZone(memory, o, z)
-    ? {
-        decision: 'inside',
-        reason: `The ${who} mug stands in the saved zone${assumption}.`,
-        assumedFixedCamera: zone.carried,
-      }
-    : {
-        decision: 'outside',
-        reason: `The mug stands outside the zone${assumption}. No lamp action.`,
-        assumedFixedCamera: zone.carried,
-      };
+  const { inside: _, objectId: __, ...gate } = ruleGate(memory, main, now);
+  return gate;
 }

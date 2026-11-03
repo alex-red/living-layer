@@ -26,6 +26,13 @@ import {
   type Fixture,
   objectById,
   withSighting,
+  MAIN_RULE,
+  zoneApplies,
+  followedThings,
+  mugOf,
+  otherThings,
+  sightedThing,
+  stockModel,
   type UnitBox,
   ruleGate,
   ruleObjects,
@@ -39,7 +46,6 @@ import {
   type PlacementRule,
   placementGate,
   pickTracked,
-  zoneApplies,
   isMugConcept,
   HISTORY_LIMIT,
   OBSERVATION_MAX_AGE_MS,
@@ -59,6 +65,11 @@ import { noteControl } from './fixture/control.js';
 import type { RouteDeps } from './route-deps.js';
 import type { SwitchOptions, Switched } from './control.js';
 
+/** The main zone, when it no longer applies to the mug's sighting: the mug was seen on another image. */
+function dropMainZone(memory: DeskMemory) {
+  if (memory.rules?.some((r) => r.id === MAIN_RULE) && !zoneApplies(memory).applies)
+    memory.rules = memory.rules.filter((r) => r.id !== MAIN_RULE);
+}
 /** A zone drawn in the room must name a surface the room has. */
 function checkOnSurface(memory: DeskMemory, onSurface: ZoneOnSurface | undefined) {
   if (onSurface && !isoSurface(onSurface.scene, onSurface.surfaceId, memory.scene))
@@ -121,7 +132,11 @@ export function createDesk(
       throw new LabError('stale_observation', 'This segmentation is stale. Segment a new frame.');
     return { run, segmentation };
   }
-  /** Record where the object is now, keeping the previous sighting in its history. */
+  /**
+   * Record where the mug is now, keeping the previous sighting in its
+   * history: the mug is the thing of its type the camera places, made the
+   * first time one is confirmed.
+   */
   function observe(
     memory: DeskMemory,
     run: EvidenceRun,
@@ -130,118 +145,69 @@ export function createDesk(
     identity: DeskObservation['identity'],
     overlap: number | null,
   ) {
-    memory.object ??= {
-      id: randomUUID(),
-      label: 'My desk mug',
-      createdAt: new Date().toISOString(),
-    };
-    if (memory.observation)
-      memory.history = [memory.observation, ...(memory.history ?? [])].slice(0, HISTORY_LIMIT);
-    memory.observation = {
-      id: randomUUID(),
-      objectId: memory.object.id,
-      segmentRunId: run.id,
-      detectionId: detection.objectId,
-      observedAt: run.createdAt,
-      sourceKey: segmentation.sourceKey!,
-      frame: segmentation.frame,
-      box: detection.box,
-      identity,
-      overlap,
-    };
-    // A zone is meaningful only for the image it was drawn on, unless the
+    let mug = mugOf(memory);
+    const id = mug?.id ?? randomUUID();
+    const observation = sightingOf(id, run, segmentation, detection, identity, overlap);
+    if (!mug) {
+      mug = sightedThing(memory, {
+        id,
+        label: 'My desk mug',
+        concept: 'mug',
+        observation,
+        type: 'mug',
+        model: stockModel('Mug'),
+      });
+      memory.fixtures = [...(memory.fixtures ?? []), mug];
+    } else {
+      const before = mug.track?.observation;
+      mug.track = {
+        concept: 'mug',
+        observation,
+        history: before ? [before, ...(mug.track?.history ?? [])].slice(0, HISTORY_LIMIT) : [],
+        status: 'seen',
+      };
+      mug.updatedAt = new Date().toISOString();
+    }
+    // The main zone is meaningful only for the image it was drawn on, unless the
     // person has said the camera is fixed and the frame is the same size.
-    if (!zoneApplies(memory).applies) memory.zone = null;
+    dropMainZone(memory);
     memory.lastDecision = null;
     store.saveMemory(memory);
-    store.save(evidence('observation', memory.mode, memory.observation));
+    store.save(evidence('observation', memory.mode, observation));
+    return observation;
   }
   /**
-   * Check the current observation against the zone. The lamp turns on only
-   * when the mug enters (inside now, not at the last check) and off when it
-   * leaves, unless the zone keeps it on. Each segmentation can attempt each
-   * at most once. `local` is where the watcher follows the mug now, judged in
-   * place of its sighting, which stays SAM's.
+   * Check the mug against the main zone, the rule `main`: its light turns on
+   * when the mug enters and off when it leaves, unless the zone keeps it on.
+   * Each segmentation can attempt each at most once. With no zone yet, a
+   * blocked decision says what to do first.
    */
-  async function verify(
-    mode: Mode,
-    memory: DeskMemory,
-    local?: DeskObservation,
-  ): Promise<EvidenceRun<PlacementDecision>> {
-    const o = local ?? memory.observation!;
-    const zoneId = memory.zone?.id ?? null;
-    const gate = local
-      ? placementGate(withSighting(memory, local.objectId, local))
-      : store.latestSegment(mode) !== o.segmentRunId
+  async function verify(mode: Mode, memory: DeskMemory): Promise<EvidenceRun<PlacementDecision>> {
+    const mug = mugOf(memory);
+    const superseded = Boolean(
+      mug?.track && store.latestSegment(mode) !== mug.track.observation.segmentRunId,
+    );
+    if (mug && !superseded && memory.rules?.some((r) => r.id === MAIN_RULE)) {
+      const [event] = await verifyRules(mode, mug.id, undefined, MAIN_RULE);
+      if (event) return event;
+    }
+    const o = mug?.track?.observation ?? null;
+    const event = evidence('placement', mode, {
+      ...(superseded
         ? {
             decision: 'blocked' as const,
             reason:
               'A newer segmentation superseded this observation. Confirm its mug mask before verifying.',
           }
-        : placementGate(memory);
-    const decision: PlacementDecision = {
-      ...gate,
-      ...(local ? { reason: `${gate.reason} ${LOCALLY}` } : {}),
-      observationId: o.id,
-      objectId: o.objectId,
-      segmentRunId: local ? null : o.segmentRunId,
-      zoneId,
-      action: 'none',
-    };
-    if (decision.decision !== 'blocked') {
-      const wasInside = memory.placement === 'inside';
-      decision.transition =
-        decision.decision === 'inside'
-          ? wasInside
-            ? 'stayed_inside'
-            : 'entered'
-          : wasInside
-            ? 'left'
-            : 'stayed_outside';
-      memory.placement = decision.decision;
-    }
-    if (decision.transition === 'stayed_inside')
-      decision.reason = `Still inside since the last check, so no lamp action. It fires again once the mug leaves and comes back. ${decision.reason}`;
-    // On when the mug enters; off when it leaves, unless the zone says to leave the light on.
-    const switching: 'on' | 'off' | null =
-      decision.transition === 'entered'
-        ? 'on'
-        : decision.transition === 'left' && memory.zone?.offWhenEmpty !== false
-          ? 'off'
-          : null;
-    if (
-      switching &&
-      !store.claimPlacement(`${claimOf(o, local)}${switching === 'off' ? ':left' : ''}`)
-    ) {
-      decision.decision = 'blocked';
-      decision.transition = undefined;
-      decision.reason =
-        'This segmentation already attempted an action. Capture and segment a new frame; no automatic retry.';
-    }
-    const event = evidence('placement', mode, decision);
-    const start = performance.now();
-    if (switching && decision.transition) {
-      decision.action = 'pending';
-      event.status = 'unconfirmed';
-    }
-    // Persist intent before dispatch: an interrupted request remains uncertain, never retried.
+        : placementGate(memory)),
+      observationId: o?.id ?? null,
+      objectId: mug?.id ?? null,
+      segmentRunId: o?.segmentRunId ?? null,
+      zoneId: null,
+      action: 'none' as const,
+    });
     store.save(event);
-    memory.lastDecision = event;
-    store.saveMemory(memory);
-    const look = memory.zone?.look;
-    await dispatch(
-      mode,
-      'Main zone',
-      decision,
-      event,
-      start,
-      // The watcher's own checks don't wait for Home Assistant to report the state.
-      () => turnOn(mode, undefined, switching!, look, { background: Boolean(local) }),
-      (latest) => {
-        if (!latest.lastDecision || latest.lastDecision.id === event.id)
-          latest.lastDecision = event;
-      },
-    );
+    store.updateMemory(mode, (latest) => void (latest.lastDecision = event));
     return event;
   }
   /**
@@ -347,10 +313,13 @@ export function createDesk(
       },
       identity: 'tracked',
     };
-    const event =
-      memory.object?.id === objectId && memory.zone ? await verify(mode, memory, local) : null;
     const rules = await verifyRules(mode, objectId, local);
-    return { memory: store.memory(mode), event, rules };
+    const event = rules.find((e) => e.output.ruleId === MAIN_RULE) ?? null;
+    return {
+      memory: store.memory(mode),
+      event,
+      rules: rules.filter((e) => e !== event),
+    };
   }
   /**
    * Check the extra rules, all of them or only those counting one object.
@@ -358,9 +327,18 @@ export function createDesk(
    * when the zone fills (and off when it empties, if asked), and can act at
    * most once per segmentation each way, like the main zone.
    */
-  async function verifyRules(mode: Mode, objectId?: string, local?: DeskObservation) {
+  async function verifyRules(
+    mode: Mode,
+    objectId?: string,
+    local?: DeskObservation,
+    only?: string,
+  ) {
     const events: EvidenceRun<PlacementDecision>[] = [];
-    const ruleLabels = new Map((store.memory(mode).rules ?? []).map((r) => [r.id, r.label]));
+    const ruleLabels = new Map(
+      (store.memory(mode).rules ?? [])
+        .filter((r) => !only || r.id === only)
+        .map((r) => [r.id, r.label]),
+    );
     // Each rule is judged and saved against the memory as it is then; none is held over an await.
     for (const ruleId of ruleLabels.keys()) {
       const step = store.updateMemory(mode, (memory) => {
@@ -407,6 +385,8 @@ export function createDesk(
           decision.transition = undefined;
           decision.reason = `This segmentation already attempted "${rule.label}". Track the object in a new frame; no automatic retry.`;
         }
+        if (decision.transition === 'stayed_inside' && rule.entityId !== null)
+          decision.reason = `Still inside since the last check, so nothing is switched. It switches again once the zone empties and fills. ${decision.reason}`;
         const event = evidence('placement', mode, decision);
         if (switching && decision.transition) {
           decision.action = 'pending';
@@ -414,6 +394,7 @@ export function createDesk(
         }
         store.save(event);
         rule.lastDecision = event;
+        memory.lastDecision = event;
         return { decision, event, switching, entityId: rule.entityId, look: rule.look };
       });
       if (!step) continue;
@@ -424,11 +405,14 @@ export function createDesk(
         decision,
         event,
         performance.now(),
-        () => turnOn(mode, entityId!, switching!, look, { background: Boolean(local) }),
+        // The main zone's entity is empty: the main light.
+        () => turnOn(mode, entityId || undefined, switching!, look, { background: Boolean(local) }),
         (memory) => {
           const rule = memory.rules?.find((r) => r.id === ruleId);
           if (rule && (!rule.lastDecision || rule.lastDecision.id === event.id))
             rule.lastDecision = event;
+          if (!memory.lastDecision || memory.lastDecision.id === event.id)
+            memory.lastDecision = event;
         },
       );
       events.push(event);
@@ -484,14 +468,10 @@ export function createDesk(
     concept: string,
     frame: Segmentation['frame'],
   ) {
-    const all = [
-      ...(memory.object && memory.observation ? [{ concept: 'mug', o: memory.observation }] : []),
-      ...(memory.others ?? []).map((t) => ({ concept: t.concept, o: t.observation })),
-      ...(memory.fixtures ?? []).map((f) => ({
-        concept: f.track?.concept ?? '',
-        o: f.track?.observation,
-      })),
-    ];
+    const all = followedThings(memory).map((f) => ({
+      concept: f.track.concept,
+      o: f.track.observation,
+    }));
     return all.flatMap(({ concept: c, o }) =>
       o &&
       o.objectId !== objectId &&
@@ -532,7 +512,8 @@ export function createDesk(
   async function trackMug(mode: Mode, segmentRunId: string) {
     available(mode);
     const memory = store.memory(mode);
-    if (!memory.object || !memory.observation)
+    const mug = mugOf(memory);
+    if (!mug?.track)
       throw new LabError(
         'track_identity',
         'Confirm the mug by hand once, then tracking can follow it.',
@@ -545,46 +526,20 @@ export function createDesk(
         'SAM found no mug in this frame. Nothing changed; the last sighting stands.',
         409,
       );
-    const match = pick(memory, memory.object.id, 'mug', segmentation, memory.observation);
+    const match = pick(memory, mug.id, 'mug', segmentation, mug.track.observation);
     observe(memory, run, segmentation, match.detection, 'tracked', match.overlap);
-    const event = await verify(mode, memory);
-    const rules = await verifyRules(mode, memory.object.id);
+    const all = await verifyRules(mode, mug.id);
+    const event =
+      all.find((e) => e.output.ruleId === MAIN_RULE) ?? (await verify(mode, store.memory(mode)));
+    const rules = all.filter((e) => e !== event);
     return { memory: store.memory(mode), event, rules, margin: match.margin };
   }
   /** Follow another object into the newest segmentation of its own concept, then check its rules. */
-  async function trackObject(mode: Mode, objectId: string, segmentRunId: string) {
-    available(mode);
-    const memory = store.memory(mode);
-    const target = memory.others?.find((o) => o.id === objectId);
-    if (!target?.observation)
+  function trackObject(mode: Mode, objectId: string, segmentRunId: string) {
+    const target = store.memory(mode).fixtures?.find((f) => f.id === objectId);
+    if (target?.place !== 'sightings')
       throw new LabError('track_identity', 'Remember this object by hand first.', 409);
-    const { run, segmentation } = latestSegmentation(mode, segmentRunId);
-    if (!sameConcept(segmentation.concept, target.concept))
-      throw new LabError(
-        'track_concept',
-        `Segment "${target.concept}" to track the ${target.label}.`,
-        409,
-      );
-    if (!segmentation.detections.length)
-      throw new LabError(
-        'track_lost',
-        `SAM found no ${target.concept} in this frame. Nothing changed.`,
-        409,
-      );
-    const match = pick(memory, target.id, target.concept, segmentation, target.observation);
-    target.history = [target.observation, ...(target.history ?? [])].slice(0, HISTORY_LIMIT);
-    target.observation = sightingOf(
-      target.id,
-      run,
-      segmentation,
-      match.detection,
-      'tracked',
-      match.overlap,
-    );
-    store.saveMemory(memory);
-    store.save(evidence('observation', mode, target.observation));
-    const events = await verifyRules(mode, target.id);
-    return { memory: store.memory(mode), events, margin: match.margin };
+    return trackFixture(mode, objectId, segmentRunId);
   }
   /**
    * A new sighting of a fixture: remembered with its history, and its place
@@ -602,7 +557,9 @@ export function createDesk(
     const was = before && sightingSpot(before);
     const moved =
       was && Math.hypot(spot.foot.x - was.foot.x, spot.foot.y - was.foot.y) > FIXTURE_MOVED;
-    for (const f of [fixture, ...linkedFixtures(memory.fixtures ?? [], fixture)]) {
+    // A thing placed by its sightings is drawn from them: nothing else to move.
+    const placed = fixture.place === 'sightings' ? [] : [fixture];
+    for (const f of [...placed, ...linkedFixtures(memory.fixtures ?? [], fixture)]) {
       f.seen = spot;
       const pin = memory.surface ?? (memory.mode === 'demo' ? DEMO_SURFACE : null);
       const place = pin ? placeSeen(f, pin, memory.scene ?? null) : null;
@@ -721,7 +678,7 @@ export async function deskRoutes(
     if (run.status !== 'completed' || !detection)
       throw new LabError('mug_selection', 'Select a specific mug mask from a new segmentation.');
     const memory = store.memory(mode);
-    const previous = memory.observation;
+    const previous = mugOf(memory)?.track?.observation;
     observe(
       memory,
       run,
@@ -744,12 +701,10 @@ export async function deskRoutes(
     const { mode, offWhenEmpty, look } = parseInput(deskZoneOptionsBodySchema, request.body);
     available(mode);
     const memory = store.memory(mode);
-    if (!memory.zone) throw new LabError('zone_missing', 'Draw and save the zone first.', 409);
-    memory.zone = {
-      ...memory.zone,
-      ...(offWhenEmpty !== undefined ? { offWhenEmpty } : {}),
-      ...(look ? { look } : {}),
-    };
+    const main = memory.rules?.find((r) => r.id === MAIN_RULE);
+    if (!main) throw new LabError('zone_missing', 'Draw and save the zone first.', 409);
+    if (offWhenEmpty !== undefined) main.offWhenEmpty = offWhenEmpty;
+    if (look) main.look = look;
     store.saveMemory(memory);
     return memory;
   });
@@ -758,8 +713,8 @@ export async function deskRoutes(
     available(mode);
     const memory = store.memory(mode);
     memory.fixedCamera = fixed;
-    // Turning it off drops a zone that only applied by the fixed-camera assumption.
-    if (memory.zone && !zoneApplies(memory).applies) memory.zone = null;
+    // Turning it off drops a main zone that only applied by the fixed-camera assumption.
+    dropMainZone(memory);
     memory.lastDecision = null;
     store.saveMemory(memory);
     return memory;
@@ -800,30 +755,24 @@ export async function deskRoutes(
     const detection = segmentation.detections.find((d) => d.objectId === detectionId);
     if (!detection) throw new LabError('object_selection', 'Pick a mask from this segmentation.');
     const memory = store.memory(mode);
-    const others = memory.others ?? [];
-    if (others.length >= MAX_OTHER_OBJECTS)
+    if (otherThings(memory).length >= MAX_OTHER_OBJECTS)
       throw new LabError(
         'object_limit',
         `Up to ${MAX_OTHER_OBJECTS} more objects can be remembered.`,
         409,
       );
-    if (
-      memory.observation?.segmentRunId === run.id &&
-      memory.observation.detectionId === detectionId
-    )
-      throw new LabError('object_selection', 'That mask is already the remembered mug.', 409);
+    const taken = followedThings(memory).find(
+      (f) =>
+        f.track.observation.segmentRunId === run.id &&
+        f.track.observation.detectionId === detectionId,
+    );
+    if (taken)
+      throw new LabError('object_selection', `That mask is already the ${taken.label}.`, 409);
     const id = randomUUID();
     const observation = sightingOf(id, run, segmentation, detection, 'manual', null);
-    memory.others = [
-      ...others,
-      {
-        id,
-        label,
-        concept: segmentation.concept,
-        createdAt: new Date().toISOString(),
-        observation,
-        history: [],
-      },
+    memory.fixtures = [
+      ...(memory.fixtures ?? []),
+      sightedThing(memory, { id, label, concept: segmentation.concept, observation }),
     ];
     store.saveMemory(memory);
     store.save(evidence('observation', mode, observation));
@@ -838,7 +787,7 @@ export async function deskRoutes(
     const { mode, objectId } = parseInput(deskObjectsForgetBodySchema, request.body);
     available(mode);
     const memory = store.memory(mode);
-    memory.others = (memory.others ?? []).filter((o) => o.id !== objectId);
+    memory.fixtures = (memory.fixtures ?? []).filter((f) => f.id !== objectId);
     memory.rules = withoutThings(memory.rules, [objectId]);
     store.saveMemory(memory);
     return memory;
@@ -867,7 +816,7 @@ export async function deskRoutes(
         throw new LabError('rule_fixture', 'That fixture does not switch this entity.', 400);
     }
     const rules = memory.rules ?? [];
-    if (!input.id && rules.length >= MAX_RULES)
+    if (!input.id && rules.filter((r) => r.id !== MAIN_RULE).length >= MAX_RULES)
       throw new LabError('rule_limit', `Up to ${MAX_RULES} extra zones are allowed.`, 409);
     const rule: PlacementRule = {
       id: input.id ?? randomUUID(),
@@ -912,29 +861,37 @@ export async function deskRoutes(
     const events = await verifyRules(mode);
     return { memory: store.memory(mode), events };
   });
+  /** Draw the main zone: the rule `main`, counting the mug and switching the main light. */
   app.post('/zone', async (request) => {
     const { mode, observationId, rect, onSurface } = parseInput(deskZoneBodySchema, request.body);
     available(mode);
     const memory = store.memory(mode);
-    if (!memory.observation || memory.observation.id !== observationId)
+    const mug = mugOf(memory);
+    const o = mug?.track?.observation;
+    if (!mug || !o || o.id !== observationId)
       throw new LabError(
         'observation_changed',
         'Confirm the current mug before saving its zone.',
         409,
       );
     checkOnSurface(memory, onSurface);
-    memory.zone = {
-      id: randomUUID(),
-      sourceKey: memory.observation.sourceKey,
-      rect,
-      frame: memory.observation.frame,
-      ...(onSurface ? { onSurface } : {}),
+    const main: PlacementRule = {
+      id: MAIN_RULE,
+      label: 'Main zone',
+      objects: [mug.id],
+      entityId: '',
+      // Its light goes off as the mug leaves, unless the zone is told to keep it on.
+      offWhenEmpty: true,
+      zone: { sourceKey: o.sourceKey, rect, frame: o.frame, ...(onSurface ? { onSurface } : {}) },
+      // A new zone starts a new inside/outside story.
+      placement: null,
+      inside: [],
+      lastDecision: null,
     };
-    // A new zone starts a new inside/outside story.
-    memory.placement = null;
+    memory.rules = [main, ...(memory.rules ?? []).filter((r) => r.id !== MAIN_RULE)];
     memory.lastDecision = null;
     store.saveMemory(memory);
-    store.save(evidence('zone', mode, { ...memory.zone, observationId }));
+    store.save(evidence('zone', mode, { ...main.zone, id: MAIN_RULE, observationId }));
     return memory;
   });
   app.post('/reset', async (request) => {
@@ -942,9 +899,6 @@ export async function deskRoutes(
     available(mode);
     const memory: DeskMemory = {
       mode,
-      object: null,
-      observation: null,
-      zone: null,
       lastDecision: null,
       // Whether the camera moves is a fact about the setup, not about the mug.
       fixedCamera: store.memory(mode).fixedCamera ?? false,
@@ -959,12 +913,9 @@ export async function deskRoutes(
       deskIllustration: store.memory(mode).deskIllustration ?? null,
       // Which camera is watched is a fact about the setup too.
       ...(store.memory(mode).watch ? { watch: store.memory(mode).watch } : {}),
-      history: [],
-      placement: null,
-      // Extra objects and their rules go with the mug; the scene stays.
-      others: [],
+      // The mug, other objects and the rules go; the scene and what was placed in it stay.
       rules: [],
-      fixtures: store.memory(mode).fixtures ?? [],
+      fixtures: (store.memory(mode).fixtures ?? []).filter((f) => f.place !== 'sightings'),
       // Entities in Home Assistant describe the home; ones whose zone went show as unavailable.
       exposed: store.memory(mode).exposed ?? [],
     };
@@ -978,13 +929,7 @@ export async function deskRoutes(
    * the dev server (`bun run reset demo`); live memory is never touched.
    */
   app.post('/demo/reset', async () => {
-    const memory: DeskMemory = {
-      mode: 'demo',
-      object: null,
-      observation: null,
-      zone: null,
-      lastDecision: null,
-    };
+    const memory: DeskMemory = { mode: 'demo', lastDecision: null };
     store.saveMemory(memory);
     return store.memory('demo');
   });
@@ -1001,19 +946,15 @@ export async function deskRoutes(
     const next = memory as unknown as DeskMemory;
     if (next.surface && !isoSurface(next.surface.scene, next.surface.surfaceId, next.scene))
       throw new LabError('restore_surface', 'The saved pin names a surface the scene lacks.', 400);
-    store.saveMemory({
-      ...next,
-      zone: next.zone ?? null,
-      lastDecision: next.lastDecision ?? null,
-      observation: next.observation ?? null,
-    });
+    store.saveMemory({ ...next, lastDecision: next.lastDecision ?? null });
     return store.memory(mode);
   });
   app.post('/verify', async (request) => {
     const { mode, observationId, zoneId } = parseInput(deskVerifyBodySchema, request.body);
     available(mode);
     const memory = store.memory(mode);
-    if (memory.observation?.id !== observationId || memory.zone?.id !== zoneId)
+    const main = memory.rules?.find((r) => r.id === MAIN_RULE);
+    if (mugOf(memory)?.track?.observation.id !== observationId || main?.id !== zoneId)
       throw new LabError(
         'desk_changed',
         'The selected observation or zone changed. Refresh and review it.',

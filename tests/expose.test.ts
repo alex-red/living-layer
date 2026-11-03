@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from 'bun:test';
+import { mug } from './lib/mug.js';
 import { EventEmitter } from 'node:events';
 import { rmSync } from 'node:fs';
 import type { MqttClient } from 'mqtt';
@@ -28,6 +29,7 @@ import {
   type PlacementDecision,
   type PlacementRule,
   type Segmentation,
+  sightedThing,
 } from '@livinglayer/domain';
 
 const RULE = '11111111-1111-4111-8111-111111111111';
@@ -52,9 +54,28 @@ function memory(over: Partial<DeskMemory> = {}): DeskMemory {
   };
   return {
     mode: 'demo',
-    object: { id: MUG, label: 'Mug', createdAt: '2026-10-29T09:00:00Z' },
-    observation: null,
-    zone: null,
+    fixtures: [
+      sightedThing(
+        {},
+        {
+          id: MUG,
+          label: 'Mug',
+          concept: 'mug',
+          type: 'mug',
+          observation: {
+            id: 'o',
+            objectId: MUG,
+            segmentRunId: 's',
+            detectionId: '1',
+            observedAt: '2026-10-29T09:00:00Z',
+            sourceKey: 'k',
+            frame,
+            box: { x: 0, y: 0, width: 10, height: 10 },
+            identity: 'manual',
+          },
+        },
+      ),
+    ],
     lastDecision: null,
     fixedCamera: true,
     rules: [rule],
@@ -373,7 +394,7 @@ describe('entities over the lab’s routes', () => {
     ).json<DeskMemory>();
     const saved = (
       await s.post('desk/rules/save', {
-        rule: { label: 'Coaster', objects: [picked.object!.id], entityId: null, rect: whole },
+        rule: { label: 'Coaster', objects: [mug(picked)!.id], entityId: null, rect: whole },
       })
     ).json<DeskMemory>();
     expect(saved.rules![0]!.entityId).toBeNull();
@@ -390,7 +411,7 @@ describe('entities over the lab’s routes', () => {
     const fixtureOnly = await s.post('desk/rules/save', {
       rule: {
         label: 'X',
-        objects: [picked.object!.id],
+        objects: [mug(picked)!.id],
         entityId: null,
         fixtureId: '55555555-5555-4555-8555-555555555555',
         rect: whole,
@@ -529,7 +550,7 @@ describe('entities over the lab’s routes', () => {
     ).json<DeskMemory>();
     const saved = (
       await s.post('desk/rules/save', {
-        rule: { label: 'Coaster', objects: [picked.object!.id], entityId: null, rect: whole },
+        rule: { label: 'Coaster', objects: [mug(picked)!.id], entityId: null, rect: whole },
       })
     ).json<DeskMemory>();
     await s.post('expose/save', {

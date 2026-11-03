@@ -72,10 +72,10 @@ describe('scene progress', () => {
   it('walks through objects, the zone and a run', () => {
     const memory = {
       ...emptyDesk('demo'),
-      object: { id: 'm', label: 'My desk mug' },
+      fixtures: [{ id: 'm', label: 'My desk mug', type: 'mug', place: 'sightings' }],
     } as unknown as DeskMemory;
     expect(sceneProgress({ mode: 'demo', workScene: 'desk', memory }).next).toBe('rule');
-    const zoned = { ...memory, zone: { id: 'z' } } as unknown as DeskMemory;
+    const zoned = { ...memory, rules: [{ id: 'main', zone: {} }] } as unknown as DeskMemory;
     expect(sceneProgress({ mode: 'demo', workScene: 'desk', memory: zoned }).next).toBe('run');
     const ran = { ...zoned, lastDecision: { id: 'd' } } as unknown as DeskMemory;
     const p = sceneProgress({ mode: 'demo', workScene: 'desk', memory: ran });

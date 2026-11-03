@@ -5,6 +5,7 @@ import {
   pinFits,
   type DeskMemory,
   type MappedThing,
+  placedFixtures,
 } from '@livinglayer/domain';
 import { Button, Check, IconButton, Segmented } from '../ui/controls';
 import { useCamera, useDesk, useFeedback, useFixtures, useLabParts, useView } from './LabContext';
@@ -48,7 +49,7 @@ export function ScanFixtures({
   const roomPhoto =
     pin?.scene === 'custom' && Boolean(lab.memory?.scenePhoto || lab.memory?.illustration);
   const blocked = (live && !lab.image && !lab.camera && !roomPhoto) || !scene;
-  const inScene = (lab.memory?.fixtures ?? []).filter((f) => f.scene === scene);
+  const inScene = placedFixtures(lab.memory).filter((f) => f.scene === scene);
   const drawn = scene === 'custom' && lab.memory?.scene ? layoutThings(lab.memory.scene) : [];
   const placedByHand = inScene.some((f) => !f.scanned) || drawn.length > 0;
   // With nothing in the room to look for, the scan can only add.

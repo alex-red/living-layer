@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'bun:test';
+import { sighting } from './lib/mug.js';
 import { testApp } from './lib/app.js';
 import { watchersOf } from '../apps/server/src/app.js';
 import { demoPng, demoSegmentation } from '../apps/server/src/demo.js';
@@ -59,7 +60,7 @@ describe('tracking with no AI calls', () => {
     // Confirmed like any outline, and turned on later only by a person.
     const selected = await post('desk/select', { segmentRunId: run.id, detectionId: '1' });
     expect(selected.statusCode, selected.body).toBe(200);
-    expect(selected.json<DeskMemory>().observation!.identity).toBe('manual');
+    expect(sighting(selected.json<DeskMemory>())!.identity).toBe('manual');
     expect((await post('settings/tracking-ai', { on: true, mode: undefined })).json()).toEqual({
       on: true,
     });

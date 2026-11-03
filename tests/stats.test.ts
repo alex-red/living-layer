@@ -9,6 +9,7 @@ import {
   dayOf,
   frameMean,
   mugItem,
+  mugOf,
   occupiedStep,
   powerLook,
   powerReading,
@@ -241,9 +242,10 @@ describe('stats on the demo desk', () => {
     });
     const watcher = watchersOf(app).demo;
     const segment = (await post('segment', { concept: 'mug' })).json<EvidenceRun<Segmentation>>();
-    const mug = (
+    const picked = (
       await post('desk/select', { segmentRunId: segment.id, detectionId: '7' })
-    ).json<DeskMemory>().object!.id;
+    ).json<DeskMemory>();
+    const mug = mugOf(picked)!.id;
     const on = await post('things/stats', { id: mug, stats: [{ key: 'lastUsed' }] });
     expect(on.statusCode, on.body).toBe(200);
     // A stat for a thing that isn't there is refused.

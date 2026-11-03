@@ -18,6 +18,8 @@ import {
   type PhotoEdit,
   type PhotoLayout,
   type PlacedThing,
+  mugOf,
+  placedFixtures,
 } from '@livinglayer/domain';
 import { api } from '../api';
 import { IsoScene, type IsoObject } from './IsoScene';
@@ -85,7 +87,7 @@ function DraftReview({
   const [edits, setEdits] = useState<Record<string, PhotoEdit>>({});
   const [track, setTrack] = useState<string[]>(() => {
     // Nothing remembered yet: offer the first mug as the main object.
-    if (memory?.object) return [];
+    if (mugOf(memory)) return [];
     const mug = draft.layout.things.find(
       (t) => t.status === 'object' && (t.as === 'mug' || t.as === 'cup'),
     );
@@ -119,7 +121,10 @@ function DraftReview({
       new Map(
         layout.things
           .filter((t) => t.status === 'object')
-          .map((t) => [t.id, draftModel(t, t.as, memory?.fixtures ?? [])] as const),
+          .map(
+            (t) =>
+              [t.id, draftModel(t, t.as, placedFixtures({ fixtures: memory?.fixtures }))] as const,
+          ),
       ),
     [layout, memory?.fixtures],
   );
@@ -292,7 +297,7 @@ function DraftReview({
           ? `${cubes} ${cubes === 1 ? 'thing is a cube' : 'things are cubes'} of ${cubes === 1 ? 'its' : 'their'} size: once saved, model ${cubes === 1 ? 'it' : 'each'} with Spark from its fixture.`
           : ''}{' '}
         {tracked.length
-          ? `The first ticked object becomes the main one${memory?.object ? ` (${memory.object.label})` : ''}.`
+          ? `The first ticked object becomes the main one${mugOf(memory) ? ` (${mugOf(memory)!.label})` : ''}.`
           : 'Tick the objects to track.'}
       </p>
       <details className="photo-assists">

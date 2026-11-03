@@ -7,6 +7,8 @@ import {
   type DeskMemory,
   type DeskObservation,
   type PlacementRule,
+  sightedThing,
+  withSighting,
 } from '@livinglayer/domain';
 
 const MUG = '11111111-1111-4111-8111-111111111111';
@@ -27,18 +29,16 @@ const sighting = (objectId: string, x: number, ageMs = 0): DeskObservation => ({
 function memory(mugX: number, bookX: number, bookAge = 0): DeskMemory {
   return {
     mode: 'demo',
-    object: { id: MUG, label: 'Mug', createdAt: '2026-11-02T09:00:00Z' },
-    observation: sighting(MUG, mugX),
-    others: [
-      {
-        id: BOOK,
-        label: 'Book',
-        concept: 'book',
-        createdAt: '2026-11-02T09:00:00Z',
-        observation: sighting(BOOK, bookX, bookAge),
-      },
+    fixtures: [
+      sightedThing(
+        {},
+        { id: MUG, label: 'Mug', concept: 'mug', type: 'mug', observation: sighting(MUG, mugX) },
+      ),
+      sightedThing(
+        {},
+        { id: BOOK, label: 'Book', concept: 'book', observation: sighting(BOOK, bookX, bookAge) },
+      ),
     ],
-    zone: null,
     lastDecision: null,
     fixedCamera: true,
   };
@@ -98,7 +98,7 @@ describe('zones that count any thing, or several', () => {
       inside: [],
     });
     // Nothing fresh at all: no verdict.
-    const old = { ...stale, observation: sighting(MUG, 70, 10 * 60 * 1000) };
+    const old = withSighting(stale, MUG, sighting(MUG, 70, 10 * 60 * 1000));
     expect(ruleGate(old, rule(), NOW).decision).toBe('blocked');
   });
   it('never counts the fixture it switches', () => {

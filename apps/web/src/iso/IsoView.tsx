@@ -38,6 +38,12 @@ import {
   type LightLook,
   type ZoneRect,
   promoteGroup,
+  mugHistory,
+  mugModel,
+  mugOf,
+  mugSighting,
+  otherObjects,
+  placedFixtures,
 } from '@livinglayer/domain';
 import { runOutput } from '@livinglayer/domain';
 import { apiAt } from '../api';
@@ -336,7 +342,7 @@ function IsoViewOf({
   const model = useMemo(() => {
     const objects: IsoObject[] = [];
     let note = '';
-    const o = memory?.observation;
+    const o = mugSighting(memory);
     const mug = surface ? place(o, pin, surface, pinned) : null;
     if (!surface) note = 'This scene has no surface to pin. Add a desk, table or shelf.';
     else if (!pinned)
@@ -344,21 +350,21 @@ function IsoViewOf({
     else if (!o) note = 'Confirm the mug in a segmentation to see it here.';
     else if (!mug)
       note = 'This frame is a different size from the one the corners were set on. Pin it again.';
-    if (mug && memory?.object) {
+    if (mug && mugOf(memory)) {
       objects.push({
-        ...marker('tracked', memory.object.label, mug.placed, memory.item),
-        thingId: memory.object.id,
+        ...marker('tracked', mugOf(memory)!.label, mug.placed, mugModel(memory)),
+        thingId: mugOf(memory)!.id,
       });
       if (!mug.placed.onSurface)
         note = `The mug's box stands off the ${surface!.label.toLowerCase()}, so it is drawn at the edge.`;
     }
-    for (const other of memory?.others ?? []) {
+    for (const other of otherObjects(memory) ?? []) {
       const at = surface ? place(other.observation, pin, surface, pinned) : null;
       if (at) objects.push(marker(other.id, other.label, at.placed, other.item));
     }
     const trail =
       mug && o
-        ? [o, ...(memory?.history ?? [])]
+        ? [o, ...(mugHistory(memory) ?? [])]
             .filter((h) => h.frame.width === o.frame.width && h.frame.height === o.frame.height)
             .map((h) => projectBox(h.box, surface!, mug.map.toSurface).foot)
         : [];
@@ -463,7 +469,7 @@ function IsoViewOf({
         at.x >= 0 && at.y >= 0 && at.x + size.w <= scene.grid.w && at.y + size.d <= scene.grid.d
       );
     };
-    return (memory?.fixtures ?? [])
+    return placedFixtures({ fixtures: memory?.fixtures })
       .filter((f) =>
         kind === 'custom-desk'
           ? f.scene === 'custom' && Boolean(shift) && onDesk(f)
@@ -681,7 +687,7 @@ function IsoViewOf({
                 onKind('custom');
                 if (m.surface?.scene === 'custom') onSurfaceId(m.surface.surfaceId);
                 onPanel('room');
-                const n = (m.object ? 1 : 0) + (m.others?.length ?? 0);
+                const n = (mugOf(m) ? 1 : 0) + (otherObjects(m)?.length ?? 0);
                 onMessage(
                   `Scene saved from the photo${m.surface ? ', pinned' : ''}${n ? `, tracking ${n} object${n === 1 ? '' : 's'}` : ''}.`,
                 );
@@ -727,7 +733,7 @@ function IsoViewOf({
                   memory={memory}
                   focus={focus}
                   showZones={layers.zones}
-                  fixtures={(memory.fixtures ?? [])
+                  fixtures={placedFixtures(memory)
                     .filter((f) => f.scene === pin.scene && f.id !== placing?.id)
                     .map(shown)}
                   custom={custom}

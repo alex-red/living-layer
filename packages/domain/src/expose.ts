@@ -10,7 +10,13 @@
  */
 import { z } from 'zod';
 import type { EvidenceRun } from './api.js';
-import type { DeskMemory, DeskObservation, PlacementDecision, ZoneRect } from './memory.js';
+import {
+  followedThings,
+  type DeskMemory,
+  type DeskObservation,
+  type PlacementDecision,
+  type ZoneRect,
+} from './memory.js';
 import { ruleObjects, ruleWho } from './rules.js';
 import type { WatchStatus, WatchView } from './watch.js';
 import { STAT_KEYS, STAT_KINDS, type StatsNow } from './stats.js';
@@ -26,7 +32,6 @@ const EXPOSE_KINDS = [
 export type ExposeKind = (typeof EXPOSE_KINDS)[number];
 export const MAX_EXPOSED = 16;
 /** The main zone's id in a source; rules go by their own id. */
-export const MAIN_ZONE = 'main';
 
 const zoneId = z.string().min(1).max(64);
 const exposeSourceSchema = z.discriminatedUnion('kind', [
@@ -169,21 +174,6 @@ export function zonesIn(memory: DeskMemory): {
   decision: { id: string; transition: PlacementDecision['transition'] } | null;
 }[] {
   return [
-    ...(memory.zone && memory.object
-      ? [
-          {
-            id: MAIN_ZONE,
-            label: 'Main zone',
-            objectIds: [memory.object.id],
-            inside: memory.placement === 'inside' ? [memory.object.id] : [],
-            who: `the ${memory.object.label}`,
-            rect: memory.zone.rect,
-            placement: memory.placement ?? null,
-            decidedAt: memory.lastDecision?.createdAt ?? null,
-            decision: decisionOf(memory.lastDecision),
-          },
-        ]
-      : []),
     ...(memory.rules ?? []).map((r) => ({
       id: r.id,
       label: r.label,
@@ -228,27 +218,19 @@ const labelsOf = (memory: DeskMemory, ids: string[]) =>
     .filter((t) => ids.includes(t.id))
     .map((t) => t.label)
     .join(', ');
-/** The mug, other objects and tracked fixtures, by id. */
+/** Every followed thing, by id. */
 function thingsIn(memory: DeskMemory): {
   id: string;
   label: string;
   observation: DeskObservation | null;
   missing?: boolean;
 }[] {
-  return [
-    ...(memory.object
-      ? [{ id: memory.object.id, label: memory.object.label, observation: memory.observation }]
-      : []),
-    ...(memory.others ?? []).map((o) => ({ id: o.id, label: o.label, observation: o.observation })),
-    ...(memory.fixtures ?? [])
-      .filter((f) => f.track)
-      .map((f) => ({
-        id: f.id,
-        label: f.label,
-        observation: f.track!.observation,
-        missing: f.track!.status === 'missing',
-      })),
-  ];
+  return followedThings(memory).map((f) => ({
+    id: f.id,
+    label: f.label,
+    observation: f.track.observation,
+    missing: f.track.status === 'missing',
+  }));
 }
 /** Kinds each source can be shown as. */
 export const SOURCE_KINDS: Record<ExposeSource['kind'], readonly ExposeKind[]> = {

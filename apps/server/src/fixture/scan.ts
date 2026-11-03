@@ -28,6 +28,7 @@ import {
   type Mode,
   type IsoSceneKind,
   addUsage,
+  placedFixtures,
 } from '@livinglayer/domain';
 import sharp from 'sharp';
 import { LabError, liveImage } from '../errors.js';
@@ -214,7 +215,8 @@ function saveScanned(
 ) {
   // Read again: the scan took a while, and the memory may have changed meanwhile.
   const memory = store.memory(mode);
-  const library = memory.fixtures ?? [];
+  const library = placedFixtures(memory);
+  const sighted = (memory.fixtures ?? []).filter((f) => f.place === 'sightings');
   const now = new Date().toISOString();
   // A link joins the other scene's group, named after its first fixture.
   const linkWith = (m: MappedThing) => {
@@ -279,7 +281,7 @@ function saveScanned(
     ];
   });
   // A fixture saved meanwhile may have taken a place the scan counted on.
-  memory.fixtures = [...library, ...added].slice(0, MAX_FIXTURES);
+  memory.fixtures = [...library, ...added].slice(0, MAX_FIXTURES).concat(sighted);
   if (target === 'custom' && memory.scene) memory.scene = withLayoutMoves(memory.scene, mapped);
   store.saveMemory(memory);
   return { memory, count: memory.fixtures.length };
@@ -354,12 +356,14 @@ async function scanPhotoImage(
 
 /** What the room already has, so Spark names things as it does; without addNew, all it looks for. */
 function scanKnown(before: DeskMemory, target: ScanScene, addNew: boolean | undefined): ScanAsk {
-  const tracked = [before.object?.label, ...(before.others ?? []).map((o) => o.label)].filter(
-    (l): l is string => Boolean(l),
-  );
+  const tracked = (before.fixtures ?? [])
+    .filter((f) => f.place === 'sightings')
+    .map((f) => f.label);
   const known = [
     ...new Set([
-      ...(before.fixtures ?? []).filter((f) => f.scene === target).map((f) => f.label),
+      ...placedFixtures(before)
+        .filter((f) => f.scene === target)
+        .map((f) => f.label),
       ...(target === 'custom' && before.scene
         ? layoutThings(before.scene).map((t) => t.label)
         : []),
@@ -456,7 +460,7 @@ async function scanMap(
   const { mode, pin, target, replace, addNew } = where;
   const { memory, outlines, models } = modelled;
   job.run('map');
-  const library = memory.fixtures ?? [];
+  const library = placedFixtures(memory);
   const mapped = mapScan({
     scan,
     pin,

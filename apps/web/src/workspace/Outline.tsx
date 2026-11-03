@@ -6,6 +6,11 @@ import {
   isMugConcept,
   type DeskMemory,
   type Fixture,
+  mainZone,
+  mugOf,
+  mugSighting,
+  otherObjects,
+  placedFixtures,
 } from '@livinglayer/domain';
 import { Button, IconButton } from '../ui/controls';
 import { ContextMenu, type MenuItem } from './ContextMenu';
@@ -128,7 +133,7 @@ export function Outline() {
   const objectDepth = progress.view ? 2 : 1;
   // A suggestion goes once something remembered covers it: by name, or by what it is (the mug).
   const tracked = new Set(
-    [memory?.object?.label, ...(memory?.others ?? []).flatMap((o) => [o.label, o.concept])]
+    [mugOf(memory)?.label, ...(otherObjects(memory) ?? []).flatMap((o) => [o.label, o.concept])]
       .filter(Boolean)
       .map((l) => l!.trim().toLowerCase()),
   );
@@ -138,11 +143,12 @@ export function Outline() {
       ({ o }) =>
         !tracked.has(o.label.toLowerCase()) &&
         !tracked.has(o.category.toLowerCase()) &&
-        !(memory?.object && isMugConcept(o.category)),
+        !(mugOf(memory) && isMugConcept(o.category)),
     );
   const canRule =
-    Boolean((memory?.object && memory.observation) || memory?.others?.some((o) => o.observation)) &&
-    (memory?.rules?.length ?? 0) < MAX_RULES;
+    Boolean(
+      (mugOf(memory) && mugSighting(memory)) || otherObjects(memory)?.some((o) => o.observation),
+    ) && (memory?.rules?.length ?? 0) < MAX_RULES;
   const surface = (r: SurfaceRow, depth: number) => (
     <Row
       key={`${r.scene}:${r.surface.id}`}
@@ -210,16 +216,16 @@ export function Outline() {
               )
             )}
             {rows.view.map((r) => surface(r, 2))}
-            {memory?.object && (
+            {mugOf(memory) && (
               <Row
-                label={memory.object.label}
+                label={mugOf(memory)!.label}
                 detail={lab.currentObservation ? 'tracked · in this frame' : 'tracked'}
                 tone="chosen"
                 depth={objectDepth}
                 target={{ kind: 'object', id: 'main' }}
               />
             )}
-            {(memory?.others ?? []).map((o) => (
+            {(otherObjects(memory) ?? []).map((o) => (
               <Row
                 key={o.id}
                 label={o.label}
@@ -234,7 +240,7 @@ export function Outline() {
                 key={`s${index}`}
                 label={o.label}
                 detail={
-                  isMugConcept(o.category) && !memory?.object ? 'suggested · the mug?' : 'suggested'
+                  isMugConcept(o.category) && !mugOf(memory) ? 'suggested · the mug?' : 'suggested'
                 }
                 tone="seen"
                 depth={objectDepth}
@@ -262,11 +268,11 @@ export function Outline() {
               <span className="tiny">RULES</span>
             </div>
             <ul className="ol-tree">
-              {memory?.object && (
+              {mugOf(memory) && (
                 <Row
                   label="Main zone"
-                  detail={memory.zone ? `→ ${lab.lights[0] ?? 'main lamp'}` : 'draw a zone'}
-                  state={memory.zone ? (memory.lastDecision ? 'done' : 'current') : 'current'}
+                  detail={mainZone(memory) ? `→ ${lab.lights[0] ?? 'main lamp'}` : 'draw a zone'}
+                  state={mainZone(memory) ? (memory?.lastDecision ? 'done' : 'current') : 'current'}
                   target={{ kind: 'rule', id: 'main' }}
                 />
               )}
@@ -285,9 +291,9 @@ export function Outline() {
                 target={{ kind: 'new-rule' }}
                 onSelect={() =>
                   lab.startRule(
-                    memory?.object && memory.observation
-                      ? memory.object.id
-                      : memory!.others!.find((o) => o.observation)!.id,
+                    mugOf(memory) && mugSighting(memory)
+                      ? mugOf(memory)!.id
+                      : otherObjects(memory).find((o) => o.observation)!.id,
                   )
                 }
                 disabled={!canRule || Boolean(busy)}
@@ -361,7 +367,7 @@ function FixtureRows() {
   );
   const { memory, busy } = lab;
   const { call, off } = useCall();
-  const fixtures = memory?.fixtures ?? [];
+  const fixtures = placedFixtures(memory);
   const [selecting, setSelecting] = useState(false);
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [anchor, setAnchor] = useState<string | null>(null);

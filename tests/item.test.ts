@@ -1,4 +1,5 @@
 import { describe, expect, it, mock, setDefaultTimeout } from 'bun:test';
+import { item, others } from './lib/mug.js';
 import { readFileSync } from 'node:fs';
 import sharp from 'sharp';
 import { testApp } from './lib/app.js';
@@ -98,13 +99,16 @@ describe('item models', () => {
     const old = { ...mugItem(), parts: [{ ...mugItem().parts[0]!, shape: 'cylinder' }] };
     const memory = {
       mode: 'demo',
+      // Kept the way it was before the mug and other objects were things.
+      object: { id: 'm', label: 'Mug', createdAt: '' },
+      observation: { id: 'x' },
       item: old,
-      others: [{ id: 'o', item: old }],
+      others: [{ id: 'o', label: 'Book', concept: 'book', item: old, observation: { id: 'y' } }],
       fixtures: [{ id: 'f', model: old, states: { on: { model: old } }, drafts: [{ model: old }] }],
     } as unknown as DeskMemory;
     const next = upgradeMemory(memory);
-    expect(next.item!.parts[0]!.shape).toBe('lathe');
-    expect(next.others![0]!.item!.parts[0]!.shape).toBe('lathe');
+    expect(item(next)!.parts[0]!.shape).toBe('lathe');
+    expect(others(next)![0]!.item!.parts[0]!.shape).toBe('lathe');
     expect(next.fixtures![0]!.model.parts[0]!.shape).toBe('lathe');
     expect(next.fixtures![0]!.states!.on!.model.parts[0]!.shape).toBe('lathe');
     expect(next.fixtures![0]!.drafts![0]!.model.parts[0]!.shape).toBe('lathe');
@@ -179,15 +183,15 @@ describe('item routes', () => {
     }>();
     expect(drafted.run.kind).toBe('item');
     expect(drafted.run.output.source).toBe('demo');
-    expect(drafted.memory.item?.segmentRunId).toBe(segment.id);
+    expect(item(drafted.memory)?.segmentRunId).toBe(segment.id);
     // The demo runs the real fitter on the demo mug's own pixels.
-    expect(drafted.memory.item?.parts.map((p) => p.id)).toEqual(['body', 'handle']);
-    const fit = drafted.memory.item!.fit!;
+    expect(item(drafted.memory)?.parts.map((p) => p.id)).toEqual(['body', 'handle']);
+    const fit = item(drafted.memory)!.fit!;
     expect(fit.archetype).toBe('mug');
     expect(fit.iou).toBeGreaterThan(0.85);
     expect(fit.views).toBe(1);
     expect(fit.assists[0]).toContain('Spark: mug');
-    const body = drafted.memory.item!.parts[0]!;
+    const body = item(drafted.memory)!.parts[0]!;
     expect(body.shape).toBe('lathe');
     if (body.shape !== 'lathe') return;
     // Cream body with coffee in it, as rendered.
@@ -200,21 +204,21 @@ describe('item routes', () => {
 
     // A refit keeps a locked part as the person left it.
     const locked = {
-      label: drafted.memory.item!.label,
-      parts: drafted.memory.item!.parts.map((p) =>
+      label: item(drafted.memory)!.label,
+      parts: item(drafted.memory)!.parts.map((p) =>
         p.id === 'handle' ? { ...p, color: '#3c554a', locked: true } : p,
       ),
     };
     const refit = (await s.post('item/refit', { item: locked })).json<DeskMemory>();
-    expect(refit.item?.parts.find((p) => p.id === 'handle')?.color).toBe('#3c554a');
-    expect(refit.item?.fit?.iou).toBeGreaterThan(0.8);
+    expect(item(refit)?.parts.find((p) => p.id === 'handle')?.color).toBe('#3c554a');
+    expect(item(refit)?.fit?.iou).toBeGreaterThan(0.8);
 
     const edited = mugItem('#3c554a');
     const saved = (await s.post('item/save', { item: edited })).json<DeskMemory>();
-    expect(saved.item?.parts[0]!.color).toBe('#3c554a');
-    expect(saved.item?.source).toBe('demo');
+    expect(item(saved)?.parts[0]!.color).toBe('#3c554a');
+    expect(item(saved)?.source).toBe('demo');
     // An edit is scored again against the same crop: a green body matches its colour worse.
-    expect(saved.item?.fit?.deltaE).toBeGreaterThan(fit.deltaE);
+    expect(item(saved)?.fit?.deltaE).toBeGreaterThan(fit.deltaE);
     const extra = await s.post('item/save', { item: { ...edited, source: 'spark' } });
     expect(extra.statusCode).toBe(400);
 
@@ -224,15 +228,15 @@ describe('item routes', () => {
     const tracked = (await s.post('desk/track', { segmentRunId: again.id })).json<{
       memory: DeskMemory;
     }>();
-    expect(tracked.memory.item?.parts[0]!.color).toBe('#3c554a');
+    expect(item(tracked.memory)?.parts[0]!.color).toBe('#3c554a');
     // Drafting from the new sighting fuses its shape with the first one.
     const fused = (await s.post('item/draft', { source: 'sampled' })).json<{
       memory: DeskMemory;
     }>();
-    expect(fused.memory.item?.fit?.views).toBe(2);
-    expect(fused.memory.item?.fit?.assists).toContain('Fused with 1 earlier view');
+    expect(item(fused.memory)?.fit?.views).toBe(2);
+    expect(item(fused.memory)?.fit?.assists).toContain('Fused with 1 earlier view');
     const reset = (await s.post('desk/reset')).json<DeskMemory>();
-    expect(reset.item ?? null).toBeNull();
+    expect(item(reset) ?? null).toBeNull();
   });
 });
 
@@ -319,7 +323,7 @@ describe('live item drafts with Meta’s help', () => {
     expect(run.output.source).toBe('spark');
     expect(run.usage?.totalTokens).toBe(240);
     expect(run.assets.some((a) => a.endsWith('/item-render.png'))).toBe(true);
-    const fit = memory.item!.fit!;
+    const fit = item(memory)!.fit!;
     expect(fit.archetype).toBe('mug');
     expect(fit.iou).toBeGreaterThan(0.85);
     expect(fit.assists).toEqual([
@@ -328,7 +332,7 @@ describe('live item drafts with Meta’s help', () => {
       'SAM: coffee not found',
       expect.stringMatching(/^Spark check \((kept|not kept)\): Slightly taller\.$/),
     ]);
-    expect(memory.item!.parts[0]!.material).toBe('gloss');
+    expect(item(memory)!.parts[0]!.material).toBe('gloss');
     await app.close();
   });
   it('turns SAM part detections into a mask of the crop', async () => {

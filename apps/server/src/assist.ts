@@ -400,7 +400,6 @@ export async function assistRoutes(
             },
           }
         : z;
-    if (memory.zone) memory.zone = onTop(memory.zone);
     if (memory.rules) memory.rules = memory.rules.map((r) => ({ ...r, zone: onTop(r.zone) }));
     // The pin follows its surface; with none (the demo's is built in, not kept), a
     // replaced desk's new top is pinned through the camera, as auto-pin would.

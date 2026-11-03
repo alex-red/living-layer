@@ -1,4 +1,5 @@
 import { describe, expect, it, mock } from 'bun:test';
+import { mug } from './lib/mug.js';
 import { readFileSync } from 'node:fs';
 import sharp from 'sharp';
 import { join } from 'node:path';
@@ -225,10 +226,10 @@ describe('fixtures in desk memory', () => {
       await s.post('desk/select', { segmentRunId: segment.id, detectionId: '7' })
     ).json<DeskMemory>();
     const lamp = fixture();
-    await s.restore({ ...picked, fixtures: [lamp] });
+    await s.restore({ ...picked, fixtures: [...picked.fixtures!, lamp] });
     const rule = {
       label: 'Desk',
-      objects: [picked.object!.id],
+      objects: [mug(picked)!.id],
       fixtureId: lamp.id,
       rect: { x: 0, y: 0, width: 1, height: 1 },
     };
@@ -607,21 +608,23 @@ describe('fixture routes', () => {
     const picked = (
       await s.post('desk/select', { segmentRunId: segment.id, detectionId: '7' })
     ).json<DeskMemory>();
-    const fan = (await s.post('fixtures/save', { fixture: input() })).json<DeskMemory>()
-      .fixtures![0]!;
+    // The mug is a thing too, first in the list: the fan is the one just saved.
+    const fan = (await s.post('fixtures/save', { fixture: input() }))
+      .json<DeskMemory>()
+      .fixtures!.at(-1)!;
     await s.post('desk/rules/save', {
       rule: {
         label: 'Desk',
-        objects: [picked.object!.id],
+        objects: [mug(picked)!.id],
         entityId: 'switch.demo_fan',
         fixtureId: fan.id,
         rect: { x: 0, y: 0, width: 1, height: 1 },
       },
     });
     const checked = (await s.post('desk/rules/verify')).json<{ memory: DeskMemory }>();
-    expect(checked.memory.fixtures![0]!.state).toBe('on');
+    expect(checked.memory.fixtures!.find((f) => f.id === fan.id)!.state).toBe('on');
     const gone = (await s.post('fixtures/delete', { fixtureId: fan.id })).json<DeskMemory>();
-    expect(gone.fixtures).toEqual([]);
+    expect(gone.fixtures?.map((f) => f.id)).toEqual([mug(picked)!.id]);
     expect(gone.rules![0]!.entityId).toBe('switch.demo_fan');
     expect(gone.rules![0]!.fixtureId).toBeUndefined();
   });
@@ -1470,7 +1473,7 @@ describe('a fixture’s type and light sources', () => {
     const rule = await s.post('desk/rules/save', {
       rule: {
         label: 'Reading',
-        objects: [picked.object!.id],
+        objects: [mug(picked)!.id],
         entityId: 'light.demo_desk',
         fixtureId: saved.id,
         rect: { x: 0, y: 0, width: 1, height: 1 },

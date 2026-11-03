@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'bun:test';
-import type { DeskObservation, WatchView } from '@livinglayer/domain';
+import {
+  upgradeMemory,
+  type DeskMemory,
+  type DeskObservation,
+  type WatchView,
+} from '@livinglayer/domain';
 import { emptyDesk, prefsOf } from '../apps/web/src/session.js';
 import { sightings } from '../apps/web/src/TrackingOverlay.js';
 
@@ -50,7 +55,8 @@ describe('camera prefs', () => {
 });
 
 describe('tracking overlay sightings', () => {
-  const memory = {
+  // Saved before every thing was a fixture: the upgrade makes the mug and book sighted things.
+  const memory = upgradeMemory({
     ...emptyDesk('live'),
     object: { id: 'mug-1', label: 'Mug', createdAt: '2026-10-30T10:00:00.000Z' },
     observation: seen('mug-1'),
@@ -63,7 +69,7 @@ describe('tracking overlay sightings', () => {
         observation: seen('book-1', 640, 480),
       },
     ],
-  };
+  } as unknown as DeskMemory);
   it('puts remembered sightings in shares of their frame, skipping other frame shapes', () => {
     const out = sightings({ memory, aspect: 16 / 9 });
     expect(out.map((s) => s.id)).toEqual(['mug-1']);

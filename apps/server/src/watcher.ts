@@ -57,6 +57,8 @@ import {
   type WatchView,
   type ZoneRect,
   ruleObjects,
+  followedThings,
+  mugOf,
 } from '@livinglayer/domain';
 import type { Appearance } from './appearance.js';
 import type { DeskTracking } from './desk.js';
@@ -70,36 +72,17 @@ type Seen = { observation: DeskObservation; kind: WatchKind; label: string; conc
 
 /** Everything the watcher follows in a desk memory, with its last SAM sighting. */
 export function watchedThings(memory: DeskMemory): Seen[] {
-  const seen: Seen[] = [];
-  if (memory.object && memory.observation)
-    seen.push({
-      observation: memory.observation,
-      kind: 'mug',
-      label: memory.object.label,
-      concept: 'mug',
-    });
-  for (const o of memory.others ?? [])
-    if (o.observation)
-      seen.push({ observation: o.observation, kind: 'object', label: o.label, concept: o.concept });
-  for (const f of memory.fixtures ?? [])
-    if (f.track)
-      seen.push({
-        observation: f.track.observation,
-        kind: 'fixture',
-        label: f.label,
-        concept: f.track.concept,
-      });
-  return seen;
+  const mug = mugOf(memory);
+  return followedThings(memory).map((f) => ({
+    observation: f.track.observation,
+    kind: f === mug ? 'mug' : f.place === 'sightings' ? 'object' : 'fixture',
+    label: f.label,
+    concept: f.track.concept,
+  }));
 }
 /** A thing's zones as shares of the frame, each with SAM's last verdict. */
 function zonesOf(memory: DeskMemory, objectId: string): WatchSubject['zones'] {
   const zones: WatchSubject['zones'] = [];
-  if (memory.object?.id === objectId && memory.zone)
-    zones.push({
-      id: memory.zone.id,
-      rect: memory.zone.rect,
-      inside: memory.placement === 'inside',
-    });
   // A zone counting several things is crossed by each on its own.
   for (const r of memory.rules ?? [])
     if (ruleObjects(memory, r).includes(objectId))

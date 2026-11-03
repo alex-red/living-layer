@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'bun:test';
+import { mainZone, placement, sighting } from './lib/mug.js';
 import { tempDir, testApp } from './lib/app.js';
 import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -239,15 +240,15 @@ describe('the server watching the demo desk', () => {
     ).json<DeskMemory>();
     await s.post('desk/camera', { fixed: true });
     await s.post('desk/zone', {
-      observationId: selected.observation!.id,
+      observationId: sighting(selected)!.id,
       rect: { x: 0.5, y: 0.3, width: 0.1, height: 0.12 },
     });
     // Inside to start with: SAM confirms it once, so the next entry is an entry.
     await s.post('desk/verify', {
-      observationId: selected.observation!.id,
-      zoneId: (await s.memory()).zone!.id,
+      observationId: sighting(selected)!.id,
+      zoneId: mainZone(await s.memory())!.id,
     });
-    expect((await s.memory()).placement).toBe('inside');
+    expect(placement(await s.memory())).toBe('inside');
     const on = await s.post('watch', { on: true });
     expect(on.statusCode, on.body).toBe(200);
     await s.watcher.idle();
@@ -261,14 +262,14 @@ describe('the server watching the demo desk', () => {
     // and its sighting stays the remembered one.
     await s.move('right');
     let memory = await s.memory();
-    expect(memory.placement).toBe('outside');
+    expect(placement(memory)).toBe('outside');
     expect(memory.lastDecision?.output).toMatchObject({
       transition: 'left',
       action: 'confirmed',
       segmentRunId: null,
       lamp: { action: 'off' },
     });
-    expect(memory.observation!.identity).toBe('manual');
+    expect(sighting(memory)!.identity).toBe('manual');
     expect((await runs()).filter((r) => r.kind === 'segment').length).toBe(segments);
     view = s.watcher.view();
     expect(view.checks).toBe(0);
@@ -297,7 +298,7 @@ describe('the server watching the demo desk', () => {
 
     // Occupancy: a zone just around the mug, learned as it looks now; a change there reads as
     // occupied, locally.
-    const here = (await s.memory()).observation!;
+    const here = sighting(await s.memory())!;
     const tight = (
       await s.post('desk/rules/save', {
         rule: {

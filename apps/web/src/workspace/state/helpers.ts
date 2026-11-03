@@ -11,6 +11,7 @@ import type {
   LumaFrame,
   UnitBox,
 } from '@livinglayer/domain';
+import { mainZone, mugModel, mugOf, otherObjects } from '@livinglayer/domain';
 import { isRun, runFailure, toLuma } from '@livinglayer/domain';
 
 export const BUSY: Record<string, string> = {
@@ -153,12 +154,12 @@ export const LOG_PAGE = 10;
 export const UNDO_LIMIT = 50;
 /** Whether a desk holds anything a person made: an object, a pin, a scene, a rule. */
 export const deskIsBlank = (d: DeskMemory) =>
-  !d.object &&
+  !mugOf(d) &&
   !d.surface &&
   !d.scene &&
-  !d.zone &&
-  !d.item &&
-  !d.others?.length &&
+  !mainZone(d) &&
+  !mugModel(d) &&
+  !otherObjects(d)?.length &&
   !d.rules?.length &&
   !d.fixtures?.length;
 type ProbeKind = 'text' | 'discover' | 'segment' | 'lamp';

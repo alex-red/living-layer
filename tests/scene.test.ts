@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'bun:test';
+import { mug, others, sighting } from './lib/mug.js';
 import { testApp } from './lib/app.js';
 import { parseConfig, type Fetcher } from '../apps/server/src/config.js';
 import { ControlAdapter } from '../apps/server/src/control.js';
@@ -302,7 +303,7 @@ describe('extra rules and lights', () => {
     const memory = (
       await s.post('desk/select', { segmentRunId: first.id, detectionId: '7' })
     ).json<DeskMemory>();
-    return { ...s, memory, objectId: memory.object!.id };
+    return { ...s, memory, objectId: mug(memory)!.id };
   }
   const whole = { x: 0, y: 0, width: 1, height: 1 };
   const corner = { x: 0, y: 0, width: 0.1, height: 0.1 };
@@ -432,20 +433,20 @@ describe('extra rules and lights', () => {
     const added = (
       await s.post('desk/objects/select', { segmentRunId: run.id, detectionId: '7', label: 'Cup' })
     ).json<Checked>();
-    const cup = added.memory.others![0]!;
+    const cup = others(added.memory)![0]!;
     expect(cup).toMatchObject({ label: 'Cup', concept: 'mug' });
     // Where the cup was: the mug, still at the centre, has the nearer claim to a mug further off.
     const later = await s.segment('front');
     const tracked = (
       await s.post('desk/objects/track', { objectId: cup.id, segmentRunId: later.id })
     ).json<Checked>();
-    expect(tracked.memory.others![0]!.history).toHaveLength(1);
-    expect(tracked.memory.others![0]!.observation!.identity).toBe('tracked');
+    expect(others(tracked.memory)![0]!.history).toHaveLength(1);
+    expect(others(tracked.memory)![0]!.observation!.identity).toBe('tracked');
     await s.post('desk/rules/save', {
       rule: { label: 'Cup zone', objects: [cup.id], entityId: 'light.demo_desk', rect: whole },
     });
     const forgot = (await s.post('desk/objects/forget', { objectId: cup.id })).json<DeskMemory>();
-    expect(forgot.others).toHaveLength(0);
+    expect(others(forgot)).toHaveLength(0);
     expect(forgot.rules).toHaveLength(0);
     const draft = await s.post('item/draft', { source: 'sampled', objectId: cup.id });
     expect(draft.statusCode).toBe(409);
@@ -453,7 +454,7 @@ describe('extra rules and lights', () => {
   it('refuses the mug’s own mask as another object, and other concepts when tracking', async () => {
     const s = await withMug();
     const same = await s.post('desk/objects/select', {
-      segmentRunId: s.memory.observation!.segmentRunId,
+      segmentRunId: sighting(s.memory)!.segmentRunId,
       detectionId: '7',
       label: 'Again',
     });

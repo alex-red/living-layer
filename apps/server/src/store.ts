@@ -148,9 +148,7 @@ export class EvidenceStore {
     const row = this.db
       .query<Payload, [Mode]>('SELECT payload FROM desk_memory WHERE mode = ?')
       .get(mode);
-    return row
-      ? this.parseMemory(mode, row.payload)
-      : { mode, object: null, observation: null, zone: null, lastDecision: null };
+    return row ? this.parseMemory(mode, row.payload) : { mode, lastDecision: null };
   }
   private readonly badMemory = new Set<Mode>();
   /**

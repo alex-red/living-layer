@@ -15,7 +15,7 @@ import { MAX_DISMISSED } from './fixture-scan.js';
 import { ILLUSTRATION_NOTE_MAX, pictureLayerRef, sceneIllustrationSchema } from './illustration.js';
 import { isoSceneKindSchema, isoSceneSchema, surfacePinSchema, textureRef } from './iso.js';
 import { isoItemSchema } from './iso-item.js';
-import { roomCalibrationSchema, zoneOnSurfaceSchema, zoneRectSchema } from './memory.js';
+import { MAIN_RULE, roomCalibrationSchema, zoneOnSurfaceSchema, zoneRectSchema } from './memory.js';
 import { MAX_PHOTO_THINGS, PHOTO_AS } from './photo-scene.js';
 import { roomMarksSchema } from './room-camera.js';
 import { STAT_KEYS, STAT_LOOKS, STATS, thingStatSchema } from './stats.js';
@@ -413,8 +413,10 @@ export const deskRulesSaveBodySchema = z
 export type DeskRulesSaveBody = z.input<typeof deskRulesSaveBodySchema>;
 
 /** POST /api/desk/rules/delete */
+/** A rule's id: the main zone's, or another's. */
+const ruleIdSchema = z.union([z.literal(MAIN_RULE), z.string().uuid()]);
 export const deskRulesDeleteBodySchema = z
-  .object({ mode: modeSchema, ruleId: z.string().uuid() })
+  .object({ mode: modeSchema, ruleId: ruleIdSchema })
   .strict();
 export type DeskRulesDeleteBody = z.input<typeof deskRulesDeleteBodySchema>;
 
@@ -485,9 +487,11 @@ export const deskRestoreBodySchema = z
     memory: z
       .object({
         mode: modeSchema,
+        // Saves from before every thing was a fixture name the mug here; `upgradeMemory` moves it.
         object: z
           .object({ id: z.string().min(1), label: z.string(), createdAt: z.string() })
-          .nullable(),
+          .nullable()
+          .optional(),
         surface: surfacePinSchema.nullable().optional(),
         camera: roomCalibrationSchema.nullable().optional(),
         scene: isoSceneSchema.nullable().optional(),
@@ -498,13 +502,14 @@ export const deskRestoreBodySchema = z
           .array(z.object({ id: z.string().min(1) }).loose())
           .max(MAX_OTHER_OBJECTS)
           .optional(),
+        // The main zone is a rule, and the mug and other objects are things, beside the rest.
         rules: z
           .array(z.object({ id: z.string().min(1) }).loose())
-          .max(MAX_RULES)
+          .max(MAX_RULES + 1)
           .optional(),
         fixtures: z
           .array(z.object({ id: z.string().min(1) }).loose())
-          .max(MAX_FIXTURES)
+          .max(MAX_FIXTURES + MAX_OTHER_OBJECTS + 1)
           .optional(),
         dismissed: z.array(z.string().min(1).max(40)).max(MAX_DISMISSED).optional(),
         exposed: z
@@ -519,7 +524,7 @@ export type DeskRestoreBody = z.input<typeof deskRestoreBodySchema>;
 
 /** POST /api/desk/verify */
 export const deskVerifyBodySchema = z
-  .object({ mode: modeSchema, observationId: z.string().uuid(), zoneId: z.string().uuid() })
+  .object({ mode: modeSchema, observationId: z.string().uuid(), zoneId: ruleIdSchema })
   .strict();
 export type DeskVerifyBody = z.input<typeof deskVerifyBodySchema>;
 

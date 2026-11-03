@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'bun:test';
+import { mainZone, mug, sighting } from './lib/mug.js';
 import { testApp } from './lib/app.js';
 import type { FloorMarks } from '../apps/server/src/room.js';
 import {
@@ -353,18 +354,18 @@ describe('demo memory from the illustrated desk', () => {
       exposed: [{ id: 'e' }],
     } as unknown as DeskMemory;
     const next = upgradeMemory(memory);
-    expect(next.observation).toBeNull();
-    expect(next.zone).toBeNull();
-    expect(next.object).toBeNull();
+    expect(sighting(next)).toBeNull();
+    expect(mainZone(next)).toBeNull();
+    expect(mug(next)).toBeNull();
     expect(next.fixtures!.map((f) => f.id)).toEqual(['a']);
     expect(next.exposed).toHaveLength(1);
     // Live memory and new demo memory are left alone.
-    expect(upgradeMemory({ ...memory, mode: 'live' }).zone).not.toBeNull();
+    expect(mainZone(upgradeMemory({ ...memory, mode: 'live' }))).not.toBeNull();
     const fresh = {
       ...memory,
-      observation: null,
-      zone: { ...memory.zone!, sourceKey: 'corner-office-v1' },
-    };
-    expect(upgradeMemory(fresh).zone).not.toBeNull();
+      observation: { sourceKey: 'corner-office-v1@centre' },
+      zone: { ...(memory as unknown as { zone: object }).zone, sourceKey: 'corner-office-v1' },
+    } as unknown as DeskMemory;
+    expect(mainZone(upgradeMemory(fresh))).not.toBeNull();
   });
 });

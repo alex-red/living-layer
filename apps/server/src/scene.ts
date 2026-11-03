@@ -28,6 +28,10 @@ import {
   modeOnlySchema,
   sceneTextureQuerySchema,
   type SceneDraft,
+  mugOf,
+  otherThings,
+  sightedThing,
+  placedFixtures,
 } from '@livinglayer/domain';
 import { demoSceneDraft, demoSceneGuess } from './demo.js';
 import { LabError, liveImage, parseInput } from './errors.js';
@@ -230,27 +234,26 @@ function rememberPicked(
   const { segment, segmentation } = seen;
   const [main, ...rest] = picked;
   if (main) {
-    const fresh = !memory.object;
+    const fresh = !mugOf(memory);
     desk.observe(memory, segment, segmentation, main.detection, 'manual', null);
     memory = store.memory(mode);
-    if (fresh && memory.object) memory.object.label = capital(main.thing.label);
+    const mug = mugOf(memory)!;
+    if (fresh) mug.label = capital(main.thing.label).slice(0, 40);
     const item = models.model(main.thing.id, modelTarget(memory));
-    if (item) setModel(memory, memory.object!.id, item);
+    if (item) setModel(memory, mug.id, item);
   }
   for (const { thing, detection } of rest) {
     const id = randomUUID();
     const observation = desk.sightingOf(id, segment, segmentation, detection, 'manual', null);
-    memory.others = [
-      ...(memory.others ?? []),
-      {
+    memory.fixtures = [
+      ...(memory.fixtures ?? []),
+      sightedThing(memory, {
         id,
         label: capital(thing.label),
         concept: thing.label,
-        createdAt: new Date().toISOString(),
         observation,
-        history: [],
-        item: models.model(thing.id, null),
-      },
+        model: models.model(thing.id, null),
+      }),
     ];
     store.save(desk.evidence('observation', mode, observation));
   }
@@ -274,7 +277,7 @@ function savePhotoDraft(
     throw new LabError('surface_unknown', 'The pin must be on a surface of the drafted scene.');
   const picked = pickedThings(draft, segmentation, track);
   const memory = store.memory(mode);
-  if ((memory.others?.length ?? 0) + Math.max(0, picked.length - 1) > MAX_OTHER_OBJECTS)
+  if (otherThings(memory).length + Math.max(0, picked.length - 1) > MAX_OTHER_OBJECTS)
     throw new LabError(
       'object_limit',
       `Up to ${MAX_OTHER_OBJECTS} more objects can be remembered. Forget one, or tick fewer.`,
@@ -282,13 +285,18 @@ function savePhotoDraft(
     );
   applyPhotoScene(store, memory, draft, body);
   const now = new Date().toISOString();
-  const library = memory.fixtures ?? [];
+  // What the camera places by its sightings isn't a placed fixture a scan could move.
+  const sighted = (memory.fixtures ?? []).filter((f) => f.place === 'sightings');
+  const library = placedFixtures(memory);
   const models = photoModels(draft, as, library, now);
   const added = photoFixtures(draft, models, body, library, now);
   if (added.length) {
     const moved = new Set(added.map((f) => f.id));
     const rest = library.filter((f) => !moved.has(f.id));
-    memory.fixtures = settleFixtures([...rest, ...added].slice(0, MAX_FIXTURES), memory.scene!);
+    memory.fixtures = [
+      ...sighted,
+      ...settleFixtures([...rest, ...added].slice(0, MAX_FIXTURES), memory.scene!),
+    ];
     store.saveMemory(memory);
   }
   rememberPicked(deps, mode, memory, { segment, segmentation }, models, picked);

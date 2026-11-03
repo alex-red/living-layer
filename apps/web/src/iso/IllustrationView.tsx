@@ -21,6 +21,11 @@ import {
   type Segmentation,
   type SurfacePin,
   type ZoneRect,
+  mainPlacement,
+  mainZone,
+  mugOf,
+  mugSighting,
+  otherObjects,
 } from '@livinglayer/domain';
 import { BaseHandles, type BaseRect } from './BaseHandles';
 import { ItemSprite } from './IsoItem';
@@ -144,15 +149,15 @@ export function IllustrationView({
   };
 
   const markers: Marker[] = [];
-  const mug = foot(memory.observation);
-  if (mug && memory.object)
+  const mug = foot(mugSighting(memory));
+  if (mug && mugOf(memory))
     markers.push({
       id: 'main',
-      label: memory.object.label,
+      label: mugOf(memory)!.label,
       at: mug,
       focused: focus?.object === 'main',
     });
-  for (const other of memory.others ?? []) {
+  for (const other of otherObjects(memory) ?? []) {
     const at = foot(other.observation);
     if (at)
       markers.push({ id: other.id, label: other.label, at, focused: focus?.object === other.id });
@@ -206,13 +211,13 @@ export function IllustrationView({
   placed.sort((a, b) => a.centre.y - b.centre.y);
   const areas: Area[] = [];
   if (showZones) {
-    const frame = memory.zone?.frame ?? memory.observation?.frame;
-    const main = memory.zone && frame ? corners(memory.zone.rect, frame) : null;
+    const frame = mainZone(memory)?.frame ?? mugSighting(memory)?.frame;
+    const main = mainZone(memory) && frame ? corners(mainZone(memory)!.rect, frame) : null;
     if (main)
       areas.push({
         id: 'main',
         points: main,
-        inside: memory.placement === 'inside',
+        inside: mainPlacement(memory) === 'inside',
         focused: focus?.zone === 'main',
       });
     for (const rule of memory.rules ?? []) {

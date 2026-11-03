@@ -46,6 +46,7 @@ import {
   type Point,
   type SurfacePin,
   type ScannedThing,
+  sightedThing,
 } from '@livinglayer/domain';
 import { DEMO_SURFACE, fixture, thing, setup, type Scanned } from './lib/fixture-scan.js';
 
@@ -640,7 +641,27 @@ describe('scanning live, with a mocked Meta API', () => {
       memory: {
         ...memory,
         surface: DEMO_SURFACE,
-        object: { id: 'mug', label: 'Mug', createdAt: '2026-10-28T00:00:00.000Z' },
+        // A mug the camera follows: a scan leaves it out.
+        fixtures: [
+          ...(memory.fixtures ?? []),
+          sightedThing(memory, {
+            id: 'mug',
+            label: 'Mug',
+            concept: 'mug',
+            type: 'mug',
+            observation: {
+              id: 'o',
+              objectId: 'mug',
+              segmentRunId: 's',
+              detectionId: '1',
+              observedAt: '2026-10-28T00:00:00.000Z',
+              sourceKey: 'k',
+              frame: { width: 960, height: 640 },
+              box: { x: 0, y: 0, width: 10, height: 10 },
+              identity: 'manual',
+            },
+          }),
+        ],
       },
     });
     expect(r.statusCode, r.body).toBe(200);
@@ -907,8 +928,10 @@ describe('scanning live, with a mocked Meta API', () => {
         `${r.run.id}/item-crop-1.png`,
       ]),
     );
-    expect(r.memory.fixtures).toHaveLength(1);
-    expect(r.memory.fixtures![0]).toMatchObject({
+    // The followed mug stays as it was; the lamp is new.
+    const placed = r.memory.fixtures!.filter((f) => f.place !== 'sightings');
+    expect(placed).toHaveLength(1);
+    expect(placed[0]).toMatchObject({
       label: 'Desk lamp',
       surfaceId: 'desk:top',
       model: { source: 'sampled' },

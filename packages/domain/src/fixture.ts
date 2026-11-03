@@ -1,11 +1,12 @@
 import { z } from 'zod';
 import { ISO_PRESETS, isoSurface } from './iso-presets.js';
-import { ITEM_MATERIALS, isoItemSchema, type SavedItem } from './iso-item.js';
+import { ITEM_MATERIALS, isoItemSchema, mugItem, type SavedItem } from './iso-item.js';
 import {
   archetypeSchema,
   buildItem,
   catItem,
   catTreeItem,
+  archetypeOf,
   defaultFit,
   floorLampItem,
   monitorItem,
@@ -189,6 +190,13 @@ export interface Fixture extends Omit<FixtureInput, 'id' | 'model' | 'states'> {
   /** Set once a person confirmed it in the camera's view; moving it by hand clears it. */
   track?: FixtureTrack;
   /**
+   * `sightings`: placed by where the camera last saw it, through the pin, as
+   * the mug and other remembered objects are; it always has a `track`, and
+   * its `scene`, `at` and `size` aren't where it is drawn. Unset: where the
+   * person (or a scan) put it.
+   */
+  place?: 'sightings';
+  /**
    * Models it had before, newest first (at most MAX_DRAFTS): each change of
    * model by Model with AI, SAM 3D or another photo keeps the one it replaced,
    * so the person can compare them and pick one back.
@@ -233,7 +241,7 @@ export function withNewModel<F extends Pick<Fixture, 'model' | 'drafts'>>(
 }
 
 /** A fixture the camera follows, like a remembered object. */
-interface FixtureTrack {
+export interface FixtureTrack {
   /** The SAM concept it was confirmed from; it is looked for in outlines of the same one. */
   concept: string;
   observation: DeskObservation;
@@ -666,7 +674,8 @@ export function followSurfaces(
  */
 export function settleFixtures(fixtures: Fixture[], custom: IsoScene | null): Fixture[] {
   return fixtures.flatMap((f) => {
-    if (f.scene !== 'custom') return [f];
+    // A thing placed by its sightings stands wherever the camera saw it.
+    if (f.scene !== 'custom' || f.place === 'sightings') return [f];
     if (!custom) return [];
     let next = f;
     if (next.surfaceId && !isoSurface('custom', next.surfaceId, custom))
@@ -827,6 +836,32 @@ const STARTER_META: Record<
     colors: ['#8d8f94', '#c9b48f'],
   },
 };
+
+/**
+ * The usual model for a thing of this name, until one is drafted for it: a
+ * mug's for a mug, else its archetype's (`placeholder`, so it reads as not
+ * drafted yet).
+ */
+export function stockModel(label: string): SavedItem {
+  const archetype = archetypeOf(label);
+  const item =
+    archetype === 'mug'
+      ? mugItem(undefined, undefined, label)
+      : buildItem(label, defaultFit(archetype));
+  return {
+    ...item,
+    source: 'placeholder',
+    segmentRunId: null,
+    swatches: [],
+    updatedAt: STOCK_AT,
+    fit: null,
+  };
+}
+/** When a stock model was made: never, which is how it is told from a drafted placeholder. */
+const STOCK_AT = new Date(0).toISOString();
+/** Whether a model is only a thing's stock one, not drafted for it. */
+export const isStockModel = (model: SavedItem) =>
+  model.source === 'placeholder' && model.updatedAt === STOCK_AT && !model.segmentRunId;
 
 export function starterMeta(template: StarterTemplate) {
   return STARTER_META[template];

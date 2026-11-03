@@ -14,6 +14,7 @@ import type {
   UnitBox,
   WatchView,
 } from '@livinglayer/domain';
+import { mugOf, mugSighting, otherObjects, placedFixtures } from '@livinglayer/domain';
 
 /** One thing drawn over the live camera: where it is, as shares of the frame, and how sure. */
 interface Sighting {
@@ -47,11 +48,11 @@ export function sightings({
   aspect: number;
 }): Sighting[] {
   const out: Sighting[] = [];
-  const mugId = memory?.object?.id;
+  const mugId = mugOf(memory)?.id;
   if (follow)
     out.push({
       id: mugId ?? 'mug',
-      label: memory?.object?.label ?? 'Mug',
+      label: mugOf(memory)?.label ?? 'Mug',
       box: follow.track.box,
       tone: follow.verdict !== 'follow' || follow.track.lostSteps ? 'unsure' : 'follow',
       note: follow.verdict !== 'follow' ? 'ASKING SAM' : `LOCAL · ${follow.track.score.toFixed(2)}`,
@@ -74,9 +75,9 @@ export function sightings({
   }
   const remembered: { label: string; o: DeskObservation | null | undefined; missing?: boolean }[] =
     [
-      { label: memory?.object?.label ?? 'Mug', o: memory?.observation },
-      ...(memory?.others ?? []).map((t) => ({ label: t.label, o: t.observation })),
-      ...(memory?.fixtures ?? []).map((f) => ({
+      { label: mugOf(memory)?.label ?? 'Mug', o: mugSighting(memory) },
+      ...(otherObjects(memory) ?? []).map((t) => ({ label: t.label, o: t.observation })),
+      ...placedFixtures(memory).map((f) => ({
         label: f.label,
         o: f.track?.observation,
         missing: f.track?.status === 'missing',

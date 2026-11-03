@@ -10,6 +10,8 @@ import {
   type LampResult,
   type IsoSurface,
   type Mode,
+  mugOf,
+  otherObjects,
 } from '@livinglayer/domain';
 import { isRun } from '@livinglayer/domain';
 import type { Lab } from './useLabState';
@@ -85,8 +87,8 @@ export function selectionLabel(lab: LabRead, s: Selection): string {
     }
     case 'object':
       return s.id === 'main'
-        ? (memory?.object?.label ?? 'The mug')
-        : (memory?.others?.find((o) => o.id === s.id)?.label ?? 'Object');
+        ? (mugOf(memory)?.label ?? 'The mug')
+        : (otherObjects(memory)?.find((o) => o.id === s.id)?.label ?? 'Object');
     case 'suggested':
       return lab.scene?.objects[s.index]?.label ?? 'Suggested object';
     case 'add':
