@@ -20,6 +20,7 @@ import {
   modelTarget,
   ruleSighting,
   actionsColor,
+  MAIN_RULE,
   pinFits,
   rotateItem,
   projectBox,
@@ -425,16 +426,22 @@ function IsoViewOf({
             .map((h) => projectBox(h.box, surface!, mug.map.toSurface).foot)
         : [];
     const zones: IsoZone[] = [];
+    // The main zone where the mug was seen: its saved rule's name, state and colour, or the one being drawn.
+    const main = memory?.rules?.find((r) => r.id === MAIN_RULE);
+    const mainRgb = main && !drawing ? actionsColor(ruleActions(main)) : null;
     if (mug && o && zone)
       zones.push({
         id: 'main',
         kind: 'main',
         quad: zoneOnSurface(zone, o.frame, mug.map.toSurface),
+        ...(main && !drawing ? { label: main.label, inside: main.placement === 'inside' } : {}),
+        ...(mainRgb ? { color: `rgb(${mainRgb.join(' ')})` } : {}),
       });
     for (const rule of memory?.rules ?? []) {
       const map = pinned && pin ? surfaceMap(pin, rule.zone.frame) : null;
-      // A rule being changed shows as its draft only.
-      if (map && rule.id !== ruleDraft?.id) {
+      // A rule being changed shows as its draft only; the main one, once, as above when it can be.
+      const shown = rule.id === MAIN_RULE && zones.some((z) => z.id === 'main');
+      if (map && rule.id !== ruleDraft?.id && !shown) {
         const rgb = actionsColor(ruleActions(rule));
         zones.push({
           id: rule.id,
