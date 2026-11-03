@@ -15,6 +15,8 @@ import {
   DEMO_POSITIONS,
   savedIdOf,
   controlKindOf,
+  haLightColor,
+  withHaStates,
 } from '@livinglayer/domain';
 import { type Config, type Fetcher, PROJECT_ROOT } from './config.js';
 import { EvidenceStore } from './store.js';
@@ -183,6 +185,26 @@ export async function buildApp(
         return s ? [[e, s.state]] : [];
       }),
     ),
+    colors: Object.fromEntries(
+      haLights().flatMap((e) => {
+        const s = haLive.state(e);
+        const color = s?.state === 'on' ? haLightColor(s.attributes) : null;
+        return color ? [[e, color]] : [];
+      }),
+    ),
+  });
+  // Things show what Home Assistant reports: once it connects, and whenever a device changes.
+  haLive.subscribe((changed) => {
+    const { states } = haView();
+    if (changed.length && !changed.some((e) => e in states)) return;
+    const memory = store.memory('live');
+    let moved = false;
+    memory.fixtures = memory.fixtures?.map((f) => {
+      const next = withHaStates(f, states);
+      if (next !== f) moved = true;
+      return next;
+    });
+    if (moved) store.saveMemory(memory);
   });
   /** `haView` to each listener whenever it changes; Home Assistant's other entities are ignored. */
   const haFeed = {

@@ -25,12 +25,14 @@ import {
   fixtureEntity,
   fixtureInputSchema,
   fixtureModel,
+  haLightColor,
   fixtureProblem,
   fixtureSize,
   fixtureStateNames,
   fixtureType,
   floorLampItem,
   lightSources,
+  withHaStates,
   retypeFixture,
   inRoomView,
   isoItemSchema,
@@ -1393,6 +1395,31 @@ describe('a fixture’s type and light sources', () => {
     );
     expect(warm(half, 'shade-reading')).toBe(true);
     expect(warm(half, 'shade-bowl')).toBe(false);
+  });
+  it('follows what Home Assistant reports, and keeps what it doesn’t report on or off', () => {
+    const lights = [
+      { part: 'shade-bowl', entityId: 'light.top' },
+      { part: 'shade-reading', entityId: 'light.side' },
+    ];
+    const before = lamp({ lights, lit: { 'shade-bowl': true, 'shade-reading': false } });
+    expect(withHaStates(before, { 'light.top': 'on', 'light.side': 'off' })).toBe(before);
+    const now = withHaStates(before, { 'light.top': 'off', 'light.side': 'on' });
+    expect(now.lit).toEqual({ 'shade-bowl': false, 'shade-reading': true });
+    const lost = withHaStates(before, { 'light.top': 'unavailable' });
+    expect(lost.lit).toEqual(before.lit);
+    const own = lamp({ control: { kind: 'light', entityId: 'light.top' }, state: null });
+    expect(withHaStates(own, { 'light.top': 'on' }).state).toBe('on');
+  });
+  it('lights a shade in its light’s colour, and reads that colour from Home Assistant', () => {
+    const lights = [{ part: 'shade-reading', entityId: 'light.side' }];
+    const pink = haLightColor({ rgb_color: [255, 79, 200], brightness: 200 });
+    expect(pink).toBe('#ff4fc8');
+    expect(haLightColor({ color_mode: 'onoff' })).toBeNull();
+    const m = fixtureModel(lamp({ lights, lit: { 'shade-reading': true } }), null, {
+      'light.side': pink!,
+    });
+    const paint = m.parts.find((p) => p.id === 'shade-reading')!.paint ?? [];
+    expect(paint.some((b) => 'color' in b && b.color === '#ff4fc8')).toBe(true);
   });
   it('turns a fixture into another kind, centred where it stood', () => {
     const before = lamp({

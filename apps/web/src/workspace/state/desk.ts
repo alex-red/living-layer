@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useMemo } from 'react';
-import type { LabStatus, Mode, DeskMemory } from '@livinglayer/domain';
+import type { HaView, LabStatus, Mode, DeskMemory } from '@livinglayer/domain';
 import { DEMO_LIGHTS, DEMO_SWITCHES } from '@livinglayer/domain';
 import { api, apiIfChanged } from '../../api';
 import { usd } from '../../cost';
@@ -152,6 +152,8 @@ export function useDeskSlice(deps: ViewSlice & FeedbackSlice & RunLogSlice): Des
    * when it is connected (live), else as it was last confirmed in this mode.
    */
   const haStates = useStore(haStore, (v) => (v?.link === 'connected' ? v.states : null));
+  /** Home Assistant's devices as it reports them now, while live and connected; else null. */
+  const liveHa = useStore(haStore, (v) => (mode === 'live' && v?.link === 'connected' ? v : null));
   const lightsOn = useMemo(() => {
     const states = new Map<string, string>(lightStates(memory, runs));
     if (mode === 'live' && haStates)
@@ -172,6 +174,7 @@ export function useDeskSlice(deps: ViewSlice & FeedbackSlice & RunLogSlice): Des
     lights,
     lightsOn,
     limitDraft,
+    liveHa,
     memories,
     memory,
     metaReady,
@@ -202,6 +205,7 @@ export interface DeskSlice {
   lights: string[];
   lightsOn: Set<string>;
   limitDraft: string;
+  liveHa: HaView | null;
   memories: Partial<Record<'demo' | 'live', DeskMemory>>;
   memory: DeskMemory | undefined;
   metaReady: boolean;

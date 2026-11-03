@@ -10,6 +10,7 @@ import {
   fixtureBox,
   fixtureInput,
   fixtureGlows,
+  withHaStates,
   fixtureModel,
   followStats,
   closeViewShift,
@@ -199,6 +200,20 @@ function marker(
 }
 
 /**
+ * How a fixture lights the room: a lamp with its own light glows whole; one
+ * whose shades switch their own lights glows only in its shades, with a halo
+ * in the colour of the first one lit.
+ */
+function lightOf(
+  f: Fixture,
+  colors: Readonly<Record<string, string>>,
+): Pick<IsoFixture, 'glow' | 'halo'> {
+  if (!f.lights?.length) return { glow: fixtureGlows(f) };
+  const lit = f.lights.find((l) => f.lit?.[l.part]);
+  return { glow: false, ...(lit ? { halo: colors[lit.entityId] ?? 'var(--warm)' } : {}) };
+}
+
+/**
  * The desk memory drawn as an isometric scene. The pinned surface maps the
  * camera frame onto one surface, so the remembered objects, the mug's trail
  * and every zone land where they are in the room. It is a view, never a
@@ -266,6 +281,7 @@ function IsoViewOf({
     showZones,
     showPicture,
     lightsOn,
+    liveHa,
     visibleZone,
     setWorkScene: onKind,
     setIsoPanel: onPanel,
@@ -640,11 +656,15 @@ function IsoViewOf({
       .map(([id, n]) => `${id}:${n.power?.value ?? ''}:${n.occupied?.value ?? ''}`)
       .join(' '),
   );
+  // Lights as Home Assistant reports them now, not only as last switched here.
   const things = useMemo(
-    () => followStats(memory?.fixtures ?? [], statsStore.get()),
+    () =>
+      followStats(memory?.fixtures ?? [], statsStore.get()).map((f) =>
+        liveHa ? withHaStates(f, liveHa.states) : f,
+      ),
     // `readings` says when a reading changed; the store holds them.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [memory?.fixtures, readings],
+    [memory?.fixtures, readings, liveHa],
   );
   // Fixtures in this scene; one being moved is drawn only where the pointer is.
   const placingId = placing?.id;
@@ -672,15 +692,15 @@ function IsoViewOf({
         id: f.id,
         label: f.label,
         box: boxOf(f),
-        item: rotateItem(fixtureModel(f), f.turns),
-        glow: fixtureGlows(f),
+        item: rotateItem(fixtureModel(f, f.state, liveHa?.colors), f.turns),
+        ...lightOf(f, liveHa?.colors ?? {}),
         ...(f.control.kind === 'none' && !f.state && !f.states ? {} : { state: f.state ?? null }),
         focused: f.id === focus.fixture,
         ...(f.track?.status === 'missing' ? { missing: true } : {}),
         ...(f.control.kind === 'light' ? { lamp: true } : {}),
         ...foodLine(f),
       }));
-  }, [things, kind, shift, shown, custom, scene, placingId, focus]);
+  }, [things, kind, shift, shown, custom, scene, placingId, focus, liveHa]);
   const isoPlacing = useMemo(() => {
     if (!placing || placing.scene !== kind) return undefined;
     const turned = placing.turns % 2 === 1;

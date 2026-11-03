@@ -3,6 +3,7 @@ import { parseConfig, type Fetcher } from '../apps/server/src/config.js';
 import { ControlAdapter } from '../apps/server/src/control.js';
 import { HaLive } from '../apps/server/src/ha-live.js';
 import type { OpenSocket } from '../apps/server/src/ha.js';
+import { starterFixtureDraft } from '@livinglayer/domain';
 import { tempDir, testApp } from './lib/app.js';
 
 type Sent = Record<string, unknown> & { id?: number; type: string };
@@ -222,6 +223,59 @@ describe('the lab and the websocket', () => {
       text += new TextDecoder().decode((await reader.read()).value);
     await reader.cancel();
     const line = text.split('event: ha\ndata: ')[1]!.split('\n')[0]!;
-    expect(JSON.parse(line)).toEqual({ link: 'connected', states: { 'light.desk': 'on' } });
+    expect(JSON.parse(line)).toEqual({
+      link: 'connected',
+      states: { 'light.desk': 'on' },
+      colors: {},
+    });
+  });
+
+  it('lights a lamp’s shades as Home Assistant reports them: once it connects, then on each change', async () => {
+    const ha = fakeHa({
+      'light.top': { s: 'off' },
+      'light.side': { s: 'on', a: { rgb_color: [255, 79, 200] } },
+    });
+    const probe = Bun.listen({ hostname: '127.0.0.1', port: 0, socket: { data() {} } });
+    const port = probe.port;
+    probe.stop(true);
+    const { app, post, memory } = await testApp({
+      name: 'ha-lit',
+      env: {
+        HA_URL: connection.url,
+        HA_TOKEN: connection.token,
+        HA_ENTITY_ID: 'light.top',
+        HA_EXTRA_ENTITY_IDS: 'light.side',
+        PORT: String(port),
+      },
+      haSocket: ha.openSocket,
+    });
+    const draft = starterFixtureDraft('floor-lamp');
+    const saved = await post('fixtures/save', {
+      mode: 'live',
+      fixture: {
+        label: draft.label,
+        scene: 'office',
+        surfaceId: null,
+        at: { x: 1, y: 1 },
+        turns: 0,
+        size: draft.size,
+        model: { label: draft.model.label, parts: draft.model.parts },
+        reference: null,
+        control: { kind: 'none' },
+        lights: [
+          { part: 'shade-bowl', entityId: 'light.top' },
+          { part: 'shade-reading', entityId: 'light.side' },
+        ],
+      },
+    });
+    expect(saved.statusCode, saved.body).toBe(200);
+    const lit = async () => (await memory('live')).fixtures?.[0]?.lit;
+    await app.listen({ host: '127.0.0.1', port });
+    await until(() => ha.sockets.length > 0);
+    for (let i = 0; i < 200 && !(await lit())?.['shade-reading']; i++) await tick();
+    expect(await lit()).toEqual({ 'shade-bowl': false, 'shade-reading': true });
+    ha.sockets[0]!.push({ c: { 'light.top': { '+': { s: 'on' } } } });
+    for (let i = 0; i < 200 && !(await lit())?.['shade-bowl']; i++) await tick();
+    expect(await lit()).toEqual({ 'shade-bowl': true, 'shade-reading': true });
   });
 });

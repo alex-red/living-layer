@@ -36,6 +36,8 @@ export interface HaView {
   link: HaLink;
   /** Each device's state by entity id; empty unless `link` is `connected`. */
   states: Record<string, string>;
+  /** Each light's colour by entity id while it is on and reports one. */
+  colors: Record<string, string>;
 }
 
 /** A phone paired to the lab as a camera, as `/api/remote` shows it. */

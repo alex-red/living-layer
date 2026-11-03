@@ -169,6 +169,8 @@ export interface IsoFixture {
   item: IsoItem;
   /** A light whose last action was confirmed on: it glows like a lamp. */
   glow: boolean;
+  /** Its shades are lit on their own: a halo in this colour, the sprite as its shades paint it. */
+  halo?: string;
   /** The fixture's active state (`on`, `off`, `idle`, `sleeping`, or custom); null when unknown. */
   state?: string | null;
   focused?: boolean;
@@ -897,23 +899,31 @@ function IsoSceneView({
         </radialGradient>
       </defs>
       {fixtures
-        .filter((f) => f.glow)
+        .filter((f) => f.glow || f.halo)
         .map((f) => {
           const c = toIso({
             x: f.box.at.x + f.box.size.w / 2,
             y: f.box.at.y + f.box.size.d / 2,
             z: f.box.at.z,
           });
+          const fill = f.halo ? `iso-halo-${f.id}` : 'iso-warm';
           return (
-            <ellipse
-              key={`glow-${f.id}`}
-              className="iso-glow"
-              fill="url(#iso-warm)"
-              cx={c.sx}
-              cy={c.sy}
-              rx={180}
-              ry={90}
-            />
+            <g key={`glow-${f.id}`}>
+              {f.halo && (
+                <radialGradient id={fill}>
+                  <stop offset="0" stopColor={f.halo} stopOpacity="0.35" />
+                  <stop offset="1" stopColor={f.halo} stopOpacity="0" />
+                </radialGradient>
+              )}
+              <ellipse
+                className="iso-glow"
+                fill={`url(#${fill})`}
+                cx={c.sx}
+                cy={c.sy}
+                rx={180}
+                ry={90}
+              />
+            </g>
           );
         })}
       {scene.props.filter(lit).map((p) => {

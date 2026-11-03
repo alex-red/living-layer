@@ -405,25 +405,23 @@ export function stateVariantModel(
 }
 
 type ItemPart = SavedItem['parts'][number];
-const isBowl = (p: ItemPart) =>
-  p.id === 'shade-bowl' ||
-  (p.shape === 'lathe' && p.profile.length > 1 && p.profile.at(-1)!.r > p.profile[0]!.r);
 /**
- * A shade lit or not: a bowl (one that opens upward) glows from inside and at
- * its rim, a tube all along, any other shade at its mouth.
+ * A shade lit or not, in its light's colour: the uplight bowl at its rim, the
+ * reading shade at its mouth, and a scanned shade, whose mouth isn't known, all over.
  */
-function glowShade(p: ItemPart, lit: boolean): ItemPart {
+function glowShade(p: ItemPart, lit: boolean, color = WARM): ItemPart {
   const rest = (p.paint ?? []).filter((b) => !(b.kind === 'band' && b.color === WARM));
-  const glow = isBowl(p)
-    ? { from: 0.7, to: 1 }
-    : p.shape === 'tube'
-      ? { from: 0, to: 1 }
-      : { from: 0, to: 0.3 };
+  const glow =
+    p.id === 'shade-bowl'
+      ? { from: 0.7, to: 1 }
+      : p.id === 'shade-reading'
+        ? { from: 0, to: 0.3 }
+        : { from: 0, to: 1 };
   return {
     ...p,
-    paint: lit ? [...rest, { kind: 'band' as const, ...glow, color: WARM }].slice(0, 6) : rest,
+    paint: lit ? [...rest, { kind: 'band' as const, ...glow, color }].slice(0, 6) : rest,
     ...(p.shape === 'lathe' && p.inside
-      ? { inside: { ...p.inside, wall: lit ? WARM : p.color } }
+      ? { inside: { ...p.inside, wall: lit ? color : p.color } }
       : {}),
   };
 }
@@ -467,18 +465,58 @@ export function fixtureGlows(f: Pick<Fixture, 'control' | 'state' | 'lit'>): boo
 }
 
 /**
- * Each linked source lit by its own entity's state; a source with no entity
- * of its own follows the fixture's state, as `stateVariantModel` drew it.
+ * Each linked source lit by its own entity's state, in that light's colour
+ * when it reports one; a source with no entity of its own follows the
+ * fixture's state, as `stateVariantModel` drew it.
  */
-function withLitSources(model: SavedItem, f: Partial<Pick<Fixture, 'lights' | 'lit'>>): SavedItem {
-  const own = new Map((f.lights ?? []).map((l) => [l.part, f.lit?.[l.part] ?? false]));
+function withLitSources(
+  model: SavedItem,
+  f: Partial<Pick<Fixture, 'lights' | 'lit'>>,
+  colors: Readonly<Record<string, string>> = {},
+): SavedItem {
+  const own = new Map((f.lights ?? []).map((l) => [l.part, l]));
   if (!model.parts.some((p) => own.has(p.id) && isShade(p.id))) return model;
   return {
     ...model,
-    parts: model.parts.map((p) =>
-      own.has(p.id) && isShade(p.id) ? glowShade(p, own.get(p.id)!) : p,
-    ),
+    parts: model.parts.map((p) => {
+      const light = own.get(p.id);
+      return light && isShade(p.id)
+        ? glowShade(p, f.lit?.[p.id] ?? false, colors[light.entityId])
+        : p;
+    }),
   };
+}
+
+/**
+ * A fixture as Home Assistant reports its entities: its own light's state,
+ * and each linked source lit while its entity is on. An entity it doesn't
+ * report on or off keeps what was last confirmed. The same fixture when
+ * nothing changes.
+ */
+export function withHaStates<F extends Pick<Fixture, 'control' | 'state' | 'lights' | 'lit'>>(
+  f: F,
+  states: Readonly<Record<string, string>>,
+): F {
+  const onOff = (entity: string) => {
+    const s = states[entity];
+    return s === 'on' || s === 'off' ? s : null;
+  };
+  const own = fixtureEntity(f);
+  const state = (own && onOff(own)) ?? f.state;
+  let lit = f.lit;
+  for (const l of f.lights ?? []) {
+    const s = onOff(l.entityId);
+    if (s && (lit?.[l.part] ?? null) !== (s === 'on')) lit = { ...lit, [l.part]: s === 'on' };
+  }
+  return state === f.state && lit === f.lit ? f : { ...f, state, ...(lit ? { lit } : {}) };
+}
+
+/** A light's colour as Home Assistant reports it (`rgb_color`), or null without one. */
+export function haLightColor(attributes: Readonly<Record<string, unknown>>): string | null {
+  const rgb = attributes.rgb_color;
+  if (!Array.isArray(rgb) || rgb.length !== 3) return null;
+  if (!rgb.every((v) => typeof v === 'number' && v >= 0 && v <= 255)) return null;
+  return `#${rgb.map((v: number) => Math.round(v).toString(16).padStart(2, '0')).join('')}`;
 }
 
 /** Default per-state fixtures for a newly drafted or saved cat, monitor or lamp. */
@@ -532,16 +570,20 @@ export function defaultFixtureStates(f: {
   return {};
 }
 
-/** The model a fixture shows in its active (or given) state. */
+/**
+ * The model a fixture shows in its active (or given) state; `colors` are its
+ * lights' colours by entity, as Home Assistant reports them.
+ */
 export function fixtureModel(
   f: Pick<Fixture, 'model'> &
     Partial<Pick<Fixture, 'state' | 'states' | 'control' | 'lights' | 'lit'>>,
   state = f.state,
+  colors?: Readonly<Record<string, string>>,
 ): SavedItem {
   const model = !state
     ? f.model
     : (f.states?.[state]?.model ?? stateVariantModel(f.model, state, f.control?.kind));
-  return withLitSources(model, f);
+  return withLitSources(model, f, colors);
 }
 
 /** The size a fixture takes in its active (or given) state. */
