@@ -40,3 +40,49 @@ describe('store migrations', () => {
     store.close();
   });
 });
+
+describe('store memory', () => {
+  const base = { object: null, observation: null, zone: null, lastDecision: null };
+  const save = (dir: string, mode: string, memory: object) => {
+    const raw = new Database(join(dir, 'livinglayer.sqlite'), { strict: true });
+    raw.run('INSERT OR REPLACE INTO desk_memory VALUES (?, ?)', [mode, JSON.stringify(memory)]);
+    raw.close();
+  };
+
+  it('upgrades an old-format memory through its schema', () => {
+    const dir = tmp();
+    new EvidenceStore(dir).close();
+    save(dir, 'live', {
+      ...base,
+      mode: 'live',
+      rules: [
+        { id: 'r', label: 'Desk', objectId: 'o1', lightId: 'light.desk', placement: 'inside' },
+      ],
+    });
+    const store = new EvidenceStore(dir);
+    expect(store.memory('live').rules?.[0]).toMatchObject({
+      entityId: 'light.desk',
+      objects: ['o1'],
+      inside: ['o1'],
+    });
+    store.close();
+  });
+
+  it('keeps a memory that no longer fits the schema rather than losing it', () => {
+    const dir = tmp();
+    new EvidenceStore(dir).close();
+    save(dir, 'live', { ...base, mode: 'live', rules: 3, dismissed: ['kept'] });
+    const store = new EvidenceStore(dir);
+    const logged: string[] = [];
+    const original = console.error;
+    console.error = (...args: unknown[]) => void logged.push(args.join(' '));
+    try {
+      expect(store.memory('live').dismissed).toEqual(['kept']);
+      store.memory('live');
+    } finally {
+      console.error = original;
+    }
+    expect(logged).toHaveLength(1);
+    store.close();
+  });
+});

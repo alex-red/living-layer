@@ -10,6 +10,7 @@ import {
 } from 'node:fs';
 import { join } from 'node:path';
 import {
+  deskMemorySchema,
   isMugConcept,
   runCost,
   upgradeMemory,
@@ -126,8 +127,30 @@ export class EvidenceStore {
       .query<Payload, [Mode]>('SELECT payload FROM desk_memory WHERE mode = ?')
       .get(mode);
     return row
-      ? upgradeMemory(JSON.parse(row.payload) as DeskMemory)
+      ? this.parseMemory(mode, row.payload)
       : { mode, object: null, observation: null, zone: null, lastDecision: null };
+  }
+  private readonly badMemory = new Set<Mode>();
+  /**
+   * Saved memory through its schema (which upgrades earlier versions). Memory
+   * that no longer fits is kept as it is, upgraded and unchecked, rather than
+   * lost; the cause is logged once per mode.
+   */
+  private parseMemory(mode: Mode, payload: string): DeskMemory {
+    const raw: unknown = JSON.parse(payload);
+    const parsed = deskMemorySchema.safeParse(raw);
+    if (parsed.success) return parsed.data;
+    if (!this.badMemory.has(mode)) {
+      this.badMemory.add(mode);
+      console.error(
+        `[server] ${mode} desk memory does not fit its schema, using it as saved: ${parsed.error.message}`,
+      );
+    }
+    try {
+      return upgradeMemory(raw as DeskMemory);
+    } catch {
+      return raw as DeskMemory;
+    }
   }
   saveMemory(memory: DeskMemory): void {
     this.db.run(
