@@ -1296,6 +1296,19 @@ describe('a looked-up product’s size for a fixture', () => {
   it('lays it along the fixture’s own longer side, in tiles', () => {
     expect(productSize(alex, { w: 4, d: 2 })).toEqual({ w: 131 / 30, d: 2, h: 76 / 30 });
     expect(productSize(alex, { w: 2, d: 4 })).toEqual({ w: 2, d: 131 / 30, h: 76 / 30 });
+    // Flatter than its footprint, but 76 cm is no desk's longest side.
+    expect(productSize(alex, { w: 4, d: 1.5, h: 0.8 })).toEqual({ w: 131 / 30, d: 2, h: 76 / 30 });
+  });
+  it('stands a flat thing on its shortest side, whatever the spec sheet calls height', () => {
+    // Logitech lists a mouse as 125 mm high, 63.5 mm wide and 40 mm deep.
+    const mouse = { sizeCm: { w: 6.35, d: 4, h: 12.5 }, confidence: 0.9 };
+    expect(productSize(mouse, { w: 0.33, d: 0.2, h: 0.1 })).toEqual({
+      w: 12.5 / 30,
+      d: 6.35 / 30,
+      h: 4 / 30,
+    });
+    const lamp = { sizeCm: { w: 50, d: 20, h: 15 }, confidence: 0.9 };
+    expect(productSize(lamp, { w: 0.6, d: 0.6, h: 1.5 })).toMatchObject({ h: 50 / 30 });
   });
   it('keeps the fixture’s own when the lookup is unsure or the size is not one a fixture can be', () => {
     expect(productSize({ ...alex, confidence: 0.3 }, { w: 4, d: 2 })).toBeNull();

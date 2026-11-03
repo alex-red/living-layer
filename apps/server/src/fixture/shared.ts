@@ -74,15 +74,27 @@ export type Parsed<S extends { parse: (data: unknown) => unknown }> = ReturnType
 /**
  * A looked-up product's size in tiles, laid the way the fixture stands (its
  * longer side along its own longer side), when the lookup is sure enough of
- * it and it is a size a fixture can be. Null otherwise.
+ * it and it is a size a fixture can be. Null otherwise. Spec sheets call a
+ * mouse's length its height: a fixture clearly flatter than it is wide whose
+ * product is tallest of all lies on its shortest side, and one clearly taller
+ * than wide whose product is shortest stands on its longest.
  */
 export function productSize(
   facts: Pick<ProductFacts, 'sizeCm' | 'confidence'>,
-  current: { w: number; d: number },
+  current: { w: number; d: number; h?: number },
 ): { w: number; d: number; h: number } | null {
   const cm = facts.sizeCm;
   if (!cm || facts.confidence < 0.5) return null;
-  const same = current.w >= current.d === cm.w >= cm.d;
-  const t = { w: (same ? cm.w : cm.d) / 30, d: (same ? cm.d : cm.w) / 30, h: cm.h / 30 };
+  const sides = [cm.w, cm.d, cm.h].sort((a, b) => a - b);
+  const flat = current.h !== undefined && current.h < Math.min(current.w, current.d) * 0.75;
+  const tall = current.h !== undefined && current.h > Math.max(current.w, current.d) * 1.33;
+  const [h, a, b] =
+    flat && cm.h === sides[2]
+      ? [sides[0]!, sides[1]!, sides[2]!]
+      : tall && cm.h === sides[0]
+        ? [sides[2]!, sides[0]!, sides[1]!]
+        : [cm.h, cm.w, cm.d];
+  const same = current.w >= current.d === a >= b;
+  const t = { w: (same ? a : b) / 30, d: (same ? b : a) / 30, h: h / 30 };
   return [t.w, t.d, t.h].every((v) => v >= 0.1 && v <= 8) ? t : null;
 }
