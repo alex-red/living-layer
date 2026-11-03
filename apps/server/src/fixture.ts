@@ -1172,46 +1172,52 @@ async function bestSculpt(
   return { best, drafts, usage, model, requestId };
 }
 
-/**
- * Model a fixture in our own parts with Spark, starting from its current
- * model and the picture of it: its cut-out from the room's picture when it
- * was lifted, else the crop its model was fitted to, else the crop of it a
- * room draft kept (seen from the room's camera). Spark revises the parts
- * against a render of the model (one call), then once more against a render
- * of its own draft (a second), and the draft whose silhouette matches the
- * picture better is kept, with any parts the person locked. Live only.
- */
-async function sculptFixture(
-  {
-    store,
-    meta,
-    run,
-    jobs,
-    productsDir,
-  }: Pick<RouteDeps, 'store' | 'meta' | 'run' | 'jobs' | 'productsDir'>,
-  { mode, fixtureId, jobId, note }: Parsed<typeof fixturesSculptBodySchema>,
-) {
-  if (mode !== 'live')
-    throw new LabError(
-      'sculpt_demo',
-      'Modelling with AI asks Spark, so it runs in Live mode. The demo’s fixtures keep their fitted models.',
-    );
-  const memory = store.memory(mode);
-  const fixture = memory.fixtures?.find((f) => f.id === fixtureId);
-  if (!fixture) throw new LabError('fixture_missing', 'That fixture is gone.', 404);
-  const { group, activeModel, activeSize, sprite, png, elevation } = sculptPicture(
-    store,
-    memory,
-    fixture,
-  );
-  // A note is looked up as a product first: the catalog, then the web.
-  const ceiling =
-    SCULPT_DRAFTS * sparkCeiling(SPARK_BUDGET.sculpt, 2) +
-    (note
-      ? sparkCeiling(SPARK_BUDGET.productLookup, 0) + SEARCH_CEILING * META_PRICES.webSearchPerQuery
-      : 0);
-  meta.mustAfford(ceiling, 'Modelling it');
-  const input = await cropInput(png, fixture.label);
+type SculptDeps = Pick<RouteDeps, 'store' | 'meta' | 'run' | 'jobs' | 'productsDir'>;
+type Tiles = { w: number; d: number; h: number };
+type SculptPicture = ReturnType<typeof sculptPicture>;
+type SculptBest = Awaited<ReturnType<typeof bestSculpt>>;
+type SculptLooked = Promise<
+  { found: Awaited<ReturnType<typeof research>>; failed: null } | { found: null; failed: string }
+>;
+
+/** What one Modelling run knows and has gathered so far; the steps read and add to it. */
+interface SculptRun {
+  store: EvidenceStore;
+  meta: MetaAdapter;
+  job: JobTracker;
+  id: string;
+  fixture: Fixture;
+  note: string | undefined;
+  picture: SculptPicture;
+  input: Awaited<ReturnType<typeof cropInput>>;
+  greyscale: boolean;
+  small: boolean;
+  /** The picture, or a render, as Spark sees it. */
+  shown: (b: Buffer, enlarge?: boolean) => Promise<string>;
+  assets: string[];
+  catalog: Catalog;
+  web: Researcher;
+  need: readonly ['parts', 'colors'];
+  usage: Usage | null;
+  facts: MergedFacts | null;
+  /** The product's size in tiles, once a lookup gives it. */
+  productTiles: Tiles | null;
+  /** The proportions Spark is asked for. */
+  size: Tiles;
+}
+
+const overlap = (iou: number) => `${Math.round(iou * 100)}% overlap with the picture`;
+const partsOf = (n: number) => `${n} part${n === 1 ? '' : 's'}`;
+
+/** A size as proportions of its longest side. */
+function proportions(s: Tiles): Tiles {
+  const longest = Math.max(s.w, s.d);
+  return { w: s.w / longest, d: s.d / longest, h: s.h / longest };
+}
+
+/** How the picture is looked at: its crop, its colours, and how it is shown to Spark. */
+async function sculptLook(png: Buffer, label: string) {
+  const input = await cropInput(png, label);
   const greyscale = await isGreyscale(png);
   const { width = 0, height = 0 } = await sharp(png).metadata();
   const small = Math.max(width, height) < SCULPT_SMALL_PX;
@@ -1225,175 +1231,303 @@ async function sculptFixture(
       });
     return toDataUrl(await image.png().toBuffer());
   };
-  // Its proportions: the fixture's, until a lookup gives the product's own.
-  const proportions = (s: { w: number; d: number; h: number }) => {
-    const longest = Math.max(s.w, s.d);
-    return { w: s.w / longest, d: s.d / longest, h: s.h / longest };
-  };
-  let size = proportions(activeSize);
-  const steps = note
+  return { input, greyscale, small, shown };
+}
+
+/** The steps a sculpt shows: with a note, a lookup comes after the picture. */
+function sculptStepList(note: string | undefined) {
+  return note
     ? [SCULPT_STEPS[0]!, { id: 'lookup', label: 'Look it up' }, ...SCULPT_STEPS.slice(1)]
     : SCULPT_STEPS;
-  const job = jobs.start(jobId, steps, {
+}
+
+/**
+ * Step "lookup": what the catalog knows about the note goes into Spark's prompt at once.
+ * The web is asked alongside the drafts, not before them (it took 48 s); what it finds sizes
+ * the saved model and is kept, so the same thing next time comes from the catalog.
+ */
+async function sculptLookup(
+  r: SculptRun,
+  activeSize: Tiles,
+): Promise<{ looked: SculptLooked } | null> {
+  const { note, job, catalog, web, need } = r;
+  if (!note) return null;
+  job.run('lookup');
+  const known = await research(note, need, [catalog], { signal: job.signal }).catch(() => null);
+  r.facts = known?.facts.sources.length ? known.facts : null;
+  const real = r.facts && productSize(r.facts, activeSize);
+  if (real) {
+    r.productTiles = real;
+    r.size = proportions(real);
+  }
+  // The lookup only helps: when it fails, Spark models from the note and the picture.
+  // Wrapped, so the async function doesn't wait for it: the drafts are asked meanwhile.
+  const looked = research(note, need, [catalog, web], { signal: job.signal }).then(
+    (found) => ({ found, failed: null }),
+    (e: unknown) => ({ found: null, failed: e instanceof Error ? e.message : 'It failed.' }),
+  );
+  return { looked };
+}
+
+/** Step "current": the fixture's own model, rendered the way the picture is looked at. */
+async function sculptCurrent(r: SculptRun, activeModel: ReturnType<typeof fixtureModel>) {
+  const { job, store, id, input } = r;
+  const { elevation } = r.picture;
+  const from: IsoItem = { label: activeModel.label, parts: activeModel.parts };
+  job.run('current');
+  const render = await viewPng(from, elevation, input.width);
+  r.assets.push(store.asset(id, 'render-1.png', render));
+  await job.done(
+    'current',
+    `${partsOf(from.parts.length)}, ${overlap(scoreAgainst(from, input, elevation).iou)}`,
+    render,
+  );
+  return { from, render };
+}
+
+/** Step "draft": Spark's drafts against the picture; the best must still look like it. */
+async function sculptDraft(
+  r: SculptRun,
+  activeModel: ReturnType<typeof fixtureModel>,
+  { from, render }: { from: IsoItem; render: Buffer },
+) {
+  const { job, store, meta, id, input, fixture } = r;
+  const { elevation, png } = r.picture;
+  job.run('draft');
+  const [picture, current] = await Promise.all([r.shown(png, true), r.shown(render)]);
+  const prompt = sculptPrompt(fixture.label, r.size, {
+    note: r.note ?? null,
+    facts: r.facts,
+    greyscale: r.greyscale,
+    small: r.small,
+  });
+  const asked = await bestSculpt(meta, job, {
+    label: fixture.label,
+    baseLabel: activeModel.label,
+    picture,
+    current,
+    prompt,
+    from,
+    input,
+    elevation,
+  });
+  const { best, drafts } = asked;
+  r.usage = addUsage(r.usage, asked.usage);
+  const drafted = await viewPng(best.item, elevation, input.width);
+  r.assets.push(store.asset(id, 'render-2.png', drafted));
+  await job.done(
+    'draft',
+    `${partsOf(best.item.parts.length)}, ${overlap(best.iou)}, the best of ${drafts.length}. ${best.note}`,
+    drafted,
+  );
+  if (best.iou < SCULPT_FLOOR)
+    throw new LabError(
+      'sculpt_miss',
+      `Spark’s best model of the ${fixture.label.toLowerCase()} overlaps the picture by ${Math.round(best.iou * 100)}%, so it is something else; its model is kept as it was. Say what it is and try again.`,
+      502,
+    );
+  return asked;
+}
+
+/** The web lookup, once the drafts are in: what it found is kept and may size the model. */
+async function sculptFinishLookup(r: SculptRun, looked: SculptLooked, activeSize: Tiles) {
+  const { job, note, catalog } = r;
+  const { found, failed } = await looked;
+  job.check();
+  const product = found?.facts.sources.length ? found.facts : null;
+  if (note && (product?.origin.name === 'web' || product?.origin.size === 'web'))
+    try {
+      catalog.save({ ...product, query: note });
+    } catch {
+      /* keeping it is a convenience; the model doesn't depend on it */
+    }
+  r.facts = product ?? r.facts;
+  const real = r.facts && productSize(r.facts, activeSize);
+  if (real) r.productTiles = real;
+  await job.done(
+    'lookup',
+    product && found
+      ? `${product.name ?? 'Found it'} (${found.asked.map((a) => `${a.kind}${a.found ? ' ✓' : ' –'}`).join(' · ')})`
+      : failed
+        ? `Couldn’t look it up (${failed}); modelled from your note and the picture`
+        : 'Nothing found; modelled from your note and the picture',
+  );
+}
+
+/** Step "keep": the best draft with any parts the person locked. */
+async function sculptKeep(
+  r: SculptRun,
+  activeModel: ReturnType<typeof fixtureModel>,
+  { best, drafts }: SculptBest,
+) {
+  const { job, store, id, input } = r;
+  job.run('keep');
+  const item = keepLocked(best.item, activeModel);
+  const final = await viewPng(item, r.picture.elevation, input.width);
+  r.assets.push(store.asset(id, 'render-final.png', final));
+  const kept = item.parts.length - best.item.parts.length;
+  await job.done(
+    'keep',
+    `The best of ${drafts.length} drafts, ${overlap(best.iou)}` +
+      (kept > 0 ? `, with ${partsOf(kept)} you locked` : ''),
+    final,
+  );
+  return item;
+}
+
+type SculptStart = Pick<
+  SculptRun,
+  | 'store'
+  | 'meta'
+  | 'job'
+  | 'id'
+  | 'fixture'
+  | 'note'
+  | 'picture'
+  | 'input'
+  | 'greyscale'
+  | 'small'
+  | 'shown'
+> & { productsDir: string };
+
+/** The run's starting state: nothing gathered, the fixture's own proportions, the catalog and the web to ask. */
+function newSculptRun({ productsDir, ...start }: SculptStart): SculptRun {
+  const { meta, job } = start;
+  const r: SculptRun = {
+    ...start,
+    assets: [],
+    catalog: new Catalog([productsDir, BUNDLED_CATALOG]),
+    web: {
+      kind: 'web',
+      lookup: async (q, need) => {
+        const found = await meta.lookupProduct(q, need, job.signal);
+        r.usage = addUsage(r.usage, found.usage);
+        return found.output.facts;
+      },
+    },
+    need: ['parts', 'colors'],
+    usage: null,
+    facts: null,
+    productTiles: null,
+    // Its proportions: the fixture's, until a lookup gives the product's own.
+    size: proportions(start.picture.activeSize),
+  };
+  return r;
+}
+
+/** The sculpt as one recorded run. */
+async function sculptSteps(
+  r: SculptRun,
+  activeModel: ReturnType<typeof fixtureModel>,
+  activeSize: Tiles,
+) {
+  const { job, store, id, fixture, note, picture } = r;
+  job.link(id);
+  r.assets.push(store.asset(id, 'picture.png', picture.png));
+  await job.done(
+    'picture',
+    picture.sprite
+      ? 'Its cut-out from the room’s picture'
+      : 'The photo crop its model was fitted to',
+    picture.png,
+  );
+  const looked = await sculptLookup(r, activeSize);
+  const current = await sculptCurrent(r, activeModel);
+  const asked = await sculptDraft(r, activeModel, current);
+  if (looked) await sculptFinishLookup(r, looked.looked, activeSize);
+  const item = await sculptKeep(r, activeModel, asked);
+  const { best } = asked;
+  return {
+    output: {
+      sculpted: fixture.id,
+      label: fixture.label,
+      parts: item.parts.length,
+      iou: best.iou,
+      note: best.note,
+      item,
+      ...(note ? { asked: note, product: r.facts?.name ?? null } : {}),
+      // The product's size in tiles, laid as this fixture stands; the save gives it the fixture.
+      ...(r.productTiles ? { size: r.productTiles } : {}),
+      greyscale: r.greyscale,
+    },
+    model: asked.model,
+    requestId: asked.requestId,
+    usage: r.usage,
+    assets: r.assets,
+  };
+}
+
+/** The sculpted model replaces the fixture's (and its linked copies'). */
+async function sculptSave(
+  store: EvidenceStore,
+  mode: Mode,
+  job: JobTracker,
+  fixture: Fixture,
+  out: NonNullable<ReturnType<typeof fixtureOutput.sculpt>>,
+  group: Set<string>,
+  swatches: Swatch[],
+) {
+  const fresh = store.memory(mode);
+  fresh.fixtures = withSculpt(fresh.fixtures ?? [], fixture, out, swatches);
+  store.saveMemory(fresh);
+  await job.done(
+    'save',
+    `Saved${group.size > 1 ? ` here and in ${group.size - 1} linked view${group.size > 2 ? 's' : ''}` : ''}` +
+      (out.size
+        ? `, sized as the product: ${[out.size.w, out.size.d, out.size.h].map((t) => Math.round(t * 30)).join(' × ')} cm`
+        : ''),
+  );
+  return fresh;
+}
+
+/**
+ * Model a fixture in our own parts with Spark, starting from its current
+ * model and the picture of it: its cut-out from the room's picture when it
+ * was lifted, else the crop its model was fitted to, else the crop of it a
+ * room draft kept (seen from the room's camera). Spark revises the parts
+ * against a render of the model (one call), then once more against a render
+ * of its own draft (a second), and the draft whose silhouette matches the
+ * picture better is kept, with any parts the person locked. Live only.
+ */
+async function sculptFixture(
+  { store, meta, run, jobs, productsDir }: SculptDeps,
+  { mode, fixtureId, jobId, note }: Parsed<typeof fixturesSculptBodySchema>,
+) {
+  if (mode !== 'live')
+    throw new LabError(
+      'sculpt_demo',
+      'Modelling with AI asks Spark, so it runs in Live mode. The demo’s fixtures keep their fitted models.',
+    );
+  const memory = store.memory(mode);
+  const fixture = memory.fixtures?.find((f) => f.id === fixtureId);
+  if (!fixture) throw new LabError('fixture_missing', 'That fixture is gone.', 404);
+  const picture = sculptPicture(store, memory, fixture);
+  const { group, activeModel, activeSize } = picture;
+  // A note is looked up as a product first: the catalog, then the web.
+  const ceiling =
+    SCULPT_DRAFTS * sparkCeiling(SPARK_BUDGET.sculpt, 2) +
+    (note
+      ? sparkCeiling(SPARK_BUDGET.productLookup, 0) + SEARCH_CEILING * META_PRICES.webSearchPerQuery
+      : 0);
+  meta.mustAfford(ceiling, 'Modelling it');
+  const look = await sculptLook(picture.png, fixture.label);
+  const job = jobs.start(jobId, sculptStepList(note), {
     title: `Modelling the ${fixture.label.toLowerCase()}`,
     mode,
   });
-  const overlap = (iou: number) => `${Math.round(iou * 100)}% overlap with the picture`;
-  const parts = (n: number) => `${n} part${n === 1 ? '' : 's'}`;
-  const sculptSteps = async (id: string) => {
-    job.link(id);
-    const assets = [store.asset(id, 'picture.png', png)];
-    await job.done(
-      'picture',
-      sprite ? 'Its cut-out from the room’s picture' : 'The photo crop its model was fitted to',
-      png,
-    );
-    let usage: Usage | null = null;
-    let model: string | undefined;
-    let requestId: string | null = null;
-    let facts: MergedFacts | null = null;
-    let productTiles: { w: number; d: number; h: number } | null = null;
-    // A note is looked up alongside the drafts, not before them (the web took 48 s): what
-    // the catalog knows goes into Spark's prompt at once; what the web finds sizes the
-    // saved model and is kept, so the same thing next time comes from the catalog.
-    const catalog = new Catalog([productsDir, BUNDLED_CATALOG]);
-    const web: Researcher = {
-      kind: 'web',
-      lookup: async (q, need) => {
-        const r = await meta.lookupProduct(q, need, job.signal);
-        usage = addUsage(usage, r.usage);
-        return r.output.facts;
-      },
-    };
-    const need = ['parts', 'colors'] as const;
-    if (note) {
-      job.run('lookup');
-      const known = await research(note, need, [catalog], { signal: job.signal }).catch(() => null);
-      facts = known?.facts.sources.length ? known.facts : null;
-      const real = facts && productSize(facts, activeSize);
-      if (real) {
-        productTiles = real;
-        size = proportions(real);
-      }
-    }
-    // The lookup only helps: when it fails, Spark models from the note and the picture.
-    const looked = note
-      ? research(note, need, [catalog, web], { signal: job.signal }).then(
-          (found) => ({ found, failed: null }),
-          (e: unknown) => ({
-            found: null,
-            failed: e instanceof Error ? e.message : 'It failed.',
-          }),
-        )
-      : null;
-    const context = { note: note ?? null, facts, greyscale, small };
-    const from: IsoItem = { label: activeModel.label, parts: activeModel.parts };
-    job.run('current');
-    const render = await viewPng(from, elevation, input.width);
-    assets.push(store.asset(id, 'render-1.png', render));
-    await job.done(
-      'current',
-      `${parts(from.parts.length)}, ${overlap(scoreAgainst(from, input, elevation).iou)}`,
-      render,
-    );
-    job.run('draft');
-    const [picture, current] = await Promise.all([shown(png, true), shown(render)]);
-    const prompt = sculptPrompt(fixture.label, size, context);
-    const asked = await bestSculpt(meta, job, {
-      label: fixture.label,
-      baseLabel: activeModel.label,
-      picture,
-      current,
-      prompt,
-      from,
-      input,
-      elevation,
-    });
-    const { best, drafts } = asked;
-    usage = addUsage(usage, asked.usage);
-    model = asked.model;
-    requestId = asked.requestId;
-    const drafted = await viewPng(best.item, elevation, input.width);
-    assets.push(store.asset(id, 'render-2.png', drafted));
-    await job.done(
-      'draft',
-      `${parts(best.item.parts.length)}, ${overlap(best.iou)}, the best of ${drafts.length}. ${best.note}`,
-      drafted,
-    );
-    if (best.iou < SCULPT_FLOOR)
-      throw new LabError(
-        'sculpt_miss',
-        `Spark’s best model of the ${fixture.label.toLowerCase()} overlaps the picture by ${Math.round(best.iou * 100)}%, so it is something else; its model is kept as it was. Say what it is and try again.`,
-        502,
-      );
-    if (looked && note) {
-      const { found, failed } = await looked;
-      job.check();
-      const product = found?.facts.sources.length ? found.facts : null;
-      if (product?.origin.name === 'web' || product?.origin.size === 'web')
-        try {
-          catalog.save({ ...product, query: note });
-        } catch {
-          /* keeping it is a convenience; the model doesn't depend on it */
-        }
-      facts = product ?? facts;
-      const real = facts && productSize(facts, activeSize);
-      if (real) productTiles = real;
-      await job.done(
-        'lookup',
-        product && found
-          ? `${product.name ?? 'Found it'} (${found.asked.map((a) => `${a.kind}${a.found ? ' ✓' : ' –'}`).join(' · ')})`
-          : failed
-            ? `Couldn’t look it up (${failed}); modelled from your note and the picture`
-            : 'Nothing found; modelled from your note and the picture',
-      );
-    }
-    job.run('keep');
-    const item = keepLocked(best.item, activeModel);
-    const final = await viewPng(item, elevation, input.width);
-    assets.push(store.asset(id, 'render-final.png', final));
-    const kept = item.parts.length - best.item.parts.length;
-    await job.done(
-      'keep',
-      `The best of ${drafts.length} drafts, ${overlap(best.iou)}` +
-        (kept > 0 ? `, with ${parts(kept)} you locked` : ''),
-      final,
-    );
-    return {
-      output: {
-        sculpted: fixture.id,
-        label: fixture.label,
-        parts: item.parts.length,
-        iou: best.iou,
-        note: best.note,
-        item,
-        ...(note ? { asked: note, product: facts?.name ?? null } : {}),
-        // The product's size in tiles, laid as this fixture stands; the save gives it the fixture.
-        ...(productTiles ? { size: productTiles } : {}),
-        greyscale,
-      },
-      model,
-      requestId,
-      usage,
-      assets,
-    };
-  };
   // A failure shows on the step that was running; the run records it too.
   return following(job, async () => {
-    const event = await run('fixture', mode, (id) => sculptSteps(id));
+    const event = await run('fixture', mode, (id) =>
+      sculptSteps(
+        newSculptRun({ ...look, store, meta, job, id, fixture, note, picture, productsDir }),
+        activeModel,
+        activeSize,
+      ),
+    );
     // Stopped while the last step ran: nothing is saved.
     job.check();
     const out = fixtureOutput.sculpt(event)!;
-    const fresh = store.memory(mode);
-    fresh.fixtures = withSculpt(fresh.fixtures ?? [], fixture, out, activeModel.swatches);
-    store.saveMemory(fresh);
-    await job.done(
-      'save',
-      `Saved${group.size > 1 ? ` here and in ${group.size - 1} linked view${group.size > 2 ? 's' : ''}` : ''}` +
-        (out.size
-          ? `, sized as the product: ${[out.size.w, out.size.d, out.size.h].map((t) => Math.round(t * 30)).join(' × ')} cm`
-          : ''),
-    );
+    const fresh = await sculptSave(store, mode, job, fixture, out, group, activeModel.swatches);
     job.finish();
     return { memory: fresh, run: event };
   });
