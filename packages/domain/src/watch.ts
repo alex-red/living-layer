@@ -4,7 +4,8 @@
  * costs microseconds, with a full match once a second in case it crept; a
  * changed one is matched locally (`stepLocalTrack`), a few milliseconds; a thing the local match
  * has lost is looked for by appearance before SAM is asked; and SAM is asked
- * only to confirm a zone crossing or to find a thing nothing else can. Pure
+ * only to find a thing nothing else can: a zone crossing is judged where the
+ * local match has it, with no SAM call. Pure
  * code, so the tests drive it with made-up frames and clocks.
  */
 import {
@@ -44,6 +45,10 @@ export interface WatchThing {
   layer: WatchLayer;
   /** Consecutive matches on the other side of any zone's edge from its verdict. */
   crossingSteps: number;
+  /** When it first showed across a zone's edge in this run of crossing frames, ms; for timing. */
+  crossedAt: number | null;
+  /** The soonest its zones may be judged again, ms. */
+  nextPlace: number;
   /** When SAM was last asked about this thing, ms. */
   lastAsk: number;
   /** The wait before asking SAM again while it stays lost; doubles each time. */
@@ -56,18 +61,20 @@ export interface WatchThing {
   refound: boolean;
 }
 export const WATCH = {
-  /** Frames on the other side of a zone edge before SAM confirms the crossing. */
+  /** Frames on the other side of a zone edge before the crossing is judged. */
   settleSteps: 2,
   /** Weak or ambiguous frames before the thing counts as lost. */
   lostSteps: 3,
   /**
-   * Frames of stillness around the thing before SAM is asked anything (0.4 s at
-   * 10 a second): long enough for a hand to be gone, since SAM's picture is a
-   * still taken after the quiet began (`STILL_FPS`).
+   * Frames of stillness around the thing (0.4 s at 10 a second) before its
+   * zones are judged or SAM is asked anything: a hand has gone, and a still
+   * taken for SAM is newer than the quiet (`STILL_FPS`).
    */
   quietSteps: 4,
-  /** Least time between two SAM checks of one thing, ms: a mug lifted and set back is asked again. */
-  confirmGapMs: 1000,
+  /** Least time between two judgements of one thing's zones, ms. */
+  placeGapMs: 500,
+  /** After a judgement that was blocked (a moved camera, no zone for this frame), ms. */
+  blockedGapMs: 30_000,
   reanchorGapMs: { first: 2000, max: 30_000 },
   /** Good steps in a row (about 3 s at 10 frames a second) before the back-off resets. */
   recoveredSteps: 30,
@@ -89,6 +96,8 @@ export function watchThing(subject: WatchSubject, track: LocalTrack, now: number
     status: 'following',
     layer: 'sam',
     crossingSteps: 0,
+    crossedAt: null,
+    nextPlace: 0,
     lastAsk: now,
     reanchorGap: WATCH.reanchorGapMs.first,
     misses: 0,
@@ -101,8 +110,9 @@ const WHOLE: UnitBox = { x: 0, y: 0, width: 1, height: 1 };
 // Where it stands, as the rules judge it on the frame (`footInZone`): its box's bottom centre.
 const inZone = (b: UnitBox, zone: UnitBox) => footInZone(b, { width: 1, height: 1 }, zone);
 /**
- * What one frame means for one thing. `ask` is a SAM check due now: `confirm`
- * a zone crossing, `reanchor` a thing that is lost. `refind` asks the caller
+ * What one frame means for one thing. `place` asks the caller to judge its
+ * zones where the local match has it now: it settled across an edge. `ask`
+ * is a SAM check due now, to `reanchor` a thing that is lost. `refind` asks the caller
  * to look for it by appearance first; when that finds it, `refound` moves the
  * box there and SAM isn't needed. A missing thing is left alone until its old
  * region moves.
@@ -111,13 +121,13 @@ export function watchStep(
   thing: WatchThing,
   frame: LumaFrame,
   now: number,
-  { quietSteps = WATCH.quietSteps, confirmGapMs = WATCH.confirmGapMs } = {},
-): { thing: WatchThing; ask: 'confirm' | 'reanchor' | null; refind: boolean } {
+  { quietSteps = WATCH.quietSteps, placeGapMs = WATCH.placeGapMs } = {},
+): { thing: WatchThing; ask: 'reanchor' | null; refind: boolean; place: boolean } {
   if (thing.status === 'missing') {
     const motion = frameMotion(thing.track.previous, frame, around(thing.track.box));
     const track = { ...thing.track, previous: frame, motion };
     if (motion <= LOCAL_TRACK.motionShare)
-      return { thing: { ...thing, track }, ask: null, refind: false };
+      return { thing: { ...thing, track }, ask: null, refind: false, place: false };
     // Something moved where it was: look again, from the start of the back-off.
     return {
       thing: {
@@ -130,6 +140,7 @@ export function watchStep(
       },
       ask: null,
       refind: false,
+      place: false,
     };
   }
   const motion = frameMotion(thing.track.previous, frame, around(thing.track.box));
@@ -166,10 +177,12 @@ export function watchStep(
   const settled = track.stillSteps >= quietSteps;
   if (track.lostSteps) {
     const next: WatchThing = { ...thing, track, status: 'unsure', crossingSteps: 0, goodSteps: 0 };
-    if (step.verdict !== 'reanchor') return { thing: next, ask: null, refind: false };
-    if (!thing.refound) return { thing: { ...next, refound: true }, ask: null, refind: true };
-    if (now - thing.lastAsk < thing.reanchorGap) return { thing: next, ask: null, refind: false };
-    return { thing: next, ask: 'reanchor', refind: false };
+    if (step.verdict !== 'reanchor') return { thing: next, ask: null, refind: false, place: false };
+    if (!thing.refound)
+      return { thing: { ...next, refound: true }, ask: null, refind: true, place: false };
+    if (now - thing.lastAsk < thing.reanchorGap)
+      return { thing: next, ask: null, refind: false, place: false };
+    return { thing: next, ask: 'reanchor', refind: false, place: false };
   }
   const crossed = thing.subject.zones.some((z) => inZone(track.box, z.rect) !== z.inside);
   const goodSteps = thing.goodSteps + 1;
@@ -179,14 +192,28 @@ export function watchStep(
     status: 'following',
     layer: thing.status === 'following' ? thing.layer : 'local',
     crossingSteps: crossed ? thing.crossingSteps + 1 : 0,
+    crossedAt: crossed ? (thing.crossedAt ?? now) : null,
     goodSteps,
     refound: false,
     misses: 0,
     reanchorGap: goodSteps >= WATCH.recoveredSteps ? WATCH.reanchorGapMs.first : thing.reanchorGap,
   };
-  const due =
-    next.crossingSteps >= WATCH.settleSteps && settled && now - thing.lastAsk >= confirmGapMs;
-  return { thing: next, ask: due ? 'confirm' : null, refind: false };
+  const place = next.crossingSteps >= WATCH.settleSteps && settled && now >= thing.nextPlace;
+  return {
+    thing: place ? { ...next, nextPlace: now + placeGapMs } : next,
+    ask: null,
+    refind: false,
+    place,
+  };
+}
+/**
+ * Its zones were judged where it is followed. Blocked, they aren't judged
+ * again for a while, rather than on every frame it stays across the edge.
+ */
+export function placed(thing: WatchThing, now: number, blocked: boolean): WatchThing {
+  return blocked
+    ? { ...thing, nextPlace: now + WATCH.blockedGapMs }
+    : { ...thing, crossingSteps: 0, crossedAt: null };
 }
 
 /** The feature model found it: follow from there, with the template SAM's frame gave. */

@@ -62,6 +62,7 @@ describe('identity scores', () => {
         [20, seen(box(40, 40), 'unsure')],
       ]),
       asks: [{ frame: 5, thing: 'mug-a', ask: 'reanchor', took: 'mug-b' }],
+      places: [],
       refinds: 0,
       unseeded: [],
     };
@@ -80,6 +81,7 @@ describe('identity scores', () => {
     const at = (status: 'following' | 'unsure', b: UnitBox): Replay => ({
       seen: new Map([[0, new Map([['mug-a', { box: b, status }]])]]),
       asks: [],
+      places: [],
       refinds: 0,
       unseeded: [],
     });
@@ -111,7 +113,7 @@ describe('replaying the watcher over a marked clip', () => {
     expect(replay.unseeded).toEqual([]);
     expect(all).toMatchObject({ keys: 8, tp: 8, switches: 0, falseSure: 0, asks: 0 });
   });
-  it('asks SAM on a zone crossing and records whose box it took', () => {
+  it('judges a zone crossing where it follows the thing, asking SAM nothing', () => {
     const xAt = (k: number) => (k < 10 ? 10 : k < 20 ? 10 + (k - 10) * 4 : 50);
     const frames = Array.from({ length: 60 }, (_, k) => frameWith([box(xAt(k), 20)]));
     const keys: TrackTruth['keys'] = {};
@@ -122,7 +124,8 @@ describe('replaying the watcher over a marked clip', () => {
       keys,
     };
     const replay = replayClip(frames, 10, truth);
-    expect(replay.asks).toMatchObject([{ thing: 'mug-a', ask: 'confirm', took: 'mug-a' }]);
+    expect(replay.asks).toEqual([]);
+    expect(replay.places).toMatchObject([{ thing: 'mug-a' }]);
     expect(scoreReplay(truth, replay)[0]).toMatchObject({ tp: 6, switches: 0, falseSure: 0 });
   });
   it('catches a lost thing that locks onto its look-alike', () => {

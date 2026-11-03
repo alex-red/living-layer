@@ -18,6 +18,7 @@ import {
   footInZone,
   missed,
   pickTracked,
+  placed,
   startLocalTrack,
   watchStep,
   watchThing,
@@ -110,7 +111,7 @@ export interface Seen {
 export interface Ask {
   frame: number;
   thing: string;
-  ask: 'confirm' | 'reanchor';
+  ask: 'reanchor';
   /** Whose marked box the chosen detection was; null when SAM had nothing to give. */
   took: string | null;
 }
@@ -118,6 +119,8 @@ export interface Replay {
   /** Keyframe → thing → what the watcher had. */
   seen: Map<number, Map<string, Seen>>;
   asks: Ask[];
+  /** Zone crossings judged where the thing was followed, with no SAM call. */
+  places: { frame: number; thing: string }[];
   refinds: number;
   /** Things whose first marked box had too little texture to follow. */
   unseeded: string[];
@@ -155,7 +158,7 @@ export function replayClip(frames: LumaFrame[], fps: number, truth: TrackTruth):
   const things = new Map<string, WatchThing>();
   // The last box SAM confirmed per thing, which `pickTracked` compares against.
   const sighting = new Map<string, UnitBox>();
-  const replay: Replay = { seen: new Map(), asks: [], refinds: 0, unseeded: [] };
+  const replay: Replay = { seen: new Map(), asks: [], places: [], refinds: 0, unseeded: [] };
   const start = (
     t: TrackTruth['things'][number],
     frame: LumaFrame,
@@ -197,6 +200,22 @@ export function replayClip(frames: LumaFrame[], fps: number, truth: TrackTruth):
       if (!thing) continue;
       const step = watchStep(thing, frame, now);
       if (step.refind) replay.refinds++;
+      if (step.place) {
+        // Judged where it is followed: its zones' verdicts are what desk memory would say.
+        replay.places.push({ frame: k, thing: t.id });
+        const judged = placed(step.thing, now, false);
+        things.set(t.id, {
+          ...judged,
+          subject: {
+            ...judged.subject,
+            zones: judged.subject.zones.map((z) => ({
+              ...z,
+              inside: footInZone(judged.track.box, { width: 1, height: 1 }, z.rect),
+            })),
+          },
+        });
+        continue;
+      }
       if (!step.ask) {
         things.set(t.id, step.thing);
         continue;

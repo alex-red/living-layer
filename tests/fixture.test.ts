@@ -328,7 +328,7 @@ describe('lights and switches', () => {
     const result = await adapter.turnOff('light.desk');
     expect(calls[1]).toEqual({
       path: '/api/services/light/turn_off',
-      body: { entity_id: 'light.desk' },
+      body: { entity_id: 'light.desk', transition: 0 },
     });
     expect(result).toMatchObject({ action: 'off', state: 'off', stateConfirmed: true });
   });

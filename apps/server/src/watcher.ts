@@ -16,6 +16,7 @@ import {
   frameMotion,
   maskBits,
   missed,
+  placed,
   modeSchema,
   patchWeights,
   prototypeOf,
@@ -131,9 +132,10 @@ export interface WatcherDeps {
 
 /**
  * The server watching one mode's camera. Every thing with a SAM sighting is
- * followed frame by frame; SAM is asked one thing at a time, only to confirm
- * a zone crossing or to find a lost thing; its answer goes through the same
- * track paths as the lab's buttons, so rules fire exactly as they do there.
+ * followed frame by frame. A thing that settles across a zone's edge has its
+ * zones judged where it is followed (`placeLocally`), with no SAM call; SAM
+ * is asked one thing at a time, only to find a lost thing, and its answer
+ * goes through the same track paths as the lab's buttons.
  */
 /** How often a live camera's view is checked against its calibration frame. */
 const CAMERA_CHECK_MS = 10_000;
@@ -145,7 +147,11 @@ export class Watcher {
   private prototypes = new Map<string, Float32Array[]>();
   private listeners = new Set<(view: WatchView) => void>();
   private checking = false;
-  private pending: { id: string; ask: 'confirm' | 'reanchor' }[] = [];
+  private pending: { id: string; ask: 'reanchor' }[] = [];
+  /** Zone judgements, one at a time: each may switch a light. */
+  private placing: Promise<void> = Promise.resolve();
+  /** Things with a judgement queued or running: one each, judged from where it is then. */
+  private judging = new Set<string>();
   private lastFrame: LumaFrame | null = null;
   /** Every zone in desk memory, the main one as `main`, watched for motion. */
   private zones: { id: string; rect: ZoneRect }[] = [];
@@ -164,15 +170,15 @@ export class Watcher {
   private generation = 0;
   /** The SAM asks in flight; stopping or restarting the watch aborts them. */
   private asking = new AbortController();
-  private stats = { frames: 0, checks: 0, refinds: 0 };
+  private stats = { frames: 0, checks: 0, refinds: 0, places: 0 };
   private state: WatchView['state'] = 'off';
   private note = '';
   /** Demo frames arrive one deliberate move at a time, already set down: no settling, no waiting. */
-  private pace: { quietSteps?: number; confirmGapMs?: number };
+  private pace: { quietSteps?: number; placeGapMs?: number };
   /** Promises of work in flight, so tests can wait for it. */
   readonly busy = new Set<Promise<unknown>>();
   constructor(private deps: WatcherDeps) {
-    this.pace = deps.mode === 'demo' ? { quietSteps: 0, confirmGapMs: 0 } : {};
+    this.pace = deps.mode === 'demo' ? { quietSteps: 0, placeGapMs: 0 } : {};
   }
   get mode() {
     return this.deps.mode;
@@ -445,7 +451,7 @@ export class Watcher {
     this.source?.stop();
     this.things.clear();
     this.pending = [];
-    this.stats = { frames: 0, checks: 0, refinds: 0 };
+    this.stats = { frames: 0, checks: 0, refinds: 0, places: 0 };
     this.say('starting', 'Starting…');
     const memory = this.memory();
     this.watchZones(memory);
@@ -576,7 +582,7 @@ export class Watcher {
       fits ? mask.data : undefined,
     );
     if (!track) return;
-    // A fresh start has asked SAM nothing yet, so a crossing can be confirmed at once.
+    // A fresh start has asked SAM nothing yet, so a lost thing can be looked for at once.
     this.seededFrom.set(subject.id, seen.observation.id);
     const next = watchThing(subject, track, keep?.lastAsk ?? 0);
     const fixture = memory.fixtures?.find((f) => f.id === subject.id);
@@ -635,6 +641,7 @@ export class Watcher {
       const step = watchStep(thing, frame, now, this.pace);
       this.things.set(id, step.thing);
       if (step.refind) void this.track(this.refind(id));
+      if (step.place) this.place(id);
       if (step.ask && !this.pending.some((p) => p.id === id))
         this.pending.push({ id, ask: step.ask });
     }
@@ -700,7 +707,50 @@ export class Watcher {
       this.checking = false;
     }
   }
-  private async ask(thing: WatchThing, ask: 'confirm' | 'reanchor') {
+  /** Judge a thing's zones where it is followed now, after any judgement still running. */
+  private place(id: string) {
+    if (this.judging.has(id)) return;
+    this.judging.add(id);
+    const generation = this.generation;
+    this.placing = this.placing
+      .then(() => (generation === this.generation ? this.judge(id) : undefined))
+      .finally(() => this.judging.delete(id));
+    void this.track(this.placing);
+  }
+  private async judge(id: string) {
+    const thing = this.things.get(id);
+    if (!thing) return;
+    const { mode, tracking } = this.deps;
+    const start = this.now;
+    try {
+      const { memory, event, rules } = await tracking.placeLocally(mode, id, thing.track.box);
+      const decisions = [...(event ? [event] : []), ...rules].map((e) => e.output);
+      const blocked = decisions.every((d) => d.decision === 'blocked');
+      this.stats.places++;
+      this.watchZones(memory);
+      for (const [other, t] of this.things)
+        this.things.set(other, {
+          ...(other === id ? placed(t, this.now, blocked) : t),
+          subject: { ...t.subject, zones: zonesOf(memory, other) },
+        });
+      // How long from first showing across the edge to the lights being switched.
+      if (decisions.some((d) => d.transition === 'entered' || d.transition === 'left'))
+        console.info(
+          `[watch ${mode}] ${new Date().toISOString()} ${thing.subject.label}: across the edge ${
+            thing.crossedAt === null ? '?' : start - thing.crossedAt
+          } ms before it was judged, judged and switched in ${this.now - start} ms; no SAM call`,
+        );
+      if (blocked && decisions[0])
+        this.say(this.state, `The ${thing.subject.label}'s zones: ${decisions[0].reason}`);
+    } catch (error) {
+      // A check by hand running, or the thing just forgotten: the next settled frame tries again.
+      this.say(
+        this.state,
+        `The ${thing.subject.label}'s zones couldn’t be judged: ${safeError(error).message}`,
+      );
+    }
+  }
+  private async ask(thing: WatchThing, ask: 'reanchor') {
     const { mode, tracking } = this.deps;
     const id = thing.subject.id;
     this.things.set(id, asked(thing, ask, this.now));
@@ -755,10 +805,7 @@ export class Watcher {
             subject: { ...t.subject, zones: zonesOf(memory, other) },
           });
       if (this.state === 'paused') this.state = 'watching';
-      this.say(
-        this.state,
-        `${ask === 'confirm' ? 'Zone crossing checked' : 'Found again'} with SAM (${thing.subject.label}).`,
-      );
+      this.say(this.state, `Found again with SAM (${thing.subject.label}).`);
     } catch (error) {
       const safe = safeError(error);
       const current = this.things.get(id) ?? thing;
