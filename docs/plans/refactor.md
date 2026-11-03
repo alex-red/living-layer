@@ -72,7 +72,7 @@ _Landed:_ `scoreItem` takes an optional grid cache keyed by the parts and resolu
 
 **B5. now: `renderRoom`'s colour pass.** Plain arithmetic and direct writes (`room-render.ts:238-248`), probe 84 → 46 ms. Reuse the full-frame depth and id buffers that `drawnInset` (`room-scan.ts:123-140`) and `fitGroup` (`place-fit.ts:44`, `:86`) allocate for every search.
 
-_Landed:_ the lens falloff is a table kept per frame size (built with the same `Math.hypot`), pixels are written directly, and `drawnInset` borrows the depth and id buffers (`renderRoom`'s `scratch` option). Six presets' `renderRoom` 303–322 → 192 ms; pictures and layouts identical. `fitGroup` (`place-fit.ts`) is not in this tree, so it is untouched.
+_Landed:_ the lens falloff is a table kept per frame size (built with the same `Math.hypot`), pixels are written directly, and `drawnInset` borrows the depth and id buffers (`renderRoom`'s `scratch` option). Six presets' `renderRoom` 303–322 → 192 ms; pictures and layouts identical. `fitGroup`'s per-candidate picture borrows the same buffers (the room it is compared with is allocated once and kept); the demo desk search 317 → 295 ms, same fit, `bench:at main room` unchanged.
 
 **B6. now: one grid for the lit and unlit sprite.** `renderPropSprite` voxelizes the same parts twice (`iso-prop-sprite.ts:112-122`).
 
@@ -207,7 +207,7 @@ _Landed:_ `satisfies z.ZodType<…>` on `isoPropSchema`, `isoSceneSchema`, `room
 
 **E5. `ItemPart` as a union by `shape`.** Convert the legacy shapes when parsing. This risks saved items and goldens, so check both.
 
-_Skipped:_ the legacy shapes (`cylinder`, `box`, `cone`, `handle`, `lid`) are still written by `iso-item.ts` itself and drawn by their own branches in `iso-voxel.ts` and `item-sculpt.ts`. Converting them at parse time would change those drawings, so goldens would not stay as they are.
+_Landed:_ the type half. `ItemPart` and `PropPart` are unions by `shape`, each variant with only the fields it draws (`lathe`: `profile`, `wall`, `inside`; `tube`: `path`, `radius`; `extrude`: `outline`, `radius`; `rbox`: `radius`; `blob`: `rough`; `cylinder`: `wall`, `inside`), and the legacy shapes are members of their own, so nothing is converted and nothing draws differently. `partPrims` narrows instead of `p.outline ?? []` and `p.path ?? []`. `itemPartSchema` is that union behind a preprocess that drops fields a shape does not use, so saved items parse as before (a fuller superset: a blob with a stray `profile` used to fail). The editor keeps a loose `ItemPartDraft`/`IsoItemDraft` and draws it through `previewItem`, which fills in what a half-edited part lacks. Goldens pass without `UPDATE_GOLDEN`; `bench:fit` unchanged. _Not done:_ converting the legacy shapes at parse time, which would still change their drawing.
 
 **E6. Tidying.** Tests import `@livinglayer/domain`; 11 of them reach into `../packages/domain/src` today. Un-export the 7 unused names and the 85 used only in their own file, so `noUnusedLocals` catches dead code.
 
