@@ -49,7 +49,7 @@ body::after {
 }
 ::-webkit-scrollbar-thumb {
   border: 3px solid transparent;
-  border-radius: 2px;
+  border-radius: var(--r-chip);
   background: var(--line-strong) padding-box;
 }
 ::-webkit-scrollbar-thumb:hover {
@@ -99,9 +99,6 @@ p {
 
 /* Shared type */
 .tiny,
-.section-label,
-.table-head,
-.model-tag,
 .frame-label,
 .hud-tag,
 .live-tag {
@@ -112,7 +109,7 @@ p {
   font-variant-numeric: tabular-nums;
 }
 .micro {
-  font-size: 12px;
+  font-size: var(--fs-12);
   line-height: 18px;
   color: var(--text-3);
 }
@@ -211,14 +208,14 @@ p {
   place-items: center;
   width: 24px;
   height: 24px;
-  border-radius: 2px;
+  border-radius: var(--r-chip);
   color: var(--seen);
   background: var(--seen-wash);
   box-shadow: inset 0 0 0 1px var(--seen-glow);
 }
 .live-tag {
   padding: 2px 6px;
-  border-radius: 2px;
+  border-radius: var(--r-chip);
   color: var(--seen);
   box-shadow: inset 0 0 0 1px var(--seen-glow);
 }
@@ -237,7 +234,7 @@ p {
   border-radius: var(--r-button);
   color: var(--text-2);
   text-decoration: none;
-  font-size: 13px;
+  font-size: var(--fs-13);
   white-space: nowrap;
   transition: color var(--t-fast);
 }
@@ -258,9 +255,9 @@ p {
   max-width: min(640px, 100%);
   min-height: 28px;
   padding: 4px 12px;
-  border-radius: 2px;
+  border-radius: var(--r-chip);
   background: var(--glass-thick);
-  font-size: 12px;
+  font-size: var(--fs-12);
   line-height: 18px;
   transition:
     border-color var(--t-base) var(--ease-out),
@@ -362,7 +359,7 @@ p {
   color: var(--unsure);
 }
 .session-strip dd small {
-  font-size: 11px;
+  font-size: var(--fs-11);
   color: var(--text-3);
 }
 .budget {
@@ -390,7 +387,7 @@ p {
   gap: 8px;
   flex-wrap: wrap;
   min-height: 32px;
-  font-size: 12px;
+  font-size: var(--fs-12);
   color: var(--text-2);
 }
 .scene-toolbar > span {
@@ -462,7 +459,7 @@ p {
 }
 .empty-scene small {
   color: var(--text-3);
-  font-size: 12px;
+  font-size: var(--fs-12);
 }
 .frame-tick {
   position: absolute;
@@ -498,7 +495,7 @@ p {
   right: 40px;
   bottom: 14px;
   padding: 3px 8px;
-  border-radius: 2px;
+  border-radius: var(--r-chip);
   color: var(--text-2);
   background: var(--glass-thin);
   backdrop-filter: blur(12px);
@@ -518,7 +515,7 @@ p {
   align-items: center;
   gap: 6px;
   padding: 3px 8px;
-  border-radius: 2px;
+  border-radius: var(--r-chip);
   font: 500 11px/14px var(--mono);
   letter-spacing: 0.08em;
   font-variant-numeric: tabular-nums;
@@ -680,7 +677,7 @@ p {
   z-index: 3;
   transform: translateY(calc(-100% - 6px));
   padding: 2px 6px;
-  border-radius: 2px;
+  border-radius: var(--r-chip);
   font: 500 11px/14px var(--mono);
   letter-spacing: 0.08em;
   color: var(--chosen);
@@ -791,21 +788,13 @@ p {
 }
 
 /* Discovered objects */
-.section-label {
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
-  padding-bottom: 12px;
-  margin-bottom: 12px;
-  border-bottom: 1px solid var(--line);
-}
 .scene-summary {
   margin-bottom: 16px;
   color: var(--text-2);
 }
 .placeholder {
   color: var(--text-3);
-  font-size: 13px;
+  font-size: var(--fs-13);
 }
 .object-grid {
   display: grid;
@@ -836,33 +825,19 @@ p {
     var(--glass-edge),
     0 0 24px var(--chosen-glow);
 }
-.object-number {
-  font: 500 11px/14px var(--mono);
-  color: var(--seen);
-}
 .object-card strong {
   font-size: 14px;
   line-height: 19px;
 }
 .object-card small {
   color: var(--text-2);
-  font-size: 12px;
+  font-size: var(--fs-12);
   line-height: 18px;
-}
-.object-category {
-  margin-top: 8px;
-  font: 500 11px/14px var(--mono);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--text-3);
-}
-.object-card.chosen .object-category {
-  color: var(--chosen);
 }
 
 .input-label,
 .zone-fields label {
-  font-size: 12px;
+  font-size: var(--fs-12);
   color: var(--text-2);
 }
 .concept-input {
@@ -922,7 +897,7 @@ p {
   padding: 8px 10px;
   border-radius: var(--r-button);
   background: var(--surface-2);
-  font-size: 12px;
+  font-size: var(--fs-12);
   line-height: 18px;
   color: var(--text-2);
   box-shadow: inset 2px 0 0 var(--chosen);
@@ -948,7 +923,7 @@ p {
 .detections th {
   padding: 4px 6px 4px 0;
   text-align: left;
-  font-size: 11px;
+  font-size: var(--fs-11);
   font-weight: 500;
   letter-spacing: 0.08em;
   color: var(--text-3);
@@ -974,7 +949,7 @@ p {
   border-radius: var(--r-button);
   background: var(--blocked-wash);
   color: var(--text);
-  font-size: 13px;
+  font-size: var(--fs-13);
 }
 .error::before {
   content: '× ';
@@ -987,18 +962,6 @@ p {
   overflow: hidden;
   border-radius: var(--r-card);
   background: var(--glass-regular);
-}
-.table-head,
-.run-row {
-  display: grid;
-  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr);
-  gap: 8px;
-  align-items: center;
-  padding: 0 10px;
-}
-.table-head {
-  min-height: 30px;
-  border-bottom: 1px solid var(--line);
 }
 .run-row {
   width: 100%;
@@ -1034,7 +997,7 @@ p {
   letter-spacing: 0.06em;
 }
 .run-row small {
-  font-size: 11px;
+  font-size: var(--fs-11);
   color: var(--text-3);
 }
 .badge {
@@ -1060,14 +1023,10 @@ p {
 .result.failed {
   color: var(--blocked);
 }
-.row-arrow {
-  margin-left: 6px;
-  color: var(--text-3);
-}
 .empty-evidence {
   padding: 14px 10px;
   color: var(--text-3);
-  font-size: 13px;
+  font-size: var(--fs-13);
 }
 @keyframes row-in {
   from {
@@ -1089,7 +1048,7 @@ p {
 .inspector p {
   padding: 0 10px 8px;
   color: var(--text-2);
-  font-size: 13px;
+  font-size: var(--fs-13);
 }
 .inspector pre {
   margin: 0;
@@ -1109,7 +1068,7 @@ p {
   align-items: center;
   gap: 8px 16px;
   margin-bottom: 12px;
-  font-size: 12px;
+  font-size: var(--fs-12);
   color: var(--text-2);
 }
 .log-stats {
@@ -1138,7 +1097,7 @@ p {
   border-top: 1px solid var(--line);
   background: none;
   color: var(--seen);
-  font-size: 12px;
+  font-size: var(--fs-12);
 }
 .log-more:hover {
   background: rgb(255 255 255 / 3%);
@@ -1210,7 +1169,7 @@ p {
   padding: 0 10px;
   border-top: 1px solid var(--line);
   cursor: pointer;
-  font-size: 12px;
+  font-size: var(--fs-12);
   color: var(--text-2);
 }
 
@@ -1235,7 +1194,7 @@ p {
 }
 .readiness > p {
   color: var(--text-3);
-  font-size: 12px;
+  font-size: var(--fs-12);
 }
 .proof-row {
   display: grid;
@@ -1244,7 +1203,7 @@ p {
   gap: 8px;
   min-height: 30px;
   border-top: 1px solid var(--line);
-  font-size: 13px;
+  font-size: var(--fs-13);
 }
 .proof-row small {
   font: 500 11px/14px var(--mono);
@@ -1259,7 +1218,7 @@ p {
   height: 20px;
   border-radius: 50%;
   border: 1.5px solid var(--text-3);
-  font-size: 11px;
+  font-size: var(--fs-11);
   line-height: 1;
 }
 .ring.done {
@@ -1274,11 +1233,11 @@ p {
   padding: 10px;
   border-radius: var(--r-button);
   background: var(--surface-2);
-  font-size: 12px;
+  font-size: var(--fs-12);
   line-height: 18px;
 }
 .setup-note strong {
-  font-size: 13px;
+  font-size: var(--fs-13);
 }
 .setup-note p {
   color: var(--text-2);
@@ -1357,7 +1316,7 @@ p {
   box-shadow: inset 2px 0 0 var(--seen);
 }
 .timeline .transition {
-  font-size: 12px;
+  font-size: var(--fs-12);
   font-weight: 500;
   color: var(--text-2);
 }
@@ -1384,11 +1343,6 @@ p {
   align-items: center;
   gap: 8px;
   font: inherit;
-}
-@media (max-width: 1279px) {
-  .topbar-links .playground-link {
-    display: none;
-  }
 }
 /* Phone: one scrolling column with the scene first. */
 @media (max-width: 767px) {
@@ -1441,7 +1395,7 @@ button svg {
   display: grid;
   gap: 8px;
   padding: 12px;
-  font-size: 13px;
+  font-size: var(--fs-13);
 }
 .saves > p.unsure {
   color: var(--unsure);
@@ -1542,7 +1496,7 @@ button svg {
   grid-template-columns: 110px 1fr;
   align-items: center;
   gap: 12px;
-  font-size: 13px;
+  font-size: var(--fs-13);
 }
 .keys-dialog dd {
   color: var(--text-2);
@@ -1583,7 +1537,7 @@ button svg {
     var(--glass-edge),
     0 12px 32px rgb(0 0 0 / 40%);
   backdrop-filter: blur(20px) saturate(140%);
-  font-size: 12px;
+  font-size: var(--fs-12);
 }
 .ai-call.failed {
   border-color: rgb(242 124 131 / 50%);
@@ -1599,7 +1553,7 @@ button svg {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 13px;
+  font-size: var(--fs-13);
 }
 .ai-dot {
   width: 8px;
@@ -1657,7 +1611,7 @@ button svg {
   border-radius: var(--r-button);
   background: var(--surface-2);
   color: var(--text-2);
-  font-size: 11px;
+  font-size: var(--fs-11);
 }
 .ai-call.running .ai-steps li {
   color: var(--text);
@@ -1723,7 +1677,7 @@ button svg {
 .token-meter {
   display: block;
   height: 3px;
-  border-radius: 2px;
+  border-radius: var(--r-chip);
   background: var(--line);
   overflow: hidden;
 }
@@ -1757,7 +1711,7 @@ button svg {
   padding: 10px;
   border-radius: var(--r-button);
   background: var(--surface-2);
-  font-size: 12px;
+  font-size: var(--fs-12);
   line-height: 18px;
 }
 .spend-limit label {

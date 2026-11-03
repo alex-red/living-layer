@@ -172,6 +172,8 @@ _Done when:_ the first chunk is under 400 KB.
   - `.playground-link`
   - `.divider`
 
+_Landed:_ `tokens.css` has `--fs-11`/`--fs-12`/`--fs-13` and the 2px radius uses `--r-chip`; the ten dead rule groups and the two duplicate keyframe pairs are gone (`breathe` and `rise-in` kept). The z-index and `styles.css` section moves are not done.
+
 ## E. Domain structure (later)
 
 **E1. `index.ts` down to re-exports.** It holds about 950 lines of its own: wire types, pricing, desk memory, rules and `upgradeMemory`. Move them into `api.ts`, `cost.ts`, `memory.ts` and `rules.ts`. That breaks the package's only runtime import cycle (`expose.ts` ↔ `index.ts`).

@@ -65,7 +65,7 @@
   min-width: 0;
   padding-left: 12px;
   border-left: 1px solid var(--line-strong);
-  font-size: 13px;
+  font-size: var(--fs-13);
   color: var(--text-2);
   white-space: nowrap;
   overflow: hidden;
@@ -137,7 +137,7 @@
 }
 .budget-pill small {
   color: var(--text-3);
-  font-size: 11px;
+  font-size: var(--fs-11);
 }
 .budget-pill:hover {
   background: var(--surface-3);
@@ -224,7 +224,7 @@
 .ol-note {
   padding: 8px 4px;
   color: var(--text-3);
-  font-size: 12px;
+  font-size: var(--fs-12);
   line-height: 18px;
 }
 .ol-tree {
@@ -246,7 +246,7 @@
   background: none;
   color: var(--text);
   text-align: left;
-  font-size: 13px;
+  font-size: var(--fs-13);
   transition: background var(--t-fast);
 }
 .ol-row:hover:not(:disabled) {
@@ -265,7 +265,7 @@
   flex: none;
   width: 14px;
   color: var(--text-3);
-  font-size: 12px;
+  font-size: var(--fs-12);
   line-height: 19px;
   text-align: center;
 }
@@ -295,7 +295,7 @@
 }
 .ol-text small {
   color: var(--text-3);
-  font-size: 11px;
+  font-size: var(--fs-11);
   line-height: 14px;
 }
 .ol-row.current .ol-text small {
@@ -358,7 +358,7 @@
 .ol-bulk-note {
   flex: 1 1 100%;
   color: var(--text-2);
-  font-size: 12px;
+  font-size: var(--fs-12);
 }
 @keyframes rise-in {
   from {
@@ -393,7 +393,7 @@
   background: none;
   color: var(--text);
   font: inherit;
-  font-size: 13px;
+  font-size: var(--fs-13);
   text-align: left;
 }
 .context-menu button:hover:not(:disabled),
@@ -456,7 +456,7 @@
   border: 1px solid var(--line);
   border-radius: var(--r-card);
   background: var(--glass-regular);
-  font-size: 13px;
+  font-size: var(--fs-13);
 }
 .edit-banner {
   border-color: var(--chosen-glow);
@@ -577,7 +577,7 @@
   gap: 8px;
   margin: 0;
   color: var(--text-2);
-  font-size: 13px;
+  font-size: var(--fs-13);
   line-height: 19px;
 }
 .insp-status > span:first-child {
@@ -630,7 +630,7 @@
   align-items: center;
   gap: 6px;
   color: var(--text-2);
-  font-size: 12px;
+  font-size: var(--fs-12);
   font-weight: 600;
   cursor: pointer;
   list-style: none;
@@ -692,7 +692,7 @@
   border-radius: var(--r-card);
   background: var(--surface-2);
   color: var(--text-2);
-  font-size: 13px;
+  font-size: var(--fs-13);
   line-height: 20px;
 }
 .rule-sentence strong {
@@ -704,7 +704,7 @@
   grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
   gap: 8px;
-  font-size: 13px;
+  font-size: var(--fs-13);
   color: var(--text-2);
 }
 .rule-things {
@@ -764,7 +764,7 @@
 }
 .setup-steps small {
   color: var(--text-3);
-  font-size: 12px;
+  font-size: var(--fs-12);
   line-height: 16px;
 }
 
@@ -830,7 +830,7 @@
 }
 .ws-drawer .export {
   flex: none;
-  font-size: 12px;
+  font-size: var(--fs-12);
   text-decoration: none;
 }
 .drawer-body {
@@ -997,11 +997,11 @@
 }
 .layers-menu .overlay-toggle span {
   display: grid;
-  font-size: 13px;
+  font-size: var(--fs-13);
 }
 .layers-menu small {
   color: var(--text-3);
-  font-size: 12px;
+  font-size: var(--fs-12);
 }
 
 /* Phones: the outline is a sheet, opened from the top bar. */
@@ -1023,7 +1023,7 @@
     border-radius: var(--r-button);
     background: var(--surface-2);
     color: var(--text);
-    font-size: 13px;
+    font-size: var(--fs-13);
     font-weight: 600;
     text-align: left;
   }
@@ -1159,10 +1159,10 @@
   min-height: 22px;
   padding: 0 8px;
   border: 0;
-  border-radius: 2px;
+  border-radius: var(--r-chip);
   background: none;
   color: var(--text-2);
-  font-size: 12px;
+  font-size: var(--fs-12);
   font-weight: 600;
 }
 .tool-strip button:hover:not(:disabled) {
@@ -1192,7 +1192,7 @@
 }
 .tool-note {
   margin-left: 8px;
-  font-size: 12px;
+  font-size: var(--fs-12);
   color: var(--text-3);
 }
 
@@ -1267,7 +1267,7 @@
 .fixture-look button {
   min-width: 72px;
   min-height: 22px;
-  font-size: 12px;
+  font-size: var(--fs-12);
 }
 
 /* Home Assistant devices Living Layer may switch */
@@ -1278,7 +1278,7 @@
   gap: 6px;
   margin: 0 0 8px;
   padding-left: 18px;
-  font-size: 13px;
+  font-size: var(--fs-13);
   color: var(--text-2);
 }
 .devices-checks {
@@ -1307,7 +1307,7 @@
   border-radius: var(--r-chip);
   background: var(--surface-2);
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: var(--fs-12);
   white-space: pre;
 }
 .devices-search {
@@ -1335,7 +1335,7 @@
 .devices-try small {
   display: block;
   color: var(--text-3);
-  font-size: 11px;
+  font-size: var(--fs-11);
   overflow-wrap: anywhere;
 }
 .devices-try {
@@ -1350,7 +1350,7 @@
   grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: center;
   gap: 6px;
-  font-size: 13px;
+  font-size: var(--fs-13);
 }
 .devices-error {
   color: var(--unsure);
@@ -1360,7 +1360,7 @@
 .ol-broker {
   margin-left: auto;
   color: var(--text-3);
-  font-size: 11px;
+  font-size: var(--fs-11);
 }
 .ol-broker.connected {
   color: var(--ok);
@@ -1411,14 +1411,14 @@
   margin: 0;
   padding: 0;
   border: 0;
-  font-size: 13px;
+  font-size: var(--fs-13);
   color: var(--text-2);
 }
 .expose-attrs {
   display: grid;
   gap: 4px;
   margin: 0;
-  font-size: 12px;
+  font-size: var(--fs-12);
 }
 .expose-attrs div {
   display: grid;
@@ -1438,13 +1438,13 @@
   margin: 0;
   padding: 0;
   list-style: none;
-  font-size: 11px;
+  font-size: var(--fs-11);
   color: var(--text-2);
   overflow-wrap: anywhere;
 }
 .expose-opt-in {
   display: block;
-  font-size: 12px;
+  font-size: var(--fs-12);
   line-height: 18px;
   color: var(--text-2);
 }
@@ -1510,14 +1510,14 @@
 .brush-sources small {
   color: var(--text-3);
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: var(--fs-11);
   text-transform: uppercase;
 }
 .brush-history {
   margin: 0;
   padding-left: 18px;
   color: var(--text-3);
-  font-size: 12px;
+  font-size: var(--fs-12);
 }
 .brush-draft {
   display: grid;
@@ -1527,7 +1527,7 @@
 }
 .brush-said {
   color: var(--text-2);
-  font-size: 12px;
+  font-size: var(--fs-12);
 }
 .brush-question {
   color: var(--unsure);
@@ -1560,7 +1560,7 @@
   margin: 0;
   padding: 0;
   list-style: none;
-  font-size: 12px;
+  font-size: var(--fs-12);
 }
 .brush-sources a {
   color: var(--seen);
@@ -1586,7 +1586,7 @@
   background: var(--control-bg);
   color: var(--text);
   font: inherit;
-  font-size: 13px;
+  font-size: var(--fs-13);
 }
 .brush-prompt textarea:focus-visible {
   outline: none;
