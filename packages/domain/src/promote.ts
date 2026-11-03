@@ -1,5 +1,6 @@
 import type { FixtureInput } from './fixture.js';
-import type { IsoProp, IsoScene, IsoTone } from './iso.js';
+import type { IsoProp, IsoScene, IsoSceneKind, IsoTone } from './iso.js';
+import { ISO_PRESETS } from './iso-presets.js';
 import { propModel, type PropPart } from './iso-furniture.js';
 import type { ItemMaterial } from './iso-item.js';
 import { PROP_TONES } from './iso-prop-sprite.js';
@@ -101,6 +102,33 @@ export function promoteGroup(
       reference: null,
       control: light?.startsWith('light.') ? { kind: 'light', entityId: light } : { kind: 'none' },
     },
+  };
+}
+
+/**
+ * A preset room's built-in thing (the fridge's milk) made a thing of its
+ * own: a fixture in that room where it stood, which stands in for it. The
+ * preset itself can't change, so the room is drawn without it
+ * (`withoutPromoted`) while the fixture is there.
+ */
+export function promoteBuiltIn(kind: IsoSceneKind, group: string): FixtureInput | null {
+  const made = promoteGroup(ISO_PRESETS[kind], group);
+  return made ? { ...made.fixture, scene: kind, builtIn: group } : null;
+}
+/** A preset room without the built-in things its fixtures stand in for. */
+export function withoutPromoted(
+  scene: IsoScene,
+  fixtures: readonly { scene: string; builtIn?: string | undefined }[] = [],
+): IsoScene {
+  const taken = new Set(
+    fixtures.flatMap((f) => (f.scene === scene.kind && f.builtIn ? [f.builtIn] : [])),
+  );
+  if (!taken.size) return scene;
+  const gone = new Set(scene.props.filter((p) => taken.has(p.group)).map((p) => p.id));
+  return {
+    ...scene,
+    props: scene.props.filter((p) => !gone.has(p.id)),
+    surfaces: scene.surfaces.filter((s) => !gone.has(s.propId)),
   };
 }
 

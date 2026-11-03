@@ -1,9 +1,33 @@
 import { useEffect } from 'react';
-import type { SelectionShape } from '@livinglayer/domain';
+import type { DeskObservation, SelectionShape } from '@livinglayer/domain';
 import { Glyph } from '../Glyph';
 import { Button } from '../ui/controls';
-import { useCamera, useFeedback, useLabParts, useView } from './LabContext';
+import { useCamera, useDesk, useFeedback, useLabParts, useTracking, useView } from './LabContext';
 import { Cost } from './panel';
+
+/**
+ * Says so when a followed thing was learned from the whole box drawn round
+ * it, not its outline (its last sighting, or what the watcher follows it
+ * from): it is followed with its background, and can stay on the desk when it moves.
+ */
+export function BoxOnlyNote({
+  id,
+  seen,
+}: {
+  id: string;
+  seen: DeskObservation | null | undefined;
+}) {
+  const { watch, trackingAi } = useLabParts(useTracking(), useDesk());
+  const watched = watch?.on ? watch.things.find((t) => t.id === id) : undefined;
+  if (!seen?.boxOnly && !watched?.boxOnly) return null;
+  return (
+    <p className="micro box-only" role="note">
+      Learned from the whole box drawn round it, not its outline, so it’s followed with what’s
+      behind it and may stay put when it moves.{' '}
+      {trackingAi ? 'Find it again so SAM outlines it.' : 'Draw round it again, closer.'}
+    </p>
+  );
+}
 
 /**
  * Outlining a thing on this machine, with no model call, while tracking may

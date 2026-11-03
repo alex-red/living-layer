@@ -12,6 +12,7 @@ import {
   type Mode,
   mugOf,
   otherObjects,
+  withoutPromoted,
 } from '@livinglayer/domain';
 import { isRun } from '@livinglayer/domain';
 import type { Lab } from './useLabState';
@@ -23,7 +24,10 @@ import { pinScene, viewLabel, type Selection, type WorkScene } from './progress'
 /** The scene a preset kind or the person's own scene stands for. */
 export function sceneOf(kind: WorkScene, memory?: DeskMemory | null) {
   if (kind === 'custom-desk') return memory?.scene ? closeViewOf(memory.scene) : null;
-  return kind === 'custom' ? (memory?.scene ?? null) : ISO_PRESETS[kind];
+  // A preset's built-in thing made a thing of its own is drawn as that thing.
+  return kind === 'custom'
+    ? (memory?.scene ?? null)
+    : withoutPromoted(ISO_PRESETS[kind], memory?.fixtures);
 }
 export function roomLabel(room: WorkScene | null, memory?: DeskMemory | null): string {
   if (!room) return '';
@@ -184,7 +188,7 @@ export function builtInLamps(lab: LabRead): BuiltInLamp[] {
   return lamps;
 }
 /** The small templates drawn standing on a desk or shelf: a book, a bottle, the fridge's eggs. */
-const DESK_THINGS = new Set(['book', 'bottle', 'jar', 'carton', 'eggs', 'butter', 'tub']);
+export const DESK_THINGS = new Set(['book', 'bottle', 'jar', 'carton', 'eggs', 'butter', 'tub']);
 /** A small thing drawn as part of a room's layout, such as the office's book. */
 interface BuiltInThing {
   /** `scene~group`, the outline's id for it. */

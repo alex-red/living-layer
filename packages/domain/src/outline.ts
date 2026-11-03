@@ -5,7 +5,8 @@
  * sampled from a band outside the shape and the shape's own edge, and grouped
  * into a few colours; a pixel inside is the thing when it is far from all of
  * them. The largest piece (and any nearly as large) is kept and its holes are
- * filled, so a mug's dark inside stays part of it.
+ * filled, so a mug's dark inside stays part of it. When too little stands out
+ * that way, the colours much commoner inside the shape than around it are.
  *
  * It is a reason to follow something, as SAM's outline is: the watcher cuts
  * its template from it. A shape drawn tight on something plain against a
@@ -38,6 +39,10 @@ const OUTLINE = {
   keepShare: 0.3,
   /** Under this share of the shape, nothing stood out: the shape is the outline. */
   minShare: 0.06,
+  /** Levels per channel of the colour histograms compared when nothing stood out by distance. */
+  levels: 16,
+  /** A colour this many times commoner inside the shape than around it is the thing's. */
+  commoner: 3,
 };
 
 interface LocalOutline {
@@ -118,9 +123,16 @@ export function outlineIn(image: RgbImage, shape: Bits): LocalOutline | null {
       const k = y * width + x;
       if (shape.data[k] && !edge(x, y) && far(k) > limit) local[(y - y0) * w + x - x0] = 1;
     }
-  const kept = fillHoles(largestPieces(smooth(local, w, h), w, h), w, h);
+  let kept = fillHoles(largestPieces(smooth(local, w, h), w, h), w, h);
   let count = 0;
   for (const v of kept) count += v;
+  // A colour also somewhere around (a white jar the box cuts through, beside a
+  // white mug) hides the thing by distance; by how much commoner it is inside, it doesn't.
+  if (count < OUTLINE.minShare * inside) {
+    kept = fillHoles(largestPieces(smooth(commonerInside(image, shape, band), w, h), w, h), w, h);
+    count = 0;
+    for (const v of kept) count += v;
+  }
   const bits = newBits(width, height);
   if (count < OUTLINE.minShare * inside) {
     bits.data.set(shape.data);
@@ -129,6 +141,61 @@ export function outlineIn(image: RgbImage, shape: Bits): LocalOutline | null {
   for (let y = 0; y < h; y++)
     for (let x = 0; x < w; x++) if (kept[y * w + x]) bits.data[(y + y0) * width + x + x0] = 1;
   return { bits, share: count / inside, fallback: false };
+}
+
+/**
+ * The pixels inside the shape, over its bounding box, whose colour is
+ * `OUTLINE.commoner` times commoner inside than in the band around it.
+ */
+function commonerInside(image: RgbImage, shape: Bits, band: number): Uint8Array {
+  const { width, height, data } = image;
+  let x0 = width;
+  let y0 = height;
+  let x1 = -1;
+  let y1 = -1;
+  for (let y = 0; y < height; y++)
+    for (let x = 0; x < width; x++)
+      if (shape.data[y * width + x]) {
+        if (x < x0) x0 = x;
+        if (x > x1) x1 = x;
+        if (y < y0) y0 = y;
+        if (y > y1) y1 = y;
+      }
+  const levels = OUTLINE.levels;
+  const step = 256 / levels;
+  const bins = levels ** 3;
+  const bin = (k: number) =>
+    (Math.floor(data[k * 3]! / step) * levels + Math.floor(data[k * 3 + 1]! / step)) * levels +
+    Math.floor(data[k * 3 + 2]! / step);
+  const inside = new Float64Array(bins);
+  const around = new Float64Array(bins);
+  let nInside = 0;
+  let nAround = 0;
+  for (let y = Math.max(0, y0 - band); y <= Math.min(height - 1, y1 + band); y++)
+    for (let x = Math.max(0, x0 - band); x <= Math.min(width - 1, x1 + band); x++) {
+      const k = y * width + x;
+      if (shape.data[k]) {
+        inside[bin(k)]!++;
+        nInside++;
+      } else {
+        around[bin(k)]!++;
+        nAround++;
+      }
+    }
+  const w = x1 - x0 + 1;
+  const h = y1 - y0 + 1;
+  const local = new Uint8Array(w * h);
+  for (let y = y0; y <= y1; y++)
+    for (let x = x0; x <= x1; x++) {
+      const k = y * width + x;
+      if (!shape.data[k]) continue;
+      const b = bin(k);
+      // One of each colour seen beforehand, so a colour seen once inside isn't infinitely commoner.
+      const here = (inside[b]! + 1) / (nInside + bins);
+      const there = (around[b]! + 1) / (nAround + bins);
+      if (here > OUTLINE.commoner * there) local[(y - y0) * w + x - x0] = 1;
+    }
+  return local;
 }
 
 /** A few colours the samples gather around: k-means, seeded by spread-out picks. */

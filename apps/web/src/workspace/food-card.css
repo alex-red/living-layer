@@ -1,0 +1,17 @@
+/* A food thing's card: its line in the status's tone, its three fields side by side. */
+.food-fields {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+.food-status {
+  margin: 0 0 8px;
+  font: 500 var(--fs-12) / 16px var(--ui);
+  color: var(--text-2);
+}
+.food-status.soon {
+  color: var(--unsure);
+}
+.food-status.bad {
+  color: var(--blocked);
+}

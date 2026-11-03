@@ -40,6 +40,8 @@ export interface Detection {
   confidence: number | null;
   box: { x: number; y: number; width: number; height: number };
   mask: { width: number; height: number; foregroundPixels: number; svgPath: string };
+  /** The shape a person drew, kept as the outline because nothing stood out in it (`outlineIn`). */
+  boxOnly?: true;
 }
 export interface Segmentation {
   sourceKey?: string;

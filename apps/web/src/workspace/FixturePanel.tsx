@@ -1,4 +1,5 @@
 import { ThingStats } from './ThingStats';
+import { FoodCard } from './FoodCard';
 import { useMemo, useRef, useState, type ReactNode } from 'react';
 import { useNow } from '../useNow';
 import {
@@ -16,7 +17,9 @@ import {
   fixtureSize,
   fixtureStateNames,
   fixtureType,
+  foodKeeps,
   lightSources,
+  promoteBuiltIn,
   retypeFixture,
   starterFixtureDraft,
   SCULPT_FIRST,
@@ -61,7 +64,7 @@ import { pinScene } from './progress';
 import { Details, Panel, useCall } from './panel';
 import { ChooseDevicesLink } from './ChooseDevicesLink';
 import { ScanFixtures } from './ScanFixtures';
-import { LocalOutline } from './LocalOutline';
+import { BoxOnlyNote, LocalOutline } from './LocalOutline';
 import { useScenes, type WorkScene } from './fixture-scenes';
 import { removeFromLayout, type LayoutLab } from './removeFromLayout';
 import { controlKindOf } from '@livinglayer/domain';
@@ -1061,6 +1064,7 @@ export function FixturePanel({ id }: { id: string }) {
           />
         </Field>
       )}
+      <FoodCard fixture={f} />
       <ThingStats id={f.id} label={f.label} {...(f.type ? { type: f.type } : {})} />
       <Details summary="What it is">
         <FixtureType fixture={f} disabled={off || moving} />
@@ -1198,6 +1202,7 @@ function FixtureCamera({ fixture: f, disabled }: { fixture: Fixture; disabled: b
             ? 'Not followed. Find it in the camera so it can follow and decide rules.'
             : 'Not followed. Draw round it on the camera’s picture so it can follow and decide rules.'}
       </p>
+      <BoxOnlyNote id={f.id} seen={f.track?.observation} />
       {!trackingAi && (
         <LocalOutline
           target={f.id}
@@ -1270,6 +1275,21 @@ export function BuiltInPanel({ id }: { id: string }) {
   const thing = builtInThings(lab).find((t) => t.id === id);
   if (!thing) return <Panel tiny="BUILT IN" title="Gone" status="It is no longer in the room." />;
   const sceneLabel = roomLabel(thing.scene, lab.memory);
+  const { scene, prop } = thing;
+  /** A preset's built-in thing as a fixture standing in for it, where it stood. */
+  async function makeThing() {
+    if (scene === 'custom' || scene === 'custom-desk') return;
+    const fixture = promoteBuiltIn(scene, prop.group);
+    if (!fixture) return lab.setError('That thing has nothing to draw as a thing.');
+    await call<DeskMemory>('fixtures/save', { fixture }, (m) => {
+      lab.setMemory(m);
+      const made = m.fixtures?.find((f) => f.scene === scene && f.builtIn === prop.group);
+      if (made) lab.select({ kind: 'fixture', id: made.id });
+      lab.setMessage(
+        `The ${prop.label.toLowerCase()} is a thing of its own now. Keep stats for it, or find it in the camera.`,
+      );
+    });
+  }
   return (
     <Panel
       tiny="BUILT IN"
@@ -1301,9 +1321,18 @@ export function BuiltInPanel({ id }: { id: string }) {
           </div>
         </>
       ) : (
-        <p className="micro">
-          A preset room’s things can’t be removed. Edit a layout of your own to leave it out.
-        </p>
+        <>
+          <p className="micro">
+            Drawn with the room, it isn’t followed and keeps nothing. Make it a thing of its own to
+            keep {foodKeeps(prop.label) !== null ? 'its use-by day and stats' : 'stats for it'}, or
+            to find it in the camera.
+          </p>
+          <div className="save-actions">
+            <Button disabled={off} onClick={() => void makeThing()}>
+              Make it a thing
+            </Button>
+          </div>
+        </>
       )}
     </Panel>
   );

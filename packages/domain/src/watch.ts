@@ -477,5 +477,7 @@ export interface WatchView {
     layer: WatchLayer;
     box: UnitBox;
     score: number;
+    /** Followed from the whole shape drawn round it, not an outline (`Detection.boxOnly`). */
+    boxOnly?: true;
   }[];
 }

@@ -18,6 +18,7 @@ import {
   type Point,
   type PropFace,
   type Quad,
+  type FoodNow,
 } from '@livinglayer/domain';
 import { BaseHandles, type BaseRect } from './BaseHandles';
 import { ItemSprite } from './IsoItem';
@@ -145,6 +146,8 @@ export interface IsoFixture {
   missing?: boolean;
   /** It switches a light: a stat from that light is drawn as a lamp's. */
   lamp?: boolean;
+  /** Food: its use-by line ("Expires in 3 days"), over its label. */
+  food?: FoodNow;
 }
 /** A fixture waiting to be put down: it follows the pointer until a click. */
 interface IsoPlacing {
@@ -252,7 +255,19 @@ function FixtureMarker({
           ? ` · ${fixture.state.toUpperCase()}`
           : ''}
       </text>
-      {stats && <StatBadges id={fixture.id} x={head.sx} y={head.sy - 20} lamp={fixture.lamp} />}
+      {fixture.food && (
+        <text className={`iso-food ${fixture.food.tone}`} x={head.sx} y={head.sy - 19}>
+          {fixture.food.text.toUpperCase()}
+        </text>
+      )}
+      {stats && (
+        <StatBadges
+          id={fixture.id}
+          x={head.sx}
+          y={head.sy - (fixture.food ? 31 : 20)}
+          lamp={fixture.lamp}
+        />
+      )}
     </g>
   );
 }
