@@ -58,11 +58,60 @@ export function useNetworkStreams() {
 /** How long a connected stream may go without a frame before it counts as lost. */
 const STALL_MS = 8000;
 
+/** What one playback measured, as the server logs it (`bun run runs --streams`). */
+interface PlaybackStats {
+  stream: string;
+  outcome: 'closed' | 'lost' | 'failed';
+  error?: string;
+  connectMs: number | null;
+  firstFrameMs: number | null;
+  durationMs: number | null;
+  frames: number | null;
+  fps: number | null;
+  kbps: number | null;
+  jitterMs: number | null;
+  freezes: number | null;
+  freezeMs: number | null;
+  decodeMs: number | null;
+  width: number | null;
+  height: number | null;
+  codec: string | null;
+  decoder: string | null;
+}
+
+/** The video's inbound report and its codec, from one `getStats`. */
+async function inboundVideo(
+  pc: RTCPeerConnection,
+): Promise<Record<string, number | string | undefined> | null> {
+  const report = await pc.getStats().catch(() => null);
+  let found: Record<string, number | string | undefined> | null = null;
+  report?.forEach((s: Record<string, number | string | undefined>) => {
+    if (s.type === 'inbound-rtp' && s.kind === 'video') found = s;
+  });
+  const inbound = found as Record<string, number | string | undefined> | null;
+  const codec = inbound?.codecId ? report?.get(String(inbound.codecId)) : null;
+  return inbound && { ...inbound, mimeType: codec?.mimeType as string | undefined };
+}
+
+const round = (n: number | null, places = 0) =>
+  n === null || !Number.isFinite(n) ? null : Number(n.toFixed(places));
+
+/** Sends a playback's numbers to the server's log; one that can't be sent is dropped. */
+function report(stats: PlaybackStats) {
+  void fetch('/api/streams/stats', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(stats),
+    keepalive: true,
+  }).catch(() => {});
+}
+
 /**
  * Plays a WHEP endpoint as a receive-only WebRTC stream. The offer goes out once
  * ICE gathering is done (instant on a LAN), so no trickle PATCHes are needed.
  * `onLost` fires once if the connection drops after it was up, or stops
- * bringing frames.
+ * bringing frames. How the playback went (time to connect and to the first
+ * frame, rate, freezes, codec) is logged on the server when it ends.
  */
 export async function openStream(
   endpoint: string,
@@ -71,10 +120,60 @@ export async function openStream(
 ): Promise<OpenedStream> {
   const whep = new URL(endpoint, window.location.href).href;
   const pc = new RTCPeerConnection();
+  const startedAt = performance.now();
+  let connectedAt = 0;
+  let firstFrameAt = 0;
+  let last: Awaited<ReturnType<typeof inboundVideo>> = null;
+  let reported = false;
   let session = '';
   let watch = 0;
+  const measure = (outcome: PlaybackStats['outcome'], error?: string) => {
+    if (reported) return;
+    reported = true;
+    const n = (key: string) => (typeof last?.[key] === 'number' ? (last[key] as number) : null);
+    const text = (key: string) => {
+      const value = last?.[key];
+      return typeof value === 'string' ? value.slice(0, 60) : null;
+    };
+    const frames = n('framesDecoded');
+    const playedMs = firstFrameAt ? performance.now() - firstFrameAt : null;
+    const emitted = n('jitterBufferEmittedCount');
+    report({
+      // A phone's pairing token is in its path; it has no place in a log.
+      stream: new URL(whep).pathname.replace(/[\w-]{24,}/g, '…').slice(0, 200),
+      outcome,
+      ...(error ? { error: error.slice(0, 200) } : {}),
+      connectMs: round(connectedAt ? connectedAt - startedAt : null),
+      firstFrameMs: round(firstFrameAt ? firstFrameAt - startedAt : null),
+      durationMs: round(connectedAt ? performance.now() - connectedAt : null),
+      frames,
+      fps: round(frames && playedMs ? (frames * 1000) / playedMs : null, 1),
+      kbps: round(
+        n('bytesReceived') !== null && playedMs ? (n('bytesReceived')! * 8) / playedMs : null,
+      ),
+      jitterMs: round(
+        emitted && n('jitterBufferDelay') !== null
+          ? (n('jitterBufferDelay')! * 1000) / emitted
+          : null,
+        1,
+      ),
+      freezes: n('freezeCount'),
+      freezeMs: round(
+        n('totalFreezesDuration') !== null ? n('totalFreezesDuration')! * 1000 : null,
+      ),
+      decodeMs: round(
+        frames && n('totalDecodeTime') !== null ? (n('totalDecodeTime')! * 1000) / frames : null,
+        2,
+      ),
+      width: n('frameWidth'),
+      height: n('frameHeight'),
+      codec: text('mimeType'),
+      decoder: text('decoderImplementation'),
+    });
+  };
   const close = () => {
     window.clearInterval(watch);
+    measure('closed');
     pc.getReceivers().forEach((r) => r.track.stop());
     pc.close();
     if (session) void fetch(session, { method: 'DELETE' }).catch(() => {});
@@ -115,25 +214,33 @@ export async function openStream(
     });
     const media = new MediaStream([await track]);
     await connected;
+    connectedAt = performance.now();
     let lost = false;
     const lose = () => {
       if (lost) return;
       lost = true;
       window.clearInterval(watch);
+      measure('lost');
       onLost();
     };
     pc.addEventListener('connectionstatechange', () => {
       if (['failed', 'closed'].includes(pc.connectionState)) lose();
     });
+    // The first decoded frame, looked for closely so the time to it means something.
+    void (async () => {
+      while (!firstFrameAt && !reported && performance.now() - connectedAt < timeoutMs) {
+        last = (await inboundVideo(pc)) ?? last;
+        if (Number(last?.framesDecoded) > 0) firstFrameAt = performance.now();
+        else await new Promise((r) => setTimeout(r, 30));
+      }
+    })();
     // A relay whose camera stops can keep the connection up with no frames in it, and the
     // last frame then stands in for the camera's view: count what arrives instead.
     let frames = -1;
     let framesAt = performance.now();
     watch = window.setInterval(async () => {
-      let received = 0;
-      (await pc.getStats().catch(() => new Map())).forEach((s) => {
-        if (s.type === 'inbound-rtp' && s.kind === 'video') received = s.framesReceived ?? 0;
-      });
+      last = (await inboundVideo(pc)) ?? last;
+      const received = Number(last?.framesReceived ?? 0);
       if (received !== frames) {
         frames = received;
         framesAt = performance.now();
@@ -141,6 +248,7 @@ export async function openStream(
     }, 2000);
     return { media, close };
   } catch (e) {
+    measure('failed', e instanceof Error ? e.message : String(e));
     close();
     throw e;
   }
