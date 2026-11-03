@@ -1,5 +1,5 @@
 import sharp from 'sharp';
-import type { Detection, Point } from '@livinglayer/domain';
+import { convexHull, type Detection, type Point } from '@livinglayer/domain';
 import { detectionBits, maskedCrop } from './images.js';
 
 /**
@@ -25,23 +25,6 @@ export function hullDetection(points: Point[], id: string): Detection | null {
     mask: { width, height, foregroundPixels: Math.round(width * height * 0.6), svgPath: path },
   };
 }
-function convexHull(points: Point[]): Point[] {
-  const ps = [...points].sort((a, b) => a.x - b.x || a.y - b.y);
-  const cross = (o: Point, a: Point, b: Point) =>
-    (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
-  const half = (list: Point[]) => {
-    const out: Point[] = [];
-    for (const p of list) {
-      while (out.length >= 2 && cross(out[out.length - 2]!, out[out.length - 1]!, p) <= 0)
-        out.pop();
-      out.push(p);
-    }
-    out.pop();
-    return out;
-  };
-  return [...half(ps), ...half([...ps].reverse())];
-}
-
 /**
  * Where the lifted fixtures were, as an alpha mask the size of the picture:
  * their outlines, grown so their outer strokes and shadows go too, and

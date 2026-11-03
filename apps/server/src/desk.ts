@@ -676,15 +676,6 @@ export function deskRoutes(
     );
     return anchorFixture(mode, id, segmentRunId, detectionId);
   });
-  app.post('/api/fixtures/track', async (request) => {
-    const { mode, id, segmentRunId } = parseInput(
-      z
-        .object({ mode: modeSchema, id: z.string().uuid(), segmentRunId: z.string().uuid() })
-        .strict(),
-      request.body,
-    );
-    return trackFixture(mode, id, segmentRunId);
-  });
   /** Stop following a fixture; it stays where it was last seen. */
   app.post('/api/fixtures/untrack', async (request) => {
     const { mode, id } = parseInput(
