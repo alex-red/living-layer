@@ -103,7 +103,46 @@ export function fromSculpt(label: string, sculpt: Sculpt): IsoItem | null {
     ids.add(id);
     parts.push(ok.data);
   }
-  return parts.length ? { label, parts } : null;
+  return parts.length ? { label, parts: openTops(parts) } : null;
+}
+
+/**
+ * A closed lathe with a thin lathe inside it near its top is a vessel and
+ * what is in it (a mug and its coffee): its top is opened and the disc
+ * becomes its inside, which a closed body would hide.
+ */
+export function openTops(parts: ItemPart[]): ItemPart[] {
+  const gone = new Set<string>();
+  const out = parts.map((body) => {
+    if (body.shape !== 'lathe' || body.wall) return body;
+    const top = body.at.z + body.size.h;
+    const fill = parts.find(
+      (p) =>
+        p !== body &&
+        p.shape === 'lathe' &&
+        !gone.has(p.id) &&
+        p.size.h <= body.size.h * 0.15 &&
+        p.size.w < body.size.w &&
+        p.at.x >= body.at.x - 0.01 &&
+        p.at.y >= body.at.y - 0.01 &&
+        p.at.x + p.size.w <= body.at.x + body.size.w + 0.01 &&
+        p.at.y + p.size.d <= body.at.y + body.size.d + 0.01 &&
+        p.at.z + p.size.h >= body.at.z + body.size.h * 0.6 &&
+        p.at.z + p.size.h <= top + 0.01,
+    );
+    if (!fill) return body;
+    gone.add(fill.id);
+    return {
+      ...body,
+      wall: Math.min(0.3, Math.max(0.04, 1 - fill.size.w / body.size.w)),
+      inside: {
+        wall: body.color,
+        liquid: fill.color,
+        level: Math.min(1, Math.max(0, (fill.at.z + fill.size.h - body.at.z) / body.size.h)),
+      },
+    };
+  });
+  return out.filter((p) => !gone.has(p.id));
 }
 
 /**
