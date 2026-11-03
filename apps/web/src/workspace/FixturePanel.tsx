@@ -1616,7 +1616,7 @@ function FixturePhoto({ fixture, disabled }: { fixture: Fixture; disabled: boole
  * Model a fixture with AI: Spark rebuilds its model in our own parts from the
  * picture of it, starting from the model it has, and the editor opens on it.
  */
-function SculptFixture({ fixture, disabled }: { fixture: Fixture; disabled: boolean }) {
+export function SculptFixture({ fixture, disabled }: { fixture: Fixture; disabled: boolean }) {
   const lab = useLabParts(useView(), useFeedback(), useDesk(), useFixtures());
   const { mode, busy, memory } = lab;
   const group = new Set([
@@ -1632,15 +1632,22 @@ function SculptFixture({ fixture, disabled }: { fixture: Fixture; disabled: bool
     fixture.scene === 'custom' &&
     Boolean(memory?.scene) &&
     Boolean(memory && calibrationOf(memory));
+  // A thing the camera follows is pictured by its last sighting.
+  const sighted = fixture.place === 'sightings';
   const pictured =
-    lifted || Boolean(fixtureModel(fixture).fit?.crop ?? fixture.model.fit?.crop) || scanned;
+    lifted ||
+    Boolean(fixtureModel(fixture).fit?.crop ?? fixture.model.fit?.crop) ||
+    scanned ||
+    (sighted && Boolean(fixture.track?.observation));
   const why =
     mode !== 'live'
       ? 'Modelling with AI asks Spark, so it runs in Live mode.'
       : !lab.metaReady
         ? 'Live calls aren’t available: set MODEL_API_KEY and META_LIVE_ENABLED, or raise today’s spend limit.'
         : !pictured
-          ? 'Lift the fixtures off the room’s picture, or draft it from a photo, first.'
+          ? sighted
+            ? 'Track it in a frame first: it is modelled from where the camera saw it.'
+            : 'Lift the fixtures off the room’s picture, or draft it from a photo, first.'
           : null;
   const off = disabled || Boolean(busy) || Boolean(why);
   const go = () => void lab.sculptFixture(fixture.id, note.trim() || undefined);
@@ -1674,7 +1681,7 @@ function SculptFixture({ fixture, disabled }: { fixture: Fixture; disabled: bool
       </form>
       <p className="micro">
         {why ??
-          `Spark rebuilds its model in editable parts from its ${lifted ? 'cut-out' : 'photo'}, keeping locked parts${note.trim() ? ', and looks up what you name meanwhile (catalog, then the web)' : ''} · ${note.trim() ? '4' : '3'} Spark calls at once, ~$0.05–${note.trim() ? '0.15' : '0.10'}, under a minute.`}
+          `Spark rebuilds its model in editable parts from its ${lifted ? 'cut-out' : sighted ? 'last sighting' : 'photo'}, keeping locked parts${note.trim() ? ', and looks up what you name meanwhile (catalog, then the web)' : ''} · ${note.trim() ? '4' : '3'} Spark calls at once, ~$0.05–${note.trim() ? '0.15' : '0.10'}, under a minute.`}
       </p>
     </div>
   );

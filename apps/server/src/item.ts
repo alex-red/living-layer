@@ -25,6 +25,7 @@ import {
   voxelize,
   type Archetype,
   type DeskMemory,
+  type DeskObservation,
   type Detection,
   type EvidenceRun,
   type FitInput,
@@ -78,6 +79,26 @@ async function itemCrop(
   const bytes = photo ? store.readAsset(photo) : null;
   if (!bytes) throw new LabError('item_source', 'The photo behind this sighting is missing.', 409);
   return maskedCrop(bytes, detection);
+}
+
+/**
+ * A sighted thing's picture: the masked crop of its last sighting, seen from
+ * the pinned camera's angle (or a desk camera's usual 30° without one).
+ * Null when the segmentation behind the sighting is gone.
+ */
+export async function sightingPicture(
+  store: EvidenceStore,
+  mode: Mode,
+  memory: DeskMemory,
+  sighting: DeskObservation,
+) {
+  const segment = store.getRun(sighting.segmentRunId);
+  const detection = runOutput(segment, 'segment')?.detections.find(
+    (d) => d.objectId === sighting.detectionId,
+  );
+  if (!segment || !detection) return null;
+  const crop = await itemCrop(store, mode, segment, detection);
+  return { png: crop.png, elevation: pinElevation(memory, mode) ?? 30 };
 }
 
 /**

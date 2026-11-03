@@ -35,7 +35,7 @@ import sharp from 'sharp';
 import { LabError } from '../errors.js';
 import { following, type JobTracker } from '../jobs.js';
 import { toDataUrl } from '../images.js';
-import { cropInput, keepLocked, viewPng } from '../item.js';
+import { cropInput, keepLocked, sightingPicture, viewPng } from '../item.js';
 import { type RouteDeps } from '../route-deps.js';
 import { SEARCH_CEILING, SPARK_BUDGET, type MetaAdapter } from '../meta.js';
 import { BUNDLED_CATALOG, Catalog, research, type Researcher } from '../research.js';
@@ -130,7 +130,12 @@ function sculptRunOf(job: Job | null, getRun: (id: string) => EvidenceRun | unde
  * picture, or its own or a linked copy's, else the crop its model was fitted
  * to, else the room draft's crop, looked at from where the room's camera is.
  */
-function sculptPicture(store: EvidenceStore, memory: DeskMemory, fixture: Fixture) {
+function sculptPicture(
+  store: EvidenceStore,
+  memory: DeskMemory,
+  fixture: Fixture,
+  sighted: { png: Buffer; elevation: number } | null,
+) {
   const group = new Set([
     fixture.id,
     ...linkedFixtures(memory.fixtures ?? [], fixture).map((f) => f.id),
@@ -156,16 +161,20 @@ function sculptPicture(store: EvidenceStore, memory: DeskMemory, fixture: Fixtur
   };
   const pictured = sprite
     ? { png: store.readAsset(sprite.asset), elevation: ISO_ELEVATION }
-    : crop
-      ? {
-          png: store.readAsset(crop),
-          elevation: (activeModel.fit ?? fixture.model.fit)!.elevation,
-        }
-      : drafted();
+    : sighted
+      ? sighted
+      : crop
+        ? {
+            png: store.readAsset(crop),
+            elevation: (activeModel.fit ?? fixture.model.fit)!.elevation,
+          }
+        : drafted();
   if (!pictured?.png)
     throw new LabError(
       'sculpt_picture',
-      `There is no picture of the ${fixture.label.toLowerCase()} to model it from. Lift the fixtures off the room’s picture, or draft it from a photo.`,
+      fixture.place === 'sightings'
+        ? `There is no picture of the ${fixture.label.toLowerCase()} to model it from: the frame it was last seen in is gone. Track it again in a new frame.`
+        : `There is no picture of the ${fixture.label.toLowerCase()} to model it from. Lift the fixtures off the room’s picture, or draft it from a photo.`,
       409,
     );
   return {
@@ -567,7 +576,10 @@ export async function sculptFixture(
   const memory = store.memory(mode);
   const fixture = memory.fixtures?.find((f) => f.id === fixtureId);
   if (!fixture) throw new LabError('fixture_missing', 'That fixture is gone.', 404);
-  const picture = sculptPicture(store, memory, fixture);
+  // A thing the camera follows is modelled from its last sighting, cut out by its mask.
+  const sighting = fixture.place === 'sightings' ? fixture.track?.observation : undefined;
+  const sighted = sighting ? await sightingPicture(store, mode, memory, sighting) : null;
+  const picture = sculptPicture(store, memory, fixture, sighted);
   const { group, activeModel, activeSize } = picture;
   // A note is looked up as a product first: the catalog, then the web.
   const ceiling =

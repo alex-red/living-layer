@@ -230,12 +230,17 @@ interface EarlierDraft {
   /** When it was replaced. */
   replacedAt: string;
 }
-/** The fixture with `model` in place of its own, the one it replaces kept as an earlier draft. */
+/**
+ * The fixture with `model` in place of its own, the one it replaces kept as
+ * an earlier draft unless it was only the stock one.
+ */
 export function withNewModel<F extends Pick<Fixture, 'model' | 'drafts'>>(
   f: F,
   model: SavedItem,
   now: string,
 ): F {
+  // A stock model was never drafted for it, so there is nothing to go back to.
+  if (isStockModel(f.model)) return { ...f, model };
   const kept: EarlierDraft = { model: f.model, origin: modelOrigin(f.model), replacedAt: now };
   return { ...f, model, drafts: [kept, ...(f.drafts ?? [])].slice(0, MAX_DRAFTS) };
 }

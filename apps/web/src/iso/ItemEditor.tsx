@@ -5,6 +5,7 @@ import {
   useState,
   type KeyboardEvent,
   type PointerEvent,
+  type ReactNode,
 } from 'react';
 import {
   fromIso,
@@ -811,8 +812,10 @@ function unrotateDelta(rx: number, ry: number, turns: number): { dx: number; dy:
 export function ItemEditor({
   item,
   fixture,
+  label,
   busy,
-  sparkNote,
+  fitNote,
+  modelWithAi,
   cropUrl,
   onDraft,
   onSave,
@@ -822,13 +825,17 @@ export function ItemEditor({
 }: {
   item: SavedItem | null | undefined;
   fixture?: Fixture | undefined;
+  /** What is being modelled: "My desk mug". */
+  label: string;
   busy: boolean;
-  /** Why a Spark draft would cost something, or is unavailable. */
-  sparkNote: string;
+  /** What a fit on this machine does here. */
+  fitNote: string;
+  /** Modelling with AI, as fixtures are: Spark rebuilds it in parts from its picture. */
+  modelWithAi?: ReactNode;
   /** The masked crop the model was fitted to, when there is one. */
   cropUrl: string | null;
-  /** Draft again from the camera's sighting; absent for a fixture, whose model comes from its photo. */
-  onDraft?: (source: 'sampled' | 'spark') => void;
+  /** Fit it on this machine from the camera's sighting; absent for a fixture, whose model comes from its photo. */
+  onDraft?: () => void;
   onSave: (item: IsoItem | null) => void;
   /** Fit again to the same crop, keeping locked parts. */
   onRefit: (item: IsoItem) => void;
@@ -930,25 +937,18 @@ export function ItemEditor({
   if (!draft)
     return (
       <div className="item-editor empty">
-        <h3>Model the mug</h3>
+        <h3>Model the {label.toLowerCase()}</h3>
         <p>
-          Fit a model to its mask. A local fit measures the shape, colours and print from the masked
-          photo on this machine. With Spark, Meta’s models help: Spark names the shape and material
-          and checks the result, and SAM finds parts such as the handle.
+          Spark rebuilds it in editable parts from its last sighting, cut out by its mask. Say what
+          it is, and it looks that up too.
         </p>
+        {modelWithAi}
         <div className="item-actions">
-          <Button
-            variant="primary"
-            disabled={busy || !onDraft}
-            onClick={() => onDraft?.('sampled')}
-          >
-            Sample a draft
-          </Button>
-          <Button disabled={busy || !onDraft} onClick={() => onDraft?.('spark')}>
-            Draft with Spark
+          <Button variant="ghost" disabled={busy || !onDraft} onClick={() => onDraft?.()}>
+            Fit one on this machine
           </Button>
         </div>
-        <small>{sparkNote}</small>
+        <small>{fitNote}</small>
       </div>
     );
 
@@ -1763,14 +1763,9 @@ export function ItemEditor({
               </Button>
             )}
             {onDraft && (
-              <>
-                <Button variant="ghost" disabled={busy} onClick={() => onDraft('sampled')}>
-                  Resample
-                </Button>
-                <Button variant="ghost" disabled={busy} onClick={() => onDraft('spark')}>
-                  Redraft with Spark
-                </Button>
-              </>
+              <Button variant="ghost" disabled={busy} onClick={() => onDraft()}>
+                Fit again here
+              </Button>
             )}
             {item && onDraft && (
               <Button variant="danger" disabled={busy} onClick={() => onSave(null)}>
@@ -1778,7 +1773,8 @@ export function ItemEditor({
               </Button>
             )}
           </div>
-          {onDraft && <small>{sparkNote}</small>}
+          {onDraft && <small>{fitNote}</small>}
+          {modelWithAi}
         </div>
       </div>
     </div>

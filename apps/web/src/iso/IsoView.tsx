@@ -65,6 +65,7 @@ import {
 import { IsoScene, type IsoFixture, type IsoObject, type IsoZone } from './IsoScene';
 import { Later } from '../Later';
 import { LayerChips } from '../workspace/LayerChips';
+import { SculptFixture } from '../workspace/FixturePanel';
 import { pinScene, type WorkScene as Kind } from '../workspace/progress';
 import './iso.css';
 import type { SceneView } from './SceneEditor';
@@ -541,6 +542,10 @@ function IsoViewOf({
   const targetFixture = target?.fixture
     ? memory?.fixtures?.find((f) => f.id === target.id)
     : undefined;
+  // A thing the camera follows is modelled with AI from its last sighting, as a fixture is from its photo.
+  const sighted = target
+    ? memory?.fixtures?.find((f) => f.id === target.id && f.place === 'sightings')
+    : undefined;
 
   async function send<T>(path: string, body: object, done: (r: T) => void) {
     setAsking(true);
@@ -588,12 +593,14 @@ function IsoViewOf({
               key={target?.id}
               item={target?.item}
               fixture={targetFixture}
+              label={target?.label ?? 'thing'}
               busy={off}
-              sparkNote={
+              fitNote={
                 mode === 'demo'
-                  ? 'Demo: no model call. Drafts fit the demo mug’s own pixels, from a close photo of it.'
-                  : 'A Spark draft makes up to four billed calls (Spark twice, SAM up to twice) and sends only the masked crop.'
+                  ? 'Demo: fits the demo mug’s own pixels, from a close photo of it.'
+                  : 'Free: the fitter measures its shape, colours and print from the same masked crop, on this machine.'
               }
+              modelWithAi={sighted && <SculptFixture fixture={sighted} disabled={off} />}
               cropUrl={
                 target?.item?.fit?.crop
                   ? `/api/item/crop?mode=${mode}${modelOf ? `&objectId=${modelOf}` : ''}&v=${encodeURIComponent(target.item.fit.crop)}`
@@ -609,10 +616,10 @@ function IsoViewOf({
               onDraft={
                 target?.fixture
                   ? undefined
-                  : (source) =>
+                  : () =>
                       void send<{ run: EvidenceRun<SavedItem>; memory: DeskMemory }>(
                         'item/draft',
-                        { source, ...(modelOf ? { objectId: modelOf } : {}) },
+                        { source: 'sampled', ...(modelOf ? { objectId: modelOf } : {}) },
                         (r) => {
                           onMemory(r.memory);
                           onRun(r.run);

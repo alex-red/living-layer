@@ -38,8 +38,11 @@ import {
   placeSeen,
   projectPoint,
   sizeInTiles,
+  DEMO_FRAME,
+  mugOf,
   type DeskMemory,
   type EvidenceRun,
+  type Segmentation,
   type Fixture,
   type FixtureScan,
   type Job,
@@ -50,6 +53,22 @@ import {
   sightedThing,
 } from '@livinglayer/domain';
 import { DEMO_SURFACE, fixture, thing, setup, type Scanned } from './lib/fixture-scan.js';
+import { demoPng, demoSegmentation } from '../apps/server/src/demo.js';
+
+/** A box drawn round the demo frame's mug, in thousandths, as a person draws one. */
+async function aroundMug() {
+  const { box } = (await demoSegmentation('mug')).output.detections[0]!;
+  const { width, height } = DEMO_FRAME;
+  return {
+    kind: 'rect' as const,
+    box: {
+      x1: Math.round(((box.x - 4) / width) * 1000),
+      y1: Math.round(((box.y - 4) / height) * 1000),
+      x2: Math.round(((box.x + box.width + 4) / width) * 1000),
+      y2: Math.round(((box.y + box.height + 4) / height) * 1000),
+    },
+  };
+}
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -942,6 +961,36 @@ describe('scanning live, with a mocked Meta API', () => {
       (await s.post('fixtures/sculpt/reapply', { mode: 'live', jobId: crypto.randomUUID() }))
         .statusCode,
     ).toBe(404);
+    // A thing the camera follows is modelled from its last sighting, cut out by its mask; its
+    // stock model isn't kept as an earlier draft.
+    const frame = `data:image/png;base64,${(await demoPng()).toString('base64')}`;
+    const found = (
+      await s.post('segment', {
+        mode: 'live',
+        concept: 'mug',
+        imageDataUrl: frame,
+        shape: await aroundMug(),
+      })
+    ).json<EvidenceRun<Segmentation>>();
+    expect(found.status, JSON.stringify(found)).toBe('completed');
+    const chosen = await s.post('desk/select', {
+      mode: 'live',
+      segmentRunId: found.id,
+      detectionId: found.output.detections[0]!.objectId,
+    });
+    expect(chosen.statusCode, chosen.body).toBe(200);
+    const mug = mugOf(chosen.json<DeskMemory>())!;
+    calls.length = 0;
+    const modelled = await s.post('fixtures/sculpt', {
+      mode: 'live',
+      fixtureId: mug.id,
+      jobId: crypto.randomUUID(),
+    });
+    expect(modelled.statusCode, modelled.body).toBe(200);
+    expect(calls).toHaveLength(3);
+    const remodelled = mugOf(modelled.json<{ memory: DeskMemory }>().memory)!;
+    expect(remodelled.model.source).toBe('spark');
+    expect(remodelled.drafts ?? []).toEqual([]);
     // The demo has no Spark to ask.
     expect((await s.post('fixtures/sculpt', { fixtureId: lamp.id })).statusCode).toBe(400);
     await s.app.close();
