@@ -508,13 +508,13 @@ export class Watcher {
     run.openMs = this.now - run.startedAt;
     this.statRunner.setWatching(true);
     this.statRunner.sync(memory);
+    this.say('watching', this.watchingNote(memory));
+  }
+  private watchingNote(memory: DeskMemory) {
     const count = this.things.size;
-    this.say(
-      'watching',
-      count
-        ? `Watching ${count} thing${count === 1 ? '' : 's'}${this.ai ? '' : ', on this machine only'}.${memory.fixedCamera ? '' : ' Mark the camera fixed so zones carry over to new frames.'}`
-        : 'Watching, but nothing is confirmed yet: confirm the mug or an object first.',
-    );
+    return count
+      ? `Watching ${count} thing${count === 1 ? '' : 's'}${this.ai ? '' : ', on this machine only'}.${memory.fixedCamera ? '' : ' Mark the camera fixed so zones carry over to new frames.'}`
+      : 'Watching, but nothing is confirmed yet: confirm the mug or an object first.';
   }
   /**
    * Catch up with desk memory after a person changed it: things confirmed or
@@ -537,6 +537,8 @@ export class Watcher {
           if (!current || this.seededFrom.get(id) !== x.observation.id) await this.seed(x, memory);
           else this.things.set(id, { ...current, subject: this.subjectOf(x, memory) });
         }
+        // The count it started with is stale once things are confirmed or forgotten.
+        if (this.note.startsWith('Watching')) this.note = this.watchingNote(memory);
         this.emit(true);
       })(),
     );

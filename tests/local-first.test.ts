@@ -81,6 +81,31 @@ describe('tracking with no AI calls', () => {
     expect(sighting(memory)).toMatchObject({ segmentRunId: again.id, identity: 'tracked' });
   });
 
+  it('counts what it watches again once something is confirmed', async () => {
+    const photo = await demoPng();
+    const { app, post } = await testApp({
+      name: 'local-watch-note',
+      trackingAi: false,
+      appearance: async () => null,
+      browseCameras: async () => [],
+      frames: (): FrameSource => ({
+        start: async () => {},
+        stop() {},
+        snapshot: async () => ({ png: photo, width: DEMO_FRAME.width, height: DEMO_FRAME.height }),
+      }),
+    });
+    const watcher = watchersOf(app).demo;
+    await post('watch', { on: true });
+    await watcher.idle();
+    expect(watcher.view().note).toContain('nothing is confirmed yet');
+    const run = (await post('segment', { concept: 'mug', shape: await aroundMug() })).json<
+      EvidenceRun<Segmentation>
+    >();
+    await post('desk/select', { segmentRunId: run.id, detectionId: '1' });
+    await watcher.idle();
+    expect(watcher.view().note).toContain('Watching 1 thing');
+  });
+
   it('looks for a lost thing on this machine instead of asking SAM', async () => {
     let push: (frame: LumaFrame) => void = () => {};
     const photo = await demoPng();
