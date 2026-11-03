@@ -114,6 +114,8 @@ Stats keyed by thing id (a fixture's id, the mug's `object.id`, an object's id),
 
 ### Phase 2: one Thing
 
+In detail: [one-thing.md](one-thing.md).
+
 - `Fixture` becomes `Thing`; the mug and `others` become things with `place: 'sightings'` (drawn from where they were seen, as now) instead of a hand-placed spot. `upgradeMemory` moves `object`, `observation`, `history`, `item` and `others` into `things`, keeping ids, so stat history needs no change.
 - The main zone becomes an ordinary rule on the main light, with the same `look` and `offWhenEmpty`. Its tests move with it and must pass unchanged in what they check.
 - `WatchKind` collapses to one kind. `MAX_FIXTURES` and `MAX_OTHER_OBJECTS` become one `MAX_THINGS` (16, the watcher's bound).
