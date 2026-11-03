@@ -1,3 +1,4 @@
+import { StatBadges } from './StatBadges';
 import { memo, useRef, useState, type MouseEvent, type PointerEvent } from 'react';
 import {
   ISO_TILE,
@@ -113,6 +114,8 @@ export interface IsoObject {
   unsure?: boolean;
   /** Selected in the outline: its footprint is ringed. */
   focused?: boolean;
+  /** Its id as stats know it, when `id` is another (the mug is `tracked` here). */
+  thingId?: string;
 }
 /** A zone on the active surface, as corners in surface coordinates. */
 export interface IsoZone {
@@ -140,6 +143,8 @@ export interface IsoFixture {
   focused?: boolean;
   /** The camera follows it and has lost it: drawn faded where it was last seen. */
   missing?: boolean;
+  /** It switches a light: a stat from that light is drawn as a lamp's. */
+  lamp?: boolean;
 }
 /** A fixture waiting to be put down: it follows the pointer until a click. */
 interface IsoPlacing {
@@ -157,7 +162,7 @@ interface IsoEditing {
   onSelect: (group: string) => void;
   onMove: (group: string, dx: number, dy: number) => void;
 }
-function ObjectMarker({ box, object }: { box: IsoBox; object: IsoObject }) {
+function ObjectMarker({ box, object, stats }: { box: IsoBox; object: IsoObject; stats: boolean }) {
   const head = toIso({
     x: box.at.x + box.size.w / 2,
     y: box.at.y + box.size.d / 2,
@@ -188,6 +193,7 @@ function ObjectMarker({ box, object }: { box: IsoBox; object: IsoObject }) {
         {object.unsure ? '◌ ' : '✓ '}
         {object.label.toUpperCase()}
       </text>
+      {stats && <StatBadges id={object.thingId ?? object.id} x={head.sx} y={head.sy - 22} />}
     </g>
   );
 }
@@ -196,8 +202,10 @@ function FixtureMarker({
   onSelect,
   onGrab,
   onMenu,
+  stats,
 }: {
   fixture: IsoFixture;
+  stats: boolean;
   onSelect?: (id: string) => void;
   /** Pressed to drag it; a press that doesn't move selects it instead. */
   onGrab?: (e: PointerEvent<SVGGElement>) => void;
@@ -244,6 +252,7 @@ function FixtureMarker({
           ? ` · ${fixture.state.toUpperCase()}`
           : ''}
       </text>
+      {stats && <StatBadges id={fixture.id} x={head.sx} y={head.sy - 20} lamp={fixture.lamp} />}
     </g>
   );
 }
@@ -348,6 +357,7 @@ function IsoSceneView({
   onDrag,
   editing,
   hidden,
+  stats = false,
 }: {
   scene: Scene;
   surface?: IsoSurface;
@@ -375,6 +385,8 @@ function IsoSceneView({
   editing?: IsoEditing;
   /** Prop groups not drawn; the view keeps its framing. */
   hidden?: ReadonlySet<string>;
+  /** Draw each thing's stats over it. */
+  stats?: boolean;
 }) {
   const svg = useRef<SVGSVGElement>(null);
   const start = useRef<Point | null>(null);
@@ -610,11 +622,17 @@ function IsoSceneView({
             )}
           </g>
         ) : item.kind === 'object' ? (
-          <ObjectMarker key={`object-${item.object.id}`} box={item} object={item.object} />
+          <ObjectMarker
+            key={`object-${item.object.id}`}
+            box={item}
+            object={item.object}
+            stats={stats}
+          />
         ) : (
           <FixtureMarker
             key={`fixture-${item.fixture.id}`}
             fixture={item.fixture}
+            stats={stats}
             onSelect={drawing || placing ? undefined : onFixture}
             onGrab={
               movable

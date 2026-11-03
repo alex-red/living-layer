@@ -1621,3 +1621,30 @@
 .item-save-state.invalid {
   color: #ff8a8a;
 }
+/* A thing's stats over it: cyan from the camera, amber only for a lamp's confirmed light. */
+.iso-stat {
+  font: 600 9px/1 var(--mono);
+  letter-spacing: 0.06em;
+  text-anchor: middle;
+  pointer-events: none;
+  paint-order: stroke;
+  stroke: var(--void);
+  stroke-width: 3px;
+  stroke-linejoin: round;
+}
+.iso-stat .seen {
+  fill: var(--seen);
+}
+.iso-stat .ok {
+  fill: var(--ok);
+}
+.iso-stat .warm {
+  fill: var(--warm);
+}
+.iso-stat .off,
+.iso-stat .stale {
+  fill: var(--text-3);
+}
+.iso-stat .unknown {
+  fill: var(--unsure);
+}

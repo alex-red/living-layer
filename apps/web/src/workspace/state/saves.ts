@@ -104,6 +104,7 @@ export function useSavesSlice(
     setRuleDraft,
     setSelection,
     setShowCorner,
+    setShowStats,
     setShowPicture,
     setShowTrail,
     setShowZones,
@@ -112,6 +113,7 @@ export function useSavesSlice(
     setTrackingRaw: setTracking,
     setWorkScene,
     showCorner,
+    showStats,
     showPicture,
     showTrail,
     showZones,
@@ -134,6 +136,7 @@ export function useSavesSlice(
       zones: showZones,
       picture: showPicture,
       corner: showCorner,
+      stats: showStats,
       fixtureLook,
       concept,
       demoPosition,
@@ -159,6 +162,7 @@ export function useSavesSlice(
       showZones,
       showPicture,
       showCorner,
+      showStats,
       fixtureLook,
       concept,
       demoPosition,
@@ -347,6 +351,7 @@ export function useSavesSlice(
       setShowZones(next.zones);
       setShowPicture(next.picture);
       setShowCorner(next.corner);
+      setShowStats(next.stats);
       setFixtureLook(next.fixtureLook);
       setConcept(next.concept);
       if (next.demoPosition in DEMO_POSITIONS) setDemoPosition(next.demoPosition as DemoPosition);

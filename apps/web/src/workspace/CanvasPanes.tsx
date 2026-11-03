@@ -9,7 +9,7 @@ import {
 import { api } from '../api';
 import { Glyph } from '../Glyph';
 import { MaskOverlay } from '../MaskOverlay';
-import { TrackingOverlay } from '../TrackingOverlay';
+import { StatsOverlay, TrackingOverlay } from '../TrackingOverlay';
 import './scene.css';
 import { Later } from '../Later';
 import type { RoomOption } from '../CameraSetup';
@@ -562,6 +562,7 @@ function FocusLayer() {
 /** What the local follower, the server's watch and the tracking layer draw over the camera. */
 function FollowLayers() {
   const lab = useLabParts(
+    useView(),
     useCamera(),
     useDesk(),
     useFollowState(),
@@ -620,6 +621,9 @@ function FollowLayers() {
           follow={follow}
           segmentation={segmentation}
         />
+      )}
+      {lab.camera && lab.showStats && (
+        <StatsOverlay video={lab.video} watch={watch} memory={memory} />
       )}
     </>
   );

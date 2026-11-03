@@ -44,6 +44,18 @@ export function useLayers(): Layer[] {
       set: lab.setShowZones,
       views: ['photo', 'iso'],
     },
+    // Only once some thing keeps a stat.
+    ...(Object.keys(lab.memory?.thingStats ?? {}).length
+      ? [
+          {
+            name: 'Stats',
+            hint: 'Each thing’s stats, over the camera and in the room',
+            on: lab.showStats,
+            set: lab.setShowStats,
+            views: lab.camera ? (['photo', 'iso'] as const) : (['iso'] as const),
+          },
+        ]
+      : []),
     {
       name: 'Tracking',
       hint: 'Tracked objects and fixtures over the live camera',

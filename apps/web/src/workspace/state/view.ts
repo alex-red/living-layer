@@ -44,6 +44,7 @@ export function useViewSlice(): ViewSlice {
   const [showTrail, setShowTrail] = useState(boot.prefs.trail);
   const [showPicture, setShowPicture] = useState(boot.prefs.picture);
   const [showCorner, setShowCorner] = useState(boot.prefs.corner);
+  const [showStats, setShowStats] = useState(boot.prefs.stats);
   const [fixtureLook, setFixtureLook] = useState(boot.prefs.fixtureLook);
   const [showZones, setShowZones] = useState(boot.prefs.zones);
   const [stageView, setStageView] = useState<StageView>(boot.prefs.stageView);
@@ -165,6 +166,7 @@ export function useViewSlice(): ViewSlice {
     setRuleDraft,
     setSelection,
     setShowCorner,
+    setShowStats,
     setShowKeys,
     setShowPicture,
     setShowTrail,
@@ -174,6 +176,7 @@ export function useViewSlice(): ViewSlice {
     setWorkScene,
     setZooming,
     showCorner,
+    showStats,
     showKeys,
     showPicture,
     showTrail,
@@ -279,6 +282,7 @@ export interface ViewSlice {
   setRuleDraft: Dispatch<SetStateAction<RuleDraft | null>>;
   setSelection: (next: Selection | null) => void;
   setShowCorner: Dispatch<SetStateAction<boolean>>;
+  setShowStats: Dispatch<SetStateAction<boolean>>;
   setShowKeys: Dispatch<SetStateAction<boolean>>;
   setShowPicture: Dispatch<SetStateAction<boolean>>;
   setShowTrail: Dispatch<SetStateAction<boolean>>;
@@ -292,6 +296,7 @@ export interface ViewSlice {
     } | null>
   >;
   showCorner: boolean;
+  showStats: boolean;
   showKeys: boolean;
   showPicture: boolean;
   showTrail: boolean;

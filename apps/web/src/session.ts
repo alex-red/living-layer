@@ -18,6 +18,8 @@ export interface Prefs {
   zones: boolean;
   picture: boolean;
   corner: boolean;
+  /** Each thing's stats over the camera and in the room. */
+  stats: boolean;
   /** On the room's picture, fixtures as the picture shows them or as their models. */
   fixtureLook: 'picture' | 'model';
   concept: string;
@@ -65,6 +67,7 @@ export const DEFAULT_PREFS: Prefs = {
   zones: true,
   picture: true,
   corner: true,
+  stats: true,
   fixtureLook: 'picture',
   concept: 'mug',
   demoPosition: 'centre',
@@ -101,6 +104,7 @@ export function prefsOf(saved: Partial<Prefs> | undefined): Prefs {
   one('zones', (v) => typeof v === 'boolean');
   one('picture', (v) => typeof v === 'boolean');
   one('corner', (v) => typeof v === 'boolean');
+  one('stats', (v) => typeof v === 'boolean');
   one('fixtureLook', among('picture', 'model'));
   one('concept', (v) => text(v) && (v as string).trim().length > 0);
   one('demoPosition', text);

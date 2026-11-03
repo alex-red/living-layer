@@ -57,7 +57,7 @@ interface StatThing {
   entity?: boolean | null;
 }
 /** The mug, the other objects and the fixtures, each with where it stands in the frame. */
-export function statThings(memory: DeskMemory): StatThing[] {
+function statThings(memory: DeskMemory): StatThing[] {
   const unit = (box: UnitBox, frame: { width: number; height: number }): UnitBox => ({
     x: box.x / frame.width,
     y: box.y / frame.height,
@@ -182,7 +182,7 @@ interface Running {
   usage?: UseSpot;
 }
 
-export interface StatRunnerDeps {
+interface StatRunnerDeps {
   mode: Mode;
   store: EvidenceStore;
   now?: () => number;
@@ -232,6 +232,7 @@ export class StatRunner {
       (out[r.thingId] ??= {})[r.key] = {
         ...r.now,
         ...(!this.watching && r.now.source !== 'entity' ? { stale: true } : {}),
+        ...(r.region && !this.boxes.has(r.thingId) ? { region: r.region } : {}),
       };
     return out;
   }

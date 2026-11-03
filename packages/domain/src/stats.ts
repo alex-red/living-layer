@@ -14,7 +14,7 @@ import { nextOccupied } from './occupancy.js';
 export const STAT_KEYS = ['power', 'lastUsed', 'activity', 'occupied'] as const;
 export type StatKey = (typeof STAT_KEYS)[number];
 /** On/off, a time in ms, a level 0–1, or null while it is unavailable. */
-export type StatValue = boolean | number | null;
+type StatValue = boolean | number | null;
 /** A look a person shows once: off and on for power, empty for occupied. */
 export const STAT_LOOKS = ['off', 'on', 'empty'] as const;
 export type StatLook = (typeof STAT_LOOKS)[number];
@@ -120,6 +120,8 @@ export interface StatNow {
   reason?: string;
   /** Nobody is looking now (watching is off): the value is the last one seen. */
   stale?: boolean;
+  /** Where the thing is in the frame when the watcher doesn't follow it, for the overlay. */
+  region?: UnitBox;
   /** Today's total so far: seconds on or active, or times used. */
   today: number;
 }

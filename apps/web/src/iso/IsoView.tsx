@@ -344,7 +344,10 @@ function IsoViewOf({
     else if (!mug)
       note = 'This frame is a different size from the one the corners were set on. Pin it again.';
     if (mug && memory?.object) {
-      objects.push(marker('tracked', memory.object.label, mug.placed, memory.item));
+      objects.push({
+        ...marker('tracked', memory.object.label, mug.placed, memory.item),
+        thingId: memory.object.id,
+      });
       if (!mug.placed.onSurface)
         note = `The mug's box stands off the ${surface!.label.toLowerCase()}, so it is drawn at the edge.`;
     }
@@ -475,6 +478,7 @@ function IsoViewOf({
         ...(f.control.kind === 'none' && !f.state && !f.states ? {} : { state: f.state ?? null }),
         focused: f.id === focus.fixture,
         ...(f.track?.status === 'missing' ? { missing: true } : {}),
+        ...(f.control.kind === 'light' ? { lamp: true } : {}),
       }));
   }, [memory?.fixtures, kind, shift, shown, custom, scene, placingId, focus]);
   const isoPlacing = useMemo(() => {
@@ -725,6 +729,7 @@ function IsoViewOf({
                 defaultLight={defaultLight}
                 drawing={drawingRule || (drawing && Boolean(mug))}
                 onDrag={onDrag}
+                stats={lab.showStats}
               />
             )}
           </ZoomPan>

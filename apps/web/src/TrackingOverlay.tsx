@@ -1,10 +1,16 @@
 import { useEffect, useState, type RefObject } from 'react';
+import { statBadge, statTone } from './iso/StatBadges';
+import { useNow } from './useNow';
+import { statsStore } from './workspace/state/stats';
+import { useStore } from './workspace/state/store';
 import type {
   DeskMemory,
   DeskObservation,
   LocalTrack,
   LocalVerdict,
   Segmentation,
+  StatKey,
+  StatNow,
   UnitBox,
   WatchView,
 } from '@livinglayer/domain';
@@ -158,6 +164,68 @@ export function TrackingOverlay({
             <text x={x} y={Math.max(font, y - font * 0.5)} fontSize={font}>
               {s.label.toUpperCase()} · {s.note}
             </text>
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
+/**
+ * Each thing's stats over the live camera, under its box: where the watcher
+ * follows it now, else where the server says it stands. Drawn from the stats
+ * store, so it renders when a stat changes or a box moves, not every frame.
+ */
+export function StatsOverlay({
+  video,
+  watch,
+  memory,
+}: {
+  video: RefObject<HTMLVideoElement | null>;
+  watch?: WatchView | null;
+  memory?: DeskMemory | null;
+}) {
+  const { width, height } = useVideoSize(video);
+  const stats = useStore(statsStore);
+  const now = useNow(30_000);
+  if (!width || !height) return null;
+  const font = Math.max(10, Math.round(width / 80));
+  const chips = Object.entries(stats).flatMap(([id, byKey]) => {
+    const shown = Object.entries(byKey) as [StatKey, StatNow][];
+    const box =
+      (watch?.on ? watch.things.find((t) => t.id === id)?.box : undefined) ??
+      shown.find(([, s]) => s.region)?.[1].region;
+    if (!box || !shown.length) return [];
+    const lamp = memory?.fixtures?.find((f) => f.id === id)?.control.kind === 'light';
+    return [{ id, box, shown, lamp }];
+  });
+  if (!chips.length) return null;
+  return (
+    <svg
+      className="stats-overlay"
+      viewBox={`0 0 ${width} ${height}`}
+      aria-label={`Stats of ${chips.length} ${chips.length === 1 ? 'thing' : 'things'} on the camera`}
+    >
+      {chips.map(({ id, box, shown, lamp }) => {
+        const x = (box.x + box.width / 2) * width;
+        const y = Math.min(
+          height - font * shown.length,
+          (box.y + box.height) * height + font * 1.2,
+        );
+        return (
+          <g key={id} className="stat-chip">
+            {shown.map(([key, s], i) => (
+              <text
+                key={key}
+                className={statTone(s, lamp)}
+                x={x}
+                y={y + i * font * 1.25}
+                fontSize={font}
+              >
+                {s.value === true ? '● ' : s.value === false ? '○ ' : ''}
+                {statBadge(key, s, now)}
+              </text>
+            ))}
           </g>
         );
       })}

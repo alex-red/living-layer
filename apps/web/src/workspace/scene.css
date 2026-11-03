@@ -442,3 +442,38 @@
   border-color: var(--seen);
   color: var(--seen);
 }
+/* Each thing's stats over the camera, under its box. */
+.stats-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: var(--z-overlay);
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.stat-chip text {
+  font-family: var(--mono);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-anchor: middle;
+  paint-order: stroke;
+  stroke: rgb(10 12 18 / 85%);
+  stroke-width: 4px;
+  stroke-linejoin: round;
+}
+.stat-chip .seen {
+  fill: var(--seen);
+}
+.stat-chip .ok {
+  fill: var(--ok);
+}
+.stat-chip .warm {
+  fill: var(--warm);
+}
+.stat-chip .off,
+.stat-chip .stale {
+  fill: var(--text-2);
+}
+.stat-chip .unknown {
+  fill: var(--unsure);
+}
