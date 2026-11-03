@@ -44,7 +44,7 @@ import {
   outlineFits,
 } from './layers.js';
 import { roomPhotoBytes } from './fixture.js';
-import { following, jobs } from './jobs.js';
+import { following, type Jobs } from './jobs.js';
 import { listedPreview, outlinedPreview } from './scan-preview.js';
 import { SPARK_BUDGET, type MetaAdapter } from './meta.js';
 import type { EvidenceStore } from './store.js';
@@ -97,7 +97,7 @@ export interface Illustrated {
  */
 export function illustrationRoutes(
   app: FastifyInstance,
-  { store, meta, run }: { store: EvidenceStore; meta: MetaAdapter; run: Runner },
+  { store, meta, run, jobs }: { store: EvidenceStore; meta: MetaAdapter; run: Runner; jobs: Jobs },
 ) {
   app.post('/api/scene/illustrate', async (request): Promise<Illustrated> => {
     const input = parseInput(

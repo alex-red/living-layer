@@ -30,6 +30,8 @@ export class EvidenceStore {
     mkdirSync(dir, { recursive: true, mode: 0o700 });
     this.db = new Database(join(dir, 'livinglayer.sqlite'), { create: true, strict: true });
     this.db.exec(`PRAGMA journal_mode = WAL;
+      PRAGMA synchronous = NORMAL;
+      PRAGMA busy_timeout = 5000;
       CREATE TABLE IF NOT EXISTS evidence (id TEXT PRIMARY KEY, created_at TEXT NOT NULL, payload TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS meta_budget (day TEXT PRIMARY KEY, attempts INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS meta_spend (day TEXT PRIMARY KEY, usd REAL NOT NULL);
@@ -38,7 +40,7 @@ export class EvidenceStore {
       CREATE TABLE IF NOT EXISTS placement_claims (segment_id TEXT PRIMARY KEY, created_at TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS jobs (id TEXT PRIMARY KEY, created_at TEXT NOT NULL, payload TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS meta_calls (id INTEGER PRIMARY KEY AUTOINCREMENT, created_at TEXT NOT NULL, payload TEXT NOT NULL);`);
-    this.renameDemoMode();
+    this.migrate();
   }
   /**
    * Keep a person's pick between a fixture's drafts, one JSON line each in
@@ -46,6 +48,17 @@ export class EvidenceStore {
    */
   appendPick(pick: Record<string, unknown>): void {
     appendFileSync(join(this.dir, 'fixture-picks.jsonl'), `${JSON.stringify(pick)}\n`);
+  }
+  /** Each migration runs once, in order; `PRAGMA user_version` is how many have. */
+  private migrate(): void {
+    const migrations = [() => this.renameDemoMode()];
+    const done = this.db.query<{ user_version: number }, []>('PRAGMA user_version').get()!;
+    for (let v = done.user_version; v < migrations.length; v++) {
+      this.db.transaction(() => {
+        migrations[v]!();
+        this.db.run(`PRAGMA user_version = ${v + 1}`);
+      })();
+    }
   }
   /**
    * The offline mode used to be called `fixture`. Payloads are compact JSON, so
@@ -101,6 +114,16 @@ export class EvidenceStore {
       'INSERT INTO desk_memory VALUES (?, ?) ON CONFLICT(mode) DO UPDATE SET payload = excluded.payload',
       [memory.mode, JSON.stringify(memory)],
     );
+  }
+  /**
+   * Change a mode's desk memory against what is saved now: read, apply and save in one
+   * synchronous step, so nothing saved meanwhile is lost. Never hold a memory over an await.
+   */
+  updateMemory<T = void>(mode: Mode, change: (memory: DeskMemory) => T): T {
+    const memory = this.memory(mode);
+    const result = change(memory);
+    this.saveMemory(memory);
+    return result;
   }
   claimPlacement(segmentId: string): boolean {
     return (

@@ -115,6 +115,7 @@ export interface WatcherDeps {
     mode: Mode,
     concept: string,
     picture: { png: Buffer } | { demoPosition: DemoPosition },
+    signal?: AbortSignal,
   ) => Promise<EvidenceRun<Segmentation>>;
   /** The photo behind a segmentation, to cut templates and prototypes from. */
   photoOf: (run: EvidenceRun) => Promise<Buffer | null>;
@@ -161,6 +162,8 @@ export class Watcher {
   private model: Appearance | null = null;
   private emitTimer: ReturnType<typeof setTimeout> | null = null;
   private generation = 0;
+  /** The SAM asks in flight; stopping or restarting the watch aborts them. */
+  private asking = new AbortController();
   private stats = { frames: 0, checks: 0, refinds: 0 };
   private state: WatchView['state'] = 'off';
   private note = '';
@@ -376,6 +379,7 @@ export class Watcher {
         this.source instanceof DemoSource
           ? { demoPosition: this.source.position }
           : { png: shot.png },
+        this.asking.signal,
       );
       const { frame, detections } = run.output;
       answer = detections.some((d) => {
@@ -436,6 +440,8 @@ export class Watcher {
   }
   private async begin() {
     const generation = ++this.generation;
+    this.asking.abort();
+    this.asking = new AbortController();
     this.source?.stop();
     this.things.clear();
     this.pending = [];
@@ -519,6 +525,8 @@ export class Watcher {
   }
   stop() {
     this.generation++;
+    this.asking.abort();
+    this.asking = new AbortController();
     if (this.emitTimer) clearTimeout(this.emitTimer);
     this.emitTimer = null;
     this.source?.stop();
@@ -648,12 +656,12 @@ export class Watcher {
    * longer line up, so every rule is blocked until it is calibrated again.
    */
   private checkCamera(frame: LumaFrame) {
-    const memory = this.deps.store.memory(this.deps.mode);
-    const calibration = memory.camera;
+    const calibration = this.deps.store.memory(this.deps.mode).camera;
     if (!calibration?.reference || calibration.moved) return;
     if (!cameraMoved(calibration.reference, cameraEdges(frame)).moved) return;
-    memory.camera = { ...calibration, moved: true };
-    this.deps.store.saveMemory(memory);
+    this.deps.store.updateMemory(this.deps.mode, (memory) => {
+      if (memory.camera) memory.camera = { ...memory.camera, moved: true };
+    });
     this.emit(true);
   }
   /** Look for a lost thing by appearance; SAM is asked only if this can't find it. */
@@ -707,6 +715,7 @@ export class Watcher {
         this.source instanceof DemoSource
           ? { demoPosition: this.source.position }
           : { png: picture },
+        this.asking.signal,
       );
     } catch (error) {
       const safe = safeError(error);

@@ -14,7 +14,6 @@ import {
   type ProductFacts,
 } from '@livinglayer/domain';
 import { PROJECT_ROOT } from './config.js';
-import type { MetaAdapter } from './meta.js';
 
 /**
  * Gathering what is known about a product before modelling it
@@ -112,15 +111,6 @@ export class Catalog implements Researcher {
   }
 }
 
-/** Spark with web search: billed, and only in live mode. */
-export function webResearcher(meta: MetaAdapter): Researcher {
-  return {
-    kind: 'web',
-    async lookup(query, need, signal) {
-      return (await meta.lookupProduct(query, need, signal)).output.facts;
-    },
-  };
-}
 /** What the person said ("it's 140 cm wide"), as the most trusted source. */
 export function personFacts(
   query: string,

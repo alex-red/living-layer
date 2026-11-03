@@ -33,7 +33,8 @@ import { MetaAdapter, type ProviderResult } from './meta.js';
 import { ControlAdapter } from './control.js';
 import { chosenEntities, haConnection, haRoutes, type OpenSocket } from './ha.js';
 import { fixtureRoutes } from './fixture.js';
-import { LabError, parseInput, safeError } from './errors.js';
+import { requestSignal, watchRequest } from './request-signal.js';
+import { LabError, logError, parseInput, safeError } from './errors.js';
 import { validateImage } from './images.js';
 import { deskRoutes } from './desk.js';
 import { itemRoutes } from './item.js';
@@ -44,7 +45,7 @@ import { selectRoutes } from './select.js';
 import { assistRoutes } from './assist.js';
 import { roomRoutes } from './room.js';
 import { illustrationRoutes } from './illustration.js';
-import { jobRoutes, jobs, runningJobs } from './jobs.js';
+import { jobRoutes, Jobs, runningJobs } from './jobs.js';
 import { listStreams, streamRoutes, type NetworkStream } from './streams.js';
 import { CameraRegistry, cameraRoutes } from './cameras.js';
 import type { Relay } from './relay.js';
@@ -96,6 +97,8 @@ export async function buildApp(
 ) {
   const app = Fastify({ logger: false, bodyLimit: 7_100_000, requestTimeout: 130000 });
   const store = new EvidenceStore(config.dataDir);
+  // Long AI jobs the page follows: one set per app, so apps in one process don't share them.
+  const jobs = new Jobs();
   const meta = new MetaAdapter(config, store, options.fetcher);
   const lamp = new ControlAdapter(config, options.fetcher, undefined, {
     allowed: () => [...haLights(), ...haSwitches()],
@@ -172,7 +175,7 @@ export async function buildApp(
       throw new LabError('origin', 'Requests from this origin are not allowed.', 403);
     }
   });
-  app.setErrorHandler((error, _request, reply) => {
+  app.setErrorHandler((error, request, reply) => {
     const status =
       error && typeof error === 'object' && 'statusCode' in error ? Number(error.statusCode) : 500;
     const normalized =
@@ -183,6 +186,8 @@ export async function buildApp(
             'The request could not be processed.',
             status >= 400 && status < 500 ? status : 500,
           );
+    if (!(error instanceof LabError) && normalized.statusCode >= 500)
+      logError(error, `${request.method} ${request.url}`);
     const runId = (error as { runId?: string }).runId;
     void reply.code(normalized.statusCode).send({
       error: {
@@ -198,6 +203,7 @@ export async function buildApp(
   // running, what `bun run dev` waits for before it restarts this server or reloads the page.
   let changing = 0;
   app.addHook('onRequest', async (request, reply) => {
+    watchRequest(request, reply);
     if (request.method === 'GET' || request.method === 'HEAD') return;
     changing++;
     reply.raw.once('close', () => changing--);
@@ -301,6 +307,7 @@ export async function buildApp(
     store,
     meta,
     run,
+    jobs,
     control: async (mode, entityId, action) =>
       mode === 'demo' ? demoLampFor(entityId, action) : switchLive(entityId, action),
     entities,
@@ -324,7 +331,7 @@ export async function buildApp(
   streamRoutes(app, config, options.browseCameras, knownStreams);
   app.get('/api/runs', async () => store.list());
   jobs.keepIn(store);
-  jobRoutes(app, store);
+  jobRoutes(app, jobs, store);
   app.get('/api/evidence', async (_request, reply) =>
     reply.header('Content-Disposition', 'attachment; filename="livinglayer-evidence.json"').send({
       project: 'LivingLayer',
@@ -340,7 +347,9 @@ export async function buildApp(
     mode: Mode,
     operation: (
       id: string,
+      signal?: AbortSignal,
     ) => Promise<Partial<ProviderResult<unknown>> & { output: unknown; assets?: string[] }>,
+    signal?: AbortSignal,
   ) {
     const start = performance.now();
     const id = randomUUID();
@@ -356,7 +365,7 @@ export async function buildApp(
       usage: null,
     };
     try {
-      const result = await operation(id);
+      const result = await operation(id, signal);
       let status: EvidenceRun['status'] = 'completed';
       if (kind === 'segment' && !(result.output as Segmentation).detections.length)
         status = 'no_match';
@@ -471,49 +480,66 @@ export async function buildApp(
     });
   });
   itemRoutes(app, { store, meta, run });
-  photoRoutes(app, { store, meta, run, config });
+  photoRoutes(app, { store, meta, run, jobs, config });
   sceneFitRoutes(app, { store, meta, run });
   pinRoutes(app, { store });
   selectRoutes(app, { store });
-  assistRoutes(app, { store, meta, run, entities, productsDir: join(config.dataDir, 'products') });
+  assistRoutes(app, {
+    store,
+    meta,
+    run,
+    jobs,
+    entities,
+    productsDir: join(config.dataDir, 'products'),
+  });
   roomRoutes(app, { store, meta, run });
-  illustrationRoutes(app, { store, meta, run });
+  illustrationRoutes(app, { store, meta, run, jobs });
   /** One SAM segmentation, recorded and billed as a run: the lab's button, or the watcher. */
-  function segment(input: {
-    mode: Mode;
-    concept: string;
-    imageDataUrl?: string;
-    demoPosition?: DemoPosition;
-  }) {
-    return run('segment', input.mode, async (id) => {
-      if (input.mode === 'demo') {
-        if (input.imageDataUrl)
-          throw new LabError('demo_image', 'Demo mode uses only the demo room’s camera.');
-        const result = await demoSegmentation(input.concept, input.demoPosition);
+  function segment(
+    input: {
+      mode: Mode;
+      concept: string;
+      imageDataUrl?: string;
+      demoPosition?: DemoPosition;
+    },
+    signal?: AbortSignal,
+  ) {
+    return run(
+      'segment',
+      input.mode,
+      async (id) => {
+        if (input.mode === 'demo') {
+          if (input.imageDataUrl)
+            throw new LabError('demo_image', 'Demo mode uses only the demo room’s camera.');
+          const result = await demoSegmentation(input.concept, input.demoPosition);
+          return {
+            output: { ...result.output, sourceKey: demoSourceKey(input.demoPosition) },
+            assets: [store.asset(id, 'synthetic-sam.txt', result.raw)],
+          };
+        }
+        if (input.demoPosition)
+          throw new LabError('demo_position', 'Demo positions apply only in demo mode.');
+        const image = await validateImage(input.imageDataUrl);
+        const result = await meta.segment(image.dataUrl, input.concept, image.width, image.height, {
+          ...(signal ? { signal } : {}),
+        });
         return {
-          output: { ...result.output, sourceKey: demoSourceKey(input.demoPosition) },
-          assets: [store.asset(id, 'synthetic-sam.txt', result.raw)],
+          ...result,
+          output: {
+            ...result.output,
+            sourceKey: createHash('sha256').update(image.bytes).digest('hex'),
+          },
+          assets: [
+            store.asset(id, 'source.png', image.bytes),
+            store.asset(id, 'sam-output.txt', result.raw),
+          ],
         };
-      }
-      if (input.demoPosition)
-        throw new LabError('demo_position', 'Demo positions apply only in demo mode.');
-      const image = await validateImage(input.imageDataUrl);
-      const result = await meta.segment(image.dataUrl, input.concept, image.width, image.height);
-      return {
-        ...result,
-        output: {
-          ...result.output,
-          sourceKey: createHash('sha256').update(image.bytes).digest('hex'),
-        },
-        assets: [
-          store.asset(id, 'source.png', image.bytes),
-          store.asset(id, 'sam-output.txt', result.raw),
-        ],
-      };
-    }) as Promise<EvidenceRun<Segmentation>>;
+      },
+      signal,
+    ) as Promise<EvidenceRun<Segmentation>>;
   }
   app.post('/api/segment', async (request) =>
-    segment(parseInput(segmentRequestSchema, request.body)),
+    segment(parseInput(segmentRequestSchema, request.body), requestSignal(request)),
   );
   /** Switch one device by hand: the main light on, unless it names another and which way. */
   app.post('/api/lamp', async (request) => {
@@ -549,14 +575,17 @@ export async function buildApp(
     mode,
     store,
     tracking,
-    segment: (m, concept, picture) =>
-      segment({
-        mode: m,
-        concept,
-        ...('png' in picture
-          ? { imageDataUrl: `data:image/png;base64,${picture.png.toString('base64')}` }
-          : { demoPosition: picture.demoPosition }),
-      }),
+    segment: (m, concept, picture, signal) =>
+      segment(
+        {
+          mode: m,
+          concept,
+          ...('png' in picture
+            ? { imageDataUrl: `data:image/png;base64,${picture.png.toString('base64')}` }
+            : { demoPosition: picture.demoPosition }),
+        },
+        signal,
+      ),
     photoOf: async (segmentRun) => {
       if (segmentRun.mode === 'demo') {
         const key = (segmentRun.output as Segmentation).sourceKey ?? '';

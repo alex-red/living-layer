@@ -31,8 +31,29 @@ type UpstreamError = Error & {
   cause?: { code?: string };
 };
 
+/** Writes a non-LabError's stack to the server's log; the client only gets a generic message. */
+export function logError(error: unknown, where?: string) {
+  if (error instanceof LabError) return;
+  const text = error instanceof Error ? (error.stack ?? String(error)) : String(error);
+  console.error(`[server] ${where ? `${where}: ` : ''}${text}`);
+}
+
+const NETWORK_CODE = /^(E[A-Z]+|ConnectionRefused|ConnectionClosed|FailedToOpenSocket|UND_ERR)/;
+
+/** Whether an error came from the provider call or the network, not from our own code. */
+function isUpstream(error: unknown, status: number): boolean {
+  if (status) return true;
+  if (!(error instanceof Error)) return false;
+  const e = error as UpstreamError;
+  if (/timeout|abort/i.test(`${e.name} ${e.constructor.name}`)) return true;
+  if (/^API|connection/i.test(`${e.name} ${e.constructor.name}`)) return true;
+  const code = e.code ?? e.cause?.code;
+  return typeof code === 'string' && NETWORK_CODE.test(code);
+}
+
 export function safeError(error: unknown, step?: string): LabError {
   if (error instanceof LabError) return error;
+  logError(error, step);
   // Never serialize upstream exception messages: they can include tokens, URLs, or inputs.
   // Only the HTTP status, identifier-like codes and the request id are kept.
   const status =
@@ -68,6 +89,8 @@ export function safeError(error: unknown, step?: string): LabError {
     413: ['too_large', 'The provider refused the request as too large. Try a smaller photo.'],
     429: ['rate_limit', 'The provider rate-limited this request. Wait before trying again.'],
   };
+  if (!isUpstream(error, status))
+    return new LabError('internal', 'The server hit an unexpected error. See the server log.', 500);
   const mapped = known[status];
   if (mapped) return new LabError(mapped[0], exact(mapped[1]), 502, detail);
   // The SDK's timeout error keeps the name `Error`; its class says what it is.

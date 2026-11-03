@@ -12,6 +12,8 @@ describe('the offline mode renamed from fixture to demo', () => {
     try {
       new EvidenceStore(dir).close();
       const db = new Database(join(dir, 'livinglayer.sqlite'));
+      // A database from before migrations were counted.
+      db.run('PRAGMA user_version = 0');
       const rule = { id: 'r', lightId: 'light.fixture_shelf' };
       db.run('INSERT INTO desk_memory VALUES (?, ?)', [
         'fixture',

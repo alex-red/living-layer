@@ -223,6 +223,50 @@ describe('desk placement', () => {
   });
 });
 
+describe('desk memory during a slow lamp call', () => {
+  it('keeps what was saved while a rule waited on the lamp', async () => {
+    const s = await setup();
+    const rule = (
+      await s.post('desk/rules/save', {
+        rule: {
+          label: 'Coaster',
+          objects: [s.memory.object!.id],
+          entityId: 'light.demo_desk',
+          rect: { x: 0, y: 0, width: 1, height: 1 },
+        },
+      })
+    ).json<DeskMemory>();
+    expect(rule.rules).toHaveLength(1);
+    await s.app.close();
+    const store = new EvidenceStore(s.c.dataDir);
+    let finish!: () => void;
+    const action = mock(
+      () =>
+        new Promise<typeof demoLamp>((resolve) => {
+          finish = () => resolve(demoLamp);
+        }),
+    );
+    const app = Fastify();
+    const { verifyRules } = deskRoutes(app, store, action);
+    const pending = verifyRules('demo');
+    await waitFor(() => action.mock.calls.length === 1);
+    // Another route saves a second rule while the first waits on the lamp.
+    store.updateMemory('demo', (m) => {
+      m.rules = [
+        ...(m.rules ?? []),
+        { ...m.rules![0]!, id: randomUUID(), label: 'Saved meanwhile' },
+      ];
+    });
+    finish();
+    const events = await pending;
+    expect(events[0]!.output.action).not.toBe('pending');
+    const after = store.memory('demo');
+    expect(after.rules!.map((r) => r.label)).toEqual(['Coaster', 'Saved meanwhile']);
+    expect(after.rules![0]!.lastDecision!.id).toBe(events[0]!.id);
+    store.close();
+  });
+});
+
 describe('desk restore', () => {
   it('puts back a whole saved desk, and refuses another mode or a pin without its surface', async () => {
     const s = await setup();

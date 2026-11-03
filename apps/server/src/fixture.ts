@@ -77,7 +77,7 @@ import {
   withoutThings,
 } from '@livinglayer/domain';
 import { LabError, parseInput } from './errors.js';
-import { following, jobs } from './jobs.js';
+import { following, type Jobs } from './jobs.js';
 import { listedPreview, outlinedPreview, placedPreview } from './scan-preview.js';
 import sharp from 'sharp';
 import {
@@ -407,10 +407,12 @@ export function fixtureRoutes(
     entities,
     productsDir,
     sam3d = null,
+    jobs,
   }: {
     store: EvidenceStore;
     meta: MetaAdapter;
     run: Runner;
+    jobs: Jobs;
     control: Control;
     entities: (mode: Mode) => string[];
     /** Where looked-up products are kept, as the AI brush keeps them. */
@@ -1617,19 +1619,6 @@ export function fixtureRoutes(
       crop: chosen.model.fit?.crop ?? fixture.model.fit?.crop ?? null,
     });
     return memory;
-  });
-  /** Where a long job the page follows has got to. */
-  app.get('/api/jobs/:id', async (request) => {
-    const { id } = parseInput(z.object({ id: z.string().uuid() }).strict(), request.params);
-    const job = jobs.get(id);
-    if (!job) throw new LabError('job_missing', 'That job isn’t running here.', 404);
-    return job;
-  });
-  /** Stop a job the page is following: its running call is aborted and nothing more is saved. */
-  app.post('/api/jobs/:id/stop', async (request) => {
-    const { id } = parseInput(z.object({ id: z.string().uuid() }).strict(), request.params);
-    if (!jobs.stop(id)) throw new LabError('job_missing', 'That job isn’t running here.', 404);
-    return jobs.get(id);
   });
   app.post('/api/fixtures/save', async (request) => {
     const { mode, fixture: input } = parseInput(

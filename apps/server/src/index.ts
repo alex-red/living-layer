@@ -45,7 +45,8 @@ try {
       await Bun.sleep(500);
     }
   console.log(`Living Layer: http://127.0.0.1:${config.port}`);
-} catch {
+} catch (error) {
+  console.error(error instanceof Error ? (error.stack ?? error.message) : error);
   // A server that can't listen (another holds the port) stops its watchers too.
   await app?.close().catch(() => {});
   console.error(

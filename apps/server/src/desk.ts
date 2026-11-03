@@ -225,7 +225,6 @@ export function deskRoutes(
         decision.lamp = await turnOn(mode);
         decision.action = decision.lamp.stateConfirmed ? 'confirmed' : 'unconfirmed';
         event.status = decision.lamp.stateConfirmed ? 'completed' : 'unconfirmed';
-        noteControl(memory, decision.lamp);
       } catch (error) {
         const safe = safeError(error);
         decision.action = 'failed';
@@ -237,8 +236,11 @@ export function deskRoutes(
     }
     event.durationMs = Math.round(performance.now() - start);
     store.updateRun(event);
-    memory.lastDecision = event;
-    store.saveMemory(memory);
+    // The desk may have changed during the lamp call: apply only what it brought.
+    store.updateMemory(mode, (latest) => {
+      latest.lastDecision = event;
+      if (decision.lamp) noteControl(latest, decision.lamp);
+    });
     return event;
   }
 
@@ -250,64 +252,68 @@ export function deskRoutes(
    */
   async function verifyRules(mode: Mode, objectId?: string) {
     const events: EvidenceRun<PlacementDecision>[] = [];
-    const memory = store.memory(mode);
-    for (const rule of memory.rules ?? []) {
-      if (objectId && !ruleObjects(memory, rule).includes(objectId)) continue;
-      const { inside, objectId: by, ...gate } = ruleGate(memory, rule);
-      const o = by ? (objectById(memory, by)?.observation ?? null) : null;
-      const decision: PlacementDecision = {
-        ...gate,
-        observationId: o?.id ?? null,
-        objectId: by,
-        segmentRunId: o?.segmentRunId ?? null,
-        zoneId: rule.id,
-        ruleId: rule.id,
-        action: 'none',
-      };
-      if (decision.decision !== 'blocked') {
-        const wasInside = rule.placement === 'inside';
-        decision.transition =
-          decision.decision === 'inside'
-            ? wasInside
-              ? 'stayed_inside'
-              : 'entered'
-            : wasInside
-              ? 'left'
-              : 'stayed_outside';
-        rule.placement = decision.decision;
-        rule.inside = inside;
-      }
-      // A zone with no entity only tells Home Assistant: nothing to switch, nothing to claim.
-      const switching =
-        rule.entityId === null
-          ? null
-          : decision.transition === 'entered'
-            ? 'on'
-            : decision.transition === 'left' && rule.offWhenEmpty
-              ? 'off'
-              : null;
-      const claim = `${o?.segmentRunId}:${rule.id}${switching === 'off' ? ':left' : ''}`;
-      if (switching && !store.claimPlacement(claim)) {
-        decision.decision = 'blocked';
-        decision.transition = undefined;
-        decision.reason = `This segmentation already attempted "${rule.label}". Track the object in a new frame; no automatic retry.`;
-      }
-      const event = evidence('placement', mode, decision);
+    // Each rule is judged and saved against the memory as it is then; none is held over an await.
+    for (const ruleId of (store.memory(mode).rules ?? []).map((rule) => rule.id)) {
+      const step = store.updateMemory(mode, (memory) => {
+        const rule = memory.rules?.find((r) => r.id === ruleId);
+        if (!rule || (objectId && !ruleObjects(memory, rule).includes(objectId))) return null;
+        const { inside, objectId: by, ...gate } = ruleGate(memory, rule);
+        const o = by ? (objectById(memory, by)?.observation ?? null) : null;
+        const decision: PlacementDecision = {
+          ...gate,
+          observationId: o?.id ?? null,
+          objectId: by,
+          segmentRunId: o?.segmentRunId ?? null,
+          zoneId: rule.id,
+          ruleId: rule.id,
+          action: 'none',
+        };
+        if (decision.decision !== 'blocked') {
+          const wasInside = rule.placement === 'inside';
+          decision.transition =
+            decision.decision === 'inside'
+              ? wasInside
+                ? 'stayed_inside'
+                : 'entered'
+              : wasInside
+                ? 'left'
+                : 'stayed_outside';
+          rule.placement = decision.decision;
+          rule.inside = inside;
+        }
+        // A zone with no entity only tells Home Assistant: nothing to switch, nothing to claim.
+        const switching: 'on' | 'off' | null =
+          rule.entityId === null
+            ? null
+            : decision.transition === 'entered'
+              ? 'on'
+              : decision.transition === 'left' && rule.offWhenEmpty
+                ? 'off'
+                : null;
+        const claim = `${o?.segmentRunId}:${rule.id}${switching === 'off' ? ':left' : ''}`;
+        if (switching && !store.claimPlacement(claim)) {
+          decision.decision = 'blocked';
+          decision.transition = undefined;
+          decision.reason = `This segmentation already attempted "${rule.label}". Track the object in a new frame; no automatic retry.`;
+        }
+        const event = evidence('placement', mode, decision);
+        if (switching && decision.transition) {
+          decision.action = 'pending';
+          event.status = 'unconfirmed';
+        }
+        store.save(event);
+        rule.lastDecision = event;
+        return { decision, event, switching, entityId: rule.entityId };
+      });
+      if (!step) continue;
+      const { decision, event, switching, entityId } = step;
       const start = performance.now();
-      if (switching && decision.transition) {
-        decision.action = 'pending';
-        event.status = 'unconfirmed';
-      }
-      store.save(event);
-      rule.lastDecision = event;
-      store.saveMemory(memory);
       if (decision.action === 'pending') {
         active.add(mode);
         try {
-          decision.lamp = await turnOn(mode, rule.entityId!, switching!);
+          decision.lamp = await turnOn(mode, entityId!, switching!);
           decision.action = decision.lamp.stateConfirmed ? 'confirmed' : 'unconfirmed';
           event.status = decision.lamp.stateConfirmed ? 'completed' : 'unconfirmed';
-          noteControl(memory, decision.lamp);
         } catch (error) {
           const safe = safeError(error);
           decision.action = 'failed';
@@ -319,8 +325,11 @@ export function deskRoutes(
       }
       event.durationMs = Math.round(performance.now() - start);
       store.updateRun(event);
-      rule.lastDecision = event;
-      store.saveMemory(memory);
+      store.updateMemory(mode, (memory) => {
+        const rule = memory.rules?.find((r) => r.id === ruleId);
+        if (rule) rule.lastDecision = event;
+        if (decision.lamp) noteControl(memory, decision.lamp);
+      });
       events.push(event);
     }
     return events;
@@ -666,15 +675,6 @@ export function deskRoutes(
       request.body,
     );
     return anchorFixture(mode, id, segmentRunId, detectionId);
-  });
-  app.post('/api/fixtures/track', async (request) => {
-    const { mode, id, segmentRunId } = parseInput(
-      z
-        .object({ mode: modeSchema, id: z.string().uuid(), segmentRunId: z.string().uuid() })
-        .strict(),
-      request.body,
-    );
-    return trackFixture(mode, id, segmentRunId);
   });
   /** Stop following a fixture; it stays where it was last seen. */
   app.post('/api/fixtures/untrack', async (request) => {
