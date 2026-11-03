@@ -242,7 +242,23 @@ export function deskRoutes(
       latest.lastDecision = event;
       if (decision.lamp) noteControl(latest, decision.lamp);
     });
+    logZone(mode, 'Main zone', decision);
     return event;
+  }
+  /**
+   * A line in the server's log for each zone check that changes something: a
+   * thing entering or leaving, or an entity switched (or failing to be).
+   */
+  function logZone(mode: Mode, zone: string, d: PlacementDecision) {
+    if (d.transition !== 'entered' && d.transition !== 'left' && d.action === 'none') return;
+    const what = d.transition ?? d.decision;
+    const entity = d.lamp
+      ? ` · ${d.lamp.entityId} ${d.lamp.action ?? 'on'}: ${d.action}`
+      : d.action !== 'none'
+        ? ` · ${d.action}`
+        : ' · no entity switched';
+    const error = d.error ? ` (${d.error.message})` : '';
+    console.info(`[zone ${mode}] ${new Date().toISOString()} ${zone}: ${what}${entity}${error}`);
   }
 
   /**
@@ -253,8 +269,9 @@ export function deskRoutes(
    */
   async function verifyRules(mode: Mode, objectId?: string) {
     const events: EvidenceRun<PlacementDecision>[] = [];
+    const ruleLabels = new Map((store.memory(mode).rules ?? []).map((r) => [r.id, r.label]));
     // Each rule is judged and saved against the memory as it is then; none is held over an await.
-    for (const ruleId of (store.memory(mode).rules ?? []).map((rule) => rule.id)) {
+    for (const ruleId of ruleLabels.keys()) {
       const step = store.updateMemory(mode, (memory) => {
         const rule = memory.rules?.find((r) => r.id === ruleId);
         if (!rule || (objectId && !ruleObjects(memory, rule).includes(objectId))) return null;
@@ -331,6 +348,7 @@ export function deskRoutes(
         if (rule) rule.lastDecision = event;
         if (decision.lamp) noteControl(memory, decision.lamp);
       });
+      logZone(mode, ruleLabels.get(ruleId) ?? 'Zone', decision);
       events.push(event);
     }
     return events;

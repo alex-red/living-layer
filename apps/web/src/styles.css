@@ -679,6 +679,29 @@ p {
   stroke-dasharray: 6 5;
   filter: none;
 }
+/* Occupied: the thing stands in the zone by the last check. */
+.zone-overlay.inside rect {
+  fill: var(--ok-wash);
+  stroke: var(--ok);
+  stroke-width: 2.5px;
+  filter: drop-shadow(0 0 14px var(--ok-glow));
+}
+.zone-tag.inside {
+  color: var(--ok);
+}
+/* The tag on the camera, drawn in the picture's own pixels. */
+.zone-label {
+  font-family: var(--mono);
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  fill: var(--chosen);
+  paint-order: stroke;
+  stroke: rgb(10 12 18 / 75%);
+  stroke-width: 4px;
+}
+.zone-label.inside {
+  fill: var(--ok);
+}
 .zone-tag {
   position: absolute;
   z-index: 3;

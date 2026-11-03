@@ -198,13 +198,24 @@ export function Canvas() {
     segmentation.frame.height === dimensions.height;
   // The zone over the photo or, on the running camera, over the frames it gives.
   const zoneShown = Boolean(zoneObservation && visibleZone && (drawing || lab.showZones));
+  // The mug stands in the main zone by the last check: said in words on the tag, not by colour alone.
+  const occupied = !drawing && memory?.placement === 'inside';
+  const zoneTag = visibleZone
+    ? `ZN-01${!drawing && zone?.carried ? ' · CARRIED' : ''}${
+        occupied ? ` · ✓ ${(memory?.object?.label ?? 'mug').toUpperCase()} IN` : ''
+      }${drawing ? ` · ${Math.round(visibleZone.width * 100)}×${Math.round(visibleZone.height * 100)}%` : ''}`
+    : '';
   const zoneLayer = visibleZone && (
     <svg
-      className={`zone-overlay ${drawing ? 'drawing' : ''}`}
+      className={`zone-overlay ${drawing ? 'drawing' : ''} ${occupied ? 'inside' : ''}`}
       {...(cameraSize ? { width: cameraSize.width, height: cameraSize.height } : {})}
       viewBox="0 0 1000 1000"
       preserveAspectRatio="none"
-      aria-label={drawing ? 'Draw placement zone' : 'Saved placement zone'}
+      aria-label={
+        drawing
+          ? 'Draw placement zone'
+          : `Saved placement zone${occupied ? `, ${memory?.object?.label ?? 'mug'} inside` : ''}`
+      }
       onPointerDown={(e) => {
         if (!drawing || busy) return;
         lab.zoneStart.current = lab.zonePoint(e);
@@ -458,19 +469,26 @@ export function Canvas() {
                       viewBox={`0 0 ${cameraSize.width} ${cameraSize.height}`}
                     >
                       {zoneLayer}
+                      {visibleZone && (
+                        <text
+                          className={`zone-label ${drawing ? 'drawing' : ''} ${occupied ? 'inside' : ''}`}
+                          x={visibleZone.x * cameraSize.width}
+                          y={visibleZone.y * cameraSize.height - 8}
+                          fontSize={Math.max(12, Math.round(cameraSize.width / 70))}
+                        >
+                          {zoneTag}
+                        </text>
+                      )}
                     </svg>
                   )
                 : zoneLayer)}
             {zoneShown && visibleZone && !camera && (
               <span
-                className={`zone-tag ${drawing ? 'drawing' : ''}`}
+                className={`zone-tag ${drawing ? 'drawing' : ''} ${occupied ? 'inside' : ''}`}
                 style={{ left: `${visibleZone.x * 100}%`, top: `${visibleZone.y * 100}%` }}
                 aria-hidden="true"
               >
-                ZN-01
-                {!drawing && zone?.carried && ' · CARRIED'}
-                {drawing &&
-                  ` · ${Math.round(visibleZone.width * 100)}×${Math.round(visibleZone.height * 100)}%`}
+                {zoneTag}
               </span>
             )}
             {lab.boxing && !camera && (mode === 'demo' || image) && (
