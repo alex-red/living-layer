@@ -3,7 +3,7 @@ import type { EvidenceRun, imageRequestSchema, LabStatus, Scene, Segmentation } 
 import type { AssistDraft, SelectResolve } from './assist.js';
 import type { CameraView, cameraInputSchema, NetworkStream } from './camera.js';
 import type { FixtureDraft } from './fixture.js';
-import type { MappedThing } from './fixture-scan.js';
+import type { MappedThing, MovingThing } from './fixture-scan.js';
 import type { IsoScene } from './iso.js';
 import type { SceneGuess } from './iso-presets.js';
 import type { SceneDraft } from './iso-templates.js';
@@ -142,7 +142,12 @@ interface ApiRoutes {
   };
   'fixtures/scan': {
     body: R.FixturesScanBody;
-    response: { run: EvidenceRun; mapped: MappedThing[]; memory: DeskMemory };
+    response: {
+      run: EvidenceRun;
+      mapped: MappedThing[];
+      memory: DeskMemory;
+      moving: MovingThing[];
+    };
   };
   'fixtures/sculpt': {
     body: R.FixturesSculptBody;

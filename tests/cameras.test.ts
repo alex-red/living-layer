@@ -3,6 +3,7 @@ import { readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import sharp from 'sharp';
 import {
+  cameraFitsScene,
   cameraForScene,
   cameraUrlProblem,
   redactCameraUrl,
@@ -89,6 +90,15 @@ describe('stream camera URLs', () => {
     expect(cameraForScene([fridge, { id: 'd', scene: 'desk' as const }], 'office')?.id).toBe('d');
     expect(cameraForScene([fridge, office], 'custom')).toBeNull();
     expect(cameraForScene<{ id: string; scene?: null }>([{ id: 'x' }], 'office')).toBeNull();
+  });
+  it('locks a camera assigned to a room to that room and its close views', () => {
+    expect(cameraFitsScene({ scene: 'office' }, 'desk')).toBe(true);
+    expect(cameraFitsScene({ scene: 'desk' }, 'office')).toBe(true);
+    expect(cameraFitsScene({ scene: 'office' }, 'fridge')).toBe(false);
+    expect(cameraFitsScene({ scene: 'custom' }, 'office')).toBe(false);
+    expect(cameraFitsScene({ scene: 'fridge' }, 'custom')).toBe(false);
+    expect(cameraFitsScene({ scene: null }, 'fridge')).toBe(true);
+    expect(cameraFitsScene({ scene: 'office' }, null)).toBe(true);
   });
 });
 

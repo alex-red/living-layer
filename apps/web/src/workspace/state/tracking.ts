@@ -8,6 +8,7 @@ import type {
   DemoPosition,
   LocalTrack,
   LocalVerdict,
+  SelectionShape,
   UnitBox,
   WatchView,
 } from '@livinglayer/domain';
@@ -82,6 +83,7 @@ export function useTrackingSlice(
     setLamp,
     setMemory,
     setMessage,
+    setOutlining,
     setReopenTries,
     setScene,
     setSegmentRunId,
@@ -120,15 +122,25 @@ export function useTrackingSlice(
   /**
    * One tracking step: take the current frame (capturing from the camera if it
    * is running), segment the mug, let the server match it to the remembered
-   * mug, and verify the zone. One SAM call in live mode. Returns the frame it
-   * used, so local following can restart from SAM's box on the same pixels.
+   * mug, and verify the zone. One SAM call in live mode, or none when given
+   * `outline`, what was drawn round the mug, outlined on this machine on the
+   * frame it was drawn on. Returns the frame it used, so local following can
+   * restart from the mug's box on the same pixels.
    */
-  async function track({ keepCamera = false, position = demoPosition } = {}) {
+  async function track({
+    keepCamera = false,
+    position = demoPosition,
+    outline,
+  }: {
+    keepCamera?: boolean;
+    position?: DemoPosition;
+    outline?: { shape: SelectionShape; held: string | null };
+  } = {}) {
     setBusy('track');
     setError('');
     try {
-      let frame = mode === 'demo' ? sceneUrl(position) : image;
-      if (mode === 'live' && camera && video.current?.videoWidth) {
+      let frame = mode === 'demo' ? sceneUrl(position) : (outline?.held ?? image);
+      if (mode === 'live' && camera && !outline?.held && video.current?.videoWidth) {
         frame = captureCanvas(
           video.current,
           video.current.videoWidth,
@@ -142,7 +154,13 @@ export function useTrackingSlice(
         mode,
         concept: 'mug',
         ...(mode === 'demo' ? { demoPosition: position } : { imageDataUrl: frame }),
+        ...(outline ? { shape: outline.shape } : {}),
       });
+      if (outline) {
+        if (!run.output.detections.length)
+          throw new Error('Nothing stood out inside what you drew. Draw it closer round the mug.');
+        setOutlining(null);
+      }
       setSegmentation(run.output);
       setSegmentRunId(run.id);
       setLamp('off');
@@ -150,7 +168,9 @@ export function useTrackingSlice(
       setMemory(result.memory, false);
       setSelected(result.event);
       if (result.event.output.action === 'confirmed') light();
-      setMessage(`Tracked${costNote(run)}. ${placementMessage(result.event)}`);
+      setMessage(
+        `Tracked${outline ? ' on this machine, no model call' : costNote(run)}. ${placementMessage(result.event)}`,
+      );
       return { ok: true as const, ...result, frame, segmentation: run.output };
     } catch (e) {
       setError(e instanceof Error ? e : 'Tracking failed.');
@@ -372,12 +392,10 @@ export interface TrackingSlice {
   placementMessage: (event: EvidenceRun<PlacementDecision>) => string;
   startFollow: () => Promise<void>;
   toggleWatch: () => Promise<void>;
-  track: ({
-    keepCamera,
-    position,
-  }?: {
-    keepCamera?: boolean | undefined;
-    position?: 'centre' | 'front' | 'right' | undefined;
+  track: (options?: {
+    keepCamera?: boolean;
+    position?: DemoPosition;
+    outline?: { shape: SelectionShape; held: string | null };
   }) => Promise<
     | {
         memory: DeskMemory;

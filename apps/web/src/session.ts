@@ -148,6 +148,40 @@ export function writeSession(prefs: Partial<Prefs>, desks: SessionSave['desks'])
   }
 }
 /**
+ * Tabs open on the app share one autosave, but each holds its own copy of
+ * the desks, and a tab left alone holds an old one. Each tab notes the desks
+ * as it last wrote or caught up to them (`seen`, by `deskKeys`), and writes
+ * its own desk only where it changed since; elsewhere it keeps what's stored.
+ */
+export type DeskKeys = Record<Mode, string>;
+export function deskKeys(desks: SessionSave['desks']): DeskKeys {
+  return { demo: JSON.stringify(desks.demo ?? null), live: JSON.stringify(desks.live ?? null) };
+}
+/** The desks an autosave writes: this tab's where it changed them since `seen`, else the stored ones. */
+export function desksToSave(
+  ours: SessionSave['desks'],
+  seen: Partial<DeskKeys>,
+  stored: SessionSave['desks'] | undefined,
+): SessionSave['desks'] {
+  const keys = deskKeys(ours);
+  const out: SessionSave['desks'] = {};
+  for (const m of ['demo', 'live'] as const) {
+    const desk = keys[m] !== seen[m] || !stored?.[m] ? ours[m] : stored[m];
+    if (desk) out[m] = desk;
+  }
+  return out;
+}
+/** Calls back when another tab writes the autosave or the named saves; returns the unsubscribe. */
+export function onOtherTabSave(listener: (what: 'session' | 'saves') => void) {
+  const heard = (e: StorageEvent) => {
+    // A cleared storage (another tab's reset) reaches here with no key.
+    if (e.key === KEY || e.key === null) listener('session');
+    if (e.key === SAVES_KEY || e.key === null) listener('saves');
+  };
+  window.addEventListener('storage', heard);
+  return () => window.removeEventListener('storage', heard);
+}
+/**
  * Small view state that belongs to this browser alone and isn't part of a
  * save file: folded inspector sections, each view's zoom. Missing or blocked
  * storage just means starting from the defaults.

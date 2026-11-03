@@ -11,6 +11,7 @@ import {
   fixtureScanSchema,
   pictureFindSchema,
   sculptSchemaOf,
+  MAX_SCAN_MOVING,
   MAX_SCAN_THINGS,
   itemCheckSchema,
   sceneDraftSchema,
@@ -618,6 +619,9 @@ export class MetaAdapter {
             ]
           : []),
         `Use at most ${MAX_SCAN_THINGS} things, only what is clearly visible, biggest first. Return an empty list if there are none.`,
+        only
+          ? 'Leave moving empty.'
+          : `Apart from them, under moving, list things on it that get picked up and moved about, like a mug, a cup, a phone, glasses or a water bottle in use, each with a short grounded label and a loose box as above; never a fixture listed already${tracked.length ? ', nor the objects followed separately' : ''}. At most ${MAX_SCAN_MOVING}; an empty list if there are none.`,
       ].join('\n'),
     });
   }

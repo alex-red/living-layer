@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Mode, Scene, Segmentation, DemoPosition, CameraCrop } from '@livinglayer/domain';
-import { cameraForScene } from '@livinglayer/domain';
+import { cameraFitsScene, cameraForScene } from '@livinglayer/domain';
 import {
   cropStream,
   openMjpeg,
@@ -66,6 +66,8 @@ export function useCameraSlice(
   const [reopenTries, setReopenTries] = useState(0);
   /** The tracking layer: it follows the live camera, so turning it on opens the camera. */
   const [tracking, setTracking] = useState(boot.prefs.tracking);
+  /** The room a camera is assigned to, as the scene being worked on names it. */
+  const room = workScene === 'custom-desk' ? 'custom' : workScene;
   const file = useRef<HTMLInputElement>(null);
   const imageGeneration = useRef(0);
   const mounted = useRef(true);
@@ -168,10 +170,12 @@ export function useCameraSlice(
   /** Opens the chosen camera, or `source` when one was just picked (a phone that just paired). */
   async function startCamera(source?: NetworkStream) {
     if (cameraPending || stream.current) return;
+    const remote = source ?? network.streams.find((s) => s.id === cameraSource);
+    if (remote && !cameraFitsScene(remote, room))
+      return setError(`${remote.name} is assigned to another room. Pick this room’s camera.`);
     setError('');
     setCameraPending(true);
     const generation = ++cameraGeneration.current;
-    const remote = source ?? network.streams.find((s) => s.id === cameraSource);
     // A camera only the server reads, with no live relay: grab one frame of it instead.
     if (remote && !remote.whep && !remote.preview && remote.snapshot) {
       try {
@@ -283,6 +287,8 @@ export function useCameraSlice(
     const remote = cameraSource ? network.streams.find((s) => s.id === cameraSource) : undefined;
     // A network camera reopens once it is listed with a live relay; a still-only one never was on.
     if (cameraSource && !(remote?.whep || remote?.preview)) return;
+    // One locked to another room waits for that room.
+    if (remote && !cameraFitsScene(remote, room)) return;
     let cancelled = false;
     const timer = window.setTimeout(
       async () => {
@@ -316,6 +322,7 @@ export function useCameraSlice(
     cameraSource,
     network.loaded,
     network.streams,
+    room,
   ]);
   /** Turns the tracking layer on or off; on, it opens the live camera rather than track a still. */
   function changeTracking(on: boolean) {
@@ -325,18 +332,21 @@ export function useCameraSlice(
     void startCamera();
   }
   // A room with a camera assigned to it uses that camera, unless the one chosen is assigned there too.
+  // A camera locked to another room closes, still wanted, so it opens again back in its room.
   // It looks again when the room or the camera list changes, not when the person picks a camera.
-  const pickedCamera = useRef({ camera, cameraSource });
-  pickedCamera.current = { camera, cameraSource };
+  const pickedCamera = useRef({ camera, cameraSource, dropCamera });
+  pickedCamera.current = { camera, cameraSource, dropCamera };
   useEffect(() => {
-    const { camera, cameraSource } = pickedCamera.current;
-    if (camera) return;
-    const room = workScene === 'custom-desk' ? 'custom' : workScene;
+    const { camera, cameraSource, dropCamera } = pickedCamera.current;
     const current = network.streams.filter((s) => s.id === cameraSource);
     if (cameraForScene(current, room)) return;
+    const elsewhere = current.some((s) => !cameraFitsScene(s, room));
+    if (camera && !elsewhere) return;
+    if (camera) dropCamera();
     const assigned = cameraForScene(network.streams, room);
     if (assigned) setCameraSource(assigned.id);
-  }, [workScene, network.streams, setCameraSource]);
+    if (camera || assigned) setReopenTries(0);
+  }, [room, network.streams, setCameraSource]);
   /** The frame to look in: the camera's, captured now, or the current photo; the demo desk itself in demo mode. */
   function frameNow(): string | undefined {
     if (mode === 'demo') return undefined;

@@ -131,12 +131,25 @@ export function cameraForScene<T extends { scene?: CameraScene }>(
   scene: IsoSceneKind | 'custom' | null,
 ): T | null {
   if (!scene) return null;
-  const exact = cameras.find((c) => c.scene === scene);
-  if (exact || scene === 'custom') return exact ?? null;
-  const room = (k: IsoSceneKind) => ISO_SCENE_PARENT[k] ?? k;
   return (
-    cameras.find((c) => c.scene && c.scene !== 'custom' && room(c.scene) === room(scene)) ?? null
+    cameras.find((c) => c.scene === scene) ??
+    cameras.find((c) => c.scene && cameraFitsScene(c, scene)) ??
+    null
   );
+}
+
+/**
+ * Whether a camera may be shown in a room: one assigned to a room is locked to
+ * it (and to its close views, the office's desk), one assigned nowhere fits any.
+ */
+export function cameraFitsScene(
+  camera: { scene?: CameraScene },
+  scene: IsoSceneKind | 'custom' | null,
+): boolean {
+  if (!camera.scene || !scene) return true;
+  if (camera.scene === 'custom' || scene === 'custom') return camera.scene === scene;
+  const room = (k: IsoSceneKind) => ISO_SCENE_PARENT[k] ?? k;
+  return room(camera.scene) === room(scene);
 }
 
 /**

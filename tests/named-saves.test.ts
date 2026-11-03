@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 import {
+  deskKeys,
+  desksToSave,
   emptyDesk,
   parseSave,
   parseSaves,
@@ -54,5 +56,30 @@ describe('named saves', () => {
   it('keeps a save file’s name, and reads one without a name as before', () => {
     expect(parseSave(JSON.stringify(save('2026-10-01T00:00:00.000Z', ' Desk '))).name).toBe('Desk');
     expect('name' in parseSave(JSON.stringify(save('2026-10-01T00:00:00.000Z')))).toBe(false);
+  });
+});
+
+describe('autosave across tabs', () => {
+  const desk = (mode: 'demo' | 'live', concept: string) => ({
+    ...emptyDesk(mode),
+    rules: [{ id: concept }] as unknown as ReturnType<typeof emptyDesk>['rules'],
+  });
+  it('keeps the desks another tab saved where this tab changed nothing', () => {
+    const old = { demo: desk('demo', 'old'), live: desk('live', 'old') };
+    const seen = deskKeys(old);
+    const stored = { demo: desk('demo', 'other tab'), live: desk('live', 'other tab') };
+    expect(desksToSave(old, seen, stored)).toEqual(stored);
+  });
+  it('writes the desk this tab changed, and only that one', () => {
+    const old = { demo: desk('demo', 'old'), live: desk('live', 'old') };
+    const seen = deskKeys(old);
+    const ours = { ...old, live: desk('live', 'edited here') };
+    const stored = { demo: desk('demo', 'other tab'), live: desk('live', 'other tab') };
+    expect(desksToSave(ours, seen, stored)).toEqual({ demo: stored.demo, live: ours.live });
+  });
+  it('writes its own desks when nothing is stored or it has not saved yet', () => {
+    const ours = { demo: desk('demo', 'mine') };
+    expect(desksToSave(ours, deskKeys(ours), undefined)).toEqual(ours);
+    expect(desksToSave(ours, {}, { demo: desk('demo', 'other tab') })).toEqual(ours);
   });
 });

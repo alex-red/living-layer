@@ -67,6 +67,20 @@ describe('tracking with no AI calls', () => {
     expect((await post('segment', { concept: 'mug' })).statusCode).toBe(200);
   });
 
+  it('tracks the confirmed mug in a new frame from a box drawn round it', async () => {
+    const { post } = await testApp({ name: 'local-track', trackingAi: false });
+    const shape = await aroundMug();
+    const first = (await post('segment', { concept: 'mug', shape })).json<EvidenceRun>();
+    await post('desk/select', { segmentRunId: first.id, detectionId: '1' });
+
+    const again = (await post('segment', { concept: 'mug', shape })).json<EvidenceRun>();
+    expect(again.model).toBe(LOCAL_OUTLINE_MODEL);
+    const tracked = await post('desk/track', { segmentRunId: again.id });
+    expect(tracked.statusCode, tracked.body).toBe(200);
+    const memory = tracked.json<{ memory: DeskMemory }>().memory;
+    expect(sighting(memory)).toMatchObject({ segmentRunId: again.id, identity: 'tracked' });
+  });
+
   it('looks for a lost thing on this machine instead of asking SAM', async () => {
     let push: (frame: LumaFrame) => void = () => {};
     const photo = await demoPng();

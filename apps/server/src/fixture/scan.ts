@@ -562,10 +562,11 @@ export async function scanFixtures(
     // Stopped while the last step ran: nothing is saved.
     job.check();
     job.run('save');
-    const { mapped } = fixtureOutput.scan(event)!;
+    const { mapped, scan } = fixtureOutput.scan(event)!;
     const { memory, count } = saveScanned(store, mode, target, mapped, fits);
     await job.done('save', `${count} fixture${count === 1 ? '' : 's'} in the workspace`);
     job.finish();
-    return { run: event, mapped, memory };
+    // Things that move aren't saved: the page follows each as an object, if asked.
+    return { run: event, mapped, memory, moving: scan.moving ?? [] };
   });
 }

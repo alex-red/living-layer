@@ -530,6 +530,7 @@ function SurfacePanel({ id, closeView }: { id: string; closeView?: boolean }) {
     useNavigation(),
     useCalibration(),
     useProbes(),
+    useFixtures(),
   );
   const { memory, mode, image, busy, progress, pinning } = lab;
   const rows = surfaceRows(lab);
@@ -552,6 +553,8 @@ function SurfacePanel({ id, closeView }: { id: string; closeView?: boolean }) {
   const title = closeView && progress.view ? viewLabel(progress.view) : row.surface.label;
   // The room's calibrated camera sees every surface of the room; a close view has its own camera.
   const findable = !closeView && Boolean(memory?.camera || mode === 'demo');
+  // A close view's scene, which one look can scan and follow.
+  const deskScene = closeView && progress.view ? pinScene(progress.view) : null;
   return (
     <Panel
       tiny={
@@ -571,14 +574,41 @@ function SurfacePanel({ id, closeView }: { id: string; closeView?: boolean }) {
       }
       tone={row.pinned ? 'ok' : 'seen'}
     >
+      {row.pinned && deskScene && (
+        <>
+          <Button
+            variant="primary"
+            disabled={Boolean(busy) || (mode === 'live' && !image && !lab.camera)}
+            onClick={() => void lab.findOnDesk(deskScene)}
+          >
+            {busy === 'scan'
+              ? 'Scanning…'
+              : busy === 'follow-desk'
+                ? 'Following…'
+                : 'Find what’s on the desk'}
+            <Glyph type="arrow" />
+          </Button>
+          <p className="micro">
+            Scans what the camera shows, adds what the room hasn’t got, and follows each one,
+            outlined on this machine: what stays put as a fixture, a mug or anything else that moves
+            as an object.
+          </p>
+          {mode === 'live' && <Cost>1 Spark and 1 SAM call for the scan; following is free.</Cost>}
+        </>
+      )}
       {row.pinned ? (
         <Button
-          variant="primary"
+          variant={deskScene ? 'secondary' : 'primary'}
           onClick={() =>
             lab.select(mugOf(memory) ? { kind: 'object', id: 'main' } : { kind: 'add' })
           }
         >
-          {mugOf(memory) ? `Open ${mugOf(memory)!.label}` : 'Find objects'} <Glyph type="arrow" />
+          {mugOf(memory)
+            ? `Open ${mugOf(memory)!.label}`
+            : deskScene
+              ? 'Add one by hand'
+              : 'Find objects'}{' '}
+          <Glyph type="arrow" />
         </Button>
       ) : needPhoto ? (
         <div className="save-actions">
@@ -904,7 +934,7 @@ function MugPanel() {
     useNavigation(),
     useProbes(),
   );
-  const { memory, mode, camera, busy, status, follow, localZone } = lab;
+  const { memory, mode, camera, busy, status, follow, localZone, trackingAi } = lab;
   const { currentObservation, sightings } = lab;
   const now = useNow();
   const observationStale = mugSighting(memory)
@@ -941,25 +971,36 @@ function MugPanel() {
       tone={currentObservation ? 'chosen' : observationStale ? 'unsure' : 'seen'}
       aside={o && <Freshness observedAt={o.observedAt} />}
     >
-      <Button
-        variant="primary"
-        disabled={!lab.canTrack}
-        onClick={() => void lab.track()}
-        title="Segment the mug in the current frame, match it to the remembered mug, and check the zone"
-      >
-        {busy === 'track'
-          ? 'Tracking…'
-          : mode === 'live' && camera
-            ? 'Capture & track'
-            : 'Track the mug'}
-        <Glyph type="arrow" />
-      </Button>
+      {trackingAi ? (
+        <Button
+          variant="primary"
+          disabled={!lab.canTrack}
+          onClick={() => void lab.track()}
+          title="Segment the mug in the current frame, match it to the remembered mug, and check the zone"
+        >
+          {busy === 'track'
+            ? 'Tracking…'
+            : mode === 'live' && camera
+              ? 'Capture & track'
+              : 'Track the mug'}
+          <Glyph type="arrow" />
+        </Button>
+      ) : (
+        <LocalOutline
+          target="mug"
+          disabled={follow || !o}
+          working={busy === 'track'}
+          onOutline={(d) => void lab.track({ outline: d })}
+        />
+      )}
       <p className="micro">
-        {mode === 'demo'
-          ? 'Move the mug with the buttons under the canvas, then track it.'
-          : 'Move the mug, start the camera, then capture & track.'}
+        {!trackingAi
+          ? 'Draw round the mug where it is now to find it in this frame, on this machine.'
+          : mode === 'demo'
+            ? 'Move the mug with the buttons under the canvas, then track it.'
+            : 'Move the mug, start the camera, then capture & track.'}
       </p>
-      {status && <Cost>{estimateLabel(status.meta.estimates.segment, 'track')}</Cost>}
+      {status && trackingAi && <Cost>{estimateLabel(status.meta.estimates.segment, 'track')}</Cost>}
       <WatchControl />
       {!lab.canWatch && (
         <>

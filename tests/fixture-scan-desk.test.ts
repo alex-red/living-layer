@@ -3,8 +3,19 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { buildApp } from '../apps/server/src/app.js';
+import { demoSegmentation } from '../apps/server/src/demo.js';
 import { parseConfig, type Fetcher } from '../apps/server/src/config.js';
-import { type DeskMemory, type Job } from '@livinglayer/domain';
+import {
+  drawnRound,
+  fixtureInFrame,
+  fixtureOutlineBox,
+  LOCAL_OUTLINE_MODEL,
+  mugOf,
+  type DeskMemory,
+  type EvidenceRun,
+  type Job,
+  type Segmentation,
+} from '@livinglayer/domain';
 import { DEMO_SURFACE, fixture, setup, type Scanned } from './lib/fixture-scan.js';
 
 describe('scanning the demo desk', () => {
@@ -242,5 +253,53 @@ describe('scanning the demo desk', () => {
     // Handing them all back lets scans place the bottle too.
     const released = (await s.post('fixtures/release', { scene: book!.scene })).json<DeskMemory>();
     expect(released.fixtures!.every((f) => f.scanned)).toBe(true);
+  });
+  it('follows each scanned thing from where the scan saw it, outlined with no model call', async () => {
+    const { one, ...s } = await scanned();
+    for (const f of one.memory.fixtures!) {
+      const shape = fixtureOutlineBox(f, DEMO_SURFACE, null);
+      expect(shape, f.label).not.toBeNull();
+      const run = (await s.post('segment', { concept: f.label.toLowerCase(), shape })).json<
+        EvidenceRun<Segmentation>
+      >();
+      expect(run.model).toBe(LOCAL_OUTLINE_MODEL);
+      expect(run.output.detections.length, f.label).toBe(1);
+      // On the thing the scan saw, not on something else inside the box.
+      const seen = fixtureInFrame(f, DEMO_SURFACE, null)!;
+      const got = run.output.detections[0]!.box;
+      const w = Math.min(seen.x + seen.width, got.x + got.width) - Math.max(seen.x, got.x);
+      const h = Math.min(seen.y + seen.height, got.y + got.height) - Math.max(seen.y, got.y);
+      const both = Math.max(0, w) * Math.max(0, h);
+      const iou = both / (seen.width * seen.height + got.width * got.height - both);
+      expect(iou, f.label).toBeGreaterThan(0.5);
+      const anchored = await s.post('fixtures/anchor', {
+        id: f.id,
+        segmentRunId: run.id,
+        detectionId: run.output.detections[0]!.objectId,
+      });
+      expect(anchored.statusCode, anchored.body).toBe(200);
+    }
+    const memory = (await s.app.inject('/api/desk/demo')).json<DeskMemory>();
+    expect(memory.fixtures!.map((f) => f.track?.status)).toEqual(['seen', 'seen']);
+  });
+  it('lists the mug as a thing that moves, never a fixture, and it can be the desk’s mug', async () => {
+    const { one, ...s } = await scanned();
+    const { moving } = one;
+    expect(moving.map((m) => m.label)).toEqual(['mug']);
+    expect(one.memory.fixtures!.map((f) => f.label)).not.toContain('Mug');
+    const shape = drawnRound(moving[0]!.box);
+    const run = (await s.post('segment', { concept: 'mug', shape })).json<
+      EvidenceRun<Segmentation>
+    >();
+    expect(run.model).toBe(LOCAL_OUTLINE_MODEL);
+    const truth = (await demoSegmentation('mug')).output.detections[0]!.box;
+    const got = run.output.detections[0]!.box;
+    expect(Math.abs(got.x - truth.x) + Math.abs(got.y - truth.y)).toBeLessThan(6);
+    const selected = await s.post('desk/select', {
+      segmentRunId: run.id,
+      detectionId: run.output.detections[0]!.objectId,
+    });
+    expect(selected.statusCode, selected.body).toBe(200);
+    expect(mugOf(selected.json<DeskMemory>())?.label).toBeTruthy();
   });
 });
