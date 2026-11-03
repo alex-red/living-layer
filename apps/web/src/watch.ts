@@ -1,12 +1,18 @@
 import { useEffect, useState } from 'react';
 import type { ExposeView, Mode, WatchView } from '@livinglayer/domain';
+import { usePageVisible } from './visible';
 
-/** The newest message of a server event stream. The browser's EventSource reconnects by itself. */
+/**
+ * The newest message of a server event stream. The browser's EventSource
+ * reconnects by itself; a hidden page lets it go (`usePageVisible`), keeping
+ * the last message, and the server sends the newest again on reconnecting.
+ */
 function useEvents<T>(url: string): T | null {
   const [view, setView] = useState<T | null>(null);
+  const visible = usePageVisible();
+  useEffect(() => setView(null), [url]);
   useEffect(() => {
-    setView(null);
-    if (typeof EventSource === 'undefined') return;
+    if (!visible || typeof EventSource === 'undefined') return;
     const events = new EventSource(url);
     events.onmessage = (e) => {
       try {
@@ -16,7 +22,7 @@ function useEvents<T>(url: string): T | null {
       }
     };
     return () => events.close();
-  }, [url]);
+  }, [url, visible]);
   return view;
 }
 
