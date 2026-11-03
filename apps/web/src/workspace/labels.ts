@@ -35,7 +35,7 @@ export function roomLabel(room: WorkScene | null, memory?: DeskMemory | null): s
 const pinOf = (mode: Mode, memory?: DeskMemory | null) =>
   memory?.surface ?? (mode === 'demo' ? DEMO_SURFACE : null);
 
-export interface SurfaceRow {
+interface SurfaceRow {
   surface: IsoSurface;
   /** The scene the surface is drawn in. */
   scene: WorkScene;

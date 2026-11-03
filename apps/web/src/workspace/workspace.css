@@ -236,7 +236,7 @@
 }
 .ol-row {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 8px;
   width: 100%;
   min-height: var(--control-h);
@@ -275,9 +275,6 @@
 .ol-row.current .ol-glyph {
   color: var(--seen);
 }
-.ol-row.chosen .ol-glyph {
-  color: var(--chosen);
-}
 .ol-row.seen .ol-glyph {
   color: var(--seen);
 }
@@ -300,6 +297,289 @@
 }
 .ol-row.current .ol-text small {
   color: var(--seen);
+}
+
+/* Outline: a thing's stat now, at the row's right. */
+.ol-meta {
+  flex: none;
+  max-width: 45%;
+  margin-left: auto;
+  overflow: hidden;
+  color: var(--text-3);
+  font: 600 var(--fs-11) / 1 var(--mono);
+  letter-spacing: 0.04em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ol-meta.seen {
+  color: var(--seen);
+}
+.ol-meta.ok {
+  color: var(--ok);
+}
+.ol-meta.warm {
+  color: var(--warm);
+}
+.ol-meta.unknown {
+  color: var(--unsure);
+}
+/* What a thing is, by its glyph's colour: followed and seen, missing, placed, drawn with the room. */
+.ol-row.followed.seen .ol-glyph {
+  color: var(--chosen);
+}
+.ol-row.missing .ol-glyph,
+.ol-row.missing .ol-text small {
+  color: var(--unsure);
+}
+.ol-row.placed .ol-glyph {
+  color: var(--text-2);
+}
+.ol-row.built-in .ol-glyph,
+.ol-row.built-in .ol-label {
+  color: var(--text-3);
+}
+.ol-row.suggested .ol-glyph {
+  color: var(--seen);
+  opacity: 0.6;
+}
+.ol-row.suggested .ol-label {
+  color: var(--text-2);
+}
+.ol-row.occupied .ol-glyph {
+  color: var(--warm);
+  text-shadow: 0 0 8px var(--warm-glow);
+}
+.ol-row.view {
+  margin-top: 6px;
+  border: 1px dashed var(--line-strong);
+}
+.ol-row.view .ol-meta {
+  color: var(--text-2);
+}
+
+/* Outline: the scene switcher. */
+.ol-switch {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.ol-switch-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ol-switch-button {
+  display: grid;
+  flex: 1;
+  grid-template-columns: 1fr auto;
+  min-width: 0;
+  padding: 6px 10px;
+  border: 1px solid var(--control-line);
+  border-radius: var(--r-button);
+  background: var(--control-bg);
+  color: var(--text);
+  text-align: left;
+  transition:
+    background var(--t-fast),
+    border-color var(--t-fast);
+}
+.ol-switch-button:hover:not(:disabled) {
+  border-color: var(--control-line-hover);
+  background: var(--control-bg-hover);
+}
+.ol-switch-button .tiny {
+  grid-column: 1;
+}
+.ol-switch-label {
+  grid-column: 1;
+  overflow: hidden;
+  font-size: var(--fs-13);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ol-switch-caret {
+  grid-row: 1 / 3;
+  grid-column: 2;
+  align-self: center;
+  color: var(--text-3);
+}
+.ol-cam {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 5px;
+  max-width: 40%;
+  overflow: hidden;
+  color: var(--text-3);
+  font-size: var(--fs-11);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ol-cam::before {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border: 1px solid var(--text-3);
+  border-radius: 50%;
+  content: '';
+}
+.ol-cam.on {
+  color: var(--text-2);
+}
+.ol-cam.on::before {
+  border-color: var(--seen);
+  background: var(--seen);
+  box-shadow: 0 0 6px var(--seen-glow);
+}
+.ol-scenes {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: var(--r-button);
+  background: var(--surface-1);
+}
+.ol-scenes button {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 6px;
+  overflow: hidden;
+  border: 0;
+  border-radius: var(--r-chip);
+  background: none;
+  color: var(--text-3);
+  font-size: var(--fs-12);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition:
+    background var(--t-fast),
+    color var(--t-fast);
+}
+.ol-scenes button:hover:not(:disabled) {
+  color: var(--text);
+}
+.ol-scenes button[aria-selected='true'] {
+  background: var(--surface-3);
+  box-shadow: var(--glass-edge);
+  color: var(--text);
+}
+
+/* Outline: what is left to set the scene up. */
+.ol-setup {
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  background: var(--surface-1);
+}
+.ol-setup.all {
+  border-color: transparent;
+  background: none;
+}
+.ol-setup-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  background: none;
+  color: var(--text-2);
+}
+.ol-setup.all .tiny {
+  color: var(--ok);
+}
+.ol-setup-bar {
+  display: flex;
+  flex: 1;
+  gap: 3px;
+}
+.ol-setup-bar i {
+  flex: 1;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--line-strong);
+}
+.ol-setup-bar i.done {
+  background: var(--ok);
+}
+.ol-setup-bar i.current {
+  background: var(--seen);
+  box-shadow: 0 0 6px var(--seen-glow);
+}
+.ol-setup-count {
+  color: var(--text-3);
+  font: 600 var(--fs-11) / 1 var(--mono);
+}
+.ol-setup .ol-tree {
+  padding: 0 4px 4px;
+}
+
+/* Outline: things under the surface they stand on. */
+.ol-groups {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.ol-group-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 4px 8px 2px;
+  border: 0;
+  border-radius: var(--r-chip);
+  background: none;
+  color: var(--text-2);
+  font-size: var(--fs-12);
+  font-weight: 600;
+  text-align: left;
+}
+button.ol-group-head:hover {
+  background: var(--surface-2);
+}
+.ol-group-head[aria-current='true'] {
+  background: var(--surface-3);
+  box-shadow: inset 2px 0 0 var(--seen);
+}
+.ol-group-head small {
+  color: var(--text-3);
+  font-size: var(--fs-11);
+  font-weight: 400;
+}
+.ol-group-head small.pinned {
+  color: var(--ok);
+}
+.ol-groups.selecting .ol-row:disabled {
+  opacity: 0.35;
+}
+
+/* Outline: Home Assistant, folded at the bottom. */
+.ol-ha {
+  margin-top: 14px;
+  border-top: 1px solid var(--line);
+  padding-top: 8px;
+}
+.ol-ha summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 4px 6px;
+  cursor: pointer;
+  list-style: none;
+}
+.ol-ha summary::-webkit-details-marker {
+  display: none;
+}
+.ol-ha summary::after {
+  margin-left: 4px;
+  color: var(--text-3);
+  content: '▸';
+  transition: transform var(--t-fast);
+}
+.ol-ha[open] summary::after {
+  transform: rotate(90deg);
 }
 
 /* Outline: picking fixtures to delete several at once. */
@@ -331,9 +611,6 @@
 }
 .ol-row.picked {
   background: var(--seen-wash);
-}
-.ol-tree.selecting .ol-row:disabled {
-  opacity: 0.35;
 }
 .ol-bulk {
   position: sticky;
