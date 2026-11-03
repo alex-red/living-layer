@@ -1,3 +1,4 @@
+import { clamp } from './math.js';
 import { z } from 'zod';
 import {
   ITEM_MATERIALS,
@@ -343,7 +344,6 @@ function greenish(hex: string): boolean {
 }
 
 const round = (n: number) => Math.round(n * 1000) / 1000;
-const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
 const bandPaint = (bands: Band[]): Paint[] =>
   bands.map((b) => ({ kind: 'band', from: round(b.from), to: round(b.to), color: b.color }));
 

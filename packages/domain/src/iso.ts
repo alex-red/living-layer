@@ -1,3 +1,4 @@
+import { clamp } from './math.js';
 import { z } from 'zod';
 import type { Detection, Segmentation } from './api.js';
 import type { ZoneRect } from './memory.js';
@@ -410,7 +411,6 @@ export function worldSurface(surface: IsoSurface, p: Pick<IsoVec, 'x' | 'y'>): P
   return { x: (p.x - surface.rect.x) / surface.rect.w, y: (p.y - surface.rect.y) / surface.rect.d };
 }
 
-const clamp = (n: number, min: number, max: number) => Math.max(min, Math.min(max, n));
 /**
  * Where a detection stands on a surface: the middle of its base, with a
  * footprint sized from the box's bottom edge. The bottom-centre of the box is

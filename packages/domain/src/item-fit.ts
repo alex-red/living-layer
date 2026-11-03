@@ -1,3 +1,5 @@
+import { median, pointInPolygon } from './math.js';
+import { clamp } from './math.js';
 import {
   clusterColours,
   deltaE,
@@ -171,12 +173,6 @@ function dominant(photo: Photo, pixels: Iterable<number>): number {
     }
   return best;
 }
-const median = (xs: number[]) => {
-  if (!xs.length) return 0;
-  const s = [...xs].sort((a, b) => a - b);
-  return s[Math.floor(s.length / 2)]!;
-};
-const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
 const DEG = Math.PI / 180;
 const ARCHETYPE_HANDLES = new Set<Archetype>(['mug']);
 
@@ -970,15 +966,7 @@ function scoreFromAbove(
   const topLab = rgbLab(hexRgb(top));
   const decal = part.paint?.find((p): p is Decal => p.kind === 'decal' && p.face === 'top');
   const decalLab = decal?.colors.map((c) => rgbLab(hexRgb(c)));
-  const inside = (u: number, v: number) => {
-    let hit = false;
-    for (let i = 0, j = outline.length - 1; i < outline.length; j = i++) {
-      const a = outline[i]!;
-      const b = outline[j]!;
-      if (a.y > v !== b.y > v && u < ((b.x - a.x) * (v - a.y)) / (b.y - a.y) + a.x) hit = !hit;
-    }
-    return hit;
-  };
+  const inside = (u: number, v: number) => pointInPolygon(outline, u, v);
   let inter = 0;
   let union = 0;
   let err = 0;

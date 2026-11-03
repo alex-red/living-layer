@@ -1,3 +1,4 @@
+import { KEY_LIGHT, bezier } from './math.js';
 import { ISO_RISE, ISO_TILE, fromIso, toIso } from './iso.js';
 import { ITEM_MATERIALS, type ItemMaterial, type ItemPart } from './iso-item.js';
 import { hexLab, labRgb, nearest, outlineLab, rampLab, type Lab } from './color.js';
@@ -183,16 +184,6 @@ function rboxPrim(part: number, { at, size }: Box, radius: number): Prim {
       );
     },
   };
-}
-/** A point on a Bézier curve of 2 to 4 control points. */
-function bezier(p: V3[], t: number): V3 {
-  let pts = p;
-  while (pts.length > 1)
-    pts = pts.slice(1).map((q, i) => {
-      const a = pts[i]!;
-      return [a[0] + (q[0] - a[0]) * t, a[1] + (q[1] - a[1]) * t, a[2] + (q[2] - a[2]) * t];
-    });
-  return pts[0]!;
 }
 function tubePrim(part: number, control: V3[], radius: number): Prim {
   const samples = Array.from({ length: 25 }, (_, i) => bezier(control, i / 24));
@@ -774,11 +765,7 @@ function cast(g: VoxelGrid, o: V3, d: V3, visit: (index: number, t: number) => b
 }
 
 /** The key light: from the upper left and a little in front, as in the flat scene. */
-const LIGHT: V3 = (() => {
-  const v: V3 = [0.15, 0.75, 1];
-  const l = Math.hypot(...v);
-  return v.map((c) => c / l) as V3;
-})();
+const LIGHT: V3 = KEY_LIGHT;
 /** Toward the viewer of the isometric view: along it, screen position doesn't change. */
 const VIEW: V3 = (() => {
   const v: V3 = [1, 1, ISO_TILE.height / ISO_RISE];

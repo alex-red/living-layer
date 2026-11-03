@@ -1,3 +1,4 @@
+import { cross as crossV, dot, norm, scale as scaleV, sub, type Vec3 } from './math.js';
 import { z } from 'zod';
 import type { Detection, Segmentation } from './api.js';
 import type { RoomCalibration } from './memory.js';
@@ -287,16 +288,6 @@ export function convexHull(points: Point[]): Point[] {
   return [...lower.slice(0, -1), ...upper.slice(0, -1)].reverse();
 }
 
-type Vec3 = [number, number, number];
-const dot = (a: Vec3, b: Vec3) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-const norm = (a: Vec3) => Math.hypot(...a);
-const scaleV = (a: Vec3, s: number): Vec3 => [a[0] * s, a[1] * s, a[2] * s];
-const sub = (a: Vec3, b: Vec3): Vec3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
-const crossV = (a: Vec3, b: Vec3): Vec3 => [
-  a[1] * b[2] - a[2] * b[1],
-  a[2] * b[0] - a[0] * b[2],
-  a[0] * b[1] - a[1] * b[0],
-];
 /**
  * A pinhole camera over a pinned surface, in surface units: X along the
  * surface's back edge, Y from back to front, `up` out of the surface toward

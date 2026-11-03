@@ -1,3 +1,4 @@
+import { quantile } from './math.js';
 import type { IsoScene, Point, Quad, SurfacePin } from './iso.js';
 import { ISO_PRESETS } from './iso-presets.js';
 import {
@@ -229,9 +230,6 @@ function topFar(camera: RoomCamera, mask: Bits, z: number) {
   const q = layoutTuning().topQuantile;
   return xs.length ? { x: quantile(xs, q), y: quantile(ys, q) } : null;
 }
-/** The value below which a share `q` of the values lie. */
-const quantile = (vs: number[], q: number) =>
-  [...vs].sort((a, b) => a - b)[Math.min(vs.length - 1, Math.floor(q * vs.length))]!;
 
 /** A thing's place before it is built: its corner nearest the origin, size once turned, and turn. */
 interface Plan {

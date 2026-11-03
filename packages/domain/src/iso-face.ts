@@ -1,3 +1,4 @@
+import type { Vec3 } from './math.js';
 import type { IsoProp } from './iso.js';
 
 /*
@@ -9,8 +10,6 @@ import type { IsoProp } from './iso.js';
 /** The three faces the iso view draws of a prism: its top, its +y face and its +x face. */
 export type PropFace = 'top' | 'front' | 'side';
 export const PROP_FACES: readonly PropFace[] = ['top', 'front', 'side'];
-
-type Vec3 = [number, number, number];
 
 /**
  * A face as an origin and two edges in scene coordinates: texel (i, j) of a

@@ -1,3 +1,4 @@
+import { cross, dot, sub, unit, type Vec3 } from './math.js';
 import { z } from 'zod';
 import { pointSchema, type IsoVec, type Point } from './iso.js';
 import { cm } from './iso-furniture.js';
@@ -24,8 +25,6 @@ export interface RoomCamera {
   /** The room's floor, in tiles. */
   room: { w: number; d: number };
 }
-type Vec3 = [number, number, number];
-
 const vec3 = z.tuple([z.number().finite(), z.number().finite(), z.number().finite()]);
 export const roomCameraSchema = z
   .object({
@@ -42,16 +41,6 @@ export const roomCameraSchema = z
     room: z.object({ w: z.number().min(2).max(16), d: z.number().min(2).max(16) }).strict(),
   })
   .strict();
-
-const dot = (a: Vec3, b: Vec3) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-const sub = (a: Vec3, b: Vec3): Vec3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
-const scale = (a: Vec3, s: number): Vec3 => [a[0] * s, a[1] * s, a[2] * s];
-const cross = (a: Vec3, b: Vec3): Vec3 => [
-  a[1] * b[2] - a[2] * b[1],
-  a[2] * b[0] - a[0] * b[2],
-  a[0] * b[1] - a[1] * b[0],
-];
-const unit = (a: Vec3): Vec3 => scale(a, 1 / Math.hypot(...a));
 
 /** A point in the camera's own axes: x right, y down, z forward. */
 export function toCamera(c: RoomCamera, { x, y, z }: IsoVec): Vec3 {
