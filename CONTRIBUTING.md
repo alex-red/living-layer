@@ -54,7 +54,7 @@ Each bench shows how much room every case has left before its target. `--set des
 
 ## Committing
 
-Commit with `bun run commit -m "<summary>" [-m "<body>"] -- <files>`. The checkout may be shared with other sessions, so it names its files: it runs `verify` on HEAD with only those files as they are now, in a clean worktree, then commits just them and leaves anything else staged alone. The pre-commit hook refuses other commits. To commit by hand (concluding a merge with conflicts, say), check what is staged and use `COMMIT_ANY=1 git commit …`. `--skip-verify` is for changes verify can't judge, such as docs.
+Commit with `bun run commit -m "<summary>" [-m "<body>"] -- <files>`. The checkout may be shared with other sessions, so it names its files: it runs `verify` on HEAD with only those files as they are now, in a clean worktree, then commits just them and leaves anything else staged alone. `--skip-verify` is for changes verify can't judge, such as docs.
 
 When someone else is editing a file you changed too, commit just your hunks of it. `bun run commit --hunks <file> --match "<text>"` writes the hunks that change a line containing the text (`--match` again for more) to `out/<file>.patch`; check it, then `bun run commit -m "<summary>" --patch out/<file>.patch [-- <files>]`. That verifies HEAD with the patch and any named files on it, then builds the commit in a temporary index, so the working tree and the real index keep everyone else's changes. It refuses a patch that no longer applies to HEAD, or HEAD moving while verify runs: make the patch again.
 

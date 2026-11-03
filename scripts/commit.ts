@@ -6,8 +6,6 @@
  * their half-done edits too. So this runs `verify` on HEAD with only the
  * named paths as they are now, in a clean worktree, then stages and commits
  * just those paths (`git commit --only`), leaving anything else staged alone.
- * The pre-commit hook (`.githooks/pre-commit`) refuses commits made any
- * other way, unless `COMMIT_ANY=1`.
  *
  * When another session is editing the same file, `--patch` commits only
  * some hunks of it: HEAD with the patch on top is verified and committed
