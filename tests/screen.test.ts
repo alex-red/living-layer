@@ -215,3 +215,34 @@ describe('a screen in a model Spark drew', () => {
     }
   });
 });
+
+describe('a monitor’s screen when it is switched', () => {
+  /** The office's monitor promoted, with the states it is saved with. */
+  function switched() {
+    const input = promoteBuiltIn('office', 'monitor')!;
+    // Saved as the server saves it, with the fields a save adds.
+    const model = {
+      ...input.model,
+      source: 'demo',
+      segmentRunId: null,
+      swatches: [],
+      updatedAt: '',
+    } as Parameters<typeof defaultFixtureStates>[0]['model'];
+    const states = defaultFixtureStates({ label: input.label, control: 'switch', model }).states!;
+    const id = screenPart(model)!;
+    const part = (m: Pick<typeof model, 'parts'>) => m.parts.find((p) => p.id === id)!;
+    return { base: part(model), on: part(states.on!.model), off: part(states.off!.model) };
+  }
+
+  it('is deep enough to draw when it faces the room, lit or dark', () => {
+    const { on, off } = switched();
+    expect(on.size.d).toBeGreaterThanOrEqual(0.04);
+    expect(off.size.d).toBeGreaterThanOrEqual(0.04);
+  });
+
+  it('keeps its face where it was, growing back into the panel', () => {
+    const { base, on } = switched();
+    expect(on.at.y + on.size.d).toBeCloseTo(base.at.y + base.size.d, 6);
+    expect(on.at.y).toBeLessThan(base.at.y);
+  });
+});

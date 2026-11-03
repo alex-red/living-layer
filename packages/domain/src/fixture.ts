@@ -365,7 +365,9 @@ export function stateVariantModel(
       return {
         ...base,
         parts: base.parts.map((p) =>
-          p.id === screen ? { ...p, color: state === 'on' ? '#68b5e8' : '#2c3858' } : p,
+          p.id === screen
+            ? { ...thickScreen(p, base.parts), color: state === 'on' ? '#68b5e8' : '#2c3858' }
+            : p,
         ),
       };
     }
@@ -405,6 +407,33 @@ export function stateVariantModel(
 }
 
 type ItemPart = SavedItem['parts'][number];
+/** The least depth a screen keeps, as a share of its model: thinner falls between voxels when turned. */
+const SCREEN_DEPTH = 0.04;
+/**
+ * A screen made at least `SCREEN_DEPTH` deep along its thinnest side, grown
+ * toward the rest of the model so its face stays where it was. A promoted
+ * monitor's is 0.02 deep, and facing the room it vanished, lit or not.
+ */
+function thickScreen(p: ItemPart, parts: readonly ItemPart[]): ItemPart {
+  const axes = [
+    ['x', 'w'],
+    ['y', 'd'],
+    ['z', 'h'],
+  ] as const;
+  const [at, size] = axes.reduce((a, b) => (p.size[b[1]] < p.size[a[1]] ? b : a));
+  const depth = p.size[size];
+  if (depth >= SCREEN_DEPTH) return p;
+  const middle = (q: ItemPart) => q.at[at] + q.size[size] / 2;
+  const rest = parts.filter((q) => q !== p);
+  const behind = rest.length
+    ? rest.reduce((sum, q) => sum + middle(q), 0) / rest.length < middle(p)
+    : true;
+  return {
+    ...p,
+    at: { ...p.at, [at]: behind ? p.at[at] + depth - SCREEN_DEPTH : p.at[at] },
+    size: { ...p.size, [size]: SCREEN_DEPTH },
+  };
+}
 /**
  * A shade lit or not, in its light's colour: the uplight bowl at its rim, the
  * reading shade at its mouth, and a scanned shade, whose mouth isn't known, all over.

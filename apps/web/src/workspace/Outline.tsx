@@ -778,8 +778,11 @@ const DESKTOPS_POLL_MS = 15_000;
 
 /** Desktop nodes, shared by every scene: found, adopted, and whether they answer. */
 function Desktops() {
-  const { mode } = useView();
+  const { mode, memory } = useLabParts(useView(), useDesk());
   const nodes = useDesktopNodes(mode, DESKTOPS_POLL_MS);
+  /** The monitor's state follows each switch at once; the node's status only on the next look. */
+  const display = (n: (typeof nodes)[number]) =>
+    memory?.fixtures?.find((f) => f.id === n.fixtureId)?.state ?? n.status?.display ?? 'unknown';
   const adopted = nodes.filter((n) => n.adopted);
   return (
     <details className="ol-ha" open={nodes.length > 0}>
@@ -805,7 +808,7 @@ function Desktops() {
                   : 'found · adopt it'
                 : !n.online
                   ? 'not answering'
-                  : `display ${n.status?.display ?? 'unknown'}`
+                  : `display ${display(n)}`
             }
             glyph={n.adopted ? (n.online ? '▭' : '◌') : '＋'}
             className={n.adopted ? (n.online ? 'done' : 'missing') : 'current'}
