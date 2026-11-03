@@ -17,6 +17,7 @@ import {
   type ZoneRect,
   mainPlacement,
   mugOf,
+  MAIN_RULE,
   mugSighting,
   otherObjects,
   placedFixtures,
@@ -59,6 +60,7 @@ import { dragRectStore, useDragRect } from './state/view';
 import { watchStore } from '../watch';
 import { LayerChips, useLayers, usePicture } from './LayerChips';
 import { SavedZones } from './SavedZones';
+import { ruleRects, useHoveredZone } from './zoneHover';
 import type { Lab } from './useLabState';
 import { ContextMenu } from './ContextMenu';
 import { Popover } from './Popover';
@@ -364,6 +366,12 @@ function ZoneLayer() {
   const live = useDragRect('zone');
   const visibleZone = (drawing && live) || lab.visibleZone;
   const { zoneShown, occupied, zoneTag } = useZoneView(live);
+  // Named while it is drawn, selected, or under the pointer; saved zones are hit-tested too.
+  const { ref, hovered } = useHoveredZone(ruleRects(memory), camera ? cameraSize : null);
+  const named =
+    drawing ||
+    hovered === MAIN_RULE ||
+    (lab.selection?.kind === 'rule' && lab.selection.id === MAIN_RULE);
   // What the press took hold of, and the zone as it was then.
   const grab = useRef<{ grab: Grab; from: Rect | null }>({ grab: 'draw', from: null });
   const endDrag = () => {
@@ -376,6 +384,7 @@ function ZoneLayer() {
   useEffect(() => () => dragRectStore.set((d) => (d?.kind === 'zone' ? null : d)), []);
   const layer = visibleZone && (
     <svg
+      ref={camera ? undefined : ref}
       className={`zone-overlay ${drawing ? 'drawing' : ''} ${occupied ? 'inside' : ''}`}
       {...(cameraSize ? { width: cameraSize.width, height: cameraSize.height } : {})}
       viewBox="0 0 1000 1000"
@@ -425,9 +434,13 @@ function ZoneLayer() {
         (camera
           ? cameraSize && (
               // Fitted to the picture like the video's object-fit: contain, not to the stage.
-              <svg className="zone-fit" viewBox={`0 0 ${cameraSize.width} ${cameraSize.height}`}>
+              <svg
+                ref={ref}
+                className="zone-fit"
+                viewBox={`0 0 ${cameraSize.width} ${cameraSize.height}`}
+              >
                 {layer}
-                {visibleZone && (
+                {visibleZone && named && (
                   <text
                     className={`zone-label ${drawing ? 'drawing' : ''} ${occupied ? 'inside' : ''}`}
                     x={visibleZone.x * cameraSize.width}
@@ -440,7 +453,7 @@ function ZoneLayer() {
               </svg>
             )
           : layer)}
-      {zoneShown && visibleZone && !camera && (
+      {zoneShown && visibleZone && named && !camera && (
         <span
           className={`zone-tag ${drawing ? 'drawing' : ''} ${occupied ? 'inside' : ''}`}
           style={{ left: `${visibleZone.x * 100}%`, top: `${visibleZone.y * 100}%` }}
