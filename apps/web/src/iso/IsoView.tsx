@@ -38,6 +38,9 @@ import {
   type LightLook,
   type ZoneRect,
   promoteGroup,
+  withoutPromoted,
+  foodNow,
+  type FoodNow,
   mugHistory,
   mugModel,
   mugOf,
@@ -158,6 +161,12 @@ export function IsoView({
 }) {
   const kind = useView().workScene;
   return kind ? <IsoViewOf kind={kind} hand={hand} onFixtureMenu={onFixtureMenu} /> : null;
+}
+
+/** A food thing's use-by line, when it has one. */
+function foodLine(f: Fixture): { food?: FoodNow } {
+  const food = foodNow(f.food);
+  return food ? { food } : {};
 }
 
 function IsoViewOf({
@@ -327,10 +336,12 @@ function IsoViewOf({
         ? (custom ?? ISO_PRESETS.desk)
         : kind === 'custom-desk'
           ? ((custom && closeViewOf(custom)) ?? ISO_PRESETS.desk)
-          : guess?.kind === kind
-            ? guessedScene(guess)
-            : ISO_PRESETS[kind],
-    [kind, custom, guess],
+          : // A preset's built-in thing made a thing of its own is drawn as that thing.
+            withoutPromoted(
+              guess?.kind === kind ? guessedScene(guess) : ISO_PRESETS[kind],
+              memory?.fixtures,
+            ),
+    [kind, custom, guess, memory?.fixtures],
   );
   const surface =
     scene.surfaces.find((s) => s.id === (surfaceId ?? pin?.surfaceId ?? 'desk:top')) ??
@@ -488,6 +499,7 @@ function IsoViewOf({
         focused: f.id === focus.fixture,
         ...(f.track?.status === 'missing' ? { missing: true } : {}),
         ...(f.control.kind === 'light' ? { lamp: true } : {}),
+        ...foodLine(f),
       }));
   }, [memory?.fixtures, kind, shift, shown, custom, scene, placingId, focus]);
   const isoPlacing = useMemo(() => {

@@ -22,6 +22,7 @@ import {
   type IsoSceneKind,
 } from './iso.js';
 import type { DeskObservation } from './memory.js';
+import { foodSchema } from './food.js';
 
 /**
  * A fixture is a thing in a room that belongs there: a lamp, a wall switch, a
@@ -143,6 +144,13 @@ export const fixtureInputSchema = z
     states: z.record(fixtureStateNameSchema, fixtureStateInputSchema).optional(),
     /** True hands its place back to scans; any other save keeps it where the person put it. */
     scanned: z.boolean().optional(),
+    /**
+     * The group of a preset room's prop it was made from (the fridge's milk):
+     * drawn in its place, so the preset's own is left out (`withoutPromoted`).
+     */
+    builtIn: z.string().min(1).max(48).optional(),
+    /** Its use-by day, when it was opened and how much is left, for food. */
+    food: foodSchema.optional(),
     /**
      * Where it stands in the view of a photographed room that has a close
      * view (the office desk), when the person put it somewhere else there:
@@ -310,6 +318,8 @@ export function fixtureInput(f: Fixture): FixtureInput {
         }
       : {}),
     ...(f.room ? { room: f.room } : {}),
+    ...(f.builtIn ? { builtIn: f.builtIn } : {}),
+    ...(f.food ? { food: f.food } : {}),
   };
 }
 

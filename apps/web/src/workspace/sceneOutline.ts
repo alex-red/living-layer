@@ -2,6 +2,7 @@ import {
   DEMO_SURFACE,
   ISO_PRESETS,
   MAIN_RULE,
+  foodNow,
   pinFits,
   type DeskMemory,
   type Fixture,
@@ -12,7 +13,7 @@ import {
   type Mode,
   type PlacementRule,
 } from '@livinglayer/domain';
-import { roomLabel, sceneOf } from './labels';
+import { DESK_THINGS, roomLabel, sceneOf } from './labels';
 import { pinScene, roomOf, viewOf, type Selection, type WorkScene } from './progress';
 
 /**
@@ -90,9 +91,6 @@ function surfaceLabel(scene: IsoScene | null, surface: IsoSurface): string {
     ? owner
     : `${owner} · ${surface.label.toLowerCase()}`;
 }
-
-/** Small things drawn with a room that are worth listing: a book, a bottle. */
-const DESK_THINGS = new Set(['book', 'bottle', 'jar', 'carton']);
 
 export interface ThingRow {
   key: string;
@@ -182,9 +180,7 @@ function everything({ memory, mode, mainLight, lightsOn }: Omit<OutlineInput, 's
             ? `${f.control.kind} · ${f.state ?? 'unknown'}`
             : status === 'missing'
               ? 'missing'
-              : f.track
-                ? ''
-                : (f.state ?? ''),
+              : (foodNow(f.food)?.text.toLowerCase() ?? (f.track ? '' : (f.state ?? ''))),
         ...(f.track?.observation?.observedAt
           ? { seenAt: Date.parse(f.track.observation.observedAt) }
           : {}),
