@@ -108,8 +108,10 @@ export function fromSculpt(label: string, sculpt: Sculpt): IsoItem | null {
 
 /**
  * A closed lathe with a thin lathe inside it near its top is a vessel and
- * what is in it (a mug and its coffee): its top is opened and the disc
- * becomes its inside, which a closed body would hide.
+ * what its opening shows: its top is opened, and the disc's colour becomes
+ * its inner wall, which a closed body would hide. Empty: from above the rim a
+ * dark glaze and a drink look alike, and a drink is only what Spark says is
+ * in it (inside.liquid).
  */
 function openTops(parts: ItemPart[]): ItemPart[] {
   const gone = new Set<string>();
@@ -135,11 +137,7 @@ function openTops(parts: ItemPart[]): ItemPart[] {
     return {
       ...body,
       wall: Math.min(0.3, Math.max(0.04, 1 - fill.size.w / body.size.w)),
-      inside: {
-        wall: body.color,
-        liquid: fill.color,
-        level: Math.min(1, Math.max(0, (fill.at.z + fill.size.h - body.at.z) / body.size.h)),
-      },
+      inside: { wall: fill.color, liquid: null, level: 0 },
     };
   });
   return out.filter((p) => !gone.has(p.id));
@@ -178,7 +176,7 @@ export function toSculpt(item: IsoItem): SculptPart[] {
 export const SCULPT_FORMAT = [
   'Coordinates: x left to right and y back to front across the footprint, from 0 to 1; z up, in the same units. Each part has a box: at is its back-left-bottom corner, size its width, depth and height.',
   'Shapes:',
-  '- lathe: a side profile turned about the box’s vertical axis, for round bodies, pots, cups and bases. profile: points r, z from bottom to top, z a share of the box’s height and r a share of its half-width, so r = 1 reaches the box’s sides: a plain cylinder filling its box is [{r: 1, z: 0}, {r: 1, z: 1}]. The box sets the size; keep r near 1 unless the shape narrows. wall opens its top, with walls that thick as a share of the radius (a mug or cup about 0.1, a bowl or pot 0.05 to 0.1); null closes it. inside, for an open lathe: wall is the colour of the inner wall, liquid the colour of what fills it (null for empty) and level how full it is, a share of its height. A mug of coffee is an open lathe with its coffee as inside, not a separate part.',
+  '- lathe: a side profile turned about the box’s vertical axis, for round bodies, pots, cups and bases. profile: points r, z from bottom to top, z a share of the box’s height and r a share of its half-width, so r = 1 reaches the box’s sides: a plain cylinder filling its box is [{r: 1, z: 0}, {r: 1, z: 1}]. The box sets the size; keep r near 1 unless the shape narrows. wall opens its top, with walls that thick as a share of the radius (a mug or cup about 0.1, a bowl or pot 0.05 to 0.1); null closes it. inside, for an open lathe: wall is the colour of the inner wall, liquid the colour of a drink or what else fills it, and level how full it is, a share of its height. A dark inside is usually the inside’s own colour (a glaze, or shade), not a drink: set liquid only when the picture clearly shows something in it, else null with level 0. Model what is in a vessel as its inside, not as a separate part.',
   '- rbox: a box with rounded edges, for screens, books and panels. radius: a share of its smallest side.',
   '- tube: a round tube along a Bézier curve, for stands, cables, arms, handles and rings. path: 2 to 4 points as shares of the box; the tube starts at the first point and ends at the last, and the middle points only pull the curve toward them (it does not pass through them). radius in item units. A curve pulled toward a point gets about three quarters of the way there, so a tube’s box should be a little larger than the tube looks. A closed ring or loop is two tubes that start at the same point and end at the same point, bulging to opposite sides: a tall upright loop is [{x: 0.5, y: 0.5, z: 0}, {x: 0, y: 0.5, z: 0.15}, {x: 0, y: 0.5, z: 0.85}, {x: 0.5, y: 0.5, z: 1}] and the same with x 1 for the other half, which reaches out to about an eighth of the box from each side.',
   '- extrude: a footprint outline as shares of the box, pushed up, for flat odd shapes.',

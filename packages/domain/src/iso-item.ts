@@ -444,8 +444,12 @@ export function rotateItem(item: IsoItem, quarters = 1): IsoItem {
     });
   return { ...item, parts };
 }
-/** A plain mug: body, coffee, handle on the right. The base of every mug draft. */
-export function mugItem(body = '#ece5d0', inside = '#73604c', label = 'Mug'): IsoItem {
+/**
+ * A plain empty mug: an open body, its inside a shade darker, and a handle on
+ * the right. The base of every mug draft; nothing is in it unless a fit or the
+ * person says so.
+ */
+export function mugItem(body = '#ece5d0', inside = '#c9c0a8', label = 'Mug'): IsoItem {
   const straight = [
     { r: 1, z: 0 },
     { r: 1, z: 1 },
@@ -465,15 +469,8 @@ export function mugItem(body = '#ece5d0', inside = '#73604c', label = 'Mug'): Is
         size: { w: 0.78, d: 0.78, h: 0.9 },
         color: body,
         taper: 1,
-      },
-      {
-        id: 'coffee',
-        shape: 'lathe',
-        profile: straight,
-        at: { x: 0.07, y: 0.07, z: 0.9 },
-        size: { w: 0.64, d: 0.64, h: 0.02 },
-        color: inside,
-        taper: 1,
+        wall: 0.1,
+        inside: { wall: inside, liquid: null, level: 0 },
       },
       {
         id: 'handle',

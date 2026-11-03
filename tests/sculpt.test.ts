@@ -80,7 +80,7 @@ describe('a model Spark writes in our parts', () => {
     })!;
     expect(toSculpt(open)[0]).toMatchObject({ wall: 0.1, inside: coffee });
   });
-  it('opens a closed mug with a disc of coffee inside it, the disc becoming its inside', () => {
+  it('opens a closed mug with a dark disc inside it, the disc becoming its inside, empty', () => {
     const lathe = {
       shape: 'lathe' as const,
       radius: null,
@@ -112,8 +112,8 @@ describe('a model Spark writes in our parts', () => {
     expect(item.parts.map((p) => p.id)).toEqual(['body', 'base']);
     const body = item.parts[0]!;
     expect(body.shape === 'lathe' && body.wall).toBeCloseTo(1 - 0.6 / 0.72, 6);
-    expect(body).toMatchObject({ inside: { wall: '#f2ede1', liquid: '#122029' } });
-    expect(body.shape === 'lathe' && body.inside!.level).toBeCloseTo(0.92, 6);
+    // Its opening shows the disc's colour as its inside, and nothing in it.
+    expect(body).toMatchObject({ inside: { wall: '#122029', liquid: null, level: 0 } });
     expect(isoItemSchema.safeParse(item).success).toBe(true);
   });
   it('keeps an open top only on a lathe, and its inside only when it is open', () => {

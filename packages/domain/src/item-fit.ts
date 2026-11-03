@@ -512,16 +512,21 @@ function measureLathe(
       const [best, n] = [...counts].sort((a, b) => b[1] - a[1])[0] ?? [-1, 0];
       if (n >= opening.length * 0.2) g = best;
     }
-    if (g >= 0 && g !== bodyGroup) {
-      fit.colors.liquid = color(g);
-      fit.level = 0.85;
-    } else {
-      fit.colors.liquid = archetype === 'plant' ? fit.colors.liquid : null;
-      fit.level = archetype === 'plant' ? 0.88 : 0;
-    }
     // The inner wall is the body's colour, a step into the shade.
     const [L, a, b] = photo.groups[bodyGroup]?.lab ?? [0.7, 0, 0];
     fit.colors.inside = labHex([L * 0.82, a, b - 0.01]);
+    if (archetype === 'plant') {
+      // A pot is filled with soil: the opening's colour is the soil's.
+      if (g >= 0 && g !== bodyGroup) fit.colors.liquid = color(g);
+      fit.level = 0.88;
+    } else {
+      // Another colour in the opening is the inside's own (a dark glaze, the shade
+      // inside it): from above the rim, an empty mug and a full one look alike,
+      // so a drink is only what the person says is in it.
+      if (g >= 0 && g !== bodyGroup) fit.colors.inside = color(g);
+      fit.colors.liquid = null;
+      fit.level = 0;
+    }
   }
   // Bands: down the front of the body, rows whose middle is another colour.
   // On a cylinder seen from above, the front of height z sits R·sinE below its side.

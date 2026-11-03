@@ -121,7 +121,7 @@ describe('item models', () => {
   it('gives repeated part ids a suffix', () => {
     const mug = mugItem();
     const twice = uniqueParts({ ...mug, parts: [...mug.parts, mug.parts[0]!] });
-    expect(new Set(twice.parts.map((p) => p.id)).size).toBe(4);
+    expect(new Set(twice.parts.map((p) => p.id)).size).toBe(3);
   });
   it('finds the main colours in OKLab, largest first, and stops adding clusters when they stop helping', () => {
     const red = rgbLab([245, 15, 10]);
@@ -198,9 +198,11 @@ describe('item routes', () => {
     const body = item(drafted.memory)!.parts[0]!;
     expect(body.shape).toBe('lathe');
     if (body.shape !== 'lathe') return;
-    // Cream body with coffee in it, as rendered.
+    // Cream body, as rendered. The coffee's colour is what its opening shows, read as its
+    // inside: from above the rim a drink and a dark glaze look alike, so none is assumed.
     expect(deltaE(hexLab(body.color), hexLab(DEMO_MUG.color))).toBeLessThan(6);
-    expect(deltaE(hexLab(body.inside!.liquid!), hexLab(DEMO_MUG.coffee))).toBeLessThan(6);
+    expect(deltaE(hexLab(body.inside!.wall), hexLab(DEMO_MUG.coffee))).toBeLessThan(6);
+    expect(body.inside!.liquid).toBeNull();
     const crop = await s.app.inject({ method: 'GET', url: '/api/item/crop?mode=demo' });
     expect(crop.statusCode).toBe(200);
     expect(crop.headers['content-type']).toBe('image/png');
@@ -321,7 +323,7 @@ describe('live item drafts with Meta’s help', () => {
       'sam:mug',
       'spark:item_class',
       'sam:mug handle',
-      'sam:coffee',
+      'sam:inside of the mug',
       'spark:item_check',
     ]);
     expect(run.output.source).toBe('spark');
@@ -333,7 +335,7 @@ describe('live item drafts with Meta’s help', () => {
     expect(fit.assists).toEqual([
       'Spark: mug, gloss. A cream mug.',
       'SAM: mug handle not found',
-      'SAM: coffee not found',
+      'SAM: inside of the mug not found',
       expect.stringMatching(/^Spark check \((kept|not kept)\): Slightly taller\.$/),
     ]);
     expect(item(memory)!.parts[0]!.material).toBe('gloss');

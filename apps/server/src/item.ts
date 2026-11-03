@@ -55,8 +55,8 @@ const demoItemClass: ItemClass = {
 };
 /** SAM concepts worth asking for inside a crop, per archetype: parts the fitter can use. */
 const PART_CONCEPTS: Partial<Record<Archetype, { handle?: string; inside?: string }>> = {
-  mug: { handle: 'mug handle', inside: 'coffee' },
-  cup: { inside: 'drink' },
+  mug: { handle: 'mug handle', inside: 'inside of the mug' },
+  cup: { inside: 'inside of the cup' },
   plant: { inside: 'soil' },
 };
 

@@ -283,7 +283,7 @@ describe('fitting a model to a photo', () => {
       level: 0.85,
     }),
   );
-  it('recovers a mug’s proportions, handle, band, coffee and camera angle', () => {
+  it('recovers a mug’s proportions, handle, band, the colour inside it and camera angle', () => {
     const crop = syntheticCrop(truth, { elevation: 35, ppu: 160 });
     const out = fitItem({ ...crop, label: 'Blue mug', archetype: 'mug' });
     const fit = out.params as LatheFit;
@@ -296,7 +296,10 @@ describe('fitting a model to a photo', () => {
     expect(fit.bands[0]!.from).toBeCloseTo(0.62, 1);
     expect(deltaE(hexLab(fit.bands[0]!.color), hexLab('#f2efe6'))).toBeLessThan(6);
     expect(deltaE(hexLab(fit.colors.body), hexLab('#2f5d8c'))).toBeLessThan(6);
-    expect(deltaE(hexLab(fit.colors.liquid!), hexLab('#3b2416'))).toBeLessThan(6);
+    // The coffee shows as the colour inside its opening; nothing is said to be in it.
+    expect(deltaE(hexLab(fit.colors.inside), hexLab('#3b2416'))).toBeLessThan(6);
+    expect(fit.colors.liquid).toBeNull();
+    expect(fit.level).toBe(0);
     expect(isoItemSchema.safeParse(out.item).success).toBe(true);
   });
   it('uses the pinned camera angle and SAM’s handle mask when they are given', () => {

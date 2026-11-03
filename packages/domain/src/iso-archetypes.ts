@@ -191,7 +191,7 @@ const lathe = (fit: Partial<LatheFit>): LatheFit => ({
 export function defaultFit(archetype: Archetype, colors: string[] = []): ArchetypeFit {
   const main = colors[0] ?? '#b3a796';
   const second = colors[1] ?? main;
-  // Glazed and moulded things are the same colour inside; a second colour is what they hold.
+  // Glazed and moulded things are the same colour inside, or a second glaze; never full by default.
   const all = { body: main, inside: main, liquid: null, handle: main };
   switch (archetype) {
     case 'mug':
@@ -205,8 +205,8 @@ export function defaultFit(archetype: Archetype, colors: string[] = []): Archety
         ],
         wall: 0.12,
         handle: { top: 0.8, bottom: 0.22, reach: 0.22, thickness: 0.08 },
-        colors: { ...all, liquid: colors[1] ?? null },
-        level: colors[1] ? 0.85 : 0,
+        colors: { ...all, inside: colors[1] ?? main },
+        level: 0,
         material: 'gloss',
       });
     case 'cup':
