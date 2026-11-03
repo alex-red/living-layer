@@ -13,7 +13,11 @@ import {
   ISO_PRESETS,
   applyHomography,
   depthOrder,
+  fixtureInputSchema,
   fromIso,
+  groupLayer,
+  isoSceneSchema,
+  withGroupLayer,
   guessedScene,
   homography,
   invertHomography,
@@ -74,6 +78,34 @@ describe('isometric projection', () => {
     const order = depthOrder([front, mug, desk]);
     expect(order.indexOf(desk)).toBeLessThan(order.indexOf(mug));
     expect(order.indexOf(mug)).toBeLessThan(order.indexOf(front));
+  });
+  it('draws a higher layer over a lower one, whatever stands in front', () => {
+    const desk = box(1, 1, 2.2, 6, 4, 0.2);
+    const mug = box(3, 2, 2.4, 0.5, 0.5, 0.6);
+    const front = box(2.5, 3, 2.4, 1.5, 0.5, 1);
+    // Brought forward, the mug is drawn after what would cover it.
+    const raised = { ...mug, layer: 1 };
+    const order = depthOrder([front, raised, desk]);
+    expect(order.at(-1)).toBe(raised);
+    expect(order.indexOf(desk)).toBeLessThan(order.indexOf(front));
+    // Sent back, the desk is drawn before everything, even what stands under it.
+    const sunk = { ...desk, layer: -1 };
+    expect(depthOrder([front, mug, sunk])[0]).toBe(sunk);
+  });
+  it('sets a group’s layer on every prop of it, kept within bounds and saved', () => {
+    const office = ISO_PRESETS.office;
+    const g = office.props.find((p) => p.group !== p.id)!.group;
+    const raised = withGroupLayer({ ...office, kind: 'custom' as const }, g, 2);
+    expect(groupLayer(raised, g)).toBe(2);
+    expect(raised.props.filter((p) => p.group === g).every((p) => p.layer === 2)).toBe(true);
+    expect(raised.props.filter((p) => p.group !== g).every((p) => p.layer === undefined)).toBe(
+      true,
+    );
+    expect(groupLayer(withGroupLayer(raised, g, 99), g)).toBe(9);
+    // Back to 0 leaves no field behind.
+    expect(withGroupLayer(raised, g, 0).props.some((p) => 'layer' in p)).toBe(false);
+    expect(isoSceneSchema.safeParse(raised).success).toBe(true);
+    expect(fixtureInputSchema.shape.layer.safeParse(10).success).toBe(false);
   });
   it('gives every preset a drawable order and surfaces on real props', () => {
     for (const scene of Object.values(ISO_PRESETS)) {

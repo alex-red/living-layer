@@ -4,6 +4,7 @@ import {
   ISO_TILE_CM,
   addTemplate,
   groupBounds,
+  groupLayer,
   isoSceneSchema,
   moveGroup,
   overlappingGroups,
@@ -12,6 +13,8 @@ import {
   rotateScene,
   resizeRoom,
   settleGroup,
+  withGroupLayer,
+  MAX_LAYER,
   type EvidenceRun,
   type IsoScene as Scene,
   type IsoSceneKind,
@@ -193,6 +196,10 @@ export function SceneEditor({
     lastEdit.current = { key, at };
     setDraft(next);
   }
+  /** Bring a group forward (+1) or send it back (-1) a draw layer. */
+  function layer(g: string, by: 1 | -1) {
+    edit((d) => withGroupLayer(d, g, groupLayer(d, g) + by), `layer:${g}`);
+  }
   function restore(from: Snapshot[], to: Snapshot[]) {
     const snap = from.pop();
     if (!snap) return;
@@ -216,6 +223,8 @@ export function SceneEditor({
       edit((d) => removeGroup(d, selected));
       setSelected(undefined);
     } else if (!mod && e.key === 'Escape' && selected) setSelected(undefined);
+    else if (!mod && selected && (e.key === ']' || e.key === '['))
+      layer(selected, e.key === ']' ? 1 : -1);
     else return;
     e.preventDefault();
   };
@@ -744,6 +753,11 @@ export function SceneEditor({
             >
               ↻
             </IconButton>
+            <LayerButtons
+              layer={groupLayer(draft, selected)}
+              disabled={busy || drafting}
+              onLayer={(by) => layer(selected, by)}
+            />
             <Button
               size="sm"
               disabled={busy || drafting || !canSetUp}
@@ -805,5 +819,44 @@ export function SceneEditor({
         )}
       </Toolbar>
     </div>
+  );
+}
+
+/**
+ * Send a thing back or bring it forward a draw layer, like a z-index: a
+ * higher layer is drawn over a lower one wherever they meet. `[` and `]`
+ * do the same in the editor.
+ */
+export function LayerButtons({
+  layer,
+  disabled,
+  onLayer,
+}: {
+  layer: number;
+  disabled?: boolean;
+  onLayer: (by: 1 | -1) => void;
+}) {
+  return (
+    <span className="layer-buttons" role="group" aria-label="Draw layer">
+      <IconButton
+        label="Send back"
+        title="Draw it behind what it overlaps ([)"
+        disabled={disabled || layer <= -MAX_LAYER}
+        onClick={() => onLayer(-1)}
+      >
+        ⤓
+      </IconButton>
+      <span className="layer-value" title="Draw layer: higher is drawn over lower">
+        {layer > 0 ? `+${layer}` : layer}
+      </span>
+      <IconButton
+        label="Bring forward"
+        title="Draw it over what it overlaps (])"
+        disabled={disabled || layer >= MAX_LAYER}
+        onClick={() => onLayer(1)}
+      >
+        ⤒
+      </IconButton>
+    </span>
   );
 }

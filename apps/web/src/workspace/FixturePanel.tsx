@@ -8,6 +8,8 @@ import {
   linkedFixtures,
   pinFits,
   removeGroup,
+  groupLayer,
+  withGroupLayer,
   fixtureEntity,
   fixtureInput,
   fixtureModel,
@@ -47,6 +49,7 @@ import {
 } from '../ui/controls';
 import { itemSprite } from '../iso/sprites';
 import type { FixturePlacing } from '../iso/IsoView';
+import { LayerButtons } from '../iso/SceneEditor';
 import { useLab } from './LabContext';
 import type { Lab } from './useLabState';
 import { ago, builtInLamps, builtInThings, controlLabel, ownLayout, roomLabel } from './labels';
@@ -845,6 +848,18 @@ export function FixturePanel({ id }: { id: string }) {
         >
           Turn ↻
         </Button>
+        <LayerButtons
+          layer={f.layer ?? 0}
+          disabled={off || moving}
+          onLayer={(by) =>
+            save(
+              { ...inputOf(f), layer: (f.layer ?? 0) + by },
+              by > 0
+                ? `Drew the ${f.label.toLowerCase()} over what it overlaps.`
+                : `Drew the ${f.label.toLowerCase()} behind what it overlaps.`,
+            )
+          }
+        />
         <Button size="sm" disabled={off || moving} onClick={() => lab.openModel(f.id)}>
           {f.state ? `Edit “${f.state}” model` : 'Edit model'}
         </Button>
@@ -1164,6 +1179,27 @@ export function removeFromLayout(
   });
 }
 
+/** Bring a built-in thing forward or send it back a draw layer, in the person's own layout. */
+function layerInLayout(
+  lab: Lab,
+  call: ReturnType<typeof useCall>['call'],
+  group: string,
+  label: string,
+  by: 1 | -1,
+) {
+  const scene = lab.memory?.scene;
+  if (!scene) return Promise.resolve();
+  const next = withGroupLayer(scene, group, groupLayer(scene, group) + by);
+  return call<DeskMemory>('scene/save', { scene: next }, (m) => {
+    lab.setMemory(m);
+    lab.setMessage(
+      by > 0
+        ? `Drew the ${label.toLowerCase()} over what it overlaps.`
+        : `Drew the ${label.toLowerCase()} behind what it overlaps.`,
+    );
+  });
+}
+
 /** A small thing drawn as part of a room's layout: the office's book or bottle. */
 export function BuiltInPanel({ id }: { id: string }) {
   const lab = useLab();
@@ -1183,6 +1219,15 @@ export function BuiltInPanel({ id }: { id: string }) {
             Drawn with the room, it isn’t followed or switched. Remove it if it isn’t on your desk.
           </p>
           <div className="save-actions">
+            {lab.memory?.scene && (
+              <LayerButtons
+                layer={groupLayer(lab.memory.scene, thing.prop.group)}
+                disabled={off}
+                onLayer={(by) =>
+                  void layerInLayout(lab, call, thing.prop.group, thing.prop.label, by)
+                }
+              />
+            )}
             <Button
               className="destructive"
               disabled={off}

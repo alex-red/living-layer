@@ -740,6 +740,19 @@
   padding-left: 8px;
   border-left: 1px solid var(--line);
 }
+/* Send back, the layer, bring forward. */
+.layer-buttons {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.layer-value {
+  min-width: 2.5ch;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-2);
+  text-align: center;
+}
 .scene-picked-name {
   max-width: 14ch;
   overflow: hidden;

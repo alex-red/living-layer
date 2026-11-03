@@ -65,6 +65,8 @@ export interface IsoProp {
   recipe?: FixtureRecipe;
   /** Quarter turns clockwise from the model's own facing. */
   turns?: number;
+  /** Its draw layer, shared by its group: higher is drawn over lower where they meet. */
+  layer?: number;
 }
 /** A flat, horizontal place objects can rest on, in tile space. */
 export interface IsoSurface {
@@ -103,13 +105,47 @@ export function fromIso({ sx, sy }: IsoScreen, z = 0): IsoVec {
 export interface IsoBox {
   at: IsoVec;
   size: IsoSize;
+  /** Its draw layer, like a z-index: a higher one is drawn over a lower one wherever they meet. */
+  layer?: number;
 }
+/** How far a person can bring a thing forward or send it back. */
+export const MAX_LAYER = 9;
+export const layerSchema = z.number().int().min(-MAX_LAYER).max(MAX_LAYER);
 /**
- * Draw order for boxes that don't intersect: back to front. Two boxes can
- * only cover each other when their `x - y` spans overlap on screen; then the
- * one fully behind on some axis, and in front on none, goes first.
+ * Draw order: layer by layer from the lowest, and within a layer back to
+ * front, for boxes that don't intersect. Two boxes can only cover each other
+ * when their `x - y` spans overlap on screen; then the one fully behind on
+ * some axis, and in front on none, goes first. A layer is the way out when
+ * boxes do intersect, or a thin thing hides in a bigger one's box.
  */
 export function depthOrder<T extends IsoBox>(boxes: T[]): T[] {
+  const layers = [...new Set(boxes.map((b) => b.layer ?? 0))].sort((a, b) => a - b);
+  return layers.flatMap((l) => backToFront(boxes.filter((b) => (b.layer ?? 0) === l)));
+}
+/** A group's draw layer in a scene: its main prop's, 0 when it has none. */
+export function groupLayer(scene: Pick<IsoScene, 'props'>, g: string): number {
+  return (
+    (scene.props.find((p) => p.group === g && p.id === g) ?? scene.props.find((p) => p.group === g))
+      ?.layer ?? 0
+  );
+}
+/** The scene with a group moved to another draw layer (within ±MAX_LAYER), every prop of it at once. */
+export function withGroupLayer<S extends Pick<IsoScene, 'props'>>(
+  scene: S,
+  g: string,
+  layer: number,
+): S {
+  const l = Math.max(-MAX_LAYER, Math.min(MAX_LAYER, Math.round(layer)));
+  return {
+    ...scene,
+    props: scene.props.map((p) => {
+      if (p.group !== g) return p;
+      const { layer: _, ...rest } = p;
+      return l ? { ...rest, layer: l } : rest;
+    }),
+  };
+}
+function backToFront<T extends IsoBox>(boxes: T[]): T[] {
   const span = (b: IsoBox): [number, number] => [
     b.at.x - b.at.y - b.size.d,
     b.at.x + b.size.w - b.at.y,
@@ -261,6 +297,8 @@ const isoPropSchema = z
     form: z.enum(PROP_FORMS).optional(),
     recipe: fixtureRecipeSchema.optional(),
     turns: z.number().int().min(0).max(3).optional(),
+    /** Its draw layer, shared by its group: higher is drawn over lower where they meet. */
+    layer: layerSchema.optional(),
   })
   .strict();
 /**

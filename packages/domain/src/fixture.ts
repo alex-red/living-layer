@@ -12,7 +12,13 @@ import {
   type CatFit,
 } from './iso-archetypes.js';
 import { ISO_TILE_CM } from './iso-furniture.js';
-import { isoSceneKindSchema, type IsoBox, type IsoScene, type IsoSceneKind } from './iso.js';
+import {
+  isoSceneKindSchema,
+  layerSchema,
+  type IsoBox,
+  type IsoScene,
+  type IsoSceneKind,
+} from './iso.js';
 import type { DeskObservation } from './index.js';
 
 /**
@@ -93,6 +99,8 @@ export const fixtureInputSchema = z
     turns: z.union([z.literal(0), z.literal(1), z.literal(2), z.literal(3)]),
     /** Footprint and height in tiles before turning; the model is scaled to fit. */
     size: fixtureSizeSchema,
+    /** Its draw layer, like a z-index: higher is drawn over lower where they meet. */
+    layer: layerSchema.optional(),
     model: isoItemSchema,
     /** The reference photo's run and asset, for the editor's photo overlay. */
     reference: fixtureReferenceSchema,
@@ -233,6 +241,7 @@ export function fixtureInput(f: Fixture): FixtureInput {
     at: f.at,
     turns: f.turns,
     size: f.size,
+    ...(f.layer ? { layer: f.layer } : {}),
     model: { label: f.model.label, parts: f.model.parts },
     reference: f.reference,
     control: f.control,
@@ -450,7 +459,7 @@ function sceneOf(kind: IsoSceneKind | 'custom', custom?: IsoScene | null): IsoSc
 /** Where a fixture stands in its scene, as a box for depth sorting and picking. */
 export function fixtureBox(
   fixture: Pick<Fixture, 'scene' | 'surfaceId' | 'at' | 'turns' | 'size'> &
-    Partial<Pick<Fixture, 'state' | 'states'>>,
+    Partial<Pick<Fixture, 'state' | 'states' | 'layer'>>,
   custom?: IsoScene | null,
 ): IsoBox {
   const surface = fixture.surfaceId
@@ -465,6 +474,7 @@ export function fixtureBox(
       d: turned ? sz.w : sz.d,
       h: sz.h,
     },
+    ...(fixture.layer ? { layer: fixture.layer } : {}),
   };
 }
 
