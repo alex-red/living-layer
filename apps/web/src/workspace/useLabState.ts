@@ -1971,6 +1971,34 @@ export function useLabState() {
       frame: size,
     });
   }
+  /**
+   * The camera was taken to have moved but its calibration still holds: the
+   * frame it shows now is what later frames are compared with, and zones apply
+   * again (redraw any that no longer fit).
+   */
+  async function keepCameraView() {
+    if (busy) return;
+    setBusy('calibrate');
+    setError('');
+    try {
+      const imageDataUrl = frameNow();
+      if (mode === 'live' && !imageDataUrl)
+        throw new Error('Start the camera or add a photo of the room first.');
+      setMemory(
+        await api<DeskMemory>('room/keep', {
+          mode,
+          ...(imageDataUrl ? { imageDataUrl } : {}),
+        }),
+      );
+      setMessage(
+        'Kept the calibration: zones apply again. Redraw any zone that no longer lines up.',
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e : 'Could not keep the camera’s view.');
+    } finally {
+      setBusy('');
+    }
+  }
   async function saveCalibration(draft: CalibrationDraft) {
     setBusy('calibrate');
     setError('');
@@ -2857,6 +2885,7 @@ export function useLabState() {
     cameraFrame,
     calibrateByHand,
     calibrateHere,
+    keepCameraView,
     zoomable: zoomable(),
     startZooming,
     saveZoom,

@@ -286,6 +286,37 @@ export function roomRoutes(
     return calibrateRoom(store, { ...rest, image });
   });
 
+  /**
+   * The camera was taken to have moved, but its calibration still holds (a
+   * false alarm, or zones about to be drawn again): the current frame becomes
+   * the one later frames are compared with, and zones apply again.
+   */
+  app.post('/api/room/keep', async (request) => {
+    const input = parseInput(
+      z.object({ mode: modeSchema, imageDataUrl: z.string().max(7_000_000).optional() }).strict(),
+      request.body,
+    );
+    const live = input.mode === 'live';
+    if (!live && input.imageDataUrl)
+      throw new LabError('demo_image', 'Demo mode uses only the demo room’s camera.');
+    const memory = store.memory(input.mode);
+    const calibration = memory.camera;
+    if (!calibration)
+      throw new LabError('not_calibrated', 'Calibrate the room’s camera first.', 409);
+    const image = live ? await validateImage(input.imageDataUrl) : null;
+    const { frame } = calibration.camera;
+    if (image && (image.width !== frame.width || image.height !== frame.height))
+      throw new LabError(
+        'not_calibrated',
+        `This frame is ${image.width}×${image.height}, but the camera was calibrated at ${frame.width}×${frame.height}. Calibrate it again.`,
+        409,
+      );
+    const luma = await lumaOf(image ? image.bytes : await demoPng());
+    const { moved: _, ...kept } = calibration;
+    store.saveMemory({ ...memory, camera: { ...kept, reference: cameraEdges(luma) } });
+    return store.memory(input.mode);
+  });
+
   app.post('/api/room/forget', async (request) => {
     const { mode } = parseInput(z.object({ mode: modeSchema }).strict(), request.body);
     const memory = store.memory(mode);

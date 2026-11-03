@@ -301,8 +301,17 @@ describe('calibrating the room camera', () => {
       scene: 'office',
     });
     expect(wrong.statusCode).toBe(422);
+    // Kept after a move, the calibration stays and the frame now is the reference.
+    const kept = await s.post('room/keep');
+    expect(kept.statusCode, kept.body).toBe(200);
+    const camera = kept.json<DeskMemory>().camera!;
+    expect(camera.calibratedAt).toBe(memory.camera!.calibratedAt);
+    expect(camera.reference).toBe(memory.camera!.reference);
+    expect(camera.moved).toBeUndefined();
     const forgotten = (await s.post('room/forget')).json<DeskMemory>();
     expect(forgotten.camera).toBeNull();
+    // With nothing calibrated there is nothing to keep.
+    expect((await s.post('room/keep')).statusCode).toBe(409);
     expect(s.fetcher).not.toHaveBeenCalled();
     await s.app.close();
   });

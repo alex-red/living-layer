@@ -978,6 +978,34 @@ function OtherPanel({ id }: { id: string }) {
   );
 }
 
+/**
+ * The camera moved since it was calibrated, so every zone is paused: calibrate
+ * again from the old marks, or keep the calibration and redraw zones.
+ */
+function CameraMoved() {
+  const lab = useLab();
+  const { memory, mode, busy, pinning } = lab;
+  if (!memory?.camera?.moved) return null;
+  return (
+    <div className="save-actions">
+      <Button
+        variant="primary"
+        disabled={Boolean(busy) || Boolean(pinning)}
+        // Demo frames come from the server, so the demo finds its marks there (no model calls).
+        onClick={() => (mode === 'demo' ? void lab.startCalibrating() : lab.calibrateHere())}
+      >
+        Calibrate again
+      </Button>
+      <Button
+        disabled={Boolean(busy) || Boolean(pinning)}
+        onClick={() => void lab.keepCameraView()}
+      >
+        {busy === 'calibrate' ? 'Keeping…' : 'Keep calibration'}
+      </Button>
+    </div>
+  );
+}
+
 /** The mug's own zone and the main lamp. */
 function ZonePanel() {
   const lab = useLab();
@@ -1024,6 +1052,7 @@ function ZonePanel() {
         <strong>{memory.zone ? 'ZN-01' : 'a zone'}</strong>, turn on{' '}
         <strong>{lab.lights[0] ?? 'the main lamp'}</strong>.
       </p>
+      <CameraMoved />
       {!drawing && (
         <Button
           disabled={Boolean(busy) || !currentObservation || camera}
@@ -1209,6 +1238,7 @@ function RulePanel({ id }: { id: string }) {
           'tell Home Assistant only.'
         )}
       </p>
+      <CameraMoved />
       <Button disabled={off} onClick={() => lab.editRule(r.id)}>
         Edit zone and rule
       </Button>
