@@ -1,0 +1,53 @@
+/* Shell and ambient light */
+.shell {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  height: 100dvh;
+  isolation: isolate;
+}
+.shell::before,
+.shell::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-behind);
+  pointer-events: none;
+}
+.shell::before {
+  background: radial-gradient(ellipse 60% 50% at 38% 45%, rgb(111 211 224 / 6%), transparent 70%);
+}
+.shell::after {
+  opacity: 0;
+  background: radial-gradient(ellipse 65% 55% at 38% 45%, rgb(255 184 102 / 8%), transparent 72%);
+  transition: opacity 1.2s var(--ease-out);
+}
+/* A virtual lamp warms the room at half strength, per the design guide. */
+.shell.lamp-virtual::after {
+  opacity: 0.5;
+}
+.shell.lamp-live::after {
+  opacity: 1;
+  animation: ignite 1.2s var(--ease-out);
+}
+@keyframes ignite {
+  0% {
+    opacity: 0;
+  }
+  8% {
+    opacity: 0.75;
+  }
+  12% {
+    opacity: 0.3;
+  }
+  18% {
+    opacity: 0.85;
+  }
+  22% {
+    opacity: 0.5;
+  }
+  100% {
+    opacity: 1;
+  }
+}

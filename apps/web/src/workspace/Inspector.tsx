@@ -49,6 +49,7 @@ import { ago, mainSurface, roomLabel, surfaceRows, type LabRead } from './labels
 import { pinScene, viewLabel, type Selection } from './progress';
 import { TRANSITION, centre, type Lab } from './useLabState';
 import './inspector.css';
+import './objects.css';
 
 type Events = { memory: DeskMemory; events: EvidenceRun<PlacementDecision>[] };
 
