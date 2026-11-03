@@ -23,6 +23,7 @@
     "start": "bun apps/server/src/index.ts",
     "typecheck": "bun scripts/typecheck.ts",
     "lint": "oxlint",
+    "dead-exports": "bun scripts/dead-exports.ts",
     "test": "bun test",
     "test:fast": "bun scripts/test-shards.ts",
     "test:watch": "bun test --watch",
