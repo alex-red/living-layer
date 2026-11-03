@@ -797,7 +797,9 @@ describe('fixture shapes', () => {
       draft: FixtureDraft;
     }>();
     expect(draft).toMatchObject({ label: 'Desk lamp', suggested: 'light', archetype: 'lamp' });
-    const profile = draft.model.parts[0]!.profile!;
+    const shade = draft.model.parts[0]!;
+    if (shade.shape !== 'lathe') throw new Error('the lamp is not turned');
+    const profile = shade.profile;
     const r = (z: number) =>
       profile.reduce((a, p) => (Math.abs(p.z - z) < Math.abs(a.z - z) ? p : a)).r;
     expect(r(0.35)).toBeLessThan(0.2);

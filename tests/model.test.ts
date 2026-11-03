@@ -91,12 +91,16 @@ describe('item spec', () => {
   });
   it('turns tubes, outlines and printed surfaces with the item', () => {
     const item = buildItem('Mug', mug());
-    const handle = (i: IsoItem) => i.parts.find((p) => p.id === 'handle')!;
+    const handle = (i: IsoItem) => {
+      const p = i.parts.find((q) => q.id === 'handle')!;
+      if (p.shape !== 'tube') throw new Error('the handle is not a tube');
+      return p;
+    };
     const once = rotateItem(item);
-    expect(handle(once).path![0]).toEqual({
-      x: 1 - handle(item).path![0]!.y,
-      y: handle(item).path![0]!.x,
-      z: handle(item).path![0]!.z,
+    expect(handle(once).path[0]).toEqual({
+      x: 1 - handle(item).path[0]!.y,
+      y: handle(item).path[0]!.x,
+      z: handle(item).path[0]!.z,
     });
     expect(rotateItem(item, 4)).toEqual(item);
     const printed: IsoItem = {
