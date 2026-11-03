@@ -19,6 +19,7 @@ import {
   itemHeight,
   modelTarget,
   ruleSighting,
+  actionsColor,
   pinFits,
   rotateItem,
   projectBox,
@@ -97,6 +98,17 @@ const IllustrationView = lazy(() =>
 
 /** What the iso canvas shows: the room, the layout editor, or an object's model. */
 export type IsoPanel = 'room' | 'scene' | 'item';
+/**
+ * The bottom of a motion zone's rectangle: where what it watches stands on
+ * the surface. The whole rectangle is mostly the thing's body above the
+ * surface, which mapped onto the surface lands far behind it.
+ */
+const footBand = (r: ZoneRect): ZoneRect => ({
+  x: r.x,
+  y: r.y + r.height * 0.8,
+  width: r.width,
+  height: r.height * 0.2,
+});
 /** A rule being set up or changed; its zone is dragged out on the iso surface. */
 export interface RuleDraft {
   /** The saved rule being changed; unset for a new one. */
@@ -422,14 +434,22 @@ function IsoViewOf({
     for (const rule of memory?.rules ?? []) {
       const map = pinned && pin ? surfaceMap(pin, rule.zone.frame) : null;
       // A rule being changed shows as its draft only.
-      if (map && rule.id !== ruleDraft?.id)
+      if (map && rule.id !== ruleDraft?.id) {
+        const rgb = actionsColor(ruleActions(rule));
         zones.push({
           id: rule.id,
           kind: 'rule',
           label: rule.label,
           inside: rule.placement === 'inside',
-          quad: zoneOnSurface(rule.zone.rect, rule.zone.frame, map.toSurface),
+          quad: zoneOnSurface(
+            rule.motion ? footBand(rule.zone.rect) : rule.zone.rect,
+            rule.zone.frame,
+            map.toSurface,
+          ),
+          ...(rgb ? { color: `rgb(${rgb.join(' ')})` } : {}),
+          ...(rule.motion ? { motion: true } : {}),
         });
+      }
     }
     // A rule's zone is drawn on the frame of the newest sighting of what it counts.
     const ruleTarget = ruleDraft && memory ? ruleSighting(memory, ruleDraft.objects) : null;

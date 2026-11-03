@@ -78,12 +78,30 @@
   cursor: crosshair;
   touch-action: none;
 }
+/*
+ * A zone on a surface: a dashed outline over a faint wash in its colour (its
+ * light's, when its steps set one), filled more strongly while something is
+ * in it, as on the camera view.
+ */
 .iso-zone {
-  fill: var(--chosen-wash);
-  stroke: var(--chosen);
-  stroke-width: 1.5;
-  filter: drop-shadow(0 0 8px var(--chosen-glow));
+  --zone: var(--chosen);
+  fill: color-mix(in srgb, var(--zone) 12%, transparent);
+  stroke: var(--zone);
+  stroke-width: 1.25;
+  stroke-dasharray: 4 3;
+  stroke-linejoin: round;
   pointer-events: none;
+  transition:
+    fill var(--t-fast) var(--ease-out),
+    stroke-width var(--t-fast) var(--ease-out);
+}
+.iso-zone.motion {
+  --zone: var(--seen);
+}
+.iso-zone.inside {
+  fill: color-mix(in srgb, var(--zone) 30%, transparent);
+  stroke-width: 2;
+  filter: drop-shadow(0 0 6px color-mix(in srgb, var(--zone) 55%, transparent));
 }
 .iso-trail {
   fill: none;
@@ -131,11 +149,11 @@
   cursor: pointer;
 }
 .iso-zone.pickable:hover {
-  stroke-width: 2.5;
+  stroke-width: 2.25;
 }
 .iso-zone.focused {
-  stroke-width: 2.5;
-  filter: drop-shadow(0 0 14px var(--chosen-glow));
+  stroke-width: 2.25;
+  filter: drop-shadow(0 0 10px color-mix(in srgb, var(--zone) 50%, transparent));
 }
 /* Amber only for lamps, and only once an action on their light is confirmed. */
 .iso-lamp.lit image {
@@ -747,24 +765,38 @@
   filter: drop-shadow(0 0 0.6px var(--unsure));
 }
 
-/* Extra zones: dashed until the object is inside at a check. */
-.iso-zone.rule {
-  stroke-dasharray: 5 4;
-  fill: none;
-  filter: none;
-}
-.iso-zone.rule.inside {
-  fill: var(--chosen-wash);
-  stroke-dasharray: none;
-}
+/* A zone being drawn: finer dashes, so it reads as not saved yet. */
 .iso-zone.draft {
   stroke-dasharray: 2 3;
 }
+/* Under the zone's front corner, outlined so it reads over the desk's grain. */
 .iso-zone-label {
-  fill: var(--chosen);
-  font: 500 10px/1 var(--mono);
-  letter-spacing: 0.08em;
+  --zone: var(--chosen);
+  fill: var(--zone);
+  font: 500 9px/1 var(--mono);
+  letter-spacing: 0.06em;
+  text-anchor: middle;
+  paint-order: stroke;
+  stroke: rgb(10 12 18 / 80%);
+  stroke-width: 3px;
+  stroke-linejoin: round;
   pointer-events: none;
+}
+.iso-zone-label.motion {
+  --zone: var(--seen);
+}
+.iso-zone-label.inside {
+  font-weight: 700;
+}
+.iso-zone-leader {
+  --zone: var(--chosen);
+  stroke: var(--zone);
+  stroke-width: 0.75;
+  stroke-opacity: 0.7;
+  pointer-events: none;
+}
+.iso-zone-leader.motion {
+  --zone: var(--seen);
 }
 
 /* Scene editor: pick and drag whole groups. */

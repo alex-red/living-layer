@@ -15,6 +15,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type MouseEvent,
   type PointerEvent,
 } from 'react';
@@ -47,6 +48,42 @@ function shade(hex: string, k: number): string {
   const n = parseInt(hex.slice(1), 16);
   const c = [n >> 16, (n >> 8) & 255, n & 255].map((v) => Math.round(v * (1 - k)));
   return `rgb(${c.join(' ')})`;
+}
+/** A zone label's size in the scene's units: its 9 px mono letters, and a line. */
+const LABEL_CHAR = 5.6;
+const LABEL_LINE = 11;
+/**
+ * Where each zone's label goes: centred under the zone's front corner, the
+ * one nearest the viewer, so it sits on the surface in front of the zone
+ * rather than over what stands behind it. A label that would overlap one
+ * already placed moves down a line until it doesn't, and keeps its corner
+ * (`ax`, `ay`) for a leader line back to its zone.
+ */
+function zoneLabels(zones: IsoZone[], at: (uv: Quad[number]) => { sx: number; sy: number }) {
+  const placed: { z: IsoZone; x: number; y: number; w: number; ax: number; ay: number }[] = [];
+  const front = zones
+    .filter((z) => z.label)
+    .map((z) => {
+      const corners = z.quad.map(at);
+      const c = corners.reduce((a, b) => (b.sy > a.sy ? b : a));
+      return {
+        z,
+        x: c.sx,
+        y: c.sy + LABEL_LINE,
+        w: z.label!.length * LABEL_CHAR,
+        ax: c.sx,
+        ay: c.sy,
+      };
+    })
+    .sort((a, b) => a.y - b.y);
+  for (const l of front) {
+    while (
+      placed.some((p) => Math.abs(p.y - l.y) < LABEL_LINE && Math.abs(p.x - l.x) < (p.w + l.w) / 2)
+    )
+      l.y += LABEL_LINE;
+    placed.push(l);
+  }
+  return placed;
 }
 const pts = (ps: IsoVec[]) =>
   ps
@@ -148,6 +185,10 @@ export interface IsoZone {
   inside?: boolean;
   /** Selected in the outline. */
   focused?: boolean;
+  /** Its own colour (the light its steps turn), as CSS; unset keeps the zone's usual. */
+  color?: string;
+  /** A motion zone, inside while it sees motion. */
+  motion?: boolean;
 }
 /** A fixture standing in the room: a lamp, a switch, a mouse. */
 export interface IsoFixture {
@@ -770,7 +811,8 @@ function IsoSceneView({
                   return (
                     <polygon
                       key={z.id}
-                      className={`iso-zone ${z.kind} ${z.inside ? 'inside' : ''} ${z.focused ? 'focused' : ''} ${pick ? 'pickable' : ''}`}
+                      className={`iso-zone ${z.kind} ${z.motion ? 'motion' : ''} ${z.inside ? 'inside' : ''} ${z.focused ? 'focused' : ''} ${pick ? 'pickable' : ''}`}
+                      style={z.color ? ({ '--zone': z.color } as CSSProperties) : undefined}
                       data-zone={z.id}
                       points={pts(z.quad.map((uv) => onSurface(uv)!))}
                       onClick={pick ? () => onZone(z.id) : undefined}
@@ -809,21 +851,28 @@ function IsoSceneView({
       )}
       {!editing &&
         surface &&
-        zones
-          .filter((z) => z.label)
-          .map((z) => {
-            const c = toIso(onSurface(z.quad[0])!);
-            return (
-              <text
-                key={`label-${z.id}`}
-                className={`iso-zone-label ${z.kind}`}
-                x={c.sx}
-                y={c.sy - 4}
-              >
+        zoneLabels(zones, (uv) => toIso(onSurface(uv)!)).map(({ z, x, y, ax, ay }) => {
+          const style = z.color ? ({ '--zone': z.color } as CSSProperties) : undefined;
+          const kind = `${z.kind} ${z.motion ? 'motion' : ''} ${z.inside ? 'inside' : ''}`;
+          return (
+            <g key={`label-${z.id}`}>
+              {/* Moved down past another label: a line back to its own zone. */}
+              {y - ay > LABEL_LINE + 1 && (
+                <line
+                  className={`iso-zone-leader ${kind}`}
+                  style={style}
+                  x1={ax}
+                  y1={ay}
+                  x2={x}
+                  y2={y - LABEL_LINE + 3}
+                />
+              )}
+              <text className={`iso-zone-label ${kind}`} style={style} x={x} y={y}>
                 {z.label!.toUpperCase()}
               </text>
-            );
-          })}
+            </g>
+          );
+        })}
       <defs>
         <radialGradient id="iso-warm">
           <stop offset="0" stopColor="var(--warm)" stopOpacity="0.35" />
