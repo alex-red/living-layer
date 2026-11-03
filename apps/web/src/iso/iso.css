@@ -143,13 +143,26 @@
 .iso-object.focused text {
   font-weight: 700;
 }
-/* A saved zone opens its rule with a click, inside it as well as on its edge. */
-.iso-zone.pickable {
+/*
+ * A saved zone opens with a click on the surface inside it. The hit area is
+ * on the surface, under what stands in the zone, so a mug in it still takes
+ * its own clicks; the zone itself is drawn over everything and takes none.
+ */
+.iso-zone-hit {
+  fill: transparent;
+  stroke: none;
   pointer-events: all;
   cursor: pointer;
 }
-.iso-zone.pickable:hover {
-  stroke-width: 2.25;
+.iso-zones {
+  pointer-events: none;
+}
+.iso-zone-edge {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 6;
+  pointer-events: stroke;
+  cursor: pointer;
 }
 .iso-zone.focused {
   stroke-width: 2.25;
@@ -787,16 +800,6 @@
 }
 .iso-zone-label.inside {
   font-weight: 700;
-}
-.iso-zone-leader {
-  --zone: var(--chosen);
-  stroke: var(--zone);
-  stroke-width: 0.75;
-  stroke-opacity: 0.7;
-  pointer-events: none;
-}
-.iso-zone-leader.motion {
-  --zone: var(--seen);
 }
 
 /* Scene editor: pick and drag whole groups. */

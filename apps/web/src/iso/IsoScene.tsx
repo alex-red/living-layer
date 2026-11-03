@@ -49,41 +49,10 @@ function shade(hex: string, k: number): string {
   const c = [n >> 16, (n >> 8) & 255, n & 255].map((v) => Math.round(v * (1 - k)));
   return `rgb(${c.join(' ')})`;
 }
-/** A zone label's size in the scene's units: its 9 px mono letters, and a line. */
-const LABEL_CHAR = 5.6;
-const LABEL_LINE = 11;
-/**
- * Where each zone's label goes: centred under the zone's front corner, the
- * one nearest the viewer, so it sits on the surface in front of the zone
- * rather than over what stands behind it. A label that would overlap one
- * already placed moves down a line until it doesn't, and keeps its corner
- * (`ax`, `ay`) for a leader line back to its zone.
- */
-function zoneLabels(zones: IsoZone[], at: (uv: Quad[number]) => { sx: number; sy: number }) {
-  const placed: { z: IsoZone; x: number; y: number; w: number; ax: number; ay: number }[] = [];
-  const front = zones
-    .filter((z) => z.label)
-    .map((z) => {
-      const corners = z.quad.map(at);
-      const c = corners.reduce((a, b) => (b.sy > a.sy ? b : a));
-      return {
-        z,
-        x: c.sx,
-        y: c.sy + LABEL_LINE,
-        w: z.label!.length * LABEL_CHAR,
-        ax: c.sx,
-        ay: c.sy,
-      };
-    })
-    .sort((a, b) => a.y - b.y);
-  for (const l of front) {
-    while (
-      placed.some((p) => Math.abs(p.y - l.y) < LABEL_LINE && Math.abs(p.x - l.x) < (p.w + l.w) / 2)
-    )
-      l.y += LABEL_LINE;
-    placed.push(l);
-  }
-  return placed;
+/** Where a zone's name goes: just under its front corner, the one nearest the viewer. */
+function zoneLabelAt(corners: { sx: number; sy: number }[]) {
+  const c = corners.reduce((a, b) => (b.sy > a.sy ? b : a));
+  return { sx: c.sx, sy: c.sy + 11 };
 }
 const pts = (ps: IsoVec[]) =>
   ps
@@ -530,6 +499,8 @@ function IsoSceneView({
   const start = useRef<Point | null>(null);
   const drag = useRef<{ group: string; z: number; last: { x: number; y: number } } | null>(null);
   const [hover, setHover] = useState(false);
+  /** The zone under the pointer, named while it is there. */
+  const [hoverZone, setHoverZone] = useState<string | null>(null);
   const [density, setDensity] = useState<CalloutDensity>('full');
   const [ghost, setGhost] = useState<Stand | null>(null);
   const [stretching, setStretching] = useState<{ id: string; rect: BaseRect } | null>(null);
@@ -806,21 +777,25 @@ function IsoSceneView({
                   className={`iso-surface ${drawing ? 'drawing' : ''} ${hover ? 'hover' : ''}`}
                   points={pts(surfaceQuad)}
                 />
-                {zones.map((z) => {
-                  const pick = onZone && !drawing && !placing && z.kind !== 'draft';
-                  return (
-                    <polygon
-                      key={z.id}
-                      className={`iso-zone ${z.kind} ${z.motion ? 'motion' : ''} ${z.inside ? 'inside' : ''} ${z.focused ? 'focused' : ''} ${pick ? 'pickable' : ''}`}
-                      style={z.color ? ({ '--zone': z.color } as CSSProperties) : undefined}
-                      data-zone={z.id}
-                      points={pts(z.quad.map((uv) => onSurface(uv)!))}
-                      onClick={pick ? () => onZone(z.id) : undefined}
-                    >
-                      {pick && <title>{`${z.label ?? 'Main zone'}: click to open its rule`}</title>}
-                    </polygon>
-                  );
-                })}
+                {/* Where a zone takes a hover or a click: on the surface, under what stands in it. */}
+                {onZone &&
+                  !drawing &&
+                  !placing &&
+                  zones
+                    .filter((z) => z.kind !== 'draft')
+                    .map((z) => (
+                      <polygon
+                        key={z.id}
+                        className={`iso-zone-hit ${z.kind} pickable`}
+                        data-zone={z.id}
+                        points={pts(z.quad.map((uv) => onSurface(uv)!))}
+                        onClick={() => onZone(z.id)}
+                        onPointerEnter={() => setHoverZone(z.id)}
+                        onPointerLeave={() => setHoverZone((h) => (h === z.id ? null : h))}
+                      >
+                        <title>{`${z.label ?? 'Main zone'}: click to open it`}</title>
+                      </polygon>
+                    ))}
                 {trail.length > 1 && (
                   <polyline
                     className="iso-trail"
@@ -849,30 +824,51 @@ function IsoSceneView({
           />
         ),
       )}
-      {!editing &&
-        surface &&
-        zoneLabels(zones, (uv) => toIso(onSurface(uv)!)).map(({ z, x, y, ax, ay }) => {
-          const style = z.color ? ({ '--zone': z.color } as CSSProperties) : undefined;
-          const kind = `${z.kind} ${z.motion ? 'motion' : ''} ${z.inside ? 'inside' : ''}`;
-          return (
-            <g key={`label-${z.id}`}>
-              {/* Moved down past another label: a line back to its own zone. */}
-              {y - ay > LABEL_LINE + 1 && (
-                <line
-                  className={`iso-zone-leader ${kind}`}
-                  style={style}
-                  x1={ax}
-                  y1={ay}
-                  x2={x}
-                  y2={y - LABEL_LINE + 3}
+      {/* Zones over everything standing in the room, so none hides behind a monitor; named on hover. */}
+      {!editing && surface && (
+        <g className="iso-zones">
+          {zones.map((z) => (
+            <polygon
+              key={z.id}
+              className={`iso-zone ${z.kind} ${z.motion ? 'motion' : ''} ${z.inside ? 'inside' : ''} ${z.focused || hoverZone === z.id ? 'focused' : ''}`}
+              style={z.color ? ({ '--zone': z.color } as CSSProperties) : undefined}
+              points={pts(z.quad.map((uv) => onSurface(uv)!))}
+            />
+          ))}
+          {/* Its outline takes a hover or a click too, where something stands over its middle. */}
+          {onZone &&
+            !drawing &&
+            !placing &&
+            zones
+              .filter((z) => z.kind !== 'draft')
+              .map((z) => (
+                <polygon
+                  key={`edge-${z.id}`}
+                  className="iso-zone-edge"
+                  points={pts(z.quad.map((uv) => onSurface(uv)!))}
+                  onClick={() => onZone(z.id)}
+                  onPointerEnter={() => setHoverZone(z.id)}
+                  onPointerLeave={() => setHoverZone((h) => (h === z.id ? null : h))}
                 />
-              )}
-              <text className={`iso-zone-label ${kind}`} style={style} x={x} y={y}>
-                {z.label!.toUpperCase()}
-              </text>
-            </g>
-          );
-        })}
+              ))}
+          {zones
+            .filter((z) => z.label && (z.kind === 'draft' || z.focused || hoverZone === z.id))
+            .map((z) => {
+              const c = zoneLabelAt(z.quad.map((uv) => toIso(onSurface(uv)!)));
+              return (
+                <text
+                  key={`label-${z.id}`}
+                  className={`iso-zone-label ${z.kind} ${z.motion ? 'motion' : ''} ${z.inside ? 'inside' : ''}`}
+                  style={z.color ? ({ '--zone': z.color } as CSSProperties) : undefined}
+                  x={c.sx}
+                  y={c.sy}
+                >
+                  {z.label!.toUpperCase()}
+                </text>
+              );
+            })}
+        </g>
+      )}
       <defs>
         <radialGradient id="iso-warm">
           <stop offset="0" stopColor="var(--warm)" stopOpacity="0.35" />
