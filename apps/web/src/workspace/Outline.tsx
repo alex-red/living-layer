@@ -254,7 +254,7 @@ function SceneSwitcher() {
           label="Scenes"
           items={[
             ...choices.map((c): MenuItem => ({
-              label: `${c.view ? '   ↳ ' : ''}${c.label}${c.scene === workScene ? '  ✓' : ''}`,
+              label: `${c.view ? '   ↳ ' : ''}${c.label}${c.example && !c.view ? ' (example)' : ''}${c.scene === workScene ? '  ✓' : ''}`,
               onSelect: () => go(c.scene),
             })),
             {

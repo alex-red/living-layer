@@ -27,6 +27,8 @@ interface SceneChoice {
   label: string;
   /** A close view inside `room`, drawn under it. */
   view: boolean;
+  /** One of the example rooms, beside a room of your own. */
+  example: boolean;
   room: WorkScene;
 }
 /** The rooms there are, each followed by its close view: your own first, then the presets. */
@@ -37,9 +39,10 @@ export function sceneChoices(memory?: DeskMemory | null): SceneChoice[] {
   ];
   return rooms.flatMap((room) => {
     const view = viewOf(room, memory);
+    const example = room !== 'custom' && Boolean(memory?.scene);
     return [
-      { scene: room, label: roomLabel(room, memory), view: false, room },
-      ...(view ? [{ scene: view, label: roomLabel(view, memory), view: true, room }] : []),
+      { scene: room, label: roomLabel(room, memory), view: false, room, example },
+      ...(view ? [{ scene: view, label: roomLabel(view, memory), view: true, room, example }] : []),
     ];
   });
 }
@@ -80,7 +83,10 @@ function surfaceUnder(scene: IsoScene, prop: IsoProp): IsoSurface | null {
 function surfaceLabel(scene: IsoScene | null, surface: IsoSurface): string {
   const owner = scene?.props.find((p) => p.id === surface.propId)?.label;
   if (!owner) return surface.label;
-  return !surface.label || surface.label === 'Top'
+  // "Top", or the surface named as its prop is (a crisper lid's lid), says nothing more.
+  return !surface.label ||
+    surface.label === 'Top' ||
+    owner.toLowerCase().includes(surface.label.toLowerCase())
     ? owner
     : `${owner} · ${surface.label.toLowerCase()}`;
 }

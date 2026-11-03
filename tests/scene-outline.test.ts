@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'bun:test';
-import type { DeskMemory, Fixture, PlacementRule } from '@livinglayer/domain';
+import {
+  ISO_PRESETS,
+  type DeskMemory,
+  type Fixture,
+  type PlacementRule,
+} from '@livinglayer/domain';
 import { emptyDesk } from '../apps/web/src/session.js';
 import { homeOf, sceneChoices, sceneOutline } from '../apps/web/src/workspace/sceneOutline.js';
 import type { WorkScene } from '../apps/web/src/workspace/progress.js';
@@ -49,6 +54,26 @@ describe('the sidebar, one scene at a time', () => {
       ['desk', true],
       ['fridge', false],
     ]);
+  });
+
+  it('marks the example rooms beside your own', () => {
+    const own = demo({ scene: { ...ISO_PRESETS.office, kind: 'custom', label: 'My office' } });
+    expect(sceneChoices(own).map((c) => [c.scene, c.example])).toEqual([
+      ['custom', false],
+      ['custom-desk', false],
+      ['office', true],
+      ['desk', true],
+      ['fridge', true],
+    ]);
+  });
+
+  it('names a surface by what it is part of, without saying it twice', () => {
+    for (const scene of ['fridge', 'desk'] as const)
+      for (const g of outline(scene).groups) {
+        const parts = g.label.toLowerCase().split(' · ');
+        expect(new Set(parts).size).toBe(parts.length);
+        expect(g.label).not.toBe('Top');
+      }
   });
 
   it('lists what stands on the desk under the desk, pinned first, and nowhere else', () => {
