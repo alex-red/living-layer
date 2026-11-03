@@ -206,6 +206,11 @@ export const fixturesScanBodySchema = z
     replace: z.boolean().optional(),
     /** Add what the room doesn't have yet; false only looks for what it has. */
     addNew: z.boolean().optional(),
+    /**
+     * Follow each fixture and thing that moves from SAM's outline in the scan,
+     * with no further call: a mug as the desk's mug, anything else as an object.
+     */
+    follow: z.boolean().optional(),
     /** The page's id for following the steps as they go. */
     jobId: z.string().uuid().optional(),
   })

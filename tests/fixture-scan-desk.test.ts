@@ -6,10 +6,6 @@ import { buildApp } from '../apps/server/src/app.js';
 import { demoSegmentation } from '../apps/server/src/demo.js';
 import { parseConfig, type Fetcher } from '../apps/server/src/config.js';
 import {
-  drawnRound,
-  fixtureInFrame,
-  fixtureOutlineBox,
-  LOCAL_OUTLINE_MODEL,
   type DeskMemory,
   type EvidenceRun,
   type Job,
@@ -253,52 +249,38 @@ describe('scanning the demo desk', () => {
     const released = (await s.post('fixtures/release', { scene: book!.scene })).json<DeskMemory>();
     expect(released.fixtures!.every((f) => f.scanned)).toBe(true);
   });
-  it('follows each scanned thing from where the scan saw it, outlined with no model call', async () => {
-    const { one, ...s } = await scanned();
-    for (const f of one.memory.fixtures!) {
-      const shape = fixtureOutlineBox(f, DEMO_SURFACE, null);
-      expect(shape, f.label).not.toBeNull();
-      const run = (await s.post('segment', { concept: f.label.toLowerCase(), shape })).json<
-        EvidenceRun<Segmentation>
-      >();
-      expect(run.model).toBe(LOCAL_OUTLINE_MODEL);
-      expect(run.output.detections.length, f.label).toBe(1);
-      // On the thing the scan saw, not on something else inside the box.
-      const seen = fixtureInFrame(f, DEMO_SURFACE, null)!;
-      const got = run.output.detections[0]!.box;
-      const w = Math.min(seen.x + seen.width, got.x + got.width) - Math.max(seen.x, got.x);
-      const h = Math.min(seen.y + seen.height, got.y + got.height) - Math.max(seen.y, got.y);
-      const both = Math.max(0, w) * Math.max(0, h);
-      const iou = both / (seen.width * seen.height + got.width * got.height - both);
-      expect(iou, f.label).toBeGreaterThan(0.5);
-      const anchored = await s.post('fixtures/anchor', {
-        id: f.id,
-        segmentRunId: run.id,
-        detectionId: run.output.detections[0]!.objectId,
-      });
-      expect(anchored.statusCode, anchored.body).toBe(200);
-    }
-    const memory = (await s.app.inject('/api/desk/demo')).json<DeskMemory>();
-    expect(memory.fixtures!.map((f) => f.track?.status)).toEqual(['seen', 'seen']);
-  });
-  it('lists the mug as a thing that moves, never a fixture, and it can be the desk’s mug', async () => {
-    const { one, ...s } = await scanned();
-    const { moving } = one;
-    expect(moving.map((m) => m.label)).toEqual(['mug']);
+  it('lists the mug as a thing that moves, never a fixture', async () => {
+    const { one } = await scanned();
+    expect(one.moving.map((m) => m.label)).toEqual(['mug']);
     expect(one.memory.fixtures!.map((f) => f.label)).not.toContain('Mug');
-    const shape = drawnRound(moving[0]!.box);
-    const run = (await s.post('segment', { concept: 'mug', shape })).json<
-      EvidenceRun<Segmentation>
-    >();
-    expect(run.model).toBe(LOCAL_OUTLINE_MODEL);
+    expect(one.followed).toEqual([]);
+  });
+  it('follows each thing from SAM’s outline in the scan when asked: fixtures, and the mug', async () => {
+    const { app, post } = await setup();
+    const jobId = crypto.randomUUID();
+    const res = await post('fixtures/scan', { follow: true, jobId });
+    expect(res.statusCode, res.body).toBe(200);
+    const done = res.json<Scanned>();
+    expect(done.followed).toEqual(['Green book', 'Sage bottle', 'Mug']);
+    expect(done.missed).toEqual([]);
+    const memory = (await app.inject('/api/desk/demo')).json<DeskMemory>();
+    expect(memory.fixtures!.map((f) => f.track?.status)).toEqual(['seen', 'seen']);
+    expect(memory.object).toBeTruthy();
+    expect(memory.observation!.identity).toBe('manual');
+    // Each from a segmentation of the scan's photo, with SAM's mask: no call past the scan's.
+    const runs = (await app.inject('/api/runs')).json<EvidenceRun<Segmentation>[]>();
+    const outlines = runs.filter((r) => r.kind === 'segment');
+    expect(outlines.map((r) => [r.output.concept, r.model])).toEqual([
+      ['mug', 'sam (scan outline)'],
+      ['sage bottle', 'sam (scan outline)'],
+      ['green book', 'sam (scan outline)'],
+    ]);
+    // The mug's mask is the demo render's own mug.
     const truth = (await demoSegmentation('mug')).output.detections[0]!.box;
-    const got = run.output.detections[0]!.box;
-    expect(Math.abs(got.x - truth.x) + Math.abs(got.y - truth.y)).toBeLessThan(6);
-    const selected = await s.post('desk/select', {
-      segmentRunId: run.id,
-      detectionId: run.output.detections[0]!.objectId,
-    });
-    expect(selected.statusCode, selected.body).toBe(200);
-    expect(selected.json<DeskMemory>().object?.label).toBeTruthy();
+    const mug = outlines[0]!.output.detections[0]!.box;
+    expect(Math.abs(mug.x - truth.x) + Math.abs(mug.y - truth.y)).toBeLessThan(4);
+    // The job shows the step.
+    const job = (await app.inject(`/api/jobs/${jobId}`)).json<Job>();
+    expect(job.steps.at(-1)).toMatchObject({ id: 'follow', state: 'done' });
   });
 });

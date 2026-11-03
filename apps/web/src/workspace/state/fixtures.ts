@@ -1,23 +1,13 @@
 import { useRef, useCallback } from 'react';
 import type {
-  DeskMemory,
   Fixture,
   MappedThing,
   IsoSceneKind,
   FixtureInput,
   SelectionShape,
 } from '@livinglayer/domain';
-import {
-  DEMO_SURFACE,
-  closeViewOf,
-  fixtureAt,
-  fixtureBox,
-  drawnRound,
-  fixtureOutlineBox,
-  inRoomView,
-  fixtureInput,
-} from '@livinglayer/domain';
-import { api, apiAt } from '../../api';
+import { closeViewOf, fixtureAt, fixtureBox, inRoomView, fixtureInput } from '@livinglayer/domain';
+import { api } from '../../api';
 import type { FixturePlacing } from '../../iso/IsoView';
 import { SHORTCUTS } from '../../shortcuts';
 import type { ViewSlice } from './view';
@@ -283,7 +273,12 @@ export function useFixturesSlice(
   ): Promise<MappedThing[] | null> {
     return (await scan(scene, replace, addNew))?.mapped ?? null;
   }
-  async function scan(scene: IsoSceneKind | 'custom', replace: boolean, addNew: boolean) {
+  async function scan(
+    scene: IsoSceneKind | 'custom',
+    replace: boolean,
+    addNew: boolean,
+    follow = false,
+  ) {
     if (busy) return null;
     // What the camera shows now, which is the frame the pin was set on, not the last one captured.
     const photo = frameNow();
@@ -306,6 +301,7 @@ export function useFixturesSlice(
               scene,
               replace,
               addNew,
+              ...(follow ? { follow } : {}),
               jobId,
               ...(mode === 'live' ? { imageDataUrl: photo } : {}),
             },
@@ -333,99 +329,19 @@ export function useFixturesSlice(
     }
   }
   /**
-   * Everything on the desk from one look: a scan that adds what it hasn't got
-   * yet, then each scanned thing the camera sees followed from where the scan
-   * saw it, outlined on this machine in the frame it scanned (no model call
-   * past the scan's own) and confirmed. A fixture is followed where it
-   * stands; a thing that moves (a mug, a phone) is remembered as the mug, if
-   * there is none yet, or as another object. What is already followed keeps
-   * its track.
+   * Everything on the desk from one look: a scan that adds what the room
+   * hasn't got and follows each thing from SAM's outline in it (no call past
+   * the scan's own): what stays put as a fixture, a mug as the desk's mug,
+   * anything else that moves as an object.
    */
   async function findOnDesk(scene: IsoSceneKind | 'custom') {
-    const scanned = await scan(scene, true, true);
+    const scanned = await scan(scene, true, true, true);
     if (!scanned) return;
-    const saved = scanned.memory;
-    const pin = mode === 'live' ? saved.surface : DEMO_SURFACE;
-    if (!pin) return;
-    const fixtures = (saved.fixtures ?? []).flatMap((f) => {
-      if (f.scene !== scene || !f.scanned || f.track) return [];
-      const shape = fixtureOutlineBox(f, pin, saved.scene ?? null);
-      return shape ? [{ label: f.label, fixtureId: f.id, shape }] : [];
-    });
-    const followed = new Set(
-      [saved.object?.label, ...(saved.others ?? []).flatMap((o) => [o.label, o.concept])].map((l) =>
-        l?.trim().toLowerCase(),
-      ),
+    const { followed, missed } = scanned;
+    const list = (labels: string[]) => labels.join(', ').toLowerCase();
+    setMessage(
+      `${followed.length ? `Following ${list(followed)} from the scan’s outlines` : 'The scan outlined nothing to follow'}${missed.length ? `; SAM didn’t outline ${list(missed)}: draw round ${missed.length === 1 ? 'it' : 'them'} in ${missed.length === 1 ? 'its' : 'their'} panel` : ''}${costNote(scanned.run)}.${watching || !followed.length ? '' : ' Watch on the server to keep following them.'}`,
     );
-    let mugFree = !saved.object;
-    const moving = scanned.moving.flatMap((m) => {
-      const mug = /\b(mug|cup)\b/i.test(m.label);
-      if (mug ? !mugFree : followed.has(m.label.trim().toLowerCase())) return [];
-      if (mug) mugFree = false;
-      const shape = drawnRound(m.box);
-      return shape ? [{ label: m.label, mug, shape }] : [];
-    });
-    if (!fixtures.length && !moving.length) return;
-    setBusy('follow-desk');
-    let next = saved;
-    const found: string[] = [];
-    const missed: string[] = [];
-    const outline = async (concept: string, shape: SelectionShape) => {
-      const run = await api('segment', {
-        mode,
-        concept,
-        shape,
-        ...(mode === 'demo' ? { demoPosition } : { imageDataUrl: scanned.photo }),
-      });
-      const detection = run.output.detections[0];
-      return detection ? { runId: run.id, detectionId: detection.objectId } : null;
-    };
-    try {
-      for (const f of fixtures) {
-        const got = await outline(f.label.trim().toLowerCase(), f.shape);
-        if (!got) {
-          missed.push(f.label);
-          continue;
-        }
-        next = await api('fixtures/anchor', {
-          mode,
-          id: f.fixtureId,
-          segmentRunId: got.runId,
-          detectionId: got.detectionId,
-        });
-        found.push(f.label);
-      }
-      for (const m of moving) {
-        // The mug is found as a mug, whatever Spark called it, so it can be the desk's mug.
-        const got = await outline(m.mug ? 'mug' : m.label.trim().toLowerCase(), m.shape);
-        if (!got) {
-          missed.push(m.label);
-          continue;
-        }
-        const ids = { mode, segmentRunId: got.runId, detectionId: got.detectionId };
-        next =
-          m.mug && !next.object
-            ? await apiAt<DeskMemory>('desk/select', ids)
-            : (
-                await apiAt<{ memory: DeskMemory }>('desk/objects/select', {
-                  ...ids,
-                  label: m.label,
-                })
-              ).memory;
-        found.push(m.label);
-      }
-      setMemory(next);
-      const list = (labels: string[]) => labels.join(', ').toLowerCase();
-      setMessage(
-        `${found.length ? `Following ${list(found)}, outlined on this machine` : 'Nothing on the desk could be outlined'}${missed.length ? `; draw round ${list(missed)} in ${missed.length === 1 ? 'its' : 'their'} panel` : ''}.${watching || !found.length ? '' : ' Watch on the server to keep following them.'}`,
-      );
-    } catch (e) {
-      setMemory(next);
-      setError(e instanceof Error ? e : 'Could not follow what the scan found.');
-    } finally {
-      setBusy('');
-      void refresh().catch(() => {});
-    }
   }
   /**
    * Lift the room's fixtures off its picture, so dragging one moves the thing

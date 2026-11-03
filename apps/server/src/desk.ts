@@ -677,9 +677,72 @@ export function createDesk(
     fixture.track.status = 'missing';
     store.saveMemory(memory);
   }
+  /** The mug is this mask of the newest mug segmentation, by hand. */
+  function selectMug(mode: Mode, segmentRunId: string, detectionId: string) {
+    available(mode);
+    const { run, segmentation } = latestMugSegmentation(mode, segmentRunId);
+    const detection = segmentation.detections.find((d) => d.objectId === detectionId);
+    if (run.status !== 'completed' || !detection)
+      throw new LabError('mug_selection', 'Select a specific mug mask from a new segmentation.');
+    const memory = store.memory(mode);
+    const previous = memory.observation;
+    observe(
+      memory,
+      run,
+      segmentation,
+      detection,
+      'manual',
+      previous ? (pickTracked([detection], segmentation.frame, previous)?.overlap ?? null) : null,
+    );
+    return memory;
+  }
+  /** Remember another object from the newest segmentation, by hand, like the mug. */
+  async function rememberObject(
+    mode: Mode,
+    segmentRunId: string,
+    detectionId: string,
+    label: string,
+  ) {
+    available(mode);
+    const { run, segmentation } = latestSegmentation(mode, segmentRunId);
+    const detection = segmentation.detections.find((d) => d.objectId === detectionId);
+    if (!detection) throw new LabError('object_selection', 'Pick a mask from this segmentation.');
+    const memory = store.memory(mode);
+    const others = memory.others ?? [];
+    if (others.length >= MAX_OTHER_OBJECTS)
+      throw new LabError(
+        'object_limit',
+        `Up to ${MAX_OTHER_OBJECTS} more objects can be remembered.`,
+        409,
+      );
+    if (
+      memory.observation?.segmentRunId === run.id &&
+      memory.observation.detectionId === detectionId
+    )
+      throw new LabError('object_selection', 'That mask is already the remembered mug.', 409);
+    const id = randomUUID();
+    const observation = sightingOf(id, run, segmentation, detection, 'manual', null);
+    memory.others = [
+      ...others,
+      {
+        id,
+        label,
+        concept: segmentation.concept,
+        createdAt: new Date().toISOString(),
+        observation,
+        history: [],
+      },
+    ];
+    store.saveMemory(memory);
+    store.save(evidence('observation', mode, observation));
+    const events = await verifyRules(mode, id);
+    return { memory: store.memory(mode), events };
+  }
   return {
     /** Throws while a placement check is switching a light in this mode. */
     available,
+    selectMug,
+    rememberObject,
     evidence,
     observe,
     sightingOf,
@@ -706,31 +769,14 @@ export async function deskRoutes(
   deps: Pick<RouteDeps, 'store' | 'desk' | 'entities'>,
 ) {
   const { store, desk, entities } = deps;
-  const { available, evidence, observe, sightingOf, trackMug, trackObject, verify, verifyRules } =
-    desk;
-  const { latestMugSegmentation, latestSegmentation } = desk;
+  const { available, evidence, trackMug, trackObject, verify, verifyRules } = desk;
   app.get('/:mode', async (request) => {
     const { mode } = parseInput(modeOnlySchema, request.params);
     return store.memory(mode);
   });
   app.post('/select', async (request) => {
     const { mode, segmentRunId, detectionId } = parseInput(deskSelectBodySchema, request.body);
-    available(mode);
-    const { run, segmentation } = latestMugSegmentation(mode, segmentRunId);
-    const detection = segmentation.detections.find((d) => d.objectId === detectionId);
-    if (run.status !== 'completed' || !detection)
-      throw new LabError('mug_selection', 'Select a specific mug mask from a new segmentation.');
-    const memory = store.memory(mode);
-    const previous = memory.observation;
-    observe(
-      memory,
-      run,
-      segmentation,
-      detection,
-      'manual',
-      previous ? (pickTracked([detection], segmentation.frame, previous)?.overlap ?? null) : null,
-    );
-    return memory;
+    return desk.selectMug(mode, segmentRunId, detectionId);
   });
   app.post('/track', async (request) => {
     const { mode, segmentRunId } = parseInput(deskTrackBodySchema, request.body);
@@ -795,40 +841,7 @@ export async function deskRoutes(
       deskObjectsSelectBodySchema,
       request.body,
     );
-    available(mode);
-    const { run, segmentation } = latestSegmentation(mode, segmentRunId);
-    const detection = segmentation.detections.find((d) => d.objectId === detectionId);
-    if (!detection) throw new LabError('object_selection', 'Pick a mask from this segmentation.');
-    const memory = store.memory(mode);
-    const others = memory.others ?? [];
-    if (others.length >= MAX_OTHER_OBJECTS)
-      throw new LabError(
-        'object_limit',
-        `Up to ${MAX_OTHER_OBJECTS} more objects can be remembered.`,
-        409,
-      );
-    if (
-      memory.observation?.segmentRunId === run.id &&
-      memory.observation.detectionId === detectionId
-    )
-      throw new LabError('object_selection', 'That mask is already the remembered mug.', 409);
-    const id = randomUUID();
-    const observation = sightingOf(id, run, segmentation, detection, 'manual', null);
-    memory.others = [
-      ...others,
-      {
-        id,
-        label,
-        concept: segmentation.concept,
-        createdAt: new Date().toISOString(),
-        observation,
-        history: [],
-      },
-    ];
-    store.saveMemory(memory);
-    store.save(evidence('observation', mode, observation));
-    const events = await verifyRules(mode, id);
-    return { memory: store.memory(mode), events };
+    return desk.rememberObject(mode, segmentRunId, detectionId, label);
   });
   app.post('/objects/track', async (request) => {
     const { mode, objectId, segmentRunId } = parseInput(deskObjectsTrackBodySchema, request.body);

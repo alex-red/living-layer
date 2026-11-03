@@ -1,8 +1,9 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import {
   fixtureOutput,
   fixturesScanBodySchema,
   DEMO_SURFACE,
+  demoSourceKey,
   layoutThings,
   mapScan,
   withLayoutMoves,
@@ -18,6 +19,7 @@ import {
   type MappedThing,
   META_PRICES,
   MAX_FIXTURES,
+  MAX_OTHER_OBJECTS,
   promptBox,
   sparkCeiling,
   uniqueParts,
@@ -56,6 +58,10 @@ const SCAN_STEPS = [
   { id: 'map', label: 'Place them through the pin' },
   { id: 'save', label: 'Save the fixtures' },
 ];
+/** The last step when a scan follows what it found. */
+const FOLLOW_STEP = { id: 'follow', label: 'Follow each one from its outline' };
+/** The model a scan's own outline, kept to follow a thing, is recorded under. */
+const SCAN_OUTLINE_MODEL = 'sam (scan outline)';
 /** How wide a scan step's picture is kept, so it reads in the dialog. */
 const SCAN_PREVIEW = 640;
 /** What a scan did, in a line: moved, added and skipped. */
@@ -81,7 +87,8 @@ async function roomPhoto(memory: DeskMemory, store: EvidenceStore): Promise<stri
 }
 
 /**
- * Each scanned thing's outline, by its place in the scan: SAM from Spark's
+ * Each scanned thing's outline, by its place in the scan (the things that
+ * stay put, then those that move): SAM from Spark's
  * boxes live (one call), or the demo render's own outlines,
  * matched by how much they overlap the box. Null where nothing was outlined.
  */
@@ -94,11 +101,11 @@ async function outlinedThings(
   assets: string[],
   signal?: AbortSignal,
 ): Promise<(Detection | null)[]> {
-  const boxes = scan.things.map((t) => promptBox(t, frame));
+  const boxes = [...scan.things, ...(scan.moving ?? [])].map((t) => promptBox(t, frame));
   let detections: Detection[];
   if (dataUrl) {
     const prompts = boxes.flatMap((box, i) => (box ? [{ id: i + 1, box }] : []));
-    if (!prompts.length) return scan.things.map(() => null);
+    if (!prompts.length) return boxes.map(() => null);
     const outlined = await meta.segmentBoxes(dataUrl, prompts, frame.width, frame.height, signal);
     assets.push(store.asset(runId, 'sam-output.txt', outlined.raw));
     detections = outlined.output.detections;
@@ -282,7 +289,12 @@ function saveScanned(
   memory.fixtures = [...library, ...added].slice(0, MAX_FIXTURES);
   if (target === 'custom' && memory.scene) memory.scene = withLayoutMoves(memory.scene, mapped);
   store.saveMemory(memory);
-  return { memory, count: memory.fixtures.length };
+  // Which fixture each mapped thing is now, by its place in the scan.
+  let next = 0;
+  const ids = mapped.map((m) =>
+    m.fixture ? added[next++]?.id : m.match === 'existing' ? m.fixtureId : undefined,
+  );
+  return { memory, count: memory.fixtures.length, ids };
 }
 
 /**
@@ -297,7 +309,7 @@ function saveScanned(
  * touches down, which a loose box doesn't. Demo mode scans the
  * demo office through its camera, with no model call.
  */
-type ScanDeps = Pick<RouteDeps, 'store' | 'meta' | 'run' | 'jobs' | 'entities'>;
+type ScanDeps = Pick<RouteDeps, 'store' | 'meta' | 'run' | 'jobs' | 'entities' | 'desk'>;
 type ScanFrame = { width: number; height: number };
 type ScanPhoto = { image: ValidatedImage | null; png: Buffer; frame: ScanFrame };
 type ScanPin = NonNullable<DeskMemory['surface']>;
@@ -424,11 +436,11 @@ async function scanOutline(
   job.check();
   await job.done(
     'outline',
-    `${outlined.filter(Boolean).length} of ${scan.things.length} outlined`,
+    `${outlined.filter(Boolean).length} of ${outlined.length} outlined`,
     await outlinedPreview(
       png,
       frame,
-      scan.things.map((t) => t.label),
+      [...scan.things, ...(scan.moving ?? [])].map((t) => t.label),
       outlined,
     ),
     SCAN_PREVIEW,
@@ -490,14 +502,16 @@ async function scanRun(
 ) {
   const { store, meta, run, entities } = deps;
   const { image, png, frame } = photo;
-  // What each fitted model was fitted to, by its place in the scan.
+  // What each fitted model was fitted to, and each thing's outline, by its place in the scan.
   let fits: ScanFits = [];
+  let outlines: (Detection | null)[] = [];
   const event = await run('fixture', where.mode, async (id) => {
     job.link(id);
     const result = await scanList(deps, job, photo, asked);
     const scan: FixtureScan = result.output;
     const assets = image ? [store.asset(id, `source.${image.ext}`, image.bytes)] : [];
     const outlined = await scanOutline({ meta, store }, job, photo, scan, id, assets);
+    outlines = outlined;
     // Step 3: each outline is modelled by the fitter, with no further calls.
     job.run('model');
     const modelled = await fitOutlines({ store, meta }, job, {
@@ -521,12 +535,85 @@ async function scanRun(
     const mapped = await scanMap(entities, job, photo, where, scan, modelled);
     return { ...result, usage: modelled.usage, output: { scan, mapped }, assets };
   });
-  return { event, fits };
+  return { event, fits, outlines };
+}
+
+/**
+ * Follow what a scan found from SAM's own outlines, with no further call:
+ * each outline is recorded as a segmentation of the scan's photo, then a
+ * fixture is anchored to it, and a thing that moves is the mug (when there
+ * is none yet, and it is one) or another object. One at a time, as each
+ * confirms the newest segmentation. Layout things have no fixture to follow.
+ */
+async function followScanned(
+  { store, run, desk }: Pick<ScanDeps, 'store' | 'run' | 'desk'>,
+  mode: Mode,
+  { image, frame }: ScanPhoto,
+  scan: FixtureScan,
+  ids: (string | undefined)[],
+  outlines: (Detection | null)[],
+) {
+  const sourceKey = image
+    ? createHash('sha256').update(image.bytes).digest('hex')
+    : demoSourceKey();
+  const outlineRun = (concept: string, detection: Detection) =>
+    run('segment', mode, async (id) => ({
+      output: { concept, frame, detections: [{ ...detection, objectId: '1' }], sourceKey },
+      model: SCAN_OUTLINE_MODEL,
+      assets: image ? [store.asset(id, `source.${image.ext}`, image.bytes)] : [],
+    }));
+  const followed: string[] = [];
+  const missed: string[] = [];
+  for (const [i, thing] of scan.things.entries()) {
+    const id = ids[i];
+    const fixture = id && store.memory(mode).fixtures?.find((f) => f.id === id);
+    if (!fixture) continue;
+    const detection = outlines[i];
+    if (!detection) {
+      missed.push(fixture.label);
+      continue;
+    }
+    const segment = await outlineRun(thing.label.trim().toLowerCase(), detection);
+    desk.anchorFixture(mode, fixture.id, segment.id, '1');
+    followed.push(fixture.label);
+  }
+  for (const [j, thing] of (scan.moving ?? []).entries()) {
+    const detection = outlines[scan.things.length + j];
+    const memory = store.memory(mode);
+    const label = thing.label.charAt(0).toUpperCase() + thing.label.slice(1);
+    const mug = /\b(mug|cup)\b/i.test(thing.label);
+    const same = (o: { label: string; concept: string }) =>
+      [o.label, o.concept].some((l) => l.trim().toLowerCase() === thing.label.trim().toLowerCase());
+    // Already followed, or no room for another: left alone.
+    if ((mug && memory.object) || (memory.others ?? []).some(same)) continue;
+    if (!mug && (memory.others ?? []).length >= MAX_OTHER_OBJECTS) continue;
+    if (!detection) {
+      missed.push(label);
+      continue;
+    }
+    if (mug) {
+      const segment = await outlineRun('mug', detection);
+      desk.selectMug(mode, segment.id, '1');
+    } else {
+      const segment = await outlineRun(thing.label.trim().toLowerCase(), detection);
+      await desk.rememberObject(mode, segment.id, '1', label);
+    }
+    followed.push(label);
+  }
+  return { followed, missed };
 }
 
 export async function scanFixtures(
   deps: ScanDeps,
-  { mode, imageDataUrl, scene, replace, addNew, jobId }: Parsed<typeof fixturesScanBodySchema>,
+  {
+    mode,
+    imageDataUrl,
+    scene,
+    replace,
+    addNew,
+    follow,
+    jobId,
+  }: Parsed<typeof fixturesScanBodySchema>,
 ) {
   const { store, meta, jobs } = deps;
   const live = mode === 'live';
@@ -535,7 +622,10 @@ export async function scanFixtures(
   const { pin, target } = scanTarget(before, live, scene);
   const ceiling = sparkCeiling(SPARK_BUDGET.fixtureScan, 1) + META_PRICES.samPerImage;
   if (live) meta.mustAfford(ceiling, 'A scan');
-  const job = jobs.start(jobId, SCAN_STEPS, { title: 'Scanning and mapping', mode });
+  const job = jobs.start(jobId, follow ? [...SCAN_STEPS, FOLLOW_STEP] : SCAN_STEPS, {
+    title: 'Scanning and mapping',
+    mode,
+  });
   return following(job, async () => {
     job.run('photo');
     const image = await scanPhotoImage(store, before, pin, imageDataUrl, live);
@@ -554,15 +644,39 @@ export async function scanFixtures(
     );
     job.check();
     const where = { mode, pin, target, replace, addNew };
-    const { event, fits } = await scanRun(deps, job, { image, png, frame }, asked, where);
+    const { event, fits, outlines } = await scanRun(deps, job, { image, png, frame }, asked, where);
     // Stopped while the last step ran: nothing is saved.
     job.check();
     job.run('save');
     const { mapped, scan } = fixtureOutput.scan(event)!;
-    const { memory, count } = saveScanned(store, mode, target, mapped, fits);
+    const { memory, count, ids } = saveScanned(store, mode, target, mapped, fits);
     await job.done('save', `${count} fixture${count === 1 ? '' : 's'} in the workspace`);
+    // Things that move aren't fixtures: followed as objects, when asked to follow.
+    let followed: string[] = [];
+    let missed: string[] = [];
+    if (follow) {
+      job.run('follow');
+      ({ followed, missed } = await followScanned(
+        deps,
+        mode,
+        { image, png, frame },
+        scan,
+        ids,
+        outlines,
+      ));
+      await job.done(
+        'follow',
+        `${followed.length} followed${missed.length ? `, ${missed.length} not outlined` : ''}`,
+      );
+    }
     job.finish();
-    // Things that move aren't saved: the page follows each as an object, if asked.
-    return { run: event, mapped, memory, moving: scan.moving ?? [] };
+    return {
+      run: event,
+      mapped,
+      memory: follow ? store.memory(mode) : memory,
+      moving: scan.moving ?? [],
+      followed,
+      missed,
+    };
   });
 }
