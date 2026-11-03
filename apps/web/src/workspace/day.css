@@ -1,0 +1,232 @@
+/* The day replay, "Ask your room" and the nudges. Each thing keeps its colour:
+   the mug is yours (magenta), the lamp is what happened (amber), the cat and
+   the fridge are seen (green, cyan); a nudge is unsure (violet). */
+
+.layer-chips.iso.day {
+  left: auto;
+  right: 12px;
+  top: 40px;
+  bottom: auto;
+}
+.layer-chips.day .layer-chip {
+  text-decoration: none;
+  color: var(--text-2);
+}
+
+.day-dock {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-panel);
+  background: var(--surface-1);
+}
+.day-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.day-clock {
+  min-width: 44px;
+  font: 500 15px/18px var(--mono);
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.day-track {
+  position: relative;
+  flex: 1;
+  height: 22px;
+}
+.day-track input[type='range'] {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  margin: 0;
+  background: transparent;
+  accent-color: var(--chosen);
+}
+.day-tick {
+  position: absolute;
+  top: 2px;
+  width: 2px;
+  height: 6px;
+  margin-left: -1px;
+  border-radius: 1px;
+  pointer-events: none;
+}
+.day-tick.nudge {
+  top: auto;
+  bottom: 1px;
+  width: 6px;
+  height: 6px;
+  margin-left: -3px;
+  transform: rotate(45deg);
+  background: var(--unsure);
+}
+.day-tick.mug,
+.day-dot.mug {
+  background: var(--chosen);
+}
+.day-tick.lamp,
+.day-dot.lamp {
+  background: var(--warm);
+}
+.day-tick.cat,
+.day-dot.cat {
+  background: var(--ok);
+}
+.day-tick.fridge,
+.day-dot.fridge {
+  background: var(--seen);
+}
+.day-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  vertical-align: 1px;
+}
+.day-speed {
+  padding: 2px 6px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-chip);
+  font: 500 11px/14px var(--mono);
+  color: var(--text-2);
+  background: transparent;
+  cursor: pointer;
+}
+.day-tag {
+  font: 500 10px/14px var(--mono);
+  letter-spacing: 0.08em;
+  color: var(--unsure);
+}
+.day-last {
+  margin: 0;
+  color: var(--text-2);
+}
+
+.day-ask {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.day-ask-row {
+  display: flex;
+  gap: 6px;
+}
+.day-ask-input {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-button);
+  font: 13px/18px var(--ui);
+  color: var(--text);
+  background: var(--surface-2);
+}
+.day-ask-input:focus {
+  outline: 1px solid var(--chosen);
+}
+.day-examples,
+.day-cites {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.day-example,
+.day-cite {
+  padding: 2px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-chip);
+  font: 12px/16px var(--ui);
+  color: var(--text-2);
+  background: var(--surface-2);
+  cursor: pointer;
+}
+.day-example:hover,
+.day-cite:hover {
+  color: var(--text);
+  border-color: var(--line-strong);
+}
+.day-answer {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 8px 10px;
+  border-left: 2px solid var(--seen);
+  background: var(--seen-wash);
+}
+.day-answer p {
+  margin: 0;
+  font: 14px/20px var(--ui);
+  color: var(--text);
+}
+
+/* Notifications as a phone shows them, over the room's top right. */
+.day-nudges {
+  position: absolute;
+  z-index: var(--z-controls);
+  top: 72px;
+  right: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: min(300px, calc(100% - 24px));
+}
+.day-nudge {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 10px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
+  background: var(--glass-thick);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  box-shadow: var(--glass-edge);
+  animation: day-nudge-in 240ms ease-out;
+}
+.day-nudge header {
+  display: flex;
+  justify-content: space-between;
+  font: 11px/14px var(--ui);
+  color: var(--text-3);
+}
+.day-nudge strong {
+  font: 600 14px/18px var(--ui);
+  color: var(--text);
+}
+.day-nudge p {
+  margin: 0;
+  font: 13px/18px var(--ui);
+  color: var(--text-2);
+}
+.day-nudge-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 4px;
+}
+.day-nudge-actions button {
+  flex: 1;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 8px;
+  font: 500 12px/16px var(--ui);
+  color: var(--text);
+  background: var(--surface-3);
+  cursor: pointer;
+}
+@keyframes day-nudge-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .day-nudge {
+    animation: none;
+  }
+}

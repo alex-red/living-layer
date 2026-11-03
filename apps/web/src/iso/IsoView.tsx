@@ -50,6 +50,8 @@ import {
   mugSighting,
   otherObjects,
   placedFixtures,
+  surfaceWorld,
+  type Point,
 } from '@livinglayer/domain';
 import { runOutput } from '@livinglayer/domain';
 import { apiAt } from '../api';
@@ -78,6 +80,9 @@ import { SculptFixture } from '../workspace/FixturePanel';
 import { pinScene, type WorkScene as Kind } from '../workspace/progress';
 import './iso.css';
 import type { SceneView } from './SceneEditor';
+import { DayChip, DayNudges } from '../workspace/DayDock';
+import { clock, dayAt, type MugSpot } from '../workspace/demoDay';
+import { useReplay } from '../workspace/state/replay';
 
 // The editors and the room's picture load when first shown.
 const ItemEditor = lazy(() => import('./ItemEditor').then((m) => ({ default: m.ItemEditor })));
@@ -122,6 +127,22 @@ function place(
 ) {
   const map = pinned && pin && o ? surfaceMap(pin, o.frame) : null;
   return map && o ? { map, placed: projectBox(o.box, surface, map.toSurface) } : null;
+}
+/** Where the replay stands the mug, in surface units; the coaster is the main zone's middle when there is one. */
+const REPLAY_SPOTS: Record<Exclude<MugSpot, 'away'>, Point> = {
+  coaster: { x: 0.72, y: 0.35 },
+  keyboard: { x: 0.45, y: 0.5 },
+  edge: { x: 0.12, y: 0.82 },
+};
+/** A sighting's placement at a point of the surface, as `projectBox` gives one. */
+function placedAt(surface: IsoSurface, foot: Point): ReturnType<typeof projectBox> {
+  const w = 0.35;
+  const c = surfaceWorld(surface, foot);
+  return {
+    foot,
+    onSurface: true,
+    box: { at: { x: c.x - w / 2, y: c.y - w / 2, z: surface.z }, size: { w, d: w, h: w } },
+  };
 }
 /** What a thing not modelled yet is drawn as: the stock mug, or its archetype's usual shape. */
 function stockItem(label: string): IsoItem {
@@ -356,6 +377,11 @@ function IsoViewOf({
   );
   const defaultLight = lights[0] ?? '';
 
+  // The day replay, when open, stands the mug and switches the lamp as the sample day had them.
+  const replayMug = useReplay((r) => (r.open ? dayAt(r.minute).mug : null));
+  const replayLamp = useReplay((r) => (r.open ? dayAt(r.minute).lamp : null));
+  const replayClock = useReplay((r) => (r.open ? clock(Math.floor(r.minute)) : null));
+
   // The mug, then every other remembered object the pin can place; the zones, the trail and the lit lights.
   const model = useMemo(() => {
     const objects: IsoObject[] = [];
@@ -415,7 +441,30 @@ function IsoViewOf({
         label: ruleDraft.label.trim() || 'New zone',
         quad: zoneOnSurface(ruleDraft.rect, ruleTarget.frame, ruleMap.toSurface),
       });
-    if (!layers.trail) trail.length = 0;
+    if (replayMug && surface) {
+      const at = objects.findIndex((ob) => ob.id === 'tracked');
+      if (at >= 0) objects.splice(at, 1);
+      const main = zones.find((z) => z.kind === 'main')?.quad;
+      const foot =
+        replayMug === 'coaster' && main
+          ? { x: main.reduce((a, p) => a + p.x, 0) / 4, y: main.reduce((a, p) => a + p.y, 0) / 4 }
+          : replayMug === 'away'
+            ? null
+            : REPLAY_SPOTS[replayMug];
+      const mugThing = mugOf(memory);
+      if (foot)
+        objects.unshift({
+          ...marker(
+            'tracked',
+            mugThing?.label ?? 'My desk mug',
+            placedAt(surface, foot),
+            mugModel(memory),
+          ),
+          ...(mugThing ? { thingId: mugThing.id } : {}),
+        });
+      note = '';
+    }
+    if (!layers.trail || replayMug) trail.length = 0;
     if (!layers.zones)
       zones.splice(
         0,
@@ -426,6 +475,10 @@ function IsoViewOf({
     for (const z of zones) z.focused = z.id === focus.zone;
     const lit = new Set<string>(lightsOn);
     if (lampOn && defaultLight) lit.add(defaultLight);
+    if (replayLamp !== null && defaultLight) {
+      if (replayLamp) lit.add(defaultLight);
+      else lit.delete(defaultLight);
+    }
     for (const rule of memory?.rules ?? [])
       if (
         rule.entityId &&
@@ -448,6 +501,8 @@ function IsoViewOf({
     lightsOn,
     lampOn,
     defaultLight,
+    replayMug,
+    replayLamp,
   ]);
   const { objects, note, o, mug, trail, zones, ruleTarget, ruleMap, lit, drawingRule } = model;
   // A photographed room with an office desk keeps its own place for each
@@ -888,9 +943,11 @@ function IsoViewOf({
               : `ITEM · ${(target?.item?.label ?? target?.label ?? 'object').toUpperCase()}`
             : panel === 'scene'
               ? 'SCENE EDITOR'
-              : `ISO · ${scene.label.toUpperCase()} · ${surface?.label.toUpperCase() ?? 'NO SURFACE'}${pinned ? (memory?.surface ? ' · PINNED' : ' · DEMO') : ''}`}
+              : `ISO · ${scene.label.toUpperCase()} · ${surface?.label.toUpperCase() ?? 'NO SURFACE'}${pinned ? (memory?.surface ? ' · PINNED' : ' · DEMO') : ''}${replayClock ? ` · SAMPLE DAY ${replayClock}` : ''}`}
         </span>
         {panel === 'room' && <LayerChips view="iso" />}
+        {panel === 'room' && !picture && <DayChip />}
+        {panel === 'room' && <DayNudges />}
         {panel === 'room' && lab.showStats && foodThings.length > 0 && !picture && (
           <div className="layer-chips iso sample" role="group" aria-label="Sample values">
             <button

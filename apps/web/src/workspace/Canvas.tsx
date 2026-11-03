@@ -4,6 +4,7 @@ import { Button } from '../ui/controls';
 import { useAi, useCamera, useFeedback, useLabParts, useNavigation, useView } from './LabContext';
 import { DeskStep, Onboarding } from './Onboarding';
 import { BrushPanel } from './Brush';
+import { DayDock } from './DayDock';
 import {
   FixtureMenu,
   IssueCard,
@@ -98,6 +99,7 @@ export function Canvas() {
         {showIso && <IsoView hand={hand} onFixtureMenu={(id, at) => setFixtureMenu({ id, at })} />}
         {fixtureMenu && <FixtureMenu menu={fixtureMenu} onClose={() => setFixtureMenu(null)} />}
       </div>
+      {!onboarding && showIso && <DayDock />}
       {lab.calibrating && !lab.camera && <div className="calibrate-slot" ref={setCalibratePanel} />}
       {!onboarding && <SceneBottom />}
       <PhotoInput />
