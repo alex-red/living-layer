@@ -22,7 +22,7 @@ import {
   deskModel,
   type Archetype,
 } from './iso-archetypes.js';
-import { ITEM_MATERIALS, hexColorSchema, type IsoItem } from './iso-item.js';
+import { ITEM_MATERIALS, hexColorSchema, type IsoItem, type ItemFitRecord } from './iso-item.js';
 import { ISO_PRESETS, isoSurface, pinFits } from './iso-presets.js';
 import {
   applyHomography,
@@ -832,6 +832,8 @@ export function samConcept(label: string): string {
  * mouse for “mouse” and nothing for “small purple mouse” or “purple mouse”.
  */
 export const samNoun = (label: string) => samConcept(label).split(/\s+/).at(-1)!;
+/** How well a model fits the outline it was fitted to: its overlap, less its colour error. */
+const fitScore = (f: Pick<ItemFitRecord, 'iou' | 'deltaE'>) => f.iou - f.deltaE / 100;
 /** A thing this small (its longest side, in cm) is checked by name: Spark's box of it across a room is often elsewhere. */
 const NAMED_CHECK_CM = 20;
 /** At most this many small things are checked by name in one scan, one SAM call each. */
@@ -882,7 +884,10 @@ export function mapScan({
   replace = false,
   addNew = true,
   unsure = [],
+  fits = [],
 }: {
+  /** How well each fitted model matches its own outline, by its place in the scan. */
+  fits?: (Pick<ItemFitRecord, 'iou' | 'deltaE'> | null)[];
   /** Things whose box and outline by name disagree (`checkByName`), by their place in the scan: left as they are. */
   unsure?: boolean[];
   /** Move every fixture the scan finds, placed by hand or not, and the layout's things. */
@@ -1007,7 +1012,12 @@ export function mapScan({
       const resize = follows ? seenSize() : undefined;
       const where = resize ? whereFor(resize.h) : null;
       const moveTo = where ? place({ ...here.f, size: resize! }, where, custom, grid) : undefined;
-      const remodel = fitted && follows ? { ...fitted, label: here.f.model.label } : undefined;
+      // A new model only when it fits its outline as well as the one it has fits its own:
+      // a mouse's model refitted to a mug's handle fitted it worse (ΔE 38 against 10).
+      const fit = fits[index];
+      const worse = Boolean(fit && here.f.model.fit && fitScore(fit) < fitScore(here.f.model.fit));
+      const remodel =
+        fitted && follows && !worse ? { ...fitted, label: here.f.model.label } : undefined;
       return {
         label: here.f.label,
         match: 'existing',
@@ -1017,7 +1027,7 @@ export function mapScan({
         ...(moveTo ? { moveTo, resize } : {}),
         ...(remodel ? { remodel } : {}),
         fixture: null,
-        note: `Already in the room as the ${here.f.label.toLowerCase()}${moveTo ? ', moved to where the scan found it' : ''}${remodel ? ', modelled from its outline' : ''}${link ? '; now linked with the one in the other scene' : ''}.`,
+        note: `Already in the room as the ${here.f.label.toLowerCase()}${moveTo ? ', moved to where the scan found it' : ''}${remodel ? ', modelled from its outline' : fitted && follows ? ', its model kept, as its outline fitted worse' : ''}${link ? '; now linked with the one in the other scene' : ''}.`,
       };
     }
     const drawn = layout

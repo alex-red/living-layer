@@ -541,6 +541,38 @@ describe('placing what SAM outlined', () => {
     expect(found!.resize!.h / truth.h).toBeCloseTo(found!.resize!.w / truth.w, 5);
     expect(Math.abs(found!.resize!.w / truth.w - 1)).toBeLessThan(0.25);
   });
+  it('keeps a thing’s model when the scan’s outline of it fits worse', () => {
+    const size = sizeInTiles({ w: 6, d: 10, h: 4 });
+    const base = fixture({
+      label: 'Thing',
+      scene: 'desk',
+      surfaceId: 'desk:top',
+      at: { x: top.x, y: top.y },
+      size,
+      scanned: true,
+    });
+    const placed = {
+      ...base,
+      model: { ...base.model, fit: { iou: 0.84, deltaE: 10 } },
+    } as unknown as typeof base;
+    const scan = (fit: { iou: number; deltaE: number }) =>
+      mapScan({
+        scan: scanOf({ w: 6, d: 10, h: 4 }),
+        pin,
+        custom: null,
+        library: [placed],
+        room: 12,
+        entities: [],
+        outlines: [outlined({ x: top.x + top.w * 0.5, y: top.y + top.d * 0.5 }, size)],
+        models: [base.model],
+        fits: [fit],
+      })[0]!;
+    // Refitted to a mug's handle: its colours are far off what it was fitted to.
+    const worse = scan({ iou: 0.67, deltaE: 38 });
+    expect(worse.remodel).toBeUndefined();
+    expect(worse.note).toContain('its model kept');
+    expect(scan({ iou: 0.9, deltaE: 8 }).remodel).toBeDefined();
+  });
   it('leaves a thing where it is when its box and its outline by name disagree', () => {
     const size = sizeInTiles({ w: 6, d: 10, h: 4 });
     const placed = fixture({

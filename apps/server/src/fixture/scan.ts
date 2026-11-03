@@ -545,6 +545,7 @@ async function scanMap(
     replace: Boolean(replace),
     addNew: addNew !== false,
     unsure,
+    fits: modelled.fits.map((f) => f?.fit ?? null),
   });
   await job.done(
     'map',
