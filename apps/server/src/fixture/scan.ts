@@ -240,6 +240,7 @@ function saveScanned(
     // The scan placed it again, so it stays the scan's to place.
     if (here && m.moveTo)
       Object.assign(here, m.moveTo, {
+        ...(m.resize ? { size: m.resize } : {}),
         scanned: true,
         ...(m.seen ? { seen: m.seen } : {}),
         updatedAt: now,

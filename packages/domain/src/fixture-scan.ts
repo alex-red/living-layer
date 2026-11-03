@@ -126,6 +126,8 @@ export interface MappedThing {
   seen?: Outline;
   /** Where a fixture the last scan placed moves to: it follows the latest scan. */
   moveTo?: Pick<FixtureInput, 'at' | 'surfaceId'>;
+  /** Its size as the scan measured it, set with `moveTo`. */
+  resize?: FixtureInput['size'];
   /** A model fitted to its outline, for a fixture the last scan placed. */
   remodel?: IsoItem;
   /** The same thing in another scene, to link with: a room and its close view. */
@@ -913,6 +915,14 @@ export function mapScan({
         Math.max(share.size.h * pin.frame.height, share.size.w * pin.frame.width),
         bodyOf(share, pin, height),
       );
+    // Spark's usual size, scaled to what the camera sees of it where it stands.
+    const seenSize = () => {
+      const usual = sizeInTiles(thing.sizeCm);
+      const first = whereFor(usual.h);
+      const hull = bodyOf(share, pin, usual.h)?.points;
+      const k = first?.middle && hull ? cameraScale(pin, scene, custom, first, usual, hull) : null;
+      return k ? { w: usual.w * k, d: usual.d * k, h: usual.h * k } : usual;
+    };
     const fitted = models[index] ?? null;
     const here = ranked.find(
       (x) => x.f.scene === scene && onDesk.has(x.f.id) && !claimed.has(x.f.id),
@@ -925,8 +935,10 @@ export function mapScan({
       // What a scan placed and nobody has touched since follows the latest scan,
       // and everything does when the person asked to re-place it all.
       const follows = replace || here.f.scanned || here.f.model.source === 'placeholder';
-      const where = follows ? whereFor(here.f.size.h) : null;
-      const moveTo = where && follows ? place(here.f, where, custom, grid) : undefined;
+      // It takes the scan's size too, or a mouse first guessed 13 cm tall stays so under its new model.
+      const resize = follows ? seenSize() : undefined;
+      const where = resize ? whereFor(resize.h) : null;
+      const moveTo = where ? place({ ...here.f, size: resize! }, where, custom, grid) : undefined;
       const remodel = fitted && follows ? { ...fitted, label: here.f.model.label } : undefined;
       return {
         label: here.f.label,
@@ -934,7 +946,7 @@ export function mapScan({
         fixtureId: here.f.id,
         seen: share,
         ...(link ? { linkTo: link.id } : {}),
-        ...(moveTo ? { moveTo } : {}),
+        ...(moveTo ? { moveTo, resize } : {}),
         ...(remodel ? { remodel } : {}),
         fixture: null,
         note: `Already in the room as the ${here.f.label.toLowerCase()}${moveTo ? ', moved to where the scan found it' : ''}${remodel ? ', modelled from its outline' : ''}${link ? '; now linked with the one in the other scene' : ''}.`,
@@ -1033,16 +1045,11 @@ export function mapScan({
           : {}),
       };
     } else {
-      // Spark's usual size, scaled to what the camera sees of it where it stands.
-      const usual = sizeInTiles(thing.sizeCm);
-      const first = whereFor(usual.h);
-      const hull = bodyOf(share, pin, usual.h)?.points;
-      const k = first?.middle && hull ? cameraScale(pin, scene, custom, first, usual, hull) : null;
       base = {
         label,
         scene,
         turns: 0,
-        size: k ? { w: usual.w * k, d: usual.d * k, h: usual.h * k } : usual,
+        size: seenSize(),
         model: fitted ?? placeholderModel(label, thing.archetype, thing.color, thing.material),
         reference: null,
         control: { kind: 'none' },

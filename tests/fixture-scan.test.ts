@@ -514,6 +514,30 @@ describe('placing what SAM outlined', () => {
     expect(scan(false).moveTo).toBeUndefined();
     expect(scan(true).moveTo?.surfaceId).toBe('desk:top');
   });
+  it('takes the scan’s size for a fixture it places again, not the one it was first guessed', () => {
+    const truth = sizeInTiles({ w: 6, d: 10, h: 3 });
+    // A mouse first guessed 13 cm tall, which the scan placed and so still follows.
+    const guessed = fixture({
+      label: 'Thing',
+      scene: 'desk',
+      surfaceId: 'desk:top',
+      at: { x: top.x, y: top.y },
+      size: sizeInTiles({ w: 8, d: 12, h: 13 }),
+      scanned: true,
+    });
+    const [found] = mapScan({
+      scan: scanOf({ w: 6, d: 10, h: 3 }),
+      pin,
+      custom: null,
+      library: [guessed],
+      room: 12,
+      entities: [],
+      outlines: [outlined({ x: top.x + top.w * 0.5, y: top.y + top.d * 0.5 }, truth)],
+    });
+    expect(found).toMatchObject({ match: 'existing', fixtureId: guessed.id });
+    expect(found!.resize!.h / truth.h).toBeCloseTo(found!.resize!.w / truth.w, 5);
+    expect(Math.abs(found!.resize!.w / truth.w - 1)).toBeLessThan(0.25);
+  });
 });
 
 describe('scanning the demo desk', () => {
