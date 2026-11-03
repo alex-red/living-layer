@@ -201,16 +201,29 @@ function marker(
 
 /**
  * How a fixture lights the room: a lamp with its own light glows whole; one
- * whose shades switch their own lights glows only in its shades, with a halo
- * in the colour of the first one lit.
+ * whose shades switch their own lights glows only in its shades, each lit one
+ * with a glow around it in its light's colour. `item` is drawn in `box`.
  */
 function lightOf(
   f: Fixture,
+  item: IsoItem,
+  box: IsoFixture['box'],
   colors: Readonly<Record<string, string>>,
-): Pick<IsoFixture, 'glow' | 'halo'> {
+): Pick<IsoFixture, 'glow' | 'halos'> {
   if (!f.lights?.length) return { glow: fixtureGlows(f) };
-  const lit = f.lights.find((l) => f.lit?.[l.part]);
-  return { glow: false, ...(lit ? { halo: colors[lit.entityId] ?? 'var(--warm)' } : {}) };
+  // The sprite draws the item from the box's corner, its footprint's longer side one unit.
+  const scale = Math.max(box.size.w, box.size.d);
+  const halos = f.lights.flatMap((l) => {
+    const p = f.lit?.[l.part] ? item.parts.find((q) => q.id === l.part) : undefined;
+    if (!p) return [];
+    const at = {
+      x: box.at.x + (p.at.x + p.size.w / 2) * scale,
+      y: box.at.y + (p.at.y + p.size.d / 2) * scale,
+      z: box.at.z + (p.at.z + p.size.h / 2) * scale,
+    };
+    return [{ at, color: colors[l.entityId] ?? 'var(--warm)' }];
+  });
+  return { glow: false, ...(halos.length ? { halos } : {}) };
 }
 
 /**
@@ -688,18 +701,22 @@ function IsoViewOf({
           : f.scene === kind,
       )
       .filter((f) => f.id !== placingId)
-      .map((f) => ({
-        id: f.id,
-        label: f.label,
-        box: boxOf(f),
-        item: rotateItem(fixtureModel(f, f.state, liveHa?.colors), f.turns),
-        ...lightOf(f, liveHa?.colors ?? {}),
-        ...(f.control.kind === 'none' && !f.state && !f.states ? {} : { state: f.state ?? null }),
-        focused: f.id === focus.fixture,
-        ...(f.track?.status === 'missing' ? { missing: true } : {}),
-        ...(f.control.kind === 'light' ? { lamp: true } : {}),
-        ...foodLine(f),
-      }));
+      .map((f) => {
+        const box = boxOf(f);
+        const item = rotateItem(fixtureModel(f, f.state, liveHa?.colors), f.turns);
+        return {
+          id: f.id,
+          label: f.label,
+          box,
+          item,
+          ...lightOf(f, item, box, liveHa?.colors ?? {}),
+          ...(f.control.kind === 'none' && !f.state && !f.states ? {} : { state: f.state ?? null }),
+          focused: f.id === focus.fixture,
+          ...(f.track?.status === 'missing' ? { missing: true } : {}),
+          ...(f.control.kind === 'light' ? { lamp: true } : {}),
+          ...foodLine(f),
+        };
+      });
   }, [things, kind, shift, shown, custom, scene, placingId, focus, liveHa]);
   const isoPlacing = useMemo(() => {
     if (!placing || placing.scene !== kind) return undefined;

@@ -169,8 +169,11 @@ export interface IsoFixture {
   item: IsoItem;
   /** A light whose last action was confirmed on: it glows like a lamp. */
   glow: boolean;
-  /** Its shades are lit on their own: a halo in this colour, the sprite as its shades paint it. */
-  halo?: string;
+  /**
+   * Its shades lit on their own, each switching its own light: a glow around
+   * each, in its light's colour, the sprite as its shades paint it.
+   */
+  halos?: { at: IsoVec; color: string }[];
   /** The fixture's active state (`on`, `off`, `idle`, `sleeping`, or custom); null when unknown. */
   state?: string | null;
   focused?: boolean;
@@ -899,33 +902,50 @@ function IsoSceneView({
         </radialGradient>
       </defs>
       {fixtures
-        .filter((f) => f.glow || f.halo)
+        .filter((f) => f.glow)
         .map((f) => {
           const c = toIso({
             x: f.box.at.x + f.box.size.w / 2,
             y: f.box.at.y + f.box.size.d / 2,
             z: f.box.at.z,
           });
-          const fill = f.halo ? `iso-halo-${f.id}` : 'iso-warm';
           return (
-            <g key={`glow-${f.id}`}>
-              {f.halo && (
-                <radialGradient id={fill}>
-                  <stop offset="0" stopColor={f.halo} stopOpacity="0.35" />
-                  <stop offset="1" stopColor={f.halo} stopOpacity="0" />
-                </radialGradient>
-              )}
-              <ellipse
-                className="iso-glow"
-                fill={`url(#${fill})`}
-                cx={c.sx}
-                cy={c.sy}
-                rx={180}
-                ry={90}
-              />
-            </g>
+            <ellipse
+              key={`glow-${f.id}`}
+              className="iso-glow"
+              fill="url(#iso-warm)"
+              cx={c.sx}
+              cy={c.sy}
+              rx={180}
+              ry={90}
+            />
           );
         })}
+      {fixtures.flatMap((f) =>
+        (f.halos ?? []).map((h, i) => {
+          // Around the shade, and a fainter pool on the floor below it.
+          const id = `iso-halo-${f.id}-${i}`;
+          const c = toIso(h.at);
+          const floor = toIso({ ...h.at, z: f.box.at.z });
+          return (
+            <g key={id} className="iso-glow">
+              <radialGradient id={id}>
+                <stop offset="0" stopColor={h.color} stopOpacity="0.45" />
+                <stop offset="1" stopColor={h.color} stopOpacity="0" />
+              </radialGradient>
+              <ellipse
+                fill={`url(#${id})`}
+                cx={floor.sx}
+                cy={floor.sy}
+                rx={110}
+                ry={55}
+                opacity={0.5}
+              />
+              <circle fill={`url(#${id})`} cx={c.sx} cy={c.sy} r={70} />
+            </g>
+          );
+        }),
+      )}
       {scene.props.filter(lit).map((p) => {
         const c = toIso({ x: p.at.x + p.size.w / 2, y: p.at.y + p.size.d / 2, z: p.at.z });
         return (
