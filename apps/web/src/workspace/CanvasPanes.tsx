@@ -1,4 +1,12 @@
-import { lazy, useEffect, useRef, useState, type CSSProperties, type RefObject } from 'react';
+import {
+  lazy,
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+  type RefObject,
+} from 'react';
 import {
   CROP_MIN,
   DEMO_POSITIONS,
@@ -669,14 +677,14 @@ function FollowLayers() {
 }
 
 /**
- * How the trackers keep up, over the camera's corner and outside its zoom:
- * the server's watcher while it watches, the browser's local follow while it
- * follows. Each renders at its tracker's rate, alone.
+ * How the trackers keep up, in the line under the camera: the server's
+ * watcher while it watches, the browser's local follow while it follows,
+ * else the line's own caption. Each renders at its tracker's rate, alone.
  */
-function HealthBars() {
+function HealthBars({ caption }: { caption: ReactNode }) {
   const watcher = useStore(watchStore, (w) => (w?.on ? (w.health ?? null) : null));
   const local = useStore(followHealthStore);
-  if (!watcher && !local) return null;
+  if (!watcher && !local) return caption;
   return (
     <div className="health-bars">
       {watcher && <HealthBar who="WATCHER" health={watcher} />}
@@ -859,7 +867,6 @@ export function PhotoStage({
           <FrameRate video={lab.video} on={camera} />
         </span>
       )}
-      {!fridge && <HealthBars />}
       <span className="frame-label">
         {dimensions.width} × {dimensions.height} <span>{fridge ? 'PLACEHOLDER' : 'FRAME 00'}</span>
       </span>
@@ -958,15 +965,19 @@ export function SceneBottom() {
     zoomRect.height * (lab.zoomable?.crop?.h ?? 1) >= CROP_MIN;
   return (
     <div className="scene-bottom">
-      <span>
-        {fridge
-          ? 'Placeholder fridge camera: photos of a real fridge until yours is set up.'
-          : mode === 'demo'
-            ? 'Demo desk. Move the mug to test tracking; no model call or real lamp.'
-            : camera
-              ? 'Camera on. Capture a frame to work on it.'
-              : 'Your photo stays here until you run a live step.'}
-      </span>
+      <HealthBars
+        caption={
+          <span>
+            {fridge
+              ? 'Placeholder fridge camera: photos of a real fridge until yours is set up.'
+              : mode === 'demo'
+                ? 'Demo desk. Move the mug to test tracking; no model call or real lamp.'
+                : camera
+                  ? 'Camera on. Capture a frame to work on it.'
+                  : 'Your photo stays here until you run a live step.'}
+          </span>
+        }
+      />
       {fridge && (
         <div className="capture-actions" role="group" aria-label="Fridge camera view">
           {(Object.keys(FRIDGE_VIEWS) as FridgeView[]).map((v) => (

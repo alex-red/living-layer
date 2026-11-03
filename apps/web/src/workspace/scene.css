@@ -478,19 +478,21 @@
   fill: var(--unsure);
 }
 
-/* Trackers' health over the camera's corner: green keeping up, amber strained, red behind. */
+/* Trackers' health in the line under the camera: green keeping up, amber strained, red behind. */
 .health-bars {
-  position: absolute;
-  z-index: var(--z-controls);
-  top: 14px;
-  right: 40px;
+  /* Above the camera's own chips, which its details open over. */
+  position: relative;
+  z-index: var(--z-popover);
   display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 4px;
-  max-width: calc(100% - 80px);
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
 }
 .health-bar {
+  position: relative;
+  display: flex;
+  align-items: center;
   --signal: var(--ok);
   border-radius: var(--r-chip);
   font: 500 11px/14px var(--mono);
@@ -546,13 +548,24 @@
 }
 .health-reason {
   margin: 0;
-  padding: 0 8px 3px 20px;
+  padding-right: 8px;
   color: var(--signal);
-  text-align: right;
+  white-space: nowrap;
 }
+/* Opens upward over the camera, so the line under it keeps its height. */
 .health-detail {
+  position: absolute;
+  z-index: var(--z-popover);
+  bottom: calc(100% + 4px);
+  left: 0;
+  width: max-content;
+  min-width: max(100%, 240px);
   padding: 2px 8px 6px;
-  border-top: 1px solid var(--line);
+  border-radius: var(--r-chip);
+  background: var(--glass-thick);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: var(--glass-edge);
 }
 .health-spark {
   display: block;
