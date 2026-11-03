@@ -46,6 +46,8 @@ _Landed:_ the demo's first scan runs once in `beforeAll` and six tests copy that
 **A6. now: oxlint.** There is no linter, and 86 `useEffect`s have no hooks rules (`useLabState.ts:602` spreads its dependencies). Add oxlint with the react-hooks rules as a reported step in verify, and make it fail the run once it is clean.
 _Landed:_ oxlint 1.90.0 (`bun run lint`, `.oxlintrc.json`: `rules-of-hooks` as error, `exhaustive-deps` as warning, nothing else). Today it reports 0 errors and 21 warnings, 10 of them in `useLabState.ts`. It does not fail verify yet; make it gate when the count reaches 0.
 
+_Landed (A6 gate):_ the last nine warnings are fixed (`PhonePairing` keys its poll on a boolean; the effects that watch fewer values than they read carry a comment saying why). `lint` is `oxlint --deny-warnings`, a gate in `verify`, and part of `ci`.
+
 **A7. later: catch dead exports.** Add a verify step (knip, or a small script) that lists exports nothing imports. It would catch 7 in domain, 8 in web and about 30 in server today.
 _Landed:_ `bun run dead-exports` (`scripts/dead-exports.ts`), a report step in verify. It reads imports with a regex, since the TypeScript 7 beta has no JS API, and follows `export *` through the domain index. Today it finds 216 unused exports: 32 in server, 27 in web, 157 in domain, in 60 files, in 0.03 s. The counts above are from before the merges; `IGNORE` in the script is empty.
 
@@ -158,11 +160,17 @@ Keep `useLab()` as a facade, and move consumers over one pane at a time. Then `I
 
 _Landed:_ `useLabState` is now fourteen slice hooks in `apps/web/src/workspace/state/` (view, feedback, run log, desk, follow state, camera, observation, tracking, navigation, AI, fixtures, calibration, probes, saves), each with an explicit interface and reading only the slices before it. `LabProvider` runs them once and gives each its own context; `useLab()` still merges all of them. Slices return through `useStableSlice`, so a slice keeps its identity until a value in it changes. Every pane but `Canvas` now names the slices it reads with `useLabParts`. Still on the facade: `Canvas`, which reads nearly every slice. Warnings from `bun run lint` in the web app: 21 to 9. `IsoView`'s 46 props and the memoised `IsoScene` are not done.
 
+_Landed (D3 remainder):_ `IsoView` takes two props (`hand`, and `onFixtureMenu`, whose menu the canvas owns) and reads the rest from ten slices with `useLabParts`; its objects, zones, fixtures, placing and handlers are memoised, and `IsoScene` is wrapped in `memo`. `Canvas` still reads 13 of the 14 slices (only `saves` went): it uses fields from nearly all of them, so narrowing further means splitting the canvas into panes, which is not done.
+
 **D4. later: sprites in a Worker.** An item sprite takes 31–71 ms on the main thread, and every item-editor edit misses the cache. Draw sprites in a Web Worker with OffscreenCanvas and serve object URLs. Give the cache least-recently-used eviction instead of oldest-first (`iso/sprites.ts:47`), and bound `viewOverlay`. A `useSprite` hook keeps the last image until the new one is ready, and `useDeferredValue` smooths the editor's draft. Measure again after B first.
 _Landed:_ `iso/sprite.worker.ts` draws sprites (`sprite-draw.ts`, shared with the main-thread fallback) and returns PNG blobs via `OffscreenCanvas`; `sprites.ts` serves object URLs from an LRU cache bounded by 400 entries and 48 MB (also for `viewOverlay`), revoking evicted URLs after 30 s. `useItemSprite`, `usePropSprite` and `useViewOverlay` keep the last image until the next is ready; `IsoScene`, `IsoItem`, `ItemEditor`, `PropPicker` and `Brush` use them, and the editor draws from `useDeferredValue(draft)`. No Worker or OffscreenCanvas (and bun tests) draws on the main thread. Still synchronous: `itemSprite`, `propSprite` and `viewOverlay`, which `FixturePanel` calls (sizing needs pixels in the same tick); move it to the hooks when that file is free.
 
+_Landed (D4 FixturePanel):_ `ModelPreview` and a new `StarterCard` use `useItemSprite`; the synchronous `itemSprite`, `propSprite` and `viewOverlay` are gone, nothing else called them.
+
 **D5. later: lazy chunks.** Lazy-load the Playground (`main.tsx:8`), `ItemEditor`, `SceneEditor`, `IllustrationView`, `RoomCalibrate`, `PhonePairing`, `CameraSetup` and `AIRichPreviewDialog`. Add `sideEffects: false` to domain's `package.json`.
 _Done when:_ the first chunk is under 400 KB.
+
+_Landed (D5):_ the Playground, `ItemEditor`, `SceneEditor`, `IllustrationView`, `RoomCalibrate`, `PhonePairing`, `CameraSetup` and `AIRichPreviewDialog` are `React.lazy` behind `Later` (a quiet 'Loading…' line); `LayerButtons` moved out of `SceneEditor.tsx` so `FixturePanel` does not pull the editor in; React has its own chunk (`vite.config.ts`). `bunx vite build` into a scratch directory: the main chunk was 837.17 KB raw / 265.58 KB gzip and is 296.51 KB / 95.07 KB, with React 218.78 KB / 68.26 KB and the domain package 216.98 KB / 71.85 KB beside it (the first load is about 732 KB raw, from 837). _Not done:_ `sideEffects: false` in `packages/domain/package.json` (off limits to this pass; it would let the bundler drop unused domain exports from that 217 KB chunk). `KeysDialog` is small and stays. `FixturePanel`, `ExposePanel` and `DevicesPanel` could be lazy too, but `Inspector` and `Outline` import `ScanFixtures`, `ChooseDevicesLink`, `removeFromLayout` and `stateLabel` from them as values.
 
 **D6. later: a typed API.**
 
@@ -188,6 +196,8 @@ _Done when:_ the first chunk is under 400 KB.
   - `.divider`
 
 _Landed:_ `tokens.css` has `--fs-11`/`--fs-12`/`--fs-13` and the 2px radius uses `--r-chip`; the ten dead rule groups and the two duplicate keyframe pairs are gone (`breathe` and `rise-in` kept). The z-index and `styles.css` section moves are not done.
+
+_Landed (D7 remainder):_ `tokens.css` has a `--z-*` scale (the same numbers, named by what they stack: `--z-tag`, `--z-topbar`, `--z-popover`, `--z-sheet`, `--z-menu`, `--z-dev`…) and no raw `z-index` is left. `styles.css` went from 1804 to 1119 lines: type and glass surfaces (`ui/surfaces.css`, imported after the controls in `main.tsx`), the top bar (`workspace/top-bar.css`), the run log (`workspace/evidence-log.css`), the inspector (`workspace/inspector.css`), provider calls (`provider-ui.css`) and zoom-pan (`zoom-pan.css`) now sit beside their components. The built sheet has the same 942 rules; the order of every pair that moved relative to each other was checked for shared selectors and properties, and the one same-specificity pair that would have flipped (`.topbar-links` gap, whose media rule in `workspace.css` was losing to the base) is kept by `TopBar.tsx` importing `workspace.css` before `top-bar.css`. Left in `styles.css`: the shell, scene frame, detections, discovered objects, checklist, preferences, session, spending limit and the phone layout, which share selectors across sections.
 
 ## E. Domain structure (later)
 
