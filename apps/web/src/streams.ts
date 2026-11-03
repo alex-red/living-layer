@@ -96,6 +96,30 @@ async function inboundVideo(
 const round = (n: number | null, places = 0) =>
   n === null || !Number.isFinite(n) ? null : Number(n.toFixed(places));
 
+/**
+ * Offers H.264 first: every phone encodes it in hardware, where VP8, the
+ * browser's usual first choice, is encoded in software and heats the phone.
+ * The sender follows the offer's order, not its own answer's, so this is
+ * where it is chosen. A relay serves its camera's own codec whatever the order.
+ */
+function preferH264(transceiver: RTCRtpTransceiver) {
+  const codecs = RTCRtpReceiver.getCapabilities?.('video')?.codecs;
+  if (!codecs || !transceiver.setCodecPreferences) return;
+  const rank = (c: RTCRtpCodec) =>
+    /h264/i.test(c.mimeType)
+      ? /packetization-mode=1/.test(c.sdpFmtpLine ?? '')
+        ? 0
+        : 1
+      : /rtx|red|ulpfec|flexfec/i.test(c.mimeType)
+        ? 3
+        : 2;
+  try {
+    transceiver.setCodecPreferences([...codecs].sort((a, b) => rank(a) - rank(b)));
+  } catch {
+    // Kept in the browser's own order.
+  }
+}
+
 /** Sends a playback's numbers to the server's log; one that can't be sent is dropped. */
 function report(stats: PlaybackStats) {
   void fetch('/api/streams/stats', {
@@ -180,6 +204,7 @@ export async function openStream(
   };
   try {
     const transceiver = pc.addTransceiver('video', { direction: 'recvonly' });
+    preferH264(transceiver);
     // Play frames as soon as they decode: this feeds a motion gate, not a film.
     if ('jitterBufferTarget' in transceiver.receiver) transceiver.receiver.jitterBufferTarget = 0;
     const track = new Promise<MediaStreamTrack>((resolve) =>
