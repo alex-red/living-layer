@@ -18,7 +18,7 @@ Reviewed October 29, Edmonton time. Search covered recent news, developer posts 
 
 ## Before submission, in order
 
-1. **Run the complete offline checks and browser flow.** `bun run check`, then `bun run test:browser`. Cover saving an exposed entity, its demo publish log, and a rule that only reports to HA. Record results rather than treating “built” as live proof.
+1. **Run the complete offline checks and browser flow.** `bun run ci`, then `bun run test:browser`. Cover saving an exposed entity, its demo publish log, and a rule that only reports to HA. Record results rather than treating “built” as live proof.
 2. **Prove the live desk loop.** With a fixed RTSP camera, confirm the mug, draw the zone, start server watching and close the tab. Move the mug out and back in. Verify the physical lamp and inspect the saved SAM decision after reopening. Also exercise camera loss and server restart. This remains unverified in [tracking.md](tracking.md#as-built).
 3. **Prove MQTT against Mosquitto and Home Assistant.** Add an entity, check its assigned ID and transitions, restart HA, restart the broker, disconnect the lab, and delete an entity while disconnected. Check rediscovery, availability and retained-topic cleanup. This remains unverified in [mqtt.md](mqtt.md#as-built).
 4. **Measure the appearance fallback on real clips.** Compare SAM calls, reacquisition and false matches with and without DINOv3, including occlusion and two similar mugs. Current thresholds were selected on synthetic imagery. Keep local matches advisory; do not promote them to rule authority. Positional matching after SAM still cannot establish identity when look-alikes swap.
@@ -32,6 +32,6 @@ Defer Wonder integration, self-hosted SAM/Spark, phone-to-server streaming, mult
 
 ## Verification from this review
 
-- `bun run check`: passed, including formatting, typechecking, 263 tests and the web build. The build reports its existing large JavaScript chunk warning.
+- `bun run ci`: passed, including formatting, typechecking, 263 tests and the web build. The build reports its existing large JavaScript chunk warning.
 - `bun run test:browser`: all 10 existing browser tests passed. The initial sandboxed attempt could not start the local server; rerunning with local networking enabled succeeded. These specs do not cover the new exposed-entity flow listed in priority 1.
 - `bun run doctor`: Meta key and DINOv3 files present, Home Assistant configuration incomplete, MQTT URL absent and no configured RTSP cameras (network discovery was not exercised). No live provider call, broker connection or physical lamp check was made.

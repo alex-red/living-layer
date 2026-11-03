@@ -55,15 +55,18 @@ export async function api<T>(
   }
 }
 
-/** How long to wait for the server to come back after it went away mid-request. */
-const BACK_WITHIN_MS = 6000;
+/**
+ * How long to wait for the server to come back after it went away
+ * mid-request, and how often to ask. A module value so tests can shorten it.
+ */
+export const serverWait = { backWithinMs: 6000, pollMs: 1000 };
 /**
  * What to say when the server stopped answering mid-request: it restarts
  * when its code changes, so it is usually back in a few seconds. Waits that
  * long for it, so the message can say whether trying again will work.
  */
 async function serverGone(): Promise<ApiError> {
-  const until = Date.now() + BACK_WITHIN_MS;
+  const until = Date.now() + serverWait.backWithinMs;
   while (Date.now() < until) {
     const up = await fetch('/api/status')
       .then((r) => r.ok)
@@ -73,7 +76,7 @@ async function serverGone(): Promise<ApiError> {
         'The lab’s server restarted while this ran (it reloads when its code changes), so the request was dropped and nothing was saved. It is back now: try again.',
         'server_restarted',
       );
-    await new Promise((r) => setTimeout(r, 1000));
+    await new Promise((r) => setTimeout(r, serverWait.pollMs));
   }
   return new ApiError(
     'The lab’s server stopped while this ran and isn’t back yet. Nothing was saved. If it doesn’t come back in a moment, check its terminal or start it again (bun run dev).',

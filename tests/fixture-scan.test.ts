@@ -1,5 +1,5 @@
-import { afterEach, describe, expect, it, mock } from 'bun:test';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { afterAll, afterEach, beforeAll, describe, expect, it, mock } from 'bun:test';
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import sharp from 'sharp';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -504,9 +504,15 @@ describe('placing what SAM outlined', () => {
   });
 });
 
-async function setup(env: Record<string, string> = {}, fetcher: Fetcher = mock<Fetcher>()) {
+async function setup(
+  env: Record<string, string> = {},
+  fetcher: Fetcher = mock<Fetcher>(),
+  /** A data folder to start from, copied: the store as an earlier test left it. */
+  from?: string,
+) {
   const dataDir = mkdtempSync(join(tmpdir(), 'livinglayer-scan-'));
   dirs.push(dataDir);
+  if (from) cpSync(from, dataDir, { recursive: true });
   const app = await buildApp(parseConfig({ DATA_DIR: dataDir, ...env }), {
     fetcher,
     serveWeb: false,
@@ -518,11 +524,36 @@ async function setup(env: Record<string, string> = {}, fetcher: Fetcher = mock<F
 type Scanned = { run: EvidenceRun; mapped: MappedThing[]; memory: DeskMemory };
 
 describe('scanning the demo desk', () => {
-  it('reports each step with a picture while the page follows it, and keeps it to review', async () => {
-    const s = await setup();
+  // The demo's first scan is the same every time and takes most of a second: do it once, and let
+  // each test that starts from "the desk, scanned" copy that store instead of scanning again.
+  // Nothing here is shared as it is changed: every test gets its own copy and its own app.
+  let seed: { dir: string; first: Scanned; jobId: string };
+  beforeAll(async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'livinglayer-scan-seed-'));
     const jobId = crypto.randomUUID();
-    const res = await s.post('fixtures/scan', { jobId });
+    const app = await buildApp(parseConfig({ DATA_DIR: dir }), {
+      fetcher: mock<Fetcher>(),
+      serveWeb: false,
+    });
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/fixtures/scan',
+      payload: { mode: 'demo', jobId },
+    });
     expect(res.statusCode, res.body).toBe(200);
+    seed = { dir, first: res.json<Scanned>(), jobId };
+    await app.close();
+  });
+  afterAll(() => rmSync(seed.dir, { recursive: true, force: true }));
+  /** An app whose desk has had the demo scan, with that scan's answer. */
+  const scanned = async () => ({
+    ...(await setup({}, undefined, seed.dir)),
+    one: structuredClone(seed.first),
+  });
+  it('reports each step with a picture while the page follows it, and keeps it to review', async () => {
+    // The seed's own scan was followed under a job id; the job is kept with the store.
+    const { one, ...s } = await scanned();
+    const { jobId } = seed;
     const job = (await s.app.inject(`/api/jobs/${jobId}`)).json<Job>();
     expect(job).toMatchObject({ title: 'Scanning and mapping', mode: 'demo', outcome: 'done' });
     expect(job.steps.map((x) => [x.id, x.state])).toEqual([
@@ -539,15 +570,12 @@ describe('scanning the demo desk', () => {
       '2 things: green book, sage bottle',
     );
     expect(job.steps.find((x) => x.id === 'map')!.detail).toBe('2 added');
-    expect(job.runIds).toEqual([res.json<Scanned>().run.id]);
+    expect(job.runIds).toEqual([one.run.id]);
     const history = (await s.app.inject('/api/jobs')).json<Job[]>();
     expect(history.map((j) => j.id)).toContain(jobId);
   });
   it('adds what stays put with models fitted to their outlines, then finds it there', async () => {
-    const s = await setup();
-    const first = await s.post('fixtures/scan');
-    expect(first.statusCode, first.body).toBe(200);
-    const one = first.json<Scanned>();
+    const { one, ...s } = await scanned();
     expect(one.run).toMatchObject({ kind: 'fixture', mode: 'demo', status: 'completed' });
     expect(one.mapped.map((m) => [m.label, m.match])).toEqual([
       ['Green book', 'fitted'],
@@ -592,8 +620,7 @@ describe('scanning the demo desk', () => {
     expect(book.model.source).toBe('demo');
   });
   it('maps the desk’s close view too, linking each thing with the room’s, and edits both', async () => {
-    const s = await setup();
-    const desk = (await s.post('fixtures/scan')).json<Scanned>();
+    const { one: desk, ...s } = await scanned();
     const office = await s.post('fixtures/scan', { scene: 'desk' });
     expect(office.statusCode, office.body).toBe(200);
     const r = office.json<Scanned>();
@@ -637,8 +664,7 @@ describe('scanning the demo desk', () => {
     // Two scans and their edits: slow on a busy machine.
   }, 15_000);
   it('re-places what a scan left as it was, and keeps what a person moved', async () => {
-    const s = await setup();
-    const one = (await s.post('fixtures/scan')).json<Scanned>();
+    const { one, ...s } = await scanned();
     const book = one.memory.fixtures!.find((f) => f.label === 'Green book')!;
     const {
       id,
@@ -670,8 +696,7 @@ describe('scanning the demo desk', () => {
     );
   });
   it('skips what the person said isn’t a fixture, until they take it back', async () => {
-    const s = await setup();
-    const one = (await s.post('fixtures/scan')).json<Scanned>();
+    const { one, ...s } = await scanned();
     const bottle = one.memory.fixtures!.find((f) => f.label === 'Sage bottle')!;
     const gone = (
       await s.post('fixtures/delete', { fixtureId: bottle.id, dismiss: true })
@@ -685,8 +710,7 @@ describe('scanning the demo desk', () => {
     expect(three.memory.fixtures).toHaveLength(2);
   });
   it('hands a fixture’s place back to scans when asked', async () => {
-    const s = await setup();
-    const one = (await s.post('fixtures/scan')).json<Scanned>();
+    const { one, ...s } = await scanned();
     const book = one.memory.fixtures![0]!;
     const { createdAt: _c, updatedAt: _u, state: _s, scanned: _n, seen: _e, model, ...rest } = book;
     const input = { ...rest, model: { label: model.label, parts: model.parts } };
@@ -698,8 +722,7 @@ describe('scanning the demo desk', () => {
     expect(back.fixtures![0]!.scanned).toBe(true);
   });
   it('stands what a scan placed again under a corrected pin, and leaves what you placed', async () => {
-    const s = await setup();
-    const one = (await s.post('fixtures/scan')).json<Scanned>();
+    const { one, ...s } = await scanned();
     const [book, bottle] = one.memory.fixtures!;
     expect(book!.seen).toBeTruthy();
     // Take the bottle over by hand.

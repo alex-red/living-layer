@@ -26,7 +26,13 @@ Demo and live have separate desk memory. Demo runs never count toward the live c
 | `desk.ts`         | The placement workflow: select a mug, track it, save a zone, mark the camera fixed, verify, reset                                                             |
 | `meta.ts`         | Spark (structured JSON output) and SAM (streamed) through the OpenAI-compatible SDK, with retries disabled                                                    |
 | `sam.ts`          | Runs the SAM stream through `@meta-sam/parser` and rejects anything incomplete, mismatched, or oversized                                                      |
-| `lamp.ts`         | Turns one light on, then polls its state to see whether it matches                                                                                            |
+| `control.ts`      | Turns one light or switch on or off through Home Assistant, then polls its state to see whether it matches                                                    |
+| `fixture.ts`      | The fixture routes: draft from a photo, scan and map the room's things, sculpt, refit from more photos, save, find, control; the job routes                   |
+| `assist.ts`       | The AI brush: reads a typed request into recipe ops, builds them against the scene, checks the result, and saves it                                           |
+| `watcher.ts`      | Watches the camera between SAM looks: the local tracker, re-anchoring, the live events stream, and the demo's watch                                           |
+| `jobs.ts`         | Long jobs the page follows by id: their steps and pictures, the history, and stopping one                                                                     |
+| `photo.ts`        | Drafts a scene and its objects from one frame of the calibrated room camera, and sets up a room from it                                                       |
+| `illustration.ts` | The room's picture: illustrates it, lifts fixtures off it as sprites over a base, and puts them back                                                          |
 | `store.ts`        | SQLite tables for evidence, desk memory, placement claims, the spend ledger and settings                                                                      |
 | `expose.ts`       | Entities shown in Home Assistant: works out their states, keeps the broker's retained topics in step, the lab's routes                                        |
 | `mqtt-control.ts` | Lights and switches switched over MQTT (`MQTT_DEVICES`): one command, then the device's own report                                                            |

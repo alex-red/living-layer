@@ -1,9 +1,13 @@
-import { afterEach, describe, expect, it, mock } from 'bun:test';
-import { api, type ApiError } from '../apps/web/src/api.js';
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
+import { api, serverWait, type ApiError } from '../apps/web/src/api.js';
 
 const real = globalThis.fetch;
+const wait = { ...serverWait };
+// The server never comes back in these tests: don't wait six real seconds to say so.
+beforeEach(() => Object.assign(serverWait, { backWithinMs: 30, pollMs: 5 }));
 afterEach(() => {
   globalThis.fetch = real;
+  Object.assign(serverWait, wait);
 });
 /** The page's fetch: the request answered with `first`, then /api/status with `status`. */
 const serve = (first: Response, status: () => Response | Promise<Response>) => {
@@ -25,7 +29,7 @@ describe('the page’s API client', () => {
     serve(new Response('', { status: 502 }), () => Promise.reject(new Error('refused')));
     const e = (await api('assist', { prompt: 'x' }).catch((x: ApiError) => x)) as ApiError;
     expect(e.code).toBe('server_down');
-  }, 15_000);
+  });
 
   it('keeps the server’s own error when it sent one', async () => {
     serve(

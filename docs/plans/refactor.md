@@ -27,23 +27,29 @@ Submission is November 4 at 7 PM Edmonton time ([current.md](current.md)). Every
 
 **A1. now: no real waits in tests.** `api()` waits up to 6 s for the server to come back (`apps/web/src/api.ts:58-76`). Make the wait and the poll interval options, so the test at `tests/api-client.test.ts:24` runs in milliseconds.
 _Done when:_ that test takes under 100 ms.
+_Landed:_ `serverWait` in `api.ts` holds the wait and poll (6 s and 1 s in production); the test sets 30 ms and 5 ms. The file runs in 40 ms, from 6 s.
 
 **A2. now: verify runs its steps at once.** Every step is its own process, and none needs another's output. Run them in a pool of about half the cores, and print the summary in the same order. First check that the benches write separate files in `out/`.
 _Done when:_ verify takes about as long as its slowest step.
+_Landed:_ a pool of half the cores (6 here). The benches write different files (`rooms-<name>*.png`, `prop-sheet.png`, nothing), so none run serially. `verify` took 98 s and takes 22 s, set by the rooms bench (about 18 s once the other steps share the cores).
 
 **A3. now: tests in shards.** Split `bun test` into four processes by the files' last recorded times, and add up their pass and fail counts for verify's line. `ci` and the pre-push hook use the same split.
 _Done when:_ the tests take under 25 s and still count 576 passing.
+_Landed:_ `scripts/test-shards.ts` (`bun run test:fast`, used by `ci` and verify) deals the files over 4 processes by their last times (`out/test-times.json`, else the checked-in `scripts/test-times.json`; `--record` refreshes it). A failing shard prints its whole output. The tests went from 62 s to 19–22 s with 575 passing (576 in the plan was from before the files changed). `fixture-scan.test.ts`, 15 s on its own, now bounds the wall time.
 
 **A4. now: share the demo scan in `fixture-scan.test.ts`.** Tests that only read a scan's result share one scan (`beforeAll`). Measure again after B.
 _Done when:_ the file takes under 6 s.
+_Landed:_ the demo's first scan runs once in `beforeAll` and six tests copy that store. The file went from 14.1 s to 10.3 s, not under 6 s: the rest are scans each test needs for itself (about 0.85 s each, 12 of them). Measure again after B.
 
 **A5. later: one test harness.** About 20 files repeat `mkdtemp`, `parseConfig`, `buildApp`, `post` and the cleanup. `tests/lib/app.ts` exports `testApp({ env, fetcher })` and cleans up after itself.
 
 **A6. now: oxlint.** There is no linter, and 86 `useEffect`s have no hooks rules (`useLabState.ts:602` spreads its dependencies). Add oxlint with the react-hooks rules as a reported step in verify, and make it fail the run once it is clean.
+_Landed:_ oxlint 1.90.0 (`bun run lint`, `.oxlintrc.json`: `rules-of-hooks` as error, `exhaustive-deps` as warning, nothing else). Today it reports 0 errors and 21 warnings, 10 of them in `useLabState.ts`. It does not fail verify yet; make it gate when the count reaches 0.
 
 **A7. later: catch dead exports.** Add a verify step (knip, or a small script) that lists exports nothing imports. It would catch 7 in domain, 8 in web and about 30 in server today.
 
 **A8. now: docs that drifted.** `architecture.md`'s server table names `lamp.ts`, which is gone, and leaves out `fixture.ts`, `assist.ts`, `watcher.ts`, `jobs.ts`, `photo.ts` and `illustration.ts`. `current.md` says `bun run check`; the script is `bun run ci`.
+_Landed:_ both fixed.
 
 ## B. The rendering kernel (`packages/domain`), with identical output
 
