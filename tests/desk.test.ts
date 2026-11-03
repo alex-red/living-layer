@@ -6,7 +6,7 @@ import { randomUUID } from 'node:crypto';
 import { buildApp } from '../apps/server/src/app.js';
 import { parseConfig, type Fetcher } from '../apps/server/src/config.js';
 import { EvidenceStore } from '../apps/server/src/store.js';
-import { deskRoutes } from '../apps/server/src/desk.js';
+import { createDesk, deskRoutes } from '../apps/server/src/desk.js';
 import Fastify from 'fastify';
 import {
   DEMO_CALIBRATION,
@@ -205,7 +205,12 @@ describe('desk placement', () => {
         }),
     );
     const app = Fastify();
-    deskRoutes(app, store, action);
+    void app.register(deskRoutes, {
+      prefix: '/api/desk',
+      store,
+      desk: createDesk(store, action),
+      entities: () => [],
+    });
     const request = {
       method: 'POST' as const,
       url: '/api/desk/verify',
@@ -249,8 +254,7 @@ describe('desk memory during a slow lamp call', () => {
           finish = () => resolve(demoLamp);
         }),
     );
-    const app = Fastify();
-    const { verifyRules } = deskRoutes(app, store, action);
+    const { verifyRules } = createDesk(store, action);
     const pending = verifyRules('demo');
     await waitFor(() => action.mock.calls.length === 1);
     // Another route saves a second rule while the first waits on the lamp.

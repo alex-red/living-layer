@@ -14,40 +14,26 @@ import {
   deskTrackBodySchema,
   deskVerifyBodySchema,
   deskZoneBodySchema,
-  fixturesAnchorBodySchema,
-  itemSaveBodySchema,
-  modeIdSchema,
   modeOnlySchema,
-  sceneFromPhotoSaveBodySchema,
-  sceneSaveBodySchema,
   type ZoneOnSurface,
   isoSurface,
   fixtureEntities,
-  settleFixtures,
-  followSurfaces,
   sightingSpot,
   DEMO_SURFACE,
   linkedFixtures,
   FIXTURE_MOVED,
   type Fixture,
   objectById,
-  modelTarget,
-  setModel,
   ruleGate,
   ruleObjects,
   ruleSighting,
   withoutThings,
   MAX_OTHER_OBJECTS,
   MAX_RULES,
-  MAX_FIXTURES,
   placeSeen,
   pinInOrder,
   calibrationOf,
   type PlacementRule,
-  uniqueParts,
-  draftModel,
-  type PhotoThing,
-  type SavedItem,
   placementGate,
   pickTracked,
   zoneApplies,
@@ -62,15 +48,11 @@ import {
   type EvidenceRun,
   type PlacementDecision,
   type LampResult,
-  type IsoScene,
-  type SurfacePin,
 } from '@livinglayer/domain';
 import { EvidenceStore } from './store.js';
 import { LabError, parseInput, safeError } from './errors.js';
-import { keepLocked, rescore } from './item.js';
-import type { PhotoDraft } from './photo.js';
 import { noteControl } from './fixture.js';
-import { refitToScene } from './room.js';
+import type { RouteDeps } from './route-deps.js';
 
 /** A zone drawn in the room must name a surface the room has. */
 function checkOnSurface(memory: DeskMemory, onSurface: ZoneOnSurface | undefined) {
@@ -78,16 +60,11 @@ function checkOnSurface(memory: DeskMemory, onSurface: ZoneOnSurface | undefined
     throw new LabError('zone_surface', 'That zone names a surface the room lacks.', 400);
 }
 
-/** What the watcher calls to have SAM's answer recorded and rules checked, as the routes do. */
-export type DeskTracking = ReturnType<typeof deskRoutes>;
-
-export function deskRoutes(
-  app: FastifyInstance,
+/** The desk's state and steps, shared by its routes, the scene and fixture routes that change a desk, and the watcher. */
+export function createDesk(
   store: EvidenceStore,
   /** Switch the main lamp (no entity) or a light or switch, on unless told off. */
   turnOn: (mode: Mode, entityId?: string, action?: 'on' | 'off') => Promise<LampResult>,
-  /** The lights and switches rules may name. */
-  entities: (mode: Mode) => string[] = () => [],
 ) {
   const active = new Set<Mode>();
   function available(mode: Mode) {
@@ -406,30 +383,6 @@ export function deskRoutes(
     };
   }
   const sameConcept = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
-
-  app.get('/api/desk/:mode', async (request) => {
-    const { mode } = parseInput(modeOnlySchema, request.params);
-    return store.memory(mode);
-  });
-  app.post('/api/desk/select', async (request) => {
-    const { mode, segmentRunId, detectionId } = parseInput(deskSelectBodySchema, request.body);
-    available(mode);
-    const { run, segmentation } = latestMugSegmentation(mode, segmentRunId);
-    const detection = segmentation.detections.find((d) => d.objectId === detectionId);
-    if (run.status !== 'completed' || !detection)
-      throw new LabError('mug_selection', 'Select a specific mug mask from a new segmentation.');
-    const memory = store.memory(mode);
-    const previous = memory.observation;
-    observe(
-      memory,
-      run,
-      segmentation,
-      detection,
-      'manual',
-      previous ? (pickTracked([detection], segmentation.frame, previous)?.overlap ?? null) : null,
-    );
-    return memory;
-  });
   /**
    * One step of tracking: match the newest mug segmentation to the remembered
    * mug without asking, then verify it. Identity must have been confirmed by
@@ -457,97 +410,6 @@ export function deskRoutes(
     const rules = await verifyRules(mode, memory.object.id);
     return { memory: store.memory(mode), event, rules };
   }
-  app.post('/api/desk/track', async (request) => {
-    const { mode, segmentRunId } = parseInput(deskTrackBodySchema, request.body);
-    return trackMug(mode, segmentRunId);
-  });
-  /** Whether the main zone's light goes off when the mug leaves (it does unless told not to). */
-  app.post('/api/desk/zone/off', async (request) => {
-    const { mode, offWhenEmpty } = parseInput(deskZoneOffBodySchema, request.body);
-    available(mode);
-    const memory = store.memory(mode);
-    if (!memory.zone) throw new LabError('zone_missing', 'Draw and save the zone first.', 409);
-    memory.zone = { ...memory.zone, offWhenEmpty };
-    store.saveMemory(memory);
-    return memory;
-  });
-  app.post('/api/desk/camera', async (request) => {
-    const { mode, fixed } = parseInput(deskCameraBodySchema, request.body);
-    available(mode);
-    const memory = store.memory(mode);
-    memory.fixedCamera = fixed;
-    // Turning it off drops a zone that only applied by the fixed-camera assumption.
-    if (memory.zone && !zoneApplies(memory).applies) memory.zone = null;
-    memory.lastDecision = null;
-    store.saveMemory(memory);
-    return memory;
-  });
-  /**
-   * Tie frames of one size to a surface of an isometric scene, or clear it.
-   * It changes how the desk is drawn, not placement, which runs on the frame;
-   * fixtures a scan placed stand again where the scan saw them, under the new pin.
-   */
-  app.post('/api/desk/surface', async (request) => {
-    const { mode, pin } = parseInput(deskSurfaceBodySchema, request.body);
-    available(mode);
-    const memory = store.memory(mode);
-    if (pin && !isoSurface(pin.scene, pin.surfaceId, memory.scene))
-      throw new LabError('surface_unknown', 'That surface is not part of the chosen scene.');
-    // Clicked corners start at the back left as it looks on screen; the
-    // calibrated camera knows which corner of the surface that really is.
-    const calibration = calibrationOf(memory);
-    const seen = pin && calibration && isoSurface(calibration.scene, pin.surfaceId, memory.scene);
-    const ordered = pin && calibration && seen ? pinInOrder(pin, calibration.camera, seen) : pin;
-    memory.surface = ordered;
-    if (ordered)
-      for (const f of memory.fixtures ?? []) {
-        const spot = f.scanned ? placeSeen(f, ordered, memory.scene ?? null) : null;
-        if (spot) Object.assign(f, spot);
-      }
-    store.saveMemory(memory);
-    return memory;
-  });
-  /** Remember another object from the newest segmentation, by hand, like the mug. */
-  app.post('/api/desk/objects/select', async (request) => {
-    const { mode, segmentRunId, detectionId, label } = parseInput(
-      deskObjectsSelectBodySchema,
-      request.body,
-    );
-    available(mode);
-    const { run, segmentation } = latestSegmentation(mode, segmentRunId);
-    const detection = segmentation.detections.find((d) => d.objectId === detectionId);
-    if (!detection) throw new LabError('object_selection', 'Pick a mask from this segmentation.');
-    const memory = store.memory(mode);
-    const others = memory.others ?? [];
-    if (others.length >= MAX_OTHER_OBJECTS)
-      throw new LabError(
-        'object_limit',
-        `Up to ${MAX_OTHER_OBJECTS} more objects can be remembered.`,
-        409,
-      );
-    if (
-      memory.observation?.segmentRunId === run.id &&
-      memory.observation.detectionId === detectionId
-    )
-      throw new LabError('object_selection', 'That mask is already the remembered mug.', 409);
-    const id = randomUUID();
-    const observation = sightingOf(id, run, segmentation, detection, 'manual', null);
-    memory.others = [
-      ...others,
-      {
-        id,
-        label,
-        concept: segmentation.concept,
-        createdAt: new Date().toISOString(),
-        observation,
-        history: [],
-      },
-    ];
-    store.saveMemory(memory);
-    store.save(evidence('observation', mode, observation));
-    const events = await verifyRules(mode, id);
-    return { memory: store.memory(mode), events };
-  });
   /** Follow another object into the newest segmentation of its own concept, then check its rules. */
   async function trackObject(mode: Mode, objectId: string, segmentRunId: string) {
     available(mode);
@@ -583,10 +445,6 @@ export function deskRoutes(
     const events = await verifyRules(mode, target.id);
     return { memory: store.memory(mode), events };
   }
-  app.post('/api/desk/objects/track', async (request) => {
-    const { mode, objectId, segmentRunId } = parseInput(deskObjectsTrackBodySchema, request.body);
-    return trackObject(mode, objectId, segmentRunId);
-  });
   /**
    * A new sighting of a fixture: remembered with its history, and its place
    * in the room (and its linked copies' places) moved to where it was seen,
@@ -676,28 +534,156 @@ export function deskRoutes(
     fixture.track.status = 'missing';
     store.saveMemory(memory);
   }
-  app.post('/api/fixtures/anchor', async (request) => {
-    const { mode, id, segmentRunId, detectionId } = parseInput(
-      fixturesAnchorBodySchema,
-      request.body,
-    );
-    return anchorFixture(mode, id, segmentRunId, detectionId);
+  return {
+    /** Throws while a placement check is switching a light in this mode. */
+    available,
+    evidence,
+    observe,
+    sightingOf,
+    trackMug,
+    trackObject,
+    trackFixture,
+    anchorFixture,
+    loseFixture,
+    verifyRules,
+    latestMugSegmentation,
+    latestSegmentation,
+    verify,
+  };
+}
+
+export type Desk = ReturnType<typeof createDesk>;
+/** What the watcher calls to have SAM's answer recorded and rules checked, as the routes do. */
+export type DeskTracking = Desk;
+
+/** The routes of `/api/desk`. */
+export async function deskRoutes(
+  app: FastifyInstance,
+  deps: Pick<RouteDeps, 'store' | 'desk' | 'entities'>,
+) {
+  const { store, desk, entities } = deps;
+  const { available, evidence, observe, sightingOf, trackMug, trackObject, verify, verifyRules } =
+    desk;
+  const { latestMugSegmentation, latestSegmentation } = desk;
+  app.get('/:mode', async (request) => {
+    const { mode } = parseInput(modeOnlySchema, request.params);
+    return store.memory(mode);
   });
-  /** Stop following a fixture; it stays where it was last seen. */
-  app.post('/api/fixtures/untrack', async (request) => {
-    const { mode, id } = parseInput(modeIdSchema, request.body);
+  app.post('/select', async (request) => {
+    const { mode, segmentRunId, detectionId } = parseInput(deskSelectBodySchema, request.body);
+    available(mode);
+    const { run, segmentation } = latestMugSegmentation(mode, segmentRunId);
+    const detection = segmentation.detections.find((d) => d.objectId === detectionId);
+    if (run.status !== 'completed' || !detection)
+      throw new LabError('mug_selection', 'Select a specific mug mask from a new segmentation.');
+    const memory = store.memory(mode);
+    const previous = memory.observation;
+    observe(
+      memory,
+      run,
+      segmentation,
+      detection,
+      'manual',
+      previous ? (pickTracked([detection], segmentation.frame, previous)?.overlap ?? null) : null,
+    );
+    return memory;
+  });
+  app.post('/track', async (request) => {
+    const { mode, segmentRunId } = parseInput(deskTrackBodySchema, request.body);
+    return trackMug(mode, segmentRunId);
+  });
+  /** Whether the main zone's light goes off when the mug leaves (it does unless told not to). */
+  app.post('/zone/off', async (request) => {
+    const { mode, offWhenEmpty } = parseInput(deskZoneOffBodySchema, request.body);
     available(mode);
     const memory = store.memory(mode);
-    const fixture = memory.fixtures?.find((f) => f.id === id);
-    if (!fixture)
-      throw new LabError('fixture_unknown', 'That fixture is not in this desk memory.', 404);
-    delete fixture.track;
-    // Rules that counted only it can't be checked any more.
-    memory.rules = withoutThings(memory.rules, [id]);
+    if (!memory.zone) throw new LabError('zone_missing', 'Draw and save the zone first.', 409);
+    memory.zone = { ...memory.zone, offWhenEmpty };
     store.saveMemory(memory);
     return memory;
   });
-  app.post('/api/desk/objects/forget', async (request) => {
+  app.post('/camera', async (request) => {
+    const { mode, fixed } = parseInput(deskCameraBodySchema, request.body);
+    available(mode);
+    const memory = store.memory(mode);
+    memory.fixedCamera = fixed;
+    // Turning it off drops a zone that only applied by the fixed-camera assumption.
+    if (memory.zone && !zoneApplies(memory).applies) memory.zone = null;
+    memory.lastDecision = null;
+    store.saveMemory(memory);
+    return memory;
+  });
+  /**
+   * Tie frames of one size to a surface of an isometric scene, or clear it.
+   * It changes how the desk is drawn, not placement, which runs on the frame;
+   * fixtures a scan placed stand again where the scan saw them, under the new pin.
+   */
+  app.post('/surface', async (request) => {
+    const { mode, pin } = parseInput(deskSurfaceBodySchema, request.body);
+    available(mode);
+    const memory = store.memory(mode);
+    if (pin && !isoSurface(pin.scene, pin.surfaceId, memory.scene))
+      throw new LabError('surface_unknown', 'That surface is not part of the chosen scene.');
+    // Clicked corners start at the back left as it looks on screen; the
+    // calibrated camera knows which corner of the surface that really is.
+    const calibration = calibrationOf(memory);
+    const seen = pin && calibration && isoSurface(calibration.scene, pin.surfaceId, memory.scene);
+    const ordered = pin && calibration && seen ? pinInOrder(pin, calibration.camera, seen) : pin;
+    memory.surface = ordered;
+    if (ordered)
+      for (const f of memory.fixtures ?? []) {
+        const spot = f.scanned ? placeSeen(f, ordered, memory.scene ?? null) : null;
+        if (spot) Object.assign(f, spot);
+      }
+    store.saveMemory(memory);
+    return memory;
+  });
+  /** Remember another object from the newest segmentation, by hand, like the mug. */
+  app.post('/objects/select', async (request) => {
+    const { mode, segmentRunId, detectionId, label } = parseInput(
+      deskObjectsSelectBodySchema,
+      request.body,
+    );
+    available(mode);
+    const { run, segmentation } = latestSegmentation(mode, segmentRunId);
+    const detection = segmentation.detections.find((d) => d.objectId === detectionId);
+    if (!detection) throw new LabError('object_selection', 'Pick a mask from this segmentation.');
+    const memory = store.memory(mode);
+    const others = memory.others ?? [];
+    if (others.length >= MAX_OTHER_OBJECTS)
+      throw new LabError(
+        'object_limit',
+        `Up to ${MAX_OTHER_OBJECTS} more objects can be remembered.`,
+        409,
+      );
+    if (
+      memory.observation?.segmentRunId === run.id &&
+      memory.observation.detectionId === detectionId
+    )
+      throw new LabError('object_selection', 'That mask is already the remembered mug.', 409);
+    const id = randomUUID();
+    const observation = sightingOf(id, run, segmentation, detection, 'manual', null);
+    memory.others = [
+      ...others,
+      {
+        id,
+        label,
+        concept: segmentation.concept,
+        createdAt: new Date().toISOString(),
+        observation,
+        history: [],
+      },
+    ];
+    store.saveMemory(memory);
+    store.save(evidence('observation', mode, observation));
+    const events = await verifyRules(mode, id);
+    return { memory: store.memory(mode), events };
+  });
+  app.post('/objects/track', async (request) => {
+    const { mode, objectId, segmentRunId } = parseInput(deskObjectsTrackBodySchema, request.body);
+    return trackObject(mode, objectId, segmentRunId);
+  });
+  app.post('/objects/forget', async (request) => {
     const { mode, objectId } = parseInput(deskObjectsForgetBodySchema, request.body);
     available(mode);
     const memory = store.memory(mode);
@@ -711,7 +697,7 @@ export function deskRoutes(
    * switch, or none. Like the main zone, it belongs to the image of the
    * newest sighting among the things it counts.
    */
-  app.post('/api/desk/rules/save', async (request) => {
+  app.post('/rules/save', async (request) => {
     const { mode, rule: input } = parseInput(deskRulesSaveBodySchema, request.body);
     available(mode);
     const memory = store.memory(mode);
@@ -760,7 +746,7 @@ export function deskRoutes(
     );
     return memory;
   });
-  app.post('/api/desk/rules/delete', async (request) => {
+  app.post('/rules/delete', async (request) => {
     const { mode, ruleId } = parseInput(deskRulesDeleteBodySchema, request.body);
     available(mode);
     const memory = store.memory(mode);
@@ -768,241 +754,13 @@ export function deskRoutes(
     store.saveMemory(memory);
     return memory;
   });
-  app.post('/api/desk/rules/verify', async (request) => {
+  app.post('/rules/verify', async (request) => {
     const { mode } = parseInput(modeOnlySchema, request.body);
     available(mode);
     const events = await verifyRules(mode);
     return { memory: store.memory(mode), events };
   });
-  /**
-   * Save the person's own scene, or drop it. A pin on a surface the new
-   * scene no longer has is cleared, since it would point at nothing.
-   */
-  app.post('/api/scene/save', async (request) => {
-    const { mode, scene } = parseInput(sceneSaveBodySchema, request.body);
-    available(mode);
-    let memory = store.memory(mode);
-    const before = memory.scene ?? null;
-    memory.scene = scene as IsoScene | null;
-    // A room made another size takes its camera with it: fitted again to the same marks.
-    memory = refitToScene(memory, before);
-    // What stands on a desk that was turned or moved goes with it, then settles into the scene.
-    if (memory.fixtures)
-      memory.fixtures = settleFixtures(
-        followSurfaces(memory.fixtures, before, memory.scene ?? null),
-        memory.scene ?? null,
-      );
-    if (
-      memory.surface?.scene === 'custom' &&
-      !isoSurface('custom', memory.surface.surfaceId, memory.scene)
-    )
-      memory.surface = null;
-    store.saveMemory(memory);
-    return memory;
-  });
-  /**
-   * Save a reviewed photo draft in one go: the scene, the pin, and the
-   * objects the person ticked, each remembered from its own mask with the
-   * model fitted to it. The first ticked object becomes the main one (the
-   * mug), so identity stays a person's choice, as it does for a mask.
-   */
-  app.post('/api/scene/from-photo/save', async (request) => {
-    const {
-      mode,
-      runId,
-      scene,
-      pin,
-      track,
-      as = {},
-      fixtures = [],
-    } = parseInput(sceneFromPhotoSaveBodySchema, request.body);
-    available(mode);
-    const draftRun = store.getRun(runId);
-    if (
-      !draftRun ||
-      draftRun.kind !== 'photo' ||
-      draftRun.mode !== mode ||
-      draftRun.status !== 'completed'
-    )
-      throw new LabError('photo_draft', 'Draft a scene from a photo first.', 409);
-    const draft = draftRun.output as PhotoDraft;
-    const segment = store.getRun(draft.segmentRunId);
-    if (!segment || store.latestSegment(mode) !== segment.id)
-      throw new LabError(
-        'photo_stale',
-        'A newer segmentation came after this photo draft. Draft the photo again.',
-        409,
-      );
-    const segmentation = segment.output as Segmentation;
-    if (pin && (pin.scene !== 'custom' || !isoSurface('custom', pin.surfaceId, scene as IsoScene)))
-      throw new LabError('surface_unknown', 'The pin must be on a surface of the drafted scene.');
-    const picked = track.map((thingId) => {
-      const detectionId = draft.detections[thingId];
-      const detection = segmentation.detections.find((d) => d.objectId === detectionId);
-      const thing = draft.inventory.things.find((t) => t.id === thingId);
-      if (!detection || !thing)
-        throw new LabError('photo_object', 'Pick objects that SAM outlined in this draft.');
-      return { thing, detection };
-    });
-    let memory = store.memory(mode);
-    if ((memory.others?.length ?? 0) + Math.max(0, picked.length - 1) > MAX_OTHER_OBJECTS)
-      throw new LabError(
-        'object_limit',
-        `Up to ${MAX_OTHER_OBJECTS} more objects can be remembered. Forget one, or tick fewer.`,
-        409,
-      );
-    // The room is drawn from its templates; nothing from the photo is pasted on.
-    memory.scene = scene as IsoScene;
-    // Through the camera it was laid out through: newer when the draft turned a hidden wall.
-    if (memory.camera && draft.calibration.calibratedAt > memory.camera.calibratedAt)
-      memory.camera = { ...memory.camera, ...draft.calibration };
-    if (memory.fixtures) memory.fixtures = settleFixtures(memory.fixtures, memory.scene);
-    memory.surface = pin as SurfacePin | null;
-    memory.scenePhoto =
-      mode === 'live'
-        ? (['webp', 'png'].map((ext) => `${runId}/source.${ext}`).find((a) => store.readAsset(a)) ??
-          null)
-        : null;
-    // A new photo is a new room: the old pictures of it no longer fit.
-    memory.illustration = null;
-    memory.deskIllustration = null;
-    store.saveMemory(memory);
-    const label = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
-    const now = new Date().toISOString();
-    // Chosen again with what the person changed it to, from the fixtures saved before this.
-    const library = memory.fixtures ?? [];
-    const chosen = (thing: PhotoThing) => draftModel(thing, as[thing.id] ?? thing.as, library);
-    const saved = (thing: PhotoThing): SavedItem => {
-      const c = chosen(thing);
-      return {
-        ...uniqueParts(c.item),
-        label: thing.label,
-        source: c.source === 'library' ? 'spark' : 'placeholder',
-        segmentRunId: draft.segmentRunId,
-        swatches: [{ hex: thing.color, share: 1 }],
-        updatedAt: now,
-        fit: null,
-      };
-    };
-    const model = (thingId: string, previous: ReturnType<typeof modelTarget>) => {
-      const thing = draft.inventory.things.find((t) => t.id === thingId);
-      if (!thing) return null;
-      const item = saved(thing);
-      return { ...item, ...uniqueParts(keepLocked(item, previous?.item)) };
-    };
-    // What no template draws stays as a fixture, with its model and the crop Spark can model it from.
-    const claimed = new Set<string>();
-    const added: Fixture[] = [];
-    for (const f of fixtures) {
-      const thing = draft.inventory.things.find((t) => t.id === f.id);
-      if (!thing || track.includes(f.id))
-        throw new LabError(
-          'photo_object',
-          'Keep as fixtures only things from this draft that aren’t tracked.',
-        );
-      const c = { x: f.at.x + f.size.w / 2, y: f.at.y + f.size.d / 2 };
-      const surface =
-        f.at.z > 0.05
-          ? memory.scene.surfaces
-              .filter(
-                (x) =>
-                  Math.abs(x.z - f.at.z) < 0.1 &&
-                  c.x >= x.rect.x &&
-                  c.x <= x.rect.x + x.rect.w &&
-                  c.y >= x.rect.y &&
-                  c.y <= x.rect.y + x.rect.d,
-              )
-              .sort((a, b) => b.z - a.z)[0]
-          : undefined;
-      const where = { at: { x: f.at.x, y: f.at.y }, surfaceId: surface?.id ?? null };
-      // The same thing already in this room moves here, and keeps its model, size and switch.
-      const pick = chosen(thing);
-      const same = library.find(
-        (x) => x.id === pick.fixtureId && x.scene === 'custom' && !claimed.has(x.id),
-      );
-      if (same) {
-        claimed.add(same.id);
-        added.push({ ...same, ...where, updatedAt: now });
-        continue;
-      }
-      const fit = (v: number) => Math.min(8, Math.max(0.1, v));
-      // A fixture's size is before its turn.
-      const turns = (f.turns ?? 0) as 0 | 1 | 2 | 3;
-      const own = turns % 2 ? { w: f.size.d, d: f.size.w } : f.size;
-      const crop = draft.crops[thing.id];
-      added.push({
-        id: randomUUID(),
-        label: label(thing.label),
-        scene: 'custom',
-        ...where,
-        turns,
-        size: { w: fit(own.w), d: fit(own.d), h: fit(f.size.h) },
-        model: saved(thing),
-        reference: crop ? { runId, asset: crop } : null,
-        control: { kind: 'none' },
-        createdAt: now,
-        updatedAt: now,
-      });
-    }
-    if (added.length) {
-      const moved = new Set(added.map((f) => f.id));
-      const rest = (memory.fixtures ?? []).filter((f) => !moved.has(f.id));
-      memory.fixtures = settleFixtures([...rest, ...added].slice(0, MAX_FIXTURES), memory.scene);
-      store.saveMemory(memory);
-    }
-    const [main, ...rest] = picked;
-    if (main) {
-      const fresh = !memory.object;
-      observe(memory, segment, segmentation, main.detection, 'manual', null);
-      memory = store.memory(mode);
-      if (fresh && memory.object) memory.object.label = label(main.thing.label);
-      const item = model(main.thing.id, modelTarget(memory));
-      if (item) setModel(memory, memory.object!.id, item);
-    }
-    for (const { thing, detection } of rest) {
-      const id = randomUUID();
-      const observation = sightingOf(id, segment, segmentation, detection, 'manual', null);
-      memory.others = [
-        ...(memory.others ?? []),
-        {
-          id,
-          label: label(thing.label),
-          concept: thing.label,
-          createdAt: new Date().toISOString(),
-          observation,
-          history: [],
-          item: model(thing.id, null),
-        },
-      ];
-      store.save(evidence('observation', mode, observation));
-    }
-    store.saveMemory(memory);
-    return store.memory(mode);
-  });
-  /** Save an edited model of the remembered object, or remove it. */
-  app.post('/api/item/save', async (request) => {
-    const { mode, item, objectId } = parseInput(itemSaveBodySchema, request.body);
-    const memory = store.memory(mode);
-    const target = modelTarget(memory, objectId);
-    if (!target)
-      throw new LabError('item_identity', 'Confirm the object by hand first, then model it.', 409);
-    setModel(
-      memory,
-      target.id,
-      item && {
-        ...uniqueParts(item),
-        source: target.item?.source ?? 'sampled',
-        segmentRunId: target.item?.segmentRunId ?? null,
-        swatches: target.item?.swatches ?? [],
-        updatedAt: new Date().toISOString(),
-        // An edit keeps its fit record, scored again against the same crop.
-        fit: await rescore(store, item, target.item?.fit),
-      },
-    );
-    store.saveMemory(memory);
-    return memory;
-  });
-  app.post('/api/desk/zone', async (request) => {
+  app.post('/zone', async (request) => {
     const { mode, observationId, rect, onSurface } = parseInput(deskZoneBodySchema, request.body);
     available(mode);
     const memory = store.memory(mode);
@@ -1027,7 +785,7 @@ export function deskRoutes(
     store.save(evidence('zone', mode, { ...memory.zone, observationId }));
     return memory;
   });
-  app.post('/api/desk/reset', async (request) => {
+  app.post('/reset', async (request) => {
     const { mode } = parseInput(modeOnlySchema, request.body);
     available(mode);
     const memory: DeskMemory = {
@@ -1067,7 +825,7 @@ export function deskRoutes(
    * no scene, pin, fixtures or saved models of its own. For probes against
    * the dev server (`bun run reset demo`); live memory is never touched.
    */
-  app.post('/api/desk/demo/reset', async () => {
+  app.post('/demo/reset', async () => {
     const memory: DeskMemory = {
       mode: 'demo',
       object: null,
@@ -1083,7 +841,7 @@ export function deskRoutes(
    * empty demo desk. The pin and the scene are checked like any other save;
    * the rest is the lab's own output coming back. Evidence is untouched.
    */
-  app.post('/api/desk/restore', async (request) => {
+  app.post('/restore', async (request) => {
     const { mode, memory } = parseInput(deskRestoreBodySchema, request.body);
     if (memory.mode !== mode)
       throw new LabError('restore_mode', `This save is for ${memory.mode} mode, not ${mode}.`, 400);
@@ -1099,7 +857,7 @@ export function deskRoutes(
     });
     return store.memory(mode);
   });
-  app.post('/api/desk/verify', async (request) => {
+  app.post('/verify', async (request) => {
     const { mode, observationId, zoneId } = parseInput(deskVerifyBodySchema, request.body);
     available(mode);
     const memory = store.memory(mode);
@@ -1111,5 +869,4 @@ export function deskRoutes(
       );
     return verify(mode, memory);
   });
-  return { trackMug, trackObject, trackFixture, loseFixture, verifyRules };
 }

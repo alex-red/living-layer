@@ -1,4 +1,5 @@
 import type { LampResult, Mode } from '@livinglayer/domain';
+import type { Desk } from './desk.js';
 import type { Config } from './config.js';
 import type { Jobs } from './jobs.js';
 import type { MetaAdapter } from './meta.js';
@@ -21,6 +22,8 @@ export interface RouteDeps {
   run: Runner;
   /** The long jobs the page follows. */
   jobs: Jobs;
+  /** The desk's busy check and tracking steps, one per app. */
+  desk: Desk;
   /** The lights and switches rules and fixtures may name. */
   entities: (mode: Mode) => string[];
   /** Switches a fixture's entity. */

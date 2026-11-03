@@ -2,18 +2,11 @@ import Fastify from 'fastify';
 import staticFiles from '@fastify/static';
 import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import {
-  lampBodySchema,
-  modeOnlySchema,
-  settingsSpendLimitBodySchema,
-  imageRequestSchema,
-  segmentRequestSchema,
-  demoSourceKey,
   DEMO_LIGHTS,
   DEMO_SWITCHES,
   estimateCost,
-  type EvidenceRun,
   type Mode,
   type Segmentation,
   type DemoPosition,
@@ -28,10 +21,15 @@ import { MetaAdapter } from './meta.js';
 import { ControlAdapter } from './control.js';
 import { chosenEntities, haConnection, haRoutes, type OpenSocket } from './ha.js';
 import { fixtureRoutes } from './fixture.js';
-import { requestSignal, watchRequest } from './request-signal.js';
-import { LabError, logError, liveImage, parseInput } from './errors.js';
-import { findSource, samDataUrl, samReadyPng, toDataUrl, validateImage } from './images.js';
-import { deskRoutes } from './desk.js';
+import { watchRequest } from './request-signal.js';
+import { LabError, logError } from './errors.js';
+import { findSource, toDataUrl } from './images.js';
+import { createDesk, deskRoutes } from './desk.js';
+import { settingsRoutes } from './settings.js';
+import { textRoutes } from './text.js';
+import { discoverRoutes } from './discover.js';
+import { createSegment, segmentRoutes } from './segment.js';
+import { lampRoutes } from './lamp.js';
 import { itemRoutes } from './item.js';
 import { sceneRoutes } from './scene.js';
 import { pinRoutes } from './pin.js';
@@ -51,7 +49,7 @@ import { createRunner } from './runs.js';
 import { Exposer, exposeRoutes } from './expose.js';
 import { MqttLink, type MqttConnect } from './mqtt.js';
 import { MqttControl } from './mqtt-control.js';
-import { demoScene, demoSegmentation, demoLamp, demoLampFor } from './demo.js';
+import { demoLamp, demoLampFor } from './demo.js';
 
 const watching = new WeakMap<object, Record<Mode, Watcher>>();
 /** The camera watchers of an app `buildApp` made, for tests. */
@@ -300,21 +298,19 @@ export async function buildApp(
     fetcher: options.fetcher,
     openSocket: options.haSocket,
   });
-  const tracking = deskRoutes(
-    app,
-    store,
-    async (mode, entityId, action = 'on') =>
-      mode === 'demo'
-        ? demoLampFor(entityId ?? demoLamp.entityId, action)
-        : switchLive(entityId, action),
-    entities,
+  const desk = createDesk(store, async (mode, entityId, action = 'on') =>
+    mode === 'demo'
+      ? demoLampFor(entityId ?? demoLamp.entityId, action)
+      : switchLive(entityId, action),
   );
+  app.register(deskRoutes, { prefix: '/api/desk', store, desk, entities });
   app.register(fixtureRoutes, {
     prefix: '/api/fixtures',
     store,
     meta,
     run,
     jobs,
+    desk,
     control: async (mode, entityId, action) =>
       mode === 'demo' ? demoLampFor(entityId, action) : switchLive(entityId, action),
     entities,
@@ -351,37 +347,14 @@ export async function buildApp(
       runs: store.list(),
     }),
   );
-  /** Change the daily Meta spending limit; null goes back to the one in `.env`. */
-  app.post('/api/settings/spend-limit', async (request) => {
-    const { usd } = parseInput(settingsSpendLimitBodySchema, request.body);
-    store.setSpendLimit(usd === null ? null : Math.round(usd * 100) / 100);
-    return {
-      spendLimit: store.spendLimit(config.spendLimitUsd),
-      spentToday: store.spentToday(),
-    };
-  });
-  app.post('/api/text', async (request) => {
-    const { mode } = parseInput(modeOnlySchema, request.body);
-    return run('text', mode, async () =>
-      mode === 'demo'
-        ? { output: { text: 'Demo connection ready. No model request was sent.' } }
-        : meta.text(),
-    );
-  });
-  app.post('/api/discover', async (request) => {
-    const input = parseInput(imageRequestSchema, request.body);
-    return run('discover', input.mode, async (id) => {
-      if (input.mode === 'demo') {
-        liveImage(input.mode, input.imageDataUrl);
-        return { output: demoScene };
-      }
-      const image = await validateImage(input.imageDataUrl);
-      const result = await meta.discover(image.dataUrl);
-      return { ...result, assets: [store.asset(id, `source.${image.ext}`, image.bytes)] };
-    });
-  });
+  app.register(settingsRoutes, { prefix: '/api/settings', store, config });
+  app.register(textRoutes, { prefix: '/api/text', meta, run });
+  app.register(discoverRoutes, { prefix: '/api/discover', store, meta, run });
+  const segment = createSegment({ store, meta, run });
+  app.register(segmentRoutes, { prefix: '/api/segment', segment });
+  app.register(lampRoutes, { prefix: '/api/lamp', run, entities, switchLive });
   app.register(itemRoutes, { prefix: '/api/item', store, meta, run });
-  app.register(sceneRoutes, { prefix: '/api/scene', store, meta, run, jobs, config });
+  app.register(sceneRoutes, { prefix: '/api/scene', store, meta, run, jobs, config, desk });
   app.register(pinRoutes, { prefix: '/api/desk', store });
   app.register(selectRoutes, { prefix: '/api/select', store });
   app.register(assistRoutes, {
@@ -394,95 +367,13 @@ export async function buildApp(
     productsDir: join(config.dataDir, 'products'),
   });
   app.register(roomRoutes, { prefix: '/api/room', store, meta, run });
-  /** One SAM segmentation, recorded and billed as a run: the lab's button, or the watcher. */
-  function segment(
-    input: {
-      mode: Mode;
-      concept: string;
-      imageDataUrl?: string;
-      demoPosition?: DemoPosition;
-    },
-    signal?: AbortSignal,
-  ) {
-    return run(
-      'segment',
-      input.mode,
-      async (id) => {
-        if (input.mode === 'demo') {
-          liveImage(input.mode, input.imageDataUrl);
-          const result = await demoSegmentation(input.concept, input.demoPosition);
-          return {
-            output: { ...result.output, sourceKey: demoSourceKey(input.demoPosition) },
-            assets: [store.asset(id, 'synthetic-sam.txt', result.raw)],
-          };
-        }
-        if (input.demoPosition)
-          throw new LabError('demo_position', 'Demo positions apply only in demo mode.');
-        const options = signal ? { signal } : {};
-        // A plain PNG (the watcher's frames) goes to SAM as it came, while the stored copy
-        // is encoded alongside: the lossless WebP takes about 200 ms, and SAM needn't wait.
-        const ready = await samReadyPng(input.imageDataUrl);
-        const [image, result] = ready
-          ? await Promise.all([
-              validateImage(input.imageDataUrl),
-              meta.segment(input.imageDataUrl!, input.concept, ready.width, ready.height, options),
-            ])
-          : await validateImage(input.imageDataUrl).then(
-              async (image) =>
-                [
-                  image,
-                  await meta.segment(
-                    await samDataUrl(image),
-                    input.concept,
-                    image.width,
-                    image.height,
-                    options,
-                  ),
-                ] as const,
-            );
-        return {
-          ...result,
-          output: {
-            ...result.output,
-            sourceKey: createHash('sha256').update(image.bytes).digest('hex'),
-          },
-          assets: [
-            store.asset(id, `source.${image.ext}`, image.bytes),
-            store.asset(id, 'sam-output.txt', result.raw),
-          ],
-        };
-      },
-      signal,
-    ) as Promise<EvidenceRun<Segmentation>>;
-  }
-  app.post('/api/segment', async (request) =>
-    segment(parseInput(segmentRequestSchema, request.body), requestSignal(request)),
-  );
-  /** Switch one device by hand: the main light on, unless it names another and which way. */
-  app.post('/api/lamp', async (request) => {
-    const { mode, entityId, action } = parseInput(lampBodySchema, request.body);
-    if (entityId && !entities(mode).includes(entityId))
-      throw new LabError(
-        'lamp_unknown',
-        `${entityId} isn’t one of the devices Living Layer may switch.`,
-        409,
-      );
-    return run('lamp', mode, async () => ({
-      output:
-        mode === 'demo'
-          ? entityId
-            ? demoLampFor(entityId, action)
-            : demoLamp
-          : await switchLive(entityId, action),
-    }));
-  });
   // The server watches the camera, so rules fire with no tab open.
   let model: Promise<Appearance | null> | null = null;
   const demoPicture = new DemoSource();
   const watcherDeps = (mode: Mode): WatcherDeps => ({
     mode,
     store,
-    tracking,
+    tracking: desk,
     segment: (m, concept, picture, signal) =>
       segment(
         {
@@ -585,7 +476,7 @@ export async function buildApp(
       // Home Assistant's switch and button do what the lab's own buttons do.
       actions: {
         setWatching: (on) => setWatching(store, watchers.live, on),
-        checkRules: () => tracking.verifyRules('live'),
+        checkRules: () => desk.verifyRules('live'),
       },
     }),
   };
