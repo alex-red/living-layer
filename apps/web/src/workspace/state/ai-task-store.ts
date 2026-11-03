@@ -18,7 +18,7 @@ export interface AiTask {
   next?: { label: string; run: () => void };
 }
 
-/** The task as it is now. Its job is replaced every 350 ms while it runs, so it lives outside the lab's state. */
+/** The task as it is now. Its job is replaced with each step while it runs, so it lives outside the lab's state. */
 export const aiTaskStore = createStore<AiTask | null>(null);
 
 export const setAiTask = aiTaskStore.set;

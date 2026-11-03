@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import type { IsoScene, Job, DeskMemory } from '@livinglayer/domain';
 import { DEMO_CAMERA, groupInFrame } from '@livinglayer/domain';
+import { followJob } from './follow-job';
 import { api } from '../../api';
 import { useBrush, type Brush } from '../useBrush';
 import { aiTaskStore, setAiTask, updateAiTask, type AiTask } from './ai-task-store';
@@ -55,7 +56,7 @@ export function useAiSlice(
    * A long AI action shown step by step in its dialog: the job's steps as the
    * server reports them, kept after it ends until the dialog is closed.
    */
-  // The task lives in `aiTaskStore`: its job is replaced every 350 ms and only the dialog shows it.
+  // The task lives in `aiTaskStore`: its job is replaced as it changes and only the dialog shows it.
   /** The action running now; a stop bumps the generation so its answer is dropped. */
   const aiGeneration = useRef(0);
   const aiRun = useRef<{ generation: number; jobId: string; abort: AbortController } | null>(null);
@@ -254,15 +255,9 @@ export function useAiSlice(
           : 'it was stopped';
       console.warn(`AI task "${task.title}" (${jobId.slice(0, 8)}): ${what} dropped, ${why}`);
     };
-    let following = true;
-    const poll = async () => {
-      while (following && current()) {
-        const job = await api<Job>(`jobs/${jobId}`).catch(() => null);
-        if (job && following && current()) updateAiTask(jobId, { job });
-        await new Promise((r) => setTimeout(r, 350));
-      }
-    };
-    void poll();
+    const stopFollowing = followJob(jobId, (job) => {
+      if (current()) updateAiTask(jobId, { job });
+    });
     try {
       const result = await call(jobId, abort.signal);
       if (current()) {
@@ -282,7 +277,7 @@ export function useAiSlice(
       });
       throw e;
     } finally {
-      following = false;
+      stopFollowing();
       if (current()) {
         aiRun.current = null;
         // The last word on every step, success or not.
