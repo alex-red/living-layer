@@ -73,6 +73,8 @@ describe('the sidebar, one scene at a time', () => {
     const labels = office.groups.flatMap((g) => g.things.map((t) => t.label));
     expect(labels).toContain('Floor fan');
     expect(labels).not.toContain('Desk mug');
+    // Nor the pinned desk top as an empty group: the desk's own row stands for it.
+    expect(office.groups.map((g) => g.key)).not.toContain('desk:top');
     // The office's lamp stands on the desk, so the desk lists it, not the office.
     expect(office.groups.some((g) => g.things.some((t) => t.lamp))).toBe(false);
     const floor = office.groups.at(-1)!;

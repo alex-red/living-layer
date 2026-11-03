@@ -4,6 +4,7 @@ import {
   MAX_FIXTURES,
   MAX_RULES,
   MAIN_RULE,
+  ago,
   cameraForScene,
   isMugConcept,
   mugOf,
@@ -345,10 +346,16 @@ function ThingLine({
   onMenu: (t: ThingRow, e: MouseEvent) => void;
 }) {
   const stat = useStatMeta(t.id, t.lamp);
+  const now = useNow(30_000);
+  // A followed thing without a stat says when it was last seen.
+  const seen =
+    t.seenAt && (!t.detail || t.detail === 'missing')
+      ? `${t.status === 'missing' ? 'missing · ' : ''}seen ${ago(now - t.seenAt)} ago`
+      : '';
   return (
     <Row
       label={t.label}
-      detail={stat ? undefined : t.detail || undefined}
+      detail={stat ? undefined : seen || t.detail || undefined}
       meta={stat?.text}
       metaTone={stat?.tone}
       glyph={THING_GLYPH[t.kind]}

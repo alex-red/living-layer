@@ -101,6 +101,8 @@ export interface ThingRow {
   /** What it says when it has no stat yet; empty for nothing worth saying. */
   detail: string;
   lamp: boolean;
+  /** When the camera last saw it, ms: what a followed thing says without a stat. */
+  seenAt?: number;
   /** For its menu and for picking several: a placed fixture. */
   fixture?: Fixture;
   /** For its menu: a thing drawn with your own room, which can be taken out of the layout. */
@@ -170,13 +172,16 @@ function everything({ memory, mode, mainLight, lightsOn }: Omit<OutlineInput, 's
         kind: f.track ? 'followed' : 'placed',
         status,
         detail:
-          status === 'missing'
-            ? 'missing'
-            : f.control.kind !== 'none'
-              ? `${f.control.kind} · ${f.state ?? 'unknown'}`
+          f.control.kind !== 'none'
+            ? `${f.control.kind} · ${f.state ?? 'unknown'}`
+            : status === 'missing'
+              ? 'missing'
               : f.track
-                ? 'followed'
+                ? ''
                 : (f.state ?? ''),
+        ...(f.track?.observation?.observedAt
+          ? { seenAt: Date.parse(f.track.observation.observedAt) }
+          : {}),
         lamp: f.control.kind === 'light',
         ...(sighted ? {} : { fixture: f }),
       },
@@ -276,9 +281,14 @@ export function sceneOutline(input: OutlineInput): SceneOutline {
     (a, b) => Number(b.id === pinnedId) - Number(a.id === pinnedId),
   );
   const known = new Set(surfaces.map((s) => s.id));
+  const view = viewOf(roomOf(scene), memory);
+  const inView = new Set(
+    view && view !== scene ? (sceneOf(view, memory)?.surfaces.map((s) => s.id) ?? []) : [],
+  );
   for (const surface of surfaces) {
     const on = here.filter((t) => t.surfaceId === surface.id).map((t) => t.row);
-    if (!on.length && surface.id !== pinnedId) continue;
+    // An empty surface shows only when pinned, and not in a room whose close view lists it.
+    if (!on.length && (surface.id !== pinnedId || inView.has(surface.id))) continue;
     groups.push({
       key: surface.id,
       label: surfaceLabel(drawn, surface),
@@ -296,7 +306,6 @@ export function sceneOutline(input: OutlineInput): SceneOutline {
       pinned: false,
       things: floor,
     });
-  const view = viewOf(roomOf(scene), memory);
   return {
     groups,
     rules: rules
