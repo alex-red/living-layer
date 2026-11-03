@@ -1,3 +1,5 @@
+import { median, pointInPolygon } from './math.js';
+import { clamp } from './math.js';
 import {
   clusterColours,
   deltaE,
@@ -48,7 +50,7 @@ export interface FitInput {
    */
   knownHeight?: number | null;
 }
-export interface FitScore {
+interface FitScore {
   /** Silhouette overlap with the mask, 0 to 1. */
   iou: number;
   /** Mean OKLab colour error inside both, times 100. */
@@ -171,12 +173,6 @@ function dominant(photo: Photo, pixels: Iterable<number>): number {
     }
   return best;
 }
-const median = (xs: number[]) => {
-  if (!xs.length) return 0;
-  const s = [...xs].sort((a, b) => a - b);
-  return s[Math.floor(s.length / 2)]!;
-};
-const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
 const DEG = Math.PI / 180;
 const ARCHETYPE_HANDLES = new Set<Archetype>(['mug']);
 
@@ -909,7 +905,7 @@ function shrink(
  * bottom left, since both are cropped to their own bounds. `grids` keeps the
  * voxelized shapes between calls: the camera angle moves without the shape.
  */
-export function scoreItem(
+function scoreItem(
   item: IsoItem,
   target: { w: number; h: number; mask: Uint8Array; lab: Float32Array },
   ppu: number,
@@ -970,15 +966,7 @@ function scoreFromAbove(
   const topLab = rgbLab(hexRgb(top));
   const decal = part.paint?.find((p): p is Decal => p.kind === 'decal' && p.face === 'top');
   const decalLab = decal?.colors.map((c) => rgbLab(hexRgb(c)));
-  const inside = (u: number, v: number) => {
-    let hit = false;
-    for (let i = 0, j = outline.length - 1; i < outline.length; j = i++) {
-      const a = outline[i]!;
-      const b = outline[j]!;
-      if (a.y > v !== b.y > v && u < ((b.x - a.x) * (v - a.y)) / (b.y - a.y) + a.x) hit = !hit;
-    }
-    return hit;
-  };
+  const inside = (u: number, v: number) => pointInPolygon(outline, u, v);
   let inter = 0;
   let union = 0;
   let err = 0;
@@ -1062,7 +1050,7 @@ const boxKnobs: Knob[] = [
  * render matches the mask better. Coordinate descent with halving steps;
  * deterministic and bounded by `budget` renders.
  */
-export function refineFit(
+function refineFit(
   label: string,
   start: ArchetypeFit,
   elevation: number,
@@ -1128,7 +1116,7 @@ export const FIT_TARGETS = { iou: 0.9, deltaE: 8 } as const;
 export const SHAPE_TARGETS = { aspect: 0.15, spread: 0.2 } as const;
 
 /** A turned body's radius at a share of its height, from its profile. */
-export function profileRadius(fit: LatheFit, z: number): number {
+function profileRadius(fit: LatheFit, z: number): number {
   const p = fit.profile;
   for (let i = 1; i < p.length; i++)
     if (p[i]!.z >= z) {

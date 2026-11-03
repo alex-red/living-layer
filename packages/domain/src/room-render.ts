@@ -1,3 +1,4 @@
+import { KEY_LIGHT, type Vec3 } from './math.js';
 import type { IsoBox, IsoScene, IsoTone } from './iso.js';
 import { hexLab, labRgb, rampLab, type Lab } from './color.js';
 import { propSolids } from './iso-furniture.js';
@@ -31,12 +32,7 @@ export interface RoomPicture {
   depth: Float32Array;
 }
 
-type Vec3 = [number, number, number];
-const LIGHT: Vec3 = (() => {
-  const l: Vec3 = [0.15, 0.75, 1];
-  const n = Math.hypot(...l);
-  return [l[0] / n, l[1] / n, l[2] / n];
-})();
+const LIGHT = KEY_LIGHT;
 const BACKGROUND: Lab = hexLab('#0d0f16');
 const NEAR = 0.05;
 

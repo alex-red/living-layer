@@ -10,10 +10,12 @@ describe('the offline mode renamed from fixture to demo', () => {
   it('moves stored desk memory and runs over', () => {
     const dir = mkdtempSync(join(tmpdir(), 'livinglayer-rename-'));
     try {
-      new EvidenceStore(dir).close();
-      const db = new Database(join(dir, 'livinglayer.sqlite'));
+      const db = new Database(join(dir, 'livinglayer.sqlite'), { create: true });
       // A database from before migrations were counted.
-      db.run('PRAGMA user_version = 0');
+      db.run(
+        'CREATE TABLE evidence (id TEXT PRIMARY KEY, created_at TEXT NOT NULL, payload TEXT NOT NULL)',
+      );
+      db.run('CREATE TABLE desk_memory (mode TEXT PRIMARY KEY, payload TEXT NOT NULL)');
       const rule = { id: 'r', lightId: 'light.fixture_shelf' };
       db.run('INSERT INTO desk_memory VALUES (?, ?)', [
         'fixture',

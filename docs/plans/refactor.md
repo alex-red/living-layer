@@ -72,7 +72,7 @@ _Landed:_ `scoreItem` takes an optional grid cache keyed by the parts and resolu
 
 **B5. now: `renderRoom`'s colour pass.** Plain arithmetic and direct writes (`room-render.ts:238-248`), probe 84 → 46 ms. Reuse the full-frame depth and id buffers that `drawnInset` (`room-scan.ts:123-140`) and `fitGroup` (`place-fit.ts:44`, `:86`) allocate for every search.
 
-_Landed:_ the lens falloff is a table kept per frame size (built with the same `Math.hypot`), pixels are written directly, and `drawnInset` borrows the depth and id buffers (`renderRoom`'s `scratch` option). Six presets' `renderRoom` 303–322 → 192 ms; pictures and layouts identical. `fitGroup` (`place-fit.ts`) is not in this tree, so it is untouched.
+_Landed:_ the lens falloff is a table kept per frame size (built with the same `Math.hypot`), pixels are written directly, and `drawnInset` borrows the depth and id buffers (`renderRoom`'s `scratch` option). Six presets' `renderRoom` 303–322 → 192 ms; pictures and layouts identical. `fitGroup`'s per-candidate picture borrows the same buffers (the room it is compared with is allocated once and kept); the demo desk search 317 → 295 ms, same fit, `bench:at main room` unchanged.
 
 **B6. now: one grid for the lit and unlit sprite.** `renderPropSprite` voxelizes the same parts twice (`iso-prop-sprite.ts:112-122`).
 
@@ -107,6 +107,8 @@ _Landed:_ one `Jobs` per `buildApp`, passed to the routes that start jobs; stale
 
 **C7. later: fitting and rendering off the event loop.** After B, measure a scan again. If one still holds the loop for more than about 200 ms, run `fitItem` and `renderRoom` in a small Bun Worker pool: domain is pure, and the RGBA buffers can be transferred.
 
+_Landed:_ measured on the demo: `fitItem` held the loop 150–300 ms per thing (the scan's longest stretch 213 ms warm-ish, 300 ms under load); `renderRoom` 70–150 ms. `apps/server/src/workers/compute.ts` runs both in a pool of up to 2 Bun Workers (`COMPUTE_WORKERS=<n>`; 0, and the default under `bun test`, runs in place), with rendered buffers transferred. The longest block of a demo scan is now 1–5 ms; results are byte-identical (`tests/compute-workers.test.ts`). A failed worker falls back to running in place.
+
 **C8. later: one Spark call in `meta.ts`.** Thirteen methods repeat the same 45 lines (`meta.ts:400-1091`). Replace them with one `structured(kind, …)` that takes its tokens and effort from `SPARK_CALLS`. Today `reasoningOf` is applied for only three kinds, so an effort set for any other kind does nothing. `lookupProduct` should use the same reserve and settle, and `SPARK_BUDGET` should be derived. Check with `tests/calls.test.ts` and `bench:intent`.
 _Landed:_ `meta.ts` went from 1304 to 965 lines. One private `structured()` serves every Spark method, and `lookupProduct` shares its reserve and settle. `SPARK_BUDGET` is derived, and `classifyCause` uses `isTimeout` from `errors.ts`. `tests/meta-requests.test.ts` snapshots every kind's request, taken before the change and unchanged after. No effort setting was dead: only `fixtureScan` and `productLookup` set one, and both were applied.
 
@@ -122,7 +124,11 @@ _Landed:_ `meta.ts` went from 1304 to 965 lines. One private `structured()` serv
 
 **C11. later, needs a decision: hot reads and retention.** `/api/status` (`store.ts:237`) and `/api/jobs` (`jobs.ts:208`) each parse about 11 MB per call. Index mode, kind and status as generated columns, and strip job pictures in SQL. A retention rule for old evidence deletes data, so agree on it first.
 
+_Landed:_ migration 2 adds generated `mode`, `kind`, `status` columns and an index; `latestSegment`, `liveEvidence` and the cost estimates read those instead of parsing every run; `/api/jobs` drops pictures with `json_remove` (7 ms for 200 jobs either way: SQLite still parses the JSON, the gain is not building the pictures in JS). Retention: `EVIDENCE_RETENTION_DAYS` (default 30, 0 off) prunes runs, jobs and `evidence/<run>` at startup and daily, keeping any run named in desk memory, settings or a newer run (and what those name). `.data/rooms` is never touched. `tests/store-prune.test.ts`.
+
 **C12. later, needs a decision: JPEG frames.** Every upload is stored and sent as PNG (`images.ts:33`). For a 1280 × 960 frame, PNG is 1.76 MB and 36 ms; JPEG at q92 is 228 KB and 8 ms. That is 7.7 times fewer bytes to Spark and SAM, but it changes the pixels SAM sees. Check with `bench:rooms`, `bench:brush` and one billed live comparison.
+
+_Landed:_ stored uploads are lossless WebP (`source.webp`; `FRAME_FORMAT=png` reverts), old `source.png` still read. On a 1280 × 960 frame: PNG 1876 KB / 40 ms, lossless WebP effort 1 1316 KB / 373 ms (effort 0: 1564 KB / 120 ms), lossy q90 46 KB / 51 ms (not used: it changes pixels). Spark is sent WebP (documented as accepted); SAM and Muse Image are sent PNG converted at send time, since their docs don't name WebP. The zone key is still a SHA-256 of the stored bytes, so zones saved before keep their keys; a new upload of an image first uploaded as PNG gets a different key.
 
 **C13. later: dead code.** `webResearcher` (`research.ts:116`) and `/api/fixtures/track` (`desk.ts:670`) are unused, and `convexHull` (`layers.ts:28`) duplicates `photo-scene.ts:273`.
 _Landed:_ `webResearcher`, `/api/fixtures/track` and `layers.ts`'s hull are gone (the domain's `convexHull` gives the same outline). Done early, with the C items.
@@ -183,6 +189,8 @@ _Landed:_ `tokens.css` has `--fs-11`/`--fs-12`/`--fs-13` and the 2px radius uses
 
 **E1. `index.ts` down to re-exports.** It holds about 950 lines of its own: wire types, pricing, desk memory, rules and `upgradeMemory`. Move them into `api.ts`, `cost.ts`, `memory.ts` and `rules.ts`. That breaks the package's only runtime import cycle (`expose.ts` ↔ `index.ts`).
 
+_Landed:_ `index.ts` is re-exports. Code went to `api.ts` (wire types, limits, `DEMO_ID`), `cost.ts` (prices), `memory.ts` (zones, calibration, `DeskMemory`, `upgradeMemory`) and `rules.ts` (placement rules and gates). `expose.ts` imports from `rules.ts`, so the cycle is gone. The `iso.ts` nested re-exports moved to `index.ts`.
+
 **E2. One `math.ts`.** It takes the duplicated helpers:
 
 - `Vec3`, defined 4 times
@@ -193,13 +201,23 @@ _Landed:_ `tokens.css` has `--fs-11`/`--fs-12`/`--fs-13` and the 2px radius uses
 
 Use one key light for `iso-voxel.ts:697` and `room-render.ts:35`, which must agree.
 
+_Landed:_ `math.ts` (not re-exported from the index) holds `Vec3` and its ops, `clamp`, `quantile`/`median`, `bezier`, `pointInPolygon` and `KEY_LIGHT`. Left alone because they differ in behaviour: `item-sculpt.ts` `clamp` (maps NaN to the low bound) and `splat.ts` `quantile` (index by `q·(n−1)`, 0 when empty).
+
 **E3. Bench cases out of `room-scan.ts`.** Lines 823–1126 move into `room-cases.ts`.
+
+_Landed:_ `room-cases.ts`, re-exported from the index.
 
 **E4. Types tied to their schemas.** Add `satisfies z.ZodType<T>` where a hand-written type sits beside a schema: `IsoProp`, `IsoScene`, `RoomCamera` and `PlacementRule`. Give desk memory a schema, and run `upgradeMemory` as its preprocess step; `store.ts:96` casts parsed JSON today.
 
+_Landed:_ `satisfies z.ZodType<…>` on `isoPropSchema`, `isoSceneSchema`, `roomCameraSchema`; `ruleInputSchema` is checked against the fields `PlacementRule` shares with it (it takes `rect`, the rule stores `zone`). `deskMemorySchema` (in `memory.ts`) runs `upgradeMemory` as its preprocess step and checks the top level; nested parts are only checked for kind, since they have no schemas yet. _Follow-up:_ `store.ts` `memory()` should parse with `deskMemorySchema` instead of casting; it is not wired in.
+
 **E5. `ItemPart` as a union by `shape`.** Convert the legacy shapes when parsing. This risks saved items and goldens, so check both.
 
+_Landed:_ the type half. `ItemPart` and `PropPart` are unions by `shape`, each variant with only the fields it draws (`lathe`: `profile`, `wall`, `inside`; `tube`: `path`, `radius`; `extrude`: `outline`, `radius`; `rbox`: `radius`; `blob`: `rough`; `cylinder`: `wall`, `inside`), and the legacy shapes are members of their own, so nothing is converted and nothing draws differently. `partPrims` narrows instead of `p.outline ?? []` and `p.path ?? []`. `itemPartSchema` is that union behind a preprocess that drops fields a shape does not use, so saved items parse as before (a fuller superset: a blob with a stray `profile` used to fail). The editor keeps a loose `ItemPartDraft`/`IsoItemDraft` and draws it through `previewItem`, which fills in what a half-edited part lacks. Goldens pass without `UPDATE_GOLDEN`; `bench:fit` unchanged. _Not done:_ converting the legacy shapes at parse time, which would still change their drawing.
+
 **E6. Tidying.** Tests import `@livinglayer/domain`; 11 of them reach into `../packages/domain/src` today. Un-export the 7 unused names and the 85 used only in their own file, so `noUnusedLocals` catches dead code.
+
+_Landed:_ the 10 tests that reached into `../packages/domain/src` now import `@livinglayer/domain`. 90 exports used nowhere else were un-exported, which includes the 7 unused ones; `noUnusedLocals` then found 7 dead declarations, which were deleted. Names the other sessions start using from the package (e.g. `SpriteOptions`, `ItemView`) need exporting again.
 
 ## Order
 

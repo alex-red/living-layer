@@ -16,7 +16,7 @@ export interface PatchGrid {
   dim: number;
   data: Float32Array;
 }
-export interface AppearanceMatch {
+interface AppearanceMatch {
   /** Where it is, as a share of the image the grid was made from. */
   box: UnitBox;
   /** Mean cosine similarity over the window, -1 to 1. */
@@ -145,7 +145,7 @@ export function prototypeOf(grid: PatchGrid, weights: Float32Array): Float32Arra
 }
 
 /** Each patch's best cosine similarity with any of the prototypes. */
-export function similarityMap(grid: PatchGrid, prototypes: Float32Array[]): Float32Array {
+function similarityMap(grid: PatchGrid, prototypes: Float32Array[]): Float32Array {
   const map = new Float32Array(grid.cols * grid.rows).fill(-1);
   for (let p = 0; p < map.length; p++) {
     let n = 0;

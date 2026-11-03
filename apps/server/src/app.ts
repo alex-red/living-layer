@@ -29,13 +29,14 @@ import {
 } from '@livinglayer/domain';
 import { type Config, type Fetcher, PROJECT_ROOT } from './config.js';
 import { EvidenceStore } from './store.js';
+import { closeCompute } from './workers/compute.js';
 import { MetaAdapter, type ProviderResult } from './meta.js';
 import { ControlAdapter } from './control.js';
 import { chosenEntities, haConnection, haRoutes, type OpenSocket } from './ha.js';
 import { fixtureRoutes } from './fixture.js';
 import { requestSignal, watchRequest } from './request-signal.js';
 import { LabError, logError, parseInput, safeError } from './errors.js';
-import { validateImage } from './images.js';
+import { findSource, samDataUrl, validateImage } from './images.js';
 import { deskRoutes } from './desk.js';
 import { itemRoutes } from './item.js';
 import { photoRoutes } from './photo.js';
@@ -104,7 +105,26 @@ export async function buildApp(
     allowed: () => [...haLights(), ...haSwitches()],
     connection: () => haConnection(config, store),
   });
-  app.addHook('onClose', async () => store.close());
+  const pruneEvidence = () => {
+    if (!(config.evidenceRetentionDays > 0)) return;
+    try {
+      const gone = store.prune(config.evidenceRetentionDays * 86_400_000);
+      if (gone.runs || gone.jobs)
+        app.log.info(
+          `Pruned evidence older than ${config.evidenceRetentionDays} days: ${gone.runs} runs, ${gone.jobs} jobs, ${(gone.bytes / 1e6).toFixed(1)} MB of files.`,
+        );
+    } catch (error) {
+      app.log.warn(`Pruning evidence failed: ${error instanceof Error ? error.message : error}`);
+    }
+  };
+  pruneEvidence();
+  const pruneTimer = setInterval(pruneEvidence, 86_400_000);
+  pruneTimer.unref();
+  app.addHook('onClose', async () => {
+    clearInterval(pruneTimer);
+    closeCompute();
+    store.close();
+  });
   // MQTT: one install id names our device and entities in Home Assistant across restarts.
   let installId = store.setting('install_id');
   if (!installId) store.setSetting('install_id', (installId = randomUUID().replace(/-/g, '')));
@@ -210,7 +230,7 @@ export async function buildApp(
   });
   app.get('/api/busy', async () => ({ jobs: runningJobs(), requests: changing }));
   app.get('/api/status', async () => {
-    const history = store.list();
+    const history = store.costHistory();
     return {
       meta: {
         configured: Boolean(config.modelApiKey),
@@ -435,7 +455,7 @@ export async function buildApp(
       }
       const image = await validateImage(input.imageDataUrl);
       const result = await meta.discover(image.dataUrl);
-      return { ...result, assets: [store.asset(id, 'source.png', image.bytes)] };
+      return { ...result, assets: [store.asset(id, `source.${image.ext}`, image.bytes)] };
     });
   });
   /**
@@ -456,7 +476,7 @@ export async function buildApp(
       return {
         ...result,
         output: drafted(result.output),
-        assets: [store.asset(id, 'source.png', image.bytes)],
+        assets: [store.asset(id, `source.${image.ext}`, image.bytes)],
       };
     });
   });
@@ -476,7 +496,7 @@ export async function buildApp(
       }
       const image = await validateImage(input.imageDataUrl);
       const result = await meta.classify(image.dataUrl);
-      return { ...result, assets: [store.asset(id, 'source.png', image.bytes)] };
+      return { ...result, assets: [store.asset(id, `source.${image.ext}`, image.bytes)] };
     });
   });
   itemRoutes(app, { store, meta, run });
@@ -520,9 +540,15 @@ export async function buildApp(
         if (input.demoPosition)
           throw new LabError('demo_position', 'Demo positions apply only in demo mode.');
         const image = await validateImage(input.imageDataUrl);
-        const result = await meta.segment(image.dataUrl, input.concept, image.width, image.height, {
-          ...(signal ? { signal } : {}),
-        });
+        const result = await meta.segment(
+          await samDataUrl(image),
+          input.concept,
+          image.width,
+          image.height,
+          {
+            ...(signal ? { signal } : {}),
+          },
+        );
         return {
           ...result,
           output: {
@@ -530,7 +556,7 @@ export async function buildApp(
             sourceKey: createHash('sha256').update(image.bytes).digest('hex'),
           },
           assets: [
-            store.asset(id, 'source.png', image.bytes),
+            store.asset(id, `source.${image.ext}`, image.bytes),
             store.asset(id, 'sam-output.txt', result.raw),
           ],
         };
@@ -593,7 +619,7 @@ export async function buildApp(
         demoPicture.position = DEMO_POSITIONS[position] ? position : 'centre';
         return (await demoPicture.snapshot()).png;
       }
-      const photo = segmentRun.assets.find((a) => a.endsWith('/source.png'));
+      const photo = findSource(segmentRun.assets);
       return photo ? store.readAsset(photo) : null;
     },
     appearance: options.appearance ?? (() => (model ??= Appearance.load(config.dataDir))),

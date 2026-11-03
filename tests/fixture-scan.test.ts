@@ -1201,7 +1201,7 @@ describe('scanning live, with a mocked Meta API', () => {
     expect(r.run).toMatchObject({ kind: 'fixture', mode: 'live', status: 'completed' });
     expect(r.run.assets).toEqual(
       expect.arrayContaining([
-        `${r.run.id}/source.png`,
+        `${r.run.id}/source.webp`,
         `${r.run.id}/sam-output.txt`,
         `${r.run.id}/item-crop-1.png`,
       ]),

@@ -21,6 +21,8 @@ const schema = z.object({
   META_LIVE_ENABLED: flag,
   /** The most today's live Meta calls may cost (UTC day); changeable in the lab. */
   META_DAILY_SPEND_LIMIT_USD: z.coerce.number().positive().max(1000).default(10),
+  /** Evidence runs older than this many days are deleted, unless desk memory leans on them; 0 keeps all. */
+  EVIDENCE_RETENTION_DAYS: z.coerce.number().min(0).max(3650).default(30),
   META_TIMEOUT_MS: z.coerce.number().int().min(1000).max(120000).default(30000),
   /**
    * SAM 3D Objects, for refining a fixture's shape (experimental): on this
@@ -90,6 +92,7 @@ export interface Config {
   imageModel: string;
   metaEnabled: boolean;
   spendLimitUsd: number;
+  evidenceRetentionDays: number;
   timeoutMs: number;
   /** Where SAM 3D runs, when it can: this machine, fal.ai, or nowhere. */
   sam3d: { kind: 'local'; weights: string; bin: string } | { kind: 'fal'; key: string } | null;
@@ -223,6 +226,7 @@ export function parseConfig(env: NodeJS.ProcessEnv, cwd = process.cwd()): Config
     imageModel: value.META_IMAGE_MODEL,
     metaEnabled: value.META_LIVE_ENABLED,
     spendLimitUsd: value.META_DAILY_SPEND_LIMIT_USD,
+    evidenceRetentionDays: value.EVIDENCE_RETENTION_DAYS,
     timeoutMs: value.META_TIMEOUT_MS,
     sam3d: !value.SAM3D_ENABLED
       ? null

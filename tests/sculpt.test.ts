@@ -40,8 +40,10 @@ describe('a model Spark writes in our parts', () => {
     expect(item.parts[0]!.at.x).toBe(-0.5);
     expect('profile' in item.parts[0]!).toBe(false);
     // A profile runs bottom to top, and bands become paint.
-    expect(item.parts[1]!.profile!.map((p) => p.z)).toEqual([0, 1]);
-    expect(item.parts[1]!.paint).toEqual([{ kind: 'band', from: 0, to: 0.2, color: '#ffffff' }]);
+    const turnedPart = item.parts[1]!;
+    if (turnedPart.shape !== 'lathe') throw new Error('not a lathe');
+    expect(turnedPart.profile.map((p) => p.z)).toEqual([0, 1]);
+    expect(turnedPart.paint).toEqual([{ kind: 'band', from: 0, to: 0.2, color: '#ffffff' }]);
   });
   it('drops parts that still aren’t valid, and gives same ids their own', () => {
     const item = fromSculpt('Plant', {

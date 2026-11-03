@@ -145,6 +145,7 @@ describe('item routes', () => {
     expect(fit.assists[0]).toContain('Spark: mug');
     const body = drafted.memory.item!.parts[0]!;
     expect(body.shape).toBe('lathe');
+    if (body.shape !== 'lathe') return;
     // Cream body with coffee in it, as rendered.
     expect(deltaE(hexLab(body.color), hexLab(DEMO_MUG.color))).toBeLessThan(6);
     expect(deltaE(hexLab(body.inside!.liquid!), hexLab(DEMO_MUG.coffee))).toBeLessThan(6);

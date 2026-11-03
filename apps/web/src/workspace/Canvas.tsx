@@ -229,6 +229,8 @@ export function Canvas() {
         lab.zoneStart.current = null;
       }}
     >
+      {/* Nested in the camera's fitted layer, the SVG catches presses only where it paints. */}
+      {drawing && <rect className="zone-hit" width="1000" height="1000" />}
       <rect
         x={visibleZone.x * 1000}
         y={visibleZone.y * 1000}

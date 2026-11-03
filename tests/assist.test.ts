@@ -34,7 +34,7 @@ import {
   type FixtureRecipe,
   type RecipePlace,
   type SelectionShape,
-} from '../packages/domain/src/index.js';
+} from '@livinglayer/domain';
 import { demoRoom, shapeOf } from '../scripts/lib/brush.js';
 
 const dirs: string[] = [];

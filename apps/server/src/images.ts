@@ -1,42 +1,75 @@
-import sharp from 'sharp';
+import sharp, { type Sharp } from 'sharp';
 import { MAX_IMAGE_PIXELS, type Detection } from '@livinglayer/domain';
 import { LabError } from './errors.js';
 
 export interface ValidatedImage {
+  /** The frame as stored and as sent to Spark: lossless WebP (PNG when `FRAME_FORMAT=png`). */
   dataUrl: string;
   bytes: Buffer;
   width: number;
   height: number;
+  /** The extension `bytes` should be stored under. */
+  ext: FrameExt;
 }
 
+export type FrameExt = 'webp' | 'png';
+/**
+ * How stored frames are encoded. Lossless WebP keeps every decoded pixel (SAM
+ * and the fitter see what they saw as PNG) in about 30% fewer bytes; effort 1
+ * is the knee (effort 4 is as small but slower).
+ */
+export const frameExt = (): FrameExt => (process.env.FRAME_FORMAT === 'png' ? 'png' : 'webp');
+export function encodeFrame(image: Sharp, ext: FrameExt = frameExt()) {
+  return (ext === 'png' ? image.png() : image.webp({ lossless: true, effort: 1 })).toBuffer({
+    resolveWithObject: true,
+  });
+}
+/** The media type of image bytes, from their signature (old evidence is PNG). */
+export function mediaTypeOf(bytes: Buffer): 'image/webp' | 'image/png' | 'image/jpeg' {
+  if (bytes.length > 12 && bytes.toString('ascii', 8, 12) === 'WEBP') return 'image/webp';
+  return bytes[0] === 0xff && bytes[1] === 0xd8 ? 'image/jpeg' : 'image/png';
+}
+export const toDataUrl = (bytes: Buffer) =>
+  `data:${mediaTypeOf(bytes)};base64,${bytes.toString('base64')}`;
+/**
+ * The frame as a PNG data URL, for SAM. Meta documents WebP for image input
+ * but says nothing of SAM's, so SAM still gets PNG, converted at send time.
+ */
+export async function samDataUrl(image: Pick<ValidatedImage, 'bytes'>): Promise<string> {
+  const png =
+    mediaTypeOf(image.bytes) === 'image/png'
+      ? image.bytes
+      : await sharp(image.bytes).png().toBuffer();
+  return toDataUrl(png);
+}
+/** The stored source photo among a run's assets: `source.webp`, or `source.png` on older runs. */
+export const findSource = (assets: string[]) => assets.find((a) => /\/source\.(webp|png)$/.test(a));
+export const SOURCE_ASSET = /^[a-z0-9-]{1,64}\/source\.(webp|png)$/;
+
 export async function validateImage(dataUrl?: string): Promise<ValidatedImage> {
-  const match = /^data:image\/(png|jpeg);base64,([A-Za-z0-9+/]+={0,2})$/.exec(dataUrl ?? '');
+  const match = /^data:image\/(png|jpeg|webp);base64,([A-Za-z0-9+/]+={0,2})$/.exec(dataUrl ?? '');
   if (!match)
     throw new LabError(
       'image_required',
-      'Capture or upload a PNG/JPEG image before making a live request.',
+      'Capture or upload a PNG/JPEG/WebP image before making a live request.',
     );
-  const bytes = Buffer.from(match[2]!, 'base64');
-  if (bytes.length > 5_000_000 || bytes.length < 12)
+  const input = Buffer.from(match[2]!, 'base64');
+  if (input.length > 5_000_000 || input.length < 12)
     throw new LabError('image_size', 'Use an image smaller than 5 MB.');
   try {
-    const image = sharp(bytes, { limitInputPixels: MAX_IMAGE_PIXELS, failOn: 'error' });
+    const image = sharp(input, { limitInputPixels: MAX_IMAGE_PIXELS, failOn: 'error' });
     const meta = await image.metadata();
     if (
       !meta.width ||
       !meta.height ||
       (meta.pages ?? 1) !== 1 ||
-      !['png', 'jpeg'].includes(meta.format ?? '')
+      !['png', 'jpeg', 'webp'].includes(meta.format ?? '')
     )
       throw new Error('Unsupported image');
     // Decode, orient, and strip metadata once so model and overlay see identical source pixels.
-    const result = await image.rotate().png().toBuffer({ resolveWithObject: true });
-    return {
-      bytes: result.data,
-      width: result.info.width,
-      height: result.info.height,
-      dataUrl: `data:image/png;base64,${result.data.toString('base64')}`,
-    };
+    const ext = frameExt();
+    const { data: bytes, info } = await encodeFrame(image.rotate(), ext);
+    return { bytes, width: info.width, height: info.height, ext, dataUrl: toDataUrl(bytes) };
   } catch {
     throw new LabError(
       'invalid_image',

@@ -32,10 +32,20 @@ export interface FrameSource {
   snapshot(): Promise<{ png: Buffer; width: number; height: number }>;
 }
 
-/** A grey frame of the same size the watcher works at, from any image. */
+/** The height of the grey frames from a picture this size: even, as ffmpeg's scaler gives it. */
+export const lumaHeight = (width: number, height: number) =>
+  Math.max(2, Math.round((LUMA_WIDTH * height) / width / 2) * 2);
+
+/**
+ * A grey frame at the size the watcher works at, from any image: the size a
+ * camera of the image's shape gives, unless `height` is given. Frames compared
+ * with each other (the camera-moved check) must agree to the pixel.
+ */
 export async function lumaOf(image: Buffer, height?: number): Promise<LumaFrame> {
+  const own = height ? null : await sharp(image).metadata();
+  const h = height ?? lumaHeight(own!.width!, own!.height!);
   const { data, info } = await sharp(image)
-    .resize(LUMA_WIDTH, height ?? null, { fit: 'fill' })
+    .resize(LUMA_WIDTH, h, { fit: 'fill' })
     .greyscale()
     .raw()
     .toBuffer({ resolveWithObject: true });
@@ -108,7 +118,7 @@ export class FfmpegSource implements FrameSource {
     this.stopped = false;
     const { width, height } = await this.size();
     // Even, so the raw frames have the size ffmpeg's scaler gives them.
-    const h = Math.max(2, Math.round((LUMA_WIDTH * height) / width / 2) * 2);
+    const h = lumaHeight(width, height);
     this.stills = mkdtempSync(join(tmpdir(), 'livinglayer-still-'));
     const proc = Bun.spawn(
       [

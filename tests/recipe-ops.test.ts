@@ -10,7 +10,7 @@ import {
   selectParts,
   type FixtureRecipe,
   type RecipeOp,
-} from '../packages/domain/src/index.js';
+} from '@livinglayer/domain';
 
 const ALEX = fixtureRecipeSchema.parse(
   JSON.parse(readFileSync(join(import.meta.dir, '../testdata/recipes/alex-desk.json'), 'utf8')),

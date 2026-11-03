@@ -7,6 +7,8 @@ import { parseConfig, type Fetcher } from '../apps/server/src/config.js';
 import type { FloorMarks } from '../apps/server/src/room.js';
 import {
   DEMO_CALIBRATION,
+  cameraEdges,
+  cameraMoved,
   DEMO_POSITIONS,
   ROOM_CASES,
   ROOM_TARGETS,
@@ -37,7 +39,8 @@ import {
   type IsoScene,
   scanCase,
 } from '@livinglayer/domain';
-import { demoPhotoInventory, demoPhotoSegmentation } from '../apps/server/src/demo.js';
+import { demoPhotoInventory, demoPhotoSegmentation, demoPng } from '../apps/server/src/demo.js';
+import { lumaHeight, lumaOf } from '../apps/server/src/frames.js';
 
 describe('laying out a room from its calibrated camera', () => {
   for (const c of ROOM_CASES)
@@ -283,6 +286,9 @@ describe('calibrating the room camera', () => {
     const { memory, fit } = saved.json<{ memory: DeskMemory; fit: { error: number } }>();
     expect(fit.error).toBeLessThan(3);
     expect(memory.camera?.reference).toBeTruthy();
+    // Frames read the way the watcher reads them (its own height) line up with the reference.
+    const watched = await lumaOf(await demoPng(), lumaHeight(960, 640));
+    expect(cameraMoved(memory.camera!.reference!, cameraEdges(watched)).moved).toBe(false);
     expect(memory.fixedCamera).toBe(true);
     expect(memory.surface).toMatchObject({ scene: 'office', surfaceId: 'desk:top' });
     // The fitted camera draws the room where the demo camera does.

@@ -35,7 +35,7 @@ export interface WatchSubject {
  */
 export type WatchStatus = 'following' | 'unsure' | 'missing';
 /** Which layer placed the box last: the local match, the feature model, or SAM. */
-export type WatchLayer = 'local' | 'appearance' | 'sam';
+type WatchLayer = 'local' | 'appearance' | 'sam';
 export interface WatchThing {
   subject: WatchSubject;
   track: LocalTrack;

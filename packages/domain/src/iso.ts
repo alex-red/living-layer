@@ -1,5 +1,7 @@
+import { clamp } from './math.js';
 import { z } from 'zod';
-import type { Detection, Segmentation, ZoneRect } from './index.js';
+import type { Detection, Segmentation } from './api.js';
+import type { ZoneRect } from './memory.js';
 import { ISO_TONES, PROP_FORMS, type PropForm } from './iso-furniture.js';
 import { fixtureRecipeSchema, type FixtureRecipe } from './recipe.js';
 import { TEMPLATE_IDS, type TemplateId } from './iso-templates.js';
@@ -183,7 +185,7 @@ function backToFront<T extends IsoBox>(boxes: T[]): T[] {
 export const pointSchema = z.object({ x: z.number().finite(), y: z.number().finite() }).strict();
 export type Point = z.infer<typeof pointSchema>;
 export type Quad = [Point, Point, Point, Point];
-export type Homography = [number, number, number, number, number, number, number, number, number];
+type Homography = [number, number, number, number, number, number, number, number, number];
 
 /** Solve `A·x = b` in place by Gaussian elimination; null when singular. */
 function solve(a: number[][], b: number[]): number[] | null {
@@ -300,7 +302,7 @@ const isoPropSchema = z
     /** Its draw layer, shared by its group: higher is drawn over lower where they meet. */
     layer: layerSchema.optional(),
   })
-  .strict();
+  .strict() satisfies z.ZodType<IsoProp>;
 /**
  * A scene a person built: every prop inside the grid, ids unique, and every
  * surface resting on a prop of the scene.
@@ -355,7 +357,7 @@ export const isoSceneSchema = z
       new Set(s.surfaces.map((x) => x.id)).size === s.surfaces.length &&
       s.surfaces.every((x) => s.props.some((p) => p.id === x.propId)),
     { message: 'Each surface needs a unique id and a prop to rest on.' },
-  );
+  ) satisfies z.ZodType<IsoScene>;
 
 export const surfacePinSchema = z
   .object({
@@ -409,7 +411,6 @@ export function worldSurface(surface: IsoSurface, p: Pick<IsoVec, 'x' | 'y'>): P
   return { x: (p.x - surface.rect.x) / surface.rect.w, y: (p.y - surface.rect.y) / surface.rect.d };
 }
 
-const clamp = (n: number, min: number, max: number) => Math.max(min, Math.min(max, n));
 /**
  * Where a detection stands on a surface: the middle of its base, with a
  * footprint sized from the box's bottom edge. The bottom-centre of the box is

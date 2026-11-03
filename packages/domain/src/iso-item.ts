@@ -29,7 +29,6 @@ export const ITEM_SHAPES = [
   'handle',
   'lid',
 ] as const;
-export type ItemShape = (typeof ITEM_SHAPES)[number];
 /** How a surface takes light: it sets the shading ramp, highlight and transparency. */
 export const ITEM_MATERIALS = ['matte', 'gloss', 'metal', 'glass', 'fabric', 'wood'] as const;
 export type ItemMaterial = (typeof ITEM_MATERIALS)[number];
@@ -46,7 +45,7 @@ const DECAL_CHARS = '0123456789abcdef';
  * (0.5 faces the viewer, 0.25 is the viewer's right), `v` runs up its height.
  * `top` and decals on the `top` face use the box's x and y instead.
  */
-export const paintSchema = z.discriminatedUnion('kind', [
+const paintSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('band'), from: share, to: share, color: hexColorSchema }).strict(),
   z
     .object({
@@ -101,57 +100,174 @@ export const paintSchema = z.discriminatedUnion('kind', [
 export type Paint = z.infer<typeof paintSchema>;
 export type Decal = Extract<Paint, { kind: 'decal' }>;
 const point2 = z.object({ x: share, y: share }).strict();
-export const itemPartSchema = z
-  .object({
-    id: z.string().min(1).max(24),
-    shape: z.enum(ITEM_SHAPES),
-    at: z.object({ x: coord, y: coord, z: z.number().min(0).max(6) }).strict(),
-    size: z.object({ w: extent, d: extent, h: tall }).strict(),
-    color: hexColorSchema,
-    /** Top radius as a share of the bottom one; only cones use it. */
-    taper: z.number().min(0).max(2),
-    /** Lathe: (radius, height) as shares of the box, bottom to top. */
-    profile: z
-      .array(z.object({ r: share, z: share }).strict())
-      .min(2)
-      .max(16)
-      .optional(),
-    /** Lathe: an open top with walls this thick, as a share of the radius. */
-    wall: z.number().min(0).max(0.9).optional(),
-    /** Tube: its curve, as shares of the box. */
-    path: z
-      .array(z.object({ x: share, y: share, z: share }).strict())
-      .min(2)
-      .max(4)
-      .optional(),
-    /** Tube radius in item units; corner radius (rbox, extrude) as a share of the smallest side. */
-    radius: z.number().min(0).max(0.5).optional(),
-    /** Extrude: the footprint, as shares of the box. */
-    outline: z.array(point2).min(3).max(12).optional(),
-    /** Blob: how lumpy, 0 to 1. */
-    rough: share.optional(),
-    material: z.enum(ITEM_MATERIALS).optional(),
-    paint: z.array(paintSchema).max(6).optional(),
-    /** An open lathe's inner wall, and what fills it up to `level`. */
-    inside: z
-      .object({ wall: hexColorSchema, liquid: hexColorSchema.nullable(), level: share })
-      .strict()
-      .optional(),
-    /** Kept as it is when the model is fitted to a photo again. */
-    locked: z.boolean().optional(),
-  })
-  .strict()
-  .superRefine((p, ctx) => {
-    if (p.shape === 'lathe' && !p.profile)
-      ctx.addIssue({ code: 'custom', message: 'A lathe needs a profile.' });
-    if (p.shape === 'tube' && !p.path)
-      ctx.addIssue({ code: 'custom', message: 'A tube needs a path.' });
-    if (p.shape === 'extrude' && !p.outline)
-      ctx.addIssue({ code: 'custom', message: 'An extrusion needs an outline.' });
-    if (p.profile?.some((q, i) => i > 0 && q.z < p.profile![i - 1]!.z))
-      ctx.addIssue({ code: 'custom', message: 'A profile runs from bottom to top.' });
+const partBase = {
+  id: z.string().min(1).max(24),
+  at: z.object({ x: coord, y: coord, z: z.number().min(0).max(6) }).strict(),
+  size: z.object({ w: extent, d: extent, h: tall }).strict(),
+  color: hexColorSchema,
+  /** Top radius as a share of the bottom one; only cones use it. */
+  taper: z.number().min(0).max(2),
+  material: z.enum(ITEM_MATERIALS).optional(),
+  paint: z.array(paintSchema).max(6).optional(),
+  /** Kept as it is when the model is fitted to a photo again. */
+  locked: z.boolean().optional(),
+};
+/** Lathe: (radius, height) as shares of the box, bottom to top. */
+const profileField = z
+  .array(z.object({ r: share, z: share }).strict())
+  .min(2)
+  .max(16)
+  .refine((pr) => !pr.some((q, i) => i > 0 && q.z < pr[i - 1]!.z), {
+    message: 'A profile runs from bottom to top.',
   });
-export type ItemPart = z.infer<typeof itemPartSchema>;
+/** An open lathe's inner wall, and what fills it up to `level`. */
+const insideField = z
+  .object({ wall: hexColorSchema, liquid: hexColorSchema.nullable(), level: share })
+  .strict()
+  .optional();
+/** Lathe: an open top with walls this thick, as a share of the radius. */
+const wallField = z.number().min(0).max(0.9).optional();
+/** Tube radius in item units; corner radius (rbox, extrude) as a share of the smallest side. */
+const radiusField = z.number().min(0).max(0.5).optional();
+/**
+ * One variant per shape, each with only the fields that shape draws. The
+ * legacy shapes are members too, so they load and draw as before.
+ */
+const itemPartUnion = z.discriminatedUnion('shape', [
+  z
+    .object({
+      ...partBase,
+      shape: z.literal('lathe'),
+      profile: profileField,
+      wall: wallField,
+      inside: insideField,
+    })
+    .strict(),
+  z
+    .object({ ...partBase, shape: z.literal('cylinder'), wall: wallField, inside: insideField })
+    .strict(),
+  z.object({ ...partBase, shape: z.literal('cone') }).strict(),
+  z.object({ ...partBase, shape: z.literal('box') }).strict(),
+  z.object({ ...partBase, shape: z.literal('lid') }).strict(),
+  z.object({ ...partBase, shape: z.literal('handle') }).strict(),
+  z.object({ ...partBase, shape: z.literal('rbox'), radius: radiusField }).strict(),
+  z
+    .object({
+      ...partBase,
+      shape: z.literal('tube'),
+      /** Tube: its curve, as shares of the box. */
+      path: z
+        .array(z.object({ x: share, y: share, z: share }).strict())
+        .min(2)
+        .max(4),
+      radius: radiusField,
+    })
+    .strict(),
+  z
+    .object({
+      ...partBase,
+      shape: z.literal('extrude'),
+      /** Extrude: the footprint, as shares of the box. */
+      outline: z.array(point2).min(3).max(12),
+      radius: radiusField,
+    })
+    .strict(),
+  z
+    .object({
+      ...partBase,
+      shape: z.literal('blob'),
+      /** Blob: how lumpy, 0 to 1. */
+      rough: share.optional(),
+    })
+    .strict(),
+]);
+export type ItemPart = z.infer<typeof itemPartUnion>;
+type Variant<S extends ItemPart['shape']> = Extract<ItemPart, { shape: S }>;
+/**
+ * A part being edited: every shape's fields at once, since changing a part's
+ * shape keeps the numbers it had. Not a valid part until `isoItemSchema` parses it.
+ */
+export type ItemPartDraft = Pick<
+  ItemPart,
+  'id' | 'shape' | 'at' | 'size' | 'color' | 'taper' | 'material' | 'paint' | 'locked'
+> & {
+  profile?: Variant<'lathe'>['profile'];
+  wall?: Variant<'lathe'>['wall'];
+  inside?: Variant<'lathe'>['inside'];
+  path?: Variant<'tube'>['path'];
+  radius?: Variant<'rbox'>['radius'];
+  outline?: Variant<'extrude'>['outline'];
+  rough?: Variant<'blob'>['rough'];
+};
+export interface IsoItemDraft {
+  label: string;
+  parts: ItemPartDraft[];
+}
+/**
+ * A draft as the kernel can draw it while it is still being edited: each part
+ * keeps the fields its shape uses, a lathe without a profile is a plain
+ * cylinder, and a tube or extrusion with no curve or outline is left out.
+ */
+export function previewItem(draft: IsoItemDraft): IsoItem {
+  const parts = draft.parts.flatMap((p): ItemPart[] => {
+    const { profile, wall, inside, path, radius, outline, rough, ...base } = p;
+    switch (p.shape) {
+      case 'lathe':
+        return [
+          {
+            ...base,
+            shape: 'lathe',
+            profile: profile ?? [
+              { r: 1, z: 0 },
+              { r: 1, z: 1 },
+            ],
+            wall,
+            inside,
+          },
+        ];
+      case 'cylinder':
+        return [{ ...base, shape: 'cylinder', wall, inside }];
+      case 'rbox':
+        return [{ ...base, shape: 'rbox', radius }];
+      case 'tube':
+        return path ? [{ ...base, shape: 'tube', path, radius }] : [];
+      case 'extrude':
+        return outline ? [{ ...base, shape: 'extrude', outline, radius }] : [];
+      case 'blob':
+        return [{ ...base, shape: 'blob', rough }];
+      case 'cone':
+      case 'box':
+      case 'lid':
+      case 'handle':
+        return [{ ...base, shape: p.shape }];
+    }
+  });
+  return { label: draft.label, parts };
+}
+/** The optional fields each shape draws. Saved items may carry others; they are dropped on parse. */
+const USED_FIELDS: Record<ItemPart['shape'], readonly string[]> = {
+  lathe: ['profile', 'wall', 'inside'],
+  cylinder: ['wall', 'inside'],
+  cone: [],
+  box: [],
+  lid: [],
+  handle: [],
+  rbox: ['radius'],
+  tube: ['path', 'radius'],
+  extrude: ['outline', 'radius'],
+  blob: ['rough'],
+};
+const SHAPE_FIELDS = ['profile', 'wall', 'path', 'radius', 'outline', 'rough', 'inside'];
+function dropUnused(raw: unknown): unknown {
+  if (!raw || typeof raw !== 'object') return raw;
+  const shape = (raw as { shape?: unknown }).shape;
+  if (typeof shape !== 'string' || !Object.hasOwn(USED_FIELDS, shape)) return raw;
+  const keep = USED_FIELDS[shape as ItemPart['shape']];
+  const out: Record<string, unknown> = { ...raw };
+  for (const k of SHAPE_FIELDS) if (!keep.includes(k)) delete out[k];
+  return out;
+}
+export const itemPartSchema = z.preprocess(dropUnused, itemPartUnion);
 export const isoItemSchema = z
   .object({
     label: z.string().min(1).max(60),
@@ -210,8 +326,10 @@ export function rotateItem(item: IsoItem, quarters = 1): IsoItem {
         at: { x: 1 - (p.at.y + p.size.d), y: p.at.x, z: p.at.z },
         size: { w: p.size.d, d: p.size.w, h: p.size.h },
       };
-      if (p.path) turned.path = p.path.map((q) => ({ x: 1 - q.y, y: q.x, z: q.z }));
-      if (p.outline) turned.outline = p.outline.map((q) => ({ x: 1 - q.y, y: q.x }));
+      if (turned.shape === 'tube' && p.shape === 'tube')
+        turned.path = p.path.map((q) => ({ x: 1 - q.y, y: q.x, z: q.z }));
+      if (turned.shape === 'extrude' && p.shape === 'extrude')
+        turned.outline = p.outline.map((q) => ({ x: 1 - q.y, y: q.x }));
       if (p.paint)
         turned.paint = p.paint.map((layer) =>
           layer.kind !== 'decal'

@@ -1,4 +1,4 @@
-import type { RoomCalibration } from './index.js';
+import type { RoomCalibration } from './memory.js';
 import type { Point } from './iso.js';
 import { cameraFromMarks, fitLimit, roomSizeFor, type RoomMarks } from './room-camera.js';
 import { layoutTuning } from './layout-tuning.js';
@@ -7,7 +7,7 @@ import { layoutRoom, type RoomLayoutInput, type WallGap } from './room-scan.js';
 const STEP_DEG = 0.5;
 const MOST_DEG = 15;
 
-export interface WallRefinement {
+interface WallRefinement {
   calibration: RoomCalibration;
   wall: keyof WallGap;
   /** The turn of that wall's marks about the corner, in the frame, clockwise. */

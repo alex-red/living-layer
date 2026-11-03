@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 import { uprightTilt } from '../apps/server/src/brush-sculpt.js';
-import { DEMO_CAMERA } from '../packages/domain/src/demo-room.js';
 import {
+  DEMO_CAMERA,
   brushSculptPrompt,
   placeRecipe,
   propSolids,
@@ -9,7 +9,7 @@ import {
   recipeFromSculpt,
   recipeToSculpt,
   type SculptPart,
-} from '../packages/domain/src/index.js';
+} from '@livinglayer/domain';
 
 const shelf = () => recipeFromForm('bookcase', { w: 71.25, d: 39.84, h: 165 }, 'White shelf');
 const part = (id: string, at: SculptPart['at'], size: SculptPart['size'], color: string) =>

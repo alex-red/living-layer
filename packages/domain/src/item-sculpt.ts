@@ -10,7 +10,7 @@ import { ITEM_MATERIALS, itemPartSchema, type IsoItem, type ItemPart } from './i
  */
 const SCULPT_SHAPES = ['lathe', 'rbox', 'tube', 'extrude', 'blob'] as const;
 const unit = z.number().min(0).max(1);
-export const sculptPartSchema = z
+const sculptPartSchema = z
   .object({
     id: z.string().min(1).max(24),
     shape: z.enum(SCULPT_SHAPES),
@@ -38,7 +38,7 @@ export const sculptSchemaOf = (max: number) =>
       note: z.string().max(240),
     })
     .strict();
-export const sculptSchema = sculptSchemaOf(12);
+const sculptSchema = sculptSchemaOf(12);
 export type Sculpt = z.infer<typeof sculptSchema>;
 
 const clamp = (v: number, lo: number, hi: number) =>
@@ -102,11 +102,14 @@ export function toSculpt(item: IsoItem): SculptPart[] {
       size: p.size,
       color: p.color,
       material: p.material ?? 'matte',
-      profile: p.profile ?? null,
-      path: p.path ?? null,
-      outline: p.outline ?? null,
-      radius: p.radius ?? null,
-      rough: p.rough ?? null,
+      profile: p.shape === 'lathe' ? p.profile : null,
+      path: p.shape === 'tube' ? p.path : null,
+      outline: p.shape === 'extrude' ? p.outline : null,
+      radius:
+        p.shape === 'rbox' || p.shape === 'tube' || p.shape === 'extrude'
+          ? (p.radius ?? null)
+          : null,
+      rough: p.shape === 'blob' ? (p.rough ?? null) : null,
       bands:
         p.paint?.flatMap((q) =>
           q.kind === 'band' ? [{ from: q.from, to: q.to, color: q.color }] : [],
@@ -172,7 +175,7 @@ export const SCULPT_FORMAT = [
  * bladeless fan"), and what a lookup found of that product: Spark models by
  * both, the picture still deciding where they disagree.
  */
-export interface SculptContext {
+interface SculptContext {
   note?: string | null;
   facts?: ProductFacts | null;
   /** The picture has no colour (a night or infrared camera): colours come from the words. */
@@ -224,7 +227,7 @@ export function sculptPrompt(
   ].join('\n');
 }
 /** One step of a long job, as the page shows it while the job runs. */
-export interface JobStep {
+interface JobStep {
   id: string;
   label: string;
   state: 'waiting' | 'running' | 'done' | 'failed' | 'stopped';

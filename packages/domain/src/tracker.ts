@@ -38,7 +38,7 @@ export interface Template {
   masked: boolean;
 }
 export type LocalVerdict = 'follow' | 'reanchor' | 'confirm';
-export interface LocalMatch {
+interface LocalMatch {
   box: UnitBox;
   score: number;
   /**

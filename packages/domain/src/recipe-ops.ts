@@ -22,7 +22,7 @@ import {
  * materials together mean "wooden drawers"), then the `except` filters
  * take parts back out. No filters at all is the whole model.
  */
-export const partSelectorSchema = z
+const partSelectorSchema = z
   .object({
     names: z.array(z.string().min(1).max(24)).min(1).max(48).optional(),
     roles: z.array(z.enum(RECIPE_ROLES)).min(1).optional(),
@@ -85,10 +85,10 @@ export const recipeOpSchema = z.discriminatedUnion('op', [
   z.object({ op: z.literal('rename'), label: z.string().min(1).max(60) }).strict(),
 ]);
 export type RecipeOp = z.infer<typeof recipeOpSchema>;
-export type RecipeOpKind = RecipeOp['op'];
+type RecipeOpKind = RecipeOp['op'];
 
 /** What an op did, for the review: the recipe after it, and the parts it touched. */
-export type OpResult =
+type OpResult =
   | { ok: true; recipe: FixtureRecipe; changed: string[] }
   | { ok: false; reason: string };
 
