@@ -178,6 +178,23 @@ describe('selection', () => {
     ]);
     expect(Object.fromEntries(states)).toEqual({ 'light.desk': 'off', 'light.shelf': 'on' });
   });
+  it('reads a zone switching its light off on leaving as off', () => {
+    const decision = (at: string, action?: 'on' | 'off') => ({
+      createdAt: at,
+      output: {
+        action: 'confirmed',
+        lamp: { entityId: 'light.desk', action, stateConfirmed: true },
+      },
+    });
+    const memory = (last: ReturnType<typeof decision>) =>
+      ({ ...emptyDesk('demo'), lastDecision: last }) as unknown as DeskMemory;
+    expect(
+      Object.fromEntries(lightStates(memory(decision('2026-10-28T10:00:00Z', 'off')), [])),
+    ).toEqual({ 'light.desk': 'off' });
+    expect(Object.fromEntries(lightStates(memory(decision('2026-10-28T10:00:00Z')), []))).toEqual({
+      'light.desk': 'on',
+    });
+  });
   it('says what a fixture is and how it was last left', () => {
     expect(controlLabel({ control: { kind: 'none' } })).toBe('just a thing');
     expect(controlLabel({ control: { kind: 'switch', entityId: 'switch.fan' }, state: 'on' })).toBe(

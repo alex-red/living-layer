@@ -129,8 +129,8 @@ export function ago(iso: string, now: number): string {
 
 /**
  * Each light's last confirmed state, from the newest of: a switch from the
- * inspector or the lamp test (a `lamp` run), a rule turning it on, or the
- * mug's zone turning the main light on. Unconfirmed actions say nothing.
+ * inspector or the lamp test (a `lamp` run), or a rule or the mug's zone
+ * switching it on or, when the mug leaves, off. Unconfirmed actions say nothing.
  */
 export function lightStates(
   memory: DeskMemory | null | undefined,
@@ -149,7 +149,7 @@ export function lightStates(
   }
   for (const d of [memory?.lastDecision, ...(memory?.rules ?? []).map((r) => r.lastDecision)])
     if (d?.output.action === 'confirmed' && d.output.lamp?.stateConfirmed)
-      note(d.output.lamp.entityId, 'on', d.createdAt);
+      note(d.output.lamp.entityId, d.output.lamp.action ?? 'on', d.createdAt);
   return new Map([...latest].map(([entity, { state }]) => [entity, state]));
 }
 /** A lamp drawn as part of a room's layout, and the light it stands for. */
