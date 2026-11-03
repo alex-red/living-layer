@@ -549,11 +549,18 @@ p {
   position: absolute;
   inset: 0;
   width: 100%;
+  z-index: 2;
   height: 100%;
   pointer-events: none;
 }
 .zone-fit > .zone-overlay {
   pointer-events: auto;
+}
+.zone-overlay .zone-hit {
+  fill: transparent;
+  stroke: none;
+  filter: none;
+  pointer-events: all;
 }
 /* Where the tracked mug has been: faint earlier boxes joined by its path. */
 .trail-overlay {
