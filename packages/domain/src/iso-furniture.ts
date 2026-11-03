@@ -54,28 +54,45 @@ export const PROP_FORMS = [
 ] as const;
 export type PropForm = (typeof PROP_FORMS)[number];
 
-/** One part of a model, in tiles, relative to the prop's corner. */
-export interface PropPart {
-  shape: 'rbox' | 'lathe' | 'tube' | 'blob';
+/** What every part of a model has. */
+interface PropPartBase {
   at: IsoVec;
   size: IsoSize;
   tone: IsoTone;
   /** A colour of its own (a recipe's part); otherwise the tone's. */
   color?: string;
   material?: ItemMaterial;
-  /** Lathe: (radius, height) as shares of the box, bottom to top. */
-  profile?: { r: number; z: number }[];
-  /** Tube: its curve as shares of the box. */
-  path?: { x: number; y: number; z: number }[];
-  /** Tube radius in tiles; an rbox's corner radius as a share of its smallest side. */
-  radius?: number;
-  /** Blob: how lumpy, 0 to 1. */
-  rough?: number;
-  /** Lathe: an open top with walls this thick, as a share of the radius. */
-  wall?: number;
 }
+/** One part of a model, in tiles, relative to the prop's corner; each shape has its own fields. */
+export type PropPart = PropPartBase &
+  (
+    | {
+        shape: 'rbox';
+        /** An rbox's corner radius as a share of its smallest side. */
+        radius?: number;
+      }
+    | {
+        shape: 'lathe';
+        /** (radius, height) as shares of the box, bottom to top. */
+        profile: { r: number; z: number }[];
+        /** An open top with walls this thick, as a share of the radius. */
+        wall?: number;
+      }
+    | {
+        shape: 'tube';
+        /** Its curve as shares of the box. */
+        path: { x: number; y: number; z: number }[];
+        /** Radius in tiles. */
+        radius?: number;
+      }
+    | {
+        shape: 'blob';
+        /** How lumpy, 0 to 1. */
+        rough?: number;
+      }
+  );
 
-type Opts = Partial<Pick<PropPart, 'material' | 'radius' | 'profile' | 'rough' | 'wall'>>;
+type Opts = { material?: ItemMaterial; radius?: number; rough?: number; wall?: number };
 const box = (
   x: number,
   y: number,
@@ -102,7 +119,7 @@ const turned = (
   d: number,
   h: number,
   tone: IsoTone,
-  profile: PropPart['profile'],
+  profile: { r: number; z: number }[],
   o: Opts = {},
 ): PropPart => ({ shape: 'lathe', at: { x, y, z }, size: { w, d, h }, tone, profile, ...o });
 /** A round rod through 2 to 4 points: chair spokes, lamp poles, arm posts. */
@@ -683,29 +700,54 @@ export function recipeModel(recipe: FixtureRecipe, w: number, d: number, h: numb
   const sx = w / cm(recipe.sizeCm.w);
   const sy = d / cm(recipe.sizeCm.d);
   const sz = h / cm(recipe.sizeCm.h);
-  return recipe.parts.map((p) => ({
-    shape: p.shape,
-    at: { x: cm(p.atCm.x) * sx, y: cm(p.atCm.y) * sy, z: cm(p.atCm.z) * sz },
-    size: { w: cm(p.sizeCm.w) * sx, d: cm(p.sizeCm.d) * sy, h: cm(p.sizeCm.h) * sz },
-    tone: p.tone,
-    ...(p.color ? { color: p.color } : {}),
-    ...(p.material ? { material: p.material } : {}),
-    ...(p.shape === 'rbox' ? { radius: p.radius ?? 0.08 } : {}),
-    ...(p.shape === 'tube' ? { radius: cm(p.tubeCm!) * Math.min(sx, sy, sz) } : {}),
-    ...(p.profile ? { profile: p.profile } : {}),
-    ...(p.wall !== undefined ? { wall: p.wall } : {}),
-    ...(p.path ? { path: p.path } : {}),
-    ...(p.rough !== undefined ? { rough: p.rough } : {}),
-  }));
+  return recipe.parts.flatMap((p): PropPart[] => {
+    const base = {
+      at: { x: cm(p.atCm.x) * sx, y: cm(p.atCm.y) * sy, z: cm(p.atCm.z) * sz },
+      size: { w: cm(p.sizeCm.w) * sx, d: cm(p.sizeCm.d) * sy, h: cm(p.sizeCm.h) * sz },
+      tone: p.tone,
+      ...(p.color ? { color: p.color } : {}),
+      ...(p.material ? { material: p.material } : {}),
+    };
+    switch (p.shape) {
+      case 'rbox':
+        return [{ ...base, shape: 'rbox', radius: p.radius ?? 0.08 }];
+      case 'lathe':
+        // A recipe's schema gives every lathe a profile; a plain cylinder if one slipped by.
+        return [
+          {
+            ...base,
+            shape: 'lathe',
+            profile: p.profile ?? CYLINDER,
+            ...(p.wall !== undefined ? { wall: p.wall } : {}),
+          },
+        ];
+      case 'tube':
+        // Likewise every tube has a path, and a pathless one draws nothing.
+        return p.path
+          ? [
+              {
+                ...base,
+                shape: 'tube',
+                path: p.path,
+                radius: cm(p.tubeCm!) * Math.min(sx, sy, sz),
+              },
+            ]
+          : [];
+      case 'blob':
+        return [{ ...base, shape: 'blob', ...(p.rough !== undefined ? { rough: p.rough } : {}) }];
+    }
+  });
 }
 /** A part turned a quarter clockwise (seen from above) in a `w × d` frame. */
 function turnPart(p: PropPart, d: number): PropPart {
-  return {
+  const turned = {
     ...p,
     at: { x: d - p.at.y - p.size.d, y: p.at.x, z: p.at.z },
     size: { w: p.size.d, d: p.size.w, h: p.size.h },
-    ...(p.path ? { path: p.path.map((q) => ({ x: 1 - q.y, y: q.x, z: q.z })) } : {}),
   };
+  return p.shape === 'tube'
+    ? { ...turned, shape: 'tube', path: p.path.map((q) => ({ x: 1 - q.y, y: q.x, z: q.z })) }
+    : turned;
 }
 /** The model a prop is drawn with, relative to its corner, or null for a plain box. */
 export function propModel(

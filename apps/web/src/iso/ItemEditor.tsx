@@ -16,6 +16,7 @@ import {
   fixtureSize,
   fixtureStateNames,
   isoItemSchema,
+  previewItem,
   rotateItem,
   sizeInTiles,
   starterMeta,
@@ -25,7 +26,8 @@ import {
   type Fixture,
   type FixtureInput,
   type IsoItem,
-  type ItemPart,
+  type ItemPartDraft,
+  type IsoItemDraft,
   type Paint,
   type SavedItem,
   type StarterTemplate,
@@ -46,7 +48,7 @@ const SOURCE: Record<SavedItem['source'], string> = {
 const round = (n: number) => Math.round(n * 100) / 100;
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
 /** Only the editable fields, so the working copy matches the save contract exactly. */
-const editable = (item?: SavedItem | null): IsoItem | null =>
+const editable = (item?: SavedItem | null): IsoItemDraft | null =>
   item ? { label: item.label, parts: item.parts } : null;
 
 function nextPartId(baseId: string, taken: string[]): string {
@@ -56,7 +58,7 @@ function nextPartId(baseId: string, taken: string[]): string {
   return `${stem}-${n}`;
 }
 
-function mirrorPart(part: ItemPart, axis: 'x' | 'y'): ItemPart {
+function mirrorPart(part: ItemPartDraft, axis: 'x' | 'y'): ItemPartDraft {
   if (axis === 'x') {
     return {
       ...part,
@@ -95,10 +97,10 @@ const STUDIO_PRESETS: { id: string; label: string; template: StarterTemplate; st
   })),
 ];
 
-function newPart(shape: ItemPart['shape'], taken: string[]): ItemPart {
+function newPart(shape: ItemPartDraft['shape'], taken: string[]): ItemPartDraft {
   let n = 1;
   while (taken.includes(`${shape}-${n}`)) n++;
-  const base: ItemPart = {
+  const base: ItemPartDraft = {
     id: `${shape}-${n}`,
     shape,
     at: { x: 0.3, y: 0.3, z: 0 },
@@ -200,8 +202,8 @@ function ProfileEditor({
   profile,
   onChange,
 }: {
-  profile: NonNullable<ItemPart['profile']>;
-  onChange: (profile: NonNullable<ItemPart['profile']>) => void;
+  profile: NonNullable<ItemPartDraft['profile']>;
+  onChange: (profile: NonNullable<ItemPartDraft['profile']>) => void;
 }) {
   const svg = useRef<SVGSVGElement>(null);
   const [active, setActive] = useState<number | null>(null);
@@ -310,8 +312,8 @@ function TubePathEditor({
   path,
   onChange,
 }: {
-  path: NonNullable<ItemPart['path']>;
-  onChange: (path: NonNullable<ItemPart['path']>) => void;
+  path: NonNullable<ItemPartDraft['path']>;
+  onChange: (path: NonNullable<ItemPartDraft['path']>) => void;
 }) {
   const svg = useRef<SVGSVGElement>(null);
   const [active, setActive] = useState<number | null>(null);
@@ -475,8 +477,8 @@ function ExtrudeOutlineEditor({
   outline,
   onChange,
 }: {
-  outline: NonNullable<ItemPart['outline']>;
-  onChange: (outline: NonNullable<ItemPart['outline']>) => void;
+  outline: NonNullable<ItemPartDraft['outline']>;
+  onChange: (outline: NonNullable<ItemPartDraft['outline']>) => void;
 }) {
   const svg = useRef<SVGSVGElement>(null);
   const [active, setActive] = useState<number | null>(null);
@@ -843,10 +845,10 @@ export function ItemEditor({
   /** Resize the fixture's base footprint/height. */
   onFixtureSize?: (size: FixtureInput['size']) => void;
 }) {
-  const [draft, setDraft] = useState<IsoItem | null>(editable(item));
+  const [draft, setDraft] = useState<IsoItemDraft | null>(editable(item));
   const [selected, setSelected] = useState(item?.parts[0]?.id ?? '');
   const [turns, setTurns] = useState(0);
-  const [addShape, setAddShape] = useState<ItemPart['shape']>('lathe');
+  const [addShape, setAddShape] = useState<ItemPartDraft['shape']>('lathe');
   const [view, setView] = useState<'model' | 'states' | 'photo'>('model');
   const [ghostState, setGhostState] = useState<string>('');
   const [showBox, setShowBox] = useState(true);
@@ -909,7 +911,7 @@ export function ItemEditor({
   const part = draft?.parts.find((p) => p.id === selected);
   // The preview follows the draft a beat behind, so a drag or a slider stays smooth while it redraws.
   const deferredDraft = useDeferredValue(draft);
-  const deferredShown = deferredDraft ? rotateItem(deferredDraft, turns) : null;
+  const deferredShown = deferredDraft ? rotateItem(previewItem(deferredDraft), turns) : null;
   const deferredSelect = deferredShown?.parts.findIndex((p) => p.id === selected) ?? -1;
   const sprite = useItemSprite(deferredShown, {
     scale: PREVIEW_SCALE,
@@ -917,7 +919,7 @@ export function ItemEditor({
     ...(deferredSelect >= 0 ? { select: deferredSelect } : {}),
     ...(fixture?.control.kind === 'light' && fixture.state === 'on' ? { glow: true } : {}),
   });
-  const update = (change: Partial<ItemPart>) =>
+  const update = (change: Partial<ItemPartDraft>) =>
     setDraft(
       (d) =>
         d && { ...d, parts: d.parts.map((p) => (p.id === selected ? { ...p, ...change } : p)) },
@@ -958,7 +960,7 @@ export function ItemEditor({
       nextTiles.d !== activeTileSize.d ||
       nextTiles.h !== activeTileSize.h);
 
-  const shown = rotateItem(draft, turns);
+  const shown = rotateItem(previewItem(draft), turns);
   const shownPart = shown.parts.find((p) => p.id === selected);
   const isLitGlow = Boolean(fixture?.control.kind === 'light' && fixture.state === 'on');
   const ghostItem =
@@ -1011,7 +1013,7 @@ export function ItemEditor({
               })),
             ].map((entry) => {
               const active = (fixture.state ?? null) === entry.id;
-              const entryModel = active ? draft : fixtureModel(fixture, entry.id);
+              const entryModel = active ? previewItem(draft) : fixtureModel(fixture, entry.id);
               const cmText = `${Math.round(entry.size.w * perTileCm)}×${Math.round(entry.size.d * perTileCm)}×${Math.round(entry.size.h * perTileCm)} cm`;
               return (
                 <button
@@ -1049,7 +1051,7 @@ export function ItemEditor({
                   onFixtureState({
                     state: name,
                     fixture: {
-                      model: { label: draft.label, parts: draft.parts },
+                      model: previewItem(draft),
                       size: nextTiles,
                     },
                   });
@@ -1153,7 +1155,7 @@ export function ItemEditor({
                       onFixtureState({
                         state: fixture.state,
                         fixture: {
-                          model: { label: draft.label, parts: draft.parts },
+                          model: previewItem(draft),
                           size: nextTiles,
                         },
                       });
@@ -1213,7 +1215,7 @@ export function ItemEditor({
             <select
               value={addShape}
               aria-label="New part shape"
-              onChange={(e) => setAddShape(e.target.value as ItemPart['shape'])}
+              onChange={(e) => setAddShape(e.target.value as ItemPartDraft['shape'])}
             >
               {ITEM_SHAPES.map((s) => (
                 <option key={s} value={s}>
@@ -1268,7 +1270,7 @@ export function ItemEditor({
                       part.id,
                       draft.parts.map((q) => q.id),
                     );
-                    const copy: ItemPart = {
+                    const copy: ItemPartDraft = {
                       ...part,
                       id,
                       at: {
@@ -1295,7 +1297,7 @@ export function ItemEditor({
                   value={part.shape}
                   aria-label="Part shape"
                   onChange={(e) => {
-                    const shape = e.target.value as ItemPart['shape'];
+                    const shape = e.target.value as ItemPartDraft['shape'];
                     const fresh = newPart(shape, []);
                     // Keep the box and colour; take the new shape's own numbers.
                     update({
@@ -1320,7 +1322,9 @@ export function ItemEditor({
                 <select
                   value={part.material ?? 'matte'}
                   aria-label="Part material"
-                  onChange={(e) => update({ material: e.target.value as ItemPart['material'] })}
+                  onChange={(e) =>
+                    update({ material: e.target.value as ItemPartDraft['material'] })
+                  }
                 >
                   {ITEM_MATERIALS.map((m) => (
                     <option key={m} value={m}>
@@ -1538,7 +1542,7 @@ export function ItemEditor({
             )}
           </div>
           {view === 'photo' && fit && cropUrl ? (
-            <PhotoCompare item={draft} url={cropUrl} elevation={fit.elevation} />
+            <PhotoCompare item={previewItem(draft)} url={cropUrl} elevation={fit.elevation} />
           ) : view === 'states' && fixture ? (
             <div className="studio-compare-grid" role="list" aria-label="All fixture states">
               {[
@@ -1551,7 +1555,7 @@ export function ItemEditor({
               ].map((entry) => {
                 const active = (fixture.state ?? null) === entry.id;
                 const entryModel = rotateItem(
-                  active ? draft : fixtureModel(fixture, entry.id),
+                  active ? previewItem(draft) : fixtureModel(fixture, entry.id),
                   turns,
                 );
                 const glow = fixture.control.kind === 'light' && entry.id === 'on';
@@ -1755,7 +1759,7 @@ export function ItemEditor({
                     ? `Can’t save yet: ${problem}`
                     : undefined
               }
-              onClick={() => onSave(draft)}
+              onClick={() => onSave(previewItem(draft))}
             >
               {fixture?.state ? `Save “${fixture.state}” model` : 'Save model'}
             </Button>
@@ -1763,7 +1767,7 @@ export function ItemEditor({
               Revert
             </Button>
             {fit?.crop && (
-              <Button disabled={busy || !valid} onClick={() => onRefit(draft)}>
+              <Button disabled={busy || !valid} onClick={() => onRefit(previewItem(draft))}>
                 Refit to photo
               </Button>
             )}
