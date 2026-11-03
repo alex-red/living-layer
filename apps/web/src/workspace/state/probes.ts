@@ -1,13 +1,7 @@
 import { useCallback } from 'react';
-import type {
-  EvidenceRun,
-  Scene,
-  Segmentation,
-  LampResult,
-  DeskMemory,
-  PlacementDecision,
-} from '@livinglayer/domain';
-import { api } from '../../api';
+import type { EvidenceRun, DeskMemory, PlacementDecision } from '@livinglayer/domain';
+import { isRun, runOutput } from '@livinglayer/domain';
+import { apiAt } from '../../api';
 import { isProbe } from './helpers';
 import type { ViewSlice } from './view';
 import type { FeedbackSlice } from './feedback';
@@ -74,17 +68,17 @@ export function useProbesSlice(
     setBusy(kind);
     setError('');
     try {
-      const run = await api<EvidenceRun>(kind, {
+      const run = await apiAt<EvidenceRun>(kind, {
         mode,
         ...(photo ? { imageDataUrl: photo } : {}),
         ...(kind === 'segment' ? { concept: overrideConcept ?? concept } : {}),
         ...(kind === 'segment' && mode === 'demo' ? { demoPosition } : {}),
       });
-      if (kind === 'discover') setScene(run.output as Scene);
+      if (isRun(run, 'discover')) setScene(run.output);
       if (kind === 'discover' || kind === 'segment') setLamp('off');
-      if (kind === 'lamp' && (run.output as LampResult).stateConfirmed) light();
-      if (kind === 'segment') {
-        setSegmentation(run.output as Segmentation);
+      if (isRun(run, 'lamp') && run.output.stateConfirmed) light();
+      if (isRun(run, 'segment')) {
+        setSegmentation(run.output);
         setSegmentRunId(run.id);
         setDrawing(false);
       }
@@ -110,7 +104,7 @@ export function useProbesSlice(
     setBusy(path);
     setError('');
     try {
-      const result = await api<DeskMemory | EvidenceRun<PlacementDecision>>(`desk/${path}`, {
+      const result = await apiAt<DeskMemory | EvidenceRun<PlacementDecision>>(`desk/${path}`, {
         mode,
         ...fields,
       });
@@ -174,7 +168,7 @@ export function useProbesSlice(
   );
   function rerun(run: EvidenceRun) {
     if (!isProbe(run.kind) || rerunBlock(run)) return;
-    const again = run.kind === 'segment' ? (run.output as Segmentation).concept : undefined;
+    const again = runOutput(run, 'segment')?.concept;
     if (again) setConcept(again);
     void execute(run.kind, again);
   }
@@ -187,19 +181,20 @@ export function useProbesSlice(
     (run: EvidenceRun): boolean => {
       if (busy || camera || run.mode !== mode || run.status === 'failed') return false;
       if (run.kind === 'discover') return mode === 'demo';
-      if (run.kind !== 'segment') return false;
-      const key = (run.output as Segmentation).sourceKey;
+      if (!isRun(run, 'segment')) return false;
+      const key = run.output.sourceKey;
       return mode === 'demo' || (Boolean(key) && key === segmentation?.sourceKey);
     },
     [busy, camera, mode, segmentation?.sourceKey],
   );
   function restore(run: EvidenceRun) {
-    if (run.kind === 'discover') {
-      setScene(run.output as Scene);
+    if (isRun(run, 'discover')) {
+      setScene(run.output);
       setMessage('Saved discovery restored to the scene.');
       return;
     }
-    const restored = run.output as Segmentation;
+    const restored = runOutput(run, 'segment');
+    if (!restored) return;
     setSegmentation(restored);
     setSegmentRunId(run.id);
     setConcept(restored.concept);

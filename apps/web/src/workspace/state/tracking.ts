@@ -135,7 +135,7 @@ export function useTrackingSlice(
         // Tracking or watching, the camera stays open: both follow the live feed.
         if (!keepCamera && !tracking && !watching) stopCamera();
       }
-      const run = await api<EvidenceRun<Segmentation>>('segment', {
+      const run = await api('segment', {
         mode,
         concept: 'mug',
         ...(mode === 'demo' ? { demoPosition: position } : { imageDataUrl: frame }),
@@ -143,10 +143,7 @@ export function useTrackingSlice(
       setSegmentation(run.output);
       setSegmentRunId(run.id);
       setLamp('off');
-      const result = await api<{ memory: DeskMemory; event: EvidenceRun<PlacementDecision> }>(
-        'desk/track',
-        { mode, segmentRunId: run.id },
-      );
+      const result = await api('desk/track', { mode, segmentRunId: run.id });
       setMemory(result.memory, false);
       setSelected(result.event);
       if (result.event.output.action === 'confirmed') light();
@@ -300,7 +297,7 @@ export function useTrackingSlice(
     try {
       const on = !watching;
       if (on) stopFollow();
-      const view = await api<WatchView>('watch', {
+      const view = await api('watch', {
         mode,
         on,
         ...(on && mode === 'live' && watchCamera ? { streamId: watchCamera.id } : {}),

@@ -1,14 +1,5 @@
 import { useRef, useCallback } from 'react';
-import type {
-  Fixture,
-  EvidenceRun,
-  Segmentation,
-  MappedThing,
-  Job,
-  DeskMemory,
-  IsoSceneKind,
-  FixtureInput,
-} from '@livinglayer/domain';
+import type { Fixture, MappedThing, IsoSceneKind, FixtureInput } from '@livinglayer/domain';
 import { closeViewOf, fixtureAt, fixtureBox, inRoomView, fixtureInput } from '@livinglayer/domain';
 import { api } from '../../api';
 import type { FixturePlacing } from '../../iso/IsoView';
@@ -78,7 +69,7 @@ export function useFixturesSlice(
       const imageDataUrl = frameNow();
       if (mode === 'live' && !imageDataUrl)
         throw new Error('Start the camera or add a photo of the desk to look in.');
-      const run = await api<EvidenceRun<Segmentation>>('fixtures/find', {
+      const run = await api('fixtures/find', {
         mode,
         id,
         ...(imageDataUrl ? { imageDataUrl } : {}),
@@ -102,7 +93,7 @@ export function useFixturesSlice(
     setBusy('fixture-draft');
     setError('');
     try {
-      setMemory(await api<DeskMemory>('fixtures/choose', { mode, fixtureId: id, draft }));
+      setMemory(await api('fixtures/choose', { mode, fixtureId: id, draft }));
       setMessage('Put that draft back. The one it replaced is kept among the earlier drafts.');
     } catch (e) {
       setError(e instanceof Error ? e : 'Could not use that draft.');
@@ -118,10 +109,11 @@ export function useFixturesSlice(
     setBusy('fixture-photo');
     setError('');
     try {
-      const { run, memory: next } = await api<{
-        run: EvidenceRun<{ views: number; iou: number }>;
-        memory: DeskMemory;
-      }>('fixtures/photo', { mode, fixtureId: id, ...(imageDataUrl ? { imageDataUrl } : {}) });
+      const { run, memory: next } = await api('fixtures/photo', {
+        mode,
+        fixtureId: id,
+        ...(imageDataUrl ? { imageDataUrl } : {}),
+      });
       setMemory(next);
       setMessage(
         `Fitted the photo and fused it with ${run.output.views - 1} earlier view${run.output.views === 2 ? '' : 's'}: ${Math.round(run.output.iou * 100)}% outline match${costNote(run)}.`,
@@ -138,7 +130,7 @@ export function useFixturesSlice(
     setBusy('anchor-fixture');
     setError('');
     try {
-      const next = await api<DeskMemory>('fixtures/anchor', {
+      const next = await api('fixtures/anchor', {
         mode,
         id,
         segmentRunId,
@@ -159,7 +151,7 @@ export function useFixturesSlice(
   async function untrackFixture(id: string) {
     setError('');
     try {
-      setMemory(await api<DeskMemory>('fixtures/untrack', { mode, id }));
+      setMemory(await api('fixtures/untrack', { mode, id }));
       setMessage('No longer followed. It stays where it was last seen.');
     } catch (e) {
       setError(e instanceof Error ? e : 'Could not stop following it.');
@@ -189,11 +181,7 @@ export function useFixturesSlice(
               : 'Demo: the saved room through the demo camera, no model calls.',
         },
         (jobId, signal) =>
-          api<{
-            run: EvidenceRun;
-            segment: EvidenceRun<Segmentation> | null;
-            memory: DeskMemory;
-          }>(
+          api(
             'scene/illustrate',
             {
               mode,
@@ -255,7 +243,7 @@ export function useFixturesSlice(
               : 'Demo: the office from its corner camera, no model calls.',
         },
         (jobId, signal) =>
-          api<{ run: EvidenceRun; mapped: MappedThing[]; memory: DeskMemory }>(
+          api(
             'fixtures/scan',
             {
               mode,
@@ -298,7 +286,7 @@ export function useFixturesSlice(
     setError('');
     try {
       if (back) {
-        const result = await api<{ memory: DeskMemory }>('scene/separate/undo', { mode });
+        const result = await api('scene/separate/undo', { mode });
         setMemory(result.memory);
         setMessage('The fixtures are back in the picture.');
         return;
@@ -311,13 +299,7 @@ export function useFixturesSlice(
               ? 'Spark finds each fixture on the picture, SAM outlines it, and Muse Image redraws the room without them. About $0.02.'
               : 'Demo: cut out where the layout puts them, no model calls.',
         },
-        (jobId, signal) =>
-          api<{
-            run: EvidenceRun;
-            memory: DeskMemory;
-            lifted: number;
-            skipped: string[];
-          }>('scene/separate', { mode, jobId }, { signal }),
+        (jobId, signal) => api('scene/separate', { mode, jobId }, { signal }),
       );
       if (!result) return;
       setMemory(result.memory);
@@ -363,7 +345,7 @@ export function useFixturesSlice(
           await api('fixtures/refine3d', { mode, fixtureId: id, jobId }, { signal });
           for (;;) {
             if (signal.aborted) throw new Error('Stopped.');
-            const job = await api<Job>(`jobs/${jobId}`, undefined, { signal });
+            const job = await api(`jobs/${jobId}`, undefined, { signal });
             if (job.done) {
               if (job.outcome === 'failed') throw new Error(job.error ?? 'SAM 3D failed.');
               return job;
@@ -396,7 +378,7 @@ export function useFixturesSlice(
             : 'Spark drafts its model in parts from its picture three ways at once, and the best is kept. Three Spark calls, about $0.05 to $0.10.',
         },
         (jobId, signal) =>
-          api<{ run: EvidenceRun; memory: DeskMemory }>(
+          api(
             'fixtures/sculpt',
             { mode, fixtureId: id, jobId, ...(note ? { note } : {}) },
             { signal },
@@ -405,7 +387,8 @@ export function useFixturesSlice(
       if (!result) return;
       setMemory(result.memory);
       setSelected(result.run);
-      const out = result.run.output as { parts: number; note: string; product?: string | null };
+      const out = result.run.output;
+      if (!('sculpted' in out)) return;
       setMessage(
         `Modelled the ${f.label.toLowerCase()}${out.product ? ` as the ${out.product}` : ''} in ${out.parts} parts${costNote(result.run)}. ${out.note} Edit it here; undo puts the old model back.`,
       );
@@ -480,7 +463,7 @@ export function useFixturesSlice(
     }
     setError('');
     try {
-      const m = await api<DeskMemory>('fixtures/save', {
+      const m = await api('fixtures/save', {
         mode,
         fixture: { ...next, ...(change.scanned ? { scanned: true } : {}) },
       });
@@ -497,7 +480,7 @@ export function useFixturesSlice(
     if (!gone.length) return;
     setError('');
     try {
-      const m = await api<DeskMemory>('fixtures/delete', {
+      const m = await api('fixtures/delete', {
         mode,
         fixtureIds: gone.map((f) => f.id),
         ...(dismiss ? { dismiss: true } : {}),
@@ -522,7 +505,7 @@ export function useFixturesSlice(
     if (!placing) return;
     setError('');
     try {
-      const m = await api<DeskMemory>('fixtures/save', {
+      const m = await api('fixtures/save', {
         mode,
         fixture: { ...placing, ...where },
       });

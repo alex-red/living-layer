@@ -102,7 +102,7 @@ export function useBrush({
     setResolved(null);
     setHeld(mode === 'live' ? (frameNow() ?? null) : null);
     try {
-      setResolved(await api<SelectResolve>('select/resolve', { mode, shape: s }));
+      setResolved(await api('select/resolve', { mode, shape: s }));
     } catch (e) {
       setError(e instanceof Error ? e : 'Couldn’t tell what the selection is of.');
     }
@@ -129,7 +129,7 @@ export function useBrush({
               : 'Demo: read, looked up in the bundled catalog and checked through the demo camera, with no model calls.',
         },
         (jobId, signal) =>
-          api<EvidenceRun<AssistDraft>>(
+          api(
             'assist',
             {
               mode,
@@ -171,7 +171,7 @@ export function useBrush({
     if (!last?.output.recipe || working) return;
     setWorking('save');
     try {
-      const { memory } = await api<{ memory?: DeskMemory; group: string }>('assist/save', {
+      const { memory } = await api('assist/save', {
         mode,
         runId: last.id,
       });

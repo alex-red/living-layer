@@ -474,7 +474,7 @@ export function NewFixturePanel() {
                 ...(mode === 'live' ? { imageDataUrl: lab.image } : {}),
               }
             : source;
-      const r = await api<{ run: EvidenceRun; draft: FixtureDraft }>('fixtures/draft', {
+      const r = await api('fixtures/draft', {
         mode,
         scene: target,
         ...from,

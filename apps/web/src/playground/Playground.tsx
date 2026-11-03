@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties, type PointerEvent } from 'react';
-import type { EvidenceRun, LabStatus, Scene, Segmentation, ZoneRect } from '@livinglayer/domain';
+import type { LabStatus, Scene, Segmentation, ZoneRect } from '@livinglayer/domain';
 import { footInZone, runCost } from '@livinglayer/domain';
 import { api } from '../api';
 import { usd } from '../cost';
@@ -117,7 +117,7 @@ export function Playground() {
   }, []);
 
   function loadStatus() {
-    return api<LabStatus>('status')
+    return api('status')
       .then((s) => setMeta(s.meta))
       .catch(() => setDetectError('The local server is unreachable, so detection is off.'));
   }
@@ -141,7 +141,7 @@ export function Playground() {
     try {
       if (!only) {
         setDetecting('discover');
-        const found = await api<EvidenceRun<Scene>>('discover', {
+        const found = await api('discover', {
           mode: 'live',
           imageDataUrl: target.url,
         });
@@ -150,7 +150,7 @@ export function Playground() {
         patch({ scene: found.output, spent });
       }
       setDetecting('segment');
-      const masked = await api<EvidenceRun<Segmentation>>('segment', {
+      const masked = await api('segment', {
         mode: 'live',
         imageDataUrl: target.url,
         concept: only ?? concept.trim(),
@@ -271,7 +271,7 @@ export function Playground() {
     setWatchBusy(true);
     setDetectError('');
     try {
-      const run = await api<EvidenceRun<Segmentation>>('segment', {
+      const run = await api('segment', {
         mode: 'live',
         imageDataUrl: frame.url,
         concept: concept.trim(),

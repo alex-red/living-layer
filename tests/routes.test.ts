@@ -65,6 +65,7 @@ const ROUTES = [
   '/api/item/save [POST]',
   '/api/jobs [GET]',
   '/api/jobs/:id [GET]',
+  '/api/jobs/:id/events [GET]',
   '/api/jobs/:id/stop [POST]',
   '/api/lamp [POST]',
   '/api/remote [GET, DELETE]',

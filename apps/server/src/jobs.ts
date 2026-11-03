@@ -64,6 +64,18 @@ export class Jobs {
     tracker.stop();
     return true;
   }
+  /**
+   * Hear each change to a running job (steps moving, pictures, the end).
+   * Returns how to stop listening, or null when the job isn't running here.
+   */
+  watch(id: string, listener: (job: Job) => void): (() => void) | null {
+    const tracker = this.trackers.get(id);
+    if (!tracker || !this.jobs.has(id)) return null;
+    return tracker.listen(() => {
+      const job = this.get(id);
+      if (job) listener(job);
+    });
+  }
   /** A running or recent job, else an ended one from the history. */
   get(id: string): Job | null {
     const job = this.jobs.get(id);
@@ -83,13 +95,23 @@ export class Jobs {
 
 export class JobTracker {
   private abort = new AbortController();
+  private listeners = new Set<() => void>();
   constructor(
     private job: Job & { touched: number },
     private ended: (job: Job & { touched: number }) => void = () => {},
   ) {}
+  /** Call back after each change; returns how to stop. */
+  listen(listener: () => void): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+  private emit() {
+    for (const l of [...this.listeners]) l();
+  }
   /** Note an evidence run the job made, so its history links to it. */
   link(runId: string) {
     this.job.runIds = [...(this.job.runIds ?? []), runId];
+    this.emit();
   }
   /** Aborts once the page stops the job; pass it to each model call. */
   get signal(): AbortSignal {
@@ -126,12 +148,14 @@ export class JobTracker {
     s.state = 'running';
     s.startedAt = new Date().toISOString();
     if (detail) s.detail = detail;
+    this.emit();
   }
   /** Show a picture on a running step, such as the frame it is sending. */
   async show(id: string, png: Buffer, size = THUMB) {
     const s = this.step(id);
     if (!s || this.stopped) return;
     s.image = await thumbnail(png, size).catch(() => undefined);
+    this.emit();
   }
   /** Finish a step, with what it found and, for a picture, a thumbnail of it. */
   async done(id: string, detail?: string, png?: Buffer, size = THUMB) {
@@ -142,6 +166,7 @@ export class JobTracker {
     s.startedAt ??= new Date().toISOString();
     s.endedAt = new Date().toISOString();
     if (detail) s.detail = detail;
+    this.emit();
   }
   /** The step that was running failed, with the reason shown. */
   fail(detail: string) {
@@ -162,6 +187,7 @@ export class JobTracker {
     this.job.endedAt = new Date().toISOString();
     this.job.touched = Date.now();
     this.ended(this.job);
+    this.emit();
   }
 }
 
@@ -218,6 +244,39 @@ export async function jobRoutes(app: FastifyInstance, jobs: Jobs, history: JobHi
     const { id } = parseInput(idOnlySchema, request.params);
     if (!jobs.stop(id)) throw new LabError('job_missing', 'That job isn’t running here.', 404);
     return jobs.get(id);
+  });
+  /**
+   * The same job as server-sent events: its state now, again after each change,
+   * and the stream ends with the job. Replaces polling the route above.
+   */
+  app.get('/:id/events', (request, reply) => {
+    const { id } = parseInput(idOnlySchema, request.params);
+    const job = jobs.get(id);
+    if (!job) throw new LabError('job_missing', 'That job isn’t running here.', 404);
+    reply.hijack();
+    reply.raw.writeHead(200, {
+      'content-type': 'text/event-stream',
+      'cache-control': 'no-cache',
+      connection: 'keep-alive',
+    });
+    let off: (() => void) | null = null;
+    let ping: ReturnType<typeof setInterval> | undefined;
+    const close = () => {
+      off?.();
+      clearInterval(ping);
+      if (!reply.raw.writableEnded) reply.raw.end();
+    };
+    const send = (j: Job) => {
+      if (reply.raw.writableEnded) return;
+      reply.raw.write(`data: ${JSON.stringify(j)}\n\n`);
+      if (j.done) close();
+    };
+    request.raw.on('close', close);
+    send(job);
+    if (job.done) return;
+    off = jobs.watch(id, send);
+    if (!off) return close();
+    ping = setInterval(() => reply.raw.write(': ping\n\n'), 20_000);
   });
   app.get('', async (request) => {
     const { pictures } = parseInput(jobsQuerySchema, request.query);

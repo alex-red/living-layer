@@ -628,9 +628,7 @@ function SurfacePanel({ id, closeView }: { id: string; closeView?: boolean }) {
           <Button
             variant="text"
             disabled={Boolean(busy)}
-            onClick={() =>
-              void api<DeskMemory>('room/forget', { mode }).then((m) => lab.setMemory(m))
-            }
+            onClick={() => void api('room/forget', { mode }).then((m) => lab.setMemory(m))}
           >
             Forget calibration
           </Button>

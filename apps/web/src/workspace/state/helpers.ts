@@ -1,24 +1,17 @@
 import type {
   EvidenceRun,
-  Scene,
   RoomMarks,
   Segmentation,
   Detection,
-  FixtureDraft,
-  MappedThing,
-  PictureFind,
   Job,
-  LampResult,
   DeskMemory,
   PlacementDecision,
   RunKind,
   DeskObservation,
   LumaFrame,
   UnitBox,
-  SceneGuess,
-  SavedItem,
 } from '@livinglayer/domain';
-import { toLuma } from '@livinglayer/domain';
+import { isRun, toLuma } from '@livinglayer/domain';
 
 export const BUSY: Record<string, string> = {
   text: 'Checking the connection',
@@ -174,73 +167,64 @@ export const isProbe = (kind: RunKind): kind is ProbeKind =>
 
 /** One short line on what a run returned, for the log and the inspector. */
 export function runDetail(run: EvidenceRun): string {
-  const output = run.output as Record<string, unknown> | null;
   if (run.status === 'failed')
-    return (output?.error as { message?: string } | undefined)?.message ?? 'Failed';
-  switch (run.kind) {
-    case 'segment': {
-      const s = run.output as Segmentation;
-      return `"${s.concept}" · ${s.detections.length} mask${s.detections.length === 1 ? '' : 's'}`;
-    }
-    case 'discover': {
-      const s = run.output as Scene;
-      return `${s.objects.length} object${s.objects.length === 1 ? '' : 's'}: ${s.objects.map((o) => o.label).join(', ')}`;
-    }
-    case 'scene': {
-      const g = run.output as SceneGuess;
-      return `${g.kind} · ${g.visibleProps.length} prop${g.visibleProps.length === 1 ? '' : 's'} seen`;
-    }
-    case 'layout': {
-      const l = run.output as { draft: { items: unknown[]; summary: string } };
-      return `${l.draft.items.length} templates · ${l.draft.summary}`;
-    }
-    case 'item': {
-      const item = run.output as SavedItem;
-      return `${item.label} · ${item.parts.length} parts · ${item.source}`;
-    }
-    case 'fixture': {
-      // A scan maps several things, a picture find locates them, and a draft models one.
-      if (run.output && typeof run.output === 'object' && 'sculpted' in run.output) {
-        const o = run.output as unknown as { label: string; parts: number; iou: number };
-        return `${o.label} modelled with AI · ${o.parts} parts · overlap ${Math.round(o.iou * 100)}%`;
-      }
-      if (run.output && typeof run.output === 'object' && 'found' in run.output) {
-        const { found } = run.output as PictureFind;
-        return `found on the picture · ${found.filter((f) => f.seen).length} of ${found.length}`;
-      }
-      if (run.output && typeof run.output === 'object' && 'mapped' in run.output) {
-        const { mapped } = run.output as { mapped: MappedThing[] };
-        const added = mapped.filter((m) => m.fixture).length;
-        return `scan · ${mapped.length} found · ${added} added${mapped.length ? `: ${mapped.map((m) => m.label).join(', ')}` : ''}`;
-      }
-      if (run.output && typeof run.output === 'object' && 'views' in run.output) {
-        const o = run.output as unknown as { model: { label: string }; views: number; iou: number };
-        return `${o.model.label} · another photo, ${o.views} views fused · ${Math.round(o.iou * 100)}% outline match`;
-      }
-      if (run.output && typeof run.output === 'object' && 'shaped' in run.output) {
-        const o = run.output as unknown as { item: { label: string }; kept: boolean; iou: number };
-        return `${o.item.label} · SAM 3D shape ${o.kept ? 'kept' : 'not kept'} · ${Math.round(o.iou * 100)}% outline match`;
-      }
-      const f = run.output as FixtureDraft;
-      if (!f?.model) return '';
-      return `${f.label} · ${f.model.parts.length} parts · looks like ${f.suggested === 'none' ? 'just a thing' : `a ${f.suggested}`}`;
-    }
-    case 'lamp':
-      return `state ${(run.output as LampResult).state}`;
-    case 'placement': {
-      // What the zone saw happen, then what its light did.
-      const p = run.output as PlacementDecision;
-      const what = p.transition?.replace('_', ' ') ?? p.decision;
-      const light = p.lamp
-        ? `${p.lamp.entityId} ${p.lamp.action ?? 'on'}: ${p.action}`
-        : p.action === 'none'
-          ? 'no light switched'
-          : `light ${p.action}`;
-      return `${what} · ${light}`;
-    }
-    default:
-      return '';
+    return (
+      ((run.output as Record<string, unknown> | null)?.error as { message?: string } | undefined)
+        ?.message ?? 'Failed'
+    );
+  if (isRun(run, 'segment')) {
+    const s = run.output;
+    return `"${s.concept}" · ${s.detections.length} mask${s.detections.length === 1 ? '' : 's'}`;
   }
+  if (isRun(run, 'discover')) {
+    const s = run.output;
+    return `${s.objects.length} object${s.objects.length === 1 ? '' : 's'}: ${s.objects.map((o) => o.label).join(', ')}`;
+  }
+  if (isRun(run, 'scene')) {
+    const g = run.output;
+    return `${g.kind} · ${g.visibleProps.length} prop${g.visibleProps.length === 1 ? '' : 's'} seen`;
+  }
+  if (isRun(run, 'layout')) {
+    const l = run.output;
+    return `${l.draft.items.length} templates · ${l.draft.summary}`;
+  }
+  if (isRun(run, 'item')) {
+    const item = run.output;
+    return `${item.label} · ${item.parts.length} parts · ${item.source}`;
+  }
+  if (isRun(run, 'fixture')) {
+    // A scan maps several things, a picture find locates them, and a draft models one.
+    const o = run.output;
+    if (!o || typeof o !== 'object') return '';
+    if ('sculpted' in o)
+      return `${o.label} modelled with AI · ${o.parts} parts · overlap ${Math.round(o.iou * 100)}%`;
+    if ('found' in o)
+      return `found on the picture · ${o.found.filter((f) => f.seen).length} of ${o.found.length}`;
+    if ('mapped' in o) {
+      const { mapped } = o;
+      const added = mapped.filter((m) => m.fixture).length;
+      return `scan · ${mapped.length} found · ${added} added${mapped.length ? `: ${mapped.map((m) => m.label).join(', ')}` : ''}`;
+    }
+    if ('views' in o)
+      return `${o.model.label} · another photo, ${o.views} views fused · ${Math.round(o.iou * 100)}% outline match`;
+    if ('shaped' in o)
+      return `${o.item.label} · SAM 3D shape ${o.kept ? 'kept' : 'not kept'} · ${Math.round(o.iou * 100)}% outline match`;
+    if (!o.model) return '';
+    return `${o.label} · ${o.model.parts.length} parts · looks like ${o.suggested === 'none' ? 'just a thing' : `a ${o.suggested}`}`;
+  }
+  if (isRun(run, 'lamp')) return `state ${run.output.state}`;
+  if (isRun(run, 'placement')) {
+    // What the zone saw happen, then what its light did.
+    const p = run.output;
+    const what = p.transition?.replace('_', ' ') ?? p.decision;
+    const light = p.lamp
+      ? `${p.lamp.entityId} ${p.lamp.action ?? 'on'}: ${p.action}`
+      : p.action === 'none'
+        ? 'no light switched'
+        : `light ${p.action}`;
+    return `${what} · ${light}`;
+  }
+  return '';
 }
 export function median(values: number[]): number | null {
   if (!values.length) return null;

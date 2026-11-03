@@ -29,12 +29,12 @@ import {
   type IsoScene as Scene,
   type IsoSurface,
   type SavedItem,
-  type SceneGuess,
   type SurfacePin,
   type ZoneOnSurface,
   type ZoneRect,
 } from '@livinglayer/domain';
-import { api } from '../api';
+import { runOutput } from '@livinglayer/domain';
+import { apiAt } from '../api';
 import { ZoomPan } from '../ZoomPan';
 import type { BaseRect } from './BaseHandles';
 import {
@@ -52,8 +52,6 @@ import {
 } from '../workspace/LabContext';
 import { IsoScene, type IsoFixture, type IsoObject, type IsoZone } from './IsoScene';
 import { Later } from '../Later';
-import type { LayoutRun } from './SceneEditor';
-import type { PhotoRun } from './PhotoReview';
 import { pinScene, type WorkScene as Kind } from '../workspace/progress';
 import './iso.css';
 
@@ -231,11 +229,12 @@ function IsoViewOf({
     [setMemory, select, panel],
   );
   const onRun = useCallback(
-    (run: EvidenceRun<SceneGuess | SavedItem | LayoutRun['output'] | PhotoRun['output']>) => {
-      setSelected(run as EvidenceRun);
+    (run: EvidenceRun) => {
+      setSelected(run);
+      const item = runOutput(run, 'item');
       setMessage(
-        run.kind === 'item'
-          ? `Model drafted: ${(run.output as SavedItem).parts.length} parts. Edit it, then save.`
+        item
+          ? `Model drafted: ${item.parts.length} parts. Edit it, then save.`
           : run.kind === 'layout'
             ? 'Scene drafted. Review it in the layout editor, then save.'
             : run.kind === 'photo'
@@ -504,7 +503,7 @@ function IsoViewOf({
   async function send<T>(path: string, body: object, done: (r: T) => void) {
     setAsking(true);
     try {
-      done(await api<T>(path, { mode, ...body }));
+      done(await apiAt<T>(path, { mode, ...body }));
     } catch (e) {
       onError(e instanceof Error ? e : 'The request failed.');
     } finally {
