@@ -2,14 +2,12 @@ import type { FastifyInstance } from 'fastify';
 import {
   deskAutoPinBodySchema,
   ISO_PRESETS,
-  calibrationOf,
   pinOf,
   type EvidenceRun,
   type Quad,
   type Segmentation,
 } from '@livinglayer/domain';
-import { LabError, liveImage, parseInput } from './errors.js';
-import { NOT_CALIBRATED } from './photo.js';
+import { liveImage, parseInput, requireCalibration } from './errors.js';
 import type { RouteDeps } from './route-deps.js';
 
 export interface AutoPin {
@@ -30,8 +28,7 @@ export async function pinRoutes(app: FastifyInstance, { store }: Pick<RouteDeps,
     const input = parseInput(deskAutoPinBodySchema, request.body);
     liveImage(input.mode, input.imageDataUrl);
     const memory = store.memory(input.mode);
-    const calibration = calibrationOf(memory);
-    if (!calibration) throw new LabError('not_calibrated', NOT_CALIBRATED, 409);
+    const calibration = requireCalibration(memory);
     const scene = calibration.scene === 'custom' ? memory.scene : ISO_PRESETS[calibration.scene];
     const surfaces = scene?.surfaces ?? [];
     const surface = input.surfaceId

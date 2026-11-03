@@ -18,10 +18,9 @@ import {
   type Segmentation,
 } from '@livinglayer/domain';
 import { samWhole } from './assist.js';
-import { LabError, liveImage, parseInput } from './errors.js';
+import { LabError, NOT_CALIBRATED, liveImage, parseInput } from './errors.js';
 import { samDataUrl, requireFrame, validateImage } from './images.js';
 import type { RouteDeps } from './route-deps.js';
-import { NOT_CALIBRATED } from './photo.js';
 
 /**
  * Fit one prop of the scene being edited to where the room's camera sees it:

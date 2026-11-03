@@ -2,7 +2,6 @@ import type { FastifyInstance } from 'fastify';
 import {
   selectResolveBodySchema,
   ISO_PRESETS,
-  calibrationOf,
   fixtureBox,
   groupLabels,
   inRoomView,
@@ -14,8 +13,7 @@ import {
   type Segmentation,
   type Bits,
 } from '@livinglayer/domain';
-import { LabError, parseInput } from './errors.js';
-import { NOT_CALIBRATED } from './photo.js';
+import { LabError, NOT_CALIBRATED, parseInput, requireCalibration } from './errors.js';
 import type { RouteDeps } from './route-deps.js';
 
 /** The most candidates a resolve sends back: the review only shows a few. */
@@ -43,8 +41,7 @@ function trackedObjects(memory: DeskMemory, frame: Segmentation['frame']) {
  * with 409 `not_calibrated` when there is no camera to read through.
  */
 export function selectionRoom(memory: DeskMemory) {
-  const calibration = calibrationOf(memory);
-  if (!calibration) throw new LabError('not_calibrated', NOT_CALIBRATED, 409);
+  const calibration = requireCalibration(memory);
   const scene = calibration.scene === 'custom' ? memory.scene : ISO_PRESETS[calibration.scene];
   if (!scene) throw new LabError('not_calibrated', NOT_CALIBRATED, 409);
   const frame = { ...calibration.camera.frame };

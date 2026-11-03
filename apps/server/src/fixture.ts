@@ -89,7 +89,7 @@ import {
   withoutThings,
   addUsage,
 } from '@livinglayer/domain';
-import { LabError, liveImage, parseInput } from './errors.js';
+import { LabError, liveImage, modeImage, parseInput } from './errors.js';
 import { following, type JobTracker } from './jobs.js';
 import { listedPreview, outlinedPreview, placedPreview } from './scan-preview.js';
 import sharp from 'sharp';
@@ -1392,11 +1392,10 @@ export async function fixtureRoutes(
   app.post('/photo', async (request) => {
     const { mode, fixtureId, imageDataUrl } = parseInput(fixturesPhotoBodySchema, request.body);
     const live = mode === 'live';
-    if (live !== Boolean(imageDataUrl))
-      throw new LabError(
-        'demo_image',
-        live ? 'Send a photo of the fixture.' : 'Demo mode uses its own close photos, not uploads.',
-      );
+    modeImage(mode, imageDataUrl, {
+      live: 'Send a photo of the fixture.',
+      demo: 'Demo mode uses its own close photos, not uploads.',
+    });
     const memory = store.memory(mode);
     const fixture = memory.fixtures?.find((f) => f.id === fixtureId);
     if (!fixture) throw new LabError('fixture_missing', 'That fixture is gone.', 404);
