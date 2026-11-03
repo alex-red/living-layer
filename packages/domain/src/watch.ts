@@ -16,6 +16,7 @@ import {
   boxIoU,
   frameMotion,
   matchTemplate,
+  recutTemplate,
   stepLocalTrack,
   LOCAL_TRACK,
   type LocalTrack,
@@ -123,7 +124,7 @@ export function watchThing(subject: WatchSubject, track: LocalTrack, now: number
 }
 
 const WHOLE: UnitBox = { x: 0, y: 0, width: 1, height: 1 };
-// Where it stands, as the rules judge it on the frame (`footInZone`): its box's bottom centre.
+// Where it stands, as the rules judge it on the frame (`footInZone`): near its box's bottom centre.
 const inZone = (b: UnitBox, zone: UnitBox) => footInZone(b, { width: 1, height: 1 }, zone);
 /**
  * What one frame means for one thing. `place` asks the caller to judge its
@@ -421,13 +422,34 @@ export function placed(thing: WatchThing, now: number, blocked: boolean): WatchT
     : { ...thing, crossingSteps: 0, crossedAt: null };
 }
 
-/** The feature model found it: follow from there, with the template SAM's frame gave. */
-export function refound(thing: WatchThing, box: UnitBox): WatchThing {
+/**
+ * The feature model found it: follow from there. On `frame` (the grey frame
+ * it was found in), its template's pixels are read again where it is now, so
+ * it isn't matched against the desk it stood on before, and found only once
+ * all was still, its zones are judged at the next still step.
+ */
+export function refound(thing: WatchThing, box: UnitBox, frame?: LumaFrame): WatchThing {
+  const template = frame && recutTemplate(thing.track.template, frame, box);
+  const crossed = thing.subject.zones.some((z) => inZone(box, z.rect) !== z.inside);
   return {
     ...thing,
-    track: { ...thing.track, box, lostSteps: 0 },
+    track: {
+      ...thing.track,
+      box,
+      lostSteps: 0,
+      ...(template
+        ? {
+            template,
+            previous: frame,
+            stillSteps: WATCH.quietSteps,
+            velocity: { x: 0, y: 0 },
+          }
+        : {}),
+    },
     status: 'following',
     layer: 'appearance',
+    crossingSteps: template && crossed ? WATCH.settleSteps - 1 : 0,
+    crossedAt: null,
   };
 }
 /** SAM was asked; whatever it says, the next ask waits. A re-anchor doubles the wait. */

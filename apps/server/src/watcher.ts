@@ -25,7 +25,7 @@ import {
   candidatePlaces,
   closeMatch,
   closeRegion,
-  closeScore,
+  closeFit,
   closeSure,
   prototypeOf,
   refound,
@@ -793,6 +793,20 @@ export class Watcher {
     );
   }
   /**
+   * A close look at `box` in `shot`: how like the thing it is there (its best
+   * template), and its box lined up with that template, finer than the box given.
+   */
+  private async closeLook(
+    shot: { png: Buffer; width: number; height: number },
+    box: UnitBox,
+    templates: PatchTemplate[],
+  ) {
+    const near = closeRegion(box, shot);
+    const close = await this.model!.embed(shot.png, near, APPEARANCE.side);
+    const fits = templates.map((t) => closeFit(t, close, near, box));
+    return fits.reduce((a, b) => (b.score > a.score ? b : a));
+  }
+  /**
    * Look for lost things by how they look: around where each was last
    * (`searchRegion`), all in one embedding of the region holding them, or the
    * whole frame (`whole`, when nothing else may look). Followed things' boxes
@@ -827,13 +841,16 @@ export class Watcher {
         if (templates?.length) {
           // The wide search's best few places, each looked at closely against the thing's own patches.
           const scored = [];
-          for (const place of candidatePlaces(grid, w.protos, size, followed)) {
-            const box = outOfRegion(place, region);
-            const near = closeRegion(box, shot);
-            const close = await model.embed(shot.png, near, APPEARANCE.side);
-            const score = Math.max(...templates.map((t) => closeScore(t, close, near, box)));
-            scored.push({ box, score });
-          }
+          // Each at the thing's own size: the wide search's windows are whole patches.
+          const { width, height } = w.thing.track.box;
+          for (const place of candidatePlaces(grid, w.protos, size, followed))
+            scored.push(
+              await this.closeLook(
+                shot,
+                { ...outOfRegion(place, region), width, height },
+                templates,
+              ),
+            );
           const match = closeMatch(scored);
           matches.push({ id: w.id, box: closeSure(match) ? match.box : null });
           continue;
@@ -854,7 +871,7 @@ export class Watcher {
         );
         const thing = this.things.get(id);
         if (clash || !thing) continue;
-        this.things.set(id, refound(thing, box));
+        this.things.set(id, refound(thing, box, this.lastFrame ?? undefined));
         found.add(id);
       }
       this.stats.refinds += found.size;
@@ -931,13 +948,42 @@ export class Watcher {
       .finally(() => this.judging.delete(id));
     void this.track(this.placing);
   }
+  /**
+   * Where a thing about to have its zones judged really stands: its followed
+   * box, lined up by a close look with its own patches when the feature model
+   * has them. Null when that look says it isn't there (the grey match drifted
+   * onto the desk): it counts as lost, and is looked for again.
+   */
+  private async closeCheck(id: string, thing: WatchThing): Promise<UnitBox | null> {
+    const templates = this.templates.get(id);
+    if (!this.model || !this.source || !templates?.length) return thing.track.box;
+    const shot = await this.source.snapshot();
+    const look = await this.closeLook(shot, thing.track.box, templates);
+    if (look.score >= APPEARANCE.closeMinScore) {
+      const now = this.things.get(id);
+      if (now) this.things.set(id, { ...now, track: { ...now.track, box: look.box } });
+      return look.box;
+    }
+    const now = this.things.get(id);
+    if (now)
+      this.things.set(id, {
+        ...now,
+        status: 'unsure',
+        crossingSteps: 0,
+        track: { ...now.track, lostSteps: WATCH.lostSteps },
+      });
+    this.refind(id);
+    return null;
+  }
   private async judge(id: string) {
     const thing = this.things.get(id);
     if (!thing) return;
     const { mode, tracking } = this.deps;
     const start = this.now;
     try {
-      const { memory, event, rules } = await tracking.placeLocally(mode, id, thing.track.box);
+      const box = await this.closeCheck(id, thing);
+      if (!box) return;
+      const { memory, event, rules } = await tracking.placeLocally(mode, id, box);
       const decisions = [...(event ? [event] : []), ...rules].map((e) => e.output);
       const blocked = decisions.every((d) => d.decision === 'blocked');
       this.stats.places++;

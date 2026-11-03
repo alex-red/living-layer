@@ -300,6 +300,9 @@ export interface PatchTemplate {
   dim: number;
   weights: Float32Array;
   data: Float32Array;
+  /** Where the thing's box starts within its first patch, as shares of a patch, to place a match finer than one. */
+  fx: number;
+  fy: number;
 }
 
 /** The square a thing at `box` is looked at closely in. */
@@ -348,7 +351,9 @@ export function patchTemplate(
       weights[i] = all[p]!;
       total += all[p]!;
     }
-  return total >= 1 ? { cols: at.cols, rows: at.rows, dim: grid.dim, weights, data } : null;
+  const fx = ((box.x - region.x) / region.width) * grid.cols - at.c0;
+  const fy = ((box.y - region.y) / region.height) * grid.rows - at.r0;
+  return total >= 1 ? { cols: at.cols, rows: at.rows, dim: grid.dim, weights, data, fx, fy } : null;
 }
 
 /**
@@ -356,12 +361,23 @@ export function patchTemplate(
  * `grid` (made of `region`): the mask-weighted mean cosine of each template
  * patch with the one under it, at the best shift up to `closeShift` patches.
  */
-export function closeScore(
+export const closeScore = (
   template: PatchTemplate,
   grid: PatchGrid,
   region: UnitBox,
   box: UnitBox,
-): number {
+): number => closeFit(template, grid, region, box).score;
+
+/**
+ * `closeScore`, with where the thing is at that best shift: the candidate's
+ * box moved to line up with the template, to within part of a patch.
+ */
+export function closeFit(
+  template: PatchTemplate,
+  grid: PatchGrid,
+  region: UnitBox,
+  box: UnitBox,
+): { score: number; box: UnitBox } {
   const at = cellsUnder(grid, region, box);
   const { dim } = grid;
   const norms = new Float32Array(grid.cols * grid.rows);
@@ -372,6 +388,8 @@ export function closeScore(
   }
   const shift = APPEARANCE.closeShift;
   let best = -1;
+  let bx = 0;
+  let by = 0;
   for (let dy = -shift; dy <= shift; dy++)
     for (let dx = -shift; dx <= shift; dx++) {
       let sum = 0;
@@ -389,9 +407,22 @@ export function closeScore(
           sum += (w * dot) / norms[p]!;
           total += w;
         }
-      if (total > 0) best = Math.max(best, sum / total);
+      if (total > 0 && sum / total > best) {
+        best = sum / total;
+        bx = dx;
+        by = dy;
+      }
     }
-  return best;
+  const cw = region.width / grid.cols;
+  const ch = region.height / grid.rows;
+  return {
+    score: best,
+    box: {
+      ...box,
+      x: region.x + (at.c0 + bx + template.fx) * cw,
+      y: region.y + (at.r0 + by + template.fy) * ch,
+    },
+  };
 }
 
 /**

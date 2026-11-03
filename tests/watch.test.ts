@@ -32,6 +32,7 @@ import {
   missed,
   asked,
   placed,
+  refound,
   WATCH,
   DEMO_SURFACE,
   maskBits,
@@ -142,6 +143,32 @@ describe('watching one thing', () => {
     expect(r.places.indexOf(true)).toBeGreaterThanOrEqual(WATCH.quietSteps - 1);
     expect(r.thing.layer).toBe('local');
     expect(r.thing.track.box.x).toBeCloseTo(110 / W, 2);
+  });
+  it('follows a thing found again where it is now, and judges its zones at once', () => {
+    // Learned with the desk around it, as an outline drawn loosely is.
+    const loose = (x: number, y: number) => ({
+      x: (x - 10) / W,
+      y: (y - 10) / H,
+      width: 40 / W,
+      height: 44 / H,
+    });
+    const subject: WatchSubject = {
+      id: 'mug',
+      kind: 'mug',
+      label: 'Mug',
+      concept: 'mug',
+      zones: [{ id: 'z', rect: zone, inside: true }],
+    };
+    const thing = watchThing(subject, startLocalTrack(scene(30, 40), loose(30, 40), true)!, 0);
+    const there = scene(110, 40);
+    // Read again where it was found, it is followed there, and out of the zone at the next step.
+    const fresh = run(refound(thing, loose(110, 40), there), Array(8).fill(there));
+    expect(fresh.thing.track.lostSteps).toBe(0);
+    expect(fresh.thing.status).toBe('following');
+    // Without the frame it waits to be still again first.
+    const stale = run(refound(thing, loose(110, 40)), Array(8).fill(there));
+    expect(stale.places.indexOf(true)).toBeGreaterThanOrEqual(WATCH.quietSteps - 1);
+    expect(fresh.places.indexOf(true)).toBe(0);
   });
   it('looks by appearance first, then asks SAM, then backs off and gives up', () => {
     const gone = Array(30).fill(scene(null));

@@ -43,14 +43,24 @@ export function cameraKept(memory: DeskMemory, reference: string): DeskMemory {
     rules: memory.rules?.map((r) => ({ ...r, lastDecision: stale(r.lastDecision) })),
   };
 }
-/** True when the box's bottom centre, where it touches down nearest the camera, is in the zone. */
+/**
+ * How far up its box a thing is taken to stand, as a share of its height. A
+ * box's bottom edge often holds a strip of shadow or desk (an outline drawn
+ * round it): on the office camera a mug's box ended 17 px below its base, in
+ * an 85 px zone, and read as outside while it stood inside.
+ */
+const STAND_SHARE = 0.25;
+/**
+ * True when where the box stands, nearest the camera, is in the zone: its
+ * middle, `STAND_SHARE` of its height above its bottom edge.
+ */
 export function footInZone(
   b: Detection['box'],
   frame: Segmentation['frame'],
   zone: ZoneRect,
 ): boolean {
   const x = (b.x + b.width / 2) / frame.width;
-  const y = (b.y + b.height) / frame.height;
+  const y = (b.y + b.height * (1 - STAND_SHARE)) / frame.height;
   return x >= zone.x && x <= zone.x + zone.width && y >= zone.y && y <= zone.y + zone.height;
 }
 const within = (v: number, a: number, b: number) => v >= Math.min(a, b) && v <= Math.max(a, b);
