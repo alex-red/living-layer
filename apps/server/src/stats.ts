@@ -7,6 +7,7 @@ import {
   WATCH,
   activityStep,
   around,
+  calibrationOf,
   dayOf,
   featureDifference,
   fixtureEntity,
@@ -18,7 +19,10 @@ import {
   pixelDifference,
   powerLook,
   powerReading,
+  quadBox,
   sampleInto,
+  sampleQuadInto,
+  screenInFrame,
   settle,
   settled,
   usedStep,
@@ -37,6 +41,7 @@ import {
   type StatEvent,
   type StatKey,
   type StatLook,
+  type UnitQuad,
   type StatNow,
   type StatsNow,
   type ThingStat,
@@ -54,6 +59,8 @@ interface StatThing {
   label: string;
   /** Where it is in the frame when nobody follows it: its last sighting, or its place seen through the pin. */
   region: UnitBox | null;
+  /** A screen's face through the room camera, when nobody follows it: its power is read there alone. */
+  screen?: UnitQuad | null;
   /** Its entity's last confirmed state, when it switches one: undefined when it switches none. */
   entity?: boolean | null;
 }
@@ -67,15 +74,27 @@ function statThings(memory: DeskMemory): StatThing[] {
   });
   const things: StatThing[] = [];
   const pin = memory.surface ?? null;
+  const calibration = calibrationOf(memory);
   for (const f of memory.fixtures ?? []) {
     const seen = f.track?.observation;
-    const placed = !seen && pin ? fixtureInFrame(f, pin, memory.scene ?? null) : null;
+    const screen =
+      !seen && calibration?.scene === f.scene
+        ? screenInFrame(f, memory.scene ?? null, calibration.camera)
+        : null;
+    const placed = !seen && !screen && pin ? fixtureInFrame(f, pin, memory.scene ?? null) : null;
     const entity = fixtureEntity(f);
     const lit = Object.values(f.lit ?? {});
     things.push({
       id: f.id,
       label: f.label,
-      region: seen ? unit(seen.box, seen.frame) : placed && pin ? unit(placed, pin.frame) : null,
+      region: seen
+        ? unit(seen.box, seen.frame)
+        : screen
+          ? quadBox(screen)
+          : placed && pin
+            ? unit(placed, pin.frame)
+            : null,
+      screen,
       ...(entity || lit.length
         ? {
             entity: lit.some(Boolean)
@@ -155,6 +174,7 @@ interface Running {
   stat: ThingStat;
   label: string;
   region: UnitBox | null;
+  screen?: UnitQuad | null;
   entity?: boolean | null;
   now: StatNow;
   lastRun: number;
@@ -256,6 +276,7 @@ export class StatRunner {
         r.stat = stat;
         r.label = thing.label;
         r.region = thing.region;
+        r.screen = thing.screen ?? null;
         if (r.key === 'power' && thing.entity !== undefined) {
           r.entity = thing.entity;
           if (thing.entity !== null)
@@ -396,7 +417,7 @@ export class StatRunner {
             (this.previous ? frameMotion(this.previous, frame, region) : 0);
           if (motion > LOCAL_TRACK.motionShare) break;
           mean ||= frameMean(frame.data);
-          sampleInto(frame, region, this.sample, STATS.sample.width, STATS.sample.height);
+          this.samplePower(frame, followed ? null : r.screen, region);
           const { reading, confidence } = powerReading(
             powerLook(this.sample, mean),
             { on: p.on, off: p.off },
@@ -571,6 +592,12 @@ export class StatRunner {
     for (const l of this.listeners) l();
   }
 
+  /** A power sample: of a screen's face when there is one, else of the thing's box. */
+  private samplePower(frame: LumaFrame, screen: UnitQuad | null | undefined, region: UnitBox) {
+    const { width, height } = STATS.sample;
+    if (screen) sampleQuadInto(frame, screen, this.sample, width, height);
+    else sampleInto(frame, region, this.sample, width, height);
+  }
   /**
    * The person says how the thing looks now: off, on or empty. Kept in
    * `settings` (a grey look, or feature patches for empty when the model is
@@ -592,7 +619,7 @@ export class StatRunner {
     if (!region) throw new LabError('stat_region', 'It isn’t in the camera’s view.', 409);
     const setting = lookKey(this.deps.mode, thingId, key, look);
     if (key === 'power') {
-      sampleInto(frame, region, this.sample, STATS.sample.width, STATS.sample.height);
+      this.samplePower(frame, this.boxes.has(thingId) ? null : r.screen, region);
       const value = powerLook(this.sample, frameMean(frame.data));
       this.deps.store.setSetting(setting, JSON.stringify(value));
       r.power![look as 'on' | 'off'] = value;

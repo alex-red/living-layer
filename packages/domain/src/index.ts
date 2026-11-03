@@ -33,6 +33,7 @@ export * from './fixture-scan.js';
 export * from './expose.js';
 export * from './occupancy.js';
 export * from './stats.js';
+export * from './screen.js';
 export * from './promote.js';
 export * from './food.js';
 export * from './camera.js';
