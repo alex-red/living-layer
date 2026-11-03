@@ -16,6 +16,9 @@ import {
   fixtureReference,
   fixtureSize,
   fixtureStateNames,
+  fixtureType,
+  lightSources,
+  retypeFixture,
   starterFixtureDraft,
   SCULPT_FIRST,
   MODEL_ORIGIN_LABEL,
@@ -712,6 +715,156 @@ export function NewFixturePanel() {
   );
 }
 
+/**
+ * Change what a fixture is: a starter's model in its own colours and at
+ * that kind's real size, where it stands. The model it had goes to Earlier
+ * drafts, so a wrong pick can be undone there.
+ */
+function FixtureType({ fixture: f, disabled }: { fixture: Fixture; disabled: boolean }) {
+  const lab = useLab();
+  const { call } = useCall();
+  const current = fixtureType(f);
+  const [type, setType] = useState<StarterTemplate | ''>(current ?? '');
+  return (
+    <div className="save-actions">
+      <Field label="Type">
+        <Select
+          id={`fixture-type-${f.id}`}
+          value={type}
+          disabled={disabled}
+          options={[
+            ...(current ? [] : [{ value: '', label: 'Its own model' }]),
+            ...STARTER_TEMPLATES.map((t) => ({ value: t, label: starterMeta(t).label })),
+          ]}
+          onChange={(v) => setType(v as StarterTemplate | '')}
+        />
+      </Field>
+      <Button
+        size="sm"
+        disabled={disabled || !type || type === current}
+        onClick={() =>
+          type &&
+          void call<DeskMemory>(
+            'fixtures/save',
+            { fixture: retypeFixture(f, type, lab.memory?.scene) },
+            (m) => {
+              lab.setMemory(m);
+              lab.setMessage(
+                `The ${f.label.toLowerCase()} is a ${starterMeta(type).label.toLowerCase()} now. Its old model is under Earlier drafts.`,
+              );
+            },
+          )
+        }
+      >
+        Change type
+      </Button>
+    </div>
+  );
+}
+
+/**
+ * A fixture's light sources, each linked to its own Home Assistant entity
+ * and switched on its own: a floor lamp's uplight bowl and reading shade.
+ * A source left unlinked follows the fixture's own light.
+ */
+function FixtureLights({ fixture: f, disabled }: { fixture: Fixture; disabled: boolean }) {
+  const lab = useLab();
+  const { call, off } = useCall();
+  const sources = lightSources(f.model);
+  const saved = Object.fromEntries((f.lights ?? []).map((l) => [l.part, l.entityId]));
+  const [links, setLinks] = useState<Record<string, string>>(saved);
+  if (!sources.length) return null;
+  // Lights first: a source is most often a bulb of its own.
+  const choices = [...lab.entities].sort(
+    (a, b) => Number(!a.startsWith('light.')) - Number(!b.startsWith('light.')),
+  );
+  const changed = sources.some((s) => (links[s.part] ?? '') !== (saved[s.part] ?? ''));
+  const liveBlocked = lab.mode === 'live' && !lab.lampReady;
+  const switchSource = (part: string, label: string, action: 'on' | 'off') =>
+    void call<{ memory: DeskMemory; event: EvidenceRun<LampResult> | null }>(
+      'fixtures/control',
+      { fixtureId: f.id, part, action },
+      (r) => {
+        lab.setMemory(r.memory, false);
+        if (r.event) {
+          lab.setSelected(r.event);
+          lab.setMessage(r.event.output.explanation);
+        } else lab.setMessage(`Set the ${label.toLowerCase()} to ${action}.`);
+      },
+    );
+  return (
+    <Details summary="Light sources" open={Boolean(f.lights?.length)}>
+      {sources.map((s) => {
+        const linked = saved[s.part];
+        return (
+          <div key={s.part} className="save-actions">
+            <Field label={s.label}>
+              <Select
+                id={`fixture-light-${f.id}-${s.part}`}
+                value={links[s.part] ?? ''}
+                disabled={disabled}
+                options={[
+                  { value: '', label: 'Follows the fixture' },
+                  ...choices.map((e) => ({ value: e, label: e })),
+                ]}
+                onChange={(v) => setLinks({ ...links, [s.part]: v })}
+              />
+            </Field>
+            {linked && (
+              <>
+                <Button
+                  size="sm"
+                  variant={f.lit?.[s.part] ? 'primary' : 'secondary'}
+                  disabled={disabled || off || liveBlocked}
+                  onClick={() => switchSource(s.part, s.label, 'on')}
+                >
+                  On
+                </Button>
+                <Button
+                  size="sm"
+                  disabled={disabled || off || liveBlocked}
+                  onClick={() => switchSource(s.part, s.label, 'off')}
+                >
+                  Off
+                </Button>
+              </>
+            )}
+          </div>
+        );
+      })}
+      {!lab.entities.length && (
+        <ChooseDevicesLink why="No lights or switches are chosen under Home Assistant yet." />
+      )}
+      <p className="micro">
+        Each source can switch its own light. Its glow follows what that entity last reported.
+      </p>
+      <Button
+        disabled={disabled || off || !changed}
+        onClick={() =>
+          void call<DeskMemory>(
+            'fixtures/save',
+            {
+              fixture: {
+                ...inputOf(f),
+                lights: sources
+                  .filter((s) => links[s.part])
+                  .map((s) => ({ part: s.part, entityId: links[s.part]! })),
+                ...(f.scanned ? { scanned: true } : {}),
+              },
+            },
+            (m) => {
+              lab.setMemory(m);
+              lab.setMessage(`Linked the ${f.label.toLowerCase()}’s light sources.`);
+            },
+          )
+        }
+      >
+        Save links
+      </Button>
+    </Details>
+  );
+}
+
 /** What a saved fixture sends back to be saved again. */
 function inputOf(f: Fixture): FixtureInput & FixturePlacing {
   return fixtureInput(f);
@@ -1003,6 +1156,7 @@ export function FixturePanel({ id }: { id: string }) {
         </Field>
       )}
       <Details summary="What it is">
+        <FixtureType fixture={f} disabled={off || moving} />
         <ControlPicker kind={kind} entity={entity} onKind={setKind} onEntity={setEntity} />
         <Button
           disabled={off || (kind !== 'none' && !entity)}
@@ -1021,6 +1175,7 @@ export function FixturePanel({ id }: { id: string }) {
           Save
         </Button>
       </Details>
+      <FixtureLights fixture={f} disabled={off || moving} />
       <Details summary="Size">
         <div className="fixture-size">
           {(['w', 'd', 'h'] as const).map((k) => (

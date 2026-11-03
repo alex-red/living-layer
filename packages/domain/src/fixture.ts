@@ -48,7 +48,30 @@ export const fixtureControlSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('switch'), entityId: switchEntitySchema }).strict(),
 ]);
 export type FixtureControl = z.infer<typeof fixtureControlSchema>;
+/**
+ * One light source of a fixture's model, switched by its own entity: a floor
+ * lamp's uplight bowl and its reading shade. A source is a part whose id is
+ * `shade` or starts with `shade-` (`lightSources`).
+ */
+export const fixtureLightSchema = z
+  .object({ part: z.string().min(1).max(24), entityId: entityIdSchema })
+  .strict();
+export type FixtureLight = z.infer<typeof fixtureLightSchema>;
+export const MAX_FIXTURE_LIGHTS = 4;
 export const MAX_FIXTURES = 12;
+/** Templates the Fixture Studio and Add Fixture panel can start from without a photo. */
+export const STARTER_TEMPLATES = [
+  'cat',
+  'monitor',
+  'lamp',
+  'floor-lamp',
+  'plant',
+  'mug',
+  'book',
+  'device',
+  'box',
+] as const;
+export type StarterTemplate = (typeof STARTER_TEMPLATES)[number];
 /** The illustrated reference pictures demo mode can draft fixtures from. */
 export const DEMO_REFERENCES = ['mouse', 'lamp', 'monitor', 'cat'] as const;
 export type DemoReference = (typeof DEMO_REFERENCES)[number];
@@ -105,6 +128,16 @@ export const fixtureInputSchema = z
     /** The reference photo's run and asset, for the editor's photo overlay. */
     reference: fixtureReferenceSchema,
     control: fixtureControlSchema,
+    /** What it is, when a person chose it from the starters (`retypeFixture`). */
+    type: z.enum(STARTER_TEMPLATES).optional(),
+    /** Its light sources' own entities, one per source part, besides `control`. */
+    lights: z
+      .array(fixtureLightSchema)
+      .max(MAX_FIXTURE_LIGHTS)
+      .refine((ls) => new Set(ls.map((l) => l.part)).size === ls.length, {
+        message: 'A light source is linked once.',
+      })
+      .optional(),
     /** Named states or poses, each with its own unique model, size or reference. */
     states: z.record(fixtureStateNameSchema, fixtureStateInputSchema).optional(),
     /** True hands its place back to scans; any other save keeps it where the person put it. */
@@ -132,6 +165,8 @@ export interface Fixture extends Omit<FixtureInput, 'id' | 'model' | 'states'> {
   model: SavedItem;
   /** The active state or pose of the fixture (`on`, `off`, `idle`, `sleeping`, or custom). */
   state?: string | null;
+  /** Each linked light source's last confirmed state, by part; unknown when missing. */
+  lit?: Record<string, boolean>;
   /** Each state's unique fixture model, size or reference. */
   states?: Record<string, FixtureState>;
   /**
@@ -245,6 +280,8 @@ export function fixtureInput(f: Fixture): FixtureInput {
     model: { label: f.model.label, parts: f.model.parts },
     reference: f.reference,
     control: f.control,
+    ...(f.type ? { type: f.type } : {}),
+    ...(f.lights?.length ? { lights: f.lights } : {}),
     ...(f.states
       ? {
           states: Object.fromEntries(
@@ -306,18 +343,7 @@ export function stateVariantModel(
       const lit = state === 'on';
       return {
         ...base,
-        parts: base.parts.map((p) => {
-          if (!p.id.startsWith('shade-')) return p;
-          const rest = (p.paint ?? []).filter((b) => !(b.kind === 'band' && b.color === WARM));
-          const glow = p.id === 'shade-bowl' ? { from: 0.7, to: 1 } : { from: 0, to: 0.3 };
-          return {
-            ...p,
-            paint: lit
-              ? [...rest, { kind: 'band' as const, ...glow, color: WARM }].slice(0, 6)
-              : rest,
-            ...(p.inside ? { inside: { ...p.inside, wall: lit ? WARM : p.color } } : {}),
-          };
-        }),
+        parts: base.parts.map((p) => (p.id.startsWith('shade-') ? glowShade(p, lit) : p)),
       };
     }
     if (
@@ -345,6 +371,71 @@ export function stateVariantModel(
     }
   }
   return base;
+}
+
+type ItemPart = SavedItem['parts'][number];
+/** A shade lit or not: the bowl glows from inside, any other shade at its mouth. */
+function glowShade(p: ItemPart, lit: boolean): ItemPart {
+  const rest = (p.paint ?? []).filter((b) => !(b.kind === 'band' && b.color === WARM));
+  const glow = p.id === 'shade-bowl' ? { from: 0.7, to: 1 } : { from: 0, to: 0.3 };
+  return {
+    ...p,
+    paint: lit ? [...rest, { kind: 'band' as const, ...glow, color: WARM }].slice(0, 6) : rest,
+    ...(p.inside ? { inside: { ...p.inside, wall: lit ? WARM : p.color } } : {}),
+  };
+}
+
+const isShade = (id: string) => id === 'shade' || id.startsWith('shade-');
+const SOURCE_NAMES: Record<string, string> = {
+  shade: 'Shade',
+  'shade-bowl': 'Uplight bowl',
+  'shade-reading': 'Reading shade',
+};
+export interface LightSource {
+  part: string;
+  label: string;
+}
+/** The parts of a model that give light, each of which can be linked to its own entity. */
+export function lightSources(model: Pick<SavedItem, 'parts'>): LightSource[] {
+  return model.parts
+    .filter((p) => isShade(p.id))
+    .map((p) => ({
+      part: p.id,
+      label:
+        SOURCE_NAMES[p.id] ??
+        `${p.id
+          .slice(6)
+          .replace(/-/g, ' ')
+          .replace(/^./, (c) => c.toUpperCase())} shade`,
+    }));
+}
+
+/** Every entity a fixture switches: its own control, then its light sources'. */
+export function fixtureEntities(f: Pick<Fixture, 'control' | 'lights'>): string[] {
+  const own = fixtureEntity(f);
+  return [...new Set([...(own ? [own] : []), ...(f.lights ?? []).map((l) => l.entityId)])];
+}
+
+/** Whether a fixture gives light now: its light is on, or one of its sources is. */
+export function fixtureGlows(f: Pick<Fixture, 'control' | 'state' | 'lit'>): boolean {
+  return (
+    (f.control.kind === 'light' && f.state === 'on') || Object.values(f.lit ?? {}).some(Boolean)
+  );
+}
+
+/**
+ * Each linked source lit by its own entity's state; a source with no entity
+ * of its own follows the fixture's state, as `stateVariantModel` drew it.
+ */
+function withLitSources(model: SavedItem, f: Partial<Pick<Fixture, 'lights' | 'lit'>>): SavedItem {
+  const own = new Map((f.lights ?? []).map((l) => [l.part, f.lit?.[l.part] ?? false]));
+  if (!model.parts.some((p) => own.has(p.id) && isShade(p.id))) return model;
+  return {
+    ...model,
+    parts: model.parts.map((p) =>
+      own.has(p.id) && isShade(p.id) ? glowShade(p, own.get(p.id)!) : p,
+    ),
+  };
 }
 
 /** Default per-state fixtures for a newly drafted or saved cat, monitor or lamp. */
@@ -402,13 +493,14 @@ export function defaultFixtureStates(f: {
 
 /** The model a fixture shows in its active (or given) state. */
 export function fixtureModel(
-  f: Pick<Fixture, 'model'> & Partial<Pick<Fixture, 'state' | 'states' | 'control'>>,
+  f: Pick<Fixture, 'model'> &
+    Partial<Pick<Fixture, 'state' | 'states' | 'control' | 'lights' | 'lit'>>,
   state = f.state,
 ): SavedItem {
-  if (!state) return f.model;
-  const saved = f.states?.[state]?.model;
-  if (saved) return saved;
-  return stateVariantModel(f.model, state, f.control?.kind);
+  const model = !state
+    ? f.model
+    : (f.states?.[state]?.model ?? stateVariantModel(f.model, state, f.control?.kind));
+  return withLitSources(model, f);
 }
 
 /** The size a fixture takes in its active (or given) state. */
@@ -640,20 +732,6 @@ export interface FixtureDraft {
   states?: Record<string, FixtureState>;
 }
 
-/** Templates the Fixture Studio and Add Fixture panel can start from without a photo. */
-export const STARTER_TEMPLATES = [
-  'cat',
-  'monitor',
-  'lamp',
-  'floor-lamp',
-  'plant',
-  'mug',
-  'book',
-  'device',
-  'box',
-] as const;
-export type StarterTemplate = (typeof STARTER_TEMPLATES)[number];
-
 const STARTER_META: Record<
   StarterTemplate,
   {
@@ -804,6 +882,86 @@ export function starterFixtureDraft(
     reference: null,
     ...(seeded.state ? { state: seeded.state } : {}),
     ...(seeded.states ? { states: seeded.states } : {}),
+  };
+}
+
+const TYPE_OF_ARCHETYPE: Partial<Record<Archetype, StarterTemplate>> = {
+  cat: 'cat',
+  lamp: 'lamp',
+  plant: 'plant',
+  mug: 'mug',
+  book: 'book',
+  device: 'device',
+  box: 'box',
+};
+/** What a fixture is among the starters: as chosen, else read off its model; null for its own. */
+export function fixtureType(f: Pick<Fixture, 'model'> & Partial<Pick<Fixture, 'type'>>) {
+  if (f.type) return f.type;
+  const ids = new Set(f.model.parts.map((p) => p.id));
+  if (ids.has('shade-bowl')) return 'floor-lamp';
+  if (ids.has('screen')) return 'monitor';
+  const archetype = f.model.fit?.archetype;
+  return (archetype && TYPE_OF_ARCHETYPE[archetype]) ?? null;
+}
+
+/**
+ * The same fixture as another kind of thing: the starter's model in the
+ * fixture's own colours, at the starter's real size and centred where it
+ * stood (kept inside the room), with that kind's states. Its name goes too
+ * when it was only a starter's name; its switch and the light sources the
+ * new model still has stay linked.
+ */
+export function retypeFixture(
+  f: Fixture,
+  type: StarterTemplate,
+  custom?: IsoScene | null,
+): FixtureInput {
+  const meta = STARTER_META[type];
+  const defaults = new Set(STARTER_TEMPLATES.map((t) => STARTER_META[t].label));
+  const label = defaults.has(f.label) ? meta.label : f.label;
+  const own = f.model.swatches.map((s) => s.hex);
+  const colors = [own[0] ?? meta.colors[0], own[1] ?? meta.colors[1]];
+  const model = starterTemplateModel(type, { label, colors });
+  const size = sizeInTiles(meta.sizeCm);
+  const before = fixtureBox({ ...f, state: null }).size;
+  const turned = f.turns % 2 === 1;
+  const w = turned ? size.d : size.w;
+  const d = turned ? size.w : size.d;
+  const grid = sceneOf(f.scene, custom)?.grid;
+  const fit = (v: number, span: number, max?: number) =>
+    Math.max(0, max === undefined ? v : Math.min(v, max - span));
+  const at = {
+    x: fit(f.at.x + (before.w - w) / 2, w, grid?.w),
+    y: fit(f.at.y + (before.d - d) / 2, d, grid?.d),
+  };
+  const seeded = defaultFixtureStates({
+    label,
+    archetype: meta.archetype,
+    control: f.control.kind,
+    model,
+  });
+  const parts = new Set(model.parts.map((p) => p.id));
+  const lights = (f.lights ?? []).filter((l) => parts.has(l.part) && isShade(l.part));
+  const { room: _room, ...rest } = fixtureInput(f);
+  return {
+    ...rest,
+    label,
+    type,
+    at,
+    size,
+    model: { label: model.label, parts: model.parts },
+    // States made for what it was don't fit what it is now.
+    states: Object.fromEntries(
+      Object.entries(seeded.states ?? {}).map(([k, v]) => [
+        k,
+        {
+          model: { label: v.model.label, parts: v.model.parts },
+          ...(v.size ? { size: v.size } : {}),
+        },
+      ]),
+    ),
+    ...(lights.length ? { lights } : { lights: [] }),
+    ...(f.scanned ? { scanned: true } : {}),
   };
 }
 

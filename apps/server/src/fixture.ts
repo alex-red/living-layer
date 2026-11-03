@@ -31,6 +31,8 @@ import {
   sizeInTiles,
   defaultFixtureStates,
   fixtureEntity,
+  fixtureEntities,
+  lightSources,
   fixtureInputSchema,
   fixtureModel,
   fixtureProblem,
@@ -365,9 +367,27 @@ export type Control = (mode: Mode, entityId: string, action: 'on' | 'off') => Pr
 
 /** What a confirmed action says about every fixture on that entity; unconfirmed says nothing. */
 export function noteControl(memory: DeskMemory, result: LampResult): void {
-  for (const f of memory.fixtures ?? [])
+  for (const f of memory.fixtures ?? []) {
     if (fixtureEntity(f) === result.entityId)
       f.state = result.stateConfirmed ? (result.action ?? 'on') : null;
+    for (const l of f.lights ?? []) {
+      if (l.entityId !== result.entityId) continue;
+      const { [l.part]: _was, ...lit } = f.lit ?? {};
+      f.lit = result.stateConfirmed ? { ...lit, [l.part]: result.action !== 'off' } : lit;
+    }
+  }
+}
+
+/** What each of a fixture's sources last reported, kept for those still on the same entity. */
+function lastLit(
+  previous: Fixture | undefined,
+  lights: FixtureInput['lights'],
+): Pick<Fixture, 'lit'> {
+  const kept = Object.entries(previous?.lit ?? {}).filter(([part]) => {
+    const was = previous?.lights?.find((l) => l.part === part)?.entityId;
+    return was && lights?.some((l) => l.part === part && l.entityId === was);
+  });
+  return kept.length ? { lit: Object.fromEntries(kept) } : {};
 }
 
 /**
@@ -1604,8 +1624,16 @@ export function fixtureRoutes(
     const problem = fixtureProblem(input, memory.scene);
     if (problem) throw new LabError('fixture_place', problem, 400);
     const entity = fixtureEntity(input);
-    if (entity && !entities(mode).includes(entity))
+    if (fixtureEntities(input).some((e) => !entities(mode).includes(e)))
       throw new LabError('fixture_entity', 'Choose one of the configured lights or switches.', 400);
+    const sources = new Set(lightSources(input.model).map((s) => s.part));
+    const stray = input.lights?.find((l) => !sources.has(l.part));
+    if (stray)
+      throw new LabError(
+        'fixture_light',
+        `The model has no light source called “${stray.part}”.`,
+        400,
+      );
     const referenceRun = input.reference ? store.getRun(input.reference.runId) : undefined;
     if (
       input.reference &&
@@ -1617,6 +1645,7 @@ export function fixtureRoutes(
         400,
       );
     const now = new Date().toISOString();
+    const retyped = Boolean(previous && input.type && previous.type !== input.type);
     const { id: _id, model, room: roomInput, states: statesInput, ...rest } = input;
     // Its own place in the room's view: kept unless the save says otherwise, null clears it.
     const room = roomInput === undefined ? previous?.room : roomInput;
@@ -1677,21 +1706,33 @@ export function fixtureRoutes(
       id: previous?.id ?? randomUUID(),
       model: savedModel,
       ...(states ? { states } : {}),
+      // A source keeps what its entity last reported while it stays on that entity.
+      ...lastLit(previous, input.lights),
       // A new entity starts with no known state; a pet starts in its default pose.
-      state: previous
+      // Another kind of thing starts in that kind's own state.
+      state: retyped
         ? entity
-          ? fixtureEntity(previous) === entity
-            ? (previous.state ?? null)
-            : null
-          : (previous.state ?? null)
-        : entity
           ? null
-          : (drafted?.state ?? seeded.state ?? null),
+          : (seeded.state ?? null)
+        : previous
+          ? entity
+            ? fixtureEntity(previous) === entity
+              ? (previous.state ?? null)
+              : null
+            : (previous.state ?? null)
+          : entity
+            ? null
+            : (drafted?.state ?? seeded.state ?? null),
       ...(previous?.link ? { link: previous.link } : {}),
       // The camera keeps following it unless it was moved by hand.
       ...(previous?.track && samePlace(previous, input) ? { track: previous.track } : {}),
       ...(previous?.seen && samePlace(previous, input) ? { seen: previous.seen } : {}),
-      ...(previous?.drafts?.length ? { drafts: previous.drafts } : {}),
+      // A change of what it is keeps the model it had, to pick back from Earlier drafts.
+      ...(previous && retyped
+        ? { drafts: withNewModel(previous, savedModel, now).drafts }
+        : previous?.drafts?.length
+          ? { drafts: previous.drafts }
+          : {}),
       createdAt: previous?.createdAt ?? now,
       updatedAt: now,
     };
@@ -1708,6 +1749,9 @@ export function fixtureRoutes(
                   model: fixture.model,
                   ...(fixture.states ? { states: fixture.states } : {}),
                   control: fixture.control,
+                  ...(fixture.type ? { type: fixture.type } : {}),
+                  lights: fixture.lights,
+                  lit: fixture.lit,
                   state: fixture.state ?? null,
                   updatedAt: now,
                 }
@@ -1994,18 +2038,21 @@ export function fixtureRoutes(
    * entity directly: a lamp that is part of the room's layout has no fixture of its own.
    */
   app.post('/api/fixtures/control', async (request) => {
-    const { mode, fixtureId, entityId, action } = parseInput(
+    const { mode, fixtureId, entityId, part, action } = parseInput(
       z
         .object({
           mode: modeSchema,
           fixtureId: z.string().uuid().optional(),
           entityId: entityIdSchema.optional(),
+          /** One of the fixture's light sources, switched by its own entity. */
+          part: z.string().min(1).max(24).optional(),
           action: fixtureStateNameSchema,
         })
         .strict()
         .refine((x) => Boolean(x.fixtureId) !== Boolean(x.entityId), {
           message: 'Name a fixture or an entity, not both.',
-        }),
+        })
+        .refine((x) => !x.part || x.fixtureId, { message: 'A light source is a fixture’s.' }),
       request.body,
     );
     let entity = entityId ?? null;
@@ -2014,7 +2061,22 @@ export function fixtureRoutes(
       const fixture = memory.fixtures?.find((f) => f.id === fixtureId);
       if (!fixture)
         throw new LabError('fixture_unknown', 'That fixture is not in this desk memory.', 404);
-      entity = fixtureEntity(fixture);
+      if (part) {
+        const light = fixture.lights?.find((l) => l.part === part);
+        if (!light)
+          throw new LabError(
+            'fixture_control',
+            `That light source of the ${fixture.label} switches nothing.`,
+            400,
+          );
+        entity = light.entityId;
+      } else entity = fixtureEntity(fixture);
+      if (part && action !== 'on' && action !== 'off')
+        throw new LabError(
+          'fixture_control',
+          'A light source can only be switched on or off.',
+          400,
+        );
       if (!entity || (action !== 'on' && action !== 'off')) {
         if (!fixture.states || !(action in fixture.states))
           throw new LabError('fixture_control', `The ${fixture.label} has nothing to switch.`, 400);

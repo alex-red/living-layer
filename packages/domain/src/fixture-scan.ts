@@ -845,6 +845,10 @@ export function mapScan({
         model: { label: known.model.label, parts: known.model.parts },
         reference: known.reference,
         control: entity && entities.includes(entity) ? known.control : { kind: 'none' },
+        ...(known.type ? { type: known.type } : {}),
+        ...(known.lights?.some((l) => entities.includes(l.entityId))
+          ? { lights: known.lights.filter((l) => entities.includes(l.entityId)) }
+          : {}),
       };
     } else {
       // Spark's usual size, scaled to what the camera sees of it where it stands.

@@ -9,7 +9,7 @@ import {
   zoneRectSchema,
   surfacePinSchema,
   isoSurface,
-  fixtureEntity,
+  fixtureEntities,
   settleFixtures,
   followSurfaces,
   sightingSpot,
@@ -728,7 +728,7 @@ export function deskRoutes(
     checkOnSurface(memory, input.onSurface);
     if (input.fixtureId) {
       const fixture = memory.fixtures?.find((f) => f.id === input.fixtureId);
-      if (!fixture || fixtureEntity(fixture) !== input.entityId)
+      if (!fixture || !input.entityId || !fixtureEntities(fixture).includes(input.entityId))
         throw new LabError('rule_fixture', 'That fixture does not switch this entity.', 400);
     }
     const rules = memory.rules ?? [];

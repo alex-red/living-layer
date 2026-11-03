@@ -1,6 +1,7 @@
 import { useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
 import {
   fixtureBox,
+  fixtureGlows,
   fixtureModel,
   framePointInPicture,
   isoToPicture,
@@ -192,7 +193,7 @@ export function IllustrationView({
         base: base as Point[],
         centre,
         top,
-        lit: f.control.kind === 'light' && f.state === 'on',
+        lit: fixtureGlows(f),
         focused: focus?.fixture === f.id,
         rect: { x: at.x, y: at.y, w: size.w, d: size.d },
         z: at.z,

@@ -28,6 +28,10 @@ import {
   fixtureProblem,
   fixtureSize,
   fixtureStateNames,
+  fixtureType,
+  floorLampItem,
+  lightSources,
+  retypeFixture,
   inRoomView,
   isoItemSchema,
   itemHeight,
@@ -1355,5 +1359,159 @@ describe('fixture states and cat poses', () => {
       },
     });
     expect(saved.statusCode, saved.body).toBe(200);
+  });
+});
+
+describe('a fixture’s type and light sources', () => {
+  const lamp = (over: Partial<Fixture> = {}) =>
+    fixture({
+      label: 'Floor lamp',
+      scene: 'office',
+      surfaceId: null,
+      size: sizeInTiles({ w: 36, d: 36, h: 175 }),
+      model: {
+        ...floorLampItem(),
+        source: 'demo',
+        segmentRunId: null,
+        swatches: [],
+        updatedAt: '',
+      },
+      control: { kind: 'none' },
+      ...over,
+    });
+  const warm = (m: Fixture['model'], id: string) =>
+    Boolean(
+      m.parts.find((p) => p.id === id)!.paint?.some((b) => 'color' in b && b.color === '#ffe299'),
+    );
+  it('names a floor lamp’s two shades as light sources', () => {
+    expect(lightSources(lamp().model)).toEqual([
+      { part: 'shade-reading', label: 'Reading shade' },
+      { part: 'shade-bowl', label: 'Uplight bowl' },
+    ]);
+    expect(lightSources(mugItem())).toEqual([]);
+    expect(fixtureType(lamp())).toBe('floor-lamp');
+  });
+  it('lights each linked source by its own entity’s state', () => {
+    const lights = [
+      { part: 'shade-bowl', entityId: 'light.demo_shelf' },
+      { part: 'shade-reading', entityId: 'light.demo_desk' },
+    ];
+    const one = fixtureModel(lamp({ lights, lit: { 'shade-reading': true } }));
+    expect(warm(one, 'shade-reading')).toBe(true);
+    expect(warm(one, 'shade-bowl')).toBe(false);
+    // A source with no entity of its own follows the fixture's state.
+    const half = fixtureModel(
+      lamp({
+        control: { kind: 'light', entityId: 'light.demo_fridge' },
+        state: 'on',
+        lights: [lights[0]!],
+        lit: { 'shade-bowl': false },
+      }),
+    );
+    expect(warm(half, 'shade-reading')).toBe(true);
+    expect(warm(half, 'shade-bowl')).toBe(false);
+  });
+  it('turns a fixture into another kind, centred where it stood', () => {
+    const before = lamp({
+      label: 'Monitor',
+      lights: [{ part: 'shade-bowl', entityId: 'light.demo_shelf' }],
+      at: { x: 3, y: 3 },
+    });
+    const desk = retypeFixture(before, 'lamp');
+    expect(desk).toMatchObject({ label: 'Desk lamp', type: 'lamp', lights: [] });
+    const centre = (at: { x: number }, w: number) => at.x + w / 2;
+    expect(centre(desk.at, desk.size.w)).toBeCloseTo(centre(before.at, before.size.w));
+    expect(Object.keys(desk.states ?? {})).toEqual(['off', 'on']);
+    expect(fixtureInputSchema.safeParse(desk).success).toBe(true);
+    // Its own name stays, and a source the new model still has stays linked.
+    const again = retypeFixture({ ...before, label: 'Ikea Hektar' }, 'floor-lamp');
+    expect(again).toMatchObject({ label: 'Ikea Hektar', lights: before.lights });
+    // Kept inside the room's grid.
+    const corner = retypeFixture({ ...before, at: { x: 0, y: 0 } }, 'monitor');
+    expect(corner.at.x).toBeGreaterThanOrEqual(0);
+  });
+  it('links, switches and keeps sources through the routes', async () => {
+    const s = await setup();
+    const { id: _id, createdAt: _c, updatedAt: _u, model, ...rest } = lamp();
+    const body = { ...rest, model: { label: model.label, parts: model.parts } };
+    const lights = [
+      { part: 'shade-bowl', entityId: 'light.demo_shelf' },
+      { part: 'shade-reading', entityId: 'light.demo_desk' },
+    ];
+    const stray = await s.post('fixtures/save', {
+      fixture: { ...body, lights: [{ part: 'base', entityId: 'light.demo_shelf' }] },
+    });
+    expect(stray.statusCode).toBe(400);
+    const unknown = await s.post('fixtures/save', {
+      fixture: { ...body, lights: [{ part: 'shade-bowl', entityId: 'light.heater' }] },
+    });
+    expect(unknown.statusCode).toBe(400);
+    const saved = (
+      await s.post('fixtures/save', { fixture: { ...body, lights } })
+    ).json<DeskMemory>().fixtures![0]!;
+    expect(saved.lights).toEqual(lights);
+    const on = (
+      await s.post('fixtures/control', { fixtureId: saved.id, part: 'shade-bowl', action: 'on' })
+    ).json<{ memory: DeskMemory; event: EvidenceRun<LampResult> }>();
+    expect(on.event.output.entityId).toBe('light.demo_shelf');
+    expect(on.memory.fixtures![0]!.lit).toEqual({ 'shade-bowl': true });
+    const none = await s.post('fixtures/control', {
+      fixtureId: saved.id,
+      part: 'shade-big',
+      action: 'on',
+    });
+    expect(none.statusCode).toBe(400);
+    // A save that keeps the bowl on its entity keeps what it last reported; a new entity forgets.
+    const relinked = (
+      await s.post('fixtures/save', {
+        fixture: {
+          ...body,
+          id: saved.id,
+          lights: [lights[0]!, { part: 'shade-reading', entityId: 'light.demo_fridge' }],
+        },
+      })
+    ).json<DeskMemory>().fixtures![0]!;
+    expect(relinked.lit).toEqual({ 'shade-bowl': true });
+    const moved = (
+      await s.post('fixtures/save', {
+        fixture: {
+          ...body,
+          id: saved.id,
+          lights: [{ ...lights[0]!, entityId: 'light.demo_desk' }],
+        },
+      })
+    ).json<DeskMemory>().fixtures![0]!;
+    expect(moved.lit).toBeUndefined();
+    // A rule may pick the fixture by any entity it switches.
+    const segment = (await s.post('segment', { concept: 'mug' })).json<EvidenceRun<Segmentation>>();
+    const picked = (
+      await s.post('desk/select', { segmentRunId: segment.id, detectionId: '7' })
+    ).json<DeskMemory>();
+    const rule = await s.post('desk/rules/save', {
+      rule: {
+        label: 'Reading',
+        objects: [picked.object!.id],
+        entityId: 'light.demo_desk',
+        fixtureId: saved.id,
+        rect: { x: 0, y: 0, width: 1, height: 1 },
+      },
+    });
+    expect(rule.statusCode).toBe(200);
+  });
+  it('keeps the old model as a draft when its type changes', async () => {
+    const s = await setup();
+    const { id: _id, createdAt: _c, updatedAt: _u, model, ...rest } = lamp();
+    const saved = (
+      await s.post('fixtures/save', {
+        fixture: { ...rest, model: { label: model.label, parts: model.parts } },
+      })
+    ).json<DeskMemory>().fixtures![0]!;
+    const retyped = (
+      await s.post('fixtures/save', { fixture: retypeFixture(saved, 'monitor') })
+    ).json<DeskMemory>().fixtures![0]!;
+    expect(retyped.type).toBe('monitor');
+    expect(retyped.model.parts.some((p) => p.id === 'screen')).toBe(true);
+    expect(retyped.drafts?.[0]?.model.parts.some((p) => p.id === 'shade-bowl')).toBe(true);
+    expect(Object.keys(retyped.states ?? {})).toEqual(['off', 'on']);
   });
 });
