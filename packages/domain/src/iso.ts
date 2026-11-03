@@ -302,7 +302,7 @@ const isoPropSchema = z
     /** Its draw layer, shared by its group: higher is drawn over lower where they meet. */
     layer: layerSchema.optional(),
   })
-  .strict();
+  .strict() satisfies z.ZodType<IsoProp>;
 /**
  * A scene a person built: every prop inside the grid, ids unique, and every
  * surface resting on a prop of the scene.
@@ -357,7 +357,7 @@ export const isoSceneSchema = z
       new Set(s.surfaces.map((x) => x.id)).size === s.surfaces.length &&
       s.surfaces.every((x) => s.props.some((p) => p.id === x.propId)),
     { message: 'Each surface needs a unique id and a prop to rest on.' },
-  );
+  ) satisfies z.ZodType<IsoScene>;
 
 export const surfacePinSchema = z
   .object({

@@ -40,7 +40,7 @@ export const roomCameraSchema = z
     position: vec3,
     room: z.object({ w: z.number().min(2).max(16), d: z.number().min(2).max(16) }).strict(),
   })
-  .strict();
+  .strict() satisfies z.ZodType<RoomCamera>;
 
 /** A point in the camera's own axes: x right, y down, z forward. */
 export function toCamera(c: RoomCamera, { x, y, z }: IsoVec): Vec3 {

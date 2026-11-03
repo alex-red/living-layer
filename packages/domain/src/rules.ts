@@ -161,7 +161,15 @@ export const ruleInputSchema = z
   })
   .strict()
   .refine((r) => r.entityId || !r.fixtureId, { message: 'A fixture needs its entity.' })
-  .refine((r) => r.entityId || !r.offWhenEmpty, { message: 'Nothing to switch off.' });
+  .refine((r) => r.entityId || !r.offWhenEmpty, {
+    message: 'Nothing to switch off.',
+  }) satisfies z.ZodType<
+  Pick<PlacementRule, 'label' | 'objects' | 'entityId' | 'fixtureId' | 'offWhenEmpty'> & {
+    id?: string;
+    rect: ZoneRect;
+    onSurface?: ZoneOnSurface;
+  }
+>;
 /** Everything the camera follows: the mug, other objects and tracked fixtures. */
 export function followedIds(memory: DeskMemory): string[] {
   return [

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { IsoScene, IsoSceneKind, SurfacePin } from './iso.js';
-import { pointSchema } from './iso.js';
+import { pointSchema, surfacePinSchema } from './iso.js';
 import { ISO_PRESETS } from './iso-presets.js';
 import type { SceneIllustration } from './illustration.js';
 import { DEMO_CAMERA } from './demo-room.js';
@@ -9,7 +9,14 @@ import { cameraCropSchema } from './camera.js';
 import type { SavedItem } from './iso-item.js';
 import { fixtureModel, linkedFixtures, type Fixture } from './fixture.js';
 import type { ExposedEntity } from './expose.js';
-import type { Detection, EvidenceRun, LampResult, Mode, Segmentation } from './api.js';
+import {
+  modeSchema,
+  type Detection,
+  type EvidenceRun,
+  type LampResult,
+  type Mode,
+  type Segmentation,
+} from './api.js';
 import type { PlacementRule } from './rules.js';
 
 // Source-normalized rectangles; the entire detection box must fit inside the zone.
@@ -341,3 +348,46 @@ export function upgradeMemory(memory: DeskMemory): DeskMemory {
   if (next.illustration && !next.illustration.drawnFrom) next = { ...next, illustration: null };
   return next;
 }
+
+/** Any object, typed as `T`: the nested parts have their own schemas elsewhere, or none yet. */
+const shaped = <T>() =>
+  z.custom<T>((v) => typeof v === 'object' && v !== null && !Array.isArray(v));
+const listOf = <T>() => z.custom<T[]>((v) => Array.isArray(v));
+
+/**
+ * Desk memory as saved: earlier versions are upgraded first (`upgradeMemory`),
+ * then the top level is checked. Nested parts are checked only for their kind
+ * (object or list), as the fields of `DeskMemory` have no schemas of their own
+ * yet; unknown keys are kept.
+ */
+export const deskMemorySchema = z.preprocess(
+  (raw) => {
+    if (typeof raw !== 'object' || raw === null) return raw;
+    // A malformed list is left for the check below to refuse, not for the upgrade to throw on.
+    const { rules } = raw as { rules?: unknown };
+    return rules === undefined || Array.isArray(rules) ? upgradeMemory(raw as DeskMemory) : raw;
+  },
+  z.looseObject({
+    mode: modeSchema,
+    object: shaped<NonNullable<DeskMemory['object']>>().nullable(),
+    observation: shaped<DeskObservation>().nullable(),
+    zone: shaped<NonNullable<DeskMemory['zone']>>().nullable(),
+    lastDecision: shaped<NonNullable<DeskMemory['lastDecision']>>().nullable(),
+    fixedCamera: z.boolean().optional(),
+    history: listOf<DeskObservation>().optional(),
+    placement: z.enum(['inside', 'outside']).nullable().optional(),
+    surface: surfacePinSchema.nullable().optional(),
+    camera: roomCalibrationSchema.nullable().optional(),
+    others: listOf<TrackedObject>().optional(),
+    rules: listOf<PlacementRule>().optional(),
+    scene: shaped<IsoScene>().nullable().optional(),
+    scenePhoto: z.string().nullable().optional(),
+    illustration: shaped<SceneIllustration>().nullable().optional(),
+    deskIllustration: shaped<SceneIllustration>().nullable().optional(),
+    item: shaped<SavedItem>().nullable().optional(),
+    fixtures: listOf<Fixture>().optional(),
+    dismissed: z.array(z.string()).optional(),
+    watch: shaped<NonNullable<DeskMemory['watch']>>().optional(),
+    exposed: listOf<ExposedEntity>().optional(),
+  }),
+) satisfies z.ZodType<DeskMemory, unknown>;
