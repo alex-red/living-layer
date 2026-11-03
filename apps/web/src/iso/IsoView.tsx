@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { lazy, useCallback, useEffect, useMemo, useState } from 'react';
 import {
   DEMO_SURFACE,
   believableWidth,
@@ -51,12 +51,18 @@ import {
   useView,
 } from '../workspace/LabContext';
 import { IsoScene, type IsoFixture, type IsoObject, type IsoZone } from './IsoScene';
-import { ItemEditor } from './ItemEditor';
-import { IllustrationView } from './IllustrationView';
-import { SceneEditor, type LayoutRun } from './SceneEditor';
+import { Later } from '../Later';
+import type { LayoutRun } from './SceneEditor';
 import type { PhotoRun } from './PhotoReview';
 import { pinScene, type WorkScene as Kind } from '../workspace/progress';
 import './iso.css';
+
+// The editors and the room's picture load when first shown.
+const ItemEditor = lazy(() => import('./ItemEditor').then((m) => ({ default: m.ItemEditor })));
+const SceneEditor = lazy(() => import('./SceneEditor').then((m) => ({ default: m.SceneEditor })));
+const IllustrationView = lazy(() =>
+  import('./IllustrationView').then((m) => ({ default: m.IllustrationView })),
+);
 
 /** What the iso canvas shows: the room, the layout editor, or an object's model. */
 export type IsoPanel = 'room' | 'scene' | 'item';
@@ -509,135 +515,139 @@ function IsoViewOf({
     <div className="iso-view">
       <div className={`iso-frame ${panel === 'item' || panel === 'scene' ? 'editing' : ''}`}>
         {panel === 'item' ? (
-          <ItemEditor
-            key={target?.id}
-            item={target?.item}
-            fixture={targetFixture}
-            busy={off}
-            sparkNote={
-              mode === 'demo'
-                ? 'Demo: no model call. Drafts fit the demo mug’s own pixels, from a close photo of it.'
-                : 'A Spark draft makes up to four billed calls (Spark twice, SAM up to twice) and sends only the masked crop.'
-            }
-            cropUrl={
-              target?.item?.fit?.crop
-                ? `/api/item/crop?mode=${mode}${modelOf ? `&objectId=${modelOf}` : ''}&v=${encodeURIComponent(target.item.fit.crop)}`
-                : null
-            }
-            onRefit={(item) =>
-              void send<DeskMemory>(
-                'item/refit',
-                { item, ...(modelOf ? { objectId: modelOf } : {}) },
-                onMemory,
-              )
-            }
-            onDraft={
-              target?.fixture
-                ? undefined
-                : (source) =>
-                    void send<{ run: EvidenceRun<SavedItem>; memory: DeskMemory }>(
-                      'item/draft',
-                      { source, ...(modelOf ? { objectId: modelOf } : {}) },
-                      (r) => {
-                        onMemory(r.memory);
-                        onRun(r.run);
-                      },
-                    )
-            }
-            onSave={(item) =>
-              void send<DeskMemory>(
-                'item/save',
-                { item, ...(modelOf ? { objectId: modelOf } : {}) },
-                onMemory,
-              )
-            }
-            onFixtureState={
-              targetFixture
-                ? (payload) =>
-                    void send<DeskMemory>(
-                      'fixtures/state',
-                      { fixtureId: targetFixture.id, ...payload },
-                      onMemory,
-                    )
-                : undefined
-            }
-            onFixtureSize={
-              targetFixture
-                ? (size) =>
-                    void send<DeskMemory>(
-                      'fixtures/save',
-                      { fixture: { ...fixtureInput(targetFixture), size } },
-                      onMemory,
-                    )
-                : undefined
-            }
-          />
+          <Later>
+            <ItemEditor
+              key={target?.id}
+              item={target?.item}
+              fixture={targetFixture}
+              busy={off}
+              sparkNote={
+                mode === 'demo'
+                  ? 'Demo: no model call. Drafts fit the demo mug’s own pixels, from a close photo of it.'
+                  : 'A Spark draft makes up to four billed calls (Spark twice, SAM up to twice) and sends only the masked crop.'
+              }
+              cropUrl={
+                target?.item?.fit?.crop
+                  ? `/api/item/crop?mode=${mode}${modelOf ? `&objectId=${modelOf}` : ''}&v=${encodeURIComponent(target.item.fit.crop)}`
+                  : null
+              }
+              onRefit={(item) =>
+                void send<DeskMemory>(
+                  'item/refit',
+                  { item, ...(modelOf ? { objectId: modelOf } : {}) },
+                  onMemory,
+                )
+              }
+              onDraft={
+                target?.fixture
+                  ? undefined
+                  : (source) =>
+                      void send<{ run: EvidenceRun<SavedItem>; memory: DeskMemory }>(
+                        'item/draft',
+                        { source, ...(modelOf ? { objectId: modelOf } : {}) },
+                        (r) => {
+                          onMemory(r.memory);
+                          onRun(r.run);
+                        },
+                      )
+              }
+              onSave={(item) =>
+                void send<DeskMemory>(
+                  'item/save',
+                  { item, ...(modelOf ? { objectId: modelOf } : {}) },
+                  onMemory,
+                )
+              }
+              onFixtureState={
+                targetFixture
+                  ? (payload) =>
+                      void send<DeskMemory>(
+                        'fixtures/state',
+                        { fixtureId: targetFixture.id, ...payload },
+                        onMemory,
+                      )
+                  : undefined
+              }
+              onFixtureSize={
+                targetFixture
+                  ? (size) =>
+                      void send<DeskMemory>(
+                        'fixtures/save',
+                        { fixture: { ...fixtureInput(targetFixture), size } },
+                        onMemory,
+                      )
+                  : undefined
+              }
+            />
+          </Later>
         ) : panel === 'scene' ? (
-          <SceneEditor
-            mode={mode}
-            saved={custom}
-            base={scene}
-            image={image}
-            lights={lights}
-            busy={off}
-            memory={memory}
-            onDrafted={onRun}
-            onUpload={onUpload}
-            room={
-              kind === 'custom' || kind === 'custom-desk'
-                ? 'custom'
-                : kind === 'desk'
-                  ? 'office'
-                  : kind
-            }
-            cameraLive={cameraLive}
-            captureFrame={captureFrame}
-            onCalibrated={onMemory}
-            onMessage={onMessage}
-            hand={hand}
-            brushTool={tool === 'brush'}
-            fixtures={fixtures}
-            {...(tool === 'select' ? { onMoveFixture } : {})}
-            onFixtureMenu={onFixtureMenu}
-            onAiEdit={onAiEdit}
-            onCalibrateByHand={onCalibrateByHand}
-            onCalibrateHere={onCalibrateHere}
-            follow={follow}
-            onPhotoSaved={(m) => {
-              onMemory(m);
-              onKind('custom');
-              if (m.surface?.scene === 'custom') onSurfaceId(m.surface.surfaceId);
-              onPanel('room');
-              const n = (m.object ? 1 : 0) + (m.others?.length ?? 0);
-              onMessage(
-                `Scene saved from the photo${m.surface ? ', pinned' : ''}${n ? `, tracking ${n} object${n === 1 ? '' : 's'}` : ''}.`,
-              );
-            }}
-            onError={onError}
-            onSave={(next) =>
-              void send<DeskMemory>('scene/save', { scene: next }, (m) => {
+          <Later>
+            <SceneEditor
+              mode={mode}
+              saved={custom}
+              base={scene}
+              image={image}
+              lights={lights}
+              busy={off}
+              memory={memory}
+              onDrafted={onRun}
+              onUpload={onUpload}
+              room={
+                kind === 'custom' || kind === 'custom-desk'
+                  ? 'custom'
+                  : kind === 'desk'
+                    ? 'office'
+                    : kind
+              }
+              cameraLive={cameraLive}
+              captureFrame={captureFrame}
+              onCalibrated={onMemory}
+              onMessage={onMessage}
+              hand={hand}
+              brushTool={tool === 'brush'}
+              fixtures={fixtures}
+              {...(tool === 'select' ? { onMoveFixture } : {})}
+              onFixtureMenu={onFixtureMenu}
+              onAiEdit={onAiEdit}
+              onCalibrateByHand={onCalibrateByHand}
+              onCalibrateHere={onCalibrateHere}
+              follow={follow}
+              onPhotoSaved={(m) => {
                 onMemory(m);
-                if (next) {
-                  onKind('custom');
-                  onSurfaceId(
-                    m.surface?.scene === 'custom'
-                      ? m.surface.surfaceId
-                      : (next.surfaces[0]?.id ?? ''),
-                  );
-                }
-                // A room made another size had its camera fitted again: say how well.
-                const refit =
-                  m.camera && m.camera.calibratedAt !== memory?.camera?.calibratedAt
-                    ? ` The room's camera now fits your corner marks to ${m.camera.error.toFixed(1)} px${m.camera.error > Math.hypot(m.camera.camera.frame.width, m.camera.camera.frame.height) / 60 ? ': too far off, so check the size or mark the corner again' : ''}.`
-                    : '';
+                onKind('custom');
+                if (m.surface?.scene === 'custom') onSurfaceId(m.surface.surfaceId);
+                onPanel('room');
+                const n = (m.object ? 1 : 0) + (m.others?.length ?? 0);
                 onMessage(
-                  next
-                    ? `Scene saved.${refit || ' Pin one of its surfaces to place objects in it.'}`
-                    : 'Custom scene removed.',
+                  `Scene saved from the photo${m.surface ? ', pinned' : ''}${n ? `, tracking ${n} object${n === 1 ? '' : 's'}` : ''}.`,
                 );
-              })
-            }
-          />
+              }}
+              onError={onError}
+              onSave={(next) =>
+                void send<DeskMemory>('scene/save', { scene: next }, (m) => {
+                  onMemory(m);
+                  if (next) {
+                    onKind('custom');
+                    onSurfaceId(
+                      m.surface?.scene === 'custom'
+                        ? m.surface.surfaceId
+                        : (next.surfaces[0]?.id ?? ''),
+                    );
+                  }
+                  // A room made another size had its camera fitted again: say how well.
+                  const refit =
+                    m.camera && m.camera.calibratedAt !== memory?.camera?.calibratedAt
+                      ? ` The room's camera now fits your corner marks to ${m.camera.error.toFixed(1)} px${m.camera.error > Math.hypot(m.camera.camera.frame.width, m.camera.camera.frame.height) / 60 ? ': too far off, so check the size or mark the corner again' : ''}.`
+                      : '';
+                  onMessage(
+                    next
+                      ? `Scene saved.${refit || ' Pin one of its surfaces to place objects in it.'}`
+                      : 'Custom scene removed.',
+                  );
+                })
+              }
+            />
+          </Later>
         ) : (
           <ZoomPan
             className="iso-zoom"
@@ -646,22 +656,24 @@ function IsoViewOf({
             resetKey={`${kind} ${picture ? 'picture' : 'model'}`}
           >
             {picture && memory && pin ? (
-              <IllustrationView
-                illustration={picture}
-                pin={pin}
-                memory={memory}
-                focus={focus}
-                showZones={layers.zones}
-                fixtures={(memory.fixtures ?? [])
-                  .filter((f) => f.scene === pin.scene && f.id !== placing?.id)
-                  .map(shown)}
-                custom={custom}
-                onFixture={onFixture}
-                onFixtureMenu={onFixtureMenu}
-                {...(tool === 'select' ? { onMoveFixture } : {})}
-                {...(tool === 'scale' ? { onResizeFixture } : {})}
-                look={fixtureLook}
-              />
+              <Later>
+                <IllustrationView
+                  illustration={picture}
+                  pin={pin}
+                  memory={memory}
+                  focus={focus}
+                  showZones={layers.zones}
+                  fixtures={(memory.fixtures ?? [])
+                    .filter((f) => f.scene === pin.scene && f.id !== placing?.id)
+                    .map(shown)}
+                  custom={custom}
+                  onFixture={onFixture}
+                  onFixtureMenu={onFixtureMenu}
+                  {...(tool === 'select' ? { onMoveFixture } : {})}
+                  {...(tool === 'scale' ? { onResizeFixture } : {})}
+                  look={fixtureLook}
+                />
+              </Later>
             ) : (
               <IsoScene
                 scene={scene}

@@ -1,4 +1,4 @@
-import { useRef, useState, type CSSProperties, type RefObject } from 'react';
+import { lazy, useRef, useState, type CSSProperties, type RefObject } from 'react';
 import {
   CROP_MIN,
   DEMO_POSITIONS,
@@ -11,14 +11,13 @@ import { api } from '../api';
 import { Glyph } from '../Glyph';
 import { MaskOverlay } from '../MaskOverlay';
 import { TrackingOverlay } from '../TrackingOverlay';
-import { PhonePairing } from '../PhonePairing';
-import { CameraSetup, type RoomOption } from '../CameraSetup';
+import { Later } from '../Later';
+import type { RoomOption } from '../CameraSetup';
 import { ZoomPan } from '../ZoomPan';
 import { useFrameRate } from '../useFrameRate';
 import { ErrorCard } from '../ProviderUi';
 import { IsoView } from '../iso/IsoView';
 import { SurfacePin } from '../iso/SurfacePin';
-import { RoomCalibrate } from '../iso/RoomCalibrate';
 import { CalibrationOverlay } from '../iso/CalibrationOverlay';
 import type { StageView } from '../session';
 import { Button, Check, Segmented, type Option } from '../ui/controls';
@@ -46,6 +45,14 @@ import { Popover } from './Popover';
 import { ToolStrip } from './ToolStrip';
 import { BrushOverlay, BrushPanel } from './Brush';
 import { demoFrameUrl } from './demoFrame';
+
+const PhonePairing = lazy(() =>
+  import('../PhonePairing').then((m) => ({ default: m.PhonePairing })),
+);
+const CameraSetup = lazy(() => import('../CameraSetup').then((m) => ({ default: m.CameraSetup })));
+const RoomCalibrate = lazy(() =>
+  import('../iso/RoomCalibrate').then((m) => ({ default: m.RoomCalibrate })),
+);
 
 /** Which layer placed a watched thing's box last, as its tag says it. */
 const WATCH_LAYER = { local: 'LOCAL', appearance: 'LOOKS', sam: 'SAM' } as const;
@@ -647,15 +654,17 @@ export function Canvas() {
             )}
             {cornerShown && <CalibrationOverlay calibration={cornerShown} />}
             {lab.calibrating && !camera && (
-              <RoomCalibrate
-                frame={dimensions}
-                initial={lab.calibrating}
-                crop={lab.imageCrop.current}
-                panel={calibratePanel}
-                busy={lab.busy === 'calibrate'}
-                onSave={(draft) => void lab.saveCalibration(draft)}
-                onCancel={() => lab.setCalibrating(null)}
-              />
+              <Later>
+                <RoomCalibrate
+                  frame={dimensions}
+                  initial={lab.calibrating}
+                  crop={lab.imageCrop.current}
+                  panel={calibratePanel}
+                  busy={lab.busy === 'calibrate'}
+                  onSave={(draft) => void lab.saveCalibration(draft)}
+                  onCancel={() => lab.setCalibrating(null)}
+                />
+              </Later>
             )}
             {pinning && !camera && (
               <SurfacePin
@@ -822,14 +831,16 @@ export function Canvas() {
                     )}
                   >
                     {(close) => (
-                      <PhonePairing
-                        onUse={(phone) => {
-                          close();
-                          lab.setCameraSource(phone.id);
-                          void lab.network.scan();
-                          void lab.startCamera(phone);
-                        }}
-                      />
+                      <Later>
+                        <PhonePairing
+                          onUse={(phone) => {
+                            close();
+                            lab.setCameraSource(phone.id);
+                            void lab.network.scan();
+                            void lab.startCamera(phone);
+                          }}
+                        />
+                      </Later>
                     )}
                   </Popover>
                   <Popover
@@ -842,14 +853,16 @@ export function Canvas() {
                     )}
                   >
                     {(close) => (
-                      <CameraSetup
-                        rooms={rooms}
-                        onChange={() => void lab.network.scan()}
-                        onUse={(id) => {
-                          close();
-                          lab.setCameraSource(id);
-                        }}
-                      />
+                      <Later>
+                        <CameraSetup
+                          rooms={rooms}
+                          onChange={() => void lab.network.scan()}
+                          onUse={(id) => {
+                            close();
+                            lab.setCameraSource(id);
+                          }}
+                        />
+                      </Later>
                     )}
                   </Popover>
                   {lab.network.streams.length > 0 && (

@@ -54,7 +54,7 @@ import {
 } from '../ui/controls';
 import { useItemSprite } from '../iso/sprites';
 import type { FixturePlacing } from '../iso/IsoView';
-import { LayerButtons } from '../iso/SceneEditor';
+import { LayerButtons } from '../iso/LayerButtons';
 import {
   useCalibration,
   useCamera,

@@ -29,6 +29,17 @@ export default defineConfig(({ mode }) => {
       },
       fs: { allow: [resolve('../..')] },
     },
-    build: { outDir: 'dist', emptyOutDir: true },
+    build: {
+      outDir: 'dist',
+      emptyOutDir: true,
+      rolldownOptions: {
+        output: {
+          // React is a third of the first load and changes rarely: its own chunk stays cached across releases.
+          codeSplitting: {
+            groups: [{ name: 'react', test: /node_modules[\\/](react|react-dom|scheduler)[\\/]/ }],
+          },
+        },
+      },
+    },
   };
 });
