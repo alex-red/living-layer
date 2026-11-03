@@ -1,6 +1,6 @@
 # Plan: the mug is a thing like any other
 
-Status: not started. The detail of phase 2 of [things-and-stats.md](things-and-stats.md) ("One Thing"). Waits for two things: the November 4 submission, and [multi-tracking.md](multi-tracking.md)'s work in progress (`watch.ts`, `tracker.ts`, `assign.ts`, `desk.ts`, `watcher.ts`), which changes the same files.
+Status: built on the branch `one-thing` (November 3; see _As built_ below), not yet merged into `main`. The detail of phase 2 of [things-and-stats.md](things-and-stats.md) ("One Thing").
 
 ## Why
 
@@ -68,3 +68,12 @@ Each phase lands on `main` with `bun run verify` passing, and is usable on its o
 - **Two writers.** The watcher writes sightings every few frames: the upgrade runs on read, inside `store.updateMemory`, never across an `await`.
 - **The mug's special cases.** Some code assumes "the mug" (the demo's moves, `concept: 'mug'`, the brush bench's targets, the onboarding). Each is found by the grep above and given a thing id instead; the demo's mug keeps the id it has.
 - **Size.** About 35 files. 2a and 2b are mostly mechanical; 2c is where a person will notice, so it is checked in the running app, not only in tests.
+
+## As built
+
+- **No rename.** `Fixture` and `memory.fixtures` keep their names: renaming them to `Thing` touches every file and gains nothing a reader needs. The mug and each other object are fixtures with `place: 'sightings'`; their sighting, earlier sightings and concept are on the fixture's `track`, and their model is `model` (a stock placeholder, told apart by `isStockModel`, until one is drafted). The mug is the sighted thing with `type: 'mug'`.
+- **The main zone is the rule `main`** (`MAIN_RULE`), with `entityId: ''` for the main light, `offWhenEmpty` and `look` as before. `verify` checks it first, then the mug's other rules; `placementGate` is `ruleGate` on it, with the old blocked reasons. A new image or turning the fixed camera off drops it, as it dropped the zone.
+- **Migration.** `upgradeMemory`'s `oneList` moves `object`, `observation`, `history`, `item`, `others`, `zone` and `placement` over, keeping ids, and drops a thing that was never seen. Those fields are gone from `DeskMemory`.
+- **Reading it.** `mugOf`, `mugSighting`, `mugHistory`, `mugModel`, `mainZone`, `mainPlacement` and `otherObjects` (`memory.ts`) read the old shapes off the new list, so the web and the tests changed little; `tests/lib/mug.ts` re-exports them under the old field names. `placedFixtures` is the list without sighted things: what scans, photo drafts, `MAX_FIXTURES`, the room's fixture drawing and the outline's fixture list see. Sighted things are kept out of `settleFixtures`.
+- **Not done.** `WatchKind` keeps mug, object and fixture, and `MAX_OTHER_OBJECTS` stays beside `MAX_FIXTURES`. The mug and objects still have their own panels and are drawn from their sightings, not as fixture markers (2c). `bun run browser` hasn't been run on the branch.
+- **Checks.** `bun run verify` is clean on the merge with `main` (660 tests); `bench:rooms` is unchanged against `main` (office-c below target on both), and `bench:track` is unchanged.
