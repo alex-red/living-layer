@@ -902,6 +902,12 @@ export const nodesForgetBodySchema = z
   .strict();
 export type NodesForgetBody = z.input<typeof nodesForgetBodySchema>;
 
+/** POST /api/nodes/link: the Thing in the room that is this desktop's monitor. */
+export const nodesLinkBodySchema = z
+  .object({ mode: modeSchema, id: desktopNodeIdSchema, fixtureId: z.string().uuid() })
+  .strict();
+export type NodesLinkBody = z.input<typeof nodesLinkBodySchema>;
+
 /** POST /api/nodes/command */
 export const nodesCommandBodySchema = z
   .object({ mode: modeSchema, id: desktopNodeIdSchema, command: desktopNodeCommandSchema })

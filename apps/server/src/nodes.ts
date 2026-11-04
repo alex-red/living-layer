@@ -16,6 +16,9 @@ import {
   nodesAdoptBodySchema,
   nodesCommandBodySchema,
   nodesForgetBodySchema,
+  nodesLinkBodySchema,
+  roomSceneOf,
+  roomScreens,
   modeOnlySchema,
   promoteBuiltIn,
   type DeskMemory,
@@ -37,7 +40,7 @@ import type { Fetcher } from './config.js';
 import { browseMdns, mdnsInstances } from './streams.js';
 
 const KEY = 'desktop_nodes';
-/** The office's monitor, which an adopted node's display becomes. */
+/** The office's monitor, which an adopted node's display becomes in the office. */
 const MONITOR = { scene: 'office', group: 'monitor' } as const;
 
 /** A node this lab adopted, as kept in `settings`. */
@@ -201,6 +204,21 @@ export class DesktopNodes {
     return this.client.command(node.host, node.port, node.token, command);
   }
 
+  /** An adopted node's display as it says now, or null when it doesn't answer. */
+  async display(mode: Mode, id: string): Promise<'on' | 'off' | null> {
+    if (mode === 'demo') {
+      if (id !== DEMO_DESKTOP_NODE.id)
+        throw new LabError('node_unknown', 'That desktop isn’t one this lab adopted.', 404);
+      return this.demo.display;
+    }
+    const node = this.adopted().find((n) => n.id === id);
+    if (!node) throw new LabError('node_unknown', 'That desktop isn’t one this lab adopted.', 404);
+    return (
+      (await this.client.status(node.host, node.port, node.token).catch(() => null))?.display ??
+      null
+    );
+  }
+
   /** Switches a node's display as an entity, answering like any light or switch. */
   async switchDisplay(mode: Mode, entity: string, action: 'on' | 'off'): Promise<LampResult> {
     const id =
@@ -349,39 +367,74 @@ export class DesktopNodes {
 }
 
 /**
- * The office's monitor as the node's display: the Thing already on that
- * switch, else the monitor made a Thing (or the one made already) switched by it.
+ * The node's display as a Thing: the one already on that switch, else the
+ * first screen in the lab's own room left uncontrolled, else (in the office)
+ * the office's monitor made a Thing. Null when the room has no screen: the
+ * person links one from the Desktops panel.
  */
 async function attach(
   deps: Pick<RouteDeps, 'store' | 'entities'>,
   mode: Mode,
   entityId: string,
   display: 'on' | 'off' | null,
-): Promise<{ memory: DeskMemory; fixtureId: string }> {
+): Promise<{ memory: DeskMemory; fixtureId: string | null }> {
   const memory = deps.store.memory(mode);
   const on = memory.fixtures?.find((f) => fixtureEntity(f) === entityId);
   if (on) return { memory, fixtureId: on.id };
+  const screen = roomScreens(memory).find((f) => f.control.kind === 'none');
+  if (screen) return link(deps, mode, entityId, screen.id, display);
+  if (roomSceneOf(memory) !== MONITOR.scene) return { memory, fixtureId: null };
   const monitor = memory.fixtures?.find(
     (f) => f.scene === MONITOR.scene && f.builtIn === MONITOR.group,
   );
-  const input = monitor
-    ? fixtureInput(monitor)
-    : promoteBuiltIn(MONITOR.scene, MONITOR.group, dayOf(Date.now()));
+  if (monitor) return link(deps, mode, entityId, monitor.id, display);
+  const input = promoteBuiltIn(MONITOR.scene, MONITOR.group, dayOf(Date.now()));
   if (!input) throw new LabError('node_attach', 'The office has no monitor to attach it to.', 422);
   const saved = await saveFixture(deps, {
     mode,
     fixture: { ...input, control: { kind: 'switch', entityId } },
   });
-  const fixtureId = monitor?.id ?? saved.fixtures!.at(-1)!.id;
-  const next = deps.store.updateMemory(mode, (m) => {
+  return lit(deps, mode, saved.fixtures!.at(-1)!.id, display);
+}
+
+/** The display switched by this Thing alone: any other Thing on it goes plain. */
+async function link(
+  deps: Pick<RouteDeps, 'store' | 'entities'>,
+  mode: Mode,
+  entityId: string,
+  fixtureId: string,
+  display: 'on' | 'off' | null,
+): Promise<{ memory: DeskMemory; fixtureId: string }> {
+  const thing = deps.store.memory(mode).fixtures?.find((f) => f.id === fixtureId);
+  if (!thing) throw new LabError('fixture_unknown', 'That thing is not in this desk memory.', 404);
+  await saveFixture(deps, {
+    mode,
+    fixture: { ...fixtureInput(thing), control: { kind: 'switch', entityId } },
+  });
+  deps.store.updateMemory(mode, (m) => {
+    for (const f of m.fixtures ?? [])
+      if (f.id !== fixtureId && fixtureEntity(f) === entityId) f.control = { kind: 'none' };
+    return m;
+  });
+  return lit(deps, mode, fixtureId, display);
+}
+
+/** The Thing drawn as the display is: on when nobody knows yet. */
+function lit(
+  deps: Pick<RouteDeps, 'store'>,
+  mode: Mode,
+  fixtureId: string,
+  display: 'on' | 'off' | null,
+): { memory: DeskMemory; fixtureId: string } {
+  const memory = deps.store.updateMemory(mode, (m) => {
     const f = m.fixtures?.find((x) => x.id === fixtureId);
     if (f) f.state = display ?? 'on';
     return m;
   });
-  return { memory: next, fixtureId };
+  return { memory, fixtureId };
 }
 
-/** `/api/nodes`: list, adopt (and attach to the office's monitor), forget, and send a command. */
+/** `/api/nodes`: list, adopt (and attach to the room's monitor), link another, forget, and send a command. */
 export async function nodeRoutes(
   app: FastifyInstance,
   {
@@ -407,6 +460,12 @@ export async function nodeRoutes(
       status?.display ?? null,
     );
     return { nodes: await list(mode), memory, fixtureId };
+  });
+  app.post('/link', async (request) => {
+    const { mode, id, fixtureId } = parseInput(nodesLinkBodySchema, request.body);
+    const display = await nodes.display(mode, id);
+    const linked = await link({ store, entities }, mode, desktopNodeEntity(id), fixtureId, display);
+    return { nodes: await list(mode), ...linked };
   });
   app.post('/forget', async (request) => {
     const { mode, id } = parseInput(nodesForgetBodySchema, request.body);

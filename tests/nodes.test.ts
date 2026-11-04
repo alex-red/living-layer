@@ -3,6 +3,10 @@ import {
   DESKTOP_NODE_SERVICE,
   desktopNodeEntity,
   fixtureEntity,
+  placeTemplate,
+  promoteBuiltIn,
+  type DeskMemory,
+  type Fixture,
   type DesktopNodeCommand,
   type DesktopNodeInfo,
   type DesktopNodeStatus,
@@ -72,6 +76,26 @@ async function liveApp(node = fakeNode()) {
   const live = (path: string, body: object = {}) => t.post(path, { mode: 'live', ...body });
   return { ...t, live, node };
 }
+
+/** A live lab with its own room, a desk, and on it a Thing for each label given. */
+async function ownRoom(labels: string[]) {
+  const t = await liveApp();
+  const desk = placeTemplate('desk', 'desk', 1, 1);
+  const scene = { kind: 'custom', label: 'Mine', grid: { w: 8, d: 8 }, ...desk };
+  expect((await t.live('scene/save', { scene })).statusCode).toBe(200);
+  const monitor = promoteBuiltIn('office', 'monitor')!;
+  for (const [i, label] of labels.entries()) {
+    const fixture = { ...monitor, label, scene: 'custom', surfaceId: 'desk:top' };
+    const r = await t.live('fixtures/save', {
+      fixture: { ...fixture, at: { x: 1.2, y: 1.1 + i } },
+    });
+    expect(r.statusCode).toBe(200);
+  }
+  const things = (await t.memory('live')).fixtures!;
+  return { ...t, things };
+}
+const byId = (memory: DeskMemory, id: string) =>
+  memory.fixtures!.find((f: Fixture) => f.id === id)!;
 
 describe('desktop nodes in the demo', () => {
   it('lists the virtual office desktop, not adopted yet', async () => {
@@ -194,6 +218,39 @@ describe('desktop nodes, live', () => {
     const banner = { kind: 'banner', title: 'Coffee’s here', seconds: 5 } as const;
     expect((await live('nodes/command', { id: CACHY.id, command: banner })).statusCode).toBe(200);
     expect(node.sent.at(-1)).toEqual(banner);
+  });
+
+  it('adopting links the monitor in the lab’s own room, not the office’s', async () => {
+    const { live, things } = await ownRoom(['Monitor']);
+    const r = (await live('nodes/adopt', { id: CACHY.id })).json();
+    expect(r.fixtureId).toBe(things[0]!.id);
+    expect(fixtureEntity(byId(r.memory, r.fixtureId))).toBe(desktopNodeEntity(CACHY.id));
+    expect(r.memory.fixtures.some((f: Fixture) => f.scene === 'office')).toBe(false);
+  });
+
+  it('adopting in a room with no screen links nothing, and makes no office monitor', async () => {
+    const { live } = await ownRoom(['Desk lamp']);
+    const r = (await live('nodes/adopt', { id: CACHY.id })).json();
+    expect(r.fixtureId).toBeNull();
+    expect(r.memory.fixtures.some((f: Fixture) => f.scene === 'office')).toBe(false);
+  });
+
+  it('linking another screen moves the display to it, and leaves the first plain', async () => {
+    const { live, things } = await ownRoom(['Monitor', 'Side monitor']);
+    const [first, side] = things;
+    await live('nodes/adopt', { id: CACHY.id });
+    const r = await live('nodes/link', { id: CACHY.id, fixtureId: side!.id });
+    expect(r.statusCode).toBe(200);
+    const { memory, nodes } = r.json();
+    expect(fixtureEntity(byId(memory, side!.id))).toBe(desktopNodeEntity(CACHY.id));
+    expect(byId(memory, first!.id).control).toEqual({ kind: 'none' });
+    expect(nodes[0]).toMatchObject({ fixtureId: side!.id });
+  });
+
+  it('refuses to link a desktop this lab hasn’t adopted', async () => {
+    const { live, things } = await ownRoom(['Monitor']);
+    const r = await live('nodes/link', { id: CACHY.id, fixtureId: things[0]!.id });
+    expect(r.statusCode).toBe(404);
   });
 
   it('forgetting unpairs the node and leaves the monitor a plain thing', async () => {

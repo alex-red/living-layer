@@ -4,9 +4,22 @@ import { rotateItem } from './iso-item.js';
 import { screenPart } from './item-screen.js';
 import { projectRoom, type RoomCamera } from './room-camera.js';
 import type { LumaFrame } from './tracker.js';
+import { calibrationOf, type DeskMemory } from './memory.js';
 
 /** What names a thing whose picture is a screen: its power is read off the screen alone. */
 const SCREEN = /\b(monitor|screen|display|tv|television)\b/i;
+/** Whether a thing, by its name, is a screen: a monitor, a display, a TV. */
+const isScreen = (label: string) => SCREEN.test(label);
+
+/** The scene a lab's room is in: its calibrated camera's, else its own drawn one, else the office. */
+export const roomSceneOf = (memory: Pick<DeskMemory, 'mode' | 'camera' | 'scene'>) =>
+  calibrationOf(memory)?.scene ?? (memory.scene ? 'custom' : 'office');
+
+/** The screens in a lab's room: the Things a desktop's display can be. */
+export function roomScreens(memory: DeskMemory): Fixture[] {
+  const room = roomSceneOf(memory);
+  return (memory.fixtures ?? []).filter((f) => f.scene === room && isScreen(f.label));
+}
 
 /** Four points in shares of the frame, clockwise from the top left as the camera sees them. */
 export type UnitQuad = [
@@ -31,7 +44,7 @@ export function screenInFrame(
   scene: IsoScene | null,
   camera: RoomCamera,
 ): UnitQuad | null {
-  if (!SCREEN.test(fixture.label)) return null;
+  if (!isScreen(fixture.label)) return null;
   const box = fixtureBox(fixture, scene);
   // One item unit is the footprint's longer side, as the room draws it.
   const k = Math.max(box.size.w, box.size.d);

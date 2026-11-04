@@ -76,6 +76,7 @@ const ROUTES = [
   '/api/nodes/adopt [POST]',
   '/api/nodes/command [POST]',
   '/api/nodes/forget [POST]',
+  '/api/nodes/link [POST]',
   '/api/nodes/list [POST]',
   '/api/remote [GET, DELETE]',
   '/api/remote/:token/whep [POST, DELETE]',

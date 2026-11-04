@@ -218,6 +218,10 @@ interface ApiRoutes {
   'nodes/list': { body: R.ModeOnly; response: { nodes: DesktopNodeView[] } };
   'nodes/adopt': {
     body: R.NodesAdoptBody;
+    response: { nodes: DesktopNodeView[]; memory: DeskMemory; fixtureId: string | null };
+  };
+  'nodes/link': {
+    body: R.NodesLinkBody;
     response: { nodes: DesktopNodeView[]; memory: DeskMemory; fixtureId: string };
   };
   'nodes/forget': {

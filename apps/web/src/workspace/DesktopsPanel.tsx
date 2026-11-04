@@ -1,6 +1,11 @@
 import { useState } from 'react';
-import type { DeskMemory, DesktopNodeView, LampResult } from '@livinglayer/domain';
-import { Button, Check, Field } from '../ui/controls';
+import {
+  roomScreens,
+  type DeskMemory,
+  type DesktopNodeView,
+  type LampResult,
+} from '@livinglayer/domain';
+import { Button, Check, Field, Select } from '../ui/controls';
 import { useDesk, useFeedback, useLabParts, useNavigation, useView } from './LabContext';
 import { Details, Panel, useCall, type Tone } from './panel';
 import { keepNodes, useDesktopNodes } from './state/nodes';
@@ -33,13 +38,18 @@ export function DesktopsPanel() {
   const { call, off } = useCall();
   const adopted = nodes.filter((n) => n.adopted);
   const adopt = (node: { id?: string; host?: string; port?: number }, name: string) =>
-    void call<{ nodes: DesktopNodeView[]; memory: DeskMemory; fixtureId: string }>(
+    void call<{ nodes: DesktopNodeView[]; memory: DeskMemory; fixtureId: string | null }>(
       'nodes/adopt',
       node,
       (r) => {
         keepNodes(lab.mode, r.nodes);
         lab.setMemory(r.memory, false);
-        lab.setMessage(`Adopted ${name}: the office’s monitor is its display now.`);
+        const monitor = r.memory.fixtures?.find((f) => f.id === r.fixtureId);
+        lab.setMessage(
+          monitor
+            ? `Adopted ${name}: ${monitor.label} in the room is its display now.`
+            : `Adopted ${name}. Link it to a monitor in your room to see its display there.`,
+        );
       },
     );
   const [summary, tone]: [string, Tone] = !nodes.length
@@ -106,6 +116,22 @@ function NodeCard({
 }) {
   const { call, off } = useCall();
   const lab = useLabParts(useView(), useDesk(), useFeedback());
+  const screens = lab.memory ? roomScreens(lab.memory) : [];
+  // Only a monitor in the room being worked in: one elsewhere (the office preset's) isn't this room's.
+  const monitor = screens.find((f) => f.id === n.fixtureId);
+  const [chosen, setChosen] = useState('');
+  const pick = screens.find((f) => f.id === chosen) ?? screens.find((f) => f.id !== monitor?.id);
+  const link = (fixtureId: string) =>
+    void call<{ nodes: DesktopNodeView[]; memory: DeskMemory; fixtureId: string }>(
+      'nodes/link',
+      { id: n.id, fixtureId },
+      (r) => {
+        keepNodes(lab.mode, r.nodes);
+        lab.setMemory(r.memory, false);
+        const f = r.memory.fixtures?.find((x) => x.id === r.fixtureId);
+        lab.setMessage(`${f?.label ?? 'That thing'} is ${n.name}’s display now.`);
+      },
+    );
   const forget = () =>
     void call<{ nodes: DesktopNodeView[]; memory: DeskMemory }>(
       'nodes/forget',
@@ -146,16 +172,33 @@ function NodeCard({
         <>
           <DesktopControls node={n} disabled={disabled || off || !n.online} />
           <div className="save-actions">
-            {n.fixtureId ? (
+            {monitor ? (
               <Button variant="text" onClick={onOpenMonitor}>
-                Its monitor in the office →
+                Its monitor, {monitor.label} →
               </Button>
-            ) : (
-              <Button disabled={disabled || off} onClick={onAdopt}>
-                Attach to the office’s monitor
-              </Button>
-            )}
+            ) : !screens.length ? (
+              <p className="micro">
+                No monitor in this room yet. Add one to the room, then link it here.
+              </p>
+            ) : null}
           </div>
+          {pick && (
+            <div className="save-actions">
+              <Field label={monitor ? 'Another monitor' : 'Its monitor in this room'}>
+                <Select
+                  value={pick.id}
+                  disabled={disabled || off}
+                  options={screens
+                    .filter((f) => f.id !== monitor?.id)
+                    .map((f) => ({ value: f.id, label: f.label }))}
+                  onChange={setChosen}
+                />
+              </Field>
+              <Button disabled={disabled || off} onClick={() => link(pick.id)}>
+                Link
+              </Button>
+            </div>
+          )}
           {lab.mode === 'live' && (
             <Details summary="Forget">
               <p className="micro">
