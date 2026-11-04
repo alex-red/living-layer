@@ -293,51 +293,15 @@ function MaskResults() {
   );
 }
 
-function SetupPanel() {
-  const lab = useLabParts(useObservation(), useNavigation());
-  const { progress } = lab;
-  // Once every step is done the list is history: it folds away under one line.
-  const done = !progress.next;
-  const steps = (
-    <ol className="setup-steps">
-      {progress.steps.map((s, i) => (
-        <li key={s.id} className={s.state}>
-          <span className={`ring ${s.state === 'done' ? 'done' : ''}`}>
-            {s.state === 'done' ? '✓' : i + 1}
-          </span>
-          <span>
-            <strong>{s.label}</strong>
-            <small>{s.detail}</small>
-          </span>
-          <Button
-            variant={s.state === 'current' ? 'primary' : 'text'}
-            size="sm"
-            disabled={s.state === 'locked'}
-            onClick={() => lab.goToStep(s.id)}
-          >
-            {s.state === 'done' ? 'Open' : 'Go'}
-          </Button>
-        </li>
-      ))}
-    </ol>
-  );
+/** With nothing selected: where to pick something. Setup's steps are in the outline. */
+function NothingSelected() {
   return (
     <Panel
-      tiny="SETUP"
-      title={done ? 'All set' : 'Get the lamp rule running'}
-      status={
-        done
-          ? 'Everything is set up. Move the mug and watch it, or pick a thing to see its history.'
-          : progress.steps.find((s) => s.id === progress.next)!.detail
-      }
-      tone={done ? 'ok' : 'seen'}
-    >
-      {done ? (
-        <Details summary={`Setup · ${progress.steps.length} steps done`}>{steps}</Details>
-      ) : (
-        steps
-      )}
-    </Panel>
+      tiny="INSPECTOR"
+      title="Nothing selected"
+      status="Pick a thing, a zone or a surface in the outline or on the stage."
+      tone="seen"
+    />
   );
 }
 
@@ -1188,7 +1152,7 @@ function OtherPanel({ id }: { id: string }) {
   const { memory, segmentation, segmentRunId, canVision } = lab;
   const { call, off } = useCall();
   const o = otherObjects(memory)?.find((x) => x.id === id);
-  if (!o) return <SetupPanel />;
+  if (!o) return <NothingSelected />;
   const canTrack =
     segmentation &&
     segmentRunId &&
@@ -1665,7 +1629,7 @@ function RulePanel({ id }: { id: string }) {
   const { memory } = lab;
   const { call, off } = useCall();
   const r = memory?.rules?.find((x) => x.id === id);
-  if (!r) return <SetupPanel />;
+  if (!r) return <NothingSelected />;
   const d = r.lastDecision?.output;
   const who = memory ? ruleWho(memory, r) : 'something';
   // Who is in it, by name: "mug, book".
@@ -1822,7 +1786,7 @@ function NewRulePanel() {
   );
   const { memory, ruleDraft: draft, entities } = lab;
   const { call, off } = useCall();
-  if (!draft) return <SetupPanel />;
+  if (!draft) return <NothingSelected />;
   // The thing a zone is can't stand in it.
   const anchor = draft.anchor;
   const things = zoneThings(memory).filter((t) => t.id !== anchor?.thingId);
@@ -2046,7 +2010,7 @@ function NewRulePanel() {
 
 function body(lab: LabRead & Pick<Lab, 'workScene'>, s: Selection | null) {
   const { progress, workScene } = lab;
-  if (!s || !workScene || !progress.room) return <SetupPanel />;
+  if (!s || !workScene || !progress.room) return <NothingSelected />;
   switch (s.kind) {
     case 'room':
       return <RoomPanel />;
@@ -2129,14 +2093,14 @@ function body(lab: LabRead & Pick<Lab, 'workScene'>, s: Selection | null) {
 /** Properties and actions for whatever the outline has selected. */
 export function Inspector() {
   const lab = useLabParts(useView(), useDesk(), useCamera(), useObservation(), useNavigation());
-  // Back to the view this one was opened from, or Setup when there is none.
+  // Back to the view this one was opened from, or closed when there is none.
   const back = lab.backTrail.at(-1) ?? null;
   return (
     <aside className="ws-inspector" aria-label="Inspector">
       {lab.selection && lab.progress.room && (
         <div className="pane-head">
           <Button variant="text" onClick={() => lab.select(back)}>
-            ← {back ? selectionLabel(lab, back) : 'Setup'}
+            {back ? `← ${selectionLabel(lab, back)}` : '× Close'}
           </Button>
         </div>
       )}
