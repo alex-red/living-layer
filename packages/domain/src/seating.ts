@@ -208,12 +208,15 @@ export function standUp(fixtures: readonly Fixture[], personId: string, now: str
   });
 }
 
-/** Things as the room draws them: a person sitting in a seat that is there is drawn by the seat. */
-export function drawnFixtures<F extends Pick<Fixture, 'id' | 'seatedOn'>>(
+/**
+ * Things as the room draws them: a person sitting in a seat that is there is
+ * drawn by the seat, and whoever is out isn't drawn.
+ */
+export function drawnFixtures<F extends Pick<Fixture, 'id' | 'seatedOn' | 'away'>>(
   fixtures: readonly F[],
 ): F[] {
   const ids = new Set(fixtures.map((f) => f.id));
-  return fixtures.filter((f) => !f.seatedOn || !ids.has(f.seatedOn));
+  return fixtures.filter((f) => !f.away && (!f.seatedOn || !ids.has(f.seatedOn)));
 }
 
 /**

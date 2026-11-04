@@ -16,6 +16,7 @@ export const COACH = {
   everyMin: 5,
   /** After a nudge about a fact, minutes before the same fact may nudge again. */
   cooldownMin: 45,
+  /** Food, and a pet home alone: said once a stretch. */
   foodCooldownMin: 720,
   /** Minutes between any two nudges, so it never nags twice in a row. */
   gapMin: 20,
@@ -27,6 +28,8 @@ export const COACH = {
   awayMin: 15,
   /** Minutes the cat has been on its tree. */
   catMin: 120,
+  /** Minutes a dog has been home with nobody else; a cat minds twice as long. */
+  aloneMin: 180,
   /** Hours counted as late at night, while the screen is on. */
   late: { from: 23, to: 5 },
   /** Nudges kept, newest last. */
@@ -35,7 +38,7 @@ export const COACH = {
 
 const MINUTE = 60_000;
 
-export type CoachTopic = 'drink' | 'screen' | 'late' | 'lampAway' | 'cat' | 'food';
+export type CoachTopic = 'drink' | 'screen' | 'late' | 'lampAway' | 'cat' | 'food' | 'alone';
 
 /** One thing the coach could nudge about, worked out from the stats. */
 export interface CoachFact {
@@ -228,6 +231,36 @@ export function coachFacts(history: AskHistory, now: number): CoachFact[] {
       cites: [citeOf(t, 'occupied', since, 'The cat climbed its tree')],
     });
   }
+  // A pet home with nobody else: since the last person went out, or the pet came home.
+  const people = history.things
+    .filter((t) => t.member?.type === 'person')
+    .map((t) => ({ t, events: eventsOf(history, t.id, 'occupied', now) }));
+  // Each went out (home, then not): the first stretch of the day doesn't count as leaving.
+  const left = people.map(({ events }) => {
+    const [before, last] = [events.at(-2), events.at(-1)];
+    return last && last.value === false && before?.value === true ? last : null;
+  });
+  if (people.length && left.every((e) => e !== null)) {
+    const last = left.reduce((a, b) => (b!.at > a!.at ? b : a))!;
+    const who = people.find(({ t }) => t.id === last.thingId)!.t;
+    for (const pet of history.things) {
+      if (!pet.member || pet.member.type === 'person') continue;
+      const since = onSince(eventsOf(history, pet.id, 'occupied', now), 'occupied');
+      if (!since) continue;
+      const from = Math.max(since.at, last.at);
+      const minutes = (now - from) / MINUTE;
+      facts.push({
+        id: `alone:${pet.id}`,
+        topic: 'alone',
+        thingId: pet.id,
+        label: pet.label,
+        minutes,
+        text: `${pet.label} has been home alone for ${hm(minutes)}, since ${clockOf(from)}, when ${who.label} went out.`,
+        weight: minutes / (pet.member.type === 'dog' ? COACH.aloneMin : 2 * COACH.aloneMin),
+        cites: [citeOf(who, 'occupied', last, `${who.label} went out`)],
+      });
+    }
+  }
   for (const t of history.things) {
     // Food can wait until someone is around to read about it.
     if (!t.expires || !present) continue;
@@ -252,7 +285,7 @@ export function coachFacts(history: AskHistory, now: number): CoachFact[] {
 
 /** Minutes the coach keeps quiet about a fact after nudging about it. */
 const cooldownOf = (f: CoachFact) =>
-  f.topic === 'food' ? COACH.foodCooldownMin : COACH.cooldownMin;
+  f.topic === 'food' || f.topic === 'alone' ? COACH.foodCooldownMin : COACH.cooldownMin;
 
 /**
  * The facts worth a nudge now, most due first: due, not nudged about within
@@ -336,6 +369,16 @@ const LINES: Record<CoachTopic, [string, string][]> = {
       '{span} on the tree. The cat has not moved. The cat has no plans to move.',
     ],
   ],
+  alone: [
+    [
+      '{name} misses you',
+      '{name} has been home alone for {span}. The front door is being stared at, very hard.',
+    ],
+    [
+      'Home alone 🐾',
+      '{span} since anyone was home. {name} has started reorganising the cushions.',
+    ],
+  ],
   food: [
     [
       'About the {label}…',
@@ -362,6 +405,7 @@ export function coachLine(fact: CoachFact, at: number, seed = 0): { title: strin
       .replaceAll('{span}', said(fact.minutes))
       .replaceAll('{clock}', clockOf(at))
       .replaceAll('{label}', fact.label.replace(/^my\s+/i, '').toLowerCase())
+      .replaceAll('{name}', fact.label)
       .replaceAll('{days}', goneDays);
   const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
   return { title: cap(fill(title)), body: cap(fill(body)) };
@@ -443,6 +487,7 @@ export const COACH_ACTIONS: Record<CoachTopic, { label: string; does: CoachDoes;
   },
   cat: { label: 'Respect the cat', does: 'none', done: 'The cat acknowledges you. Barely.' },
   food: { label: 'What do I eat?', does: 'ask', done: 'Asked the room what to eat first.' },
+  alone: { label: 'On my way', does: 'none', done: 'Noted. Tail wagging has begun in advance.' },
 };
 /** Minutes a snoozed topic keeps quiet. */
 export const COACH_SNOOZE_MIN = 30;

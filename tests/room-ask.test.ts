@@ -1,6 +1,7 @@
 import { describe, expect, it, mock } from 'bun:test';
 import {
   DEMO_ASK_EXAMPLES,
+  DEMO_HOME_ASK_EXAMPLES,
   askExamples,
   answerAsk,
   dayOf,
@@ -121,11 +122,31 @@ describe('answerAsk', () => {
   });
 
   it('answers every question the dock offers without asking back', () => {
-    for (const { question } of DEMO_ASK_EXAMPLES) {
+    for (const { question } of [...DEMO_ASK_EXAMPLES, ...DEMO_HOME_ASK_EXAMPLES]) {
       const a = ask(question, 1000);
       expect(a.clarify).toBeNull();
       expect(a.text.length).toBeGreaterThan(20);
     }
+  });
+
+  it('says where a person or pet is, and how, since when', () => {
+    expect(ask('Where is Miso now?', 600).text).toBe('Miso is asleep by the plant, since 8:00.');
+    expect(ask('Where’s Sam?', 720).text).toBe(
+      'Sam is sitting at the table, by the wall, since 11:40.',
+    );
+    expect(ask('Is Robin home?', 900).text).toBe('Robin is out, since 12:25.');
+  });
+
+  it('finds the dog by what it is, not only by its name', () => {
+    expect(ask('Where is the dog?', 900).text).toBe('Biscuit is lying by the door, since 12:30.');
+  });
+
+  it('adds up how long someone was home, and when they last came home', () => {
+    // Sam: 8:00–8:20, 11:40–12:20 and from 18:00 on.
+    expect(ask('How long was Sam home today?', 1140).text).toBe('Sam was home for 2 h today.');
+    expect(ask('When did Robin last come home?', 1100).text).toMatch(
+      /^Robin last came home at 17:30/,
+    );
   });
 
   it('says how little of the window the camera watched', () => {
@@ -269,6 +290,7 @@ describe('askExamples', () => {
       'cat',
       'food',
       'zone',
+      'member',
       'food',
       'summary',
     ]);

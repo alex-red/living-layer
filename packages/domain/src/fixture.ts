@@ -182,6 +182,8 @@ export const fixtureInputSchema = z
     look: z.string().min(1).max(24).optional(),
     /** The seat a person sits in: drawn into its model, not on their own (`seatPerson`). */
     seatedOn: z.string().min(1).max(64).optional(),
+    /** A person or pet out of the house: not drawn, and `not_home` to Home Assistant (`memberPlace`). */
+    away: z.literal(true).optional(),
     /** Its light sources' own entities, one per source part, besides `control`. */
     lights: z
       .array(fixtureLightSchema)
@@ -378,6 +380,7 @@ export function fixtureInput(f: Fixture): FixtureInput {
     ...(f.type ? { type: f.type } : {}),
     ...(f.look ? { look: f.look } : {}),
     ...(f.seatedOn ? { seatedOn: f.seatedOn } : {}),
+    ...(f.away ? { away: f.away } : {}),
     ...(f.lights?.length ? { lights: f.lights } : {}),
     ...(f.states
       ? {
@@ -1326,7 +1329,7 @@ export function retypeFixture(
       : defaultFixtureStates({ label, archetype: meta.archetype, control: f.control.kind, model });
   const parts = new Set(model.parts.map((p) => p.id));
   const lights = (f.lights ?? []).filter((l) => parts.has(l.part) && isShade(l.part));
-  const { room: _room, look: _look, seatedOn: _seat, ...rest } = fixtureInput(f);
+  const { room: _room, look: _look, seatedOn: _seat, away: _away, ...rest } = fixtureInput(f);
   return {
     ...rest,
     label,

@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'bun:test';
 import {
+  askThingsOf,
   detailResolution,
+  memberPlace,
   drawnFixtures,
   memberItem,
   promoteBuiltIn,
@@ -153,6 +155,58 @@ describe('changing what a member is', () => {
     expect(dog.look).toStartWith('dog-');
     expect(Object.keys(dog.states ?? {})).toEqual(['standing', 'lying']);
     expect(fixtureInput({ ...cat, look: 'cat-grey' } as Fixture).look).toBe('cat-grey');
+  });
+});
+
+describe('going out and coming home', () => {
+  const reset = async () => {
+    const { app } = await testApp({ name: 'members-away', appearance: async () => null });
+    const res = await app.inject({ method: 'POST', url: '/api/desk/demo/reset' });
+    const memory = res.json<DeskMemory>();
+    const who = (label: string) => memory.fixtures!.find((f) => f.label === label)!;
+    const away = async (id: string, out: boolean) =>
+      (
+        await app.inject({
+          method: 'POST',
+          url: '/api/fixtures/away',
+          payload: { mode: 'demo', id, away: out },
+        })
+      ).json<DeskMemory>();
+    return { app, memory, who, away };
+  };
+
+  it('stands a seated person up as they go out, and isn’t drawn while out', async () => {
+    const { who, away } = await reset();
+    const after = await away(who('Robin').id, true);
+    const robin = after.fixtures!.find((f) => f.label === 'Robin')!;
+    expect(robin).toMatchObject({ away: true });
+    expect(robin.seatedOn).toBeUndefined();
+    expect(after.fixtures!.find((f) => f.builtIn === 'chair')!.state).not.toBe('seated');
+    expect(drawnFixtures(after.fixtures!).map((f) => f.id)).not.toContain(robin.id);
+    expect(memberPlace(robin, after.fixtures!)).toMatchObject({ home: false, text: 'is out' });
+  });
+
+  it('comes home again, and the room can be asked where they are', async () => {
+    const { who, away } = await reset();
+    await away(who('Miso').id, true);
+    const back = await away(who('Miso').id, false);
+    expect(back.fixtures!.find((f) => f.label === 'Miso')!.away).toBeUndefined();
+    const miso = askThingsOf(back).find((t) => t.label === 'Miso')!;
+    expect(miso.member?.places.at(-1)?.text).toBe('is asleep');
+    expect(askThingsOf(back).find((t) => t.label === 'Robin')!.member?.places[0]?.text).toBe(
+      'is sitting in the chair',
+    );
+  });
+
+  it('refuses a thing that isn’t a person or a pet', async () => {
+    const { app, memory } = await reset();
+    const chair = memory.fixtures!.find((f) => f.builtIn === 'chair')!;
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/fixtures/away',
+      payload: { mode: 'demo', id: chair.id, away: true },
+    });
+    expect(res.statusCode).toBe(400);
   });
 });
 

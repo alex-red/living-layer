@@ -8,6 +8,14 @@
  * a live room keeps.
  */
 import { addDays } from './food.js';
+import {
+  HOUSEHOLD,
+  HOUSEHOLD_DAY,
+  doing,
+  householdThingId,
+  type HomeSpan,
+} from './household-day.js';
+import type { MemberType } from './members.js';
 import type { AskExample } from './room-ask.js';
 import { dayOf, type StatEvent, type StatKey } from './stats.js';
 
@@ -70,6 +78,11 @@ export interface AskThing {
   food?: true;
   /** Its use-by day, `YYYY-MM-DD`, for food. */
   expires?: string;
+  /**
+   * A person or pet: its occupied stat is being home, and `places` says
+   * where at home and how ("is asleep by the plant"), from when, oldest first.
+   */
+  member?: { type: MemberType; places: readonly { at: number; text: string }[] };
 }
 
 /** The thing a zone is when asking about the room: its fillings and emptyings are its occupied stat. */
@@ -135,6 +148,35 @@ export const DEMO_ASK_EXAMPLES: readonly AskExample[] = [
   { label: 'Today so far', question: 'What happened today?', thing: 'summary', kind: 'summary' },
 ];
 
+/** Questions the dock offers in the Home room, about the household. */
+export const DEMO_HOME_ASK_EXAMPLES: readonly AskExample[] = [
+  {
+    label: 'Where’s Miso?',
+    question: 'Where is Miso now?',
+    thing: householdThingId('Miso'),
+    kind: 'member',
+  },
+  {
+    label: 'Robin home since',
+    question: 'When did Robin last come home?',
+    thing: householdThingId('Robin'),
+    kind: 'member',
+  },
+  {
+    label: 'Sam at home',
+    question: 'How long was Sam home today?',
+    thing: householdThingId('Sam'),
+    kind: 'member',
+  },
+  {
+    label: 'Biscuit vs usual',
+    question: 'Was Biscuit home longer than usual today?',
+    thing: householdThingId('Biscuit'),
+    kind: 'member',
+  },
+  { label: 'Today so far', question: 'What happened today?', thing: 'summary', kind: 'summary' },
+];
+
 /** The demo room's things that keep stats, as asking it sees them. */
 const DEMO_ASK_THINGS: readonly AskThing[] = [
   { id: 'mug', label: 'My desk mug', stats: ['lastUsed'] },
@@ -148,6 +190,16 @@ const DEMO_ASK_THINGS: readonly AskThing[] = [
   { id: 'eggs', label: 'Eggs', stats: ['lastUsed'] },
   { id: zoneThingId('main'), label: 'Main zone', stats: ['occupied'], zone: true },
 ];
+/** The household's day `back` days before the sample day: the same, a little earlier or later. */
+function householdSpans(
+  name: (typeof HOUSEHOLD)[number]['name'],
+  back: number,
+): readonly HomeSpan[] {
+  const spans = HOUSEHOLD_DAY[name];
+  if (!back) return spans;
+  const r = seeded(back * 31 + name.length * 977);
+  return spans.map((s, i) => (i ? { ...s, from: s.from + between(r, -25, 25) } : s));
+}
 const FOOD_IDS: Record<string, string> = {
   Milk: 'milk',
   'Leftover chicken': 'leftover-chicken',
@@ -268,6 +320,15 @@ export function demoHistory(at: number): { things: readonly AskThing[]; events: 
     onOff('lamp', 'power', made.lamp);
     onOff('cat-tree', 'occupied', made.cat);
     onOff(zoneThingId('main'), 'occupied', made.zone);
+    for (const { name } of HOUSEHOLD) {
+      // Home is occupied: pushed when they come or go, and once at midnight.
+      let home: boolean | null = null;
+      for (const s of householdSpans(name, back)) {
+        const now = s.spot !== 'away';
+        if (now !== home) push(householdThingId(name), 'occupied', ms(s.from), now);
+        home = now;
+      }
+    }
     for (const [a, b] of made.screen) {
       // Busy in steps through the session, with a lull or two, then idle once it ends.
       for (let m = a + 2; m < b - 5; m += between(r, 8, 22))
@@ -275,11 +336,31 @@ export function demoHistory(at: number): { things: readonly AskThing[]; events: 
       push('mouse', 'activity', ms(b), 0);
     }
   }
+  const household = HOUSEHOLD.map(({ name, type }): AskThing => {
+    const places: { at: number; text: string }[] = [];
+    for (let back = 6; back >= 0; back--) {
+      const d = new Date(today);
+      d.setDate(d.getDate() - back);
+      for (const s of householdSpans(name, back)) {
+        const ms = d.getTime() + s.from * 60_000;
+        if (ms <= at) places.push({ at: ms, text: doing(s) });
+      }
+    }
+    return {
+      id: householdThingId(name),
+      label: name,
+      stats: ['occupied'],
+      member: { type, places },
+    };
+  });
   return {
-    things: DEMO_ASK_THINGS.map((t) => {
-      const food = DEMO_FOOD.find((f) => f.label === t.label);
-      return food ? { ...t, expires: addDays(dayOf(at), food.useByDays) } : t;
-    }),
+    things: [
+      ...DEMO_ASK_THINGS.map((t) => {
+        const food = DEMO_FOOD.find((f) => f.label === t.label);
+        return food ? { ...t, expires: addDays(dayOf(at), food.useByDays) } : t;
+      }),
+      ...household,
+    ],
     events: events.filter((e) => e.at <= at).sort((a, b) => a.at - b.at),
   };
 }

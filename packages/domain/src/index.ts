@@ -19,6 +19,7 @@ export * from './member-models.js';
 export * from './members.js';
 export * from './seating.js';
 export * from './household-day.js';
+export * from './member-place.js';
 export * from './recipe.js';
 export * from './recipe-ops.js';
 export * from './selection.js';

@@ -43,6 +43,7 @@ const ROUTES = [
   '/api/expose/learn-empty [POST]',
   '/api/expose/save [POST]',
   '/api/fixtures/anchor [POST]',
+  '/api/fixtures/away [POST]',
   '/api/fixtures/choose [POST]',
   '/api/fixtures/control [POST]',
   '/api/fixtures/delete [POST]',

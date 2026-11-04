@@ -2,6 +2,7 @@ import { useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
 import {
   DEMO_ASK_EXAMPLES,
   DEMO_DAY,
+  DEMO_HOME_ASK_EXAMPLES,
   askExamples,
   askThingsOf,
   type AskExample,
@@ -210,7 +211,11 @@ function Dock() {
         )}
       </p>
       <CoachBar minute={minute} />
-      <Ask minute={minute} examples={DEMO_ASK_EXAMPLES} onCited={setCited} />
+      <Ask
+        minute={minute}
+        examples={home ? DEMO_HOME_ASK_EXAMPLES : DEMO_ASK_EXAMPLES}
+        onCited={setCited}
+      />
     </section>
   );
 }
@@ -228,6 +233,7 @@ const KIND_DOT: Record<AskKind, string> = {
   pointer: 'mouse',
   light: 'lamp',
   zone: 'zone',
+  member: 'member',
   other: 'other',
   summary: 'summary',
 };
@@ -579,6 +585,7 @@ const TOPIC_DOT: Record<CoachTopic, string> = {
   lampAway: 'lamp',
   cat: 'cat',
   food: 'fridge',
+  alone: 'member',
 };
 /** How long a live coach nudge stays over the room, ms. */
 const LIVE_SHOWN_MS = 30 * 60_000;

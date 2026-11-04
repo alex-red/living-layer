@@ -49,8 +49,8 @@ export const HOUSEHOLD_DAY: Record<HouseholdName, readonly HomeSpan[]> = {
     { from: 0, spot: 'away' },
     { from: 420, spot: 'shelf' },
     { from: 440, spot: 'chair' },
-    { from: 760, spot: 'shelf' },
-    { from: 775, spot: 'away' },
+    { from: 735, spot: 'shelf' },
+    { from: 745, spot: 'away' },
     { from: 1050, spot: 'door' },
     { from: 1056, spot: 'chair' },
     { from: 1200, spot: 'shelf' },
@@ -61,8 +61,8 @@ export const HOUSEHOLD_DAY: Record<HouseholdName, readonly HomeSpan[]> = {
     { from: 480, spot: 'table' },
     { from: 500, spot: 'away' },
     { from: 700, spot: 'chair-back' },
-    { from: 760, spot: 'door' },
-    { from: 768, spot: 'away' },
+    { from: 735, spot: 'door' },
+    { from: 740, spot: 'away' },
     { from: 1080, spot: 'chair-back' },
     { from: 1170, spot: 'table' },
     { from: 1185, spot: 'away' },
@@ -75,13 +75,15 @@ export const HOUSEHOLD_DAY: Record<HouseholdName, readonly HomeSpan[]> = {
     { from: 905, spot: 'door', pose: 'idle' },
     { from: 990, spot: 'plant', pose: 'sleeping' },
   ],
+  // Home alone all afternoon, waiting by the door, then a walk once Robin is back.
   Biscuit: [
     { from: 0, spot: 'door', pose: 'lying' },
     { from: 420, spot: 'shelf', pose: 'standing' },
     { from: 445, spot: 'table', pose: 'lying' },
-    { from: 775, spot: 'away' },
+    { from: 750, spot: 'door', pose: 'lying' },
     { from: 1050, spot: 'door', pose: 'standing' },
-    { from: 1060, spot: 'table', pose: 'lying' },
+    { from: 1065, spot: 'away' },
+    { from: 1100, spot: 'table', pose: 'lying' },
     { from: 1235, spot: 'door', pose: 'lying' },
   ],
 };
@@ -150,6 +152,9 @@ export function householdEvents(): HomeEvent[] {
   }
   return out.sort((a, b) => a.at - b.at);
 }
+
+/** The thing a member of the household is when asking the demo about it. */
+export const householdThingId = (name: HouseholdName) => `household:${name}`;
 
 /** The household's members among the Home room's things, by name. */
 export function householdThings(fixtures: readonly Fixture[]): Map<HouseholdName, Fixture> {

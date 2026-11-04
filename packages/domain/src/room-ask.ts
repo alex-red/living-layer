@@ -8,6 +8,8 @@
 import { z } from 'zod';
 import { midnightOf, zoneThingId, type AskThing } from './demo-day.js';
 import { daysUntil } from './food.js';
+import { memberPlace } from './member-place.js';
+import { isMemberType } from './members.js';
 import type { DeskMemory } from './memory.js';
 import { STAT_KEYS, STAT_KINDS, dayOf, type StatEvent, type StatKey } from './stats.js';
 
@@ -80,6 +82,7 @@ export type AskKind =
   | 'pointer'
   | 'light'
   | 'zone'
+  | 'member'
   | 'other'
   | 'summary';
 /** One event an answer rests on. */
@@ -167,6 +170,8 @@ export function readAsk(raw: AskQuery, things: readonly AskThing[]): AskQuery {
     const thing = find(q.thing);
     if (!thing) return ask(`I keep stats for ${names}. Which one did you mean?`);
     q.thing = thing.id;
+    if (!thing.stats.length && thing.member)
+      return { ...q, measure: 'now', stat: null, while: null, whileOn: null, amount: null };
     if (!thing.stats.length)
       return thing.expires
         ? { ...q, measure: 'useBy', stat: null, while: null, whileOn: null, amount: null }
@@ -307,10 +312,11 @@ const countOf = (t: Track, from: number, to: number) =>
     : stretches(t, from, to).filter((s) => s.began).length;
 
 /** What kind of thing it is, for the words. */
-type Voice = 'drink' | 'food' | 'screen' | 'cat' | 'pointer' | 'zone' | 'other';
+type Voice = 'drink' | 'food' | 'screen' | 'cat' | 'pointer' | 'zone' | 'member' | 'other';
 function voiceOf(thing: AskThing, key: StatKey): Voice {
   const l = thing.label.toLowerCase();
   if (thing.zone) return 'zone';
+  if (thing.member) return 'member';
   if (key === 'lastUsed' && /\b(mug|cup|glass|bottle|tumbler|flask)\b/.test(l)) return 'drink';
   if (
     key === 'lastUsed' &&
@@ -329,6 +335,7 @@ function voiceOf(thing: AskThing, key: StatKey): Voice {
 /** The kind a thing's dot shows: its voice, with lights told apart. */
 export function thingKind(thing: AskThing, key: StatKey | undefined): AskKind {
   if (thing.food || thing.expires) return 'food';
+  if (thing.member) return 'member';
   if (!key) return 'other';
   const voice = voiceOf(thing, key);
   if (voice !== 'other') return voice;
@@ -337,6 +344,7 @@ export function thingKind(thing: AskThing, key: StatKey | undefined): AskKind {
 /** "your desk mug", "the monitor". */
 function nameOf(thing: AskThing): string {
   const l = thing.label.trim();
+  if (thing.member) return l;
   return /^my\s/i.test(l) ? `your ${l.slice(3)}` : `the ${l.charAt(0).toLowerCase()}${l.slice(1)}`;
 }
 /** What one event says, as a cite. */
@@ -350,6 +358,7 @@ function eventText(t: Track, e: StatEvent): string {
         ? `${t.thing.label} taken out`
         : `${cap(nameOf(t.thing))} used`;
   if (voice === 'cat') return on ? 'The cat climbed its tree' : 'The cat left its tree';
+  if (voice === 'member') return `${t.thing.label} ${on ? 'came home' : 'went out'}`;
   if (voice === 'zone')
     return on ? `Something came into ${nameOf(t.thing)}` : `${cap(nameOf(t.thing))} emptied`;
   if (t.key === 'activity') return on ? `${t.thing.label} busy` : `${t.thing.label} idle`;
@@ -384,6 +393,8 @@ function countSentence(t: Track, n: number, win: string): string {
         : `The cat didn’t climb its tree ${win}.`;
     case 'pointer':
       return `${cap(name)} had ${n} busy stretch${n === 1 ? '' : 'es'} ${win}.`;
+    case 'member':
+      return n ? `${name} came home ${times(n)} ${win}.` : `${name} didn’t come home ${win}.`;
     case 'zone':
       return n
         ? `Something came into ${name} ${times(n)} ${win}.`
@@ -400,6 +411,10 @@ function countSentence(t: Track, n: number, win: string): string {
 function durationSentence(t: Track, ms: number, win: string): string {
   const name = nameOf(t.thing);
   if (ms < MINUTE && voiceOf(t.thing, t.key) === 'zone') return `${cap(name)} stayed empty ${win}.`;
+  if (voiceOf(t.thing, t.key) === 'member')
+    return ms < MINUTE
+      ? `${name} wasn’t home ${win}.`
+      : `${name} was home for ${spanOf(ms)} ${win}.`;
   if (ms < MINUTE)
     return voiceOf(t.thing, t.key) === 'cat'
       ? `The cat wasn’t on its tree ${win}.`
@@ -515,11 +530,13 @@ function answerTrack(
             ? `${Name} was ${which} taken out`
             : voice === 'cat'
               ? `The cat ${which} climbed its tree`
-              : voice === 'zone'
-                ? `Something ${which} came into ${name}`
-                : t.key === 'lastUsed'
-                  ? `${Name} was ${which} used`
-                  : `${Name} ${which} ${t.key === 'activity' ? 'got busy' : 'came on'}`;
+              : voice === 'member'
+                ? `${name} ${which} came home`
+                : voice === 'zone'
+                  ? `Something ${which} came into ${name}`
+                  : t.key === 'lastUsed'
+                    ? `${Name} was ${which} used`
+                    : `${Name} ${which} ${t.key === 'activity' ? 'got busy' : 'came on'}`;
       const inWin = q.measure === 'first' ? ` ${win}` : '';
       if (!e)
         return {
@@ -569,11 +586,13 @@ function answerTrack(
           ? 'without a drink'
           : voice === 'cat'
             ? 'with the cat off its tree'
-            : voice === 'zone'
-              ? `with ${name} empty`
-              : t.key === 'lastUsed'
-                ? `without using ${name}`
-                : `with ${name} ${t.key === 'activity' ? 'idle' : 'off'}`;
+            : voice === 'member'
+              ? `with ${name} out`
+              : voice === 'zone'
+                ? `with ${name} empty`
+                : t.key === 'lastUsed'
+                  ? `without using ${name}`
+                  : `with ${name} ${t.key === 'activity' ? 'idle' : 'off'}`;
       const near = (at: number) => t.events.filter((e) => Math.abs(e.at - at) < 1000);
       return {
         text: `Your longest stretch ${what} ${win} was ${spanOf(best.next - best.end)}, from ${clockOf(best.end)} to ${until}.`,
@@ -594,11 +613,13 @@ function answerTrack(
       const what =
         voice === 'cat'
           ? 'The cat’s longest nap on its tree'
-          : voice === 'pointer'
-            ? 'Your longest focus stretch'
-            : voice === 'zone'
-              ? `The longest anything stayed in ${name}`
-              : `The longest ${name} stayed ${t.key === 'occupied' ? 'occupied' : 'on'}`;
+          : voice === 'member'
+            ? `${name}’s longest stretch at home`
+            : voice === 'pointer'
+              ? 'Your longest focus stretch'
+              : voice === 'zone'
+                ? `The longest anything stayed in ${name}`
+                : `The longest ${name} stayed ${t.key === 'occupied' ? 'occupied' : 'on'}`;
       const until = best.to >= now - MINUTE ? 'now' : clockOf(best.to);
       const near = t.events.filter((e) => e.at === best.from || e.at === best.to);
       return {
@@ -614,6 +635,8 @@ function answerTrack(
     case 'now':
     case 'summary': {
       if (t.key === 'lastUsed') return answerTrack(t, { ...q, measure: 'last' }, span, now);
+      if (voice === 'member' && q.measure === 'now')
+        return { ...memberNow(t.thing, to)!, bars: null };
       const last = [...t.events].reverse().find((e) => e.at <= to);
       const on = isOn(t.key, last?.value ?? null);
       const subject = voice === 'cat' ? 'The cat' : cap(name);
@@ -643,6 +666,20 @@ function answerTrack(
       };
     }
   }
+}
+/** Where a person or pet is at `at`, from where they were last seen: "Miso is asleep by the plant, since 16:30." */
+function memberNow(
+  thing: AskThing,
+  at: number,
+): { text: string; value: number; cites: AskCite[] } | null {
+  const place = thing.member?.places.filter((p) => p.at <= at).at(-1);
+  if (!place) return null;
+  const text = `${thing.label} ${place.text}`;
+  return {
+    text: `${text}, since ${clockOf(place.at)}.`,
+    value: place.text === 'is out' ? 0 : 1,
+    cites: [{ at: place.at, thingId: thing.id, kind: 'member', text }],
+  };
 }
 function valueAt(t: Track, at: number): StatEvent['value'] {
   let v: StatEvent['value'] = null;
@@ -683,7 +720,7 @@ function countFigure(t: Track, n: number): string {
   const [one, many] =
     voice === 'drink'
       ? ['drink', 'drinks']
-      : voice === 'cat'
+      : voice === 'cat' || voice === 'member'
         ? ['visit', 'visits']
         : voice === 'pointer'
           ? ['stretch', 'stretches']
@@ -719,6 +756,11 @@ export function answerAsk(q: AskQuery, history: AskHistory, now: number): RoomAn
   if (q.measure === 'useBy')
     return { ...empty, ...foodAnswer(q, history, now), query: q, clarify: null };
   const span = windowOf(q, now);
+  const member = q.thing === null ? null : history.things.find((t) => t.id === q.thing && t.member);
+  if (member && q.measure === 'now') {
+    const where = memberNow(member, now);
+    if (where) return { ...empty, text: where.text, cites: where.cites, query: q, clarify: null };
+  }
   const trackOf = (thing: AskThing, key: StatKey): Track => ({
     thing,
     key,
@@ -882,6 +924,8 @@ function stateWords(t: Track, on: boolean): string {
       return on ? 'the cat was on its tree' : 'the cat was off its tree';
     case 'zone':
       return on ? `something was in ${name}` : `${name} was empty`;
+    case 'member':
+      return on ? `${name} was home` : `${name} was out`;
     case 'screen':
       return `your screen was ${on ? 'on' : 'off'}`;
     case 'pointer':
@@ -1063,6 +1107,18 @@ export function askThingsOf(memory: DeskMemory): AskThing[] {
   });
   for (const r of memory.rules ?? [])
     things.push({ id: zoneThingId(r.id), label: r.label, stats: ['occupied'], zone: true });
+  // People and pets: where they are now, and how long home when that stat is on.
+  const fixtures = memory.fixtures ?? [];
+  for (const f of fixtures) {
+    if (!isMemberType(f.type)) continue;
+    const member = {
+      type: f.type,
+      places: [{ at: Date.parse(f.updatedAt) || 0, text: memberPlace(f, fixtures).text }],
+    };
+    const kept = things.find((t) => t.id === f.id);
+    if (kept) kept.member = member;
+    else things.push({ id: f.id, label: f.label, stats: [], member });
+  }
   return things;
 }
 
@@ -1110,6 +1166,9 @@ export function askExamples(things: readonly AskThing[], max = 6): AskExample[] 
         break;
       case 'zone':
         ex(`In ${t.label.toLowerCase()}`, `How long was something in ${mine(t)} today?`);
+        break;
+      case 'member':
+        ex(`Where’s ${t.label}?`, `Where is ${t.label} now?`);
         break;
       default:
         if (key === 'lastUsed') ex(`${Label(t)} last used`, `When did I last use ${mine(t)}?`);
@@ -1171,6 +1230,13 @@ const THING_WORDS: [RegExp, RegExp][] = [
 /** The thing a piece of a question names: by its own words, else by what it is called. */
 function thingIn(text: string, things: readonly AskThing[], except?: string): AskThing | undefined {
   const pool = things.filter((t) => t.id !== except);
+  // A person or pet by their name, however short: "Sam".
+  const named = pool.find(
+    (t) =>
+      t.member &&
+      new RegExp(`\\b${t.label.toLowerCase().replace(/\W+/g, ' ').trim()}\\b`).test(text),
+  );
+  if (named) return named;
   const own = pool.find((t) =>
     t.label
       .toLowerCase()
@@ -1179,6 +1245,10 @@ function thingIn(text: string, things: readonly AskThing[], except?: string): As
       .some((w) => text.includes(w)),
   );
   if (own) return own;
+  if (/\b(dog|doggo|puppy|pup)\b/.test(text)) {
+    const dog = pool.find((t) => t.member?.type === 'dog');
+    if (dog) return dog;
+  }
   for (const [label, words] of THING_WORDS)
     if (words.test(text)) {
       const found = pool.find((t) => label.test(t.label));
@@ -1234,32 +1304,38 @@ export function demoAsk(question: string, things: readonly AskThing[]): AskQuery
   else if (/\bthis week\b|\bweek\b/.test(q)) ((window = 'days'), (amount = 7));
 
   const summary = /what happened|summary|so far|my day|how was (my|the) day|anything/.test(q);
+  const where =
+    /\bwhere\b/.test(q) ||
+    (thing?.member !== undefined && /\b(is|are)\b.*\b(home|in|out)\b\??$/.test(main));
   const measure: AskMeasure = useBy
     ? 'useBy'
     : summary
       ? 'summary'
-      : /\blongest\b.*\b(without|between|gap|off|idle|empty)\b|\bwithout\b.*\blongest\b|\blongest gap\b/.test(
-            q,
-          )
-        ? 'longestGap'
-        : /\blongest\b|\bbiggest\b/.test(q)
-          ? 'longest'
-          : /\bfirst\b/.test(q)
-            ? 'first'
-            : /\b(last|latest)\b/.test(q) && /\bwhen\b/.test(q)
-              ? 'last'
-              : /\bhow many\b|\bhow often\b|\btimes\b|\bcount\b/.test(q)
-                ? 'count'
-                : /\bhow long\b|\bhow much time\b|\bscreen time\b|\bduration\b/.test(q)
-                  ? 'duration'
-                  : /\b(is|are)\b.*\b(on|now|there|up)\b|\bright now\b|\bcurrently\b/.test(main) &&
-                      during === undefined
-                    ? 'now'
-                    : thing?.stats[0] === 'lastUsed'
-                      ? 'count'
-                      : thing
-                        ? 'duration'
-                        : 'summary';
+      : where
+        ? 'now'
+        : /\blongest\b.*\b(without|between|gap|off|idle|empty)\b|\bwithout\b.*\blongest\b|\blongest gap\b/.test(
+              q,
+            )
+          ? 'longestGap'
+          : /\blongest\b|\bbiggest\b/.test(q)
+            ? 'longest'
+            : /\bfirst\b/.test(q)
+              ? 'first'
+              : /\b(last|latest)\b/.test(q) && /\bwhen\b/.test(q)
+                ? 'last'
+                : /\bhow many\b|\bhow often\b|\btimes\b|\bcount\b/.test(q)
+                  ? 'count'
+                  : /\bhow long\b|\bhow much time\b|\bscreen time\b|\bduration\b/.test(q)
+                    ? 'duration'
+                    : /\b(is|are)\b.*\b(on|now|there|up)\b|\bright now\b|\bcurrently\b/.test(
+                          main,
+                        ) && during === undefined
+                      ? 'now'
+                      : thing?.stats[0] === 'lastUsed'
+                        ? 'count'
+                        : thing
+                          ? 'duration'
+                          : 'summary';
   const compare: AskQuery['compare'] = /\busual(ly)?\b|\baverage\b|\bnormal(ly)?\b|\btypical/.test(
     q,
   )

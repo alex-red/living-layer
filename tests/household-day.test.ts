@@ -20,7 +20,7 @@ const byLabel = (fixtures: Fixture[], label: string) => fixtures.find((f) => f.l
 describe('the household’s day', () => {
   it('says where each of them is and since when', () => {
     expect(householdAt('Robin', 500)).toMatchObject({ spot: 'chair', since: 440 });
-    expect(householdAt('Robin', 900)).toMatchObject({ spot: 'away', since: 775 });
+    expect(householdAt('Robin', 900)).toMatchObject({ spot: 'away', since: 745 });
     expect(householdAt('Miso', 600)).toMatchObject({ spot: 'plant', pose: 'sleeping' });
   });
 
@@ -29,7 +29,7 @@ describe('the household’s day', () => {
     expect(events.map((e) => e.at)).toEqual(events.map((e) => e.at).toSorted((a, b) => a - b));
     expect(events).toContainEqual({ at: 420, name: 'Robin', text: 'Robin came home', home: true });
     expect(events).toContainEqual({
-      at: 775,
+      at: 1065,
       name: 'Biscuit',
       text: 'Biscuit went out for a walk',
       home: false,
@@ -57,7 +57,7 @@ describe('the Home room replayed', () => {
   it('leaves out whoever is out, and puts the cat to sleep by the plant', async () => {
     const room = householdReplay(await home(), 900);
     expect(byLabel(room, 'Robin')).toBeUndefined();
-    expect(byLabel(room, 'Biscuit')).toBeUndefined();
+    expect(byLabel(room, 'Biscuit')?.state).toBe('lying');
     expect(byLabel(room, 'Miso')?.state).toBe('idle');
     expect(byLabel(householdReplay(await home(), 600), 'Miso')?.state).toBe('sleeping');
   });

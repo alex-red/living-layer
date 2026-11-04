@@ -424,6 +424,15 @@ export const fixturesSeatBodySchema = z
   })
   .strict();
 export type FixturesSeatBody = z.input<typeof fixturesSeatBodySchema>;
+export const fixturesAwayBodySchema = z
+  .object({
+    mode: modeSchema,
+    /** The person or pet who went out, or came home. */
+    id: z.string().uuid(),
+    away: z.boolean(),
+  })
+  .strict();
+export type FixturesAwayBody = z.input<typeof fixturesAwayBodySchema>;
 
 /** GET /api/fixtures/reference */
 export const fixturesReferenceQuerySchema = z.object({ runId: z.string().uuid() }).strict();

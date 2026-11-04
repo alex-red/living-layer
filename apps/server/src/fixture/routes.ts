@@ -10,6 +10,7 @@ import {
   fixturesLayerBodySchema,
   fixturesPhotoBodySchema,
   fixturesPromoteBodySchema,
+  fixturesAwayBodySchema,
   fixturesSeatBodySchema,
   standUp,
   fixturesReferenceQuerySchema,
@@ -33,7 +34,7 @@ import { draftFixture, refitFixture } from './draft.js';
 import { editFixture } from './edit.js';
 import { findFixture } from './find.js';
 import { promoteFixture } from './promote.js';
-import { seatFixture } from './seat.js';
+import { seatFixture, setAway } from './seat.js';
 import { refineFixture } from './refine.js';
 import { chooseDraft, saveFixture, setFixtureState } from './save.js';
 import { scanFixtures } from './scan.js';
@@ -121,6 +122,10 @@ export async function fixtureRoutes(
   /** Sit a person down in a seat, drawn into its model, or stand them up. */
   app.post('/seat', async (request) =>
     seatFixture(deps, parseInput(fixturesSeatBodySchema, request.body)),
+  );
+  /** A person or pet goes out, or comes home. */
+  app.post('/away', async (request) =>
+    setAway(deps, parseInput(fixturesAwayBodySchema, request.body)),
   );
   /** The reference photo a fixture was drafted from, for review and the inspector. */
   app.get('/reference', async (request, reply) => {

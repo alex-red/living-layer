@@ -1,4 +1,5 @@
 import {
+  fixturesAwayBodySchema,
   fixturesSeatBodySchema,
   groupBounds,
   isMember,
@@ -49,6 +50,31 @@ export async function seatFixture(
     const next = seatPerson(m.fixtures ?? [], id, seatId, now);
     if ('reason' in next) throw new LabError('fixture_seat', next.reason, 422);
     m.fixtures = next;
+    return m;
+  });
+}
+
+/**
+ * A person or pet goes out, or comes home. Going out stands them up first:
+ * their seat shows its own model again.
+ */
+export function setAway(
+  { store }: Pick<RouteDeps, 'store'>,
+  { mode, id, away }: Parsed<typeof fixturesAwayBodySchema>,
+): DeskMemory {
+  const member = store.memory(mode).fixtures?.find((f) => f.id === id);
+  if (!member) throw new LabError('fixture_unknown', 'That one is not in this desk memory.', 404);
+  if (!isMember(member))
+    throw new LabError('fixture_away', 'Only a person or a pet goes out.', 400);
+  const now = new Date().toISOString();
+  return store.updateMemory(mode, (m) => {
+    const fixtures =
+      away && member.seatedOn ? standUp(m.fixtures ?? [], id, now) : (m.fixtures ?? []);
+    m.fixtures = fixtures.map((f) => {
+      if (f.id !== id) return f;
+      const { away: _was, ...rest } = f;
+      return { ...rest, ...(away ? { away: true as const } : {}), updatedAt: now };
+    });
     return m;
   });
 }

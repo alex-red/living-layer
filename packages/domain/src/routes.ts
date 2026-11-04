@@ -177,6 +177,7 @@ interface ApiRoutes {
     response: { memory: DeskMemory; fixtureId: string; pictured: boolean };
   };
   'fixtures/seat': { body: R.FixturesSeatBody; response: DeskMemory };
+  'fixtures/away': { body: R.FixturesAwayBody; response: DeskMemory };
   'fixtures/delete': { body: R.FixturesDeleteBody; response: DeskMemory };
   'fixtures/anchor': { body: R.FixturesAnchorBody; response: DeskMemory };
   'fixtures/untrack': { body: R.ModeId; response: DeskMemory };
