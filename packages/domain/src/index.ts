@@ -14,6 +14,7 @@ export * from './outline.js';
 export * from './appearance.js';
 export * from './iso.js';
 export * from './iso-item.js';
+export * from './item-build.js';
 export * from './recipe.js';
 export * from './recipe-ops.js';
 export * from './selection.js';

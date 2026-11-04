@@ -8,6 +8,7 @@ import {
   type ItemPart,
   type Paint,
 } from './iso-item.js';
+import { lathe as turned, rbox, tube } from './item-build.js';
 
 /**
  * Recipes for the objects people put on desks: each turns a few measured
@@ -715,41 +716,26 @@ export function catItem(label = 'Cat', pose: CatPose = 'idle', colors: string[] 
 export function catTreeItem(label = 'Cat tree', colors: string[] = []): IsoItem {
   const plush = colors[0] ?? '#8d8f94';
   const sisal = colors[1] ?? '#c9b48f';
-  const straight = [
-    { r: 1, z: 0 },
-    { r: 1, z: 1 },
-  ];
-  const part = (
-    id: string,
-    shape: 'rbox' | 'lathe',
-    at: [number, number, number],
-    size: [number, number, number],
-    color: string,
-    extra: Record<string, unknown> = {},
-  ) =>
-    ({
-      id,
-      shape,
-      at: { x: at[0], y: at[1], z: at[2] },
-      size: { w: size[0], d: size[1], h: size[2] },
-      color,
-      taper: 1,
-      material: 'fabric' as const,
-      ...(shape === 'lathe' ? { profile: straight } : { radius: 0.15 }),
-      ...extra,
-    }) as ItemPart;
+  const fabric = { material: 'fabric' as const };
+  const soft = (color: string) => ({ ...fabric, color, radius: 0.15 });
   return {
     label,
     parts: [
-      part('base', 'rbox', [0, 0, 0], [1, 1, 0.08], plush),
+      rbox('base', [0, 0, 0], [1, 1, 0.08], soft(plush)),
       // The room sees the +x and +y sides: the cubby, its door and the low platform face it.
-      part('cubby', 'rbox', [0.5, 0.5, 0.08], [0.46, 0.46, 0.44], plush),
-      part('door', 'rbox', [0.94, 0.6, 0.16], [0.04, 0.26, 0.28], '#2b2d33', { radius: 0.5 }),
-      part('post-high', 'lathe', [0.62, 0.12, 0.08], [0.16, 0.16, 1.94], sisal),
-      part('post-low', 'lathe', [0.14, 0.66, 0.08], [0.16, 0.16, 1.0], sisal),
-      part('platform', 'rbox', [0.02, 0.5, 1.08], [0.46, 0.46, 0.06], plush),
-      part('perch', 'rbox', [0.5, 0.0, 1.3], [0.46, 0.4, 0.06], plush),
-      part('bed', 'lathe', [0.42, 0.0, 2.02], [0.58, 0.58, 0.16], plush, {
+      rbox('cubby', [0.5, 0.5, 0.08], [0.46, 0.46, 0.44], soft(plush)),
+      rbox('door', [0.94, 0.6, 0.16], [0.04, 0.26, 0.28], {
+        ...fabric,
+        color: '#2b2d33',
+        radius: 0.5,
+      }),
+      turned('post-high', [0.62, 0.12, 0.08], [0.16, 0.16, 1.94], { ...fabric, color: sisal }),
+      turned('post-low', [0.14, 0.66, 0.08], [0.16, 0.16, 1.0], { ...fabric, color: sisal }),
+      rbox('platform', [0.02, 0.5, 1.08], [0.46, 0.46, 0.06], soft(plush)),
+      rbox('perch', [0.5, 0.0, 1.3], [0.46, 0.4, 0.06], soft(plush)),
+      turned('bed', [0.42, 0.0, 2.02], [0.58, 0.58, 0.16], {
+        ...fabric,
+        color: plush,
         profile: [
           { r: 0.85, z: 0 },
           { r: 1, z: 0.4 },
@@ -757,21 +743,19 @@ export function catTreeItem(label = 'Cat tree', colors: string[] = []): IsoItem 
         ],
         wall: 0.22,
       }),
-      {
-        id: 'string',
-        shape: 'tube' as const,
-        at: { x: 0.4, y: 0.88, z: 0.82 },
-        size: { w: 0.04, d: 0.04, h: 0.26 },
-        color: '#e9e4d8',
-        taper: 1,
-        material: 'matte' as const,
-        path: [
-          { x: 0.5, y: 0.5, z: 1 },
-          { x: 0.5, y: 0.5, z: 0 },
+      tube(
+        'string',
+        [0.4, 0.88, 0.82],
+        [0.04, 0.04, 0.26],
+        [
+          [0.5, 0.5, 1],
+          [0.5, 0.5, 0],
         ],
-        radius: 0.008,
-      },
-      part('toy', 'lathe', [0.37, 0.85, 0.72], [0.1, 0.1, 0.1], '#d9534f', {
+        { color: '#e9e4d8', material: 'matte', radius: 0.008 },
+      ),
+      turned('toy', [0.37, 0.85, 0.72], [0.1, 0.1, 0.1], {
+        ...fabric,
+        color: '#d9534f',
         profile: [
           { r: 0.2, z: 0 },
           { r: 1, z: 0.5 },

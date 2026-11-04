@@ -29,7 +29,7 @@ const extent = z.number().min(0.02).max(3);
 const tall = z.number().min(0.02).max(6);
 const share = z.number().min(0).max(1);
 /** Decal pixels: one character per pixel, an index into `colors`, or `.` for none. */
-const DECAL_CHARS = '0123456789abcdef';
+export const DECAL_CHARS = '0123456789abcdef';
 /** How a print's letters are set: joined handwriting, plain, with serifs, or heavy. */
 const PRINT_STYLES = ['script', 'sans', 'serif', 'bold'] as const;
 /**
