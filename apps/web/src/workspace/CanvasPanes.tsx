@@ -40,6 +40,7 @@ import type { StageView } from '../session';
 import { Button, Check, Segmented, type Option } from '../ui/controls';
 import { cameraFilterView } from './cameraFilter';
 import { CameraFilterLayer } from './CameraFilterLayer';
+import { followDraw } from './followLayers';
 import {
   useAi,
   useCalibration,
@@ -696,15 +697,19 @@ function FollowLayers() {
   const { follow, watching, memory, segmentation } = lab;
   const selected = selectedThing(lab.selection, memory);
   const { zoneShown } = useZoneView();
-  // The tracking layer replaces the follow and watch boxes on the camera with ones fitted to the video.
-  const tracked = lab.camera && lab.tracking;
   // The watcher's boxes belong over a picture: with none yet (the camera opening), they float on nothing.
-  const picture = lab.camera || Boolean(lab.image) || lab.mode === 'demo';
+  const draw = followDraw({
+    camera: Boolean(lab.camera),
+    tracking: lab.tracking,
+    follow: Boolean(follow),
+    watching: Boolean(watching),
+    picture: Boolean(lab.image) || lab.mode === 'demo',
+  });
   return (
     <>
-      {follow && !tracked && <FollowOverlay localZone={lab.localZone} zoneShown={zoneShown} />}
-      {!follow && !tracked && watching && picture && <WatchedBoxes selected={selected} />}
-      {tracked && (
+      {draw === 'follow' && <FollowOverlay localZone={lab.localZone} zoneShown={zoneShown} />}
+      {draw === 'watch' && <WatchedBoxes selected={selected} />}
+      {draw === 'tracking' && (
         <WatchedTracking
           video={lab.video}
           selected={selected}
