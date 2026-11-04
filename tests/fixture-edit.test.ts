@@ -1,6 +1,12 @@
 import { describe, expect, it, mock } from 'bun:test';
 import {
   demoEdit,
+  detailResolution,
+  editNote,
+  editorVoxels,
+  editPrompt,
+  floorLampItem,
+  type SculptPart,
   fixtureInput,
   mugItem,
   type DeskMemory,
@@ -21,6 +27,55 @@ async function addThing(post: Awaited<ReturnType<typeof testApp>>['post'], mode:
   return saved.json<DeskMemory>().fixtures!.at(-1)!;
 }
 
+const lamp = (): IsoItem => floorLampItem();
+/** The lamp's base with its profile's top a sliver narrower: far less than a voxel. */
+const sliver = <P extends { id: string; profile?: { r: number; z: number }[] | null }>(
+  parts: P[],
+) =>
+  parts.map((p) =>
+    p.id === 'base' && p.profile
+      ? {
+          ...p,
+          profile: p.profile.map((q, i, all) =>
+            i === all.length - 1 ? { ...q, r: q.r - 0.001 } : q,
+          ),
+        }
+      : p,
+  );
+
+/** Spark answering an edit with the parts `change` makes of the ones it was sent, and what it was asked. */
+function sparkAnswers(note: string, change: (parts: SculptPart[]) => SculptPart[]) {
+  const asked: { text: string; images: number }[] = [];
+  const fetcher = mock<Fetcher>().mockImplementation(async (_url, init) => {
+    const body = JSON.parse(String(init?.body));
+    const content = body.input[0].content as { type: string; text?: string }[];
+    const text = content.find((c) => c.type === 'input_text')?.text ?? '';
+    asked.push({ text, images: content.filter((c) => c.type === 'input_image').length });
+    // The model's parts are the prompt's last line, as Spark's own shape.
+    const parts = change(JSON.parse(text.slice(text.lastIndexOf('\n') + 1)) as SculptPart[]);
+    return new Response(
+      JSON.stringify({
+        id: 'resp_spark',
+        object: 'response',
+        model: 'muse-spark-1.3',
+        status: 'completed',
+        output: [
+          {
+            type: 'message',
+            role: 'assistant',
+            content: [
+              { type: 'output_text', text: JSON.stringify({ note, parts }), annotations: [] },
+            ],
+          },
+        ],
+        usage: { input_tokens: 100, output_tokens: 20, total_tokens: 120 },
+      }),
+      { headers: { 'content-type': 'application/json', 'x-request-id': 'req-spark' } },
+    );
+  });
+  return { fetcher, asked };
+}
+
 describe('the demo’s AI edit', () => {
   it('paints the parts a colour names, else every part, and does nothing else', () => {
     const item = mug();
@@ -39,6 +94,41 @@ describe('the demo’s AI edit', () => {
     expect(kept.item.parts.find((p) => p.id === 'body')!.color).toBe(
       item.parts.find((p) => p.id === 'body')!.color,
     );
+  });
+});
+
+describe('how an edit shows', () => {
+  it('draws a tall, thin model with more voxels, and a squat one as its preset says', () => {
+    expect(detailResolution(lamp().parts, 64)).toBe(192);
+    expect(detailResolution(mug().parts, 64)).toBe(64);
+  });
+
+  it('says so when an edit changes parts but nothing the editor draws', () => {
+    const before = lamp();
+    const note = editNote(before, { ...before, parts: sliver(before.parts) }, 'Rounded the base');
+    expect(note).toBe(
+      'Rounded the base. Nothing changed that shows at this size: ask for a bigger change, or one to a larger part.',
+    );
+  });
+
+  it('keeps the note of an edit that shows, or of parts given back unchanged', () => {
+    const before = lamp();
+    const red = before.parts.map((p) => (p.id === 'base' ? { ...p, color: '#c8423b' } : p));
+    expect(editNote(before, { ...before, parts: red }, 'Painted the base red.')).toBe(
+      'Painted the base red.',
+    );
+    expect(editNote(before, lamp(), 'It can’t have a drawer.')).toBe('It can’t have a drawer.');
+  });
+
+  it('tells Spark how many voxels draw the model', () => {
+    const asked = editPrompt(
+      'Floor lamp',
+      { w: 1, d: 1, h: 4.85 },
+      'round the base',
+      false,
+      editorVoxels(lamp().parts),
+    );
+    expect(asked).toContain('drawn in voxels, about 40 across its footprint and 192 tall');
   });
 });
 
@@ -71,55 +161,9 @@ describe('POST /api/fixtures/edit', () => {
   });
 
   it('asks Spark live with the model’s parts and render, keeping the parts the person locked', async () => {
-    const asked: { text: string; images: number }[] = [];
-    const fetcher = mock<Fetcher>().mockImplementation(async (_url, init) => {
-      const body = JSON.parse(String(init?.body));
-      const content = body.input[0].content as { type: string; text?: string }[];
-      asked.push({
-        text: content.find((c) => c.type === 'input_text')?.text ?? '',
-        images: content.filter((c) => c.type === 'input_image').length,
-      });
-      const parts = mugItem().parts.map((p) => ({
-        id: p.id,
-        shape: p.shape,
-        at: p.at,
-        size: p.size,
-        color: '#c8423b',
-        material: 'gloss',
-        profile: p.shape === 'lathe' ? p.profile : null,
-        path: p.shape === 'tube' ? p.path : null,
-        outline: null,
-        radius: p.shape === 'tube' ? (p.radius ?? null) : null,
-        rough: null,
-        wall: p.shape === 'lathe' ? (p.wall ?? null) : null,
-        inside: null,
-        bands: null,
-        prints: null,
-      }));
-      return new Response(
-        JSON.stringify({
-          id: 'resp_spark',
-          object: 'response',
-          model: 'muse-spark-1.3',
-          status: 'completed',
-          output: [
-            {
-              type: 'message',
-              role: 'assistant',
-              content: [
-                {
-                  type: 'output_text',
-                  text: JSON.stringify({ note: 'Made it red.', parts }),
-                  annotations: [],
-                },
-              ],
-            },
-          ],
-          usage: { input_tokens: 100, output_tokens: 20, total_tokens: 120 },
-        }),
-        { headers: { 'content-type': 'application/json', 'x-request-id': 'req-spark' } },
-      );
-    });
+    const { fetcher, asked } = sparkAnswers('Made it red.', (parts) =>
+      parts.map((p) => ({ ...p, color: '#c8423b' })),
+    );
     const { post, memory } = await testApp({
       name: 'edit-live',
       env: { MODEL_API_KEY: 'test-key', META_LIVE_ENABLED: 'true' },
@@ -151,5 +195,24 @@ describe('POST /api/fixtures/edit', () => {
     // Nothing is saved: the thing keeps its own model.
     const after = (await memory('live')).fixtures!.find((f) => f.id === thing.id)!;
     expect(after.model.parts.map((p) => p.color)).toEqual(thing.model.parts.map((p) => p.color));
+  });
+
+  it('says live when Spark’s change doesn’t show at the size it is drawn', async () => {
+    const { fetcher, asked } = sparkAnswers('Rounded the base.', sliver);
+    const { post } = await testApp({
+      name: 'edit-unseen',
+      env: { MODEL_API_KEY: 'test-key', META_LIVE_ENABLED: 'true' },
+      fetcher,
+    });
+    const thing = await addThing(post, 'live');
+    const res = await post('fixtures/edit', {
+      mode: 'live',
+      fixtureId: thing.id,
+      prompt: 'make the base rounder',
+      item: lamp(),
+    });
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json<{ note: string }>().note).toContain('Nothing changed that shows at this size');
+    expect(asked[0]!.text).toContain('drawn in voxels');
   });
 });

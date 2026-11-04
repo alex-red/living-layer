@@ -1,6 +1,8 @@
 import {
   demoEdit,
   EDIT_PROMPT_VERSION,
+  editNote,
+  editorVoxels,
   editPrompt,
   fixtureSize,
   type FixtureEditOutput,
@@ -65,11 +67,12 @@ export async function editFixture(
         'edit_demo',
         'The demo’s AI edits only recolour: try “make the handle red”. Switch to Live for anything else.',
       );
+    const note = editNote(from, answer.item, answer.note);
     const event = await run('fixture', mode, async () => ({
-      output: output(answer.item, answer.note),
+      output: output(answer.item, note),
       promptVersion: 'edit-demo',
     }));
-    return { run: event, item: answer.item, note: answer.note };
+    return { run: event, item: answer.item, note };
   }
   const photo = storedCloseUp(store, fixture);
   meta.mustAfford(sparkCeiling(SPARK_BUDGET.sculptEdit, photo ? 2 : 1), 'This edit');
@@ -91,6 +94,7 @@ export async function editFixture(
         proportions(fixtureSize(fixture)),
         prompt,
         Boolean(photo),
+        editorVoxels(from.parts),
       );
       const images = await Promise.all([...(photo ? [photo.png] : []), render].map(shown));
       const answer = await meta.sculptEdit(
@@ -108,11 +112,12 @@ export async function editFixture(
           502,
         );
       const edited = keepLocked(read, from);
+      const note = editNote(from, edited, answer.output.note);
       const after = await viewPng(edited, ISO_ELEVATION, EDIT_RENDER_PX);
       assets.push(store.asset(id, 'render-2.png', after));
-      await job.done('edit', answer.output.note, after);
+      await job.done('edit', note, after);
       return {
-        output: output(edited, answer.output.note),
+        output: output(edited, note),
         model: answer.model,
         requestId: answer.requestId,
         usage: answer.usage,

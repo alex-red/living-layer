@@ -18,6 +18,7 @@ import { Database } from 'bun:sqlite';
 import sharp from 'sharp';
 import {
   STARTER_TEMPLATES,
+  detailResolution,
   ITEM_SPRITES,
   fromSculpt,
   renderSprite,
@@ -174,7 +175,9 @@ export async function spritePng(
 ): Promise<{ png: Buffer; width: number; height: number }> {
   const preset = ITEM_SPRITES[look.preset ?? 'editor'] as { scale?: number; resolution: number };
   const s = renderSprite(
-    voxelize(item.parts, { resolution: look.resolution ?? preset.resolution }),
+    voxelize(item.parts, {
+      resolution: detailResolution(item.parts, look.resolution ?? preset.resolution),
+    }),
     {
       scale: look.scale ?? preset.scale ?? 3,
       pixel: look.pixel ?? 1,

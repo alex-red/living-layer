@@ -342,17 +342,19 @@ export function editPrompt(
   size: { w: number; d: number; h: number },
   request: string,
   photo: boolean,
+  voxels: { across: number; tall: number },
 ): string {
   return [
     `This is a small parametric 3D model of a ${label.toLowerCase()}, made of at most 12 parts. ${photo ? 'The first image is a photo of the thing; the second is' : 'The image is'} how the model renders now; its parts are given below as JSON.`,
     `Change it as the person asks: "${request}". Change only what the request is about: every other part stays exactly as it is, with the same id, box, shape and colour.${photo ? ' Use the photo only to tell what the request refers to.' : ''}`,
     `It stands ${size.w.toFixed(2)} wide, ${size.d.toFixed(2)} deep and ${size.h.toFixed(2)} tall, as its footprint's longer side is 1. Keep it inside that box unless the request is about its size.`,
+    `It is drawn in voxels, about ${voxels.across} across its footprint and ${voxels.tall} tall. Blocky edges are those voxels, not its parts: a lathe is already round. A change smaller than a voxel doesn't show, so make each change at least a voxel or two big; when the request can't show at this size, say so in note.`,
     ...SCULPT_FORMAT,
     'Say in note, in one short sentence, what you changed. When the request can’t be done with these parts, give the parts back unchanged and say why in note.',
   ].join('\n');
 }
 /** Which edit prompt a run sent, as `SCULPT_PROMPT_VERSION` tells sculpt prompts apart. */
-export const EDIT_PROMPT_VERSION = `edit-${textHash(editPrompt('thing', { w: 1, d: 1, h: 1 }, 'request', true))}`;
+export const EDIT_PROMPT_VERSION = `edit-${textHash(editPrompt('thing', { w: 1, d: 1, h: 1 }, 'request', true, { across: 1, tall: 1 }))}`;
 /**
  * Which sculpt prompt a run sent: a hash of its fixed lines and format, so
  * the run log tells one prompt from the next.

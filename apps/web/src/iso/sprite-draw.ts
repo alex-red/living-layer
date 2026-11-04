@@ -1,4 +1,5 @@
 import {
+  detailResolution,
   propSpriteKey,
   renderPropSprite,
   renderSprite,
@@ -111,14 +112,17 @@ export function draw(r: SpriteRequest): Drawn {
   const s =
     r.kind === 'prop'
       ? renderPropSprite(r.prop, r.lit)
-      : renderSprite(voxelize(r.item.parts, { resolution: r.resolution }), {
-          scale: r.scale,
-          ...(r.pixel !== undefined ? { pixel: r.pixel } : {}),
-          // A thing is drawn as pixel art is, its prints lettered per pixel; props keep the room's dither.
-          finish: 'clean',
-          ...(r.select !== undefined ? { select: r.select } : {}),
-          ...(r.glow ? { glow: '#ffb866' } : {}),
-        });
+      : renderSprite(
+          voxelize(r.item.parts, { resolution: detailResolution(r.item.parts, r.resolution) }),
+          {
+            scale: r.scale,
+            ...(r.pixel !== undefined ? { pixel: r.pixel } : {}),
+            // A thing is drawn as pixel art is, its prints lettered per pixel; props keep the room's dither.
+            finish: 'clean',
+            ...(r.select !== undefined ? { select: r.select } : {}),
+            ...(r.glow ? { glow: '#ffb866' } : {}),
+          },
+        );
   return {
     rgba: s.rgba,
     width: s.width,

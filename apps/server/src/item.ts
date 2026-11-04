@@ -13,6 +13,7 @@ import {
   archetypeOf,
   buildItem,
   describeFit,
+  detailResolution,
   fuseFits,
   isMugConcept,
   elevationAt,
@@ -132,7 +133,10 @@ export function pinElevation(memory: DeskMemory, mode: Mode): number | null {
 
 /** The model drawn from the photo's camera in flat colours, as a PNG for Spark to compare. */
 export async function viewPng(item: IsoItem, elevation: number, width: number): Promise<Buffer> {
-  const view = renderView(voxelize(item.parts, { resolution: 48 }), { elevation, ppu: width });
+  const view = renderView(voxelize(item.parts, { resolution: detailResolution(item.parts, 48) }), {
+    elevation,
+    ppu: width,
+  });
   const rgba = Buffer.alloc(view.width * view.height * 4);
   for (let p = 0; p < view.width * view.height; p++) {
     if (!view.mask[p]) continue;
