@@ -300,6 +300,17 @@ export function formOfName(name: string): PropForm | null {
   );
 }
 
+/** The longest side, in cm, of a thing that is a small object rather than furniture. */
+const SMALL_CM = 40;
+/**
+ * The form a new model is built from when nothing named one: a plain block
+ * for a small thing the camera measured (a coaster, a remote), so it isn't
+ * drawn as a chest of drawers; a cabinet for anything bigger or unmeasured.
+ */
+export function fallbackForm(sizeCm: { w: number; d: number; h: number } | null): PropForm {
+  return sizeCm && Math.max(sizeCm.w, sizeCm.d, sizeCm.h) <= SMALL_CM ? 'butter' : 'cabinet';
+}
+
 /**
  * A new model's footprint when nothing measured it, in cm: the usual size
  * of its form, else the room's template of that name (a monitor's 61 cm),
@@ -343,6 +354,41 @@ export function photoColor(rgba: Uint8ClampedArray | Uint8Array, mask: Bits): st
     if (mask.data[i]) pixels.push(rgbLab([rgba[i * 4]!, rgba[i * 4 + 1]!, rgba[i * 4 + 2]!]));
   if (pixels.length < 50) return null;
   return clusterColours(pixels, 4).clusters[0]?.hex ?? null;
+}
+
+/**
+ * How high, in tiles, the thing an outline shows stands: the top of the
+ * highest of the room's surfaces its foot (the outline's bottom middle, as
+ * `photoBox` takes it) lands on through the camera, else the floor. For a new
+ * thing, which has no place in the room to say it stands on the desk; seen
+ * from a high corner, a coaster measured as standing on the floor would be
+ * a big thing far off.
+ */
+export function outlineRests(
+  camera: RoomCamera,
+  scene: Pick<IsoScene, 'surfaces'>,
+  mask: Bits,
+): number {
+  let [x0, x1, y1] = [Infinity, -1, -1];
+  for (let i = 0; i < mask.data.length; i++)
+    if (mask.data[i]) {
+      const x = i % mask.width;
+      [x0, x1, y1] = [Math.min(x0, x), Math.max(x1, x), Math.floor(i / mask.width)];
+    }
+  if (y1 < 0) return 0;
+  const foot = { x: (x0 + x1) / 2, y: y1 };
+  for (const s of [...scene.surfaces].sort((a, b) => b.z - a.z)) {
+    const p = unprojectRoom(camera, foot, s.z);
+    if (
+      p &&
+      p.x >= s.rect.x &&
+      p.x <= s.rect.x + s.rect.w &&
+      p.y >= s.rect.y &&
+      p.y <= s.rect.y + s.rect.d
+    )
+      return s.z;
+  }
+  return 0;
 }
 
 /** The outline is compared with a box at a quarter of the frame's size: plenty for a size. */

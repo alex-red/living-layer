@@ -24,6 +24,8 @@ import {
   propModel,
   recipeFromForm,
   defaultSize,
+  fallbackForm,
+  outlineRests,
   refineRecipe,
   RECIPE_TARGET,
   renderRoom,
@@ -143,6 +145,27 @@ describe("sizing a thing from the camera's outline", () => {
       floor: lamp.at.z,
     })!;
     expect(Math.abs(box.h / (lamp.size.h * 30) - 1)).toBeLessThan(0.1);
+  });
+
+  it('measures a new thing standing on the surface its outline’s foot lands on', () => {
+    // The room has no place for a new thing to say it stands on the desk: its outline does.
+    const lamp = groupBounds(DEMO_ROOM, 'lamp')!;
+    const seen = roomMask(frame, 'lamp')!;
+    const rests = outlineRests(DEMO_CAMERA, DEMO_ROOM, seen);
+    expect(rests).toBeCloseTo(lamp.at.z);
+    const box = photoBox(DEMO_CAMERA, seen, DEMO_ROOM.grid, { floor: rests })!;
+    expect(Math.abs(box.h / (lamp.size.h * 30) - 1)).toBeLessThan(0.1);
+  });
+
+  it('measures a thing standing on the floor on the floor, not on a surface behind it', () => {
+    for (const g of ['desk', 'shelf'])
+      expect(outlineRests(DEMO_CAMERA, DEMO_ROOM, roomMask(frame, g)!)).toBe(0);
+  });
+
+  it('builds a small unnamed thing as a plain block, not a chest of drawers', () => {
+    expect(fallbackForm({ w: 10, d: 10, h: 1 })).toBe('butter');
+    expect(fallbackForm({ w: 60, d: 40, h: 72 })).toBe('cabinet');
+    expect(fallbackForm(null)).toBe('cabinet');
   });
 
   it('builds a new model at its template’s size when nothing measured it', () => {

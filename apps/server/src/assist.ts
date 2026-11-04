@@ -27,6 +27,8 @@ import {
   clipMask,
   META_PRICES,
   newBits,
+  fallbackForm,
+  outlineRests,
   photoBox,
   photoColor,
   placeOfGroup,
@@ -782,6 +784,10 @@ export async function finishDraft(
   const create = intent.ops.find((o) => o.op === 'create' || o.op === 'rebase');
   const stands = draft.place ?? (targetProp ? placeOfGroup(room.scene, targetProp) : null);
   const turns = stands?.turns ?? 0;
+  // Measured standing where the thing it replaces stood: a monitor on the desk, not on the floor.
+  // A new thing stands on whatever surface its outline's foot lands on: a coaster on the desk.
+  const floor = stands?.z ?? outlineRests(room.camera, room.scene, outline);
+  const box = modelAxes(photoBox(room.camera, outline, room.scene.grid, { floor }), turns);
   // Spark names a form only when one is close; a mug's isn't, and the old default made it drawers.
   const named = [
     intent.product,
@@ -792,7 +798,7 @@ export async function finishDraft(
     create?.form ??
     room.scene.props.find((p) => p.group === targetProp && p.form)?.form ??
     named.reduce<PropForm | null>((f, n) => f ?? (n ? formOfName(n) : null), null) ??
-    'cabinet';
+    fallbackForm(box && !box.cutTop ? box : null);
   // From high in a corner, what stands on a thing (a monitor, a laptop, toys on a desk) hides its
   // back, and SAM's outline of it stops short: its depth isn't the camera's, but the room's own.
   const drawn = targetProp ? groupBounds(room.scene, targetProp) : null;
@@ -802,11 +808,6 @@ export async function finishDraft(
   const drawnD = drawn
     ? Math.round(modelAxes(drawn.size, turns)!.d * ISO_TILE_CM)
     : defaultSize(form).d;
-  // Measured standing where the thing it replaces stood: a monitor on the desk, not on the floor.
-  const box = modelAxes(
-    photoBox(room.camera, outline, room.scene.grid, { floor: stands?.z ?? 0 }),
-    turns,
-  );
   const color = photoColor(rgba, outline);
   draft.photo = {
     sizeCm: box ? { w: box.w, d: box.d, h: box.h } : null,
@@ -911,7 +912,7 @@ export async function finishDraft(
   const reshaped = Boolean(create) || matchPhoto || edits.some((o) => SHAPES.includes(o.op));
   draft.place ??=
     (targetProp ? placeOfGroup(room.scene, targetProp) : null) ??
-    (box ? { cx: box.cx, cy: box.cy, z: 0, turns: 0, replaces: null } : null);
+    (box ? { cx: box.cx, cy: box.cy, z: floor, turns: 0, replaces: null } : null);
   if (!draft.previous && create && recipe && draft.place?.replaces && whole) {
     const fitted = fitNewModel(room, recipe, draft.place, whole);
     if (fitted) ({ recipe, place: draft.place, fit: draft.fit } = fitted);
