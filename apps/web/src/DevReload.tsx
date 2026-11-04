@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Button } from './ui/controls';
 import { usePageVisible } from './visible';
+import { useRecording } from './Recorder';
 import './dev-reload.css';
 
 /** What `scripts/dev.ts` has seen change since it started. */
@@ -24,6 +25,8 @@ type DevState = {
  * `bun run dev` started Vite.
  */
 export function DevReload() {
+  // A take of the page never shows this card.
+  const recording = useRecording();
   const [state, setState] = useState<DevState | null>(null);
   const loadedWith = useRef<number | null>(null);
   const [asked, setAsked] = useState(false);
@@ -41,7 +44,7 @@ export function DevReload() {
     return () => events.close();
   }, [visible]);
 
-  if (!state) return null;
+  if (!state || recording) return null;
   const web = state.web !== loadedWith.current;
   if (!web && state.server === 'running') return null;
 

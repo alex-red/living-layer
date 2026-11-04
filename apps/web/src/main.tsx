@@ -7,6 +7,7 @@ import { createRoot } from 'react-dom/client';
 import '@fontsource-variable/inter';
 import '@fontsource-variable/jetbrains-mono';
 import './styles.css';
+import { Recorder } from './Recorder';
 
 // Each page loads only its own code: the playground doesn't bring the workspace, nor it the playground.
 const Playground = lazy(() =>
@@ -30,6 +31,7 @@ createRoot(document.getElementById('root')!).render(
     <Suspense fallback={null}>
       <Page />
     </Suspense>
+    <Recorder />
     {DevReload && (
       <Suspense fallback={null}>
         <DevReload />

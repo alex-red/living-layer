@@ -15,6 +15,7 @@ export type ShortcutAction =
   | 'brush'
   | 'escape'
   | 'delete'
+  | 'record'
   | 'help';
 
 const MAC = typeof navigator !== 'undefined' && /Mac|iP(hone|ad)/.test(navigator.platform);
@@ -36,6 +37,11 @@ export const SHORTCUTS: { action: ShortcutAction; keys: string; label: string }[
   { action: 'brush', keys: 'B', label: 'AI brush: select a thing and say what to do' },
   { action: 'delete', keys: 'Delete', label: 'Delete the selected fixture (undo brings it back)' },
   { action: 'escape', keys: 'Esc', label: 'Cancel a pin, a zone, a selection or the scene picker' },
+  {
+    action: 'record',
+    keys: MAC ? '⌘ ⇧ E' : 'Ctrl Shift E',
+    label: 'Record this tab to a video, or stop (on every page)',
+  },
   { action: 'help', keys: '?', label: 'Show these shortcuts' },
 ];
 
