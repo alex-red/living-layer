@@ -138,7 +138,7 @@ await finishDraft(draft, {
   researchers,
   refiner: null,
   shaper: meta
-    ? async (recipe, place, against, check) => {
+    ? async (recipe, place, against, check, refit) => {
         const shaped = await shapeFromPhoto({
           meta: meta!,
           camera: room.camera,
@@ -149,6 +149,7 @@ await finishDraft(draft, {
           against,
           request: was.prompt,
           check,
+          refit,
           onCall: (r) => void spent.push(r.usage?.totalTokens ?? 0),
         });
         if (shaped) {

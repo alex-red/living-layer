@@ -330,7 +330,7 @@ export async function assistRoutes(
           researchers,
           refiner: live ? sparkRefiner(meta, dataUrl(crop), job.signal) : null,
           shaper: live
-            ? async (recipe, place, against, check) => {
+            ? async (recipe, place, against, check, refit) => {
                 const shaped = await shapeFromPhoto({
                   meta,
                   camera: room.camera,
@@ -341,6 +341,7 @@ export async function assistRoutes(
                   against,
                   request: input.prompt,
                   check,
+                  refit,
                   onCall: note,
                   signal: job.signal,
                 });
@@ -767,7 +768,9 @@ export async function finishDraft(
           recipe: FixtureRecipe,
           place: RecipePlace,
           against: Bits,
-          check: (r: FixtureRecipe) => RecipeCheck,
+          check: (r: FixtureRecipe, place: RecipePlace) => RecipeCheck,
+          /** Fit each look's size to the outline: the camera measured it. */
+          refit: boolean,
         ) => Promise<Shaped | null>)
       | null;
     steps: DraftSteps;
@@ -922,9 +925,15 @@ export async function finishDraft(
   // Checked against all of the thing once its place was fitted to it, not the part selected,
   // and against the photo's colours as well as its outline.
   const against = draft.fit && whole ? whole : outline;
-  const place = draft.place;
-  const check = (r: FixtureRecipe) =>
-    checkRecipe(room.camera, room.scene, r, place!, against, rgba);
+  let place = draft.place;
+  const check = (r: FixtureRecipe, at = place) =>
+    checkRecipe(room.camera, room.scene, r, at!, against, rgba);
+  // A size the camera measured is only as sure as its box, so Spark's looks are fitted to the
+  // outline in theirs; never a size looked up or asked for.
+  const refit =
+    Boolean(create) &&
+    draft.facts?.origin.size === 'photo' &&
+    !edits.some((o) => o.op === 'resize');
 
   // 7. A new model, or one asked to look like the photo, is shaped from the photo by Spark.
   steps.run('shape');
@@ -933,7 +942,7 @@ export async function finishDraft(
     const before = check(recipe);
     let failed: string | null = null;
     try {
-      shaped = await shaper(recipe, place, against, check);
+      shaped = await shaper(recipe, place, against, check, refit);
     } catch (e) {
       steps.check();
       failed = e instanceof Error ? e.message : 'it failed';
@@ -947,6 +956,7 @@ export async function finishDraft(
       );
     else if (shaped) {
       draft.recipe = recipe = shaped.recipe;
+      draft.place = place = shaped.place;
       await steps.done(
         'shape',
         `${recipe.parts.length} parts, IoU ${shaped.check.iou.toFixed(2)} (as built ${before.iou.toFixed(2)}). ${shaped.note}`,

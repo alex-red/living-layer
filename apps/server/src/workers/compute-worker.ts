@@ -1,5 +1,5 @@
 /// <reference lib="webworker" />
-import { fitItem, renderRoom, type RoomPicture } from '@livinglayer/domain';
+import { fitItem, refitRecipe, renderRoom, type RoomPicture } from '@livinglayer/domain';
 import type { ComputeJob } from './compute.js';
 
 /** Runs one of domain's pure, slow functions off the server's event loop. */
@@ -9,6 +9,9 @@ self.onmessage = (event: MessageEvent<{ id: number; job: ComputeJob }>) => {
   try {
     if (job.op === 'fit') {
       self.postMessage({ id, result: fitItem(job.input) });
+    } else if (job.op === 'refit') {
+      const { camera, scene, recipe, place, outline } = job;
+      self.postMessage({ id, result: refitRecipe(camera, scene, recipe, place, outline) });
     } else {
       const picture: RoomPicture = renderRoom(job.camera, job.solids, job.options);
       // The pixels, ids and depths move to the server without a copy.

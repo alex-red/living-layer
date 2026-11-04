@@ -664,6 +664,110 @@ export function checkRecipe(
   return { iou, missing, extra, report, deltaE: colour };
 }
 
+/**
+ * A recipe scaled evenly along each axis: every part keeps its share of the
+ * whole. Its height ends at its highest part's top, so a thin coaster
+ * scaled up isn't a tall box of air.
+ */
+function scaleRecipe(r: FixtureRecipe, k: { w: number; d: number; h: number }): FixtureRecipe {
+  const round = (v: number) => Math.round(v * 100) / 100;
+  const parts = r.parts.map((p) => ({
+    ...p,
+    atCm: { x: round(p.atCm.x * k.w), y: round(p.atCm.y * k.d), z: round(p.atCm.z * k.h) },
+    sizeCm: { w: round(p.sizeCm.w * k.w), d: round(p.sizeCm.d * k.d), h: round(p.sizeCm.h * k.h) },
+  }));
+  const top = Math.max(...parts.map((p) => p.atCm.z + p.sizeCm.h));
+  return {
+    ...r,
+    sizeCm: {
+      w: round(r.sizeCm.w * k.w),
+      d: round(r.sizeCm.d * k.d),
+      h: round(Math.min(r.sizeCm.h * k.h, top)),
+    },
+    parts,
+  };
+}
+
+/** How far a refit may scale a model along an axis, either way. */
+const REFIT_SCALE = 4;
+/** How many checks a refit may spend: each draws the room, about 20 ms. */
+const REFIT_TRIES = 200;
+/**
+ * What stretching one axis away from the model's overall size costs, in IoU
+ * per unit of log scale. Along a side the camera sees end on (a coaster's
+ * width running away from it), stretching hardly changes the outline, so
+ * without a cost its size drifts as far as it may; a real gain still pays it.
+ */
+const REFIT_STRETCH = 0.02;
+/**
+ * A model's size and footprint fitted to its outline with its own shape: each
+ * axis scaled and its middle moved where the camera's drawing of it best
+ * matches the outline (IoU), standing at the same height. From a high corner
+ * a small thing's outline fits a tall narrow box as well as a wide flat one,
+ * so the camera's box can be the wrong one; once a model has a shape (a flat
+ * coaster), only one size of it fits. For a size the camera measured, never
+ * one looked up or asked for.
+ */
+export function refitRecipe(
+  camera: RoomCamera,
+  scene: IsoScene,
+  recipe: FixtureRecipe,
+  place: RecipePlace,
+  outline: Bits,
+): { recipe: FixtureRecipe; place: RecipePlace; iou: number } {
+  // Log scale along w, d, h, then the middle's move in tiles.
+  const at = (v: number[]) => ({
+    recipe: scaleRecipe(recipe, { w: Math.exp(v[0]!), d: Math.exp(v[1]!), h: Math.exp(v[2]!) }),
+    place: { ...place, cx: place.cx + v[3]!, cy: place.cy + v[4]! },
+  });
+  let tries = 0;
+  const iouOf = (v: number[]) => {
+    tries++;
+    const c = at(v);
+    return checkRecipe(camera, scene, c.recipe, c.place, outline).iou;
+  };
+  // First its overall size: one scale for every axis, swept, since a model far off its size
+  // matches best by stretching one way and moving another, from where no single step leads back.
+  let k = 0;
+  let iou = iouOf([0, 0, 0, 0, 0]);
+  const sweep = Math.log(REFIT_SCALE);
+  for (let s = -sweep; s <= sweep + 1e-9; s += sweep / 8) {
+    if (Math.abs(s) < 1e-9) continue;
+    const next = iouOf([s, s, s, 0, 0]);
+    if (next > iou) [k, iou] = [s, next];
+  }
+  // Then each axis and its middle, a step at a time, each axis paying for its stretch from k.
+  // The camera's box already stood about there: its middle moves by at most half its width.
+  const span = (Math.max(recipe.sizeCm.w, recipe.sizeCm.d) * Math.exp(k)) / ISO_TILE_CM;
+  const limit = [...Array(3).fill(sweep), span / 2, span / 2];
+  const lo = [-sweep, -sweep, -sweep, -span / 2, -span / 2];
+  const score = (v: number[], fit: number) =>
+    fit - REFIT_STRETCH * (Math.abs(v[0]! - k) + Math.abs(v[1]! - k) + Math.abs(v[2]! - k));
+  const step = [0.25, 0.25, 0.25, span / 4, span / 4];
+  let best = [k, k, k, 0, 0];
+  let bestScore = score(best, iou);
+  // Each round takes the best of every one-axis step, not the first that helps: a model grown
+  // wide and moved aside can match about as well as one the right size.
+  for (let round = 0; round < 6 && tries < REFIT_TRIES;) {
+    let next: [number[], number, number] | null = null;
+    for (let i = 0; i < best.length; i++)
+      for (const sign of [1, -1]) {
+        const v = [...best];
+        v[i] = Math.max(lo[i]!, Math.min(limit[i]!, v[i]! + sign * step[i]!));
+        if (v[i] === best[i]) continue;
+        const fit = iouOf(v);
+        const sc = score(v, fit);
+        if (sc > (next?.[1] ?? bestScore)) next = [v, sc, fit];
+      }
+    if (next) [best, bestScore, iou] = next;
+    else {
+      for (let i = 0; i < step.length; i++) step[i]! /= 2;
+      round++;
+    }
+  }
+  return { ...at(best), iou };
+}
+
 /** Suggests ops that bring a recipe closer to its outline: Spark, live. */
 export type Refiner = (recipe: FixtureRecipe, check: RecipeCheck) => Promise<RecipeOp[]>;
 export interface BuildRound {

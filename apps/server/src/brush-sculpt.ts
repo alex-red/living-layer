@@ -1,6 +1,6 @@
 import sharp from 'sharp';
 import { toDataUrl } from './images.js';
-import { renderRoomAsync } from './workers/compute.js';
+import { refitRecipeAsync, renderRoomAsync } from './workers/compute.js';
 import {
   BRUSH_SCULPT_PARTS,
   brushSculptPrompt,
@@ -24,6 +24,8 @@ import type { MetaAdapter } from './meta.js';
 /** What shaping a brush model from the photo made: the best look, and how each look did. */
 export interface Shaped {
   recipe: FixtureRecipe;
+  /** Where it stands: moved when its size was refitted. */
+  place: RecipePlace;
   check: RecipeCheck;
   /** Spark's note on the look that was kept. */
   note: string;
@@ -41,7 +43,10 @@ const LOOKS = ['first', 'again'] as const;
  * drawn through the same camera and cut the same way, twice, each look
  * starting from the last. Each look is checked against the camera, outline
  * and colours (`draftScore`); the best is kept. Null when no look gave a
- * usable model, so the model built from its form stands.
+ * usable model, so the model built from its form stands. With `refit`, each
+ * look's size and footprint are fitted to the outline with its own shape
+ * first (`refitRecipe`): for a size the camera measured, which a small
+ * thing's outline leaves unsure.
  */
 export async function shapeFromPhoto({
   meta,
@@ -53,6 +58,7 @@ export async function shapeFromPhoto({
   against,
   request,
   check,
+  refit = false,
   onCall,
   signal,
 }: {
@@ -66,7 +72,9 @@ export async function shapeFromPhoto({
   /** The thing's outline in the frame, which the photo is cut around. */
   against: Bits;
   request: string;
-  check: (r: FixtureRecipe) => RecipeCheck;
+  check: (r: FixtureRecipe, place: RecipePlace) => RecipeCheck;
+  /** Fit each look's size to the outline: only for a size the camera measured. */
+  refit?: boolean;
   /** Each billed call's usage and model, for the run. */
   onCall: (r: { usage: Usage | null; model: string; requestId: string | null }) => void;
   signal?: AbortSignal;
@@ -78,11 +86,9 @@ export async function shapeFromPhoto({
     x: box.left + box.width / 2,
     y: box.top + box.height / 2,
   });
-  const drawn = async (r: FixtureRecipe) => {
+  const drawn = async (r: FixtureRecipe, at: RecipePlace) => {
     // The model alone on the floor, so Spark sees its parts and not what stands round it.
-    const solids = sceneSolids(sceneWithRecipe(scene, r, place)).filter(
-      (s) => s.id === 'candidate',
-    );
+    const solids = sceneSolids(sceneWithRecipe(scene, r, at)).filter((s) => s.id === 'candidate');
     const pic = await renderRoomAsync(camera, [floorSolid(scene.grid), ...solids]);
     return sharp(Buffer.from(pic.rgba), {
       raw: { width: pic.width, height: pic.height, channels: 4 },
@@ -93,8 +99,15 @@ export async function shapeFromPhoto({
   };
   const url = toDataUrl;
   let current = recipe;
-  let render = await drawn(current);
-  const looks: { recipe: FixtureRecipe; check: RecipeCheck; note: string; render: Buffer }[] = [];
+  let at = place;
+  let render = await drawn(current, at);
+  const looks: {
+    recipe: FixtureRecipe;
+    place: RecipePlace;
+    check: RecipeCheck;
+    note: string;
+    render: Buffer;
+  }[] = [];
   for (const look of LOOKS) {
     const answer = await meta.sculpt(
       url(photo),
@@ -108,8 +121,16 @@ export async function shapeFromPhoto({
     const next = recipeFromSculpt(current, answer.output);
     if (!next) break;
     current = next;
-    render = await drawn(current);
-    looks.push({ recipe: next, check: check(next), note: answer.output.note, render });
+    if (refit)
+      ({ recipe: current, place: at } = await refitRecipeAsync(camera, scene, next, at, against));
+    render = await drawn(current, at);
+    looks.push({
+      recipe: current,
+      place: at,
+      check: check(current, at),
+      note: answer.output.note,
+      render,
+    });
   }
   if (!looks.length) return null;
   const best = looks.reduce((a, b) => (draftScore(b.check) > draftScore(a.check) ? b : a));

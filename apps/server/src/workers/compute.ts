@@ -1,9 +1,14 @@
 import { availableParallelism } from 'node:os';
 import {
   fitItem,
+  refitRecipe,
   renderRoom,
+  type Bits,
   type FitInput,
   type FitOutput,
+  type FixtureRecipe,
+  type IsoScene,
+  type RecipePlace,
   type RoomCamera,
   type RoomPicture,
   type RoomSolid,
@@ -16,10 +21,18 @@ export type ComputeJob =
       camera: RoomCamera;
       solids: RoomSolid[];
       options?: { labels?: boolean; scratch?: boolean };
+    }
+  | {
+      op: 'refit';
+      camera: RoomCamera;
+      scene: IsoScene;
+      recipe: FixtureRecipe;
+      place: RecipePlace;
+      outline: Bits;
     };
 
 /**
- * A fit takes 150 to 300 ms and a render 70 to 150 ms of one thread, long
+ * A fit takes 150 to 300 ms, a render 70 to 150 ms and a refit seconds of one thread, long
  * enough to stall every other request, so they run in a few Bun Workers
  * (results are byte-identical: the same pure functions). Tests and
  * `COMPUTE_WORKERS=0` run them in place; `COMPUTE_WORKERS=<n>` sets the pool size.
@@ -96,6 +109,17 @@ export const renderRoomAsync = (
 ): Promise<RoomPicture> =>
   run({ op: 'render', camera, solids, ...(options ? { options } : {}) }, () =>
     renderRoom(camera, solids, options),
+  );
+/** A model's size refitted to its outline: about 160 room renders, a few seconds. */
+export const refitRecipeAsync = (
+  camera: RoomCamera,
+  scene: IsoScene,
+  recipe: FixtureRecipe,
+  place: RecipePlace,
+  outline: Bits,
+): Promise<ReturnType<typeof refitRecipe>> =>
+  run({ op: 'refit', camera, scene, recipe, place, outline }, () =>
+    refitRecipe(camera, scene, recipe, place, outline),
   );
 export function closeCompute(): void {
   for (const { worker } of slots.splice(0)) worker.terminate();

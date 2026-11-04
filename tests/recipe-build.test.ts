@@ -27,6 +27,7 @@ import {
   fallbackForm,
   outlineRests,
   refineRecipe,
+  refitRecipe,
   RECIPE_TARGET,
   renderRoom,
   roomMask,
@@ -174,6 +175,22 @@ describe("sizing a thing from the camera's outline", () => {
     expect(defaultSize('keyboard')).toEqual({ w: 44, d: 14 });
     expect(defaultSize('foliage')).toEqual({ w: 40, d: 40 });
   });
+});
+
+describe('refitting a model’s size to its outline', () => {
+  it('grows a model built too small back to the size the camera sees, keeping its parts', () => {
+    // Its legs and top thicken as it grows, so it never matches as well as one built that size.
+    for (const k of [0.6, 0.8]) {
+      const small = recipeFromForm('desk', { w: deskCm.w * k, d: deskCm.d * k, h: 72 * k }, 'Desk');
+      const fit = refitRecipe(DEMO_CAMERA, DEMO_ROOM, small, place, deskMask);
+      expect(fit.iou).toBeGreaterThan(check(small).iou + 0.3);
+      expect(Math.abs(fit.recipe.sizeCm.w / deskCm.w - 1)).toBeLessThan(0.1);
+      expect(Math.abs(fit.recipe.sizeCm.d / deskCm.d - 1)).toBeLessThan(0.1);
+      expect(Math.abs(fit.recipe.sizeCm.h / 72 - 1)).toBeLessThan(0.1);
+      expect(fit.recipe.parts.map((p) => p.name)).toEqual(small.parts.map((p) => p.name));
+      expect(fit.place.z).toBe(place.z);
+    }
+  }, 30_000);
 });
 
 describe('refining a recipe against the outline', () => {
