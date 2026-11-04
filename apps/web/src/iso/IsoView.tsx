@@ -62,6 +62,7 @@ import {
   otherObjects,
   placedFixtures,
   drawnFixtures,
+  householdReplay,
   surfaceWorld,
   type Point,
 } from '@livinglayer/domain';
@@ -469,6 +470,10 @@ function IsoViewOf({
     r.open && replaying ? demoLampAt(r.minute, dayAt(r.minute).lamp, coachExtra) : null,
   );
   const replayClock = useReplay((r) => (r.open && replaying ? clock(Math.floor(r.minute)) : null));
+  // The household's day in the Home room: who is where, sitting or asleep, minute by minute.
+  const replayHome = useReplay((r) =>
+    r.open && replaying && kind === 'home' ? Math.floor(r.minute) : null,
+  );
 
   // The mug, then every other remembered object the pin can place; the zones, the trail and the lit lights.
   const model = useMemo(() => {
@@ -719,13 +724,15 @@ function IsoViewOf({
   );
   // Lights as Home Assistant reports them now, not only as last switched here.
   const things = useMemo(
-    () =>
-      followStats(memory?.fixtures ?? [], statsStore.get()).map((f) =>
+    () => {
+      const now = followStats(memory?.fixtures ?? [], statsStore.get()).map((f) =>
         liveHa ? withHaStates(f, liveHa.states) : f,
-      ),
+      );
+      return replayHome === null ? now : householdReplay(now, replayHome);
+    },
     // `readings` says when a reading changed; the store holds them.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [memory?.fixtures, readings, liveHa],
+    [memory?.fixtures, readings, liveHa, replayHome],
   );
   // Fixtures in this scene; one being moved is drawn only where the pointer is.
   const placingId = placing?.id;

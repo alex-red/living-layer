@@ -81,6 +81,11 @@
 .day-dot.fridge {
   background: var(--seen);
 }
+.day-tick.member,
+.day-dot.member {
+  background: transparent;
+  box-shadow: inset 0 0 0 2px var(--warm);
+}
 .day-dot.monitor {
   background: var(--text-2);
 }

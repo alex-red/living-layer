@@ -15,6 +15,7 @@ import {
   midnightOf,
   type DayEvent,
   type RoomAnswer,
+  householdEvents,
 } from '@livinglayer/domain';
 import { api } from '../api';
 import { IconButton } from '../ui/controls';
@@ -88,11 +89,17 @@ function LiveDock() {
   );
 }
 
+/** The household's day, as the dock shows it in the Home room. */
+const HOME_DAY = householdEvents();
+
 function Dock() {
   const minute = useReplay((r) => Math.floor(r.minute));
   const playing = useReplay((r) => r.playing);
   const speed = useReplay((r) => r.speed);
-  const last = eventsUntil(minute).at(-1);
+  // In the Home room the day is the household's: who came home, sat down, fell asleep.
+  const home = useView().workScene === 'home';
+  const last = home ? null : eventsUntil(minute).at(-1);
+  const lastHome = home ? HOME_DAY.filter((e) => e.at <= minute).at(-1) : null;
   const [cited, setCited] = useState<number[]>([]);
   const extra = useCoach((c) => c.extra);
   const snoozes = useCoach((c) => c.snoozes);
@@ -119,14 +126,23 @@ function Dock() {
           {clock(minute)}
         </span>
         <div className="day-track">
-          {DEMO_DAY.map((e, i) => (
-            <span
-              key={i}
-              className={`day-tick ${e.thing}`}
-              style={{ left: share(e.at) }}
-              title={`${clock(e.at)} · ${e.text}`}
-            />
-          ))}
+          {home
+            ? HOME_DAY.map((e, i) => (
+                <span
+                  key={i}
+                  className="day-tick member"
+                  style={{ left: share(e.at) }}
+                  title={`${clock(e.at)} · ${e.text}`}
+                />
+              ))
+            : DEMO_DAY.map((e, i) => (
+                <span
+                  key={i}
+                  className={`day-tick ${e.thing}`}
+                  style={{ left: share(e.at) }}
+                  title={`${clock(e.at)} · ${e.text}`}
+                />
+              ))}
           {NUDGES.map((n) => (
             <span
               key={n.id}
@@ -180,7 +196,12 @@ function Dock() {
         </IconButton>
       </div>
       <p className="day-last micro">
-        {last ? (
+        {lastHome ? (
+          <>
+            <span className="day-dot member" title="The household" aria-hidden="true" />{' '}
+            {clock(lastHome.at)} · {lastHome.text}
+          </>
+        ) : last ? (
           <>
             <Thing e={last} /> {clock(last.at)} · {last.text}
           </>

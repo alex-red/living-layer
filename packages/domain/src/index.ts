@@ -18,6 +18,7 @@ export * from './item-build.js';
 export * from './member-models.js';
 export * from './members.js';
 export * from './seating.js';
+export * from './household-day.js';
 export * from './recipe.js';
 export * from './recipe-ops.js';
 export * from './selection.js';
