@@ -1,6 +1,7 @@
 import {
   useDeferredValue,
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -44,6 +45,8 @@ import { Button, Check, IconButton, Segmented } from '../ui/controls';
 /** Colours to offer next to the sampled ones: neutral materials, not the signal hues. */
 const MATERIALS = ['#ece5d0', '#b3a796', '#73604c', '#3c554a', '#5f7c88', '#4a5164', '#1f232f'];
 const PREVIEW_SCALE = ITEM_SPRITES.editor.scale;
+/** The onion skin's choice that compares an unsaved edit with the saved model. */
+const BEFORE_EDIT = '__saved__';
 const SOURCE: Record<SavedItem['source'], string> = {
   demo: 'Demo photo',
   sampled: 'Fitted to the mask',
@@ -867,6 +870,13 @@ export function ItemEditor({
   const [addShape, setAddShape] = useState<ItemPartDraft['shape']>('lathe');
   const [view, setView] = useState<'model' | 'states' | 'photo'>('model');
   const [ghostState, setGhostState] = useState<string>('');
+  // How the onion skin shows: layered over the model, or side by side split by a handle.
+  const [compare, setCompare] = useState<'onion' | 'wipe'>('onion');
+  // The wipe's divider, as a share of the canvas across: the onion skin left of it, the model right.
+  const [wipeAt, setWipeAt] = useState(0.5);
+  const [wiping, setWiping] = useState(false);
+  // The canvas's filter and clip ids, safe inside url(#…).
+  const ids = `studio${useId().replace(/[^\w-]/g, '')}`;
   const [showBox, setShowBox] = useState(true);
   const [newStateName, setNewStateName] = useState('');
   const [copyFromState, setCopyFromState] = useState('__base__');
@@ -969,6 +979,17 @@ export function ItemEditor({
     ...(deferredSelect >= 0 ? { select: deferredSelect } : {}),
     ...(fixture?.control.kind === 'light' && fixture.state === 'on' ? { glow: true } : {}),
   });
+  // What the onion skin shows under or beside the model: the saved model while there is an edit, or another state.
+  const ghostItem = useMemo(() => {
+    if (ghostState === BEFORE_EDIT) {
+      const saved = dirty ? editable(item) : null;
+      return saved ? rotateItem(previewItem(saved), turns) : null;
+    }
+    return fixture && ghostState
+      ? rotateItem(fixtureModel(fixture, ghostState === '__base__' ? null : ghostState), turns)
+      : null;
+  }, [ghostState, dirty, item, fixture, turns]);
+  const ghostSprite = useItemSprite(ghostItem, ITEM_SPRITES.editor);
   const update = (change: Partial<ItemPartDraft>) =>
     setDraft(
       (d) =>
@@ -1009,11 +1030,30 @@ export function ItemEditor({
   const shown = shownNow!;
   const shownPart = shown.parts.find((p) => p.id === selected);
   const isLitGlow = Boolean(fixture?.control.kind === 'light' && fixture.state === 'on');
-  const ghostItem =
-    fixture && ghostState
-      ? rotateItem(fixtureModel(fixture, ghostState === '__base__' ? null : ghostState), turns)
-      : null;
   const pad = 22;
+  // The canvas frames both the model and its onion skin, so a part an edit took away still shows.
+  const framed = [sprite, ghostItem ? ghostSprite : null].filter((s) => s !== null);
+  const left = framed.length ? Math.min(...framed.map((s) => s.x)) : 0;
+  const top = framed.length ? Math.min(...framed.map((s) => s.y)) : 0;
+  const right = framed.length ? Math.max(...framed.map((s) => s.x + s.width)) : 0;
+  const bottom = framed.length ? Math.max(...framed.map((s) => s.y + s.height)) : 0;
+  const frame = {
+    x: left - pad,
+    y: top - pad,
+    w: right - left + 2 * pad,
+    h: bottom - top + 2 * pad,
+  };
+  const wipe = Boolean(ghostItem) && compare === 'wipe';
+  const wipeX = frame.x + wipeAt * frame.w;
+  const ghostName =
+    ghostState === BEFORE_EDIT ? 'Before' : ghostState === '__base__' ? 'Base' : ghostState;
+  const afterName = ghostState === BEFORE_EDIT ? 'After' : (fixture?.state ?? 'Base');
+  function wipeTo(clientX: number) {
+    const ctm = previewSvg.current?.getScreenCTM();
+    if (!ctm) return;
+    const p = new DOMPoint(clientX, 0).matrixTransform(ctm.inverse());
+    setWipeAt(clamp((p.x - frame.x) / frame.w, 0, 1));
+  }
   const paints = part?.paint ?? [];
 
   function handleCanvasKeyDown(e: KeyboardEvent<SVGSVGElement>) {
@@ -1569,25 +1609,37 @@ export function ItemEditor({
             )}
             {view === 'model' && (
               <div className="studio-canvas-opts">
-                {fixture && stateNames.length > 0 && (
-                  <label className="studio-ghost-pick">
-                    <span className="tiny">ONION SKIN</span>
-                    <select
-                      aria-label="Onion skin state"
-                      value={ghostState}
-                      onChange={(e) => setGhostState(e.target.value)}
-                    >
-                      <option value="">Off</option>
-                      {fixture.state && <option value="__base__">Base</option>}
-                      {stateNames
-                        .filter((s) => s !== fixture.state)
-                        .map((s) => (
-                          <option key={s} value={s}>
-                            {s}
-                          </option>
-                        ))}
-                    </select>
-                  </label>
+                <label className="studio-ghost-pick">
+                  <span className="tiny">ONION SKIN</span>
+                  <select
+                    aria-label="Onion skin state"
+                    value={ghostState}
+                    onChange={(e) => setGhostState(e.target.value)}
+                  >
+                    <option value="">Off</option>
+                    <option value={BEFORE_EDIT} disabled={!dirty}>
+                      Before this edit
+                    </option>
+                    {fixture?.state && <option value="__base__">Base</option>}
+                    {stateNames
+                      .filter((s) => s !== fixture?.state)
+                      .map((s) => (
+                        <option key={s} value={s}>
+                          {s}
+                        </option>
+                      ))}
+                  </select>
+                </label>
+                {ghostItem && (
+                  <Segmented
+                    label="Compare"
+                    value={compare}
+                    onChange={setCompare}
+                    options={[
+                      { value: 'onion', label: 'Overlay' },
+                      { value: 'wipe', label: 'Wipe' },
+                    ]}
+                  />
                 )}
                 <Check checked={showBox} onChange={setShowBox}>
                   <span className="tiny">HANDLES</span>
@@ -1629,11 +1681,16 @@ export function ItemEditor({
             <svg
               ref={previewSvg}
               tabIndex={0}
-              viewBox={`${(sprite?.x ?? 0) - pad} ${(sprite?.y ?? 0) - pad} ${(sprite?.width ?? 0) + 2 * pad} ${(sprite?.height ?? 0) + 2 * pad}`}
+              className={wiping ? 'wiping' : undefined}
+              viewBox={`${frame.x} ${frame.y} ${frame.w} ${frame.h}`}
               role="img"
               aria-label={`Preview of ${draft.label}`}
               onKeyDown={handleCanvasKeyDown}
               onPointerMove={(e) => {
+                if (wiping) {
+                  wipeTo(e.clientX);
+                  return;
+                }
                 if (!dragStart || !part || !previewSvg.current) return;
                 const ctm = previewSvg.current.getScreenCTM();
                 if (!ctm) return;
@@ -1670,14 +1727,42 @@ export function ItemEditor({
               onPointerUp={() => {
                 dragUpdate.flush();
                 setDragStart(null);
+                setWiping(false);
               }}
               onPointerLeave={() => {
                 dragUpdate.flush();
                 setDragStart(null);
+                setWiping(false);
               }}
             >
-              {ghostItem && (
-                <g className="studio-onion-ghost" opacity={0.28}>
+              <defs>
+                {/* The onion skin's solid pixels only: the soft shadow under a model would blur its outline. */}
+                <filter id={`${ids}-fill`} x="-5%" y="-5%" width="110%" height="110%">
+                  <feComponentTransfer in="SourceAlpha" result="solid">
+                    <feFuncA type="discrete" tableValues="0 0 1 1" />
+                  </feComponentTransfer>
+                  <feFlood className="studio-onion-flood" />
+                  <feComposite in2="solid" operator="in" />
+                </filter>
+                <filter id={`${ids}-edge`} x="-5%" y="-5%" width="110%" height="110%">
+                  <feComponentTransfer in="SourceAlpha" result="solid">
+                    <feFuncA type="discrete" tableValues="0 0 1 1" />
+                  </feComponentTransfer>
+                  <feMorphology in="solid" operator="dilate" radius="0.9" result="grown" />
+                  <feComposite in="grown" in2="solid" operator="out" result="ring" />
+                  <feFlood className="studio-onion-flood" />
+                  <feComposite in2="ring" operator="in" />
+                </filter>
+                <clipPath id={`${ids}-before`}>
+                  <rect x={frame.x} y={frame.y} width={wipeX - frame.x} height={frame.h} />
+                </clipPath>
+                <clipPath id={`${ids}-after`}>
+                  <rect x={wipeX} y={frame.y} width={frame.x + frame.w - wipeX} height={frame.h} />
+                </clipPath>
+              </defs>
+              {ghostItem && !wipe && (
+                // Behind the model, a flat wash where the onion skin reaches past it.
+                <g className="studio-onion-ghost" filter={`url(#${ids}-fill)`}>
                   <ItemSprite
                     item={ghostItem}
                     origin={{ x: 0, y: 0, z: 0 }}
@@ -1686,14 +1771,37 @@ export function ItemEditor({
                   />
                 </g>
               )}
-              <ItemSprite
-                item={deferredShown ?? shown}
-                origin={{ x: 0, y: 0, z: 0 }}
-                scale={PREVIEW_SCALE}
-                selected={selected}
-                resolution={ITEM_SPRITES.editor.resolution}
-                glow={isLitGlow}
-              />
+              {wipe && ghostItem && (
+                <g clipPath={`url(#${ids}-before)`}>
+                  <ItemSprite
+                    item={ghostItem}
+                    origin={{ x: 0, y: 0, z: 0 }}
+                    scale={PREVIEW_SCALE}
+                    resolution={ITEM_SPRITES.editor.resolution}
+                  />
+                </g>
+              )}
+              <g {...(wipe ? { clipPath: `url(#${ids}-after)` } : {})}>
+                <ItemSprite
+                  item={deferredShown ?? shown}
+                  origin={{ x: 0, y: 0, z: 0 }}
+                  scale={PREVIEW_SCALE}
+                  selected={selected}
+                  resolution={ITEM_SPRITES.editor.resolution}
+                  glow={isLitGlow}
+                />
+              </g>
+              {ghostItem && !wipe && (
+                // Over the model, the onion skin's outline, so a shape that shrank or moved shows on top.
+                <g className="studio-onion-edge" filter={`url(#${ids}-edge)`}>
+                  <ItemSprite
+                    item={ghostItem}
+                    origin={{ x: 0, y: 0, z: 0 }}
+                    scale={PREVIEW_SCALE}
+                    resolution={ITEM_SPRITES.editor.resolution}
+                  />
+                </g>
+              )}
               {showBox &&
                 shown.parts.map((p) => {
                   const wf = isoBoxWireframe(p.at, p.size);
@@ -1753,7 +1861,46 @@ export function ItemEditor({
                     </g>
                   );
                 })}
+              {wipe && (
+                <g
+                  className="studio-wipe"
+                  role="slider"
+                  tabIndex={0}
+                  aria-label={`${ghostName} and after`}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={Math.round(wipeAt * 100)}
+                  onPointerDown={(e) => {
+                    e.stopPropagation();
+                    setWiping(true);
+                    previewSvg.current?.setPointerCapture(e.pointerId);
+                  }}
+                  onKeyDown={(e) => {
+                    const by = e.key === 'ArrowLeft' ? -0.05 : e.key === 'ArrowRight' ? 0.05 : 0;
+                    if (!by) return;
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setWipeAt((w) => clamp(w + by, 0, 1));
+                  }}
+                >
+                  <rect
+                    className="studio-wipe-hit"
+                    x={wipeX - frame.w * 0.02}
+                    y={frame.y}
+                    width={frame.w * 0.04}
+                    height={frame.h}
+                  />
+                  <line x1={wipeX} y1={frame.y} x2={wipeX} y2={frame.y + frame.h} />
+                  <circle cx={wipeX} cy={frame.y + frame.h / 2} r={frame.w * 0.024} />
+                </g>
+              )}
             </svg>
+          )}
+          {wipe && (
+            <div className="studio-wipe-labels micro" aria-hidden="true">
+              <span>◀ {ghostName.toUpperCase()}</span>
+              <span>{afterName.toUpperCase()} ▶</span>
+            </div>
           )}
           {shownPart && view === 'model' && (
             <p className="micro studio-canvas-hint">

@@ -10,6 +10,10 @@
   --surface-1: #11141d;
   --surface-2: #181c28;
   --surface-3: #212637;
+  /* Behind a model in the studio: mid grey, so black and white things both read. */
+  --studio-1: #7d8291;
+  --studio-2: #5d6170;
+  --studio-3: #434754;
   --line: rgb(170 185 255 / 10%);
   --line-strong: rgb(170 185 255 / 18%);
 

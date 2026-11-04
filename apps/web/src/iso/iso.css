@@ -470,8 +470,46 @@
   color: var(--text);
   font-size: var(--fs-12);
 }
-.studio-onion-ghost image {
-  filter: saturate(0.3) drop-shadow(0 0 1px var(--seen));
+.studio-onion-ghost,
+.studio-onion-edge {
+  pointer-events: none;
+}
+.studio-onion-ghost {
+  opacity: 0.45;
+}
+.studio-onion-flood {
+  flood-color: var(--seen);
+}
+/* Before and after, split by a handle you drag. */
+.studio-wipe {
+  cursor: ew-resize;
+  outline: none;
+}
+.studio-wipe-hit {
+  fill: transparent;
+}
+.studio-wipe line {
+  stroke: var(--seen);
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+}
+.studio-wipe circle {
+  fill: var(--seen);
+  stroke: var(--void);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+.studio-wipe:focus-visible circle {
+  stroke: var(--text);
+}
+.item-preview svg.wiping {
+  cursor: ew-resize;
+}
+.studio-wipe-labels {
+  display: flex;
+  justify-content: space-between;
+  margin-top: -4px;
+  color: var(--seen);
 }
 .studio-part-hit {
   fill: transparent;
@@ -698,6 +736,18 @@
   flex: 1;
   min-height: 160px;
   width: 100%;
+}
+/* A mid-tone backdrop, so a black model and a white one both stand out. */
+.item-preview > svg,
+.studio-compare-card svg {
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-card);
+  background: radial-gradient(
+    ellipse at 50% 45%,
+    var(--studio-1) 0%,
+    var(--studio-2) 55%,
+    var(--studio-3) 100%
+  );
 }
 /* Lathe profile: radius across, height up. */
 .item-profile {
