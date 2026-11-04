@@ -928,7 +928,12 @@ export function FixturePanel({ id }: { id: string }) {
         <Button size="sm" disabled={off || moving} onClick={() => lab.openModel(f.id)}>
           {f.state ? `Edit “${f.state}” model` : 'Edit model'}
         </Button>
-        <a className="text-button" href={`/studio?thing=${encodeURIComponent(f.id)}`}>
+        <a
+          className="text-button"
+          href={`/studio?thing=${encodeURIComponent(f.id)}`}
+          target="_blank"
+          rel="noopener"
+        >
           Studio ↗
         </a>
         <ThingZoneLink id={f.id} />

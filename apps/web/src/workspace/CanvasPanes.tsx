@@ -935,6 +935,11 @@ export function FixtureMenu({
           onSelect: () => lab.select({ kind: 'fixture', id: menu.id }),
         },
         {
+          label: 'Edit',
+          onSelect: () =>
+            window.open(`/studio?thing=${encodeURIComponent(menu.id)}`, '_blank', 'noopener'),
+        },
+        {
           label: 'Delete',
           destructive: true,
           separated: true,
