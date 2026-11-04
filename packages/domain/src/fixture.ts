@@ -647,6 +647,26 @@ export function fixtureSize(
   return (state ? f.states?.[state]?.size : undefined) ?? f.size;
 }
 
+/**
+ * The size a state takes for a new model when none is given: the size it
+ * had (the fixture's own when it is new) as much taller or shorter as the
+ * model stands against the model it had, so a cat lying on a tree's top
+ * adds its own height and isn't squashed into the tree's box. Null when it
+ * stays as it was.
+ */
+export function stateSizeFor(
+  had: {
+    size: FixtureInput['size'];
+    model: { parts: readonly { at: { z: number }; size: { h: number } }[] };
+  },
+  model: { parts: readonly { at: { z: number }; size: { h: number } }[] },
+): FixtureInput['size'] | null {
+  const top = (m: typeof model) => Math.max(...m.parts.map((p) => p.at.z + p.size.h));
+  const h = had.size.h * (top(model) / top(had.model));
+  if (!Number.isFinite(h) || Math.abs(h - had.size.h) < 0.005 * had.size.h) return null;
+  return { ...had.size, h: Math.round(h * 1000) / 1000 };
+}
+
 /** The reference photo a fixture uses in its active (or given) state. */
 export function fixtureReference(
   f: Pick<Fixture, 'reference'> & Partial<Pick<Fixture, 'state' | 'states'>>,

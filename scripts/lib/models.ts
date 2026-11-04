@@ -54,7 +54,7 @@ export interface LoadedModel {
 const SOURCES =
   'fixture:<id|label>, draft:<id|label>:<n>, save:<name>:<id|label>, run:<id>, starter:<template>, stock:<label>, <file>.json or <file>.ts';
 
-function fixtureIn(memory: DeskMemory | undefined, ref: string): Fixture {
+export function fixtureIn(memory: DeskMemory | undefined, ref: string): Fixture {
   const all = memory?.fixtures ?? [];
   const want = ref.toLowerCase();
   const found =

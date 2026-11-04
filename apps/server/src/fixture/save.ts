@@ -12,6 +12,7 @@ import {
   lightSources,
   fixtureModel,
   fixtureProblem,
+  stateSizeFor,
   fixtureSize,
   uniqueParts,
   MAX_DRAFTS,
@@ -261,11 +262,14 @@ export function setFixtureState(
   if (remove) delete states[remove];
   if (state) {
     if (stateInput) {
-      if (stateInput.size) {
-        const problem = fixtureProblem({ ...target, size: stateInput.size }, memory.scene);
+      const prev = states[state]?.model ?? fixtureModel(target, state);
+      // A taller or shorter model takes its own height, unless a size is given.
+      const had = { size: states[state]?.size ?? target.size, model: prev };
+      const size = stateInput.size ?? stateSizeFor(had, stateInput.model) ?? undefined;
+      if (size) {
+        const problem = fixtureProblem({ ...target, size }, memory.scene);
         if (problem) throw new LabError('fixture_place', problem, 400);
       }
-      const prev = states[state]?.model ?? fixtureModel(target, state);
       states[state] = {
         model: {
           ...uniqueParts(stateInput.model),
@@ -275,11 +279,7 @@ export function setFixtureState(
           updatedAt: now,
           fit: prev.fit,
         },
-        ...(stateInput.size
-          ? { size: stateInput.size }
-          : states[state]?.size
-            ? { size: states[state]!.size }
-            : {}),
+        ...(size ? { size } : states[state]?.size ? { size: states[state]!.size } : {}),
         ...(stateInput.reference !== undefined
           ? { reference: stateInput.reference }
           : states[state]?.reference !== undefined

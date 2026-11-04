@@ -55,6 +55,7 @@
     "runs": "bun scripts/runs.ts",
     "sheet": "bun scripts/prop-sheet.ts",
     "model": "bun scripts/model-view.ts",
+    "thing": "bun scripts/thing.ts",
     "ref": "bun scripts/ref-match.ts",
     "ci": "bun run format:check && bun run typecheck && bun run lint && bun run test:fast && bun run build",
     "verify": "bun scripts/verify.ts",
