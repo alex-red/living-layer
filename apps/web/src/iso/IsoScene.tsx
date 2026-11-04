@@ -1,9 +1,9 @@
 import { StatBadges } from './StatBadges';
 import {
   CALLOUT_SIDE,
-  CALLOUT_WIDTH,
   ZoomedCallouts,
   calloutDensity,
+  cardPx,
   layoutCallouts,
   type CalloutDensity,
   type IsoCallout,
@@ -603,14 +603,15 @@ function IsoSceneView({
     const measure = () => {
       const r = el.getBoundingClientRect();
       if (!r.width || !r.height) return;
-      const scale = Math.min(r.width / viewW, r.height / viewH);
-      setDensity((d) => calloutDensity(CALLOUT_WIDTH * scale, d));
+      // Judged as if the columns were there, so dropping them (pips) changes nothing.
+      const room = { w: viewW - 2 * side, h: viewH };
+      setDensity((d) => calloutDensity(cardPx({ w: r.width, h: r.height }, room), d));
     };
     measure();
     const watch = new ResizeObserver(measure);
     watch.observe(el);
     return () => watch.disconnect();
-  }, [showCards, viewW, viewH]);
+  }, [showCards, viewW, viewH, side]);
   // Drawn back to front; the order is worked out again only when what is drawn changes.
   const ordered = useMemo(() => {
     const items: Drawable[] = [

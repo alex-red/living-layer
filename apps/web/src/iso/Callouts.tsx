@@ -59,7 +59,15 @@ export interface IsoCallout {
   /** Stats it keeps, read live by its id. */
   stats?: readonly StatKey[];
   lamp?: boolean;
+  /** What can be done to it from its card: on and off for a thing a light, switch or desktop drives. */
+  actions?: readonly CalloutAction[];
   onSelect?: () => void;
+}
+/** A button on a card. `current` marks the one it is now (on when it is on). */
+export interface CalloutAction {
+  label: string;
+  current?: boolean;
+  run: () => void;
 }
 
 /**
@@ -92,12 +100,15 @@ export const CALLOUT_WIDTH = W;
 
 /** How many lines a card takes, so the cards can be stacked before they render. */
 function linesOf(c: IsoCallout, density: CalloutDensity): number {
-  if (density === 'compact') return c.builtIn ? 1 : c.food?.expires ? 2 : 1;
+  const actions = c.actions?.length && !c.builtIn ? 1 : 0;
+  if (density === 'compact') return (c.builtIn ? 1 : c.food?.expires ? 2 : 1) + actions;
   if (c.builtIn) return 2;
   const food = c.food
     ? 1 + (c.food.expires ? 1 : 0) + (c.food.left ? 1 : 0) + (c.food.opened ? 1 : 0)
     : 0;
-  return Math.max(1, food + (c.stats?.length ?? 0));
+  const said = food + (c.stats?.length ?? 0);
+  // A card with only its buttons to show says nothing more.
+  return Math.max(actions ? 0 : 1, said) + actions;
 }
 const heightOf = (c: IsoCallout, density: CalloutDensity) => {
   const m = METRICS[density === 'compact' ? 'compact' : 'full'];
@@ -188,6 +199,8 @@ export function layoutCallouts(
  * of the view's tag and Randomize on the left, the zoom and "Your day" on the right.
  */
 const CORNER_PX = { left: 60, right: 72 } as const;
+/** How far in from the pane's sides the cards keep, in pixels, however small or zoomed the view. */
+const SIDE_PX = 12;
 
 /**
  * The cards moved down, a column at a time and keeping their order, so none
@@ -202,6 +215,110 @@ export function clearCorners(placed: Placed[], top: number, pxPerUnit: number): 
     if (shift > 0) out = out.map((p) => (p.side === side ? { ...p, y: p.y + shift } : p));
   }
   return out;
+}
+
+/**
+ * The cards moved in from the pane's sides, a column at a time, so each keeps
+ * `SIDE_PX` clear of its edge on screen, however few pixels a scene unit is.
+ * `seen` is what the pane shows, in scene units.
+ */
+export function clearSides(
+  placed: Placed[],
+  seen: { minX: number; maxX: number },
+  pxPerUnit: number,
+): Placed[] {
+  const inset = SIDE_PX / pxPerUnit;
+  return placed.map((p) => {
+    const x =
+      p.side === 'left'
+        ? Math.max(p.x, seen.minX + inset)
+        : Math.min(p.x, seen.maxX - inset - W * p.k);
+    return x === p.x ? p : { ...p, x };
+  });
+}
+
+/**
+ * How much bigger than at fit a card is drawn in a pane with `spare` scene
+ * units bare at each side: as big as fits between the pane's side and the
+ * room, but no wider on screen than a readable card needs. 1 with nothing to spare.
+ */
+function spreadScale(spare: number, pxPerUnit: number): number {
+  if (spare * pxPerUnit < 8) return 1;
+  // The column, its gap and the side inset all fit between the pane's side and the room.
+  const room = (CALLOUT_SIDE + spare - SIDE_PX / pxPerUnit) / (W + 4);
+  return Math.max(1, Math.min(room, READABLE_PX / (W * pxPerUnit)));
+}
+/**
+ * How wide a card is drawn on screen in a `pane` (pixels) showing a room of
+ * `room` scene units, its card columns beside it: wider than at fit where a
+ * short, wide pane leaves its sides bare (`spreadCallouts`). What picks the
+ * cards' density.
+ */
+export function cardPx(pane: { w: number; h: number }, room: { w: number; h: number }): number {
+  const w = room.w + 2 * CALLOUT_SIDE;
+  const px = Math.min(pane.w / w, pane.h / room.h);
+  return W * px * spreadScale((pane.w / px - w) / 2, px);
+}
+/**
+ * The cards in a pane wider than the scene (a short, wide one: a phone on its
+ * side), where the room is fitted to the height and the sides are bare: the
+ * columns move out to the pane's sides and the cards grow into the room they
+ * leave, to a readable size (`READABLE_PX`), never over the room nor past the pane's top and
+ * bottom. Null when there is no width to spare. `box` is the scene's view box
+ * (the room and its card columns), `seen` what the pane shows of it.
+ */
+export function spreadCallouts(
+  callouts: IsoCallout[],
+  seen: Bounds,
+  box: { minX: number; width: number },
+  pxPerUnit: number,
+  density: CalloutDensity = 'full',
+): Placed[] | null {
+  const k = spreadScale((seen.maxX - seen.minX - box.width) / 2, pxPerUnit);
+  return k > 1.02 ? withinHeight(callouts, seen, density, k, 1) : null;
+}
+/**
+ * The cards laid out in `seen` drawn `k` times their size, made smaller (to
+ * no less than `least`) until their columns fit its height. Null when even
+ * `least` is as big as `k` already and they still don't.
+ */
+function withinHeight(
+  callouts: IsoCallout[],
+  seen: Bounds,
+  density: CalloutDensity,
+  k: number,
+  least: number,
+): Placed[] | null {
+  for (let tries = 0; tries < 3; tries++) {
+    const { placed, extent } = layoutCallouts(callouts, seen, density, 1 / k);
+    const tall = (extent.maxY - extent.minY) / (seen.maxY - seen.minY);
+    if (tall <= 1 || k <= least) return placed;
+    k = Math.max(least, k / tall);
+  }
+  return null;
+}
+/** A zoomed card's width on screen at least, in pixels: at most this share of the pane's. */
+const READABLE_PX = 120;
+const READABLE_SHARE = 0.22;
+/**
+ * The cards zoomed in, at the edges of what is seen: as big on screen as at
+ * fit, but no smaller than a readable width the pane can spare, nor so big
+ * their columns overrun its height.
+ */
+export function zoomedCallouts(
+  callouts: IsoCallout[],
+  seen: Bounds,
+  pxPerUnit: number,
+  paneWidth: number,
+  zoom: number,
+  density: CalloutDensity = 'full',
+): Placed[] {
+  const least = 1 / zoom;
+  const readable = Math.min(READABLE_PX, paneWidth * READABLE_SHARE) / (W * pxPerUnit);
+  return (
+    withinHeight(callouts, seen, density, Math.max(least, readable), least) ??
+    layoutCallouts(callouts, seen, density, zoom).placed
+  );
 }
 
 /**
@@ -227,12 +344,17 @@ export function ZoomedCallouts({
     if (!view.w || !view.h) return fit;
     const seen = visibleScene(view, viewBox);
     const px = Math.min(view.w / viewBox.width, view.h / viewBox.height) * view.s;
-    if (!zoomed) return clearCorners(fit, seen.minY, px);
+    if (!zoomed) {
+      const spread =
+        density === 'pips' ? null : spreadCallouts(callouts, seen, viewBox, px, density);
+      return clearSides(clearCorners(spread ?? fit, seen.minY, px), seen, px);
+    }
     const inSight = callouts.filter((c) => {
       const at = toIso(c.anchor);
       return at.sx > seen.minX && at.sx < seen.maxX && at.sy > seen.minY && at.sy < seen.maxY;
     });
-    return clearCorners(layoutCallouts(inSight, seen, density, view.s).placed, seen.minY, px);
+    const laid = zoomedCallouts(inSight, seen, px, view.w, view.s, density);
+    return clearSides(clearCorners(laid, seen.minY, px), seen, px);
   }, [zoomed, fit, view, viewBox, callouts, density]);
   return <Callouts placed={shown} density={density} />;
 }
@@ -277,31 +399,48 @@ function Callouts({ placed, density = 'full' }: { placed: Placed[]; density?: Ca
               height={h / k}
               transform={`translate(${x} ${y}) scale(${k})`}
             >
-              <button
-                type="button"
-                className="callout-card"
-                onClick={c.onSelect}
-                title={c.builtIn ? `Open the ${c.label.toLowerCase()}` : undefined}
-              >
-                <span className="callout-name">{c.label}</span>
-                {density === 'compact' ? (
-                  <CompactLines c={c} now={now} />
-                ) : c.builtIn ? (
-                  <>
-                    <span className="callout-row muted">Drawn with the room</span>
-                    <span className="callout-row hint">Make it a thing to track it</span>
-                  </>
-                ) : (
-                  <>
-                    <FoodLines food={c.food} now={now} />
-                    {c.stats?.length ? (
-                      <StatLines id={c.id} keys={c.stats} lamp={c.lamp} now={now} />
-                    ) : !c.food ? (
-                      <span className="callout-row muted">Nothing kept yet</span>
-                    ) : null}
-                  </>
-                )}
-              </button>
+              <div className="callout-card">
+                <button
+                  type="button"
+                  className="callout-main"
+                  onClick={c.onSelect}
+                  title={c.builtIn ? `Open the ${c.label.toLowerCase()}` : undefined}
+                >
+                  <span className="callout-name">{c.label}</span>
+                  {density === 'compact' ? (
+                    <CompactLines c={c} now={now} />
+                  ) : c.builtIn ? (
+                    <>
+                      <span className="callout-row muted">Drawn with the room</span>
+                      <span className="callout-row hint">Make it a thing to track it</span>
+                    </>
+                  ) : (
+                    <>
+                      <FoodLines food={c.food} now={now} />
+                      {c.stats?.length ? (
+                        <StatLines id={c.id} keys={c.stats} lamp={c.lamp} now={now} />
+                      ) : !c.food && !c.actions?.length ? (
+                        <span className="callout-row muted">Nothing kept yet</span>
+                      ) : null}
+                    </>
+                  )}
+                </button>
+                {!c.builtIn && c.actions?.length ? (
+                  <span className="callout-actions">
+                    {c.actions.map((a) => (
+                      <button
+                        key={a.label}
+                        type="button"
+                        className={a.current ? 'current' : undefined}
+                        aria-pressed={a.current ?? false}
+                        onClick={a.run}
+                      >
+                        {a.label}
+                      </button>
+                    ))}
+                  </span>
+                ) : null}
+              </div>
             </foreignObject>
           </g>
         );
@@ -318,7 +457,7 @@ function CompactLines({ c, now }: { c: IsoCallout; now: number }) {
   if (!c.food?.expires || !status)
     return c.stats?.length ? (
       <StatLines id={c.id} keys={c.stats.slice(0, 1)} lamp={c.lamp} now={now} />
-    ) : (
+    ) : c.actions?.length ? null : (
       <span className="callout-row muted">Nothing kept yet</span>
     );
   return (

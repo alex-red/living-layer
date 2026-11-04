@@ -2081,3 +2081,61 @@
   transform-origin: center;
   transform: scale(1.3);
 }
+
+/* A card's body opens its thing; its buttons below it act on the thing. */
+.callout-main {
+  all: unset;
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 1px;
+  min-height: 0;
+  overflow: hidden;
+  cursor: pointer;
+}
+.callout-main:focus-visible {
+  outline: 1px solid var(--seen);
+  outline-offset: 0.5px;
+}
+.callout-actions {
+  display: flex;
+  flex: none;
+  gap: 2px;
+  height: 9px;
+  margin-top: 1px;
+}
+.callout-actions button {
+  all: unset;
+  flex: 1;
+  border: 0.5px solid var(--line-strong);
+  border-radius: 1.5px;
+  color: var(--text-2);
+  font: 600 5px/8px var(--mono);
+  letter-spacing: 0.08em;
+  text-align: center;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition:
+    border-color var(--t-fast),
+    background var(--t-fast);
+}
+.callout-actions button:hover {
+  border-color: var(--text-3);
+  color: var(--text);
+}
+.callout-actions button.current {
+  border-color: var(--ok);
+  background: color-mix(in srgb, var(--ok) 22%, transparent);
+  color: var(--text);
+}
+.callout-actions button:focus-visible {
+  outline: 1px solid var(--seen);
+  outline-offset: 0.5px;
+}
+.iso-callouts.compact .callout-actions {
+  height: 12px;
+}
+.iso-callouts.compact .callout-actions button {
+  font-size: 6.5px;
+  line-height: 11px;
+}

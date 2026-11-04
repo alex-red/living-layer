@@ -3,6 +3,10 @@ import type { StatKey } from '@livinglayer/domain';
 import {
   CALLOUT_WIDTH,
   clearCorners,
+  clearSides,
+  cardPx,
+  spreadCallouts,
+  zoomedCallouts,
   layoutCallouts,
   sightedCallouts,
   visibleScene,
@@ -101,5 +105,92 @@ describe("cards clear of the pane's corners", () => {
   it('leaves a column that already starts low enough where it is', () => {
     const low = layoutCallouts(cards, seen).placed.map((p) => ({ ...p, y: p.y + 200 }));
     expect(clearCorners(low, seen.minY, 2)).toEqual(low);
+  });
+});
+
+describe("cards clear of the pane's sides", () => {
+  const seen = { minX: -100, maxX: 100, minY: -50, maxY: 50 };
+  const cards = [-60, 60].map((x) => ({ id: `c${x}`, label: 'Thing', anchor: { x, y: 0, z: 0 } }));
+  it('keeps each column 12 pixels in from its side, however small a unit is drawn', () => {
+    // At half a pixel a unit, 12 pixels are 24 units: more than the 4 the layout leaves.
+    const placed = clearSides(layoutCallouts(cards, seen).placed, seen, 0.5);
+    const left = placed.find((p) => p.side === 'left')!;
+    const right = placed.find((p) => p.side === 'right')!;
+    expect(left.x).toBe(seen.minX + 24);
+    expect(right.x + CALLOUT_WIDTH * right.k).toBe(seen.maxX - 24);
+  });
+  it('leaves cards already far enough in where they are', () => {
+    const placed = layoutCallouts(cards, seen).placed;
+    expect(clearSides(placed, seen, 4)).toEqual(placed);
+  });
+});
+
+describe('cards with buttons', () => {
+  const seen = { minX: -100, maxX: 100, minY: -50, maxY: 50 };
+  const card = { id: 'monitor', label: 'Monitor', anchor: { x: 0, y: 0, z: 0 } };
+  const run = () => {};
+  it('gives a switched thing a row for its buttons below what it keeps', () => {
+    const stats = ['power'] as const;
+    const [plain] = layoutCallouts([{ ...card, stats }], seen).placed;
+    const actions = [
+      { label: 'On', current: true, run },
+      { label: 'Off', run },
+    ];
+    const [switched] = layoutCallouts([{ ...card, stats, actions }], seen).placed;
+    expect(switched!.h).toBe(plain!.h + 11);
+  });
+  it('draws a switched thing that keeps nothing as its name and buttons alone', () => {
+    const [plain] = layoutCallouts([card], seen).placed;
+    const [switched] = layoutCallouts([{ ...card, actions: [{ label: 'On', run }] }], seen).placed;
+    expect(switched!.h).toBe(plain!.h);
+  });
+});
+
+describe('cards in a short, wide pane', () => {
+  // A room 600 × 300 units, its card columns beside it: a view box 836 wide.
+  const room = { w: 600, h: 300 };
+  const box = { minX: -418, width: 836 };
+  // Things 320 units either side of the middle, level with it.
+  const cards = [-5, 5].map((x) => ({ id: `c${x}`, label: 'Thing', anchor: { x, y: -x, z: 0 } }));
+  it('draws a card at its fit size in a pane the scene fills', () => {
+    // 836 × 300 pixels: one pixel a unit, nothing to spare at the sides.
+    expect(cardPx({ w: 836, h: 300 }, room)).toBe(CALLOUT_WIDTH);
+  });
+  it('grows a card into the sides a short, wide pane leaves bare, to a readable width', () => {
+    // Half a pixel a unit, fitted to the height: a 52 pixel card at fit, 120 at most.
+    const px = cardPx({ w: 900, h: 150 }, room);
+    expect(px).toBeGreaterThan(CALLOUT_WIDTH / 2);
+    expect(px).toBeLessThanOrEqual(120);
+  });
+  it('spreads the columns out to the pane’s sides, grown, and clear of the room', () => {
+    // The pane shows 1800 units across at half a pixel a unit.
+    const seen = { minX: -900, maxX: 900, minY: -150, maxY: 150 };
+    const placed = spreadCallouts(cards, seen, box, 0.5)!;
+    const left = placed.find((p) => p.side === 'left')!;
+    const right = placed.find((p) => p.side === 'right')!;
+    expect(left.k).toBeGreaterThan(1);
+    expect(left.x).toBeLessThan(box.minX);
+    expect(left.x + CALLOUT_WIDTH * left.k).toBeLessThanOrEqual(-room.w / 2);
+    expect(right.x).toBeGreaterThanOrEqual(room.w / 2);
+  });
+  it('leaves the cards as laid out at fit when no width is spare', () => {
+    const seen = { minX: -418, maxX: 418, minY: -150, maxY: 150 };
+    expect(spreadCallouts(cards, seen, box, 1)).toBeNull();
+  });
+});
+
+describe('zoomed cards', () => {
+  const seen = { minX: -100, maxX: 100, minY: -100, maxY: 100 };
+  // Things 64 units either side of the middle, level with it.
+  const cards = [-1, 1].map((x) => ({ id: `c${x}`, label: 'Thing', anchor: { x, y: -x, z: 0 } }));
+  it('keeps a card readable in a small pane, though at fit it was drawn smaller', () => {
+    // Zoomed twice, half a pixel a unit, in a 500 pixel pane: 26 pixels at fit's size,
+    // so it is drawn at the readable 110 (22% of the pane) instead.
+    const [small] = zoomedCallouts(cards, seen, 0.5, 500, 2);
+    expect(CALLOUT_WIDTH * small!.k * 0.5).toBeCloseTo(110);
+  });
+  it('keeps its fit size on screen where that is already readable', () => {
+    const [card] = zoomedCallouts(cards, seen, 4, 1000, 2);
+    expect(card!.k).toBe(0.5);
   });
 });

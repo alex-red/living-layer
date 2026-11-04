@@ -39,6 +39,7 @@ import {
   type IsoItem,
   type IsoScene as Scene,
   type IsoSurface,
+  type LampResult,
   type SavedItem,
   type SurfacePin,
   type ZoneOnSurface,
@@ -365,6 +366,21 @@ function IsoViewOf({
     [setSelected, setMessage, refresh],
   );
   const onFixture = useCallback((id: string) => select({ kind: 'fixture', id }), [select]);
+  /** A thing's light, switch or desktop display turned on or off from its card. */
+  const onSwitch = useCallback(
+    (id: string, action: 'on' | 'off') =>
+      void apiAt<{ memory: DeskMemory; event: EvidenceRun<LampResult> | null }>(
+        'fixtures/control',
+        { mode, fixtureId: id, action },
+      )
+        .then((r) => {
+          setMemory(r.memory);
+          if (r.event) setMessage(r.event.output.explanation);
+          void refresh();
+        })
+        .catch((e: unknown) => onError(e instanceof Error ? e : 'The request failed.')),
+    [mode, setMemory, setMessage, refresh, onError],
+  );
   const onZone = useCallback((id: string) => select({ kind: 'rule', id }), [select]);
   const onPlace = useCallback(
     (where: { at: { x: number; y: number }; surfaceId: string | null }) => void placeFixture(where),
@@ -764,7 +780,9 @@ function IsoViewOf({
     const things = view.fixtures.flatMap((shownFixture): IsoCallout[] => {
       const f = memory?.fixtures?.find((x) => x.id === shownFixture.id);
       const keys = (memory?.thingStats?.[shownFixture.id] ?? []).map((s) => s.key);
-      if (!f || (!f.food && !keys.length && foodKeeps(f.label) === null)) return [];
+      // A thing a light, switch or desktop drives can be switched from its card.
+      const switched = f && f.control.kind !== 'none';
+      if (!f || (!f.food && !keys.length && !switched && foodKeeps(f.label) === null)) return [];
       return [
         {
           id: f.id,
@@ -773,6 +791,15 @@ function IsoViewOf({
           ...(f.food ? { food: f.food } : {}),
           ...(keys.length ? { stats: keys } : {}),
           ...(shownFixture.lamp ? { lamp: true } : {}),
+          ...(switched
+            ? {
+                actions: (['on', 'off'] as const).map((action) => ({
+                  label: action === 'on' ? 'On' : 'Off',
+                  current: (f.state ?? null) === action,
+                  run: () => onSwitch(f.id, action),
+                })),
+              }
+            : {}),
           onSelect: () => onFixture(f.id),
         },
       ];
@@ -797,7 +824,7 @@ function IsoViewOf({
       (id) => select({ kind: 'object', id }),
     );
     return [...things, ...sighted, ...drawn];
-  }, [view, memory?.fixtures, memory?.thingStats, kind, onFixture, select]);
+  }, [view, memory?.fixtures, memory?.thingStats, kind, onFixture, onSwitch, select]);
   // Turned, a fixture's box isn't where it stands: it is moved and sized from the usual corner.
   const turned = angle === 'left';
   // Dragging on the room draws a zone: a rule's draft, or the mug's.
