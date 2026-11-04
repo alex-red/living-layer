@@ -91,15 +91,18 @@
   stroke-dasharray: 4 3;
   stroke-linejoin: round;
   pointer-events: none;
+  filter: drop-shadow(0 0 0 transparent);
   transition:
-    fill var(--t-fast) var(--ease-out),
-    stroke-width var(--t-fast) var(--ease-out);
+    fill var(--t-base) var(--ease-out),
+    stroke var(--t-base) var(--ease-out),
+    stroke-width var(--t-base) var(--ease-out),
+    filter var(--t-base) var(--ease-out);
 }
 .iso-zone.motion {
   --zone: var(--seen);
 }
 .iso-zone.inside {
-  fill: color-mix(in srgb, var(--zone) 30%, transparent);
+  fill: color-mix(in srgb, var(--zone) 28%, transparent);
   stroke-width: 2;
   filter: drop-shadow(0 0 6px color-mix(in srgb, var(--zone) 55%, transparent));
 }
@@ -144,6 +147,23 @@
   font-weight: 700;
 }
 /*
+ * The thing itself is outlined too: faintly under the pointer, fully while
+ * selected, the same thing the camera's box rings (scene.css, `.selected`).
+ */
+.iso-fixture .iso-item,
+.iso-object .iso-item {
+  transition: filter var(--t-fast) var(--ease-out);
+}
+.iso-fixture:hover .iso-item,
+.iso-object:hover .iso-item {
+  filter: drop-shadow(0 0 0.6px var(--chosen));
+}
+.iso-fixture.focused .iso-item,
+.iso-object.focused .iso-item {
+  filter: drop-shadow(0 0 0.6px var(--chosen)) drop-shadow(0 0 0.6px var(--chosen))
+    drop-shadow(0 0 6px var(--chosen-glow));
+}
+/*
  * A saved zone opens with a click on the surface inside it. The hit area is
  * on the surface, under what stands in the zone, so a mug in it still takes
  * its own clicks; the zone itself is drawn over everything and takes none.
@@ -175,12 +195,8 @@
 .iso-glow {
   mix-blend-mode: screen;
   pointer-events: none;
-  animation: iso-warm 1.2s ease-out both;
-}
-@keyframes iso-warm {
-  from {
-    opacity: 0;
-  }
+  /* The same ignition as the room's ambient light (shell.css). */
+  animation: ignite 1.2s both;
 }
 @media (prefers-reduced-motion: reduce) {
   .iso-glow {

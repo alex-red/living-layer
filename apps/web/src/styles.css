@@ -169,7 +169,8 @@ p {
     transition-duration: 0ms !important;
   }
   .detection .scan,
-  .shell.lamp-live::after {
+  .shell.lamp-live::after,
+  .shell.lamp-virtual::after {
     animation: none !important;
   }
 }

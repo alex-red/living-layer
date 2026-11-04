@@ -31,31 +31,44 @@
   background: radial-gradient(ellipse 65% 55% at 38% 45%, rgb(255 184 102 / 8%), transparent 72%);
   transition: opacity 1.2s var(--ease-out);
 }
-/* A virtual lamp warms the room at half strength, per the design guide. */
+/*
+ * The lamp ignites: two brief dips over 300 ms, then it holds (the design
+ * guide's only flicker). Each step is 100 ms or 67 ms, whole frames at 30 fps,
+ * so a recording keeps both dips; two in a second stays well under three
+ * flashes. A virtual lamp does the same at half strength. The room's own lamp
+ * glow (`.iso-glow`) uses these keyframes too, so the two ignite alike.
+ */
 .shell.lamp-virtual::after {
+  --lamp: 0.5;
   opacity: 0.5;
+  animation: ignite 1.2s both;
 }
 .shell.lamp-live::after {
   opacity: 1;
-  animation: ignite 1.2s var(--ease-out);
+  animation: ignite 1.2s both;
 }
 @keyframes ignite {
   0% {
     opacity: 0;
+    animation-timing-function: linear;
   }
-  8% {
-    opacity: 0.75;
+  8.33% {
+    opacity: calc(var(--lamp, 1) * 0.8);
+    animation-timing-function: linear;
   }
-  12% {
-    opacity: 0.3;
+  13.89% {
+    opacity: calc(var(--lamp, 1) * 0.3);
+    animation-timing-function: linear;
   }
-  18% {
-    opacity: 0.85;
+  19.44% {
+    opacity: calc(var(--lamp, 1) * 0.9);
+    animation-timing-function: linear;
   }
-  22% {
-    opacity: 0.5;
+  25% {
+    opacity: calc(var(--lamp, 1) * 0.55);
+    animation-timing-function: var(--ease-out);
   }
   100% {
-    opacity: 1;
+    opacity: var(--lamp, 1);
   }
 }

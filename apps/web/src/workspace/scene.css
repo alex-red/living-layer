@@ -294,19 +294,28 @@
   stroke-width: 1.5px;
   stroke-dasharray: 5 4;
   vector-effect: non-scaling-stroke;
+  filter: drop-shadow(0 0 0 transparent);
+  transition:
+    fill var(--t-base) var(--ease-out),
+    stroke var(--t-base) var(--ease-out),
+    stroke-width var(--t-base) var(--ease-out),
+    filter var(--t-base) var(--ease-out);
 }
 .zone-overlay.drawing rect {
   stroke-dasharray: 6 5;
 }
-/* Occupied: the thing stands in the zone by the last check. */
+/*
+ * Occupied: the thing stands in the zone by the last check. Every zone shows
+ * it the same way, here, in saved-zones.css and in the room (iso.css): its
+ * own colour, stronger, with a glow, over --t-base.
+ */
 .zone-overlay.inside rect {
-  fill: var(--ok-wash);
-  stroke: var(--ok);
+  fill: color-mix(in srgb, var(--chosen) 28%, transparent);
   stroke-width: 2.5px;
-  filter: drop-shadow(0 0 14px var(--ok-glow));
+  filter: drop-shadow(0 0 8px var(--chosen-glow));
 }
 .zone-tag.inside {
-  color: var(--ok);
+  font-weight: 700;
 }
 /* The tag on the camera, drawn in the picture's own pixels. */
 .zone-label {
@@ -319,7 +328,7 @@
   stroke-width: 4px;
 }
 .zone-label.inside {
-  fill: var(--ok);
+  font-weight: 700;
 }
 .zone-tag {
   position: absolute;
@@ -359,7 +368,8 @@
   stroke-dasharray: 3 3;
   transition:
     x var(--t-fast) var(--ease-out),
-    y var(--t-fast) var(--ease-out);
+    y var(--t-fast) var(--ease-out),
+    opacity var(--t-base) var(--ease-out);
 }
 .follow-box:not(.follow),
 .follow-box.unsure {
@@ -411,6 +421,32 @@
 .tracked.sam rect,
 .tracked.missing rect {
   stroke-dasharray: 6 4;
+}
+/*
+ * The thing selected in the outline or the room: its box solid, heavier and
+ * glowing in its own tone, the others stepped back. The room outlines the
+ * same thing (iso.css, `.focused`).
+ */
+.tracked {
+  transition: opacity var(--t-base) var(--ease-out);
+}
+.tracking-overlay.picked .tracked:not(.selected),
+.follow-overlay.picked .follow-box:not(.selected) {
+  opacity: 0.45;
+}
+.tracked.selected rect,
+.follow-box.selected {
+  stroke-width: 2.5px;
+  stroke-dasharray: none;
+}
+.tracked.selected rect {
+  filter: drop-shadow(0 0 6px color-mix(in srgb, var(--signal) 50%, transparent));
+}
+.follow-box.selected {
+  filter: drop-shadow(0 0 6px var(--seen-glow));
+}
+.tracked.selected text {
+  font-weight: 700;
 }
 .tracked .outline {
   fill: var(--signal);

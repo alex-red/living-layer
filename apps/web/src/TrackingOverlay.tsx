@@ -30,6 +30,20 @@ interface Sighting {
 const LAYER = { local: 'LOCAL', appearance: 'LOOKS', sam: 'SAM' } as const;
 
 /**
+ * The thing a selection names, by the id the camera's boxes carry: the mug's
+ * own id for the outline's `main` object, a thing's id, or null when the
+ * selection isn't a thing.
+ */
+export function selectedThing(
+  selection: { kind: string; id?: string } | null | undefined,
+  memory: DeskMemory | null | undefined,
+): string | null {
+  if (selection?.kind === 'object')
+    return selection.id === 'main' ? (mugOf(memory)?.id ?? null) : (selection.id ?? null);
+  return selection?.kind === 'fixture' ? (selection.id ?? null) : null;
+}
+
+/**
  * What to draw: the follow loop's mug, then what the server's watcher follows,
  * then each remembered thing's last SAM sighting when it came from a frame
  * shaped like this camera's. A thing shows once, from the freshest of these.
@@ -162,11 +176,13 @@ function useVideoSize(video: RefObject<HTMLVideoElement | null>) {
  */
 export function TrackingOverlay({
   video,
+  selected,
   ...from
-}: { video: RefObject<HTMLVideoElement | null> } & Omit<
-  Parameters<typeof sightings>[0],
-  'aspect'
->) {
+}: {
+  video: RefObject<HTMLVideoElement | null>;
+  /** The selected thing's id: its box is ringed and the others step back. */
+  selected?: string | null;
+} & Omit<Parameters<typeof sightings>[0], 'aspect'>) {
   const { width, height } = useVideoSize(video);
   const { memory, watch, follow, segmentation } = from;
   const aspect = width && height ? width / height : 0;
@@ -178,9 +194,10 @@ export function TrackingOverlay({
   if (!width || !height) return null;
   const seen = withRemembered(liveSightings(memory, watch, follow), past);
   const font = Math.max(10, Math.round(width / 70));
+  const picked = selected && seen.some((s) => s.id === selected) ? selected : null;
   return (
     <svg
-      className="tracking-overlay"
+      className={`tracking-overlay${picked ? ' picked' : ''}`}
       viewBox={`0 0 ${width} ${height}`}
       aria-label={`${seen.length} tracked ${seen.length === 1 ? 'thing' : 'things'} on the camera`}
     >
@@ -190,7 +207,7 @@ export function TrackingOverlay({
           w = s.box.width * width,
           h = s.box.height * height;
         return (
-          <g key={s.id} className={`tracked ${s.tone}`}>
+          <g key={s.id} className={`tracked ${s.tone}${s.id === picked ? ' selected' : ''}`}>
             {s.outline && (
               <path
                 className="outline"

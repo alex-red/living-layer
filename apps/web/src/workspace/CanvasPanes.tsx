@@ -26,7 +26,7 @@ import { api } from '../api';
 import { Glyph } from '../Glyph';
 import { MaskOverlay } from '../MaskOverlay';
 import { RectHandles, dragRect, grabOf, type Grab } from '../RectGrab';
-import { StatsOverlay, TrackingOverlay } from '../TrackingOverlay';
+import { StatsOverlay, TrackingOverlay, selectedThing } from '../TrackingOverlay';
 import { HealthBar } from '../HealthBar';
 import './scene.css';
 import { Later } from '../Later';
@@ -675,6 +675,7 @@ function FollowLayers() {
     useObservation(),
   );
   const { follow, watching, memory, segmentation } = lab;
+  const selected = selectedThing(lab.selection, memory);
   const { zoneShown } = useZoneView();
   // The tracking layer replaces the follow and watch boxes on the camera with ones fitted to the video.
   const tracked = lab.camera && lab.tracking;
@@ -683,10 +684,11 @@ function FollowLayers() {
   return (
     <>
       {follow && !tracked && <FollowOverlay localZone={lab.localZone} zoneShown={zoneShown} />}
-      {!follow && !tracked && watching && picture && <WatchedBoxes />}
+      {!follow && !tracked && watching && picture && <WatchedBoxes selected={selected} />}
       {tracked && (
         <WatchedTracking
           video={lab.video}
+          selected={selected}
           memory={memory}
           follow={follow}
           segmentation={segmentation}
@@ -715,14 +717,15 @@ function HealthBars({ caption }: { caption: ReactNode }) {
 }
 
 /** The server watcher's boxes and their tags; it renders for each message the watcher sends, alone. */
-function WatchedBoxes() {
+function WatchedBoxes({ selected }: { selected: string | null }) {
   const watch = useStore(watchStore);
   if (!watch) return null;
+  const picked = selected && watch.things.some((t) => t.id === selected) ? selected : null;
   return (
     <>
       {watch.things.length > 0 && (
         <svg
-          className="follow-overlay"
+          className={`follow-overlay${picked ? ' picked' : ''}`}
           viewBox="0 0 1000 1000"
           preserveAspectRatio="none"
           aria-label="What the server is watching"
@@ -730,7 +733,7 @@ function WatchedBoxes() {
           {watch.things.map((t) => (
             <rect
               key={t.id}
-              className={`follow-box ${t.status === 'following' ? 'follow' : 'unsure'}`}
+              className={`follow-box ${t.status === 'following' ? 'follow' : 'unsure'}${t.id === picked ? ' selected' : ''}`}
               x={t.box.x * 1000}
               y={t.box.y * 1000}
               width={t.box.width * 1000}

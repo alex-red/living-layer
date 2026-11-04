@@ -133,7 +133,9 @@ Key moments:
 
 - **Mask arrives:** a cyan scan line sweeps once across the detection box (400 ms), then the mask fills in.
 - **Zone saved:** the magenta outline settles from dashed to solid, with a soft inner glow, like light projected onto the desk.
-- **Lamp on:** the verify button and ambient light "ignite". Amber brightens with two brief dips over about 300 ms, then holds. That's the only flicker anywhere. It stays under three flashes a second, so it's safe for photosensitive users.
+- **Lamp on:** the verify button and ambient light "ignite". Amber brightens with two brief dips over about 300 ms, then holds. That's the only flicker anywhere. It stays under three flashes a second, so it's safe for photosensitive users. Each step lasts whole frames at 30 fps (100 ms, then 67 ms), so a recording keeps both dips; the room's lamp glow uses the same keyframes, and a virtual lamp ignites at half strength.
+- **Something enters a zone:** the zone's own colour grows stronger, its line heavier, and it glows, over `--t-base`. The same on the camera and in the room, for every zone.
+- **Selected:** the thing's box on the camera turns solid and heavier, with a glow in its tone, and the other boxes step back to 45%. In the room the thing's model gets a `--chosen` outline over its floor ring; under the pointer, a fainter one.
 - **Busy:** a thin progress shimmer runs along the top of the acting card. No spinners in the middle of the scene.
 
 Under `prefers-reduced-motion`, every sweep, ignition and shimmer becomes a 150 ms opacity fade, and the ambient light changes instantly.

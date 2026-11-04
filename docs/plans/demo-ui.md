@@ -9,7 +9,7 @@ Found on 2026-11-03 by walking the running lab (Live, office desk, 1440 × 900 a
 Phases 1–4 are built (78ac92c, 13f0ca2, 9509b61, be33f3a) and checked in the running lab, Live, at 1440 × 900 and 1280 × 720. Left:
 
 - Phase 0's walk: Demo mode, the first screen, photo review, the AI brush panel, zone actions and Your day haven't been looked at (the camera was on, which locks the mode switch).
-- Phase 5 (lamp warm-up timing, zone transitions, hover outlines) not started.
+- Phase 5 is built: the ignition is retimed to whole frames at 30 fps and shared with the room's lamp glow; every zone fills the same way over 250 ms (the camera's main zone no longer turns green while the room's stays magenta); the selected thing is ringed on the camera and outlined in the room. Checked by sampling the animation at 30 fps and reading computed styles in the running lab (the pane was hidden, so not judged by eye or on a recording).
 - Kept on purpose: env-var names in provider error hints (they are the fix, and show only on failure); model ids in the readiness popover (the video names each model); capitals typed into `.tiny` labels (CSS uppercases them anyway); the za-menu and layers list, which are inline content rather than a third menu style.
 - Room callout cards still clip at the iso pane's edge when zoomed in.
 

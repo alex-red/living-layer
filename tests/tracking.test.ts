@@ -6,7 +6,7 @@ import {
   type WatchView,
 } from '@livinglayer/domain';
 import { emptyDesk, prefsOf } from '../apps/web/src/session.js';
-import { sightings } from '../apps/web/src/TrackingOverlay.js';
+import { selectedThing, sightings } from '../apps/web/src/TrackingOverlay.js';
 
 const seen = (objectId: string, width = 1280, height = 720): DeskObservation => ({
   id: `obs-${objectId}`,
@@ -96,5 +96,25 @@ describe('tracking overlay sightings', () => {
     const out = sightings({ memory, watch, aspect: 16 / 9 });
     expect(out).toHaveLength(1);
     expect(out[0]).toMatchObject({ tone: 'unsure', note: 'UNSURE', box: { x: 0.5 } });
+  });
+});
+
+describe('the selected thing on the camera', () => {
+  const memory = upgradeMemory({
+    ...emptyDesk('live'),
+    object: { id: 'mug-1', label: 'Mug', createdAt: '2026-10-30T10:00:00.000Z' },
+    observation: seen('mug-1'),
+  } as unknown as DeskMemory);
+  it("names the mug by its own id when the outline's main object is selected", () => {
+    expect(selectedThing({ kind: 'object', id: 'main' }, memory)).toBe('mug-1');
+  });
+  it('names a thing or another object by its id', () => {
+    expect(selectedThing({ kind: 'fixture', id: 'plush-1' }, memory)).toBe('plush-1');
+    expect(selectedThing({ kind: 'object', id: 'book-1' }, memory)).toBe('book-1');
+  });
+  it('names nothing for a zone, the room or no selection', () => {
+    expect(selectedThing({ kind: 'rule', id: 'main' }, memory)).toBeNull();
+    expect(selectedThing({ kind: 'room' }, memory)).toBeNull();
+    expect(selectedThing(null, memory)).toBeNull();
   });
 });

@@ -23,14 +23,20 @@
   stroke-width: 1.5px;
   stroke-dasharray: 5 4;
   vector-effect: non-scaling-stroke;
+  filter: drop-shadow(0 0 0 transparent);
   transition:
-    fill var(--t-fast) var(--ease-out),
-    stroke-width var(--t-fast) var(--ease-out);
+    fill var(--t-base) var(--ease-out),
+    stroke var(--t-base) var(--ease-out),
+    stroke-width var(--t-base) var(--ease-out),
+    filter var(--t-base) var(--ease-out);
 }
 .saved-zone.on rect {
   fill: color-mix(in srgb, var(--zone) 28%, transparent);
   stroke-width: 2.5px;
   filter: drop-shadow(0 0 8px color-mix(in srgb, var(--zone) 50%, transparent));
+}
+.saved-zone.on text {
+  font-weight: 700;
 }
 .saved-zone text {
   font-family: var(--mono);
