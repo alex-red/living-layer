@@ -5,6 +5,8 @@ import { coach } from './coach.js';
 import { draft } from './draft.js';
 import { end } from './end.js';
 import { fridge } from './fridge.js';
+import { sensor } from './sensor.js';
+import { triggers } from './triggers.js';
 import { home } from './home.js';
 import { memory } from './memory.js';
 import { plushies } from './plushies.js';
@@ -24,4 +26,6 @@ export const SHOTS: Shot[] = [
   coach,
   home,
   fridge,
+  triggers,
+  sensor,
 ];
