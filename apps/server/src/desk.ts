@@ -1277,7 +1277,7 @@ export async function deskRoutes(
     const events = await verifyRules(mode);
     return { memory: store.memory(mode), events };
   });
-  /** Draw the main zone: the rule `main`, counting the mug and switching the main light. */
+  /** Draw the main zone: the rule `main`, counting anything seen and switching the main light. */
   app.post('/zone', async (request) => {
     const { mode, observationId, rect, onSurface } = parseInput(deskZoneBodySchema, request.body);
     available(mode);
@@ -1296,7 +1296,9 @@ export async function deskRoutes(
     const main: PlacementRule = {
       id: MAIN_RULE,
       label: was?.label ?? 'Main zone',
-      objects: [mug.id],
+      // It counts anything seen, not just the mug it was drawn on, unless set to other things.
+      objects: was?.objects ?? 'any',
+      ...(was?.match ? { match: was.match } : {}),
       entityId: '',
       // Its light goes off as the mug leaves, unless the zone is told to keep it on.
       offWhenEmpty: true,

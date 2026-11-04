@@ -1331,8 +1331,8 @@ function ZonePanel() {
     );
   const d = memory.lastDecision?.output;
   const rule = memory.rules?.find((r) => r.id === MAIN_RULE);
-  // What it watches: the mug it was drawn for, unless set to other things.
-  const who = rule ? ruleWho(memory, rule) : 'the mug';
+  // What it watches: anything seen, unless set to other things.
+  const who = rule ? ruleWho(memory, rule) : 'anything';
   const Who = who.charAt(0).toUpperCase() + who.slice(1);
   const status = !mainZone(memory)
     ? zoneObservation
