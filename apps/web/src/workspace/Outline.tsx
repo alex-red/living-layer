@@ -743,6 +743,17 @@ function Things({ outline }: { outline: SceneOutline }) {
               disabled: full,
               onSelect: () => lab.select({ kind: 'new-fixture' }),
             },
+            {
+              label: 'Add a person',
+              disabled: full,
+              separated: true,
+              onSelect: () => lab.select({ kind: 'new-member', member: 'person' }),
+            },
+            {
+              label: 'Add a pet',
+              disabled: full,
+              onSelect: () => lab.select({ kind: 'new-member', member: 'pet' }),
+            },
           ]}
           onClose={closeAdding}
         />

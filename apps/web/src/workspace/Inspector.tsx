@@ -78,6 +78,9 @@ const FixturePanel = lazy(() =>
 const NewFixturePanel = lazy(() =>
   import('./FixturePanel').then((m) => ({ default: m.NewFixturePanel })),
 );
+const NewMemberPanel = lazy(() =>
+  import('./FixturePanel').then((m) => ({ default: m.NewMemberPanel })),
+);
 const LampPanel = lazy(() => import('./FixturePanel').then((m) => ({ default: m.LampPanel })));
 const BuiltInPanel = lazy(() =>
   import('./FixturePanel').then((m) => ({ default: m.BuiltInPanel })),
@@ -2040,6 +2043,12 @@ function body(lab: LabRead & Pick<Lab, 'workScene'>, s: Selection | null) {
       return (
         <Later>
           <NewFixturePanel />
+        </Later>
+      );
+    case 'new-member':
+      return (
+        <Later>
+          <NewMemberPanel key={s.member} member={s.member} />
         </Later>
       );
     case 'lamp':

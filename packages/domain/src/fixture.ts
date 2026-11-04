@@ -17,6 +17,15 @@ import {
 } from './iso-archetypes.js';
 import { ISO_TILE_CM } from './iso-furniture.js';
 import {
+  MEMBER_POSES,
+  isMemberType,
+  lookFor,
+  memberColors,
+  memberItem,
+  memberSizeCm,
+  type MemberType,
+} from './members.js';
+import {
   isoSceneKindSchema,
   layerSchema,
   type IsoBox,
@@ -80,6 +89,8 @@ export const STARTER_TEMPLATES = [
   'device',
   'box',
   'cat-tree',
+  'person',
+  'dog',
 ] as const;
 export type StarterTemplate = (typeof STARTER_TEMPLATES)[number];
 /** The illustrated reference pictures demo mode can draft fixtures from. */
@@ -164,6 +175,10 @@ export const fixtureInputSchema = z
     control: fixtureControlSchema,
     /** What it is, when a person chose it from the starters (`retypeFixture`). */
     type: z.enum(STARTER_TEMPLATES).optional(),
+    /** A person's or pet's look among its kind's (`lookFor`), kept when it is renamed. */
+    look: z.string().min(1).max(24).optional(),
+    /** The seat a person sits in: drawn into its model, not on their own (`seatPerson`). */
+    seatedOn: z.string().min(1).max(64).optional(),
     /** Its light sources' own entities, one per source part, besides `control`. */
     lights: z
       .array(fixtureLightSchema)
@@ -358,6 +373,8 @@ export function fixtureInput(f: Fixture): FixtureInput {
     reference: f.reference,
     control: f.control,
     ...(f.type ? { type: f.type } : {}),
+    ...(f.look ? { look: f.look } : {}),
+    ...(f.seatedOn ? { seatedOn: f.seatedOn } : {}),
     ...(f.lights?.length ? { lights: f.lights } : {}),
     ...(f.states
       ? {
@@ -1016,6 +1033,22 @@ const STARTER_META: Record<
     sizeCm: { w: 50, d: 50, h: 120 },
     colors: ['#8d8f94', '#c9b48f'],
   },
+  person: {
+    label: 'Person',
+    archetype: 'box',
+    suggested: 'none',
+    description: 'Someone who lives here, standing; they sit when put on a chair.',
+    sizeCm: memberSizeCm('person'),
+    colors: ['#4f7bb5', '#3a3f4b'],
+  },
+  dog: {
+    label: 'Dog',
+    archetype: 'box',
+    suggested: 'none',
+    description: 'A dog with standing and lying poses.',
+    sizeCm: memberSizeCm('dog'),
+    colors: ['#d9a55b', '#f3e2c0'],
+  },
 };
 
 /**
@@ -1051,10 +1084,13 @@ export function starterMeta(template: StarterTemplate) {
 /** Build a model from a starter template and optional state (`idle`, `sleeping`, `on`, `off`). */
 export function starterTemplateModel(
   template: StarterTemplate,
-  opts: { label?: string; colors?: string[]; state?: string | null } = {},
+  opts: { label?: string; colors?: string[]; state?: string | null; look?: string } = {},
 ): SavedItem {
   const meta = STARTER_META[template];
   const label = opts.label?.trim() || meta.label;
+  // A person or dog is always built from a look; a cat keeps the catalog's colours unless given one.
+  if (isMemberType(template) && (template !== 'cat' || opts.look))
+    return memberModel(template, label, opts.look, opts.state ?? undefined);
   const colors = opts.colors?.length ? opts.colors : meta.colors;
   const pose = opts.state === 'sleeping' ? 'sleeping' : 'idle';
   const base =
@@ -1089,6 +1125,40 @@ export function starterTemplateModel(
     : saved;
 }
 
+/** A person's or pet's model in a pose, in its look, as a placeholder: it was never drafted. */
+function memberModel(type: MemberType, label: string, look?: string, pose?: string): SavedItem {
+  const colors = memberColors(type, label, look);
+  return {
+    ...memberItem(type, label, look, pose),
+    source: 'placeholder',
+    segmentRunId: null,
+    swatches: colors.map((hex, i) => ({ hex, share: i === 0 ? 0.7 : 0.3 / (colors.length - 1) })),
+    updatedAt: new Date().toISOString(),
+    fit: null,
+  };
+}
+/** A member's poses, each its own model at its real size, and the first shown. */
+function memberStates(
+  type: MemberType,
+  label: string,
+  look: string,
+): { state?: string; states?: Record<string, FixtureState> } {
+  const poses = MEMBER_POSES[type];
+  if (poses.length < 2) return {};
+  return {
+    state: poses[0]!,
+    states: Object.fromEntries(
+      poses.map((pose) => [
+        pose,
+        {
+          model: memberModel(type, label, look, pose),
+          size: sizeInTiles(memberSizeCm(type, pose)),
+        },
+      ]),
+    ),
+  };
+}
+
 /** Draft a complete fixture with its default states directly from a starter template. */
 export function starterFixtureDraft(
   template: StarterTemplate,
@@ -1096,6 +1166,7 @@ export function starterFixtureDraft(
 ): FixtureDraft {
   const meta = STARTER_META[template];
   const label = opts.label?.trim() || meta.label;
+  if (template === 'person' || template === 'dog') return memberDraft(template, label);
   const model = starterTemplateModel(template, { label, colors: opts.colors });
   const seeded = defaultFixtureStates({
     label,
@@ -1116,6 +1187,65 @@ export function starterFixtureDraft(
   };
 }
 
+/**
+ * A person or pet by name alone ([plan](../../../docs/plans/people-and-pets.md)):
+ * its kind's look its name picks (`look` keeps it), its poses, its real size.
+ */
+export function memberDraft(
+  type: MemberType,
+  name: string,
+): FixtureDraft & { type: MemberType; look: string } {
+  const meta = STARTER_META[type];
+  const label = name.trim() || meta.label;
+  const look = lookFor(type, label);
+  const seeded = memberStates(type, label, look);
+  return {
+    label,
+    archetype: meta.archetype,
+    suggested: 'none',
+    description: meta.description,
+    model: memberModel(type, label, look),
+    size: sizeInTiles(memberSizeCm(type)),
+    reference: null,
+    type,
+    look,
+    ...seeded,
+  };
+}
+
+/** A person or pet by name, as it is saved standing at `at` in `scene` (the floor unless `surfaceId`). */
+export function memberInput(
+  type: MemberType,
+  name: string,
+  where: Pick<FixtureInput, 'scene' | 'at'> & Partial<Pick<FixtureInput, 'surfaceId' | 'turns'>>,
+): FixtureInput {
+  const d = memberDraft(type, name);
+  const model = (m: SavedItem) => ({ label: d.label, parts: m.parts });
+  return {
+    label: d.label,
+    scene: where.scene,
+    surfaceId: where.surfaceId ?? null,
+    at: where.at,
+    turns: where.turns ?? 0,
+    size: d.size,
+    model: model(d.model),
+    reference: null,
+    control: { kind: 'none' },
+    type,
+    look: d.look,
+    ...(d.states
+      ? {
+          states: Object.fromEntries(
+            Object.entries(d.states).map(([k, v]) => [
+              k,
+              { model: model(v.model), ...(v.size ? { size: v.size } : {}) },
+            ]),
+          ),
+        }
+      : {}),
+  };
+}
+
 const TYPE_OF_ARCHETYPE: Partial<Record<Archetype, StarterTemplate>> = {
   cat: 'cat',
   lamp: 'lamp',
@@ -1132,6 +1262,8 @@ export function fixtureType(f: Pick<Fixture, 'model'> & Partial<Pick<Fixture, 't
   if (ids.has('shade-bowl')) return 'floor-lamp';
   if (ids.has('screen')) return 'monitor';
   if (ids.has('cubby') && ids.has('perch')) return 'cat-tree';
+  if (ids.has('hair') && ids.has('torso')) return 'person';
+  if (ids.has('snout') && ids.has('tail')) return 'dog';
   const archetype = f.model.fit?.archetype;
   return (archetype && TYPE_OF_ARCHETYPE[archetype]) ?? null;
 }
@@ -1153,7 +1285,16 @@ export function retypeFixture(
   const label = defaults.has(f.label) ? meta.label : f.label;
   const own = f.model.swatches.map((s) => s.hex);
   const colors = [own[0] ?? meta.colors[0], own[1] ?? meta.colors[1]];
-  const model = starterTemplateModel(type, { label, colors });
+  // A person or dog takes a look of its kind: the one it had, else the one its name picks.
+  const member = type === 'person' || type === 'dog' ? type : null;
+  const look = member
+    ? f.look?.startsWith(`${member}-`)
+      ? f.look
+      : lookFor(member, label)
+    : undefined;
+  const model = member
+    ? memberModel(member, label, look)
+    : starterTemplateModel(type, { label, colors });
   const size = sizeInTiles(meta.sizeCm);
   const before = fixtureBox({ ...f, state: null }).size;
   const turned = f.turns % 2 === 1;
@@ -1166,19 +1307,18 @@ export function retypeFixture(
     x: fit(f.at.x + (before.w - w) / 2, w, grid?.w),
     y: fit(f.at.y + (before.d - d) / 2, d, grid?.d),
   };
-  const seeded = defaultFixtureStates({
-    label,
-    archetype: meta.archetype,
-    control: f.control.kind,
-    model,
-  });
+  const seeded =
+    member && look
+      ? memberStates(member, label, look)
+      : defaultFixtureStates({ label, archetype: meta.archetype, control: f.control.kind, model });
   const parts = new Set(model.parts.map((p) => p.id));
   const lights = (f.lights ?? []).filter((l) => parts.has(l.part) && isShade(l.part));
-  const { room: _room, ...rest } = fixtureInput(f);
+  const { room: _room, look: _look, seatedOn: _seat, ...rest } = fixtureInput(f);
   return {
     ...rest,
     label,
     type,
+    ...(look ? { look } : {}),
     at,
     size,
     model: { label: model.label, parts: model.parts },

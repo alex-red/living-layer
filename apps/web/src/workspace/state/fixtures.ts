@@ -7,7 +7,15 @@ import type {
   FixtureInput,
   SelectionShape,
 } from '@livinglayer/domain';
-import { closeViewOf, fixtureAt, fixtureBox, inRoomView, fixtureInput } from '@livinglayer/domain';
+import {
+  closeViewOf,
+  fixtureAt,
+  fixtureBox,
+  inRoomView,
+  fixtureInput,
+  isMember,
+  seatNear,
+} from '@livinglayer/domain';
 import { api } from '../../api';
 import type { FixturePlacing } from '../../iso/IsoView';
 import { SHORTCUTS } from '../../shortcuts';
@@ -582,14 +590,28 @@ export function useFixturesSlice(
     if (!placing) return;
     setError('');
     try {
-      const m = await api('fixtures/save', {
+      // Someone moved from their seat stands up first, so the seat shows its own model again.
+      const { seatedOn, ...moved } = placing;
+      if (seatedOn && placing.id)
+        setMemory(await api('fixtures/seat', { mode, id: placing.id, seat: null }));
+      let m = await api('fixtures/save', {
         mode,
-        fixture: { ...placing, ...where },
+        fixture: { ...moved, ...where },
       });
-      setMemory(m);
       setPlacing(null);
       const saved = placing.id ? m.fixtures?.find((f) => f.id === placing.id) : m.fixtures?.at(-1);
-      setMessage(`${placing.id ? 'Moved' : 'Placed'} the ${placing.label.toLowerCase()}.`);
+      // A person put down on a chair sits in it.
+      const seat =
+        saved?.type === 'person'
+          ? seatNear(saved, m.fixtures ?? [], m.scene, { reach: false })
+          : null;
+      if (saved && seat) m = await api('fixtures/seat', { mode, id: saved.id, seat });
+      setMemory(m);
+      setMessage(
+        seat
+          ? `${placing.label} sits down.`
+          : `${placing.id ? 'Moved' : 'Placed'} ${isMember(placing) ? placing.label : `the ${placing.label.toLowerCase()}`}.`,
+      );
       if (saved) setSelection({ kind: 'fixture', id: saved.id });
       void refresh().catch(() => {});
       if (sculptNext.current && saved && !placing.id) {

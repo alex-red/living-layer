@@ -409,6 +409,30 @@ export const fixturesPromoteBodySchema = z
   .strict();
 export type FixturesPromoteBody = z.input<typeof fixturesPromoteBodySchema>;
 
+/** POST /api/desk/demo/reset */
+export const deskDemoResetBodySchema = z
+  .object({
+    /** Put the demo's household in the office too: a person at the desk, the cat by the shelf. */
+    household: z.boolean().optional(),
+  })
+  .strict();
+
+/** POST /api/fixtures/seat */
+export const fixturesSeatBodySchema = z
+  .object({
+    mode: modeSchema,
+    /** The person who sits down or stands up. */
+    id: z.string().uuid(),
+    /** A seat that is a thing, a chair of their room's layout (made a thing to sit in), or null to stand up. */
+    seat: z.union([
+      z.object({ fixtureId: z.string().uuid() }).strict(),
+      z.object({ group: z.string().min(1).max(48) }).strict(),
+      z.null(),
+    ]),
+  })
+  .strict();
+export type FixturesSeatBody = z.input<typeof fixturesSeatBodySchema>;
+
 /** GET /api/fixtures/reference */
 export const fixturesReferenceQuerySchema = z.object({ runId: z.string().uuid() }).strict();
 export type FixturesReferenceQuery = z.input<typeof fixturesReferenceQuerySchema>;

@@ -36,6 +36,8 @@ export type Selection =
   | { kind: 'new-rule' }
   | { kind: 'fixture'; id: string }
   | { kind: 'new-fixture' }
+  /** A person or a pet, added by name. */
+  | { kind: 'new-member'; member: 'person' | 'pet' }
   /** A lamp that is part of a room's layout: `scene~propId`. */
   | { kind: 'lamp'; id: string }
   /** A small thing that is part of a room's layout (a book, a bottle): `scene~group`. */
@@ -230,6 +232,8 @@ export function selectionHash(s: Selection | null): string {
       return `#${s.kind}/${encodeURIComponent(s.id)}`;
     case 'suggested':
       return `#suggested/${s.index}`;
+    case 'new-member':
+      return `#new-member/${s.member}`;
     default:
       return `#${s.kind}`;
   }
@@ -255,6 +259,8 @@ export function parseSelection(hash: string): Selection | null {
     case 'built-in':
     case 'entity':
       return id ? { kind, id } : null;
+    case 'new-member':
+      return id === 'person' || id === 'pet' ? { kind, member: id } : null;
     case 'suggested': {
       const index = Number(id);
       return Number.isInteger(index) && index >= 0 ? { kind, index } : null;

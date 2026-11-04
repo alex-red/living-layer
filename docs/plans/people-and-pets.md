@@ -1,6 +1,6 @@
 # Plan: people and pets
 
-Status: planned (November 4). Nothing built yet.
+Status: phase 1 built (November 4; see _As built_ below). Phases 2 and 3 are planned.
 
 The home has people and animals in it, not only furniture and mugs. A person wants to add the household once ("Robin", "Miso"), see each one in the room as a small figure, and later have the camera say where they are: who is on the sofa, whether the cat is on its tree, whether the dog is in the kitchen, and tell Home Assistant.
 
@@ -63,6 +63,14 @@ In `iso-archetypes.ts` beside `catItem`, as standalone builders like `catTreeIte
 - Goldens in `tests/golden/people/`: `person` standing, `person` seated on the chair, `dog` in each pose, the cat in a second look, at the room's resolution, as `tests/model.test.ts` draws the floor lamp. Look at the PNGs before committing.
 - Unit tests (`tests/members.test.ts`): a member made from a name alone has its real size in tiles, its default pose and a look picked from the name; the same name always picks the same look; renaming keeps it; changing pose keeps it; seating a person on a chair merges them into the chair's model within 24 parts and standing up draws them alone again; a saved cat with no `look` still loads; `retypeFixture` from a cat to a dog keeps the place.
 - `bun run sheet --turns 0 --audit` on the new models (no specks), and `bun run model starter:person starter:person:sitting starter:dog starter:dog:lying starter:cat --preset room --turns all` side by side for the look.
+
+### As built
+
+- **Code.** The builders are in `member-models.ts` (`personItem`, `sittingParts`, `dogItem`), the kinds and looks in `members.ts` (`lookFor`, `memberItem`), sitting in `seating.ts` (`seatPerson`, `standUp`, `seatNear`, `drawnFixtures`), the starters and `memberDraft` / `memberInput` in `fixture.ts`. `POST /api/fixtures/seat` sits a person down (a chair of the layout is promoted first) or stands them up; deleting either one stands them up. Tests: `tests/members.test.ts`, goldens in `tests/golden/people/`.
+- **Seating doesn't use `variantItem`.** It keeps the occupant's biggest few parts and the subject's rest, which suits a cat on a tree, not a person on a chair. `seatedModel` keeps every part of the person (about 11, no neck or hands) and the chair's biggest of the rest (it drops the casters). The seat's facing comes from its model: away from its tallest part.
+- **The demo household is opt-in.** `bun run reset demo --household` (`POST /api/desk/demo/reset` with `household`) seats Robin in the office chair and puts Miso to sleep by the shelf. A plain reset stays as it was, so the demo video's shots, which start from one, don't change.
+- **No black coats.** The demo's floor is dark, so a black cat or dog read as a hole; the looks are ginger, grey and cream cats, and golden, brown and white dogs.
+- **Not built:** the day replay moving the cat, sofas and beds as seats (there are no templates for them yet; a Thing named like one with a back is a seat).
 
 ## Why following is different
 

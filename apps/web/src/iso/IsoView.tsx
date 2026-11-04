@@ -61,6 +61,7 @@ import {
   mugSighting,
   otherObjects,
   placedFixtures,
+  drawnFixtures,
   surfaceWorld,
   type Point,
 } from '@livinglayer/domain';
@@ -741,7 +742,7 @@ function IsoViewOf({
         at.x >= 0 && at.y >= 0 && at.x + size.w <= scene.grid.w && at.y + size.d <= scene.grid.d
       );
     };
-    return placedFixtures({ fixtures: things })
+    return drawnFixtures(placedFixtures({ fixtures: things }))
       .filter((f) =>
         kind === 'custom-desk'
           ? f.scene === 'custom' && Boolean(shift) && onDesk(f)
@@ -891,7 +892,7 @@ function IsoViewOf({
   const pictureFixtures = useMemo(
     () =>
       pictureScene
-        ? placedFixtures({ fixtures: things })
+        ? drawnFixtures(placedFixtures({ fixtures: things }))
             .filter((f) => f.scene === pictureScene && f.id !== placingId)
             .map(shown)
         : [],

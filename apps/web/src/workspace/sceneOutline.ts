@@ -5,6 +5,7 @@ import {
   ruleActions,
   stepEntities,
   foodNow,
+  isMember,
   pinFits,
   type DeskMemory,
   type Fixture,
@@ -160,8 +161,9 @@ function everything({ memory, mode, mainLight, lightsOn }: Omit<OutlineInput, 's
           : { kind: 'fixture', id: f.id },
         kind: f.track ? 'followed' : 'placed',
         status,
-        detail:
-          f.control.kind !== 'none'
+        detail: isMember(f)
+          ? memberDetail(f, memory?.fixtures ?? [])
+          : f.control.kind !== 'none'
             ? `${f.control.kind} · ${f.state ?? 'unknown'}`
             : status === 'missing'
               ? 'missing'
@@ -273,6 +275,13 @@ function ruleRow(r: PlacementRule, mainLight: string): RuleRow {
   };
 }
 
+/** What a person or pet is doing: sitting in their seat, or the pose they're in. */
+function memberDetail(f: Fixture, fixtures: Fixture[]): string {
+  const seat = f.seatedOn ? fixtures.find((x) => x.id === f.seatedOn) : undefined;
+  if (seat) return `in the ${seat.label.toLowerCase()}`;
+  return f.state ?? '';
+}
+
 /** One scene's sidebar: its things by the surface they stand on, its zones, and its close view. */
 export function sceneOutline(input: OutlineInput): SceneOutline {
   const { scene, memory } = input;
@@ -284,6 +293,17 @@ export function sceneOutline(input: OutlineInput): SceneOutline {
       ? pin.surfaceId
       : null;
   const groups: ThingGroup[] = [];
+  // The household first, wherever each of them is.
+  const members = here.filter((t) => t.row.fixture && isMember(t.row.fixture));
+  if (members.length)
+    groups.push({
+      key: 'members',
+      label: 'Who’s home',
+      surface: null,
+      pinned: false,
+      things: members.map((t) => t.row),
+    });
+  const listed = new Set(members);
   // Surfaces in the scene's order, the pinned one first; one with nothing on it only when pinned.
   const surfaces = [...(drawn?.surfaces ?? [])].sort(
     (a, b) => Number(b.id === pinnedId) - Number(a.id === pinnedId),
@@ -294,7 +314,7 @@ export function sceneOutline(input: OutlineInput): SceneOutline {
     view && view !== scene ? (sceneOf(view, memory)?.surfaces.map((s) => s.id) ?? []) : [],
   );
   for (const surface of surfaces) {
-    const on = here.filter((t) => t.surfaceId === surface.id).map((t) => t.row);
+    const on = here.filter((t) => !listed.has(t) && t.surfaceId === surface.id).map((t) => t.row);
     // An empty surface shows only when pinned, and not in a room whose close view lists it.
     if (!on.length && (surface.id !== pinnedId || inView.has(surface.id))) continue;
     groups.push({
@@ -305,7 +325,9 @@ export function sceneOutline(input: OutlineInput): SceneOutline {
       things: on,
     });
   }
-  const floor = here.filter((t) => !t.surfaceId || !known.has(t.surfaceId)).map((t) => t.row);
+  const floor = here
+    .filter((t) => !listed.has(t) && (!t.surfaceId || !known.has(t.surfaceId)))
+    .map((t) => t.row);
   if (floor.length)
     groups.push({
       key: 'floor',

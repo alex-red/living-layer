@@ -10,6 +10,8 @@ import {
   fixturesLayerBodySchema,
   fixturesPhotoBodySchema,
   fixturesPromoteBodySchema,
+  fixturesSeatBodySchema,
+  standUp,
   fixturesReferenceQuerySchema,
   fixturesRefine3dBodySchema,
   fixturesReleaseBodySchema,
@@ -31,6 +33,7 @@ import { draftFixture, refitFixture } from './draft.js';
 import { editFixture } from './edit.js';
 import { findFixture } from './find.js';
 import { promoteFixture } from './promote.js';
+import { seatFixture } from './seat.js';
 import { refineFixture } from './refine.js';
 import { chooseDraft, saveFixture, setFixtureState } from './save.js';
 import { scanFixtures } from './scan.js';
@@ -115,6 +118,10 @@ export async function fixtureRoutes(
   app.post('/promote', async (request) =>
     promoteFixture(deps, parseInput(fixturesPromoteBodySchema, request.body)),
   );
+  /** Sit a person down in a seat, drawn into its model, or stand them up. */
+  app.post('/seat', async (request) =>
+    seatFixture(deps, parseInput(fixturesSeatBodySchema, request.body)),
+  );
   /** The reference photo a fixture was drafted from, for review and the inspector. */
   app.get('/reference', async (request, reply) => {
     const { runId } = parseInput(fixturesReferenceQuerySchema, request.query);
@@ -142,6 +149,11 @@ export async function fixtureRoutes(
     for (const gone of (memory.fixtures ?? []).filter((f) => ids.has(f.id)))
       if (dismiss && !isDismissed(gone.label, memory.dismissed ?? []))
         memory.dismissed = [...(memory.dismissed ?? []), gone.label].slice(-MAX_DISMISSED);
+    // Whoever sat in a seat that goes, or went sitting, stands up first: the seat shows its own model.
+    const now = new Date().toISOString();
+    for (const f of memory.fixtures ?? [])
+      if (f.seatedOn && (ids.has(f.id) || ids.has(f.seatedOn)))
+        memory.fixtures = standUp(memory.fixtures ?? [], f.id, now);
     memory.fixtures = (memory.fixtures ?? []).filter((f) => !ids.has(f.id));
     // Rules they decided go with them; rules that switched one keep their entity.
     memory.rules = withoutThings(memory.rules, [...ids]).map((r) => {

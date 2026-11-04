@@ -58,6 +58,7 @@ const ROUTES = [
   '/api/fixtures/scan [POST]',
   '/api/fixtures/sculpt [POST]',
   '/api/fixtures/sculpt/reapply [POST]',
+  '/api/fixtures/seat [POST]',
   '/api/fixtures/state [POST]',
   '/api/fixtures/undismiss [POST]',
   '/api/fixtures/untrack [POST]',

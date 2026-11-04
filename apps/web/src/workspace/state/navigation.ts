@@ -119,7 +119,8 @@ export function useNavigationSlice(
   function select(next: Selection | null) {
     setOutlineOpen(false);
     if (next?.kind !== 'new-rule') setRuleDraft(null);
-    if (next?.kind !== 'new-fixture' && next?.kind !== 'fixture') setPlacing(null);
+    if (next?.kind !== 'new-fixture' && next?.kind !== 'new-member' && next?.kind !== 'fixture')
+      setPlacing(null);
     if (next?.kind !== 'new-fixture') setBoxing(null);
     if (next?.kind === 'lamp' || next?.kind === 'built-in')
       setWorkScene(next.id.split('~')[0] as WorkScene);

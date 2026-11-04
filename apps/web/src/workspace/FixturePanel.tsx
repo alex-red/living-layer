@@ -21,6 +21,11 @@ import {
   fixtureType,
   foodKeeps,
   lightSources,
+  isMember,
+  memberDraft,
+  memberInput,
+  seatNear,
+  type FixturesSeatBody,
   retypeFixture,
   starterFixtureDraft,
   SCULPT_FIRST,
@@ -44,7 +49,7 @@ import {
 } from '@livinglayer/domain';
 import { api } from '../api';
 import { Glyph } from '../Glyph';
-import { Button, Check, Field, Select, type ButtonVariant } from '../ui/controls';
+import { Button, Check, Field, Segmented, Select, type ButtonVariant } from '../ui/controls';
 import { useItemSprite } from '../iso/sprites';
 import type { FixturePlacing } from '../iso/IsoView';
 import {
@@ -622,6 +627,137 @@ export function NewFixturePanel() {
 }
 
 /**
+ * A person's or pet's pose: sitting down in the chair they stand by and
+ * standing up again, or a pet's poses, at the top of their panel.
+ */
+function MemberPose({
+  fixture: f,
+  seat,
+  disabled,
+}: {
+  fixture: Fixture;
+  seat: Fixture | undefined;
+  disabled: boolean;
+}) {
+  const lab = useLabParts(useFeedback(), useDesk());
+  const { call } = useCall();
+  const { memory } = lab;
+  const near = useMemo(
+    () =>
+      f.type === 'person' && !seat && memory
+        ? seatNear(f, memory.fixtures ?? [], memory.scene)
+        : null,
+    [f, seat, memory],
+  );
+  const sit = (to: FixturesSeatBody['seat'], done: string) =>
+    void call<DeskMemory>('fixtures/seat', { id: f.id, seat: to }, (m) => {
+      lab.setMemory(m);
+      lab.setMessage(done);
+    });
+  if (f.type === 'person')
+    return (
+      <div className="save-actions">
+        {seat ? (
+          <Button size="sm" disabled={disabled} onClick={() => sit(null, `${f.label} stands up.`)}>
+            Stand up
+          </Button>
+        ) : (
+          <Button
+            size="sm"
+            disabled={disabled || !near}
+            title={near ? undefined : 'Move them next to a chair first.'}
+            onClick={() => near && sit(near, `${f.label} sits down.`)}
+          >
+            Sit down
+          </Button>
+        )}
+      </div>
+    );
+  return null;
+}
+
+/**
+ * Add a person or a pet by name alone ([plan](../../../../docs/plans/people-and-pets.md)):
+ * the look comes from the name, the pose is their first, and they stand
+ * where they are put. A person put on a chair sits in it.
+ */
+export function NewMemberPanel({ member }: { member: 'person' | 'pet' }) {
+  const lab = useLabParts(useView(), useFeedback(), useFixtures());
+  const scenes = useScenes();
+  const [name, setName] = useState('');
+  const [pet, setPet] = useState<'cat' | 'dog'>('cat');
+  const type = member === 'person' ? 'person' : pet;
+  const here = lab.workScene && pinScene(lab.workScene);
+  const target = here && scenes.some((s) => s.id === here) ? here : (scenes[0]?.id ?? null);
+  const label = name.trim();
+  const draft = useMemo(() => memberDraft(type, label), [type, label]);
+  const ready = Boolean(label && target);
+  function place() {
+    if (!ready) return;
+    const {
+      at: _at,
+      surfaceId: _on,
+      ...placing
+    } = memberInput(type, label, {
+      scene: target!,
+      at: { x: 0, y: 0 },
+    });
+    lab.startPlacing(placing);
+  }
+  return (
+    <Panel
+      tiny={member === 'person' ? 'ADD A PERSON' : 'ADD A PET'}
+      title={label || (member === 'person' ? 'Who lives here?' : 'Who’s your pet?')}
+      status={draft.description}
+      tone="seen"
+    >
+      <div className="fixture-compare">
+        <ModelPreview model={draft.model} />
+      </div>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          place();
+        }}
+      >
+        <Field label="Name">
+          <input
+            id="member-name"
+            value={name}
+            maxLength={40}
+            autoFocus
+            placeholder={member === 'person' ? 'Robin' : 'Miso'}
+            onChange={(e) => setName(e.target.value)}
+          />
+        </Field>
+        {member === 'pet' && (
+          <Segmented
+            label="Kind of pet"
+            value={pet}
+            onChange={setPet}
+            options={[
+              { value: 'cat', label: 'Cat' },
+              { value: 'dog', label: 'Dog' },
+            ]}
+          />
+        )}
+        <div className="save-actions">
+          <Button type="submit" variant="primary" disabled={!ready || Boolean(lab.placing)}>
+            Place {member === 'person' ? 'them' : 'it'}
+            <Glyph type="arrow" />
+          </Button>
+        </div>
+      </form>
+      <p className="micro">
+        {member === 'person'
+          ? 'Put them on a chair to sit them down. Their look comes from their name.'
+          : 'Their look comes from their name; change their pose once they’re in the room.'}
+      </p>
+    </Panel>
+  );
+}
+
+/**
  * Change what a fixture is: a starter's model in its own colours and at
  * that kind's real size, where it stands. The model it had goes to Earlier
  * drafts, so a wrong pick can be undone there.
@@ -849,21 +985,26 @@ export function FixturePanel({ id }: { id: string }) {
     );
   const moving = placing?.id === f.id;
   const linked = linkedFixtures(memory?.fixtures ?? [], f);
+  const member = isMember(f);
+  const seat = f.seatedOn ? memory?.fixtures?.find((x) => x.id === f.seatedOn) : undefined;
   return (
     <Panel
-      tiny="FIXTURE"
+      tiny={member ? (f.type === 'person' ? 'PERSON' : 'PET') : 'FIXTURE'}
       title={f.label}
       status={
         moving
           ? 'Click where it stands now. Esc cancels.'
-          : entityId
-            ? `${controlLabel(f)} · ${entityId} · in the ${where.toLowerCase()}`
-            : f.state
-              ? `${controlLabel(f)} · in the ${where.toLowerCase()}`
-              : `Just a thing, in the ${where.toLowerCase()}.`
+          : member
+            ? `Lives here · ${seat ? `in the ${seat.label.toLowerCase()}` : (f.state ?? 'standing')}, in the ${where.toLowerCase()}`
+            : entityId
+              ? `${controlLabel(f)} · ${entityId} · in the ${where.toLowerCase()}`
+              : f.state
+                ? `${controlLabel(f)} · in the ${where.toLowerCase()}`
+                : `Just a thing, in the ${where.toLowerCase()}.`
       }
       tone={f.control.kind === 'light' && f.state === 'on' ? 'warm' : entityId ? 'ok' : 'idle'}
     >
+      {member && <MemberPose fixture={f} seat={seat} disabled={off || moving} />}
       {entityId && (
         <>
           <div className="save-actions">
@@ -908,7 +1049,7 @@ export function FixturePanel({ id }: { id: string }) {
         </Button>
         <Button
           size="sm"
-          disabled={off || moving}
+          disabled={off || moving || Boolean(seat)}
           onClick={() =>
             save(
               { ...inputOf(f), turns: ((f.turns + 1) % 4) as FixtureInput['turns'] },

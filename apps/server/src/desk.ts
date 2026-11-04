@@ -72,10 +72,12 @@ import {
   type LampResult,
   type LightLook,
   zoneThingId,
+  deskDemoResetBodySchema,
 } from '@livinglayer/domain';
 import { EvidenceStore } from './store.js';
 import { LabError, parseInput, safeError } from './errors.js';
 import { noteControl } from './fixture/control.js';
+import { addDemoHousehold } from './fixture/seat.js';
 import type { RouteDeps } from './route-deps.js';
 import type { SwitchOptions, Switched } from './control.js';
 
@@ -1343,12 +1345,15 @@ export async function deskRoutes(
   });
   /**
    * Put the demo's memory back to the preset, as a fresh data folder has it:
-   * no scene, pin, fixtures or saved models of its own. For probes against
-   * the dev server (`bun run reset demo`); live memory is never touched.
+   * no scene, pin, fixtures or saved models of its own; with `household`, a
+   * person and a cat in the office. For probes against the dev server
+   * (`bun run reset demo`); live memory is never touched.
    */
-  app.post('/demo/reset', async () => {
+  app.post('/demo/reset', async (request) => {
+    const { household } = parseInput(deskDemoResetBodySchema, request.body ?? {});
     const memory: DeskMemory = { mode: 'demo', lastDecision: null };
     store.saveMemory(memory);
+    if (household) await addDemoHousehold(deps);
     return store.memory('demo');
   });
   /**

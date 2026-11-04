@@ -117,6 +117,8 @@ export function selectionLabel(lab: LabRead, s: Selection): string {
       return memory?.fixtures?.find((f) => f.id === s.id)?.label ?? 'Fixture';
     case 'new-fixture':
       return 'Add a fixture';
+    case 'new-member':
+      return s.member === 'person' ? 'Add a person' : 'Add a pet';
     case 'lamp':
       return builtInLamps(lab).find((l) => l.id === s.id)?.prop.label ?? 'Lamp';
     case 'built-in':
