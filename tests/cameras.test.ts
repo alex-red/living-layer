@@ -459,11 +459,25 @@ describe('camera relay', () => {
     expect(text).not.toContain('bb22');
     for (const line of ['rtspAddress: 127.0.0.1:47734', 'webrtcAddress: 127.0.0.1:47733'])
       expect(text).toContain(line);
+    expect(text).toContain('webrtcLocalUDPAddress: 127.0.0.1:47735');
+    expect(text).toContain('webrtcAdditionalHosts: ["127.0.0.1"]');
     expect(relay.whepFor(rtsp)).toBeNull();
     expect(CameraRelay.find(dir, 'off', 43433)).toBeNull();
     expect(() =>
       parseConfig({ CAMERA_RELAY_PORT: '43430', REMOTE_CAMERA_PORT: '43432' }),
     ).toThrow();
+  });
+
+  it('offers its WebRTC media on the network address when given one', async () => {
+    const dir = tempDir('relay');
+    const relay = new CameraRelay(dir, Bun.which('true')!, 47733, '192.168.1.20');
+    await relay.sync([]);
+    const text = readFileSync(join(dir, 'relay', 'mediamtx.yml'), 'utf8');
+    expect(text).toContain('webrtcLocalUDPAddress: :47735');
+    expect(text).toContain('webrtcAdditionalHosts: ["127.0.0.1","192.168.1.20"]');
+    // Its HTTP and RTSP stay on loopback, behind the lab's routes.
+    for (const line of ['rtspAddress: 127.0.0.1:47734', 'webrtcAddress: 127.0.0.1:47733'])
+      expect(text).toContain(line);
   });
 });
 

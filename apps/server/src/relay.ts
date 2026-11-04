@@ -22,7 +22,10 @@ export interface Relay {
  * camera once, on demand, and serves it as WebRTC (WHEP) to the lab's tab and
  * as RTSP to the watcher. A tab plays the camera at its own frame rate with
  * ~100 ms latency instead of the server's MJPEG, and the camera has one
- * client however many read it. Loopback only: the lab accepts no other host.
+ * client however many read it. Its HTTP and RTSP stay on loopback (the lab's
+ * routes forward to them); with a `mediaHost`, for a lab opened from another
+ * machine, its WebRTC media is also offered there, else that tab has no path
+ * to it and falls back to the MJPEG.
  *
  * Without mediamtx (or with `CAMERA_RELAY=off`) there is no relay, and saved
  * cameras fall back to the server's MJPEG preview and their own RTSP.
@@ -36,14 +39,21 @@ export class CameraRelay implements Relay {
     private binary: string,
     /** WHEP on this port; RTSP on the next, WebRTC media (UDP) on the one after. */
     private port: number,
+    /** This machine's network address, when the lab is served beyond loopback. */
+    private mediaHost?: string,
   ) {
     this.dir = join(dataDir, 'relay');
   }
   /** A relay when mediamtx can be found, else null. */
-  static find(dataDir: string, binary: string, port: number): CameraRelay | null {
+  static find(
+    dataDir: string,
+    binary: string,
+    port: number,
+    mediaHost?: string,
+  ): CameraRelay | null {
     if (binary === 'off') return null;
     const found = Bun.which(binary);
-    return found ? new CameraRelay(dataDir, found, port) : null;
+    return found ? new CameraRelay(dataDir, found, port, mediaHost) : null;
   }
   /** mediamtx reads RTSP(S); an HTTP stream stays on the server's preview. */
   static relays(camera: SavedCamera) {
@@ -101,9 +111,9 @@ export class CameraRelay implements Relay {
       'webrtc: true',
       `webrtcAddress: 127.0.0.1:${this.port}`,
       'webrtcAllowOrigins: []',
-      `webrtcLocalUDPAddress: 127.0.0.1:${this.port + 2}`,
+      `webrtcLocalUDPAddress: ${this.mediaHost ? '' : '127.0.0.1'}:${this.port + 2}`,
       'webrtcIPsFromInterfaces: false',
-      'webrtcAdditionalHosts: ["127.0.0.1"]',
+      `webrtcAdditionalHosts: ${JSON.stringify(['127.0.0.1', ...(this.mediaHost ? [this.mediaHost] : [])])}`,
       'webrtcICEServers2: []',
       ...(paths.length ? ['paths:', ...paths] : ['paths: {}']),
       '',
