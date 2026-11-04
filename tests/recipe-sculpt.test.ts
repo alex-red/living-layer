@@ -117,12 +117,19 @@ describe('a brush model shaped from the photo', () => {
   });
 
   it('asks for the thing itself, in its size, with what the person said', () => {
-    const p = brushSculptPrompt(shelf(), 'it is an open shelf with white shelves', 'first');
+    const p = brushSculptPrompt(shelf(), 'it is an open shelf with white shelves', 'photo');
     expect(p).toContain('The person asked: "it is an open shelf with white shelves"');
     expect(p).toContain('71.25 × 39.84 × 165 cm');
     expect(p).toContain('leave out what stands on it');
     expect(p).toContain('anything that leans or slants');
     expect(p).not.toContain('standing straight up');
+  });
+
+  it('models the first look from the photo alone, and corrects its own drawing after', () => {
+    const first = brushSculptPrompt(shelf(), 'an open shelf', 'photo');
+    expect(first).toContain('Model it from the image');
+    expect(first).not.toMatch(/second image|as JSON/);
+    expect(brushSculptPrompt(shelf(), 'an open shelf', 'again')).toContain('your model of it');
   });
 
   it('says where the camera draws an upright, so a tilted post is not read as leaning', () => {
@@ -136,18 +143,23 @@ describe('a brush model shaped from the photo', () => {
     const p = brushSculptPrompt(shelf(), 'an open shelf', 'again', right);
     expect(p).toContain(`about ${Math.round(right)}° to the right of the picture's vertical`);
     expect(p).toContain('Posts and sides at that angle stand straight');
-    expect(brushSculptPrompt(shelf(), 'x', 'first', 0.3)).toContain('runs straight up the picture');
+    expect(brushSculptPrompt(shelf(), 'x', 'photo', 0.3)).toContain('runs straight up the picture');
   });
 });
 
 describe('how many looks Spark is asked for', () => {
   const desk = recipeFromForm('desk', { w: 160, d: 80, h: 72 }, 'Desk');
-  /** Spark sending back the model it was given, and the check giving `iou` each time. */
+  /** Spark sending back the desk, and the check giving `iou` each time: what each look sent. */
   const shapeAt = async (iou: number) => {
-    let calls = 0;
+    const sent: { images: number; parts: boolean }[] = [];
     const meta = {
-      sculpt: async () => {
-        calls++;
+      sculpt: async (
+        _photo: string,
+        render: string | null,
+        _prompt: string,
+        parts: string | null,
+      ) => {
+        sent.push({ images: render ? 2 : 1, parts: parts !== null });
         return {
           output: { parts: recipeToSculpt(desk), note: 'Kept it.' },
           usage: null,
@@ -169,14 +181,21 @@ describe('how many looks Spark is asked for', () => {
       check,
       onCall: () => {},
     });
-    return calls;
+    return sent;
   };
 
   it('asks once when the first look already matches the outline', async () => {
-    expect(await shapeAt(0.9)).toBe(1);
+    expect(await shapeAt(0.9)).toHaveLength(1);
   });
 
   it('asks again when the first look falls short of the outline', async () => {
-    expect(await shapeAt(0.5)).toBe(2);
+    expect(await shapeAt(0.5)).toHaveLength(2);
+  });
+
+  it('sends only the photo first, then the photo beside its first look and that look’s parts', async () => {
+    expect(await shapeAt(0.5)).toEqual([
+      { images: 1, parts: false },
+      { images: 2, parts: true },
+    ]);
   });
 });

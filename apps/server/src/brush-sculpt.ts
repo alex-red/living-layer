@@ -35,14 +35,16 @@ export interface Shaped {
   /** The kept model drawn through the camera, cut as the photo is. */
   render: Buffer;
 }
-/** A brush model is shaped from the photo by its own model, not a template's, in this many looks. */
-const LOOKS = ['first', 'again'] as const;
+/** A brush model is shaped from the photo alone, then again beside its drawing. */
+const LOOKS = ['photo', 'again'] as const;
 
 /**
- * Spark reshapes a brush model from the camera's picture
- * (`brushSculptPrompt`): the photo cut around the thing beside the model
- * drawn through the same camera and cut the same way, twice, each look
- * starting from the last; once when the first already meets `RECIPE_TARGET`. Each look is checked against the camera, outline
+ * Spark models a brush model from the camera's picture
+ * (`brushSculptPrompt`): first from the photo cut around the thing alone, in
+ * the model's size, then again from the photo beside its first look drawn
+ * through the same camera and cut the same way; once when the first already
+ * meets `RECIPE_TARGET`. The model built from its form only gives the size,
+ * and stands when no look matches the photo better. Each look is checked against the camera, outline
  * and colours (`draftScore`); the best is kept. Null when no look gave a
  * usable model, so the model built from its form stands. With `refit`, each
  * look's size and footprint are fitted to the outline with its own shape
@@ -104,7 +106,8 @@ export async function shapeFromPhoto({
   const url = toDataUrl;
   let current = recipe;
   let at = place;
-  let render = await drawn(current, at);
+  // What Spark is shown of the model: nothing on the first look, then its own last look.
+  let shown: Buffer | null = null;
   const looks: {
     recipe: FixtureRecipe;
     place: RecipePlace;
@@ -115,9 +118,9 @@ export async function shapeFromPhoto({
   for (const look of LOOKS) {
     const answer = await meta.sculpt(
       url(photo),
-      url(render),
+      shown && url(shown),
       brushSculptPrompt(current, request, look, upright),
-      JSON.stringify(recipeToSculpt(current)),
+      shown && JSON.stringify(recipeToSculpt(current)),
       signal,
       BRUSH_SCULPT_PARTS,
     );
@@ -127,7 +130,8 @@ export async function shapeFromPhoto({
     current = next;
     if (refit)
       ({ recipe: current, place: at } = await refitRecipeAsync(camera, scene, next, at, against));
-    render = await drawn(current, at);
+    const render = await drawn(current, at);
+    shown = render;
     const checked = check(current, at);
     looks.push({ recipe: current, place: at, check: checked, note: answer.output.note, render });
     // A look that already matches the outline isn't asked again: each look is a call of half a

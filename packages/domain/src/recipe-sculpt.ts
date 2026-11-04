@@ -151,21 +151,24 @@ export function recipeFromSculpt(recipe: FixtureRecipe, sculpt: Sculpt): Fixture
 }
 
 /**
- * What Spark is asked, on each look: the thing as the room's camera sees it,
- * the model drawn through the same camera, and what the person asked for.
+ * What Spark is asked, on each look: the thing as the room's camera sees it
+ * and what the person asked for; on the first look (`photo`) its model is
+ * made from that picture alone, in the recipe's size, so a template built
+ * first (a butter dish for a coaster) doesn't steer it. Again, the model
+ * drawn through the same camera comes too, to correct.
  */
 export function brushSculptPrompt(
   recipe: FixtureRecipe,
   request: string,
-  look: 'first' | 'again',
+  look: 'photo' | 'again',
   /** How far, in degrees, an upright at the thing runs from the picture's vertical: positive to the right. */
   upright?: number,
 ): string {
   const { w, d, h } = recipe.sizeCm;
   const L = longest(recipe);
   return [
-    look === 'first'
-      ? `The first image is the ${recipe.label.toLowerCase()} as the room's camera sees it, cut from its frame; other things may stand in front of it or on it. The second image is the current model of it drawn through the same camera and cut the same way, as plain shaded blocks; its parts are given below as JSON. Rebuild the parts so the drawing matches the first image: what it is made of and how (open or closed sides and back, shelves, legs, drawers, doors, frame), its proportions and its colours.`
+    look === 'photo'
+      ? `The image is the ${recipe.label.toLowerCase()} as the room's camera sees it, cut from its frame; other things may stand in front of it or on it. Model it from the image: its outline seen from above (round, square or another shape), what it is made of and how (open or closed sides and back, shelves, legs, drawers, doors, frame), its proportions and its colours, and anything printed on it.`
       : `The first image is the ${recipe.label.toLowerCase()} as the room's camera sees it; the second is your model of it drawn through the same camera, with its parts below as JSON. Correct the parts so the drawing matches the first image better: its structure, proportions, positions and colours.`,
     `The person asked: "${request}". Follow it where the picture allows.`,
     `It measures ${w} × ${d} × ${h} cm: as its footprint's longer side is 1, it is ${(w / L).toFixed(3)} wide, ${(d / L).toFixed(3)} deep and ${(h / L).toFixed(3)} tall. Keep every part inside that box. The camera looks down at it from high in a corner of the room.`,
@@ -174,7 +177,7 @@ export function brushSculptPrompt(
     'Boxes stand straight and cannot lean: anything that leans or slants (a ladder shelf’s rails, splayed legs, braces) is a tube, its box spanning the slant and its path two points from its bottom end to its top end, as shares of that box (a rail leaning back: {x: 0.5, y: 1, z: 0} to {x: 0.5, y: 0, z: 1}), its radius half its thickness. Never draw a leaning rail as a box: a box spanning its slant is a solid panel.',
     ...(upright === undefined ? [] : [uprightLine(upright)]),
     ...SCULPT_FORMAT,
-    'Say in note what you changed.',
+    look === 'photo' ? 'Say in note what you made.' : 'Say in note what you changed.',
   ].join('\n');
 }
 

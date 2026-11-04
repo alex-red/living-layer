@@ -686,13 +686,14 @@ export class MetaAdapter {
   /**
    * Spark models a thing in our own parts from its picture: the picture, a
    * render of the model it starts from, and that model's parts as JSON in;
-   * the parts revised to match out.
+   * the parts revised to match out. Without a render and parts, it models
+   * the thing from the picture alone.
    */
   async sculpt(
     pictureDataUrl: string,
-    renderDataUrl: string,
+    renderDataUrl: string | null,
     prompt: string,
-    parts: string,
+    parts: string | null,
     signal?: AbortSignal,
     /** The most parts the answer may have: a fixture's 12, more for furniture. */
     maxParts = 12,
@@ -703,10 +704,10 @@ export class MetaAdapter {
       name: 'sculpt',
       schema: sculptSchemaOf(maxParts),
       what: 'model',
-      images: [pictureDataUrl, renderDataUrl],
+      images: renderDataUrl ? [pictureDataUrl, renderDataUrl] : [pictureDataUrl],
       signal,
       effort,
-      text: `${prompt}\n\nParts:\n${parts}`,
+      text: parts === null ? prompt : `${prompt}\n\nParts:\n${parts}`,
     });
   }
   /**
