@@ -28,7 +28,7 @@ A few conventions:
 - Tests should never reach the network. Pass a mock `fetcher` into `buildApp`, as `tests/core.test.ts` does.
 - Bun is the runtime, package manager, and test runner. Commit `bun.lock`.
 - Prefer Bun's built-ins (`bun:sqlite`, `Bun.file`, `bun test`) over adding a package.
-- Dependencies are pinned to exact versions (`bunfig.toml` sets `exact`).
+- New dependencies are pinned to exact versions (`bunfig.toml` sets `exact`).
 - Don't commit anything from `.data/`, real photos, or `.env`.
 
 ## Measuring changes
@@ -40,7 +40,7 @@ bun run sheet                 # every furniture template, all four turns, as out
 bun run bench:room            # how well a room is scanned through its calibrated corner camera
 bun run bench:fit             # how well item models fit their crops
 bun run bench:at main room    # the room bench on main, then your tree against it
-bun run bench:rooms           # captured real rooms laid out again, against their accepted layouts (local only)
+bun run bench:rooms           # captured real rooms laid out again: a marked room judged by its truth.json marks, else against its accepted layout (local only)
 bun run draft <run> --relayout  # a stored room draft laid out again with your tree, over its frame
 bun run calib --grid          # the room's calibration: fit, the room sizes its marks fit, a grid over a frame
 bun run runs [<run>]          # the run log, or one run's steps and pictures in out/runs/
