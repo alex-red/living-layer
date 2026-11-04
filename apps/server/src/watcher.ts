@@ -221,7 +221,7 @@ export class Watcher {
   private generation = 0;
   /** The SAM asks in flight; stopping or restarting the watch aborts them. */
   private asking = new AbortController();
-  private stats = { frames: 0, checks: 0, refinds: 0, places: 0 };
+  private stats = { frames: 0, checks: 0, refinds: 0, places: 0, moves: 0 };
   /** How the live camera's frames are arriving, logged when they stop (`bun run runs --streams`). */
   private run: {
     camera: string;
@@ -568,7 +568,7 @@ export class Watcher {
     this.pending = [];
     this.held.clear();
     this.refinding.clear();
-    this.stats = { frames: 0, checks: 0, refinds: 0, places: 0 };
+    this.stats = { frames: 0, checks: 0, refinds: 0, places: 0, moves: 0 };
     this.load.stop();
     this.health.reset();
     this.say('starting', 'Starting…');
@@ -832,6 +832,7 @@ export class Watcher {
     )) {
       this.found(this.things.get(id), step.thing);
       this.things.set(id, step.thing);
+      this.settled(step.thing);
       if (step.refind) this.refind(id);
       if (step.place) this.place(id);
       if (step.ask && !this.pending.some((p) => p.id === id))
@@ -1056,6 +1057,25 @@ export class Watcher {
     if (after.subject.kind !== 'fixture' || after.status !== 'following') return;
     if (before?.status === 'following') return;
     this.deps.tracking.findFixture(this.deps.mode, after.subject.id);
+  }
+  /**
+   * A thing followed somewhere new that has just come to rest there: the
+   * room moves it there (`followLocally`), once each time it settles, with
+   * no SAM call. Nothing changes when it rests where it was kept.
+   */
+  private settled(thing: WatchThing) {
+    const quiet = this.pace.quietSteps ?? WATCH.quietSteps;
+    if (thing.status !== 'following' || thing.track.lostSteps) return;
+    if (thing.track.stillSteps !== quiet) return;
+    try {
+      if (this.deps.tracking.followLocally(this.deps.mode, thing.subject.id, thing.track.box))
+        this.stats.moves++;
+    } catch (error) {
+      this.say(
+        this.state,
+        `The ${thing.subject.label} couldn’t be moved where it is followed: ${safeError(error).message}`,
+      );
+    }
   }
   /** Judge a thing's zones where it is followed now, after any judgement still running. */
   private place(id: string) {

@@ -374,9 +374,16 @@ export function useTrackingSlice(
   // read off the store as it changes, so the lab doesn't render for each message.
   const seenChecks = useRef(0);
   const seenMissing = useRef(0);
+  const seenMoves = useRef(0);
   useEffect(() => {
     const onWatch = () => {
       const watch = watchStore.get();
+      // A thing followed somewhere new, with no SAM call: the room draws it there.
+      const moves = watch?.moves ?? 0;
+      if (moves !== seenMoves.current) {
+        seenMoves.current = moves;
+        if (watch && moves) void refresh().catch(() => {});
+      }
       const missing = (watch?.things ?? []).filter(
         (t) => t.kind === 'fixture' && t.status === 'missing',
       ).length;

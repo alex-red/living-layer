@@ -48,6 +48,7 @@ import {
   type WatchThing,
   type WatchView,
   type ExposeView,
+  followedSighting,
 } from '@livinglayer/domain';
 
 const W = 160;
@@ -364,9 +365,15 @@ describe('the server watching the demo desk', () => {
       lamp: { action: 'off' },
     });
     expect(sighting(memory)!.identity).toBe('manual');
+    // The room draws it where it is followed now, not where SAM saw it.
+    const track = memory.fixtures!.find(
+      (f) => f.track?.observation.id === sighting(memory)!.id,
+    )!.track!;
+    expect(followedSighting(track).box).not.toEqual(sighting(memory)!.box);
     expect((await runs()).filter((r) => r.kind === 'segment').length).toBe(segments);
     view = s.watcher.view();
     expect(view.checks).toBe(0);
+    expect(view.moves).toBeGreaterThan(0);
 
     // Back in: the lamp turns on, again with no SAM call.
     await s.move('centre');
@@ -498,12 +505,16 @@ describe('the server watching the demo desk', () => {
     expect(s.watcher.view().things).toEqual([
       expect.objectContaining({ id, kind: 'fixture', status: 'following' }),
     ]);
+    const sighting = (await s.memory()).fixtures![0]!.track!.observation;
     await s.move('right');
     fixture = (await s.memory()).fixtures![0]!;
     expect((await s.memory()).rules![0]!.placement).toBe('outside');
-    // No SAM call, so the room keeps it where SAM last saw it.
+    // No SAM call: its sighting stays SAM's, but the room moves it to where it is followed.
     expect(fixture.track!.status).toBe('seen');
-    expect(fixture.at).toEqual(placed);
+    expect(fixture.track!.observation).toEqual(sighting);
+    expect(fixture.track!.followed).toBeDefined();
+    expect(fixture.at).not.toEqual(placed);
+    expect(s.watcher.view().moves).toBeGreaterThan(0);
     // Moving it by hand stops the camera following it.
     const {
       id: _i,

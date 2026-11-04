@@ -28,6 +28,7 @@ import {
   pinFits,
   rotateItem,
   projectBox,
+  followedSighting,
   surfaceMap,
   zoneFromSurface,
   zoneOnSurface,
@@ -466,7 +467,13 @@ function IsoViewOf({
   const model = useMemo(() => {
     const objects: IsoObject[] = [];
     let note = '';
-    const o = mugSighting(memory);
+    // Where each thing is now: its sighting, or where the watcher followed it since.
+    const now = (id: string, seen: DeskObservation | null) => {
+      const track = memory?.fixtures?.find((f) => f.id === id)?.track;
+      return track ? followedSighting(track) : seen;
+    };
+    const mugThing = mugOf(memory);
+    const o = mugThing ? now(mugThing.id, mugSighting(memory)) : mugSighting(memory);
     const mug = surface ? place(o, pin, surface, pinned) : null;
     if (!surface) note = 'This scene has no surface to pin. Add a desk, table or shelf.';
     else if (!pinned)
@@ -483,7 +490,7 @@ function IsoViewOf({
         note = `The mug's box stands off the ${surface!.label.toLowerCase()}, so it is drawn at the edge.`;
     }
     for (const other of otherObjects(memory) ?? []) {
-      const at = surface ? place(other.observation, pin, surface, pinned) : null;
+      const at = surface ? place(now(other.id, other.observation), pin, surface, pinned) : null;
       if (at) objects.push(marker(other.id, other.label, at.placed, other.item));
     }
     const trail =

@@ -272,9 +272,33 @@ export interface FixtureTrack {
    * keeps its last place.
    */
   status: 'seen' | 'moved' | 'missing';
+  /**
+   * Where the watcher follows it now, with no SAM call, once it settled
+   * somewhere new: its box in the sighting's frame, and when. The sighting
+   * stays SAM's, since the watcher learns its look from that photo; a new
+   * sighting replaces this.
+   */
+  followed?: { box: DeskObservation['box']; observedAt: string };
 }
 /** How far its foot must move, as a share of the frame, to count as moved rather than seen again. */
 export const FIXTURE_MOVED = 0.03;
+/**
+ * Where a followed thing is now: its sighting, at the box the watcher
+ * follows it at when that came after it.
+ */
+export function followedSighting(track: FixtureTrack): DeskObservation {
+  const { observation, followed } = track;
+  return followed && followed.observedAt > observation.observedAt
+    ? { ...observation, box: followed.box, observedAt: followed.observedAt }
+    : observation;
+}
+/** Whether a box in the sighting's frame stands somewhere new: its foot moved past `FIXTURE_MOVED`. */
+export function movedFrom(track: FixtureTrack, box: DeskObservation['box']): boolean {
+  const now = followedSighting(track);
+  const was = sightingSpot(now).foot;
+  const is = sightingSpot({ box, frame: now.frame }).foot;
+  return Math.hypot(is.x - was.x, is.y - was.y) > FIXTURE_MOVED;
+}
 /** Where a sighting touches down and how big it looks, as shares of its frame, as a scan records it. */
 export function sightingSpot(
   o: Pick<DeskObservation, 'box' | 'frame'>,

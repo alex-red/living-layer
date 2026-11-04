@@ -494,6 +494,8 @@ export interface WatchView {
   frames: number;
   checks: number;
   refinds: number;
+  /** Things the room moved to where they were followed, once they came to rest, with no SAM call. */
+  moves?: number;
   /** Each thing's stats now, by thing id; only changes make a new message. */
   stats?: StatsNow;
   /** How the watcher keeps up with its camera, while it watches. */

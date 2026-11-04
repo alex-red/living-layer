@@ -24,6 +24,8 @@ import {
   DEMO_SURFACE,
   linkedFixtures,
   FIXTURE_MOVED,
+  movedFrom,
+  type FixtureTrack,
   type Fixture,
   objectById,
   withSighting,
@@ -796,15 +798,7 @@ export function createDesk(
     const was = before && sightingSpot(before);
     const moved =
       was && Math.hypot(spot.foot.x - was.foot.x, spot.foot.y - was.foot.y) > FIXTURE_MOVED;
-    // A thing placed by its sightings is drawn from them: nothing else to move.
-    const placed = fixture.place === 'sightings' ? [] : [fixture];
-    for (const f of [...placed, ...linkedFixtures(memory.fixtures ?? [], fixture)]) {
-      f.seen = spot;
-      const pin = memory.surface ?? (memory.mode === 'demo' ? DEMO_SURFACE : null);
-      const place = pin ? placeSeen(f, pin, memory.scene ?? null) : null;
-      if (place) Object.assign(f, place);
-      f.updatedAt = new Date().toISOString();
-    }
+    standAt(memory, fixture, spot);
     fixture.track = {
       concept,
       observation,
@@ -813,6 +807,51 @@ export function createDesk(
     };
     store.saveMemory(memory);
     store.save(evidence('observation', memory.mode, observation));
+  }
+  /**
+   * A fixture's place in the room (and its linked copies' places) moved to
+   * where the camera sees it, when the pin fits their scene. A thing placed
+   * by its sightings is drawn from them: nothing else to move.
+   */
+  function standAt(memory: DeskMemory, fixture: Fixture, spot: NonNullable<Fixture['seen']>) {
+    const placed = fixture.place === 'sightings' ? [] : [fixture];
+    for (const f of [...placed, ...linkedFixtures(memory.fixtures ?? [], fixture)]) {
+      f.seen = spot;
+      const pin = memory.surface ?? (memory.mode === 'demo' ? DEMO_SURFACE : null);
+      const place = pin ? placeSeen(f, pin, memory.scene ?? null) : null;
+      if (place) Object.assign(f, place);
+      f.updatedAt = new Date().toISOString();
+    }
+  }
+  /**
+   * The watcher followed a thing somewhere new and it settled there, with no
+   * SAM call: kept as where it is followed (`followed`), and a thing placed
+   * in the room stands there, so the room draws it where it is. Its sighting
+   * stays SAM's. Nothing when it hasn't moved from where it was last kept.
+   */
+  function followLocally(mode: Mode, objectId: string, box: UnitBox) {
+    const inFrame = (track: FixtureTrack) => {
+      const { width, height } = track.observation.frame;
+      return {
+        x: Math.round(box.x * width),
+        y: Math.round(box.y * height),
+        width: Math.round(box.width * width),
+        height: Math.round(box.height * height),
+      };
+    };
+    // Read first: a thing settling where it was kept saves nothing.
+    const kept = store.memory(mode).fixtures?.find((f) => f.id === objectId)?.track;
+    if (!kept || !movedFrom(kept, inFrame(kept))) return false;
+    return store.updateMemory(mode, (memory) => {
+      const fixture = memory.fixtures?.find((f) => f.id === objectId);
+      const track = fixture?.track;
+      if (!fixture || !track) return false;
+      const at = inFrame(track);
+      if (!movedFrom(track, at)) return false;
+      track.followed = { box: at, observedAt: new Date().toISOString() };
+      standAt(memory, fixture, sightingSpot({ box: at, frame: track.observation.frame }));
+      return true;
+    });
   }
   /** Confirm a fixture in a segmentation by hand, so the camera follows it from now on. */
   function anchorFixture(mode: Mode, fixtureId: string, segmentRunId: string, detectionId: string) {
@@ -959,6 +998,7 @@ export function createDesk(
     /** Stop a zone's steps still running: it was changed or deleted. */
     stopZoneSteps,
     placeLocally,
+    followLocally,
     latestMugSegmentation,
     latestSegmentation,
     verify,
