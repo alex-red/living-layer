@@ -14,6 +14,8 @@ Each thing also keeps a small history: when the mug was last used, how long a sc
 
 A bundled synthetic demo runs the whole loop with no API key, camera or lamp.
 
+**[Try the demo in your browser](https://alex-red.github.io/living-layer/)**, with nothing to install. It has the demo rooms, their sample day, asking the room, the coach and the virtual lights. Scans, the AI brush, model calls and Live need Living Layer running on your machine.
+
 ![The workspace: the scene outline, the photo beside its isometric twin, and the mug's inspector](docs/media/workspace.png)
 
 ## How it works
