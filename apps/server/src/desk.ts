@@ -798,7 +798,7 @@ export function createDesk(
     const was = before && sightingSpot(before);
     const moved =
       was && Math.hypot(spot.foot.x - was.foot.x, spot.foot.y - was.foot.y) > FIXTURE_MOVED;
-    standAt(memory, fixture, spot);
+    standAt(memory, fixture, spot, Boolean(moved));
     fixture.track = {
       concept,
       observation,
@@ -811,12 +811,20 @@ export function createDesk(
   /**
    * A fixture's place in the room (and its linked copies' places) moved to
    * where the camera sees it, when the pin fits their scene. A thing placed
-   * by its sightings is drawn from them: nothing else to move.
+   * by its sightings is drawn from them: nothing else to move. Once it has
+   * `moved`, where a person put it in the whole room's view (`room`) goes
+   * too, so that view shows it where the camera does.
    */
-  function standAt(memory: DeskMemory, fixture: Fixture, spot: NonNullable<Fixture['seen']>) {
+  function standAt(
+    memory: DeskMemory,
+    fixture: Fixture,
+    spot: NonNullable<Fixture['seen']>,
+    moved: boolean,
+  ) {
     const placed = fixture.place === 'sightings' ? [] : [fixture];
     for (const f of [...placed, ...linkedFixtures(memory.fixtures ?? [], fixture)]) {
       f.seen = spot;
+      if (moved) delete f.room;
       const pin = memory.surface ?? (memory.mode === 'demo' ? DEMO_SURFACE : null);
       const place = pin ? placeSeen(f, pin, memory.scene ?? null) : null;
       if (place) Object.assign(f, place);
@@ -849,7 +857,7 @@ export function createDesk(
       const at = inFrame(track);
       if (!movedFrom(track, at)) return false;
       track.followed = { box: at, observedAt: new Date().toISOString() };
-      standAt(memory, fixture, sightingSpot({ box: at, frame: track.observation.frame }));
+      standAt(memory, fixture, sightingSpot({ box: at, frame: track.observation.frame }), true);
       return true;
     });
   }

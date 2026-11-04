@@ -500,6 +500,12 @@ describe('the server watching the demo desk', () => {
     });
     expect(rule.statusCode, rule.body).toBe(200);
     await s.post('desk/rules/verify');
+    // Put somewhere else by hand in the whole room's view.
+    const kept = await s.memory();
+    kept.fixtures![0]!.room = { surfaceId: null, at: { x: 0.5, y: 0.5 } };
+    const restored = await s.post('desk/restore', { mode: 'demo', memory: kept });
+    expect(restored.statusCode, restored.body).toBe(200);
+    expect((await s.memory()).fixtures![0]!.room).toBeDefined();
     await s.post('watch', { on: true });
     await s.watcher.idle();
     expect(s.watcher.view().things).toEqual([
@@ -514,6 +520,8 @@ describe('the server watching the demo desk', () => {
     expect(fixture.track!.observation).toEqual(sighting);
     expect(fixture.track!.followed).toBeDefined();
     expect(fixture.at).not.toEqual(placed);
+    // Where it was put in the whole room's view goes with it: that view follows the camera.
+    expect(fixture.room).toBeUndefined();
     expect(s.watcher.view().moves).toBeGreaterThan(0);
     // Moving it by hand stops the camera following it.
     const {
