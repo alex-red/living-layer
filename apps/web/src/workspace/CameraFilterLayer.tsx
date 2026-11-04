@@ -4,7 +4,7 @@ import './camera-filter.css';
 
 // Privacy canvases redraw at most this often: blocks this big need no more, and it spares the page.
 const PIXEL_FPS = 20;
-// A crawling dither steps once per this many redraws.
+// An animated pixel filter (crawl, boil, sparkles) steps once per this many redraws.
 const CRAWL_EVERY = 3;
 
 /** The privacy canvas: the frame drawn small and scaled up in hard blocks, its colours cut down. */
@@ -43,6 +43,7 @@ function PixelCanvas({
       if (!readable) return;
       try {
         const image = ctx.getImageData(0, 0, width, height);
+        // Held still for reduced motion: no crawl, boil or twinkle.
         paintPixels(image.data, width, height, spec, still ? 0 : Math.floor(drawn / CRAWL_EVERY));
         ctx.putImageData(image, 0, 0);
         drawn++;
@@ -53,7 +54,15 @@ function PixelCanvas({
     raf = requestAnimationFrame(draw);
     return () => cancelAnimationFrame(raf);
   }, [video, spec]);
-  return <canvas ref={canvas} className="camera-pixels" width={1} height={1} aria-hidden="true" />;
+  return (
+    <canvas
+      ref={canvas}
+      className={`camera-pixels ${spec.smooth ? 'smooth' : ''}`}
+      width={1}
+      height={1}
+      aria-hidden="true"
+    />
+  );
 }
 
 /** What a camera filter draws over the video: a privacy canvas, or scan lines. */

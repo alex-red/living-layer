@@ -125,6 +125,148 @@ describe('camera filter', () => {
   });
 });
 
+describe('anime filter', () => {
+  const cel = CAMERA_FILTERS.anime.pixel!;
+  const ink = cel.cel!.ink.join(',');
+  /** A frame whose left half is `left` and right half `right`. */
+  function halves(width: number, height: number, left: number[], right: number[]) {
+    const data = frame(width, height, left);
+    for (let y = 0; y < height; y++)
+      for (let x = width / 2; x < width; x++) data.set([...right, 255], (y * width + x) * 4);
+    return data;
+  }
+
+  test('inks the edge between two flat areas, once', () => {
+    const data = halves(8, 4, [30, 40, 60], [220, 210, 190]);
+    paintPixels(data, 8, 4, cel, 0);
+    const inked = (x: number) => `${data[x * 4]},${data[x * 4 + 1]},${data[x * 4 + 2]}` === ink;
+    expect([0, 1, 2, 3, 4, 5, 6, 7].filter(inked)).toEqual([3]);
+  });
+
+  test('draws no ink inside a flat area', () => {
+    const data = frame(8, 8, [120, 90, 160]);
+    paintPixels(data, 8, 8, cel, 0);
+    expect(colours(data).has(ink)).toBe(false);
+  });
+
+  test('draws a gentle gradient in a few flat bands', () => {
+    const width = 64;
+    const data = new Uint8ClampedArray(width * 4);
+    // Brightness rising 3 a block: under the ink's step, so only bands show.
+    for (let x = 0; x < width; x++) data.set([x * 3 + 40, x * 3 + 30, x * 3 + 20, 255], x * 4);
+    paintPixels(data, width, 1, cel, 0);
+    expect(colours(data).size).toBeLessThanOrEqual(cel.cel!.bands * 4);
+    expect(colours(data).size).toBeGreaterThan(1);
+  });
+
+  test('keeps black a dark band, not black', () => {
+    const data = frame(2, 2, [0, 0, 0]);
+    paintPixels(data, 2, 2, cel, 0);
+    expect(data[0]).toBeGreaterThan(30);
+  });
+
+  test('pushes a colour further from grey', () => {
+    // Two colours, so balancing the frame leaves each its own.
+    const data = halves(4, 2, [180, 120, 100], [100, 120, 180]);
+    paintPixels(data, 4, 2, cel, 0);
+    expect(data[0]! - data[2]!).toBeGreaterThan(180 - 100);
+  });
+
+  test('softens a tinted light’s cast rather than pushing it', () => {
+    // A grey room under purple light.
+    const spread = (spec: PixelSpec) => {
+      const data = frame(4, 4, [150, 110, 170]);
+      paintPixels(data, 4, 4, spec, 0);
+      return Math.max(data[0]!, data[1]!, data[2]!) - Math.min(data[0]!, data[1]!, data[2]!);
+    };
+    const unbalanced: PixelSpec = { ...cel, cel: { ...cel.cel!, balance: 0 } };
+    expect(spread(cel)).toBeLessThan(spread(unbalanced));
+  });
+
+  test('draws no ink over fine texture', () => {
+    // A checkerboard of light and dark blocks, like a keyboard's keys from across the room.
+    const data = new Uint8ClampedArray(16 * 16 * 4);
+    for (let y = 0; y < 16; y++)
+      for (let x = 0; x < 16; x++)
+        data.set((x + y) % 2 ? [200, 200, 200, 255] : [90, 90, 90, 255], (y * 16 + x) * 4);
+    paintPixels(data, 16, 16, cel, 0);
+    expect(colours(data).has(ink)).toBe(false);
+  });
+});
+
+describe('animated anime filter', () => {
+  const fx = CAMERA_FILTERS.animeFx.pixel!;
+  const ink = fx.cel!.ink.join(',');
+  const paint = (data: Uint8ClampedArray, w: number, h: number, tick: number) => {
+    paintPixels(data, w, h, fx, tick);
+    return data;
+  };
+  /** A soft diagonal edge, dark to light, rising about half the ink's threshold a block: its ink sits near the threshold. */
+  function softEdge(w: number, h: number) {
+    const rise = fx.cel!.outline / 2;
+    const data = new Uint8ClampedArray(w * h * 4);
+    for (let y = 0; y < h; y++)
+      for (let x = 0; x < w; x++) {
+        const v = Math.max(40, Math.min(200, 120 + (x - y) * rise + ((x * 7 + y * 3) % 5)));
+        data.set([v, v * 0.9, v * 0.8, 255], (y * w + x) * 4);
+      }
+    return data;
+  }
+  const whites = (data: Uint8ClampedArray) => {
+    let n = 0;
+    for (let i = 0; i < data.length; i += 4) if (data[i] === 255 && data[i + 2] === 240) n++;
+    return n;
+  };
+
+  test('is a smooth, finer canvas among the animated filters', () => {
+    expect(CAMERA_FILTERS.animeFx.group).toBe('animated');
+    expect(fx.smooth).toBe(true);
+    expect(fx.cols).toBeGreaterThan(CAMERA_FILTERS.anime.pixel!.cols);
+  });
+
+  test('boils its ink lines from tick to tick', () => {
+    const at = (tick: number) => paint(softEdge(24, 24), 24, 24, tick).join();
+    expect(new Set([0, 1, 2, 3].map(at)).size).toBeGreaterThan(1);
+  });
+
+  test('draws the same frame at the same tick', () => {
+    expect(paint(softEdge(24, 24), 24, 24, 5).join()).toBe(
+      paint(softEdge(24, 24), 24, 24, 5).join(),
+    );
+  });
+
+  test('still inks a hard edge at every tick', () => {
+    for (const tick of [0, 1, 2, 3]) {
+      const data = frame(8, 4, [30, 40, 60]);
+      for (let y = 0; y < 4; y++)
+        for (let x = 4; x < 8; x++) data.set([220, 210, 190, 255], (y * 8 + x) * 4);
+      paint(data, 8, 4, tick);
+      expect(colours(data).has(ink)).toBe(true);
+    }
+  });
+
+  test('twinkles sparkles on a bright spot over time, not all the time', () => {
+    // Bright 3 × 3 patches across a frame, like lamps and glints: some are chosen to sparkle, each at its own phase.
+    const w = 96;
+    const h = 96;
+    const counts = Array.from({ length: 12 }, (_, tick) => {
+      const data = frame(w, h, [40, 40, 50]);
+      for (let cy = 6; cy < h - 6; cy += 8)
+        for (let cx = 6; cx < w - 6; cx += 8)
+          for (let y = cy - 1; y <= cy + 1; y++)
+            for (let x = cx - 1; x <= cx + 1; x++) data.set([250, 250, 250, 255], (y * w + x) * 4);
+      return whites(paint(data, w, h, tick));
+    });
+    expect(Math.max(...counts)).toBeGreaterThan(0);
+    expect(new Set(counts).size).toBeGreaterThan(1);
+  });
+
+  test('puts no sparkles on a dark frame', () => {
+    for (const tick of [0, 1, 2])
+      expect(whites(paint(frame(32, 32, [60, 50, 70]), 32, 32, tick))).toBe(0);
+  });
+});
+
 describe('camera filter menu', () => {
   const noop = { choose: () => {}, off: () => {} };
 
@@ -138,9 +280,14 @@ describe('camera filter menu', () => {
     expect(items.filter((i) => i.checked).map((i) => i.label)).toEqual(['Dither']);
   });
 
-  test('offers every filter once, after Off', () => {
+  test('offers every filter once, after Off, in its group', () => {
     const labels = cameraFilterMenu(false, 'mono', noop).map((i) => i.label);
-    expect(labels).toEqual(['Off', ...CAMERA_FILTER_KINDS.map((k) => CAMERA_FILTERS[k].label)]);
+    const byGroup = CAMERA_FILTER_GROUPS.flatMap(({ group }) =>
+      CAMERA_FILTER_KINDS.filter((k) => CAMERA_FILTERS[k].group === group).map(
+        (k) => CAMERA_FILTERS[k].label,
+      ),
+    );
+    expect(labels).toEqual(['Off', ...byGroup]);
   });
 
   test('heads each group at its first filter', () => {

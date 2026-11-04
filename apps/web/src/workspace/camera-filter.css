@@ -11,6 +11,10 @@
   image-rendering: pixelated;
   pointer-events: none;
 }
+/* A finer canvas scaled up softly: cel shading without the blocks. */
+.zoom-pan-content > canvas.camera-pixels.smooth {
+  image-rendering: auto;
+}
 /* Hidden, not removed: it keeps playing and feeding the frames scans read. */
 .zoom-pan-content > video.camera-hidden {
   opacity: 0;

@@ -22,7 +22,9 @@ export type CameraFilterKind =
   | 'pixel'
   | 'dither'
   | 'fourtone'
-  | 'crawl';
+  | 'crawl'
+  | 'anime'
+  | 'animeFx';
 
 type CameraFilterGroup = 'look' | 'animated' | 'privacy';
 
@@ -38,6 +40,32 @@ export interface PixelSpec {
   dither: number;
   /** Whether the dither pattern crawls across the blocks over time. */
   crawl: boolean;
+  /** Cel shading instead of a palette: brightness in flat bands, colours pushed, edges inked. */
+  cel?: CelSpec;
+  /** Scaled up smoothly rather than in hard blocks. */
+  smooth?: boolean;
+}
+
+/** Cel shading, as in a cartoon: each block's brightness cut to bands, its hue kept. */
+interface CelSpec {
+  /** Brightness bands. */
+  bands: number;
+  /** How far colours are pushed from grey (1 keeps them). */
+  saturate: number;
+  /** Steps a channel keeps after that, so a band's colour is flat. */
+  tones: number;
+  /** How far the frame's colours are balanced to grey on average first (0 to 1), against a tinted light. */
+  balance: number;
+  /** The brightness step between neighbours, out of 255, that draws an ink line; 0 for none. */
+  outline: number;
+  /** The ink, RGB. */
+  ink: readonly [number, number, number];
+  /** How far each block's ink threshold wanders each tick (a share of it), so lines boil as if redrawn. */
+  boil?: number;
+  /** The share of the brightest blocks that can hold a twinkling sparkle. */
+  sparkle?: number;
+  /** Bands and colours from the frame smoothed over 3 × 3 blocks, so an area is one flat colour, not speckled. */
+  flat?: boolean;
 }
 
 interface CameraFilter {
@@ -148,6 +176,45 @@ export const CAMERA_FILTERS: Record<CameraFilterKind, CameraFilter> = {
     animated: true,
     pixel: { cols: 72, palette: PALETTE_16, levels: 0, dither: 72, crawl: true },
   },
+  anime: {
+    label: 'Anime',
+    title: 'Cel-shaded pixel art: flat bands of bright colour, inked outlines',
+    group: 'privacy',
+    pixel: {
+      cols: 120,
+      palette: null,
+      levels: 0,
+      dither: 0,
+      crawl: false,
+      cel: { bands: 4, saturate: 1.2, tones: 6, balance: 0.5, outline: 20, ink: [28, 22, 44] },
+    },
+  },
+  animeFx: {
+    label: 'Anime ✦',
+    title:
+      'Smooth cel shading whose ink lines boil like hand-drawn animation, with sparkles on highlights',
+    group: 'animated',
+    animated: true,
+    pixel: {
+      cols: 240,
+      palette: null,
+      levels: 0,
+      dither: 0,
+      crawl: false,
+      smooth: true,
+      cel: {
+        bands: 4,
+        saturate: 1.3,
+        tones: 6,
+        balance: 0.25,
+        outline: 10,
+        flat: true,
+        ink: [40, 30, 58],
+        boil: 0.35,
+        sparkle: 0.3,
+      },
+    },
+  },
 };
 
 export const CAMERA_FILTER_KINDS = Object.keys(CAMERA_FILTERS) as CameraFilterKind[];
@@ -207,6 +274,7 @@ export function paintPixels(
   spec: PixelSpec,
   tick: number,
 ): void {
+  if (spec.cel) return paintCel(data, width, height, spec.cel, tick);
   const { palette, dither } = spec;
   const shift = spec.crawl ? tick : 0;
   const steps = Math.max(2, spec.levels) - 1;
@@ -268,4 +336,212 @@ export function cameraFilterMenu(
       }),
     );
   return items;
+}
+
+/** The smoothed brightness's change across block (x, y), along x or y. */
+function slope(s: Float32Array, w: number, h: number, x: number, y: number, alongX: boolean) {
+  return alongX
+    ? s[y * w + Math.min(x + 1, w - 1)]! - s[y * w + Math.max(x - 1, 0)]!
+    : s[Math.min(y + 1, h - 1) * w + x]! - s[Math.max(y - 1, 0) * w + x]!;
+}
+
+/**
+ * Whether block (x, y) is inked: the smoothed brightness changes by more than
+ * `t` across it, most there along that direction (so a line is one block
+ * thick), and it is the darker side, so the line sits on the object's edge.
+ */
+function isInk(
+  smooth: Float32Array,
+  luma: Float32Array,
+  w: number,
+  h: number,
+  x: number,
+  y: number,
+  t: number,
+): boolean {
+  const gx = slope(smooth, w, h, x, y, true);
+  const gy = slope(smooth, w, h, x, y, false);
+  const alongX = Math.abs(gx) >= Math.abs(gy);
+  const g = Math.abs(alongX ? gx : gy);
+  if (g <= t) return false;
+  // The blocks before and after this one along the edge's direction.
+  const bx = alongX ? x - 1 : x;
+  const by = alongX ? y : y - 1;
+  const ax = alongX ? x + 1 : x;
+  const ay = alongX ? y : y + 1;
+  if (bx < 0 || by < 0 || ax >= w || ay >= h) return false;
+  if (g < Math.abs(slope(smooth, w, h, bx, by, alongX))) return false;
+  if (g < Math.abs(slope(smooth, w, h, ax, ay, alongX))) return false;
+  // The brighter neighbour across the edge is past it: this block is the dark side.
+  const brighter = (alongX ? gx : gy) > 0 ? ay * w + ax : by * w + bx;
+  return luma[y * w + x]! < luma[brighter]!;
+}
+
+// Each block's brightness, and the same smoothed, kept between frames so a frame allocates nothing.
+let lumaScratch = new Float32Array(0);
+let smoothScratch = new Float32Array(0);
+// Each block's colour smoothed, for a flat cel.
+let colourScratch = new Float32Array(0);
+
+/** Cel-shade a small frame in place: banded brightness, pushed colour, inked edges. */
+function paintCel(
+  data: Uint8ClampedArray,
+  width: number,
+  height: number,
+  cel: CelSpec,
+  tick: number,
+): void {
+  const n = width * height;
+  if (lumaScratch.length < n) {
+    lumaScratch = new Float32Array(n);
+    smoothScratch = new Float32Array(n);
+    colourScratch = new Float32Array(n * 3);
+  }
+  const colour = colourScratch;
+  const luma = lumaScratch;
+  const smooth = smoothScratch;
+  // Grey-world balance: a room's tinted light would otherwise be pushed into a cast over everything.
+  let sr = 0;
+  let sg = 0;
+  let sb = 0;
+  for (let i = 0; i < n * 4; i += 4) {
+    sr += data[i]!;
+    sg += data[i + 1]!;
+    sb += data[i + 2]!;
+  }
+  const mean = (sr + sg + sb) / 3;
+  const gain = (sum: number) => Math.min(1.8, Math.max(0.6, sum ? (mean / sum) ** cel.balance : 1));
+  const gr = gain(sr);
+  const gg = gain(sg);
+  const gb = gain(sb);
+  for (let p = 0; p < n; p++) {
+    const i = p * 4;
+    data[i] = data[i]! * gr;
+    data[i + 1] = data[i + 1]! * gg;
+    data[i + 2] = data[i + 2]! * gb;
+    luma[p] = 0.299 * data[i]! + 0.587 * data[i + 1]! + 0.114 * data[i + 2]!;
+  }
+  // Brightness smoothed over 3 × 3 blocks, to tell an edge from texture (keys, shelves); for a flat
+  // cel, the colour too.
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      let sum = 0;
+      let r = 0;
+      let g = 0;
+      let b = 0;
+      let count = 0;
+      for (let dy = -1; dy <= 1; dy++) {
+        const yy = y + dy;
+        if (yy < 0 || yy >= height) continue;
+        for (let dx = -1; dx <= 1; dx++) {
+          const xx = x + dx;
+          if (xx < 0 || xx >= width) continue;
+          const q = yy * width + xx;
+          sum += luma[q]!;
+          if (cel.flat) {
+            r += data[q * 4]!;
+            g += data[q * 4 + 1]!;
+            b += data[q * 4 + 2]!;
+          }
+          count++;
+        }
+      }
+      const p = y * width + x;
+      smooth[p] = sum / count;
+      colour[p * 3] = r / count;
+      colour[p * 3 + 1] = g / count;
+      colour[p * 3 + 2] = b / count;
+    }
+  }
+  const bands = Math.max(2, cel.bands);
+  const [inkR, inkG, inkB] = cel.ink;
+  const steps = Math.max(2, cel.tones) - 1;
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const p = y * width + x;
+      const i = p * 4;
+      const l = luma[p]!;
+      // A boiling line's threshold wanders block by block, tick by tick.
+      const t = cel.boil
+        ? cel.outline * (1 + (hash01(x, y, tick) - 0.5) * 2 * cel.boil)
+        : cel.outline;
+      if (cel.outline && isInk(smooth, luma, width, height, x, y, t)) {
+        data[i] = inkR;
+        data[i + 1] = inkG;
+        data[i + 2] = inkB;
+        data[i + 3] = 255;
+        continue;
+      }
+      // The band's brightness, its middle, never black: shadows stay coloured as in a cel.
+      const lb = cel.flat ? smooth[p]! : l;
+      const band = Math.min(bands - 1, Math.floor((lb / 256) * bands));
+      const target = 40 + ((band + 0.5) / bands) * 215;
+      // Scaled to the band, a block's grey is the band's: push its colour away from that.
+      const scale = lb > 1 ? target / lb : 0;
+      for (let c = 0; c < 3; c++) {
+        const own = cel.flat ? colour[p * 3 + c]! : data[i + c]!;
+        const v = scale ? target + (own * scale - target) * cel.saturate : target;
+        data[i + c] = (Math.round((Math.min(255, Math.max(0, v)) / 255) * steps) * 255) / steps;
+      }
+      data[i + 3] = 255;
+    }
+  }
+  if (cel.sparkle) paintSparkles(data, smooth, width, height, cel.sparkle, tick);
+}
+
+/** A steady pseudo-random share in [0, 1) for block (x, y) at tick `t`. */
+function hash01(x: number, y: number, t: number): number {
+  let h = Math.imul(x, 374761393) + Math.imul(y, 668265263) + Math.imul(t, 1274126177);
+  h = Math.imul(h ^ (h >>> 13), 1103515245);
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+}
+
+// A sparkle's life in ticks, and the ticks of it it shows (growing, full, fading).
+const SPARKLE_PERIOD = 12;
+const SPARKLE_SHOWN = 4;
+
+/**
+ * Four-point sparkles on the brightest blocks: each chosen block (a steady
+ * `share` of the smoothed brightness's peaks near white) twinkles at its own
+ * phase, its arms growing from one block to three and fading back.
+ */
+function paintSparkles(
+  data: Uint8ClampedArray,
+  luma: Float32Array,
+  width: number,
+  height: number,
+  share: number,
+  tick: number,
+): void {
+  // Kept three blocks in, so the longest arm stays on the frame.
+  for (let y = 3; y < height - 3; y++) {
+    for (let x = 3; x < width - 3; x++) {
+      const p = y * width + x;
+      if (luma[p]! < 200 || hash01(x, y, 0) >= share) continue;
+      // Only a peak over the blocks two around sparkles, so a bright patch gets one, not a cluster.
+      if (!isPeak(luma, width, x, y)) continue;
+      const phase = (tick + Math.floor(hash01(y, x, 1) * SPARKLE_PERIOD)) % SPARKLE_PERIOD;
+      if (phase >= SPARKLE_SHOWN) continue;
+      // Arms grow 1, 2, 3 blocks, then fade back to 2.
+      const arm = phase === 3 ? 2 : phase + 1;
+      for (let k = -arm; k <= arm; k++) {
+        whiten(data, (y * width + x + k) * 4);
+        whiten(data, ((y + k) * width + x) * 4);
+      }
+    }
+  }
+}
+
+/** Whether block (x, y) is at least as bright as every block within two of it. */
+function isPeak(luma: Float32Array, width: number, x: number, y: number): boolean {
+  const l = luma[y * width + x]!;
+  for (let dy = -2; dy <= 2; dy++)
+    for (let dx = -2; dx <= 2; dx++) if (luma[(y + dy) * width + x + dx]! > l) return false;
+  return true;
+}
+
+function whiten(data: Uint8ClampedArray, i: number): void {
+  data[i] = 255;
+  data[i + 1] = 252;
+  data[i + 2] = 240;
 }
