@@ -67,17 +67,25 @@ export function footInZone(
   return x >= zone.x && x <= zone.x + zone.width && y >= zone.y && y <= zone.y + zone.height;
 }
 const within = (v: number, a: number, b: number) => v >= Math.min(a, b) && v <= Math.max(a, b);
+/** How much of one span another covers: the length they share. */
+const shared = (a0: number, a1: number, b0: number, b1: number) =>
+  Math.max(
+    0,
+    Math.min(Math.max(a0, a1), Math.max(b0, b1)) - Math.max(Math.min(a0, a1), Math.min(b0, b1)),
+  );
 /**
- * Whether a sighting stands in a zone: where it stands, not its whole box, so
- * a mug taller than the zone counts. A zone drawn in the room is judged there,
- * by the middle of the thing's base on the pinned surface (`projectBox`);
- * any other zone by the box's bottom centre in the frame.
+ * Whether a sighting stands in a zone, and if so how full it makes it: null
+ * when outside, else the share of the zone its footprint covers, 0–1. Where
+ * it stands decides inside, not its whole box, so a mug taller than the zone
+ * counts. A zone drawn in the room is judged there, by the middle of the
+ * thing's base on the pinned surface (`projectBox`) and that base's square;
+ * any other zone by the box's bottom centre in the frame, and the box.
  */
-function standsInZone(
+function zoneFill(
   memory: Pick<DeskMemory, 'surface' | 'scene'>,
   o: Pick<DeskObservation, 'box' | 'frame'>,
   zone: { rect: ZoneRect; onSurface?: ZoneOnSurface },
-): boolean {
+): number | null {
   const drawn = zone.onSurface;
   const pin = memory.surface;
   const surface =
@@ -86,11 +94,51 @@ function standsInZone(
       : undefined;
   const map = surface && pin ? surfaceMap(pin, o.frame) : null;
   if (drawn && surface && map) {
-    const { foot } = projectBox(o.box, surface, map.toSurface);
-    return within(foot.x, drawn.a.x, drawn.b.x) && within(foot.y, drawn.a.y, drawn.b.y);
+    const { foot, box } = projectBox(o.box, surface, map.toSurface);
+    if (!within(foot.x, drawn.a.x, drawn.b.x) || !within(foot.y, drawn.a.y, drawn.b.y)) return null;
+    // The base's square in the surface's unit square.
+    const hx = box.size.w / 2 / surface.rect.w;
+    const hy = box.size.d / 2 / surface.rect.d;
+    const area = Math.abs(drawn.b.x - drawn.a.x) * Math.abs(drawn.b.y - drawn.a.y);
+    const covered =
+      shared(foot.x - hx, foot.x + hx, drawn.a.x, drawn.b.x) *
+      shared(foot.y - hy, foot.y + hy, drawn.a.y, drawn.b.y);
+    return area > 0 ? Math.min(1, covered / area) : 1;
   }
-  return footInZone(o.box, o.frame, zone.rect);
+  if (!footInZone(o.box, o.frame, zone.rect)) return null;
+  const r = zone.rect;
+  const b = normalize(o.box, o.frame);
+  const area = r.width * r.height;
+  const covered =
+    shared(b.x, b.x + b.width, r.x, r.x + r.width) *
+    shared(b.y, b.y + b.height, r.y, r.y + r.height);
+  return area > 0 ? Math.min(1, covered / area) : 1;
 }
+/**
+ * The zone, other than `rule`, that a thing standing in `rule` fills more,
+ * if any: zones close together (a mug on its coaster, the coaster on a tray)
+ * can each hold where it stands, and the one it fills most has it. A tie
+ * keeps it in both.
+ */
+function fullerZone(
+  memory: DeskMemory,
+  rule: PlacementRule,
+  objectId: string,
+  o: DeskObservation,
+  fill: number,
+): PlacementRule | null {
+  let best: { rule: PlacementRule; fill: number } | null = null;
+  for (const r of memory.rules ?? []) {
+    if (r.id === rule.id || r.motion || !ruleObjects(memory, r).includes(objectId)) continue;
+    const other = placeAnchor(memory, r);
+    if (!zoneAppliesTo(o, other.zone, memory.fixedCamera, calibrationOf(memory)).applies) continue;
+    const f = zoneFill(memory, o, other.zone);
+    if (f !== null && f > fill + FILL_TIE && f > (best?.fill ?? 0)) best = { rule: other, fill: f };
+  }
+  return best?.rule ?? null;
+}
+/** Fills closer than this are a tie: the thing stays in both zones. */
+const FILL_TIE = 0.02;
 export const HISTORY_LIMIT = 12;
 const normalize = (b: Detection['box'], f: Segmentation['frame']) => ({
   x: b.x / f.width,
@@ -470,7 +518,15 @@ function thingGate(
         : `The zone "${rule.label}" was drawn on another image. Mark the camera as fixed to carry it over.`,
     };
   const assumption = zone.carried ? ' (zone carried over: camera assumed fixed)' : '';
-  return standsInZone(memory, o, rule.zone)
+  const fill = zoneFill(memory, o, rule.zone);
+  const fuller = fill === null ? null : fullerZone(memory, rule, objectId, o, fill);
+  if (fuller)
+    return {
+      decision: 'outside',
+      reason: `The ${target.label} stands where "${rule.label}" and "${fuller.label}" meet, and fills "${fuller.label}" more${assumption}.`,
+      assumedFixedCamera: zone.carried,
+    };
+  return fill !== null
     ? {
         decision: 'inside',
         reason: `The ${target.label} stands in "${rule.label}"${assumption}.`,

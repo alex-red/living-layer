@@ -211,3 +211,47 @@ describe('the demo coaster as a zone', () => {
     await app.close();
   });
 });
+
+describe('zones close together', () => {
+  /** A drawn zone round the coaster's, `grow` surface units wider each way. */
+  const around = (coaster: PlacementRule, grow: number, id = 'wide'): PlacementRule => {
+    const { anchor: _, ...drawn } = coaster;
+    const s = coaster.zone.onSurface!;
+    return {
+      ...drawn,
+      id,
+      objects: [MUG],
+      label: `Round it ${id}`,
+      zone: {
+        ...coaster.zone,
+        onSurface: {
+          ...s,
+          a: { x: s.a.x - grow, y: s.a.y - grow },
+          b: { x: s.b.x + grow, y: s.b.y + grow },
+        },
+      },
+    };
+  };
+  it('give a thing standing in both to the zone it fills most', async () => {
+    const m = memory(await mugAt('right'));
+    const coaster = rule(m);
+    const wide = around(coaster, 0.1);
+    m.rules = [coaster, wide];
+    expect(ruleGate(m, coaster, NOW)).toMatchObject({ decision: 'inside', inside: [MUG] });
+    expect(ruleGate(m, wide, NOW)).toMatchObject({ decision: 'outside', inside: [] });
+  });
+  it('keep it in a zone with no fuller neighbour', async () => {
+    const m = memory(await mugAt('right'));
+    const wide = around(rule(m), 0.1);
+    m.rules = [wide];
+    expect(ruleGate(m, wide, NOW)).toMatchObject({ decision: 'inside', inside: [MUG] });
+  });
+  it('keep it in both when they are filled alike', async () => {
+    const m = memory(await mugAt('right'));
+    const a = around(rule(m), 0.1, 'a');
+    const b = around(rule(m), 0.1, 'b');
+    m.rules = [a, b];
+    expect(ruleGate(m, a, NOW).decision).toBe('inside');
+    expect(ruleGate(m, b, NOW).decision).toBe('inside');
+  });
+});
