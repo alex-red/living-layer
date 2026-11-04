@@ -350,7 +350,7 @@ export function editPrompt(
     `Change it as the person asks: "${request}". Change only what the request is about: every other part stays exactly as it is, with the same id, box, shape and colour.${photo ? ' Use the photo only to tell what the request refers to.' : ''}`,
     ...(focus.length
       ? [
-          `The person brushed over the ${focus.map((id) => `"${id}"`).join(', ')} part${focus.length === 1 ? '' : 's'} to show what they mean: read "it", "this" and "here" as ${focus.length === 1 ? 'that part' : 'those parts'}, and change other parts only where the request names them.`,
+          `The person brushed over the ${focus.map((id) => `"${id}"`).join(', ')} part${focus.length === 1 ? '' : 's'} to show what they mean: read "it", "this" and "here" as ${focus.length === 1 ? 'that part' : 'those parts'}, and change other parts only where the request names them. The last image is the same view with ${focus.length === 1 ? 'that part' : 'those parts'} in magenta and the rest pale, to show which ${focus.length === 1 ? 'one it is' : 'they are'}; it is not how the model should look.`,
         ]
       : []),
     `It stands ${size.w.toFixed(2)} wide, ${size.d.toFixed(2)} deep and ${size.h.toFixed(2)} tall, as its footprint's longer side is 1. Keep it inside that box unless the request is about its size.`,

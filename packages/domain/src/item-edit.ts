@@ -51,6 +51,26 @@ export function demoEdit(
   };
 }
 
+/** The brushed parts' colour in the picture that shows Spark which they are: the app's magenta for a choice. */
+export const FOCUS_COLOR = '#e0409a';
+/** Every other part's there: pale, so it stands off the grey backdrop and the magenta. */
+const UNFOCUSED_COLOR = '#e6e4de';
+/**
+ * The model recoloured to show which parts the person brushed: those
+ * magenta, the rest pale, every paint layer off so each part is one flat
+ * colour. Drawn from the same view as the model, it tells Spark which part a
+ * name like "lathe-1" is.
+ */
+export function focusItem(item: IsoItem, focus: readonly string[]): IsoItem {
+  return {
+    ...item,
+    parts: item.parts.map(({ paint: _paint, ...p }) => ({
+      ...p,
+      color: focus.includes(p.id) ? FOCUS_COLOR : UNFOCUSED_COLOR,
+    })),
+  };
+}
+
 /** A model as the editor draws it, without its shadow. */
 function editorSprite({ parts }: IsoItem): Sprite {
   const { scale, resolution } = ITEM_SPRITES.editor;

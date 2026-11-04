@@ -4,6 +4,7 @@ import {
   editNote,
   editorVoxels,
   editPrompt,
+  focusItem,
   fixtureSize,
   type FixtureEditOutput,
   fixturesEditBodySchema,
@@ -78,7 +79,10 @@ export async function editFixture(
     return { run: event, item: answer.item, note };
   }
   const photo = storedCloseUp(store, fixture);
-  meta.mustAfford(sparkCeiling(SPARK_BUDGET.sculptEdit, photo ? 2 : 1), 'This edit');
+  meta.mustAfford(
+    sparkCeiling(SPARK_BUDGET.sculptEdit, (photo ? 2 : 1) + (brushed.length ? 1 : 0)),
+    'This edit',
+  );
   const job = jobs.start(jobId, EDIT_STEPS, {
     title: `Editing the ${fixture.label.toLowerCase()}`,
     mode,
@@ -100,7 +104,14 @@ export async function editFixture(
         editorVoxels(from.parts),
         brushed,
       );
-      const images = await Promise.all([...(photo ? [photo.png] : []), render].map(shown));
+      // With parts brushed, the same view again with them marked, so Spark knows which they are.
+      const marked = brushed.length
+        ? await viewPng(focusItem(from, brushed), ISO_ELEVATION, EDIT_RENDER_PX)
+        : null;
+      if (marked) assets.push(store.asset(id, 'render-focus.png', marked));
+      const images = await Promise.all(
+        [...(photo ? [photo.png] : []), render, ...(marked ? [marked] : [])].map(shown),
+      );
       const answer = await meta.sculptEdit(
         images,
         asked,

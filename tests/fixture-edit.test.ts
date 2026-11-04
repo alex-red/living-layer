@@ -6,6 +6,9 @@ import {
   editorVoxels,
   editPrompt,
   floorLampItem,
+  focusItem,
+  FOCUS_COLOR,
+  starterTemplateModel,
   type SculptPart,
   fixtureInput,
   mugItem,
@@ -111,6 +114,16 @@ describe('an edit pointed at parts with the brush', () => {
   it('paints a part the request names over the brushed ones', () => {
     const answer = demoEdit(mug(), 'make the body blue', ['handle'])!;
     expect(answer.note).toBe('Painted the body blue.');
+  });
+
+  it('marks the brushed parts for Spark in one flat colour, every other part in another', () => {
+    // A starter mug whose body carries a print, the handle brushed.
+    const mug = starterTemplateModel('tim-hortons-mug');
+    const marked = focusItem(mug, ['handle']);
+    expect(marked.parts.find((p) => p.id === 'handle')!.color).toBe(FOCUS_COLOR);
+    const body = marked.parts.find((p) => p.id === 'body')!;
+    expect(body.color).not.toBe(FOCUS_COLOR);
+    expect(body.paint).toBeUndefined();
   });
 
   it('tells Spark which parts were brushed, and says nothing of it when none were', () => {
@@ -258,5 +271,25 @@ describe('POST /api/fixtures/edit', () => {
     expect(res.statusCode, res.body).toBe(200);
     expect(res.json<{ note: string }>().note).toContain('Nothing changed that shows at this size');
     expect(asked[0]!.text).toContain('drawn in voxels');
+  });
+
+  it('shows Spark live the brushed parts marked in a second picture', async () => {
+    const { fetcher, asked } = sparkAnswers('Rounded the base.', (parts) => parts);
+    const { post } = await testApp({
+      name: 'edit-marked',
+      env: { MODEL_API_KEY: 'test-key', META_LIVE_ENABLED: 'true' },
+      fetcher,
+    });
+    const thing = await addThing(post, 'live');
+    const res = await post('fixtures/edit', {
+      mode: 'live',
+      fixtureId: thing.id,
+      prompt: 'make this rounder',
+      item: lamp(),
+      focus: ['base'],
+    });
+    expect(res.statusCode, res.body).toBe(200);
+    expect(asked[0]!.images).toBe(2);
+    expect(asked[0]!.text).toContain('The last image is the same view with that part in magenta');
   });
 });
