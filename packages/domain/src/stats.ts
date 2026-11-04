@@ -58,8 +58,10 @@ export const STATS = {
   sample: { width: 16, height: 12 },
   /** A value must hold this long before it counts, ms, so it doesn't flicker. */
   dwellMs: 2000,
-  /** How much nearer the other look must be, as a share of the looks' distance apart, to change. */
-  powerMargin: 0.2,
+  /** How far from off toward the shown on look counts as on, as a share of the way. */
+  powerOnShare: 0.25,
+  /** How far past `powerOnShare` a look must go, as a share of the way, to change. */
+  powerMargin: 0.08,
   /** Looks closer than this (in mean grey over the frame's mean) can't be told apart. */
   powerSeparation: 0.04,
   /** Motion share in a thing's surroundings that counts as it being used. */
@@ -211,26 +213,30 @@ export function powerLook(sample: Uint8Array, mean: number): PowerLook {
   const sd = Math.sqrt(Math.max(0, sq / sample.length - m * m));
   return { mean: m / mean, contrast: sd / mean };
 }
-const lookDistance = (a: PowerLook, b: PowerLook) =>
-  // A screen's picture changes its contrast more than its brightness: brightness weighs most.
-  Math.hypot(a.mean - b.mean, (a.contrast - b.contrast) / 2);
 /**
- * On or off, from a look and the two the person showed. The nearer one wins,
- * by `powerMargin` of their distance apart once it has a value; while
- * something moves in front of it, it holds. Null when the looks can't be told
- * apart.
+ * On or off, from a look and the two the person showed. Off is one look (a
+ * dark, flat panel) but on is any picture, and a dark one sits far short of a
+ * bright one that was shown: so the look counts as on once it is
+ * `powerOnShare` of the way from off toward on, and changes only past that
+ * by `powerMargin` either way. While something moves in front of it, it holds.
+ * Null when the looks can't be told apart.
  */
 export function powerReading(
   look: PowerLook,
   looks: { on: PowerLook; off: PowerLook },
   was: boolean | null,
 ): { reading: boolean | null; confidence: number } {
-  const apart = lookDistance(looks.on, looks.off);
+  // A screen's picture changes its contrast more than its brightness: brightness weighs most.
+  const dm = looks.on.mean - looks.off.mean;
+  const dc = (looks.on.contrast - looks.off.contrast) / 2;
+  const apart = Math.hypot(dm, dc);
   if (apart < STATS.powerSeparation) return { reading: null, confidence: 0 };
-  const toOn = lookDistance(look, looks.on);
-  const toOff = lookDistance(look, looks.off);
-  const lead = (toOff - toOn) / apart;
-  const confidence = Math.min(1, Math.abs(lead));
+  // How far along from off to on, 0 at off and 1 at on.
+  const along =
+    ((look.mean - looks.off.mean) * dm + ((look.contrast - looks.off.contrast) / 2) * dc) /
+    (apart * apart);
+  const lead = along - STATS.powerOnShare;
+  const confidence = Math.min(1, Math.abs(lead) / STATS.powerOnShare);
   if (was === null) return { reading: lead > 0, confidence };
   if (was ? lead < -STATS.powerMargin : lead > STATS.powerMargin)
     return { reading: !was, confidence };

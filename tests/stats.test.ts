@@ -67,12 +67,21 @@ describe('stat detectors', () => {
     expect(powerReading(look(frame(80, 25)), looks, null)).toMatchObject({ reading: false });
     // The room twice as bright, the screen still off: off, since it is judged against the room.
     expect(powerReading(look(frame(160, 40)), looks, false).reading).toBe(false);
-    // Halfway between, it keeps what it was.
-    const half = look(frame(80, 110));
-    expect(powerReading(half, looks, true).reading).toBe(true);
-    expect(powerReading(half, looks, false).reading).toBe(false);
+    // Just past off, it keeps what it was.
+    const near = look(frame(80, 55));
+    expect(powerReading(near, looks, true).reading).toBe(true);
+    expect(powerReading(near, looks, false).reading).toBe(false);
+    // Back at off, it goes off.
+    expect(powerReading(look(frame(80, 30)), looks, true).reading).toBe(false);
     // Two looks that can't be told apart say nothing.
-    expect(powerReading(half, { on: looks.off, off: looks.off }, null).reading).toBeNull();
+    expect(powerReading(near, { on: looks.off, off: looks.off }, null).reading).toBeNull();
+  });
+
+  it('reads a dark picture as on, though on was shown with a bright one', () => {
+    // An office monitor's looks as taught, and its dark wallpaper later: nearer off, but lit.
+    const looks = { off: { mean: 0.34, contrast: 0.05 }, on: { mean: 0.89, contrast: 0.42 } };
+    const dark = { mean: 0.56, contrast: 0.2 };
+    expect(powerReading(dark, looks, false).reading).toBe(true);
   });
 
   it('rises with motion and falls back as it stops, in steps', () => {
