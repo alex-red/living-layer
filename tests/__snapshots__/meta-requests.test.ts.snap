@@ -1118,7 +1118,7 @@ The ops you may use:
 - clarify: Ask one short question back when the request is unclear. Never guess instead.
 Fill only the fields an op needs and leave the others null or empty. parts picks parts of the model by names, roles and materials it has (empty lists for no filter), minus exceptNames and exceptRoles; parts null means the whole model.
 color is a hex value (#rrggbb) for the colour asked for. sizeCm is in centimetres; leave axes not mentioned null.
-form is one of: desk, table, chair, bookcase, cabinet, pot, foliage, lamp-stand, lamp-shade, monitor, keyboard, book, bottle, jar, carton, eggs, butter, tub.
+form is one of: desk, table, chair, bookcase, cabinet, pot, foliage, lamp-stand, lamp-shade, monitor, keyboard, book, bottle, jar, carton, eggs, butter, tub, greens.
 subject and occupant name things by their ref from the description (prop:…, fixture:…); state is a variant’s short name. Leave all three null unless the op is add_state.
 product: the product named, with its brand, model and kind (“IKEA Alex desk”), or null.
 needs: what must be looked up to build it: size, parts, colors, materials. Empty unless the request makes a model.
@@ -1246,6 +1246,7 @@ If the request is unclear, or asks for anything the ops can’t do, answer one c
                                 "eggs",
                                 "butter",
                                 "tub",
+                                "greens",
                               ],
                               "type": "string",
                             },
@@ -1688,7 +1689,7 @@ The ops you may use:
 - clarify: Ask one short question back when the request is unclear. Never guess instead.
 Fill only the fields an op needs and leave the others null or empty. parts picks parts of the model by names, roles and materials it has (empty lists for no filter), minus exceptNames and exceptRoles; parts null means the whole model.
 color is a hex value (#rrggbb) for the colour asked for. sizeCm is in centimetres; leave axes not mentioned null.
-form is one of: desk, table, chair, bookcase, cabinet, pot, foliage, lamp-stand, lamp-shade, monitor, keyboard, book, bottle, jar, carton, eggs, butter, tub.
+form is one of: desk, table, chair, bookcase, cabinet, pot, foliage, lamp-stand, lamp-shade, monitor, keyboard, book, bottle, jar, carton, eggs, butter, tub, greens.
 subject and occupant name things by their ref from the description (prop:…, fixture:…); state is a variant’s short name. Leave all three null unless the op is add_state.
 product: the product named, with its brand, model and kind (“IKEA Alex desk”), or null.
 needs: what must be looked up to build it: size, parts, colors, materials. Empty unless the request makes a model.
@@ -1811,6 +1812,7 @@ If the request is unclear, or asks for anything the ops can’t do, answer one c
                                 "eggs",
                                 "butter",
                                 "tub",
+                                "greens",
                               ],
                               "type": "string",
                             },
@@ -2431,6 +2433,7 @@ carton: carton, 0.23333333333333334×0.23333333333333334 tiles, stands on a surf
 eggs: egg carton, 1×0.36666666666666664 tiles, stands on a surface
 butter: butter, 0.4166666666666667×0.21666666666666667 tiles, stands on a surface
 tub: food tub, 0.5×0.5 tiles, stands on a surface
+greens: salad leaves, 0.5666666666666667×0.4 tiles, stands on a surface
 Choose a grid from 4 to 14 tiles each way. x runs left to right across the photo, y from the back of the room toward the camera; (x, y) is the back-left corner of the template. turns rotates it by quarter turns.
 Put things that stand on a surface at the x and y of that surface; their height is worked out for you. Use at most 24 items, only for what is visible, and describe the scene in one short sentence."
 ,
@@ -2500,6 +2503,7 @@ Put things that stand on a surface at the x and y of that surface; their height 
                             "eggs",
                             "butter",
                             "tub",
+                            "greens",
                           ],
                           "type": "string",
                         },
@@ -2627,6 +2631,7 @@ In missing, list up to four clearly visible things the scene lacks, in the same 
                             "eggs",
                             "butter",
                             "tub",
+                            "greens",
                             "mug",
                             "cup",
                             "can",
@@ -2846,6 +2851,7 @@ Include the main surface if there is one. Use at most 16 things, only what is cl
                             "eggs",
                             "butter",
                             "tub",
+                            "greens",
                             "mug",
                             "cup",
                             "can",
@@ -3498,6 +3504,7 @@ product: null. needs: empty. targetDisagrees: null."
                                 "eggs",
                                 "butter",
                                 "tub",
+                                "greens",
                               ],
                               "type": "string",
                             },
@@ -4826,6 +4833,7 @@ The photo is from a camera mounted high in one corner of the room, looking acros
                             "eggs",
                             "butter",
                             "tub",
+                            "greens",
                             "mug",
                             "cup",
                             "can",

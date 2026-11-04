@@ -169,19 +169,28 @@ let demoDay: {
   day: number;
   extra: readonly StatEvent[];
   snoozes: readonly CoachSnooze[];
+  scene: string | null;
   nudges: CoachNudge[];
 } | null = null;
 /**
- * The coach over the demo's sample day, offline: a look every few minutes
- * from morning to night, following what the nudges' buttons did. Worked out
- * again only when the day or those change.
+ * The coach over the demo's sample day for the room on screen, offline: a
+ * look every few minutes from morning to night (the fridge's own day about
+ * its food, or the one the other rooms share), following what the nudges'
+ * buttons did. Worked out again only when one of those changes.
  */
 export function demoCoachDay(
   extra: readonly StatEvent[],
   snoozes: readonly CoachSnooze[],
+  scene: string | null,
 ): CoachNudge[] {
   const day = midnightOf(Date.now());
-  if (demoDay?.day !== day || demoDay.extra !== extra || demoDay.snoozes !== snoozes) {
+  scene = scene === 'fridge' ? scene : null;
+  if (
+    demoDay?.day !== day ||
+    demoDay.extra !== extra ||
+    demoDay.snoozes !== snoozes ||
+    demoDay.scene !== scene
+  ) {
     const at = (minute: number) => day + minute * 60_000;
     const history = { ...demoHistory(at(DAY_END)), watched: null };
     history.events = [...history.events, ...extra].sort((a, b) => a.at - b.at);
@@ -189,7 +198,8 @@ export function demoCoachDay(
       day,
       extra,
       snoozes,
-      nudges: coachDay(history, at(DAY_START), at(DAY_END), snoozes),
+      scene,
+      nudges: coachDay(history, at(DAY_START), at(DAY_END), snoozes, scene),
     };
   }
   return demoDay.nudges;

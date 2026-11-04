@@ -78,6 +78,8 @@ export interface AskThing {
   food?: true;
   /** Its use-by day, `YYYY-MM-DD`, for food. */
   expires?: string;
+  /** How much of it is left, for food that isn't full. */
+  left?: FoodLeft;
   /**
    * A person or pet: its occupied stat is being home, and `places` says
    * where at home and how ("is asleep by the plant"), from when, oldest first.
@@ -236,6 +238,30 @@ export const DEMO_ASK_EXAMPLES: readonly AskExample[] = [
     kind: 'zone',
   },
   { label: 'Eat first', question: 'What should I eat first?', thing: 'milk', kind: 'food' },
+  { label: 'Today so far', question: 'What happened today?', thing: 'summary', kind: 'summary' },
+];
+
+/** Questions the dock offers at the fridge, about its food. */
+export const DEMO_FRIDGE_ASK_EXAMPLES: readonly AskExample[] = [
+  { label: 'Eat first', question: 'What should I eat first?', thing: 'milk', kind: 'food' },
+  {
+    label: 'Milk goes off?',
+    question: 'When does the milk go off?',
+    thing: 'milk',
+    kind: 'food',
+  },
+  {
+    label: 'Milk last out',
+    question: 'When did I last take the milk out?',
+    thing: 'milk',
+    kind: 'food',
+  },
+  {
+    label: 'Chicken last out',
+    question: 'When did I last take the leftover chicken out?',
+    thing: 'leftover-chicken',
+    kind: 'food',
+  },
   { label: 'Today so far', question: 'What happened today?', thing: 'summary', kind: 'summary' },
 ];
 
@@ -448,7 +474,13 @@ export function demoHistory(at: number): { things: readonly AskThing[]; events: 
     things: [
       ...DEMO_ASK_THINGS.map((t) => {
         const food = DEMO_FOOD.find((f) => f.label === t.label);
-        return food ? { ...t, expires: addDays(dayOf(at), food.useByDays) } : t;
+        return food
+          ? {
+              ...t,
+              expires: addDays(dayOf(at), food.useByDays),
+              ...(food.left ? { left: food.left } : {}),
+            }
+          : t;
       }),
       ...household,
     ],

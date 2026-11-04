@@ -8,6 +8,7 @@ import {
   demoAsk,
   demoHistory,
   midnightOf,
+  askThingsOf,
   promoteBuiltIn,
   readAsk,
   zoneThingId,
@@ -492,5 +493,23 @@ describe('watched spans', () => {
     now += 10_000;
     runner.setWatching(false);
     expect(store.watchSpans('live', 0)).toEqual([{ from: 1_000_000, to: 1_020_000 }]);
+  });
+});
+
+describe('askThingsOf food', () => {
+  it('keeps how much of a food thing is left, when it isn’t full', () => {
+    const milk = promoteBuiltIn('fridge', 'milk')!;
+    const memory = {
+      mode: 'live',
+      lastDecision: null,
+      fixtures: [
+        { ...milk, id: 'm', food: { expires: '2026-11-05', left: 'low' } },
+        { ...milk, id: 'f', food: { expires: '2026-11-05', left: 'full' } },
+      ],
+    } as unknown as DeskMemory;
+    expect(askThingsOf(memory).map((t) => [t.id, t.left])).toEqual([
+      ['m', 'low'],
+      ['f', undefined],
+    ]);
   });
 });

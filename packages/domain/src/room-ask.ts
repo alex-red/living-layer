@@ -1101,6 +1101,7 @@ export function askThingsOf(memory: DeskMemory): AskThing[] {
             stats,
             ...(f.food ? { food: true as const } : {}),
             ...(expires ? { expires } : {}),
+            ...(f.food?.left && f.food.left !== 'full' ? { left: f.food.left } : {}),
           },
         ]
       : [];

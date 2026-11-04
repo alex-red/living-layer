@@ -81,7 +81,7 @@ const fridgeScene = compose('fridge', 'Fridge', { w: 7, d: 7 }, [
   ['carton', 'milk', 3.3, 3, cm(66 + 40), { label: 'Milk', optional: true }],
   ['butter', 'butter', 2.6, 2.7, cm(66 + 68), { optional: true }],
   ['eggs', 'eggs', 1.95, 2.7, cm(66 + 1.5), { label: 'Eggs', optional: true }],
-  ['tub', 'spinach', 2.97, 2.85, cm(66 + 1.5), { label: 'Spinach', optional: true }],
+  ['greens', 'spinach', 2.97, 2.95, cm(66 + 1.5), { label: 'Spinach', optional: true }],
   // In the door bins (bottom, middle, top: 8, 46 and 84 cm up, each tray's
   // floor 1.5 cm thick), as the photos' doors hold them: the left door's
   // sauces, the right door's juice, dressing and jam.

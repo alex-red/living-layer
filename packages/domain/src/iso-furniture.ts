@@ -54,6 +54,7 @@ export const PROP_FORMS = [
   'eggs',
   'butter',
   'tub',
+  'greens',
 ] as const;
 export type PropForm = (typeof PROP_FORMS)[number];
 
@@ -208,6 +209,8 @@ export const FURNITURE_SPECS = {
   butter: { heightCm: 5 },
   /** A lidded tub of leftovers, filled this far. */
   tub: { heightCm: 9, lidCm: 1.5, fill: 0.6 },
+  /** An open clamshell of salad leaves (spinach), its clear rim this share of the way up. */
+  greens: { heightCm: 9, rim: 0.55 },
 } satisfies Record<PropForm, { heightCm: number } & Record<string, number | boolean>>;
 type FurnitureSpecs = typeof FURNITURE_SPECS;
 export type FurnitureOverrides = { [F in PropForm]?: Partial<FurnitureSpecs[F]> };
@@ -747,6 +750,11 @@ const BUILDS: { [F in PropForm]: Build<F> } = {
       box(0, 0, h - lid, w, d, lid, 'fabric', { radius: 0.25 }),
     ];
   },
+  // An open clamshell, the leaves heaped above its clear rim.
+  greens: (w, d, h, { spec }) => [
+    box(0, 0, 0, w, d, h * spec.rim, 'glass', { radius: 0.15 }),
+    box(w * 0.06, d * 0.06, h * 0.2, w * 0.88, d * 0.88, h * 0.8, 'plant', { radius: 0.5 }),
+  ],
 };
 
 /**

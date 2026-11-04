@@ -2,6 +2,7 @@ import { useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
 import {
   DEMO_ASK_EXAMPLES,
   DEMO_DAY,
+  DEMO_FRIDGE_ASK_EXAMPLES,
   DEMO_HOME_ASK_EXAMPLES,
   askExamples,
   askThingsOf,
@@ -93,27 +94,33 @@ function LiveDock() {
 
 /** The household's day, as the dock shows it in the Home room. */
 const HOME_DAY = householdEvents();
+/** The fridge's day, as the dock shows it at the fridge: what came out of it. */
+const FRIDGE_DAY = DEMO_DAY.filter((e) => e.thing === 'fridge');
 
 function Dock() {
   const minute = useReplay((r) => Math.floor(r.minute));
   const playing = useReplay((r) => r.playing);
   const speed = useReplay((r) => r.speed);
   // In the Home room the day is the household's: who came home, sat down, fell asleep.
-  const home = useView().workScene === 'home';
-  const last = home ? null : eventsUntil(minute).at(-1);
+  // At the fridge it is the fridge's: what came out of it.
+  const { workScene } = useView();
+  const home = workScene === 'home';
+  const fridge = workScene === 'fridge';
+  const day = fridge ? FRIDGE_DAY : DEMO_DAY;
+  const last = home ? null : eventsUntil(minute, day).at(-1);
   const lastHome = home ? HOME_DAY.filter((e) => e.at <= minute).at(-1) : null;
   const [cited, setCited] = useState<number[]>([]);
   const extra = useCoach((c) => c.extra);
   const snoozes = useCoach((c) => c.snoozes);
-  // The room coach's nudges over the sample day, as minutes of it, for the track.
+  // The room coach's nudges over the sample day for this room, as minutes of it, for the track.
   const coachTicks = useMemo(() => {
-    const day = midnightOf(Date.now());
-    return demoCoachDay(extra, snoozes).map((n) => ({
+    const midnight = midnightOf(Date.now());
+    return demoCoachDay(extra, snoozes, workScene).map((n) => ({
       id: n.id,
       title: n.title,
-      minute: Math.round((n.at - day) / 60_000),
+      minute: Math.round((n.at - midnight) / 60_000),
     }));
-  }, [extra, snoozes]);
+  }, [extra, snoozes, workScene]);
   return (
     <section className="day-dock" aria-label="Day replay">
       <div className="day-bar">
@@ -137,7 +144,7 @@ function Dock() {
                   title={`${clock(e.at)} · ${e.text}`}
                 />
               ))
-            : DEMO_DAY.map((e, i) => (
+            : day.map((e, i) => (
                 <span
                   key={i}
                   className={`day-tick ${e.thing}`}
@@ -214,7 +221,9 @@ function Dock() {
       <CoachBar minute={minute} />
       <Ask
         minute={minute}
-        examples={home ? DEMO_HOME_ASK_EXAMPLES : DEMO_ASK_EXAMPLES}
+        examples={
+          home ? DEMO_HOME_ASK_EXAMPLES : fridge ? DEMO_FRIDGE_ASK_EXAMPLES : DEMO_ASK_EXAMPLES
+        }
         onCited={setCited}
       />
     </section>
@@ -586,6 +595,8 @@ const TOPIC_DOT: Record<CoachTopic, string> = {
   lampAway: 'lamp',
   cat: 'cat',
   food: 'fridge',
+  low: 'fridge',
+  cook: 'fridge',
   alone: 'member',
 };
 /** How long a live coach nudge stays over the room, ms. */
@@ -646,21 +657,20 @@ export function DayNudges() {
     if (!replaying) return [];
     const now = today + minute * 60_000;
     const recent = (at: number) => at <= now && now - at < NUDGE_SHOWN * 60_000;
-    // The Home room's nudges are the household's; the desk's stay with the office.
+    // The Home room's nudges are the household's, the fridge's its food; the desk's stay with the office.
     const here = (n: CoachNudge) => topicInRoom(n.topic, workScene);
+    const pushed = (id: string) => (workScene === 'fridge' ? id === 'food' : workScene !== 'home');
     return [
-      ...NUDGES.filter((n) => workScene !== 'home' && recent(today + n.at * 60_000)).map(
-        (n): Shown => ({
-          id: n.id,
-          at: today + n.at * 60_000,
-          time: clock(n.at),
-          coach: false,
-          title: n.title,
-          body: n.body,
-          action: n.action,
-        }),
-      ),
-      ...demoCoachDay(extra, snoozes)
+      ...NUDGES.filter((n) => pushed(n.id) && recent(today + n.at * 60_000)).map((n): Shown => ({
+        id: n.id,
+        at: today + n.at * 60_000,
+        time: clock(n.at),
+        coach: false,
+        title: n.title,
+        body: n.body,
+        action: n.action,
+      })),
+      ...demoCoachDay(extra, snoozes, workScene)
         .filter((n) => here(n) && n.at <= now && now - n.at < COACH_SHOWN * 60_000)
         .map((n) => coachCard(n, clockOf(n.at))),
       ...checked.filter(here).map((n) => coachCard(n, clockOf(n.at))),

@@ -32,13 +32,27 @@ export const COACH = {
   aloneMin: 180,
   /** Hours counted as late at night, while the screen is on. */
   late: { from: 23, to: 5 },
+  /** Minutes after food running low last came out of the fridge that it is worth a word. */
+  lowMin: 120,
+  /** Days to its use-by day that make food worth cooking tonight, and the hours a dinner idea comes in. */
+  cookDays: 4,
+  dinner: { from: 17, to: 20 },
   /** Nudges kept, newest last. */
   kept: 20,
 } as const;
 
 const MINUTE = 60_000;
 
-export type CoachTopic = 'drink' | 'screen' | 'late' | 'lampAway' | 'cat' | 'food' | 'alone';
+export type CoachTopic =
+  | 'drink'
+  | 'screen'
+  | 'late'
+  | 'lampAway'
+  | 'cat'
+  | 'food'
+  | 'low'
+  | 'cook'
+  | 'alone';
 
 /** One thing the coach could nudge about, worked out from the stats. */
 export interface CoachFact {
@@ -47,7 +61,7 @@ export interface CoachFact {
   topic: CoachTopic;
   thingId: string;
   label: string;
-  /** How long it has been so, in minutes; 0 for food. */
+  /** How long it has been so, in minutes; 0 for food that goes off or wants cooking. */
   minutes: number;
   /** The fact in plain words, with its numbers: what Spark words a nudge from. */
   text: string;
@@ -133,7 +147,8 @@ const nameOf = (t: AskThing) =>
  * What the room's stats say now that the coach might nudge about, most due
  * first: a drink overdue while someone is at the desk, the screen on a long
  * while or late at night, a light left on with nobody there, the cat long on
- * its tree, food that goes off today or has.
+ * its tree, food that goes off today or has, food running low just after
+ * some came out, and at dinner time the food that wants using up first.
  */
 export function coachFacts(history: AskHistory, now: number): CoachFact[] {
   const facts: CoachFact[] = [];
@@ -280,19 +295,84 @@ export function coachFacts(history: AskHistory, now: number): CoachFact[] {
       cites: [],
     });
   }
+  // Food running low: worth a word soon after the last of it came out, while it's on someone's mind.
+  for (const t of history.things) {
+    if ((t.left !== 'low' && t.left !== 'empty') || !present) continue;
+    const out = eventsOf(history, t.id, 'lastUsed', now).at(-1);
+    const minutes = out ? (now - out.at) / MINUTE : null;
+    facts.push({
+      id: `low:${t.id}`,
+      topic: 'low',
+      thingId: t.id,
+      label: t.label,
+      minutes: minutes ?? 0,
+      text: `${t.label} is ${t.left === 'empty' ? 'empty' : 'running low'}${out ? `; some last came out of the fridge at ${clockOf(out.at)}` : ''}.`,
+      weight: minutes !== null && minutes <= COACH.lowMin ? 1.05 : 0.8,
+      cites: out ? [citeOf(t, 'lastUsed', out, `${t.label} taken out`)] : [],
+    });
+  }
+  // At dinner time, the food that goes off soonest, when there's enough of it to cook with.
+  const dinner = hour >= COACH.dinner.from && hour < COACH.dinner.to;
+  const soon = history.things
+    .flatMap((t) =>
+      t.expires && t.left !== 'empty' ? [{ t, n: daysUntil(t.expires, dayOf(now)) }] : [],
+    )
+    .filter(({ n }) => n >= 0 && n <= COACH.cookDays)
+    .sort((a, b) => a.n - b.n)
+    .slice(0, 3);
+  if (dinner && present && soon.length >= 2) {
+    const names = soon.map(({ t }) => t.label.toLowerCase());
+    facts.push({
+      id: 'cook:fridge',
+      topic: 'cook',
+      thingId: soon[0]!.t.id,
+      label: andList(names),
+      minutes: 0,
+      text: `It is dinner time, and these want using up first: ${soon.map(({ t, n }) => `${t.label.toLowerCase()} (${offIn(n)})`).join(', ')}.`,
+      weight: 1,
+      cites: [],
+    });
+  }
   return facts.sort((a, b) => b.weight - a.weight);
 }
 
+/** "milk, spinach and eggs". */
+function andList(items: readonly string[]): string {
+  return items.length < 2
+    ? (items[0] ?? '')
+    : `${items.slice(0, -1).join(', ')} and ${items.at(-1)}`;
+}
+/** "today", "tomorrow", "in 4 days". */
+function offIn(days: number): string {
+  return days === 0
+    ? 'goes off today'
+    : days === 1
+      ? 'goes off tomorrow'
+      : `goes off in ${days} days`;
+}
+
+/** The fridge's topics: food going off, running low, and what to cook. */
+const FRIDGE_TOPICS: ReadonlySet<CoachTopic> = new Set(['food', 'low', 'cook']);
+/** The fridge's own: said only over the fridge, and in a room of one's own. */
+const FRIDGE_ONLY: ReadonlySet<CoachTopic> = new Set(['low', 'cook']);
 /**
  * Whether a nudge belongs over a room: the household's (a pet home alone) over
- * the Home room, the desk's (drinks, the screen, the lamp) over the others.
+ * the Home room, the fridge's (food going off, running low, dinner) over the
+ * fridge, the desk's (drinks, the screen, the lamp, the cat) and food going
+ * off today over the office and the desk. A room of one's own shows all but
+ * the household's.
  */
-export const topicInRoom = (topic: CoachTopic, scene: string | null) =>
-  (topic === 'alone') === (scene === 'home');
+export function topicInRoom(topic: CoachTopic, scene: string | null): boolean {
+  if (scene === 'home') return topic === 'alone';
+  if (topic === 'alone') return false;
+  if (scene === 'fridge') return FRIDGE_TOPICS.has(topic);
+  if (scene === 'office' || scene === 'desk') return !FRIDGE_ONLY.has(topic);
+  return true;
+}
 
-/** Minutes the coach keeps quiet about a fact after nudging about it. */
+/** Minutes the coach keeps quiet about a fact after nudging about it: food and a pet once a stretch. */
 const cooldownOf = (f: CoachFact) =>
-  f.topic === 'food' || f.topic === 'alone' ? COACH.foodCooldownMin : COACH.cooldownMin;
+  FRIDGE_TOPICS.has(f.topic) || f.topic === 'alone' ? COACH.foodCooldownMin : COACH.cooldownMin;
 
 /**
  * The facts worth a nudge now, most due first: due, not nudged about within
@@ -393,6 +473,23 @@ const LINES: Record<CoachTopic, [string, string][]> = {
     ],
     ['Fridge alert', 'The {label} is on its last day. It’s now or never, and never smells worse.'],
   ],
+  low: [
+    ['Running low', 'That was most of the {label}. Future you, at breakfast, would like a word.'],
+    [
+      'Shopping list, maybe?',
+      'The {label} is nearly gone. Grab some on the way home, or tomorrow starts disappointed.',
+    ],
+  ],
+  cook: [
+    [
+      'Dinner idea 🍳',
+      'The {label} all want using up. Together, that’s dinner. Apart, that’s a problem.',
+    ],
+    [
+      'What’s for dinner?',
+      'The fridge suggests {label}. Chef’s choice, as long as the chef chooses those.',
+    ],
+  ],
 };
 const GONE: [string, string][] = [
   [
@@ -447,14 +544,17 @@ export function quietWords(facts: readonly CoachFact[]): string {
 /**
  * The coach over a stretch of time, offline: a look every `COACH.everyMin`
  * minutes from `from` to `to`, each nudging about its most due fact unless
- * it nudged about that one lately or its topic is snoozed. What the demo's
- * replay shows.
+ * it nudged about that one lately or its topic is snoozed. The fridge
+ * (`scene`) keeps a day of its own, about its food alone; every other room
+ * shares one, about all but the fridge's own topics, each showing what
+ * belongs over it (`topicInRoom`). What the demo's replay shows.
  */
 export function coachDay(
   history: AskHistory,
   from: number,
   to: number,
   snoozes: readonly CoachSnooze[] = [],
+  scene?: string | null,
 ): CoachNudge[] {
   const nudges: CoachNudge[] = [];
   // Only the last day's events matter to any look in it, and filtering fewer is faster.
@@ -463,7 +563,10 @@ export function coachDay(
     events: history.events.filter((e) => e.at > from - 86_400_000),
   };
   for (let at = from; at <= to; at += COACH.everyMin * MINUTE) {
-    const due = dueFacts(coachFacts(recentHistory, at), nudges, at).filter(
+    const facts = coachFacts(recentHistory, at).filter((f) =>
+      scene === 'fridge' ? FRIDGE_TOPICS.has(f.topic) : !FRIDGE_ONLY.has(f.topic),
+    );
+    const due = dueFacts(facts, nudges, at).filter(
       (f) => !snoozes.some((z) => z.topic === f.topic && at >= z.from && at < z.to),
     );
     const fact = due[0];
@@ -494,6 +597,8 @@ export const COACH_ACTIONS: Record<CoachTopic, { label: string; does: CoachDoes;
   },
   cat: { label: 'Respect the cat', does: 'none', done: 'The cat acknowledges you. Barely.' },
   food: { label: 'What do I eat?', does: 'ask', done: 'Asked the room what to eat first.' },
+  low: { label: 'Got it', does: 'none', done: 'Noted. Future you thanks present you.' },
+  cook: { label: 'Sounds good', does: 'none', done: 'Dinner, sorted. The spinach is relieved.' },
   alone: { label: 'On my way', does: 'none', done: 'Noted. Tail wagging has begun in advance.' },
 };
 /** Minutes a snoozed topic keeps quiet. */

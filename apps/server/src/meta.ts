@@ -514,6 +514,7 @@ export class MetaAdapter {
         'Pick the one fact most worth a nudge right now and write it as a phone notification.',
         'factId: that fact’s id exactly as listed. title: at most 6 words. body: one or two short sentences, at most 140 characters, casual (“like 3 hours, dude” is fine), at most one emoji.',
         'Use the numbers as given, rounded the way a person says them; don’t invent anything the facts don’t say. Vary your jokes: no “hydration station”.',
+        'For a cook fact, name one simple dish that uses those foods, in a few words.',
       ].join('\n'),
     });
   }

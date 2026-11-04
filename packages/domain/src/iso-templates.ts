@@ -513,6 +513,12 @@ export const PROP_TEMPLATES = {
     onTop: true,
     build: modelled('Food tub', 'tub', 'glass'),
   },
+  greens: {
+    label: 'Salad leaves',
+    size: { w: cm(17), d: cm(12) },
+    onTop: true,
+    build: modelled('Salad leaves', 'greens', 'glass'),
+  },
 } satisfies Record<string, Template>;
 export type TemplateId = keyof typeof PROP_TEMPLATES;
 export const TEMPLATE_IDS = Object.keys(PROP_TEMPLATES) as [TemplateId, ...TemplateId[]];

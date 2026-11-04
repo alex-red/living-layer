@@ -318,3 +318,55 @@ describe('the room coach’s routes', () => {
     expect(off).toMatchObject({ on: false, nextAt: null });
   });
 });
+
+describe('the fridge’s coach', () => {
+  const fridgeDay = () => coachDay(history(23 * 60), at(6 * 60 + 30), at(23 * 60), [], 'fridge');
+
+  it('keeps a day of its own, about its food alone', () => {
+    expect(fridgeDay().map((n) => [clockOf(n.at), n.topic])).toEqual([
+      ['7:45', 'food'],
+      ['8:05', 'low'],
+      ['17:00', 'cook'],
+    ]);
+  });
+
+  it('says the milk is running low soon after some came out, citing when', () => {
+    const low = fact(8 * 60 + 5, 'low')!;
+    expect(low.text).toBe('Milk is running low; some last came out of the fridge at 7:30.');
+    expect(low.cites.map((c) => clockOf(c.at))).toEqual(['7:30']);
+    expect(fact(8 * 60 + 5, 'low')!.weight).toBeGreaterThanOrEqual(1);
+    // Hours later it isn't on anyone's mind: not due.
+    expect(fact(14 * 60, 'low')!.weight).toBeLessThan(1);
+  });
+
+  it('suggests dinner from the food that goes off soonest, only at dinner time', () => {
+    expect(fact(17 * 60, 'cook')!.text).toBe(
+      'It is dinner time, and these want using up first: leftover chicken (goes off today), milk (goes off tomorrow), spinach (goes off in 4 days).',
+    );
+    expect(coachLine(fact(17 * 60, 'cook')!, at(17 * 60)).body).toStartWith(
+      'The leftover chicken, milk and spinach all want using up.',
+    );
+    expect(fact(12 * 60, 'cook')).toBeUndefined();
+  });
+
+  it('wants two foods to cook with', () => {
+    const h = history(17 * 60);
+    const one = { ...h, things: h.things.filter((t) => t.id !== 'milk' && t.id !== 'spinach') };
+    expect(coachFacts(one, at(17 * 60)).some((f) => f.topic === 'cook')).toBe(false);
+  });
+
+  it('shows food over the fridge and the desk, running low and dinner over the fridge alone', () => {
+    expect(
+      ['food', 'low', 'cook', 'drink'].filter((t) => topicInRoom(t as never, 'fridge')),
+    ).toEqual(['food', 'low', 'cook']);
+    expect(
+      ['food', 'low', 'cook', 'drink'].filter((t) => topicInRoom(t as never, 'office')),
+    ).toEqual(['food', 'drink']);
+    expect(topicInRoom('cook', 'custom')).toBe(true);
+  });
+
+  it('leaves the other rooms’ shared day as it was', () => {
+    const shared = coachDay(history(23 * 60), at(6 * 60 + 30), at(23 * 60));
+    expect(shared.some((n) => n.topic === 'low' || n.topic === 'cook')).toBe(false);
+  });
+});
