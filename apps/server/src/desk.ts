@@ -1267,6 +1267,8 @@ export async function deskRoutes(
     available(mode);
     const memory = store.memory(mode);
     memory.rules = (memory.rules ?? []).filter((r) => r.id !== ruleId);
+    // The main zone's verdict goes with it.
+    if (ruleId === MAIN_RULE) memory.lastDecision = null;
     store.saveMemory(memory);
     desk.stopZoneSteps(mode, ruleId);
     return memory;

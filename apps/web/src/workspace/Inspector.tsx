@@ -1314,6 +1314,7 @@ function ZonePanel() {
     useNavigation(),
     useProbes(),
   );
+  const { call, off } = useCall();
   const { memory, mode, busy, drawing, draftZone, currentObservation, zoneObservation, lampReady } =
     lab;
   if (!memory || !mugOf(memory))
@@ -1499,6 +1500,22 @@ function ZonePanel() {
           Sightings expire after 5 minutes.
         </p>
       </Details>
+      {main && !drawing && (
+        <Details summary="Delete">
+          <Button
+            variant="danger"
+            disabled={off}
+            onClick={() =>
+              void call<DeskMemory>('desk/rules/delete', { ruleId: main.id }, (m) => {
+                lab.setMemory(m);
+                lab.setMessage(`Removed "${main.label}".`);
+              })
+            }
+          >
+            Delete “{main.label}”
+          </Button>
+        </Details>
+      )}
     </Panel>
   );
 }

@@ -47,6 +47,19 @@ async function setup() {
 }
 
 describe('desk placement', () => {
+  it('deletes the main zone and its last verdict', async () => {
+    const s = await setup();
+    const zoned = await s.zone();
+    await s.post('desk/verify', { observationId: sighting(zoned)!.id, zoneId: MAIN_RULE });
+    expect((await s.app.inject('/api/desk/demo')).json<DeskMemory>().lastDecision).not.toBeNull();
+    const deleted = await s.post('desk/rules/delete', { ruleId: MAIN_RULE });
+    expect(deleted.statusCode, deleted.body).toBe(200);
+    const memory = deleted.json<DeskMemory>();
+    expect(mainZone(memory)).toBeNull();
+    expect(memory.lastDecision).toBeNull();
+    expect(placementGate(memory).decision).toBe('blocked');
+    await s.app.close();
+  });
   it('persists object identity and zone across restart; links selection, decision, and virtual action without provider traffic', async () => {
     const s = await setup();
     const zoned = await s.zone();
