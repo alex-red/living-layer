@@ -7,6 +7,7 @@ import { useBrush, type Brush } from '../useBrush';
 import { aiTaskStore, setAiTask, updateAiTask, type AiTask } from './ai-task-store';
 import { SHORTCUTS } from '../../shortcuts';
 import { pushHistory, stoppedJob } from './helpers';
+import { randomId } from './random-id';
 import type { ViewSlice } from './view';
 import type { FeedbackSlice } from './feedback';
 import type { RunLogSlice } from './runlog';
@@ -235,7 +236,7 @@ export function useAiSlice(
     call: (jobId: string, signal: AbortSignal) => Promise<T>,
   ): Promise<T | null> {
     const generation = ++aiGeneration.current;
-    const jobId = crypto.randomUUID();
+    const jobId = randomId();
     // The desk as it was, for reverting what this action saves.
     const before = memory;
     const abort = new AbortController();

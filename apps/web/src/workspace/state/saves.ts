@@ -28,6 +28,7 @@ import {
 } from '../../session';
 import { SHORTCUTS } from '../../shortcuts';
 import { RUN_KINDS, deskJson, pushHistory } from './helpers';
+import { randomId } from './random-id';
 import type { ViewSlice } from './view';
 import type { FeedbackSlice } from './feedback';
 import type { RunLogSlice } from './runlog';
@@ -411,7 +412,7 @@ export function useSavesSlice(
     const stored = readSaves();
     const same = stored.find((s) => s.name.toLowerCase() === clean.toLowerCase());
     const entry: NamedSave = {
-      id: same?.id ?? crypto.randomUUID(),
+      id: same?.id ?? randomId(),
       name: clean,
       save: currentSave(clean),
     };
@@ -548,7 +549,7 @@ export function useSavesSlice(
       const base = save.name || saveName(chosen.name.replace(/\.json$/i, '')) || 'Imported save';
       let name = base;
       for (let n = 2; taken.has(name.toLowerCase()); n++) name = saveName(`${base} (${n})`);
-      const entry: NamedSave = { id: crypto.randomUUID(), name, save: { ...save, name } };
+      const entry: NamedSave = { id: randomId(), name, save: { ...save, name } };
       if (!(await applySave(save, `Imported “${name}”.`))) return;
       if (writeSaves(withSave(readSaves(), entry))) {
         setSaves(readSaves());
