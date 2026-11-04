@@ -153,6 +153,8 @@ export interface WatcherDeps {
   cameraCrop?: (camera: WatchCamera) => CameraCrop | null;
   /** The URL another machine (the GPU tracker) reads a camera from: its own, not this machine's relay. */
   remoteUrl?: (camera: WatchCamera) => string | null;
+  /** A smaller stream of the camera's view the grey frames come from (its substream), or null. */
+  lumaUrl?: (camera: WatchCamera) => string | null;
   /** The GPU tracker node, following the same things on another machine; live only, when configured. */
   gpu?: GpuTracker | null;
   /** Apple Vision's tracker, steering each frame's search: the `vision` backend, given on Apple silicon only. */
@@ -677,7 +679,12 @@ export class Watcher {
       this.deps.source?.(camera) ??
       (this.deps.mode === 'demo'
         ? new DemoSource()
-        : new FfmpegSource(url!, 'ffmpeg', this.deps.cameraCrop?.(camera!) ?? null));
+        : new FfmpegSource(
+            url!,
+            'ffmpeg',
+            this.deps.cameraCrop?.(camera!) ?? null,
+            this.deps.lumaUrl?.(camera!) ?? null,
+          ));
     this.source = source;
     // Each thing is followed from the photo SAM last saw it in: the camera is fixed.
     for (const seen of watchedThings(memory)) await this.seed(seen, memory);
@@ -753,6 +760,15 @@ export class Watcher {
         this.emit(true);
       },
     );
+  }
+  /**
+   * When the latest of these things last moved, from the still frames since: a
+   * still for looking at them must be no older (a substream's stills are
+   * keyframes, up to a couple of seconds old).
+   */
+  private movedAt(things: WatchThing[]) {
+    const quiet = Math.min(...things.map((t) => t.track.stillSteps));
+    return Number.isFinite(quiet) ? this.now - (quiet * 1000) / LUMA_FPS : 0;
   }
   /** The GPU tracker's view now: how long since its last result. */
   private gpuNow(): GpuTrackerView | null {
@@ -1189,7 +1205,9 @@ export class Watcher {
     const model = this.model;
     if (!model || !this.source) return found;
     try {
-      const shot = await this.source.snapshot();
+      const shot = await this.source.snapshot({
+        since: this.movedAt(ids.flatMap((id) => this.things.get(id) ?? [])),
+      });
       const wanted = ids.flatMap((id) => {
         const thing = this.things.get(id);
         const protos = this.prototypes.get(id);
@@ -1374,7 +1392,7 @@ export class Watcher {
     const seen = this.closeSeen.get(id);
     if (seen && this.now - seen.at < CLOSE_FRESH_MS && boxIoU(seen.box, thing.track.box) >= 0.8)
       return thing.track.box;
-    const shot = await this.source.snapshot();
+    const shot = await this.source.snapshot({ since: this.movedAt([thing]) });
     const look = await this.closeLook(shot, thing.track.box, templates);
     if (look.score >= APPEARANCE.closeMinScore) {
       this.closeSeen.set(id, { box: look.box, at: this.now });
@@ -1441,7 +1459,7 @@ export class Watcher {
     let picture: Buffer;
     let run: EvidenceRun<Segmentation>;
     try {
-      const shot = await this.source!.snapshot();
+      const shot = await this.source!.snapshot({ since: this.movedAt(things) });
       picture = shot.png;
       run = await this.deps.segment(
         mode,

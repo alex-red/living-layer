@@ -22,6 +22,20 @@ const SNAPSHOT_SIDE = 1280;
  */
 const STILL_FPS = 5;
 const STILL_FRESH_MS = 1000;
+/**
+ * With a substream, the still is the main stream's latest keyframe: only those
+ * are decoded. The office camera sends one every 2 s, so one this old still stands.
+ */
+const KEYFRAME_FRESH_MS = 3000;
+/**
+ * A substream is scaled to this width before it is cut to the crop. Cut at its
+ * own size (768 wide on the office camera) the crop rounds to whole pixels, and
+ * its grey frames sat 1–2 px off the main stream's; cut at this size they line
+ * up (measured by correlation, at 3% of a core for both steps).
+ */
+const SUBSTREAM_CUT_WIDTH = 1920;
+/** How often to look for a newer still while waiting for one, ms. */
+const STILL_POLL_MS = 100;
 /** How long a camera may take to give its first frame: connecting, then waiting for a keyframe. */
 const OPEN_TIMEOUT_MS = 20_000;
 
@@ -34,8 +48,12 @@ export interface FrameSource {
   /** Starts the frames; `onEnd` is called once if they stop by themselves. */
   start(onFrame: (frame: LumaFrame) => void, onEnd: (error?: Error) => void): Promise<void>;
   stop(): void;
-  /** The current picture as a PNG at most 1280 px on its longer side. */
-  snapshot(): Promise<{ png: Buffer; width: number; height: number }>;
+  /**
+   * The current picture as a PNG at most 1280 px on its longer side; with
+   * `since` (epoch ms), one taken no earlier, so a thing that just moved shows
+   * where it is now.
+   */
+  snapshot(options?: { since?: number }): Promise<{ png: Buffer; width: number; height: number }>;
   /** The process decoding the frames, to read its CPU; none when they are made here. */
   readonly pid?: number | null;
 }
@@ -129,6 +147,8 @@ export class Y4mReader {
  */
 export class FfmpegSource implements FrameSource {
   private proc: ReturnType<typeof Bun.spawn> | null = null;
+  /** With a substream: the process keeping the main stream's keyframes as stills. */
+  private keyframes: ReturnType<typeof Bun.spawn> | null = null;
   private stopped = false;
   /** Where the running process keeps its latest full picture. */
   private stills: string | null = null;
@@ -137,6 +157,12 @@ export class FfmpegSource implements FrameSource {
     private ffmpeg = 'ffmpeg',
     /** The camera's zoomed view: every frame read is cut to it first. */
     private crop: CameraCrop | null = null,
+    /**
+     * A smaller stream of the same view (a Thingino camera's `ch1`): the grey
+     * frames come from it, so the full stream is never decoded whole. Stills
+     * still come from `url`, from its keyframes only.
+     */
+    private lumaUrl: string | null = null,
   ) {}
   /** The filter that cuts a frame to the crop, ahead of the rest. */
   private cut() {
@@ -149,6 +175,10 @@ export class FfmpegSource implements FrameSource {
   private get rtsp() {
     return /^rtsps?:\/\//.test(this.url);
   }
+  /** How old the kept still may be to stand in for now. */
+  private get freshMs() {
+    return this.lumaUrl ? KEYFRAME_FRESH_MS : STILL_FRESH_MS;
+  }
   /**
    * How ffmpeg opens the camera. `fast` skips probing the stream, which costs
    * about 0.7 s before the first frame: an RTSP camera's description already
@@ -157,9 +187,9 @@ export class FfmpegSource implements FrameSource {
    * Frames are handed on as they are decoded, not buffered: on the office
    * camera that put each about 0.5 s sooner (its printed clock read both ways).
    */
-  private input(fast = false) {
+  private input(fast = false, url = this.url) {
     // `auto` decodes on the GPU where there is one (VideoToolbox on a Mac) and falls back.
-    return this.rtsp
+    return /^rtsps?:\/\//.test(url)
       ? [
           '-hwaccel',
           'auto',
@@ -171,9 +201,9 @@ export class FfmpegSource implements FrameSource {
           '-rtsp_transport',
           'tcp',
           '-i',
-          this.url,
+          url,
         ]
-      : ['-hwaccel', 'auto', '-i', this.url];
+      : ['-hwaccel', 'auto', '-i', url];
   }
   /** Sources that read the same picture share their stills. */
   private get key() {
@@ -185,20 +215,25 @@ export class FfmpegSource implements FrameSource {
   async start(onFrame: (frame: LumaFrame) => void, onEnd: (error?: Error) => void) {
     this.stopped = false;
     this.stills = mkdtempSync(join(tmpdir(), 'livinglayer-still-'));
+    const fast = /^rtsps?:\/\//.test(this.lumaUrl ?? this.url);
     try {
-      await this.open(onFrame, onEnd, this.rtsp);
+      await this.open(onFrame, onEnd, fast);
     } catch (error) {
-      if (!(error instanceof EarlyExit) || !this.rtsp || this.stopped) throw error;
+      if (!(error instanceof EarlyExit) || !fast || this.stopped) throw error;
       await this.open(onFrame, onEnd, false);
     }
+    if (this.lumaUrl) this.keepKeyframes();
     running.set(this.key, this);
   }
-  /** One ffmpeg, resolved at its first frame; an `EarlyExit` if it ended before one. */
-  private async open(
-    onFrame: (frame: LumaFrame) => void,
-    onEnd: (error?: Error) => void,
-    fast: boolean,
-  ) {
+  /**
+   * The main stream's keyframes as the still, decoded alone (`-skip_frame
+   * nokey`), so the full stream costs a picture every couple of seconds rather
+   * than every frame. In software: a hardware decoder may ignore the skip. Opened
+   * again if it ends while the source runs; meanwhile a snapshot takes the slow way.
+   */
+  private keepKeyframes() {
+    if (this.stopped || !this.stillPath) return;
+    const live = /^rtsps?:\/\//.test(this.url);
     const proc = Bun.spawn(
       [
         this.ffmpeg,
@@ -206,21 +241,16 @@ export class FfmpegSource implements FrameSource {
         '-hide_banner',
         '-loglevel',
         'error',
-        ...this.input(fast),
+        '-skip_frame',
+        'nokey',
+        ...(live ? ['-rtsp_transport', 'tcp'] : ['-re']),
+        '-i',
+        this.url,
         '-an',
-        '-filter_complex',
-        `[0:v]${this.cut().slice(0, -1) || 'null'},split=2[a][b];` +
-          // Even, as `lumaHeight` gives it; the size comes back in the stream's own header.
-          `[a]fps=${LUMA_FPS},scale=${LUMA_WIDTH}:-2,format=gray[luma];` +
-          `[b]fps=${STILL_FPS},scale='min(${SNAPSHOT_SIDE},iw)':-2[still]`,
-        '-map',
-        '[luma]',
-        '-f',
-        'yuv4mpegpipe',
-        'pipe:1',
-        // A pipe and a file, not two pipes: two pipes hang under Bun.
-        '-map',
-        '[still]',
+        '-vf',
+        `${this.cut()}scale='min(${SNAPSHOT_SIDE},iw)':-2`,
+        '-fps_mode',
+        'passthrough',
         '-f',
         'image2',
         '-update',
@@ -230,7 +260,66 @@ export class FfmpegSource implements FrameSource {
         '-q:v',
         '2',
         '-y',
-        this.stillPath!,
+        this.stillPath,
+      ],
+      { stdin: 'ignore', stdout: 'ignore', stderr: 'ignore' },
+    );
+    this.keyframes = proc;
+    void proc.exited.then(() => {
+      if (this.keyframes !== proc || this.stopped || !live) return;
+      setTimeout(() => this.keyframes === proc && this.keepKeyframes(), 2000);
+    });
+  }
+  /** One ffmpeg, resolved at its first frame; an `EarlyExit` if it ended before one. */
+  private async open(
+    onFrame: (frame: LumaFrame) => void,
+    onEnd: (error?: Error) => void,
+    fast: boolean,
+  ) {
+    // Even, as `lumaHeight` gives it; the size comes back in the stream's own header.
+    const luma = `fps=${LUMA_FPS},scale=${LUMA_WIDTH}:-2,format=gray`;
+    const proc = Bun.spawn(
+      [
+        this.ffmpeg,
+        '-nostdin',
+        '-hide_banner',
+        '-loglevel',
+        'error',
+        ...this.input(fast, this.lumaUrl ?? this.url),
+        '-an',
+        ...(this.lumaUrl
+          ? // The substream gives the grey frames alone; its stills come from `keepKeyframes`.
+            [
+              '-vf',
+              `fps=${LUMA_FPS},format=gray,scale=${SUBSTREAM_CUT_WIDTH}:-2,${this.cut()}${luma}`,
+              '-f',
+              'yuv4mpegpipe',
+              'pipe:1',
+            ]
+          : [
+              '-filter_complex',
+              `[0:v]${this.cut().slice(0, -1) || 'null'},split=2[a][b];` +
+                `[a]${luma}[luma];` +
+                `[b]fps=${STILL_FPS},scale='min(${SNAPSHOT_SIDE},iw)':-2[still]`,
+              '-map',
+              '[luma]',
+              '-f',
+              'yuv4mpegpipe',
+              'pipe:1',
+              // A pipe and a file, not two pipes: two pipes hang under Bun.
+              '-map',
+              '[still]',
+              '-f',
+              'image2',
+              '-update',
+              '1',
+              '-atomic_writing',
+              '1',
+              '-q:v',
+              '2',
+              '-y',
+              this.stillPath!,
+            ]),
       ],
       { stdin: 'ignore', stdout: 'pipe', stderr: 'ignore' },
     );
@@ -276,25 +365,41 @@ export class FfmpegSource implements FrameSource {
     if (running.get(this.key) === this) running.delete(this.key);
     this.proc?.kill('SIGKILL');
     this.proc = null;
+    this.keyframes?.kill('SIGKILL');
+    this.keyframes = null;
     if (this.stills) rmSync(this.stills, { recursive: true, force: true });
     this.stills = null;
   }
-  async snapshot(): Promise<{ png: Buffer; width: number; height: number }> {
+  async snapshot(
+    options: { since?: number } = {},
+  ): Promise<{ png: Buffer; width: number; height: number }> {
     // A source reading the same camera already keeps its picture: the watcher's, for a still
     // asked for on its own, which would otherwise open the camera and wait for a keyframe.
     const other = running.get(this.key);
-    if (!this.proc && other?.proc) return other.snapshot();
-    // The running process's latest picture, when it is fresh; a JPEG, given as a PNG like the rest.
+    if (!this.proc && other?.proc) return other.snapshot(options);
+    // The running process's latest picture, when it is fresh and no older than `since`
+    // (waited for, up to a fresh still's age); a JPEG, given as a PNG like the rest.
     const kept = this.stillPath;
-    if (kept && this.proc)
+    const since = options.since ?? 0;
+    const taken = () => {
       try {
-        if (Date.now() - statSync(kept).mtimeMs < STILL_FRESH_MS) {
+        return statSync(kept!).mtimeMs;
+      } catch {
+        return 0;
+      }
+    };
+    if (kept && this.proc) {
+      const waitUntil = Date.now() + this.freshMs;
+      while (taken() < since && Date.now() < waitUntil) await Bun.sleep(STILL_POLL_MS);
+      const at = taken();
+      if (at >= since && Date.now() - at < this.freshMs)
+        try {
           const { data, info } = await sharp(kept).png().toBuffer({ resolveWithObject: true });
           return { png: data, width: info.width, height: info.height };
+        } catch {
+          // Gone between the check and the read: take one the slow way.
         }
-      } catch {
-        // Not written yet, or gone between the check and the read: take one the slow way.
-      }
+    }
     return (await this.still(this.rtsp)) ?? (this.rtsp ? await this.still(false) : null) ?? fail();
   }
   /** One picture from a new connection, or null when ffmpeg gave none. */

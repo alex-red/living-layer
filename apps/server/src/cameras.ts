@@ -10,6 +10,7 @@ import {
   cameraInputSchema,
   cameraView,
   savedIdOf,
+  substreamUrl,
   savedStreamId,
   redactCameraUrl,
   type CameraCrop,
@@ -83,6 +84,12 @@ export class CameraRegistry {
       url,
       scene: input.scene,
       crop: existing?.crop ?? null,
+      substream:
+        input.substream === undefined
+          ? (existing?.substream ?? null)
+          : input.substream
+            ? substreamUrl(input.substream, url)
+            : null,
       createdAt: existing?.createdAt ?? new Date().toISOString(),
     };
     this.write(
@@ -134,6 +141,13 @@ export class CameraRegistry {
     });
   }
   /** What the watcher reads: a saved camera's real URL, null once it's removed; anything else as kept. */
+  /** What the watcher reads its grey frames from: the substream (relayed, when it runs), or null. */
+  lumaUrlOf(camera: WatchCamera): string | null {
+    const id = savedIdOf(camera.id);
+    const saved = id === null ? null : this.get(id);
+    if (!saved?.substream) return null;
+    return this.relay?.rtspSubFor?.(saved) ?? saved.substream;
+  }
   /**
    * What another machine (the GPU tracker) reads a camera from: the relay's
    * network RTSP when it may, so the camera keeps one client, else the camera

@@ -13,9 +13,19 @@ interface Draft {
   id?: string;
   name: string;
   url: string;
+  /** Shown without credentials: saved, it borrows the stream URL's. */
+  substream: string;
   scene: CameraScene;
 }
-const EMPTY: Draft = { name: '', url: '', scene: null };
+const EMPTY: Draft = { name: '', url: '', substream: '', scene: null };
+/** A URL with its user and password left out. */
+function withoutCredentials(value: string | null) {
+  const url = value ? URL.parse(value) : null;
+  if (!url) return '';
+  url.username = '';
+  url.password = '';
+  return url.href;
+}
 
 /**
  * Cameras added by their stream URL (RTSP, RTSPS or an HTTP stream), each
@@ -58,6 +68,8 @@ export function CameraSetup({
         ...(draft.id ? { id: draft.id } : {}),
         name: draft.name.trim(),
         ...(draft.url.trim() ? { url: draft.url.trim() } : {}),
+        // Empty clears a saved one; a new camera without one sends nothing.
+        ...(draft.id || draft.substream.trim() ? { substream: draft.substream.trim() } : {}),
         scene: draft.scene,
       });
       setCameras(r.cameras);
@@ -143,7 +155,15 @@ export function CameraSetup({
                   variant="ghost"
                   size="sm"
                   disabled={busy}
-                  onClick={() => setDraft({ id: c.id, name: c.name, url: '', scene: c.scene })}
+                  onClick={() =>
+                    setDraft({
+                      id: c.id,
+                      name: c.name,
+                      url: '',
+                      substream: withoutCredentials(c.substream),
+                      scene: c.scene,
+                    })
+                  }
                 >
                   Edit
                 </Button>
@@ -205,6 +225,17 @@ export function CameraSetup({
                   : 'rtsp://user:pass@192.168.1.20/stream1'
               }
               onChange={(e) => setDraft({ ...draft, url: e.target.value })}
+            />
+          </Field>
+          <Field label="Substream URL (optional)">
+            <input
+              value={draft.substream}
+              maxLength={500}
+              spellCheck={false}
+              autoComplete="off"
+              placeholder="rtsp://192.168.1.20/ch1"
+              title="A smaller stream of the same view, such as a Thingino camera's ch1: the watcher follows things on it and decodes the full stream only for stills. It uses the stream URL's login."
+              onChange={(e) => setDraft({ ...draft, substream: e.target.value })}
             />
           </Field>
           <Field label="Room">

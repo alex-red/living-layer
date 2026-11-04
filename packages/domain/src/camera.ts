@@ -66,6 +66,16 @@ export const cameraInputSchema = z
       .max(500)
       .refine((u) => !cameraUrlProblem(u))
       .optional(),
+    /**
+     * A smaller stream of the same view (a Thingino camera's `ch1`), which the
+     * watcher follows things on; empty clears it, left out keeps the saved one.
+     */
+    substream: z
+      .string()
+      .trim()
+      .max(500)
+      .refine((u) => u === '' || !cameraUrlProblem(u))
+      .optional(),
     scene: cameraSceneSchema,
   })
   .strict();
@@ -79,6 +89,8 @@ export interface SavedCamera {
   scene: CameraScene;
   /** Its zoomed view, or none for the whole frame. */
   crop?: CameraCrop | null;
+  /** A smaller stream of the same view, for the watcher's grey frames; none reads `url`. */
+  substream?: string | null;
   createdAt: string;
 }
 
@@ -91,6 +103,8 @@ export interface CameraView {
   hasPassword: boolean;
   scene: CameraScene;
   crop: CameraCrop | null;
+  /** Its substream's URL, the password hidden, or null. */
+  substream: string | null;
   createdAt: string;
 }
 
@@ -112,8 +126,22 @@ export function cameraView(camera: SavedCamera): CameraView {
     hasPassword: Boolean(url?.password),
     scene: camera.scene,
     crop: camera.crop ?? null,
+    substream: camera.substream ? redactCameraUrl(camera.substream) : null,
     createdAt: camera.createdAt,
   };
+}
+
+/**
+ * A substream's URL with the main stream's credentials when it gives none and
+ * is on the same camera: `rtsp://cam/ch1` beside `rtsp://user:pass@cam/ch0`.
+ */
+export function substreamUrl(substream: string, main: string): string {
+  const sub = URL.parse(substream);
+  const from = URL.parse(main);
+  if (!sub || !from || sub.username || sub.hostname !== from.hostname) return substream;
+  sub.username = from.username;
+  sub.password = from.password;
+  return sub.href;
 }
 
 /** A saved camera's id in the stream list, apart from mDNS instance names and configured URLs. */

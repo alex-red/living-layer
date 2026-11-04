@@ -14,6 +14,8 @@ export interface Relay {
   sync(cameras: SavedCamera[]): Promise<void>;
   whepFor(camera: SavedCamera): string | null;
   rtspFor(camera: SavedCamera): string | null;
+  /** What ffmpeg reads instead of a camera's substream, while the relay runs. */
+  rtspSubFor?(camera: SavedCamera): string | null;
   /** What another machine on the network (the GPU tracker) reads instead of the camera, when it may. */
   remoteRtspFor?(camera: SavedCamera): string | null;
   stop(): void;
@@ -94,6 +96,14 @@ export class CameraRelay implements Relay {
       ? `rtsp://127.0.0.1:${this.port + 1}/${this.path(camera)}`
       : null;
   }
+  /** What ffmpeg reads instead of the camera's substream, while the relay runs. */
+  rtspSubFor(camera: SavedCamera): string | null {
+    return this.running &&
+      camera.substream &&
+      CameraRelay.relays({ ...camera, url: camera.substream })
+      ? `rtsp://127.0.0.1:${this.port + 1}/${this.path(camera)}-sub`
+      : null;
+  }
   /** What the GPU tracker reads instead of the camera, while the relay runs and it may. */
   remoteRtspFor(camera: SavedCamera): string | null {
     const r = this.reader;
@@ -103,15 +113,22 @@ export class CameraRelay implements Relay {
   }
   private config(cameras: SavedCamera[]) {
     const s = JSON.stringify;
-    const paths = cameras.filter(CameraRelay.relays).flatMap((c) => [
-      `  ${this.path(c)}:`,
-      `    source: ${s(c.url)}`,
+    const path = (name: string, source: string) => [
+      `  ${name}:`,
+      `    source: ${s(source)}`,
       '    rtspTransport: tcp',
       '    sourceOnDemand: true',
       '    sourceOnDemandStartTimeout: 15s',
       // Kept open a minute after its last reader, so a tab reloading or a still soon
       // after doesn't connect to the camera again and wait for its keyframe.
       '    sourceOnDemandCloseAfter: 60s',
+    ];
+    const paths = cameras.filter(CameraRelay.relays).flatMap((c) => [
+      ...path(this.path(c), c.url),
+      // The substream the watcher's grey frames come from: also one client at the camera.
+      ...(c.substream && /^rtsps?:\/\//.test(c.substream)
+        ? path(`${this.path(c)}-sub`, c.substream)
+        : []),
     ]);
     return [
       '# Written by the lab (apps/server/src/relay.ts); changes are overwritten.',

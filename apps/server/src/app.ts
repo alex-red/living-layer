@@ -534,6 +534,7 @@ export async function buildApp(
     ...(options.frames ? { source: options.frames } : {}),
     cameraUrl: (camera) => cameras.urlOf(camera),
     remoteUrl: (camera) => cameras.remoteUrlOf(camera),
+    lumaUrl: (camera) => cameras.lumaUrlOf(camera),
     cameraCrop: (camera) => cameras.cropOf(camera),
     // Demo mode makes no network calls.
     gpu:
