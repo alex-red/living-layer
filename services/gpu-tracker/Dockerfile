@@ -1,5 +1,5 @@
 # The GPU tracker: SAM 2.1 streaming video tracking behind a small HTTP API.
-FROM pytorch/pytorch:2.9.1-cuda12.8-cudnn9-runtime
+FROM pytorch/pytorch:2.11.0-cuda12.8-cudnn9-runtime
 
 ENV PIP_NO_CACHE_DIR=1 \
     PYTHONUNBUFFERED=1 \
