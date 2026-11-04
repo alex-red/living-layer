@@ -11,6 +11,7 @@ import {
   demoHistory,
   dueFacts,
   quietWords,
+  topicInRoom,
   readCoachWords,
   type AskHistory,
   type CoachCheck,
@@ -107,7 +108,10 @@ export class RoomCoach {
    * even if it nudged about it lately; a scheduled look keeps to the waits.
    * Live, the nudge is kept for the page and its Spark call recorded as a run.
    */
-  check(mode: Mode, o: { at?: number; force?: boolean; signal?: AbortSignal } = {}) {
+  check(
+    mode: Mode,
+    o: { at?: number; force?: boolean; scene?: string; signal?: AbortSignal } = {},
+  ) {
     // Two looks at once would both nudge: the second waits for the first.
     const look = (this.looking ?? Promise.resolve()).then(() => this.look(mode, o));
     this.looking = look.catch(() => null as never);
@@ -115,10 +119,18 @@ export class RoomCoach {
   }
   private async look(
     mode: Mode,
-    { at, force = false, signal }: { at?: number; force?: boolean; signal?: AbortSignal },
+    {
+      at,
+      force = false,
+      scene,
+      signal,
+    }: { at?: number; force?: boolean; scene?: string; signal?: AbortSignal },
   ): Promise<CoachCheck> {
     const now = at ?? this.now;
-    const facts = coachFacts(this.history(mode, now), now);
+    // Looking for one room: only what would be shown over it (the dog's over Home, the desk's elsewhere).
+    const facts = coachFacts(this.history(mode, now), now).filter(
+      (f) => scene === undefined || topicInRoom(f.topic, scene),
+    );
     const due = dueFacts(facts, mode === 'live' ? this.nudges : [], now, force);
     const top = due[0];
     if (!top) return { at: now, nudge: null, quiet: quietWords(facts), note: null, facts };
@@ -169,9 +181,10 @@ export async function coachRoutes(app: FastifyInstance, { coach }: { coach: Room
     return coach.view(mode);
   });
   app.post('/check', async (request) => {
-    const { mode, at } = parseInput(coachCheckBodySchema, request.body);
+    const { mode, at, scene } = parseInput(coachCheckBodySchema, request.body);
     return coach.check(mode, {
       ...(at !== undefined ? { at } : {}),
+      ...(scene !== undefined ? { scene } : {}),
       force: true,
       signal: requestSignal(request),
     });

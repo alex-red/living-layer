@@ -738,7 +738,7 @@ export function DayNudges() {
  * the switch and when it looks next. A quiet answer shows beside it.
  */
 function CoachBar({ minute }: { minute: number }) {
-  const { mode } = useView();
+  const { mode, workScene } = useView();
   const live = useCoach((c) => c.live);
   const checking = useCoach((c) => c.checking);
   const said = useCoach((c) => c.said);
@@ -784,7 +784,11 @@ function CoachBar({ minute }: { minute: number }) {
         disabled={checking}
         title={demo ? `Look at the room as of ${clock(minute)}` : 'Look at the room now'}
         onClick={() =>
-          void checkCoach(mode, demo ? midnightOf(Date.now()) + minute * 60_000 : undefined)
+          void checkCoach(
+            mode,
+            demo ? midnightOf(Date.now()) + minute * 60_000 : undefined,
+            demo ? workScene : null,
+          )
         }
       >
         {checking ? 'Looking…' : 'Check now'}

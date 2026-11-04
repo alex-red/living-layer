@@ -107,11 +107,18 @@ export function demoLampAt(minute: number, scripted: boolean, extra: readonly St
   return switchedSince ? scripted : false;
 }
 
-/** Look now: a nudge joins the notifications; else the dock says why it kept quiet. */
-export async function checkCoach(mode: Mode, at?: number) {
+/**
+ * Look now: a nudge joins the notifications; else the dock says why it kept quiet.
+ * In the demo it looks for the room on screen (`scene`), so what it brings is shown there.
+ */
+export async function checkCoach(mode: Mode, at?: number, scene?: string | null) {
   coachStore.set((c) => ({ ...c, checking: true, said: null }));
   try {
-    const check = await api('coach/check', { mode, ...(at !== undefined ? { at } : {}) });
+    const check = await api('coach/check', {
+      mode,
+      ...(at !== undefined ? { at } : {}),
+      ...(scene ? { scene } : {}),
+    });
     const nudge = check.nudge;
     coachStore.set((c) => ({
       ...c,

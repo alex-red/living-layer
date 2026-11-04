@@ -256,6 +256,27 @@ describe('the room coach’s routes', () => {
     expect(t.fetcher).not.toHaveBeenCalled();
   });
 
+  it('looks for the Home room only for the household: the dog home alone, not the desk', async () => {
+    const t = await testApp({ name: 'coach-home' });
+    const home = (
+      await t.post('coach/check', { at: at(15 * 60 + 30), scene: 'home' })
+    ).json<CoachCheck>();
+    expect(home.nudge!.topic).toBe('alone');
+    const office = (
+      await t.post('coach/check', { at: at(15 * 60 + 30), scene: 'office' })
+    ).json<CoachCheck>();
+    expect(office.nudge!.topic).not.toBe('alone');
+  });
+
+  it('keeps quiet over the Home room when only the desk has something due', async () => {
+    const t = await testApp({ name: 'coach-home-quiet' });
+    const check = (
+      await t.post('coach/check', { at: at(10 * 60 + 45), scene: 'home' })
+    ).json<CoachCheck>();
+    expect(check.nudge).toBeNull();
+    expect(check.quiet).toBeTruthy();
+  });
+
   it('has Spark word a live nudge from the facts, and keeps it for the page', async () => {
     let factId = '';
     const fetcher = sparkSaying(() => ({ factId, title: 'Milk o’clock', body: 'Drink me.' }));

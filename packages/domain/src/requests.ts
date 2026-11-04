@@ -221,6 +221,8 @@ export const coachCheckBodySchema = z
       .positive()
       .refine((at) => at <= Date.now() + 86_400_000, { message: 'That time is still to come.' })
       .optional(),
+    /** The room it looks for: only nudges that belong over it (`topicInRoom`). Any when absent. */
+    scene: z.string().min(1).max(64).optional(),
   })
   .strict();
 export type CoachCheckBody = z.input<typeof coachCheckBodySchema>;
