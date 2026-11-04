@@ -8,6 +8,7 @@ import {
 import { emptyDesk } from '../apps/web/src/session.js';
 import { controlLabel, lightStates, sceneOf, theRoom } from '../apps/web/src/workspace/labels.js';
 import {
+  nextTrail,
   parseSelection,
   roomOf,
   sceneProgress,
@@ -150,6 +151,22 @@ describe('selection', () => {
     expect(parseSelection('#object')).toBeNull();
     expect(parseSelection('#suggested/-1')).toBeNull();
     expect(parseSelection('#fixture')).toBeNull();
+  });
+  it('goes back to the view a thing was opened from, not Setup', () => {
+    const zone: Selection = { kind: 'rule', id: 'z1' };
+    const mug: Selection = { kind: 'fixture', id: 'mug' };
+    const trail = nextTrail([], zone, mug);
+    expect(trail).toEqual([zone]);
+    // "←" selects the last one, which steps back off it.
+    expect(nextTrail(trail, mug, zone)).toEqual([]);
+  });
+  it('starts the back trail again at Setup', () => {
+    const zone: Selection = { kind: 'rule', id: 'z1' };
+    expect(nextTrail([{ kind: 'room' }], zone, null)).toEqual([]);
+  });
+  it('adds no step when the same view is chosen again', () => {
+    const mug: Selection = { kind: 'fixture', id: 'mug' };
+    expect(nextTrail([{ kind: 'room' }], mug, { ...mug })).toEqual([{ kind: 'room' }]);
   });
   it('takes each light’s newest confirmed state from switches and rules', () => {
     const run = (at: string, out: object, mode = 'demo') =>

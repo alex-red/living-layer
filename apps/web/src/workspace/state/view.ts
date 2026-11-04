@@ -12,7 +12,13 @@ import { DEMO_POSITIONS } from '@livinglayer/domain';
 import type { DraftZone, FixturePlacing, IsoPanel, RuleDraft } from '../../iso/IsoView';
 import type { CalibrationDraft } from '../../iso/RoomCalibrate';
 import { prefsOf, readSession, type StageView } from '../../session';
-import { parseSelection, selectionHash, type Selection, type WorkScene } from '../progress';
+import {
+  nextTrail,
+  parseSelection,
+  selectionHash,
+  type Selection,
+  type WorkScene,
+} from '../progress';
 import type { Tool } from '../ToolStrip';
 import type { FridgeView } from '../demoFridge';
 import type { FridgeAngle } from '../../iso/fridgeAngle';
@@ -86,7 +92,13 @@ export function useViewSlice(): ViewSlice {
   const [selection, setSelectionState] = useState<Selection | null>(() =>
     parseSelection(window.location.hash),
   );
+  // The views before this one, for the inspector's "←".
+  const [backTrail, setBackTrail] = useState<Selection[]>([]);
+  const current = useRef(selection);
+  current.current = selection;
   const setSelection = (next: Selection | null) => {
+    setBackTrail((t) => nextTrail(t, current.current, next));
+    current.current = next;
     setSelectionState(next);
     const hash = selectionHash(next);
     // A hash alone keeps the query (`?recording`); clearing it keeps the query too.
@@ -177,6 +189,7 @@ export function useViewSlice(): ViewSlice {
     placing,
     ruleDraft,
     selection,
+    backTrail,
     setBoxing,
     setCalibrating,
     setChoosingScene,
@@ -278,6 +291,8 @@ export interface ViewSlice {
   placing: FixturePlacing | null;
   ruleDraft: RuleDraft | null;
   selection: Selection | null;
+  /** The views before this one, most recent last. */
+  backTrail: Selection[];
   setBoxing: Dispatch<
     SetStateAction<{
       rect: ZoneRect | null;

@@ -57,7 +57,14 @@ import { ThingZoneLink } from './ThingZoneLink';
 import { ZoneActionsEditor, actionsProblem } from './ZoneActions';
 import { SavedZoneWatches, ZoneWatches, zoneThings } from './ZoneWatches';
 import { Later } from '../Later';
-import { mainSurface, roomLabel, surfaceRows, theRoom, type LabRead } from './labels';
+import {
+  mainSurface,
+  roomLabel,
+  selectionLabel,
+  surfaceRows,
+  theRoom,
+  type LabRead,
+} from './labels';
 import { pinScene, viewLabel, type Selection } from './progress';
 import { TRANSITION, centre, type Lab } from './useLabState';
 import './inspector.css';
@@ -2075,12 +2082,14 @@ function body(lab: LabRead & Pick<Lab, 'workScene'>, s: Selection | null) {
 /** Properties and actions for whatever the outline has selected. */
 export function Inspector() {
   const lab = useLabParts(useView(), useDesk(), useCamera(), useObservation(), useNavigation());
+  // Back to the view this one was opened from, or Setup when there is none.
+  const back = lab.backTrail.at(-1) ?? null;
   return (
     <aside className="ws-inspector" aria-label="Inspector">
       {lab.selection && lab.progress.room && (
         <div className="pane-head">
-          <Button variant="text" onClick={() => lab.select(null)}>
-            ← Setup
+          <Button variant="text" onClick={() => lab.select(back)}>
+            ← {back ? selectionLabel(lab, back) : 'Setup'}
           </Button>
         </div>
       )}

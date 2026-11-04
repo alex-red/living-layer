@@ -197,6 +197,25 @@ export function selectionForStep(id: StepId, memory?: DeskMemory | null): Select
   }
 }
 
+/** How many views back "←" can go. */
+const TRAIL_MAX = 20;
+/**
+ * The views "←" goes back through, after moving from `from` to `to`: going to
+ * the last one steps back off it, Setup (`null`) starts again, and anything
+ * else is one more step.
+ */
+export function nextTrail(
+  trail: readonly Selection[],
+  from: Selection | null,
+  to: Selection | null,
+): Selection[] {
+  if (!to) return [];
+  const last = trail.at(-1);
+  if (last && selectionHash(last) === selectionHash(to)) return trail.slice(0, -1);
+  if (!from || selectionHash(from) === selectionHash(to)) return [...trail];
+  return [...trail, from].slice(-TRAIL_MAX);
+}
+
 /** A selection as a URL hash, so a reload keeps your place. */
 export function selectionHash(s: Selection | null): string {
   if (!s) return '';
