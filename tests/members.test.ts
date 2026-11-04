@@ -21,7 +21,7 @@ import {
   type DeskMemory,
   type Fixture,
 } from '@livinglayer/domain';
-import { testApp } from './lib/app.js';
+import { tempDir, testApp } from './lib/app.js';
 import { expectGolden } from './lib/golden.js';
 
 /** A member as the panel places it, put down at `at` on the office's floor. */
@@ -34,7 +34,7 @@ describe('a person or pet added by name', () => {
     expect(d).toMatchObject({
       label: 'Robin',
       type: 'person',
-      size: { w: 1.8, d: 1.8, h: 5.07 },
+      size: { w: 1.4, d: 1.4, h: 4.53 },
     });
     expect(fixtureType({ model: d.model })).toBe('person');
   });
@@ -170,6 +170,29 @@ describe('the demo’s household', () => {
     expect(home.find((f) => f.label === 'Biscuit')).toMatchObject({ type: 'dog', state: 'lying' });
     // Only the Home room has them: the office stays as its preset.
     expect(res.json<DeskMemory>().fixtures!.some((f) => f.scene === 'office')).toBe(false);
+  });
+
+  it('is brought in when a server first starts, and not again once deleted', async () => {
+    const dataDir = tempDir('members-start');
+    const first = await testApp({ env: { DATA_DIR: dataDir }, appearance: async () => null });
+    await first.app.listen({ host: '127.0.0.1', port: 0 });
+    // It goes on after the server is listening: wait for Robin to sit down, the last step.
+    let memory = (await first.app.inject('/api/desk/demo')).json<DeskMemory>();
+    for (let i = 0; i < 100 && !memory.fixtures?.some((f) => f.seatedOn); i++) {
+      await Bun.sleep(20);
+      memory = (await first.app.inject('/api/desk/demo')).json<DeskMemory>();
+    }
+    expect(memory.householdAt).toBeTruthy();
+    expect(memory.fixtures!.filter((f) => f.scene === 'home').map((f) => f.label)).toContain(
+      'Robin',
+    );
+    await first.post('fixtures/delete', { fixtureIds: memory.fixtures!.map((f) => f.id) });
+    await first.app.close();
+    const again = await testApp({ env: { DATA_DIR: dataDir }, appearance: async () => null });
+    await again.app.listen({ host: '127.0.0.1', port: 0 });
+    expect((await again.app.inject('/api/desk/demo')).json<DeskMemory>().fixtures ?? []).toEqual(
+      [],
+    );
   });
 
   it('comes back without touching the rest, and only once', async () => {

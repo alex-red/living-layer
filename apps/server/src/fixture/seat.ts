@@ -58,10 +58,13 @@ export async function seatFixture(
  * chair, Sam standing by the shelf, Miso the cat asleep by the plant and
  * Biscuit the dog lying by the table. Through the same saves the lab makes,
  * so it is what adding them by hand gives. Nothing when someone is home there
- * already.
+ * already. Marks the demo as having had them (`householdAt`), so a server
+ * starting again doesn't bring back people someone deleted.
  */
 export async function addDemoHousehold(deps: Pick<RouteDeps, 'store' | 'entities'>) {
   const mode = 'demo';
+  // Brought in once: the server does it at its first start, and after that only a reset or the button.
+  deps.store.updateMemory(mode, (m) => void (m.householdAt ??= new Date().toISOString()));
   if (deps.store.memory(mode).fixtures?.some((f) => f.scene === 'home' && isMember(f)))
     return deps.store.memory(mode);
   const chair = groupBounds(ISO_PRESETS.home, 'chair');

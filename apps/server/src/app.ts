@@ -27,6 +27,7 @@ import { ControlAdapter, type SwitchOptions, type Switched } from './control.js'
 import { chosenEntities, haConnection, haRoutes, type OpenSocket } from './ha.js';
 import { HaLive } from './ha-live.js';
 import { fixtureRoutes } from './fixture/routes.js';
+import { addDemoHousehold } from './fixture/seat.js';
 import { watchRequest } from './request-signal.js';
 import { LabError, logError } from './errors.js';
 import { findSource, toDataUrl } from './images.js';
@@ -669,6 +670,11 @@ export async function buildApp(
       if (store.memory('live').watch?.on) void watchers.live.start();
     }
     await watchByDefault(true);
+    // A demo that never had its household gets it once, in its Home room, after the rest.
+    if (!store.memory('demo').householdAt)
+      void addDemoHousehold({ store, entities }).catch((e: unknown) =>
+        console.error('[server] the demo household could not be brought in:', e),
+      );
   });
   app.addHook('onClose', async () => {
     haLive.stop();

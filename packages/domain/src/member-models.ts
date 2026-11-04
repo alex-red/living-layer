@@ -31,7 +31,7 @@ type PersonPose = 'standing' | 'sitting';
 type DogPose = 'standing' | 'lying';
 
 /** A standing person's box, cm: head and arms, turned to face the corner. */
-export const PERSON_CM = { w: 54, d: 54, h: 152 } as const;
+export const PERSON_CM = { w: 42, d: 42, h: 136 } as const;
 /** A medium dog's box, cm, nose to tail along +x. */
 export const DOG_CM = { w: 68, d: 34, h: 56 } as const;
 /** A dog lying down, cm. */
@@ -190,7 +190,7 @@ const LEG = [
 ];
 
 /** How big a head is: a third of a person's height, so a face reads across a room. */
-const HEAD = { w: 48, h: 50 };
+const HEAD = { w: 38, h: 40 };
 
 /** The head and hair of a person whose body tops out at `z`, `a` cm ahead of its middle. */
 function headParts(f: Frame, look: PersonLook, a: number, z: number): ItemPart[] {
@@ -205,21 +205,21 @@ function headParts(f: Frame, look: PersonLook, a: number, z: number): ItemPart[]
       paint: [faceDecal('front', PERSON_FACE, { across: [0.12, 0.88], up: [0.3, 0.52] })],
     }),
     // A fringe just over the eyes, and the crown above it.
-    round(f, 'hair', a - 1, 0, HEAD.w + 3, head + 29, top + 4, { ...hair, profile: DOME }),
+    round(f, 'hair', a - 1, 0, HEAD.w + 3, head + 23, top + 4, { ...hair, profile: DOME }),
   ];
   // Behind the head, never under the chin.
   if (look.hairStyle === 'long')
     parts.push(
-      lump(f, 'hair-back', a - 12, 0, 28, HEAD.w - 2, head - 8, top - 6, { ...hair, rough: 0.05 }),
-      lump(f, 'hair-r', a - 2, 21, 12, 12, head - 2, head + 32, { ...hair, rough: 0.04 }),
-      lump(f, 'hair-l', a - 2, -21, 12, 12, head - 2, head + 32, { ...hair, rough: 0.04 }),
+      lump(f, 'hair-back', a - 10, 0, 22, HEAD.w - 2, head - 6, top - 5, { ...hair, rough: 0.05 }),
+      lump(f, 'hair-r', a - 2, 17, 10, 10, head - 2, head + 26, { ...hair, rough: 0.04 }),
+      lump(f, 'hair-l', a - 2, -17, 10, 10, head - 2, head + 26, { ...hair, rough: 0.04 }),
     );
   else
     parts.push(
-      lump(f, 'hair-back', a - 10, 0, 30, HEAD.w - 2, head + 8, top - 2, { ...hair, rough: 0.05 }),
+      lump(f, 'hair-back', a - 8, 0, 24, HEAD.w - 2, head + 6, top - 2, { ...hair, rough: 0.05 }),
     );
   if (look.hairStyle === 'bun')
-    parts.push(lump(f, 'hair-bun', a - 12, 0, 18, 18, top - 3, top + 14, hair));
+    parts.push(lump(f, 'hair-bun', a - 10, 0, 15, 15, top - 3, top + 11, hair));
   return parts;
 }
 
@@ -235,54 +235,54 @@ function personParts(f: Frame, look: PersonLook, pose: PersonPose, seatCm = 46):
       f,
       id,
       points.map(([a, b, z]) => [a, b * side, z] as [number, number, number]),
-      7,
+      5,
       cloth(look.top),
     );
   if (pose === 'sitting') {
     const z = seatCm;
-    const top = z + 54;
+    const top = z + 46;
     const shoes: Paint[] = [{ kind: 'band', from: 0, to: 0.2, color: look.shoes }];
     return [
-      block(f, 'thigh-r', 12, 9.5, 30, 17, z, z + 16, cloth(look.bottom)),
-      block(f, 'thigh-l', 12, -9.5, 30, 17, z, z + 16, cloth(look.bottom)),
-      round(f, 'shin-r', 24, 9.5, 16, 0, z + 6, { ...cloth(look.bottom), paint: shoes }),
-      round(f, 'shin-l', 24, -9.5, 16, 0, z + 6, { ...cloth(look.bottom), paint: shoes }),
-      round(f, 'hips', -2, 0, 38, z, z + 18, { ...cloth(look.bottom), profile: HIPS }),
-      round(f, 'torso', -3, 0, 42, z + 12, top, { ...cloth(look.top), profile: BODY }),
+      block(f, 'thigh-r', 12, 6.5, 28, 13, z, z + 13, cloth(look.bottom)),
+      block(f, 'thigh-l', 12, -6.5, 28, 13, z, z + 13, cloth(look.bottom)),
+      round(f, 'shin-r', 22, 6.5, 12, 0, z + 5, { ...cloth(look.bottom), paint: shoes }),
+      round(f, 'shin-l', 22, -6.5, 12, 0, z + 5, { ...cloth(look.bottom), paint: shoes }),
+      round(f, 'hips', -2, 0, 28, z, z + 15, { ...cloth(look.bottom), profile: HIPS }),
+      round(f, 'torso', -3, 0, 30, z + 10, top, { ...cloth(look.top), profile: BODY }),
       arm('arm-r', 1, [
-        [-3, 22, top - 6],
-        [6, 25, z + 28],
-        [16, 17, z + 20],
+        [-3, 16, top - 5],
+        [5, 18, z + 24],
+        [14, 12, z + 17],
       ]),
       arm('arm-l', -1, [
-        [-3, 22, top - 6],
-        [6, 25, z + 28],
-        [16, 17, z + 20],
+        [-3, 16, top - 5],
+        [5, 18, z + 24],
+        [14, 12, z + 17],
       ]),
       ...headParts(f, look, -2, top),
     ];
   }
-  const top = 100;
+  const top = 94;
   const shoe = { color: look.shoes, material: 'matte' as const, radius: 0.5 };
   return [
-    block(f, 'shoe-r', 4, 10, 18, 14, 0, 10, shoe),
-    block(f, 'shoe-l', 4, -10, 18, 14, 0, 10, shoe),
-    round(f, 'leg-r', 0, 9.5, 18, 8, 48, { ...cloth(look.bottom), profile: LEG }),
-    round(f, 'leg-l', 0, -9.5, 18, 8, 48, { ...cloth(look.bottom), profile: LEG }),
-    round(f, 'hips', 0, 0, 38, 42, 62, { ...cloth(look.bottom), profile: HIPS }),
-    round(f, 'torso', 0, 0, 42, 56, top, { ...cloth(look.top), profile: BODY }),
+    block(f, 'shoe-r', 3, 7, 15, 11, 0, 8, shoe),
+    block(f, 'shoe-l', 3, -7, 15, 11, 0, 8, shoe),
+    round(f, 'leg-r', 0, 6.5, 13, 6, 50, { ...cloth(look.bottom), profile: LEG }),
+    round(f, 'leg-l', 0, -6.5, 13, 6, 50, { ...cloth(look.bottom), profile: LEG }),
+    round(f, 'hips', 0, 0, 28, 44, 62, { ...cloth(look.bottom), profile: HIPS }),
+    round(f, 'torso', 0, 0, 30, 56, top, { ...cloth(look.top), profile: BODY }),
     arm('arm-r', 1, [
-      [0, 22, top - 6],
-      [2, 27, 80],
-      [4, 27, 68],
+      [0, 16, top - 5],
+      [1, 19, 76],
+      [2, 19, 65],
     ]),
     arm('arm-l', -1, [
-      [0, 22, top - 6],
-      [2, 27, 80],
-      [4, 27, 68],
+      [0, 16, top - 5],
+      [1, 19, 76],
+      [2, 19, 65],
     ]),
-    lump(f, 'hand-r', 4, 27, 13, 13, 56, 69, { color: look.skin, material: 'matte' }),
-    lump(f, 'hand-l', 4, -27, 13, 13, 56, 69, { color: look.skin, material: 'matte' }),
+    lump(f, 'hand-r', 2, 19, 9, 9, 56, 66, { color: look.skin, material: 'matte' }),
+    lump(f, 'hand-l', 2, -19, 9, 9, 56, 66, { color: look.skin, material: 'matte' }),
     ...headParts(f, look, 0, top),
   ];
 }

@@ -165,6 +165,8 @@ export interface DeskMemory {
   exposed?: ExposedEntity[];
   /** The stats switched on for each thing, by its id; their history is in the store. Reset keeps them. */
   thingStats?: Record<string, ThingStat[]>;
+  /** When the demo's household was first brought into its Home room: once, so deleting them sticks. */
+  householdAt?: string;
 }
 /** A camera the server reads frames from: an RTSP stream, never a tab's. */
 export interface WatchCamera {
@@ -630,5 +632,6 @@ export const deskMemorySchema = z.preprocess(
     watch: shaped<NonNullable<DeskMemory['watch']>>().optional(),
     exposed: listOf<ExposedEntity>().optional(),
     thingStats: z.record(z.string(), z.array(thingStatSchema)).optional(),
+    householdAt: z.string().optional(),
   }),
 ) satisfies z.ZodType<DeskMemory, unknown>;
