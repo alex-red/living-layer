@@ -9,10 +9,18 @@
  *   bun run model fixture:mug --finish pixel --px 4 --zoom 8
  *   bun run model starter:mug --uv          a test print facing the viewer, to check which way paint runs
  *   bun run model fixture:mug --layers      each part alone, and each decal laid flat
+ *   bun run model fixture:"cat tower" --states --room   every state, and each as the room draws it
+ *   bun run model fixture:"cat tower"@sleeping --focus cat-head,cat-loaf   cropped round those parts
+ *   bun run model .data/models/tower.ts --against photo.png --watch   drawn again on every save
  *
  * --preset room|thumb|card|brush|review|editor (default editor), or --scale and
  * --res; --px iso pixels per sprite pixel (1, as the app); --finish clean|pixel
  * (clean, as the app draws things); --shadow; --mode live|demo; --out <name>.
+ * --states: a fixture's every state beside it (or name one: fixture:<label>@<state>).
+ * --room: a second row as the room draws each at fit, at the fixture's own width
+ * (`roomSpriteLook`: a model of more than 12 parts is drawn twice as fine).
+ * --focus <part ids>|x0,y0,x1,y1: crop round those parts, or to shares of the picture.
+ * --against <reference|png>: a picture beside it. --watch: draw again when a source's folder changes.
  * Writes out/model/<name>.png.
  */
 import { mkdirSync } from 'node:fs';
@@ -31,8 +39,8 @@ import {
 } from '@livinglayer/domain';
 import { inkPrints } from '../apps/server/src/print-ink.js';
 import { flag, has, parseArgs } from './lib/args.js';
-import { besideReference, pictureGrid } from './lib/image.js';
-import { loadModel, spritePng, type SpriteLook } from './lib/models.js';
+import { besideReference, parseShare, pictureGrid } from './lib/image.js';
+import { expandStates, loadModel, spritePng, type SpriteLook } from './lib/models.js';
 
 const args = parseArgs();
 if (!args.positional.length) {
@@ -63,6 +71,11 @@ const look: SpriteLook = {
   cell: CELL,
   ...(flag(args, 'zoom') ? { zoom: Number(flag(args, 'zoom')) } : {}),
 };
+const focusFlag = flag(args, 'focus');
+if (focusFlag)
+  look.focus = /^[\d.]+(,[\d.]+){3}$/.test(focusFlag)
+    ? parseShare(focusFlag)
+    : focusFlag.split(',').map((id) => id.trim());
 const draw = (item: IsoItem) => spritePng(item, look);
 
 /** Every part's outside painted with "AB↑" facing the viewer: it reads left to right, upright, on a part painted the right way. */
@@ -105,7 +118,10 @@ async function decalPng(d: Decal): Promise<Buffer> {
     .toBuffer();
 }
 
-const loaded = await Promise.all(args.positional.map((s) => loadModel(s, { mode })));
+const sources = has(args, 'states')
+  ? args.positional.flatMap((s) => expandStates(s, { mode }))
+  : args.positional;
+const loaded = await Promise.all(sources.map((s) => loadModel(s, { mode })));
 const rows: Buffer[][] = [];
 const labels: string[] = [];
 for (const turn of turns) {
@@ -122,6 +138,17 @@ for (const turn of turns) {
   }
   rows.push(row);
 }
+if (has(args, 'room'))
+  rows.push(
+    await Promise.all(
+      loaded.map(async ({ item, size }) => {
+        const roomLook: SpriteLook = { ...look, preset: 'room', scale: size?.w ?? scale };
+        delete roomLook.resolution;
+        delete roomLook.pixel;
+        return (await spritePng(item, roomLook)).png;
+      }),
+    ),
+  );
 let picture = await pictureGrid(rows, labels);
 const against = flag(args, 'against');
 if (against) picture = await besideReference(picture, against);
@@ -154,3 +181,24 @@ if (has(args, 'layers'))
     await sharp(out).toFile(layersFile);
     console.log(layersFile);
   }
+
+if (has(args, 'watch')) {
+  const { watch } = await import('node:fs');
+  const { dirname } = await import('node:path');
+  const files = [...args.positional, flag(args, 'against') ?? ''].filter((f) =>
+    /\.(ts|json|png)$/.test(f),
+  );
+  const again = process.argv.slice(1).filter((a) => a !== '--watch');
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const redraw = () => {
+    timer = null;
+    // A fresh process: a changed .ts model is imported again, not from the module cache.
+    Bun.spawnSync(['bun', ...again], { stdout: 'inherit', stderr: 'inherit' });
+  };
+  for (const dir of new Set(files.map((f) => dirname(resolve(f)))))
+    watch(dir, () => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(redraw, 150);
+    });
+  console.log(`watching ${files.join(', ') || 'nothing'} (ctrl-c to stop)`);
+}
