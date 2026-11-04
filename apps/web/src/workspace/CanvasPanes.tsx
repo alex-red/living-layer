@@ -778,7 +778,9 @@ function WatchedBoxes({ selected }: { selected: string | null }) {
             ? ` · ${t.score.toFixed(2)}`
             : t.status === 'entangled'
               ? ' · WHICH ONE?'
-              : ` · ${t.status.toUpperCase()}`}
+              : t.status === 'covered'
+                ? ' · PARTLY HIDDEN'
+                : ` · ${t.status.toUpperCase()}`}
         </span>
       ))}
     </>
