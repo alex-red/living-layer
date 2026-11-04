@@ -66,13 +66,16 @@ if (
 try {
   const config = loadConfig();
   const { binary, port } = config.cameraRelay;
+  // Served on the network (`bun run dev`), a tab on another machine plays the relay there too.
+  const network = config.host && !/^(127\.|localhost$|::1$)/.test(config.host);
+  const mediaHost = network ? lanAddress() : undefined;
   app = await buildApp(config, {
-    relay: CameraRelay.find(config.dataDir, binary, port, undefined, await gpuReader(config)),
+    relay: CameraRelay.find(config.dataDir, binary, port, mediaHost, await gpuReader(config)),
   });
   // A server that is ending (a reload, a restart) can hold the port a moment longer: wait for it.
   for (let tries = 1; ; tries++)
     try {
-      await app.listen({ host: '127.0.0.1', port: config.port });
+      await app.listen({ host: config.host ?? '127.0.0.1', port: config.port });
       break;
     } catch (error) {
       if ((error as { code?: string }).code !== 'EADDRINUSE' || tries >= 20) throw error;

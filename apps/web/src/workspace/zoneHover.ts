@@ -44,32 +44,45 @@ export function zoneAt<T extends { rect: Rect }>(zones: readonly T[], p: Point |
 /**
  * The id of the zone under the pointer, or null, and the ref for the layer
  * that draws them. It listens on the layer's parent, since zones let presses
- * through to what is under them, and changes only when the zone does.
+ * through to what is under them, and changes only when the zone does. Given
+ * `onMenu`, a right-click on a zone opens its menu instead of the browser's.
  */
 export function useHoveredZone(
   zones: readonly { id: string; rect: Rect }[],
   frame: Size | null,
+  onMenu?: ((id: string, at: Point) => void) | null,
 ): { ref: (el: Element | null) => void; hovered: string | null } {
   const [el, ref] = useState<Element | null>(null);
   const [hovered, setHovered] = useState<string | null>(null);
-  const latest = useRef(zones);
-  latest.current = zones;
+  const latest = useRef({ zones, onMenu });
+  latest.current = { zones, onMenu };
   const width = frame?.width;
   const height = frame?.height;
   useEffect(() => {
     const stage = el?.parentElement;
     if (!stage) return;
     const fit = width && height ? { width, height } : null;
-    const move = (e: PointerEvent) => {
-      const p = pictureShare({ x: e.clientX, y: e.clientY }, stage.getBoundingClientRect(), fit);
-      setHovered(zoneAt(latest.current, p)?.id ?? null);
-    };
+    const under = (e: MouseEvent) =>
+      zoneAt(
+        latest.current.zones,
+        pictureShare({ x: e.clientX, y: e.clientY }, stage.getBoundingClientRect(), fit),
+      );
+    const move = (e: PointerEvent) => setHovered(under(e)?.id ?? null);
     const leave = () => setHovered(null);
+    const menu = (e: MouseEvent) => {
+      const open = latest.current.onMenu;
+      const zone = open ? under(e) : null;
+      if (!open || !zone) return;
+      e.preventDefault();
+      open(zone.id, { x: e.clientX, y: e.clientY });
+    };
     stage.addEventListener('pointermove', move);
     stage.addEventListener('pointerleave', leave);
+    stage.addEventListener('contextmenu', menu);
     return () => {
       stage.removeEventListener('pointermove', move);
       stage.removeEventListener('pointerleave', leave);
+      stage.removeEventListener('contextmenu', menu);
     };
   }, [el, width, height]);
   return { ref, hovered };

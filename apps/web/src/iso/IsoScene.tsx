@@ -159,6 +159,8 @@ export interface IsoZone {
   color?: string;
   /** A motion zone, inside while it sees motion. */
   motion?: boolean;
+  /** Turned off: kept, but neither judged nor switching. */
+  off?: boolean;
 }
 /** A fixture standing in the room: a lamp, a switch, a mouse. */
 export interface IsoFixture {
@@ -486,6 +488,7 @@ function IsoSceneView({
   trail = NO_POINTS,
   zones = NO_ZONES,
   onZone,
+  onZoneMenu,
   litLights,
   defaultLight = '',
   drawing = false,
@@ -516,6 +519,8 @@ function IsoSceneView({
   zones?: IsoZone[];
   /** A click on a saved zone selects its rule: `main` is the mug's. */
   onZone?: (id: string) => void;
+  /** Right-click on a saved zone, at the pointer in the window. */
+  onZoneMenu?: (id: string, at: { x: number; y: number }) => void;
   /** Lights whose last action was confirmed; their lamps glow. */
   litLights?: Set<string>;
   /** The light a lamp without its own `lightId` stands for. */
@@ -661,6 +666,11 @@ function IsoSceneView({
     },
     [onFixtureMenu],
   );
+  const zoneMenu = (e: MouseEvent<SVGPolygonElement>, id: string) => {
+    if (!onZoneMenu) return;
+    e.preventDefault();
+    onZoneMenu(id, { x: e.clientX, y: e.clientY });
+  };
   const lit = (p: IsoProp) =>
     p.role === 'lamp' && Boolean(litLights?.has(p.lightId ?? defaultLight));
   const onSurface = (uv: Point) => (surface ? surfaceWorld(surface, uv) : null);
@@ -836,6 +846,7 @@ function IsoSceneView({
                         data-zone={z.id}
                         points={pts(z.quad.map((uv) => onSurface(uv)!))}
                         onClick={() => onZone(z.id)}
+                        onContextMenu={(e) => zoneMenu(e, z.id)}
                         onPointerEnter={() => setHoverZone(z.id)}
                         onPointerLeave={() => setHoverZone((h) => (h === z.id ? null : h))}
                       >
@@ -878,7 +889,7 @@ function IsoSceneView({
           {zones.map((z) => (
             <polygon
               key={z.id}
-              className={`iso-zone ${z.kind} ${z.motion ? 'motion' : ''} ${z.inside ? 'inside' : ''} ${z.focused || hoverZone === z.id ? 'focused' : ''}`}
+              className={`iso-zone ${z.kind} ${z.motion ? 'motion' : ''} ${z.inside ? 'inside' : ''} ${z.off ? 'off' : ''} ${z.focused || hoverZone === z.id ? 'focused' : ''}`}
               style={z.color ? ({ '--zone': z.color } as CSSProperties) : undefined}
               points={pts(z.quad.map((uv) => onSurface(uv)!))}
             />
@@ -895,6 +906,7 @@ function IsoSceneView({
                   className="iso-zone-edge"
                   points={pts(z.quad.map((uv) => onSurface(uv)!))}
                   onClick={() => onZone(z.id)}
+                  onContextMenu={(e) => zoneMenu(e, z.id)}
                   onPointerEnter={() => setHoverZone(z.id)}
                   onPointerLeave={() => setHoverZone((h) => (h === z.id ? null : h))}
                 />
@@ -906,7 +918,7 @@ function IsoSceneView({
               return (
                 <text
                   key={`label-${z.id}`}
-                  className={`iso-zone-label ${z.kind} ${z.motion ? 'motion' : ''} ${z.inside ? 'inside' : ''}`}
+                  className={`iso-zone-label ${z.kind} ${z.motion ? 'motion' : ''} ${z.inside ? 'inside' : ''} ${z.off ? 'off' : ''}`}
                   style={z.color ? ({ '--zone': z.color } as CSSProperties) : undefined}
                   x={c.sx}
                   y={c.sy}

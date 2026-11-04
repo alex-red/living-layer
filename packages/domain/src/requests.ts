@@ -600,7 +600,7 @@ export const deskRulesDeleteBodySchema = z
   .strict();
 export type DeskRulesDeleteBody = z.input<typeof deskRulesDeleteBodySchema>;
 
-/** POST /api/desk/rules/options: a zone's name or steps, its zone and story kept. */
+/** POST /api/desk/rules/options: a zone's name, steps or on/off, its zone and story kept. */
 export const deskRulesOptionsBodySchema = z
   .object({
     mode: modeSchema,
@@ -610,6 +610,8 @@ export const deskRulesOptionsBodySchema = z
     actions: zoneActionsSchema.nullable().optional(),
     /** What sets it off: any thing, or the ones named, one of them or all together. */
     triggers: zoneTriggersSchema.optional(),
+    /** Turn it off (kept, but neither judged nor acting) or back on. */
+    off: z.boolean().optional(),
   })
   .strict();
 export type DeskRulesOptionsBody = z.input<typeof deskRulesOptionsBodySchema>;

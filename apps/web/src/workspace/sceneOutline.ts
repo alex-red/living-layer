@@ -113,6 +113,8 @@ interface RuleRow {
   /** Whether it has switched anything yet. */
   ran: boolean;
   inside: boolean;
+  /** Turned off: neither judged nor switching. */
+  off: boolean;
 }
 export interface SceneOutline {
   groups: ThingGroup[];
@@ -269,9 +271,10 @@ function ruleRow(r: PlacementRule, mainLight: string): RuleRow {
   return {
     id: r.id,
     label: r.label,
-    detail: `${entity ? `→ ${entity}` : '→ Home Assistant only'}${r.placement === 'inside' ? (r.motion ? ' · moving' : ' · occupied') : r.placement === 'outside' ? (r.motion ? ' · still' : ' · empty') : ''}`,
+    detail: `${entity ? `→ ${entity}` : '→ Home Assistant only'}${r.off ? ' · off' : r.placement === 'inside' ? (r.motion ? ' · moving' : ' · occupied') : r.placement === 'outside' ? (r.motion ? ' · still' : ' · empty') : ''}`,
     ran: Boolean(r.lastDecision),
-    inside: r.placement === 'inside',
+    inside: !r.off && r.placement === 'inside',
+    off: Boolean(r.off),
   };
 }
 

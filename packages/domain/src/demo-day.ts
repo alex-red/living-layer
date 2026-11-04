@@ -7,7 +7,7 @@
  * made up around it, so asking the demo room reads the same kind of history
  * a live room keeps.
  */
-import { addDays } from './food.js';
+import { addDays, type Food, type FoodLeft } from './food.js';
 import {
   HOUSEHOLD,
   HOUSEHOLD_DAY,
@@ -88,13 +88,104 @@ export interface AskThing {
 /** The thing a zone is when asking about the room: its fillings and emptyings are its occupied stat. */
 export const zoneThingId = (ruleId: string) => `zone:${ruleId}`;
 
-/** What is in the demo fridge, and in how many days from the sample day each goes off. */
-export const DEMO_FOOD: readonly { label: string; useByDays: number }[] = [
-  { label: 'Leftover chicken', useByDays: 0 },
-  { label: 'Milk', useByDays: 1 },
-  { label: 'Spinach', useByDays: 4 },
-  { label: 'Eggs', useByDays: 12 },
+/**
+ * A thing in the demo fridge as the demo stocks it, in days from the sample
+ * day: when it came in, when it was opened and when it goes off, and how
+ * much of an opened one is left.
+ */
+interface DemoFood {
+  /** Its group in the fridge preset. */
+  group: string;
+  label: string;
+  useByDays: number;
+  addedDaysAgo: number;
+  openedDaysAgo?: number;
+  left?: FoodLeft;
+}
+/**
+ * What the sample day takes out of the demo fridge and asks about, soonest
+ * gone first: the leftovers today, the milk tomorrow.
+ */
+export const DEMO_FOOD: readonly DemoFood[] = [
+  { group: 'leftovers', label: 'Leftover chicken', useByDays: 0, addedDaysAgo: 3, left: 'half' },
+  { group: 'milk', label: 'Milk', useByDays: 1, addedDaysAgo: 8, openedDaysAgo: 4, left: 'low' },
+  { group: 'spinach', label: 'Spinach', useByDays: 4, addedDaysAgo: 1 },
+  { group: 'eggs', label: 'Eggs', useByDays: 12, addedDaysAgo: 16, openedDaysAgo: 9, left: 'most' },
 ];
+/**
+ * Everything in the demo fridge: the day's food, then the butter, jars and
+ * bottles, opened a while ago and keeping a good while yet, so none of them
+ * is what to eat first.
+ */
+export const DEMO_FRIDGE: readonly DemoFood[] = [
+  ...DEMO_FOOD,
+  {
+    group: 'butter',
+    label: 'Butter',
+    useByDays: 20,
+    addedDaysAgo: 20,
+    openedDaysAgo: 10,
+    left: 'half',
+  },
+  {
+    group: 'jar',
+    label: 'Pickle jar',
+    useByDays: 30,
+    addedDaysAgo: 60,
+    openedDaysAgo: 30,
+    left: 'low',
+  },
+  {
+    group: 'mustard',
+    label: 'Mustard',
+    useByDays: 15,
+    addedDaysAgo: 90,
+    openedDaysAgo: 45,
+    left: 'half',
+  },
+  {
+    group: 'mayo',
+    label: 'Mayonnaise',
+    useByDays: 48,
+    addedDaysAgo: 20,
+    openedDaysAgo: 12,
+    left: 'most',
+  },
+  {
+    group: 'hot-sauce',
+    label: 'Hot sauce',
+    useByDays: 10,
+    addedDaysAgo: 120,
+    openedDaysAgo: 50,
+    left: 'low',
+  },
+  {
+    group: 'juice',
+    label: 'Orange juice',
+    useByDays: 5,
+    addedDaysAgo: 6,
+    openedDaysAgo: 2,
+    left: 'half',
+  },
+  {
+    group: 'dressing',
+    label: 'Salad dressing',
+    useByDays: 40,
+    addedDaysAgo: 30,
+    openedDaysAgo: 20,
+    left: 'most',
+  },
+  { group: 'jam', label: 'Jam', useByDays: 35, addedDaysAgo: 40, openedDaysAgo: 25, left: 'half' },
+];
+/** A demo fridge thing's food details, `today` being the sample day. */
+export function demoFood(f: DemoFood, today: string): Food {
+  return {
+    added: addDays(today, -f.addedDaysAgo),
+    ...(f.openedDaysAgo === undefined ? {} : { opened: addDays(today, -f.openedDaysAgo) }),
+    expires: addDays(today, f.useByDays),
+    ...(f.left ? { left: f.left } : {}),
+  };
+}
 
 /**
  * Questions the dock offers: each has a number, a chart or a comparison to

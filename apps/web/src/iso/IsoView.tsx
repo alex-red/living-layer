@@ -245,14 +245,19 @@ function lightOf(
 export function IsoView({
   hand,
   onFixtureMenu,
+  onZoneMenu,
 }: {
   /** Every drag pans the room, for the hand tool (it gives way to drawing, pinning and placing). */
   hand: boolean;
   /** Right-click on a fixture, at the pointer in the window: the canvas shows the menu. */
   onFixtureMenu: (id: string, at: { x: number; y: number }) => void;
+  /** Right-click on a zone, likewise. */
+  onZoneMenu: (id: string, at: { x: number; y: number }) => void;
 }) {
   const kind = useView().workScene;
-  return kind ? <IsoViewOf kind={kind} hand={hand} onFixtureMenu={onFixtureMenu} /> : null;
+  return kind ? (
+    <IsoViewOf kind={kind} hand={hand} onFixtureMenu={onFixtureMenu} onZoneMenu={onZoneMenu} />
+  ) : null;
 }
 
 /** A food thing's use-by line, when it has one. */
@@ -265,11 +270,13 @@ function IsoViewOf({
   kind,
   hand,
   onFixtureMenu,
+  onZoneMenu,
 }: {
   /** The scene the person chose to work on. */
   kind: Kind;
   hand: boolean;
   onFixtureMenu: (id: string, at: { x: number; y: number }) => void;
+  onZoneMenu: (id: string, at: { x: number; y: number }) => void;
 }) {
   const lab = useLabParts(
     useView(),
@@ -524,7 +531,13 @@ function IsoViewOf({
         id: 'main',
         kind: 'main',
         quad: zoneOnSurface(zone, o.frame, mug.map.toSurface),
-        ...(main && !drawing ? { label: main.label, inside: main.placement === 'inside' } : {}),
+        ...(main && !drawing
+          ? {
+              label: main.label,
+              inside: !main.off && main.placement === 'inside',
+              off: Boolean(main.off),
+            }
+          : {}),
         ...(mainRgb ? { color: `rgb(${mainRgb.join(' ')})` } : {}),
       });
     for (const rule of memory?.rules ?? []) {
@@ -539,7 +552,8 @@ function IsoViewOf({
           id: rule.id,
           kind: 'rule',
           label: rule.label,
-          inside: rule.placement === 'inside',
+          inside: !rule.off && rule.placement === 'inside',
+          ...(rule.off ? { off: true } : {}),
           quad: on
             ? cornersOf(rule.zone.onSurface!)
             : zoneOnSurface(
@@ -1132,6 +1146,7 @@ function IsoViewOf({
                 trail={view.trail}
                 zones={view.zones}
                 onZone={tool === 'select' && !hand && !ruleDraft ? onZone : undefined}
+                onZoneMenu={onZoneMenu}
                 litLights={lit}
                 defaultLight={defaultLight}
                 drawing={drawingRule || (drawing && Boolean(mug))}

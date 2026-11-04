@@ -117,8 +117,8 @@ export function watchedThings(memory: DeskMemory): Seen[] {
  */
 function zonesOf(memory: DeskMemory, objectId: string): WatchSubject['zones'] {
   const zones: WatchSubject['zones'] = [];
-  // A zone counting several things is crossed by each on its own.
-  for (const r of memory.rules ?? [])
+  // A zone counting several things is crossed by each on its own; one turned off by none.
+  for (const r of (memory.rules ?? []).filter((r) => !r.off))
     if (r.anchor?.thingId === objectId) zones.push({ id: r.id, rect: r.zone.rect, inside: true });
     else if (ruleObjects(memory, r).includes(objectId))
       zones.push({ id: r.id, rect: r.zone.rect, inside: r.inside?.includes(objectId) ?? false });
@@ -421,7 +421,7 @@ export class Watcher {
   private watchZones(memory: DeskMemory) {
     this.zones = zonesIn(memory).map((z) => ({ id: z.id, rect: z.rect }));
     this.motionZones = (memory.rules ?? []).flatMap((r) =>
-      r.motion
+      r.motion && !r.off
         ? [
             {
               id: r.id,

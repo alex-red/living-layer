@@ -1,5 +1,6 @@
 import { createLogger, defineConfig, loadEnv, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
+import { hostname } from 'node:os';
 import { resolve } from 'node:path';
 
 /** `bun run dev` can go without telling its children (a closed terminal, a kill -9); Vite would keep the port. */
@@ -36,6 +37,8 @@ export default defineConfig(({ mode }) => {
     server: {
       // No hot reload: an edit, often another session's half-done one, would reload the page under you.
       hmr: false,
+      // Beside loopback, this machine by name on the network (the API server's `LAB_HOSTS`).
+      allowedHosts: [hostname(), hostname().split('.')[0]!],
       proxy: {
         '/api': `http://127.0.0.1:${env.PORT || '43431'}`,
         ...(control ? { '/__dev': control } : {}),

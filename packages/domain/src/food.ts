@@ -38,6 +38,7 @@ const KEEPS: [RegExp, { open: number; bought: number }][] = [
     { open: 60, bought: 180 },
   ],
   [/\bjuice\b/i, { open: 7, bought: 14 }],
+  [/\bspinach\b|\blettuce\b|\bgreens\b|\bkale\b/i, { open: 3, bought: 5 }],
   [/\byog(h)?urt\b|\bcheese\b/i, { open: 7, bought: 21 }],
 ];
 /** Whether a thing of this name is kept as food, and how long it keeps opened. */

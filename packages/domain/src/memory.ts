@@ -167,6 +167,8 @@ export interface DeskMemory {
   thingStats?: Record<string, ThingStat[]>;
   /** When the demo's household was first brought into its Home room: once, so deleting them sticks. */
   householdAt?: string;
+  /** When the demo's fridge was first stocked: once, so deleting its food sticks. */
+  fridgeAt?: string;
 }
 /** A camera the server reads frames from: an RTSP stream, never a tab's. */
 export interface WatchCamera {
@@ -633,5 +635,6 @@ export const deskMemorySchema = z.preprocess(
     exposed: listOf<ExposedEntity>().optional(),
     thingStats: z.record(z.string(), z.array(thingStatSchema)).optional(),
     householdAt: z.string().optional(),
+    fridgeAt: z.string().optional(),
   }),
 ) satisfies z.ZodType<DeskMemory, unknown>;

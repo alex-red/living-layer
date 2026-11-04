@@ -288,6 +288,12 @@
 .zone-overlay.drawing rect {
   stroke-dasharray: 6 5;
 }
+/* Turned off: a faint outline, no wash, as saved-zones.css draws the others. */
+.zone-overlay.off rect {
+  fill: none;
+  stroke: var(--text-3);
+  stroke-dasharray: 2 4;
+}
 /*
  * Occupied: the thing stands in the zone by the last check. Every zone shows
  * it the same way, here, in saved-zones.css and in the room (iso.css): its
@@ -632,4 +638,9 @@
 .health-detail dd {
   margin: 0;
   color: var(--text-2);
+}
+/* The watcher's tracker switch, at the top of its health detail. */
+.tracker-backend {
+  margin: 4px 0 2px;
+  text-transform: none;
 }

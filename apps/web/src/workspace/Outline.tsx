@@ -30,6 +30,7 @@ import { Button, IconButton } from '../ui/controls';
 import { statBadge, statTone } from '../iso/StatBadges';
 import { useNow } from '../useNow';
 import { ContextMenu, type MenuItem } from './ContextMenu';
+import { ZoneMenu, type ZoneMenuAt } from './ZoneMenu';
 import { stateLabel } from './stateLabel';
 import { removeFromLayout } from './removeFromLayout';
 import { useStore } from './state/store';
@@ -787,6 +788,8 @@ function Zones({ outline }: { outline: SceneOutline }) {
   const first = outline.followed[0];
   const canRule =
     Boolean(first) && (memory?.rules ?? []).filter((r) => r.id !== MAIN_RULE).length < MAX_RULES;
+  const [menu, setMenu] = useState<ZoneMenuAt | null>(null);
+  const closeMenu = useCallback(() => setMenu(null), []);
   return (
     <>
       <div className="pane-head ol-section">
@@ -807,9 +810,13 @@ function Zones({ outline }: { outline: SceneOutline }) {
             key={r.id}
             label={r.label}
             detail={r.detail}
-            glyph={r.inside ? '●' : '○'}
-            className={r.inside ? 'occupied' : r.ran ? 'done' : 'todo'}
+            glyph={r.off ? '–' : r.inside ? '●' : '○'}
+            className={r.off ? 'off' : r.inside ? 'occupied' : r.ran ? 'done' : 'todo'}
             target={{ kind: 'rule', id: r.id }}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              setMenu({ id: r.id, at: menuAt(e) });
+            }}
           />
         ))}
         {!outline.rules.length && (
@@ -820,6 +827,7 @@ function Zones({ outline }: { outline: SceneOutline }) {
           </li>
         )}
       </ul>
+      {menu && <ZoneMenu menu={menu} onClose={closeMenu} />}
     </>
   );
 }

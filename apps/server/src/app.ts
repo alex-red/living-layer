@@ -27,6 +27,7 @@ import { ControlAdapter, type SwitchOptions, type Switched } from './control.js'
 import { chosenEntities, haConnection, haRoutes, type OpenSocket } from './ha.js';
 import { HaLive } from './ha-live.js';
 import { fixtureRoutes } from './fixture/routes.js';
+import { stockDemoFridge } from './fixture/fridge.js';
 import { addDemoHousehold } from './fixture/seat.js';
 import { watchRequest } from './request-signal.js';
 import { LabError, logError } from './errors.js';
@@ -69,6 +70,9 @@ import {
   type NodeClient,
 } from './nodes.js';
 import { demoLamp, demoLampFor } from './demo.js';
+
+/** Hosts the lab may be opened at: loopback, and this machine by name on the network. */
+const LAB_HOSTS = ['localhost', '127.0.0.1', hostname(), hostname().split('.')[0]!];
 
 const watching = new WeakMap<object, Record<Mode, Watcher>>();
 /** The camera watchers of an app `buildApp` made, for tests. */
@@ -238,17 +242,17 @@ export async function buildApp(
   };
   app.addHook('onRequest', async (request) => {
     const host = request.headers.host ?? '';
-    if (!new RegExp(`^(localhost|127\\.0\\.0\\.1)(:${config.port}|:43430|:80)?$`).test(host))
-      throw new LabError('host', 'This workbench accepts loopback hosts only.', 403);
+    const [name, port, ...rest] = host.split(':');
+    if (
+      rest.length ||
+      !LAB_HOSTS.includes(name!) ||
+      ![undefined, String(config.port), '43430', '80'].includes(port)
+    )
+      throw new LabError('host', 'This workbench accepts only its own hosts.', 403);
     const origin = request.headers.origin;
     if (
       origin &&
-      ![
-        `http://localhost:${config.port}`,
-        `http://127.0.0.1:${config.port}`,
-        'http://localhost:43430',
-        'http://127.0.0.1:43430',
-      ].includes(origin)
+      !LAB_HOSTS.some((h) => [`http://${h}:${config.port}`, `http://${h}:43430`].includes(origin))
     ) {
       throw new LabError('origin', 'Requests from this origin are not allowed.', 403);
     }
@@ -694,11 +698,20 @@ export async function buildApp(
       if (store.memory('live').watch?.on) void watchers.live.start();
     }
     await watchByDefault(true);
-    // A demo that never had its household gets it once, in its Home room, after the rest.
-    if (!store.memory('demo').householdAt)
-      void addDemoHousehold({ store, entities }).catch((e: unknown) =>
-        console.error('[server] the demo household could not be brought in:', e),
-      );
+    // A demo that never had its household gets it once, in its Home room, after the rest,
+    // then its fridge stocked: one after the other, as each finds what it saved last.
+    const demo = store.memory('demo');
+    if (!demo.householdAt || !demo.fridgeAt)
+      void (async () => {
+        if (!demo.householdAt)
+          await addDemoHousehold({ store, entities }).catch((e: unknown) =>
+            console.error('[server] the demo household could not be brought in:', e),
+          );
+        if (!demo.fridgeAt)
+          await stockDemoFridge({ store, entities }).catch((e: unknown) =>
+            console.error('[server] the demo fridge could not be stocked:', e),
+          );
+      })();
   });
   app.addHook('onClose', async () => {
     haLive.stop();

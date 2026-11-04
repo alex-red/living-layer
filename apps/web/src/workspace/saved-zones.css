@@ -35,6 +35,15 @@
   stroke-width: 2.5px;
   filter: drop-shadow(0 0 8px color-mix(in srgb, var(--zone) 50%, transparent));
 }
+/* Turned off: a faint outline, no wash. */
+.saved-zone.off rect {
+  fill: none;
+  stroke: var(--text-3);
+  stroke-dasharray: 2 4;
+}
+.saved-zone.off text {
+  fill: var(--text-3);
+}
 .saved-zone.on text {
   font-weight: 700;
 }

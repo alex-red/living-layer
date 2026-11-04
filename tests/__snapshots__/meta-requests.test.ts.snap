@@ -156,7 +156,7 @@ exports[`every Spark call kind sends the same request body 1`] = `
 "Pick the scene preset that best matches this photo: office (a room with a desk), desk (an office desk: a close view of the desktop in an office), or fridge (the inside of a fridge). Then list which of that preset's optional props are visible, using only these ids:
 office: monitor (monitor), keyboard (keyboard), book (green book), bottle (sage bottle), chair (chair), shelf (bookshelf), plant (plant)
 desk: book (green book), bottle (sage bottle)
-fridge: jar (pickle jar), leftovers (leftovers), milk (milk carton), butter (butter), eggs (egg carton), mustard (mustard), mayo (mayonnaise), hot-sauce (hot sauce), juice (orange juice), dressing (salad dressing), jam (jam)
+fridge: jar (pickle jar), leftovers (leftover chicken), milk (milk), butter (butter), eggs (eggs), spinach (spinach), mustard (mustard), mayo (mayonnaise), hot-sauce (hot sauce), juice (orange juice), dressing (salad dressing), jam (jam)
 Describe only what is visible, in one short sentence."
 ,
                   "type": "input_text",
@@ -207,6 +207,7 @@ Describe only what is visible, in one short sentence."
                         "milk",
                         "butter",
                         "eggs",
+                        "spinach",
                         "mustard",
                         "mayo",
                         "hot-sauce",
@@ -216,7 +217,7 @@ Describe only what is visible, in one short sentence."
                       ],
                       "type": "string",
                     },
-                    "maxItems": 18,
+                    "maxItems": 19,
                     "type": "array",
                   },
                 },

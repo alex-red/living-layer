@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, mock } from 'bun:test';
 import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { hostname, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import sharp from 'sharp';
 import { parseConfig, type Fetcher } from '../apps/server/src/config.js';
@@ -227,6 +227,18 @@ describe('local API and provenance', () => {
     expect((await app.inject('/api/evidence')).headers['content-disposition']).toContain(
       'attachment',
     );
+    await app.close();
+  });
+  it('accepts the lab opened at this machine by name on the network', async () => {
+    const app = await buildApp(config());
+    const name = hostname().split('.')[0]!;
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/lamp',
+      payload: { mode: 'demo' },
+      headers: { host: `${name}:43430`, origin: `http://${name}:43430` },
+    });
+    expect(res.statusCode).not.toBe(403);
     await app.close();
   });
   it('blocks cross-origin, hostile Host, arbitrary actions, and custom demo images', async () => {

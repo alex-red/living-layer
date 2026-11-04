@@ -10,6 +10,8 @@ const flag = z
   .transform((v) => v === 'true');
 const schema = z.object({
   PORT: z.coerce.number().int().min(1024).max(65535).default(43431),
+  /** The address the API server listens on; `bun run dev` sets 0.0.0.0. */
+  HOST: z.string().default('127.0.0.1'),
   DATA_DIR: z.string().default('.data'),
   MODEL_API_KEY: z.string().default(''),
   META_SPARK_MODEL: z
@@ -88,6 +90,8 @@ export type Fetcher = (input: string | URL | Request, init?: RequestInit) => Pro
 
 export interface Config {
   port: number;
+  /** Unset, loopback only. */
+  host?: string;
   dataDir: string;
   modelApiKey: string;
   sparkModel: string;
@@ -224,6 +228,7 @@ export function parseConfig(env: NodeJS.ProcessEnv, cwd = process.cwd()): Config
     throw new Error('CAMERA_RELAY_PORT and the two ports after it must differ from the others.');
   return {
     port: value.PORT,
+    host: value.HOST,
     dataDir: resolve(cwd, value.DATA_DIR),
     modelApiKey: value.MODEL_API_KEY,
     sparkModel: value.META_SPARK_MODEL,

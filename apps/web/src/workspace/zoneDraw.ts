@@ -1,7 +1,7 @@
 import type { StageView } from '../session';
 
 /** Where a zone's rectangle is dragged: on the camera picture, or in the room. */
-export type DrawOn = 'picture' | 'room';
+type DrawOn = 'picture' | 'room';
 /** What a zone being set up needs to know about itself to be drawn. */
 interface Drawn {
   motion?: unknown;

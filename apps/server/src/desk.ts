@@ -77,6 +77,7 @@ import {
 import { EvidenceStore } from './store.js';
 import { LabError, parseInput, safeError } from './errors.js';
 import { noteControl } from './fixture/control.js';
+import { stockDemoFridge } from './fixture/fridge.js';
 import { addDemoHousehold } from './fixture/seat.js';
 import type { RouteDeps } from './route-deps.js';
 import type { SwitchOptions, Switched } from './control.js';
@@ -262,7 +263,8 @@ export function createDesk(
     const superseded = Boolean(
       mug?.track && store.latestSegment(mode) !== mug.track.observation.segmentRunId,
     );
-    if (mug && !superseded && memory.rules?.some((r) => r.id === MAIN_RULE)) {
+    const main = memory.rules?.find((r) => r.id === MAIN_RULE);
+    if (mug && !superseded && main && !main.off) {
       // Whatever it counts: the mug by default, or the things it was set to.
       const [event] = await verifyRules(mode, undefined, undefined, MAIN_RULE);
       if (event) return event;
@@ -275,7 +277,12 @@ export function createDesk(
             reason:
               'A newer segmentation superseded this observation. Confirm its mug mask before verifying.',
           }
-        : placementGate(memory)),
+        : main?.off
+          ? {
+              decision: 'blocked' as const,
+              reason: `"${main.label}" is off. Turn it on to check it.`,
+            }
+          : placementGate(memory)),
       observationId: o?.id ?? null,
       objectId: mug?.id ?? null,
       segmentRunId: o?.segmentRunId ?? null,
@@ -423,7 +430,7 @@ export function createDesk(
     const ruleLabels = new Map(
       (store.memory(mode).rules ?? [])
         // Motion zones are judged by the watcher's frames (`motionZone`), not by things.
-        .filter((r) => !r.motion && (!only || r.id === only))
+        .filter((r) => !r.motion && !r.off && (!only || r.id === only))
         .map((r) => [r.id, r.label]),
     );
     // Each rule is judged and saved against the memory as it is then; none is held over an await.
@@ -431,7 +438,7 @@ export function createDesk(
       const step = store.updateMemory(mode, (memory) => {
         const was = memory.rules?.find((r) => r.id === ruleId);
         const moves = Boolean(objectId && was?.anchor?.thingId === objectId);
-        if (!was || (objectId && !moves && !ruleObjects(memory, was).includes(objectId)))
+        if (!was || was.off || (objectId && !moves && !ruleObjects(memory, was).includes(objectId)))
           return null;
         const judged = local ? withSighting(memory, local.objectId, local) : memory;
         // A zone that is a thing goes where the thing is now, before anything is judged in it.
@@ -542,7 +549,7 @@ export function createDesk(
   async function motionZone(mode: Mode, ruleId: string, change: 'started' | 'stopped') {
     const step = store.updateMemory(mode, (memory) => {
       const rule = memory.rules?.find((r) => r.id === ruleId);
-      if (!rule?.motion) return null;
+      if (!rule?.motion || rule.off) return null;
       const moving = change === 'started';
       const decision: PlacementDecision = {
         decision: moving ? 'inside' : 'outside',
@@ -1176,6 +1183,8 @@ export async function deskRoutes(
       ...(input.look && input.entityId?.startsWith('light.') ? { look: input.look } : {}),
       ...(input.actions ? { actions: input.actions } : {}),
       ...(input.motion ? { motion: input.motion } : {}),
+      // Redrawn, a zone that was off stays off.
+      ...(rules.find((r) => r.id === input.id)?.off ? { off: true as const } : {}),
       ...(input.anchor
         ? {
             anchor: {
@@ -1219,7 +1228,7 @@ export async function deskRoutes(
    * Null puts the main zone back to switching the main lamp.
    */
   app.post('/rules/options', async (request) => {
-    const { mode, ruleId, label, actions, triggers } = parseInput(
+    const { mode, ruleId, label, actions, triggers, off } = parseInput(
       deskRulesOptionsBodySchema,
       request.body,
     );
@@ -1262,8 +1271,15 @@ export async function deskRoutes(
         throw new LabError('zone_actions', 'Only the main zone switches a lamp of its own.', 400);
       delete rule.actions;
     }
+    if (off !== undefined && off !== Boolean(rule.off)) {
+      if (off) rule.off = true;
+      else delete rule.off;
+      // Either way its story starts again: back on, what is already in it fills it.
+      rule.placement = null;
+      rule.inside = [];
+    }
     store.saveMemory(memory);
-    if (actions !== undefined || triggers) desk.stopZoneSteps(mode, rule.id);
+    if (actions !== undefined || triggers || off) desk.stopZoneSteps(mode, rule.id);
     return memory;
   });
   app.post('/rules/delete', async (request) => {
@@ -1309,6 +1325,7 @@ export async function deskRoutes(
       // Its light goes off as the mug leaves, unless the zone is told to keep it on.
       offWhenEmpty: true,
       ...(was?.actions ? { actions: was.actions } : {}),
+      ...(was?.off ? { off: true as const } : {}),
       zone: { sourceKey: o.sourceKey, rect, frame: o.frame, ...(onSurface ? { onSurface } : {}) },
       // A new zone starts a new inside/outside story.
       placement: null,
@@ -1352,14 +1369,15 @@ export async function deskRoutes(
   });
   /**
    * Put the demo's memory back to the preset, as a fresh data folder has it:
-   * no scene, pin, fixtures or saved models of its own, and the household
-   * in its Home room. For probes against the dev server (`bun run reset
-   * demo`); live memory is never touched.
+   * no scene, pin, fixtures or saved models of its own, the household
+   * in its Home room and the fridge stocked. For probes against the dev
+   * server (`bun run reset demo`); live memory is never touched.
    */
   app.post('/demo/reset', async () => {
     const memory: DeskMemory = { mode: 'demo', lastDecision: null };
     store.saveMemory(memory);
-    return addDemoHousehold(deps);
+    await addDemoHousehold(deps);
+    return stockDemoFridge(deps);
   });
   /** The household back in the demo's Home room, keeping everything else: when nobody is home there. */
   app.post('/demo/household', async () => addDemoHousehold(deps));

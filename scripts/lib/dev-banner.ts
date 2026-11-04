@@ -7,11 +7,14 @@ export function devBanner({
   webPort,
   apiPort,
   builtAt,
+  lan,
 }: {
   webPort: number;
   apiPort: number;
   /** When `apps/web/dist` was last built, or null when it never was. */
   builtAt: Date | null;
+  /** This machine's address on the network, when it has one: both servers listen there too. */
+  lan?: string;
 }): string {
   const two = (n: number) => String(n).padStart(2, '0');
   const built = builtAt
@@ -20,6 +23,9 @@ export function devBanner({
   return [
     '',
     `  Open the lab:  http://127.0.0.1:${webPort}   this code, as you edit it`,
+    ...(lan
+      ? [`  On the network: http://${lan}:${webPort}   from a phone or another machine`]
+      : []),
     `  API server:    http://127.0.0.1:${apiPort}/api   the lab talks to it through the page`,
     `                 its own page at :${apiPort} is ${built}`,
     '',

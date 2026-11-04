@@ -373,6 +373,11 @@
   color: var(--warm);
   text-shadow: 0 0 8px var(--warm-glow);
 }
+/* A zone turned off. */
+.ol-row.off .ol-glyph,
+.ol-row.off .ol-label {
+  color: var(--text-3);
+}
 .ol-row.view {
   margin-top: 6px;
   border: 1px dashed var(--line-strong);

@@ -427,7 +427,7 @@ describe('POST /api/things/ask', () => {
       EvidenceRun<RoomAnswer>
     >();
     expect(fetcher).toHaveBeenCalledTimes(1);
-    expect(run.output.text).toBe('The milk carton was taken out once in the last hour.');
+    expect(run.output.text).toBe('The milk was taken out once in the last hour.');
     // Nothing watched the fridge: the answer says so.
     expect(run.output.notes).toContain(
       'The camera wasn’t watching then, so this may miss what happened.',
@@ -445,7 +445,7 @@ describe('POST /api/things/ask', () => {
     const run = (
       await t.post('things/ask', { mode: 'live', question: 'What should I eat first?' })
     ).json<EvidenceRun<RoomAnswer>>();
-    expect(run.output.text).toBe('Eat the milk carton first: it goes off tomorrow.');
+    expect(run.output.text).toBe('Eat the milk first: it goes off tomorrow.');
     // Spark was told when it goes off.
     const body = JSON.parse(String(fetcher.mock.calls[0]![1]!.body)) as { input: unknown };
     expect(JSON.stringify(body.input)).toContain(`goes off ${expires}`);

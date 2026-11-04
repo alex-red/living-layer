@@ -23,6 +23,7 @@
  */
 import { readlinkSync, statSync, watch } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { lanAddress } from '../apps/server/src/remote.js';
 import { devBanner } from './lib/dev-banner.js';
 
 const root = resolve(import.meta.dir, '..');
@@ -171,7 +172,7 @@ const control = Bun.serve({
   },
 });
 
-const env = { ...process.env, LIVING_LAYER_DEV: '1' };
+const env = { ...process.env, LIVING_LAYER_DEV: '1', HOST: '0.0.0.0' };
 const apiPort = ports[0]!;
 
 /** What the API server is working on; nothing when it doesn't answer (stopped, or still starting). */
@@ -313,5 +314,5 @@ void Promise.all([
   } catch {
     // Never built.
   }
-  console.log(devBanner({ webPort: ports[1]!, apiPort, builtAt }));
+  console.log(devBanner({ webPort: ports[1]!, apiPort, builtAt, lan: lanAddress() }));
 });

@@ -254,4 +254,11 @@ describe('zones close together', () => {
     expect(ruleGate(m, a, NOW).decision).toBe('inside');
     expect(ruleGate(m, b, NOW).decision).toBe('inside');
   });
+  it('ignore a fuller neighbour that is turned off', async () => {
+    const m = memory(await mugAt('right'));
+    const coaster = { ...rule(m), off: true as const };
+    const wide = around(rule(m), 0.1);
+    m.rules = [coaster, wide];
+    expect(ruleGate(m, wide, NOW).decision).toBe('inside');
+  });
 });

@@ -422,7 +422,7 @@ function ZoneLayer() {
   const layer = visibleZone && (
     <svg
       ref={camera ? undefined : ref}
-      className={`zone-overlay ${drawing ? 'drawing' : ''} ${occupied ? 'inside' : ''}`}
+      className={`zone-overlay ${drawing ? 'drawing' : ''} ${occupied ? 'inside' : ''} ${!drawing && memory?.rules?.find((r) => r.id === MAIN_RULE)?.off ? 'off' : ''}`}
       {...(cameraSize ? { width: cameraSize.width, height: cameraSize.height } : {})}
       viewBox="0 0 1000 1000"
       preserveAspectRatio="none"

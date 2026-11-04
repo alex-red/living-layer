@@ -69,7 +69,7 @@ describe('food things', () => {
   });
   it('makes a preset’s built-in thing a thing that stands in for it', () => {
     const milk = promoteBuiltIn('fridge', 'milk')!;
-    expect(milk).toMatchObject({ label: 'Milk carton', scene: 'fridge', builtIn: 'milk' });
+    expect(milk).toMatchObject({ label: 'Milk', scene: 'fridge', builtIn: 'milk' });
     // It stands on the crisper lid, where the preset drew it.
     expect(milk.surfaceId).toBe('fridge:shelf-3');
     expect(milk.food).toBeUndefined();

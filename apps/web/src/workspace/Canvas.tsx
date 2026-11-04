@@ -5,6 +5,7 @@ import { useAi, useCamera, useFeedback, useLabParts, useNavigation, useView } fr
 import { DeskStep, Onboarding } from './Onboarding';
 import { BrushPanel } from './Brush';
 import { DayDock } from './DayDock';
+import { ZoneMenu, type ZoneMenuAt } from './ZoneMenu';
 import {
   FixtureMenu,
   IssueCard,
@@ -106,6 +107,13 @@ export function Canvas() {
     (id: string, at: { x: number; y: number }) => setFixtureMenu({ id, at }),
     [],
   );
+  // A zone's, likewise.
+  const [zoneMenu, setZoneMenu] = useState<ZoneMenuAt | null>(null);
+  const closeZoneMenu = useCallback(() => setZoneMenu(null), []);
+  const openZoneMenu = useCallback(
+    (id: string, at: { x: number; y: number }) => setZoneMenu({ id, at }),
+    [],
+  );
   const onboarding = (!workScene || choosingScene) && !pinning;
   const showIso = useShowIso();
   // The hand gives way to anything being drawn, pinned or placed.
@@ -127,8 +135,11 @@ export function Canvas() {
       <div className={`stage-fit ${showIso ? stageView : ''}`} hidden={onboarding}>
         <PhotoStage hand={hand} calibratePanel={calibratePanel} />
         <BrushDock />
-        {showIso && <IsoView hand={hand} onFixtureMenu={openFixtureMenu} />}
+        {showIso && (
+          <IsoView hand={hand} onFixtureMenu={openFixtureMenu} onZoneMenu={openZoneMenu} />
+        )}
         {fixtureMenu && <FixtureMenu menu={fixtureMenu} onClose={closeFixtureMenu} />}
+        {zoneMenu && <ZoneMenu menu={zoneMenu} onClose={closeZoneMenu} />}
       </div>
       {!onboarding && showIso && <DayDock />}
       {lab.calibrating && !lab.camera && <div className="calibrate-slot" ref={setCalibratePanel} />}

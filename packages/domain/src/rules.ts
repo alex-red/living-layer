@@ -129,7 +129,8 @@ function fullerZone(
 ): PlacementRule | null {
   let best: { rule: PlacementRule; fill: number } | null = null;
   for (const r of memory.rules ?? []) {
-    if (r.id === rule.id || r.motion || !ruleObjects(memory, r).includes(objectId)) continue;
+    if (r.id === rule.id || r.off || r.motion || !ruleObjects(memory, r).includes(objectId))
+      continue;
     const other = placeAnchor(memory, r);
     if (!zoneAppliesTo(o, other.zone, memory.fixedCamera, calibrationOf(memory)).applies) continue;
     const f = zoneFill(memory, o, other.zone);
@@ -300,6 +301,8 @@ export interface PlacementRule {
    * `seenAt` the sighting it was placed from. The thing never counts itself.
    */
   anchor?: ZoneAnchor & { seenAt?: string };
+  /** Turned off by the person: kept and drawn, but not judged, and its steps never run. */
+  off?: true;
   zone: {
     sourceKey: string;
     rect: ZoneRect;
