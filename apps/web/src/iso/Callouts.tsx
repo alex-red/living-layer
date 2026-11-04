@@ -64,7 +64,7 @@ export interface IsoCallout {
   onSelect?: () => void;
 }
 /** A button on a card. `current` marks the one it is now (on when it is on). */
-export interface CalloutAction {
+interface CalloutAction {
   label: string;
   current?: boolean;
   run: () => void;
