@@ -1024,8 +1024,12 @@ export async function deskRoutes(
 ) {
   const { store, desk, entities } = deps;
   const { available, evidence, trackMug, trackObject, verify, verifyRules } = desk;
-  app.get('/:mode', async (request) => {
+  // The lab asks every few seconds whether a desk changed; an unchanged one answers 304.
+  app.get('/:mode', async (request, reply) => {
     const { mode } = parseInput(modeOnlySchema, request.params);
+    const tag = store.memoryTag();
+    reply.header('ETag', tag).header('Cache-Control', 'no-store');
+    if (request.headers['if-none-match'] === tag) return reply.code(304).send();
     return store.memory(mode);
   });
   app.post('/select', async (request) => {

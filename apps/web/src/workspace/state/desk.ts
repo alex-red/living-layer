@@ -19,6 +19,8 @@ import { useStableSlice } from './stable';
 import type { Dispatch, RefObject, SetStateAction } from 'react';
 
 type Desks = { demo: DeskMemory; live: DeskMemory };
+/** How often the open lab asks whether its desk changed elsewhere (a script, another tab), ms. */
+const DESK_POLL_MS = 3000;
 
 /** The Desk slice of the lab's state. */
 export function useDeskSlice(deps: ViewSlice & FeedbackSlice & RunLogSlice): DeskSlice {
@@ -96,6 +98,36 @@ export function useDeskSlice(deps: ViewSlice & FeedbackSlice & RunLogSlice): Des
       });
     return queued.current;
   };
+  /** Each desk's tag as last applied, so an unchanged desk answers 304 and isn't sent again. */
+  const deskTags = useRef<Partial<Record<Mode, string>>>({});
+  // A desk saved by a script (`bun run thing`) or another tab shows here within a few seconds.
+  useEffect(() => {
+    let stopped = false;
+    const poll = async () => {
+      if (document.visibilityState !== 'visible') return;
+      const started = memoryWrites.current;
+      try {
+        const next = await apiIfChanged(`desk/${mode}`, deskTags.current[mode]);
+        // Not applied when a write of this tab's landed meanwhile: its tag is kept, so it is asked again.
+        if (!next || stopped || started !== memoryWrites.current) return;
+        deskTags.current[mode] = next.tag;
+        setMemories((current) => {
+          const had = current[mode];
+          return had && sameDesk(had, next.data) ? current : { ...current, [mode]: next.data };
+        });
+      } catch {
+        // The server is away or restarting; the next poll asks again.
+      }
+    };
+    const timer = window.setInterval(() => void poll(), DESK_POLL_MS);
+    const shown = () => void poll();
+    document.addEventListener('visibilitychange', shown);
+    return () => {
+      stopped = true;
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', shown);
+    };
+  }, [mode]);
   // Autosave: choices and desks go to this browser as the person works, once
   // the server's desks have loaded so an empty first render never overwrites them.
   const [deskReady, setDeskReady] = useState(false);

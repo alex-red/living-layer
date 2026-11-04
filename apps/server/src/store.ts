@@ -54,6 +54,8 @@ export class EvidenceStore {
   private db: Database;
   /** Bumped by every write to the runs; with a per-process prefix it tags `list()` for `ETag`. */
   private runWrites = 0;
+  /** Desk memory saves by this process; `memoryTag` adds SQLite's count of other processes' writes. */
+  private memoryWrites = 0;
   private readonly runsEpoch = crypto.randomUUID().slice(0, 8);
   constructor(private dir: string) {
     mkdirSync(dir, { recursive: true, mode: 0o700 });
@@ -181,6 +183,7 @@ export class EvidenceStore {
     }
   }
   saveMemory(memory: DeskMemory): void {
+    this.memoryWrites++;
     this.db.run(
       'INSERT INTO desk_memory VALUES (?, ?) ON CONFLICT(mode) DO UPDATE SET payload = excluded.payload',
       [memory.mode, JSON.stringify(memory)],
@@ -203,6 +206,18 @@ export class EvidenceStore {
         new Date().toISOString(),
       ]).changes === 1
     );
+  }
+  /**
+   * Changes whenever a desk memory may have: an entity tag for `GET
+   * /api/desk/:mode`, so the open lab sees what a script or another tab saved.
+   * Writes by another process (`bun run reset`, a script on the database)
+   * show in SQLite's data version, which this connection's own don't move.
+   */
+  memoryTag(): string {
+    const { data_version } = this.db
+      .query<{ data_version: number }, []>('PRAGMA data_version')
+      .get()!;
+    return `"${this.runsEpoch}.${this.memoryWrites}.${data_version}"`;
   }
   /** Changes whenever what `list()` returns may have: an entity tag for `GET /api/runs`. */
   runsTag(): string {
