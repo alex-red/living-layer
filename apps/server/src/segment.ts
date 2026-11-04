@@ -7,6 +7,7 @@ import {
   LOCAL_OUTLINE_MODEL,
   outlineIn,
   segmentBodySchema,
+  selectionBox,
   selectionMask,
   type DemoPosition,
   type EvidenceRun,
@@ -14,7 +15,7 @@ import {
   type Segmentation,
   type SelectionShape,
 } from '@livinglayer/domain';
-import { demoPng, demoSegmentation } from './demo.js';
+import { demoBoxSegmentation, demoPng, demoSegmentation } from './demo.js';
 import { LabError, liveImage, parseInput } from './errors.js';
 import { samDataUrl, samReadyPng, validateImage } from './images.js';
 import { requestSignal } from './request-signal.js';
@@ -23,8 +24,9 @@ import { requireTrackingAi } from './settings.js';
 
 /**
  * One segmentation, recorded as a run: the lab's button, or the watcher. With
- * a `shape`, the thing inside it is outlined on this machine; otherwise SAM
- * outlines every match of the concept, billed.
+ * a `shape`, the thing inside it is outlined on this machine, or by SAM with
+ * `sam` (the shape's box as its prompt, billed); otherwise SAM outlines every
+ * match of the concept, billed.
  */
 type Segment = (
   input: {
@@ -33,6 +35,7 @@ type Segment = (
     imageDataUrl?: string;
     demoPosition?: DemoPosition;
     shape?: SelectionShape;
+    sam?: boolean;
   },
   signal?: AbortSignal,
 ) => Promise<EvidenceRun<Segmentation>>;
@@ -47,6 +50,7 @@ export function createSegment({
       'segment',
       input.mode,
       async (id) => {
+        if (input.shape && input.sam) return outlineWithSam(input, input.shape, id, signal);
         if (input.shape) return outlineLocally(input, input.shape, id);
         if (input.mode === 'demo') {
           liveImage(input.mode, input.imageDataUrl);
@@ -95,6 +99,56 @@ export function createSegment({
       signal,
     ) as Promise<EvidenceRun<Segmentation>>;
   };
+
+  /**
+   * The thing inside the shape a person drew, outlined by SAM with the
+   * shape's box as its prompt: its largest outline, whole, since a thing
+   * often runs past a loose box. Read off the render in the demo. Recorded
+   * with one detection, as `outlineLocally` is.
+   */
+  async function outlineWithSam(
+    input: Parameters<Segment>[0],
+    shape: SelectionShape,
+    id: string,
+    signal?: AbortSignal,
+  ) {
+    liveImage(input.mode, input.imageDataUrl);
+    if (input.mode === 'demo') {
+      const result = demoBoxSegmentation(input.concept, shape, input.demoPosition);
+      return {
+        output: { ...result.output, sourceKey: demoSourceKey(input.demoPosition) },
+        assets: [store.asset(id, 'synthetic-sam.txt', result.raw)],
+      };
+    }
+    if (input.demoPosition)
+      throw new LabError('demo_position', 'Demo positions apply only in demo mode.');
+    const image = await validateImage(input.imageDataUrl);
+    const frame = { width: image.width, height: image.height };
+    const b = selectionBox(shape, frame);
+    const result = await meta.segmentBoxes(
+      await samDataUrl(image),
+      [{ id: 1, box: { left: b.left, top: b.top, right: b.right, bottom: b.bottom } }],
+      frame.width,
+      frame.height,
+      signal,
+    );
+    const largest = [...result.output.detections].sort(
+      (a, c) => c.mask.foregroundPixels - a.mask.foregroundPixels,
+    )[0];
+    return {
+      ...result,
+      output: {
+        concept: input.concept,
+        frame,
+        detections: largest ? [{ ...largest, objectId: '1' }] : [],
+        sourceKey: createHash('sha256').update(image.bytes).digest('hex'),
+      },
+      assets: [
+        store.asset(id, `source.${image.ext}`, image.bytes),
+        store.asset(id, 'sam-output.txt', result.raw),
+      ],
+    };
+  }
 
   /**
    * The thing inside the shape a person drew, outlined with no model call
@@ -163,6 +217,8 @@ export async function segmentRoutes(
   app.post('/', { prefixTrailingSlash: 'no-slash' }, async (request) => {
     const input = parseInput(segmentBodySchema, request.body);
     liveImage(input.mode, input.imageDataUrl);
+    // A person's own SAM outline of what they drew is a call they asked for, not tracking's:
+    // it runs whatever the setting.
     if (!input.shape) requireTrackingAi(store, 'SAM');
     return segment(input, requestSignal(request));
   });

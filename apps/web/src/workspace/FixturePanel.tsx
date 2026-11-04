@@ -1243,15 +1243,14 @@ function FixtureCamera({ fixture: f, disabled }: { fixture: Fixture; disabled: b
           </div>
         </>
       )}
-      {!trackingAi && (
-        <LocalOutline
-          target={f.id}
-          disabled={disabled}
-          waiting={found.length > 0}
-          working={busy === 'outline-fixture'}
-          onOutline={(d) => void lab.outlineFixture(f.id, d)}
-        />
-      )}
+      <LocalOutline
+        target={f.id}
+        disabled={disabled}
+        waiting={found.length > 0}
+        working={busy === 'outline-fixture'}
+        onOutline={(d) => void lab.outlineFixture(f.id, d)}
+        onSam={(d) => void lab.outlineFixture(f.id, d, true)}
+      />
       <div className="save-actions">
         {trackingAi && (
           <Button

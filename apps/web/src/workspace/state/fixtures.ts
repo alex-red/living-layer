@@ -100,10 +100,15 @@ export function useFixturesSlice(
   }
   /**
    * Outline a fixture from what a person drew round it on the picture, on this
-   * machine with no model call: a segmentation of its name with one outline,
-   * confirmed with `anchorFixture` like SAM's.
+   * machine with no model call, or by SAM with `sam` (one billed call): a
+   * segmentation of its name with one outline, confirmed with `anchorFixture`
+   * like SAM's search by name.
    */
-  async function outlineFixture(id: string, drawn: { shape: SelectionShape; held: string | null }) {
+  async function outlineFixture(
+    id: string,
+    drawn: { shape: SelectionShape; held: string | null },
+    sam = false,
+  ) {
     const fixture = memory?.fixtures?.find((f) => f.id === id);
     if (!fixture) return;
     setBusy('outline-fixture');
@@ -116,6 +121,7 @@ export function useFixturesSlice(
         mode,
         concept: fixture.label.trim().toLowerCase(),
         shape: drawn.shape,
+        ...(sam ? { sam } : {}),
         ...(mode === 'demo' ? { demoPosition } : { imageDataUrl }),
       });
       setSegmentation(run.output);
@@ -123,8 +129,12 @@ export function useFixturesSlice(
       setOutlining(null);
       setMessage(
         run.output.detections.length
-          ? 'Outlined it on this machine, no model call. Confirm it’s the outline.'
-          : 'Nothing stood out inside what you drew. Draw it closer round the thing.',
+          ? sam
+            ? `SAM outlined it${costNote(run)}. Confirm it’s the outline.`
+            : 'Outlined it on this machine, no model call. Confirm it’s the outline.'
+          : sam
+            ? `SAM found nothing inside what you drew${costNote(run)}. Draw it closer round the thing.`
+            : 'Nothing stood out inside what you drew. Draw it closer round the thing.',
       );
     } catch (e) {
       setError(e instanceof Error ? e : 'Could not outline it.');
@@ -626,6 +636,7 @@ export interface FixturesSlice {
   outlineFixture: (
     id: string,
     drawn: { shape: SelectionShape; held: string | null },
+    sam?: boolean,
   ) => Promise<void>;
   placeFixture: (where: {
     at: {

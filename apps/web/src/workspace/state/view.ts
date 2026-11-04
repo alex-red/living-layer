@@ -128,10 +128,12 @@ export function useViewSlice(): ViewSlice {
     target: string;
     shape: SelectionShape | null;
     held: string | null;
+    /** SAM outlines what is drawn round (billed), not this machine. */
+    sam?: boolean;
   } | null>(null);
   /** Start drawing round a thing on the picture, which the iso view alone hides. */
-  function startOutlining(target: string) {
-    setOutlining({ target, shape: null, held: null });
+  function startOutlining(target: string, sam = false) {
+    setOutlining({ target, shape: null, held: null, ...(sam ? { sam } : {}) });
     if (stageView === 'iso') setStageView('photo');
   }
   /** A zoomed view being drawn over the live camera, as shares of what it shows now. */
@@ -261,6 +263,8 @@ export interface ViewSlice {
     target: string;
     shape: SelectionShape | null;
     held: string | null;
+    /** SAM outlines what is drawn round (billed), not this machine. */
+    sam?: boolean;
   } | null;
   overlay: boolean;
   pinning: {
@@ -347,7 +351,7 @@ export interface ViewSlice {
   showTrail: boolean;
   showZones: boolean;
   stageView: StageView;
-  startOutlining: (target: string) => void;
+  startOutlining: (target: string, sam?: boolean) => void;
   tool: Tool;
   workScene: WorkScene | null;
   zoneStart: RefObject<{

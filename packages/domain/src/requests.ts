@@ -101,7 +101,11 @@ export type SavesDeleteBody = z.input<typeof savesDeleteBodySchema>;
  * of `concept`, which tracking allows only once AI is turned on for it.
  */
 export const segmentBodySchema = segmentRequestSchema
-  .extend({ shape: selectionShapeSchema.optional() })
+  .extend({
+    shape: selectionShapeSchema.optional(),
+    /** With a shape: SAM outlines what is inside it (its box as the prompt, billed), not this machine. */
+    sam: z.boolean().optional(),
+  })
   .strict();
 export type SegmentBody = z.input<typeof segmentBodySchema>;
 

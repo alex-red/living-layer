@@ -7,6 +7,7 @@ import {
   demoFrame,
   detectionFromBits,
   roomMask,
+  selectionMask,
   DEMO_SWITCHES,
   isMugConcept,
   type DemoPosition,
@@ -20,6 +21,7 @@ import {
   type PhotoCheck,
   type PhotoInventory,
   type Segmentation,
+  type SelectionShape,
   type RoomPicture,
   type DemoReference,
   type FixtureClass,
@@ -196,6 +198,47 @@ const DEMO_CONCEPTS: [RegExp, (name: string) => boolean][] = [
  * SAM on the demo frame, with no model call: the rendered pixels of every
  * thing the concept names, the mug where `position` puts it.
  */
+/**
+ * SAM's answer to a box drawn on the demo frame, read off its render: the
+ * thing whose whole outline best fills the shape (IoU), floor and walls
+ * aside, so a box round the mug is the mug and not the desk behind it.
+ */
+export function demoBoxSegmentation(
+  concept: string,
+  shape: SelectionShape,
+  position: DemoPosition = 'centre',
+) {
+  const picture = demoFrame(position);
+  const inside = selectionMask(shape, picture);
+  // Per solid: its pixels inside the shape, and in all.
+  const within = new Map<number, number>();
+  const all = new Map<number, number>();
+  let drawn = 0;
+  for (let i = 0; i < inside.data.length; i++) {
+    const k = picture.ids[i]!;
+    if (inside.data[i]) drawn++;
+    if (k < 0) continue;
+    all.set(k, (all.get(k) ?? 0) + 1);
+    if (inside.data[i]) within.set(k, (within.get(k) ?? 0) + 1);
+  }
+  let best: { name: string; iou: number } | null = null;
+  for (const [k, both] of within) {
+    const name = picture.names[k]!;
+    if (name === 'floor' || name.startsWith('wall')) continue;
+    const iou = both / (all.get(k)! + drawn - both);
+    if (iou > (best?.iou ?? 0)) best = { name, iou };
+  }
+  const detection = best ? demoDetection(best.name, position, '1') : null;
+  const output: Segmentation = {
+    concept,
+    frame: { ...DEMO_FRAME },
+    detections: detection ? [detection] : [],
+  };
+  return {
+    output,
+    raw: `Synthetic: SAM's box prompt answered off the demo room's render (${best?.name ?? 'nothing'}). Not a model response.`,
+  };
+}
 export async function demoSegmentation(concept: string, position: DemoPosition = 'centre') {
   const picture = demoFrame(position);
   const c = concept.toLowerCase();

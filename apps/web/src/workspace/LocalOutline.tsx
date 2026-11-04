@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import type { DeskObservation, SelectionShape } from '@livinglayer/domain';
+import { META_PRICES, type DeskObservation, type SelectionShape } from '@livinglayer/domain';
 import { Glyph } from '../Glyph';
 import { Button } from '../ui/controls';
 import { useCamera, useDesk, useFeedback, useLabParts, useView } from './LabContext';
@@ -34,9 +34,11 @@ export function BoxOnlyNote({
 }
 
 /**
- * Outlining a thing on this machine, with no model call, while tracking may
- * not call AI: draw a box or a polygon round it on the picture (the brush's
- * own drawing, `OutlineLayer`), then outline what is inside. `target` names
+ * Outlining a thing on this machine, with no model call: draw a box or a
+ * polygon round it on the picture (the brush's own drawing, `OutlineLayer`),
+ * then outline what is inside. With `onSam`, SAM can outline what is drawn
+ * round instead (one billed call the person asks for, so whether tracking may
+ * call AI doesn't apply). `target` names
  * what it is for (`'object'` for a new one, a fixture's id), so one panel's
  * drawing isn't another's.
  */
@@ -46,6 +48,7 @@ export function LocalOutline({
   working,
   waiting = false,
   onOutline,
+  onSam,
 }: {
   target: string;
   disabled?: boolean;
@@ -54,6 +57,8 @@ export function LocalOutline({
   /** Whether the outline is being made now. */
   working: boolean;
   onOutline: (drawn: { shape: SelectionShape; held: string | null }) => void;
+  /** SAM outlines what was drawn round, billed. */
+  onSam?: (drawn: { shape: SelectionShape; held: string | null }) => void;
 }) {
   const lab = useLabParts(useView(), useFeedback(), useCamera());
   const { outlining, setOutlining, mode, image, camera, busy } = lab;
@@ -65,23 +70,39 @@ export function LocalOutline({
   );
   const picture = mode === 'demo' || Boolean(image) || camera;
   const off = disabled || Boolean(busy) || !picture;
+  const sam = onSam && (
+    <Button
+      variant={waiting ? 'text' : undefined}
+      disabled={off}
+      onClick={() => lab.startOutlining(target, true)}
+    >
+      {waiting ? 'Or with SAM' : 'Draw round it with SAM'}
+    </Button>
+  );
   return (
     <>
       {!mine ? (
         waiting ? (
-          <Button variant="text" disabled={off} onClick={() => lab.startOutlining(target)}>
-            Not it? Draw round it again
-          </Button>
+          <div className="save-actions">
+            <Button variant="text" disabled={off} onClick={() => lab.startOutlining(target)}>
+              Not it? Draw round it again
+            </Button>
+            {sam}
+          </div>
         ) : (
-          <Button variant="primary" disabled={off} onClick={() => lab.startOutlining(target)}>
-            Draw round it on the picture
-            <Glyph type="arrow" />
-          </Button>
+          <>
+            <Button variant="primary" disabled={off} onClick={() => lab.startOutlining(target)}>
+              Draw round it on the picture
+              <Glyph type="arrow" />
+            </Button>
+            {sam}
+          </>
         )
       ) : !mine.shape ? (
         <>
           <p className="micro">
-            Drag a box round it on the picture, or click points round it and press Enter.
+            Drag a box round it on the picture, or click points round it and press Enter
+            {mine.sam ? ': SAM outlines what is inside.' : '.'}
           </p>
           <div className="save-actions">
             <Button onClick={() => setOutlining(null)}>Cancel</Button>
@@ -92,9 +113,14 @@ export function LocalOutline({
           <Button
             variant="primary"
             disabled={off}
-            onClick={() => mine.shape && onOutline({ shape: mine.shape, held: mine.held })}
+            onClick={() => {
+              if (!mine.shape) return;
+              const drawn = { shape: mine.shape, held: mine.held };
+              if (mine.sam && onSam) onSam(drawn);
+              else onOutline(drawn);
+            }}
           >
-            {working ? 'Outlining…' : 'Outline it'}
+            {working ? 'Outlining…' : mine.sam ? 'Outline it with SAM' : 'Outline it'}
             <Glyph type="arrow" />
           </Button>
           <Button
@@ -110,7 +136,10 @@ export function LocalOutline({
         </div>
       )}
       {!picture && <p className="micro">Start the camera or add a photo of the desk to draw on.</p>}
-      <Cost>Free: outlined on this machine, no model call.</Cost>
+      {!mine?.sam && <Cost>Free: outlined on this machine, no model call.</Cost>}
+      {onSam && (!mine || mine.sam) && (
+        <Cost>{`With SAM: one call, $${META_PRICES.samPerImage}.`}</Cost>
+      )}
     </>
   );
 }
