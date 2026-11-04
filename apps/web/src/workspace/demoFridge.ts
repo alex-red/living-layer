@@ -23,5 +23,5 @@ export type FridgeView = keyof typeof FRIDGE_VIEWS;
 export const FRIDGE_PHOTO = { width: 960, height: 1280 };
 
 export function fridgeViewUrl(view: FridgeView): string {
-  return `/demo/fridge/${view}.webp`;
+  return `${import.meta.env.BASE_URL}demo/fridge/${view}.webp`;
 }

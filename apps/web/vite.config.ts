@@ -32,6 +32,8 @@ export default defineConfig(({ mode }) => {
   // `bun run dev` watches for changes and the page offers to reload (`DevReload.tsx`).
   const control = process.env.LIVING_LAYER_DEV_CONTROL;
   return {
+    // The web demo is served under its repository's path on GitHub Pages (`bun run static-demo`).
+    base: process.env.VITE_BASE ?? '/',
     plugins: [react(), endWithParent],
     customLogger: logger,
     server: {

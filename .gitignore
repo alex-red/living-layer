@@ -37,3 +37,6 @@ auto.key
 
 # Demo video studio, kept local (apps/web/src/studio is the app's own page)
 /studio/
+
+# The web demo's seed (bun run static-demo)
+apps/web/public/static-demo/

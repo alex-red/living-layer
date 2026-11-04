@@ -25,17 +25,24 @@ const DevReload =
 const PAGES: Record<string, typeof App> = { '/playground': Playground, '/studio': Studio };
 const Page = PAGES[window.location.pathname.replace(/\/$/, '')] ?? App;
 
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    {/* The page itself loads onto the bare background: a word in the corner would flash. */}
-    <Suspense fallback={null}>
-      <Page />
-    </Suspense>
-    <Recorder />
-    {DevReload && (
+// The web demo (GitHub Pages) has no server: its `/api/` calls are answered in the page.
+const ready = import.meta.env.VITE_STATIC_DEMO
+  ? import('./static-demo/install').then((m) => m.installStaticDemo())
+  : Promise.resolve();
+
+void ready.then(() =>
+  createRoot(document.getElementById('root')!).render(
+    <StrictMode>
+      {/* The page itself loads onto the bare background: a word in the corner would flash. */}
       <Suspense fallback={null}>
-        <DevReload />
+        <Page />
       </Suspense>
-    )}
-  </StrictMode>,
+      <Recorder />
+      {DevReload && (
+        <Suspense fallback={null}>
+          <DevReload />
+        </Suspense>
+      )}
+    </StrictMode>,
+  ),
 );

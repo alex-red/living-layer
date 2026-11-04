@@ -49,6 +49,7 @@
     "desktop-node": "bun apps/node/src/main.ts",
     "gpu-tracker": "bun scripts/gpu-tracker.ts",
     "reset": "bun scripts/reset.ts",
+    "static-demo": "bun scripts/static-demo.ts",
     "room": "bun scripts/room-view.ts",
     "brand": "bun scripts/brand-assets.ts",
     "draft": "bun scripts/draft.ts",
