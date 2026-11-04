@@ -5,7 +5,7 @@
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-columns: clamp(220px, 18vw, 280px) minmax(0, 1fr) clamp(300px, 25vw, 380px);
+  grid-template-columns: clamp(240px, 19vw, 280px) minmax(0, 1fr) clamp(300px, 25vw, 380px);
   gap: 8px;
   padding: 8px 8px 0;
 }
@@ -306,10 +306,10 @@
   color: var(--seen);
 }
 
-/* Outline: a thing's stat now, at the row's right. */
+/* Outline: a thing's stat now, at the row's right; the name keeps the room it needs first. */
 .ol-meta {
   flex: none;
-  max-width: 45%;
+  max-width: 38%;
   margin-left: auto;
   overflow: hidden;
   color: var(--text-3);
@@ -714,13 +714,30 @@ button.ol-group-head:hover {
   }
 }
 
-/* Canvas: the stage view gets a third segment, and split puts both side by side. */
+/*
+ * Canvas: the stage view gets a third segment, and split shows both views,
+ * side by side on a wide canvas. On a canvas taller than the picture's shape,
+ * side by side leaves each a small picture in a tall column, so they stack:
+ * the photo on top at full width, the room under it in what is left.
+ */
 .stage-fit.split {
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 8px;
 }
 .stage-fit.split > .scene {
   width: min(calc(50cqw - 4px), calc(100cqh * var(--ar, 1.5)));
+}
+@container (aspect-ratio < 3 / 2) {
+  .stage-fit.split > * {
+    grid-column: 1 / -1;
+  }
+  .stage-fit.split > .scene {
+    width: min(100cqw, calc((50cqh - 4px) * var(--ar, 1.5)));
+  }
+  .stage-fit.split > .iso-view {
+    width: 100cqw;
+    height: calc(100cqh - 8px - min(100cqw, (50cqh - 4px) * 1.5) / 1.5);
+  }
 }
 .edit-banner,
 .desk-step {

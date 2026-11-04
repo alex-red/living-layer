@@ -1,4 +1,4 @@
-/* One-click layer switches in a view's corner: quiet until hovered, an off layer struck through. */
+/* One-click layer switches in a view's corner: quiet until hovered; an on layer is lit, an off one dim. */
 .layer-chips {
   position: absolute;
   z-index: var(--z-tag);
@@ -30,7 +30,6 @@
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--text-3);
-  text-decoration: line-through;
   background: transparent;
   cursor: pointer;
   transition:
@@ -42,7 +41,6 @@
 }
 .layer-chip[aria-pressed='true'] {
   color: var(--text);
-  text-decoration: none;
   background: var(--control-bg-hover);
 }
 /* Sample values for the food things, centred under the room. */
@@ -51,16 +49,12 @@
   transform: translateX(-50%);
 }
 .layer-chips.sample .layer-chip {
-  text-decoration: none;
   color: var(--text-2);
 }
-/* The fridge's angles, one of them always on: in the other corner, never struck through. */
+/* The fridge's angles, one of them always on: in the other corner. */
 .layer-chips.iso.angles {
   left: auto;
   right: 12px;
-}
-.layer-chips.angles .layer-chip {
-  text-decoration: none;
 }
 .layer-chips.angles .layer-chip:disabled {
   cursor: default;

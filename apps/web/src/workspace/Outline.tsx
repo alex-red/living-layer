@@ -111,7 +111,11 @@ function Row({
           <span className="ol-label">{label}</span>
           {detail && <small>{detail}</small>}
         </span>
-        {meta && <span className={`ol-meta ${metaTone ?? ''}`}>{meta}</span>}
+        {meta && (
+          <span className={`ol-meta ${metaTone ?? ''}`} title={meta}>
+            {meta}
+          </span>
+        )}
       </button>
     </li>
   );

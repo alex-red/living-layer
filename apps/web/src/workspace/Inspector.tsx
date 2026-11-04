@@ -284,38 +284,47 @@ function MaskResults() {
 function SetupPanel() {
   const lab = useLabParts(useObservation(), useNavigation());
   const { progress } = lab;
+  // Once every step is done the list is history: it folds away under one line.
+  const done = !progress.next;
+  const steps = (
+    <ol className="setup-steps">
+      {progress.steps.map((s, i) => (
+        <li key={s.id} className={s.state}>
+          <span className={`ring ${s.state === 'done' ? 'done' : ''}`}>
+            {s.state === 'done' ? '✓' : i + 1}
+          </span>
+          <span>
+            <strong>{s.label}</strong>
+            <small>{s.detail}</small>
+          </span>
+          <Button
+            variant={s.state === 'current' ? 'primary' : 'text'}
+            size="sm"
+            disabled={s.state === 'locked'}
+            onClick={() => lab.goToStep(s.id)}
+          >
+            {s.state === 'done' ? 'Open' : 'Go'}
+          </Button>
+        </li>
+      ))}
+    </ol>
+  );
   return (
     <Panel
       tiny="SETUP"
-      title="Get the lamp rule running"
+      title={done ? 'All set' : 'Get the lamp rule running'}
       status={
-        progress.next
-          ? progress.steps.find((s) => s.id === progress.next)!.detail
-          : 'Everything is set up. Move the mug and watch it.'
+        done
+          ? 'Everything is set up. Move the mug and watch it, or pick a thing to see its history.'
+          : progress.steps.find((s) => s.id === progress.next)!.detail
       }
-      tone={progress.next ? 'seen' : 'ok'}
+      tone={done ? 'ok' : 'seen'}
     >
-      <ol className="setup-steps">
-        {progress.steps.map((s, i) => (
-          <li key={s.id} className={s.state}>
-            <span className={`ring ${s.state === 'done' ? 'done' : ''}`}>
-              {s.state === 'done' ? '✓' : i + 1}
-            </span>
-            <span>
-              <strong>{s.label}</strong>
-              <small>{s.detail}</small>
-            </span>
-            <Button
-              variant={s.state === 'current' ? 'primary' : 'text'}
-              size="sm"
-              disabled={s.state === 'locked'}
-              onClick={() => lab.goToStep(s.id)}
-            >
-              {s.state === 'done' ? 'Open' : 'Go'}
-            </Button>
-          </li>
-        ))}
-      </ol>
+      {done ? (
+        <Details summary={`Setup · ${progress.steps.length} steps done`}>{steps}</Details>
+      ) : (
+        steps
+      )}
     </Panel>
   );
 }

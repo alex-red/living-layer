@@ -1557,7 +1557,6 @@
 }
 /* A food thing's use-by line: quiet while it keeps, then unsure, then past it. */
 .iso-fixture text.iso-food {
-  font-size: 9px;
   fill: var(--text-3);
 }
 .iso-fixture text.iso-food.soon {

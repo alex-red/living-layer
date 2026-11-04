@@ -303,6 +303,14 @@ function Media() {
         }
       />
     );
+  // Opening the camera takes a moment: say so, rather than asking for a photo.
+  if (lab.cameraPending)
+    return (
+      <div className="empty-scene opening" role="status">
+        <Glyph type="camera" />
+        <h3>Opening the camera…</h3>
+      </div>
+    );
   return (
     <div className="empty-scene">
       <Glyph type="camera" />
@@ -669,10 +677,12 @@ function FollowLayers() {
   const { zoneShown } = useZoneView();
   // The tracking layer replaces the follow and watch boxes on the camera with ones fitted to the video.
   const tracked = lab.camera && lab.tracking;
+  // The watcher's boxes belong over a picture: with none yet (the camera opening), they float on nothing.
+  const picture = lab.camera || Boolean(lab.image) || lab.mode === 'demo';
   return (
     <>
       {follow && !tracked && <FollowOverlay localZone={lab.localZone} zoneShown={zoneShown} />}
-      {!follow && !tracked && watching && <WatchedBoxes />}
+      {!follow && !tracked && watching && picture && <WatchedBoxes />}
       {tracked && (
         <WatchedTracking
           video={lab.video}

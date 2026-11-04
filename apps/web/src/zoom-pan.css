@@ -52,3 +52,17 @@
 .iso-zoom > .zoom-controls {
   right: 10px;
 }
+
+/*
+ * Labels in the room are in its own units, so zooming in would blow them up
+ * over each other: past 100% each shrinks back about its own middle, keeping
+ * its size on screen. (A transform, not a font size: browsers floor those.)
+ */
+.zoom-pan-content .iso-zone-label,
+.zoom-pan-content .iso-fixture text,
+.zoom-pan-content .iso-object text,
+.zoom-pan-content .iso-stat {
+  transform-box: fill-box;
+  transform-origin: center;
+  transform: scale(calc(1 / max(1, var(--zoom, 1))));
+}

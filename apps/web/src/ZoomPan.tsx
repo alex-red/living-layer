@@ -4,6 +4,7 @@ import {
   useEffect,
   useRef,
   useState,
+  type CSSProperties,
   type PointerEvent,
   type ReactNode,
 } from 'react';
@@ -280,7 +281,12 @@ export function ZoomPan({
     >
       <div
         className="zoom-pan-content"
-        style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.s})` }}
+        style={
+          {
+            transform: `translate(${view.x}px, ${view.y}px) scale(${view.s})`,
+            '--zoom': view.s,
+          } as CSSProperties
+        }
       >
         <ZoomStep.Provider value={Math.min(MAX_STEP, 2 ** Math.round(Math.log2(view.s)))}>
           {children}
