@@ -184,7 +184,6 @@ p {
   .evidence-table,
   .inspector,
   .feedback,
-  .frame-label,
   .object-card {
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
@@ -220,9 +219,6 @@ p {
   .stage-fit .scene {
     width: 100%;
     border-radius: var(--r-card);
-  }
-  .frame-label span {
-    display: none;
   }
 }
 

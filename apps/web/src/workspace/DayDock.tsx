@@ -14,6 +14,9 @@ import { useLabCalls } from './LabContext';
 import { REPLAY_SPEEDS, playReplay, setReplay, useReplay, useReplayClock } from './state/replay';
 import './day.css';
 
+/** Example questions offered before the first ask: a few, so the dock stays one glance. */
+const SHOWN_EXAMPLES = 4;
+
 const NUDGES = dayNudges();
 /** How long a nudge stays on the phone, in minutes of the day. */
 const NUDGE_SHOWN = 90;
@@ -192,7 +195,7 @@ function Ask({ minute }: { minute: number }) {
       )}
       {!answer && (
         <div className="day-examples" role="group" aria-label="Example questions">
-          {DEMO_ASK_EXAMPLES.map((q) => (
+          {DEMO_ASK_EXAMPLES.slice(0, SHOWN_EXAMPLES).map((q) => (
             <button key={q} type="button" className="day-example" onClick={() => void ask(q)}>
               {q}
             </button>

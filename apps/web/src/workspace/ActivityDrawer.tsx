@@ -144,19 +144,19 @@ const OUTCOME_GLYPH = { done: '✓', failed: '×', stopped: '■' } as const;
 function AiHistory() {
   const lab = useLabParts(useAi());
   return (
-    <ul className="aip-history" aria-label="Recent AI runs">
+    <ul className="ai-history" aria-label="Recent AI runs">
       {lab.aiHistory.slice(0, 5).map((job) => {
         const outcome = job.outcome ?? (job.stopped ? 'stopped' : 'done');
         const took = job.endedAt ? Date.parse(job.endedAt) - Date.parse(job.createdAt) : null;
         return (
           <li key={job.id}>
-            <button className="aip-history-row" onClick={() => void lab.reviewAiRun(job.id)}>
-              <span className={`aip-history-mark ${outcome}`} aria-hidden="true">
+            <button className="ai-history-row" onClick={() => void lab.reviewAiRun(job.id)}>
+              <span className={`ai-history-mark ${outcome}`} aria-hidden="true">
                 {OUTCOME_GLYPH[outcome]}
               </span>
               <strong>
                 {job.title ?? 'AI run'}
-                <span className="aip-sr">, {outcome}</span>
+                <span className="ai-history-sr">, {outcome}</span>
               </strong>
               <small>
                 {job.steps.filter((s) => s.state === 'done').length}/{job.steps.length} steps

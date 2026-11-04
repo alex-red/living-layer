@@ -920,9 +920,6 @@ export function PhotoStage({
           <FrameRate video={lab.video} on={camera} />
         </span>
       )}
-      <span className="frame-label">
-        {dimensions.width} × {dimensions.height} <span>{fridge ? 'PLACEHOLDER' : 'FRAME 00'}</span>
-      </span>
       <LayerChips view="photo" />
     </div>
   );

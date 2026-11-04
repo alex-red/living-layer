@@ -731,9 +731,17 @@ function SurfacePanel({ id, closeView }: { id: string; closeView?: boolean }) {
           </Button>
         )}
       </div>
-      <p className="micro">
+      {/* How far the marks were off is for whoever is checking, in the line's title. */}
+      <p
+        className="micro"
+        title={
+          memory?.camera
+            ? `Marks off by ${memory.camera.error.toFixed(1)} px on average`
+            : undefined
+        }
+      >
         {memory?.camera
-          ? `Camera calibrated (${memory.camera.error.toFixed(1)} px)${memory.camera.moved ? ', but it has moved: zones pause until you calibrate again' : ''}.`
+          ? `Camera calibrated${memory.camera.moved ? ', but it has moved: zones pause until you calibrate again' : ''}.`
           : mode === 'demo'
             ? 'The demo camera is calibrated. Calibrate again to try the marks.'
             : 'Mount a camera high in a corner, then calibrate it so room zones apply to its frames.'}

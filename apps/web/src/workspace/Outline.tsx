@@ -269,13 +269,19 @@ function SceneSwitcher() {
   );
 }
 
-/** What is left to set this scene up, in order; gone once it is all done. */
+/**
+ * What is left to set this scene up, in order; gone once it is all done.
+ * With nothing selected the inspector lists the same steps, so here they
+ * fold to the bar until opened.
+ */
 function SetupCard() {
-  const lab = useLabParts(useObservation(), useNavigation());
+  const lab = useLabParts(useView(), useObservation(), useNavigation());
   const steps = lab.progress.steps.filter((s) => s.id !== 'office');
   const done = steps.filter((s) => s.state === 'done').length;
   const all = done === steps.length;
-  const [open, setOpen] = useState(!all);
+  // Null until it is opened or closed by hand: then open unless the inspector shows the steps.
+  const [chosen, setOpen] = useState<boolean | null>(null);
+  const open = chosen ?? Boolean(lab.selection);
   // Opens again when a step comes undone, as when the pin is cleared.
   const was = useRef(all);
   useEffect(() => {

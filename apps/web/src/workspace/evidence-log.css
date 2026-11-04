@@ -5,9 +5,15 @@
   border-radius: var(--r-card);
   background: var(--glass-regular);
 }
+/* What ran and when, then its result and how long it took, each in its own column. */
 .run-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(64px, auto);
+  align-items: center;
+  gap: 12px;
   width: 100%;
   min-height: 40px;
+  padding: 6px 8px;
   border: 0;
   border-bottom: 1px solid var(--line);
   background: none;
@@ -31,6 +37,10 @@
 .run-row > span:first-child {
   display: grid;
   gap: 2px;
+}
+.run-row > span:last-child {
+  text-align: right;
+  color: var(--text-3);
 }
 .run-row strong {
   font-weight: 500;
@@ -117,4 +127,66 @@
 }
 .log-more:hover {
   background: rgb(255 255 255 / 3%);
+}
+
+/* Past AI runs in the drawer, each reopening its steps in the AI dialog. */
+.ai-history {
+  display: grid;
+  gap: 4px;
+  margin: 0 0 8px;
+  padding: 0;
+  list-style: none;
+}
+.ai-history-row {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 32px;
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  background: rgb(255 255 255 / 2%);
+  color: var(--text-2);
+  font-size: var(--fs-12);
+  text-align: left;
+  transition:
+    background var(--t-fast),
+    border-color var(--t-fast);
+}
+.ai-history-row:hover {
+  border-color: var(--line-strong);
+  background: rgb(255 255 255 / 4%);
+  color: var(--text);
+}
+.ai-history-row strong {
+  overflow: hidden;
+  color: var(--text);
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ai-history-row small {
+  color: var(--text-3);
+  font: 500 var(--fs-11) var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+.ai-history-mark.done {
+  color: var(--ok);
+}
+.ai-history-mark.failed {
+  color: var(--blocked);
+}
+.ai-history-mark.stopped {
+  color: var(--text-3);
+}
+/* The run's outcome, said to a screen reader; the mark shows it. */
+.ai-history-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }

@@ -94,7 +94,8 @@ export function Canvas() {
     !lab.outlining;
   return (
     <section className="ws-canvas" aria-label="Scene and segmentation">
-      <SceneToolbar />
+      {/* Before a scene there is nothing to layer or view: the first screen stands alone. */}
+      {!onboarding && <SceneToolbar />}
       {!onboarding && <StageTools />}
       {!onboarding && <EditBanner />}
       {!onboarding && <DeskStep />}

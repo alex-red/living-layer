@@ -1,7 +1,6 @@
 /* Type and glass surfaces shared by every screen. Loaded right after the controls, before any screen refines them. */
 /* Shared type */
 .tiny,
-.frame-label,
 .hud-tag,
 .live-tag {
   font: 500 var(--fs-11) / 14px var(--mono);

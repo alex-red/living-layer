@@ -213,6 +213,13 @@
   color: var(--text-3);
   pointer-events: none;
 }
+/* Stops short of the zoom control in the top right corner. */
+.iso-tag {
+  max-width: calc(100% - 132px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .iso-note {
   margin: 0;
   min-height: 18px;
@@ -242,6 +249,9 @@
 }
 .pin-tag {
   z-index: var(--z-pin-tag);
+  /* Inside the frame's corner marks, where the camera's LIVE tag stands. */
+  left: 40px;
+  top: 14px;
   padding: 4px 8px;
   border-radius: var(--r-chip);
   background: var(--glass-regular);

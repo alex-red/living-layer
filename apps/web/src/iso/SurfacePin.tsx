@@ -3,6 +3,7 @@ import { quadIsConvex, type Point, type Quad } from '@livinglayer/domain';
 import { Button } from '../ui/controls';
 
 const CORNERS = ['back left', 'back right', 'front right', 'front left'];
+const CORNER_NAMES = ['Back left', 'Back right', 'Front right', 'Front left'];
 
 /**
  * Pins a surface on the photo, in the frame's own pixels. With no `initial`
@@ -124,9 +125,16 @@ export function SurfacePin({
           <circle key={i} cx={p.x} cy={p.y} r={r} />
         ))}
       </svg>
-      <span className="pin-tag" aria-live="polite">
-        {hint ||
-          `Click the ${CORNERS[points.length]} corner of the ${label} · ${points.length + 1}/4`}
+      {/* The banner over the canvas says how; this names the corner, short enough to clear the zoom. */}
+      <span
+        className="pin-tag"
+        aria-live="polite"
+        aria-label={
+          hint ||
+          `Click the ${CORNERS[points.length]} corner of the ${label}, ${points.length + 1} of 4`
+        }
+      >
+        {hint || `${CORNER_NAMES[points.length]} corner · ${points.length + 1}/4`}
       </span>
     </>
   );

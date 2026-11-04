@@ -448,7 +448,7 @@ function IsoViewOf({
     if (!surface) note = 'This scene has no surface to pin. Add a desk, table or shelf.';
     else if (!pinned)
       note = `Pin the ${surface.label.toLowerCase()} on a photo to place objects here.`;
-    else if (!o) note = 'Confirm the mug in a segmentation to see it here.';
+    else if (!o) note = 'Find the mug to see it here.';
     else if (!mug)
       note = 'This frame is a different size from the one the corners were set on. Pin it again.';
     if (mug && mugOf(memory)) {
@@ -1046,7 +1046,7 @@ function IsoViewOf({
               : `ITEM · ${(target?.item?.label ?? target?.label ?? 'object').toUpperCase()}`
             : panel === 'scene'
               ? 'SCENE EDITOR'
-              : `ISO · ${scene.label.toUpperCase()} · ${surface?.label.toUpperCase() ?? 'NO SURFACE'}${pinned ? (memory?.surface ? ' · PINNED' : ' · DEMO') : ''}${replayClock ? ` · SAMPLE DAY ${replayClock}` : ''}`}
+              : `${replayClock ? `SAMPLE DAY ${replayClock} · ` : 'ISO · '}${scene.label.toUpperCase()} · ${surface?.label.toUpperCase() ?? 'NO SURFACE'}${pinned ? (memory?.surface ? ' · PINNED' : ' · DEMO') : ''}`}
         </span>
         {panel === 'room' && <LayerChips view="iso" />}
         {panel === 'room' && !picture && <DayChip />}
