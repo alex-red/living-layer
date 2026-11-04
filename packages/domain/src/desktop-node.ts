@@ -21,7 +21,10 @@ const httpUrlSchema = z
   .string()
   .max(2048)
   .url()
-  .refine((u) => /^https?:$/.test(new URL(u).protocol), { message: 'Only http and https pages.' });
+  // Zod runs this even when `.url()` failed, so a half-typed `https://` must not throw here.
+  .refine((u) => URL.canParse(u) && /^https?:$/.test(new URL(u).protocol), {
+    message: 'Only http and https pages.',
+  });
 
 const openSchema = z
   .object({ kind: z.literal('open'), url: httpUrlSchema, kiosk: z.boolean().optional() })

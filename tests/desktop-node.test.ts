@@ -72,6 +72,11 @@ describe('the command schema', () => {
       desktopNodeCommandSchema.safeParse({ kind: 'open', url: 'file:///etc/passwd' }).success,
     ).toBe(false);
   });
+  it('refuses a half-typed page without throwing', () => {
+    expect(desktopNodeCommandSchema.safeParse({ kind: 'open', url: 'https://' }).success).toBe(
+      false,
+    );
+  });
   it('refuses a field it doesn’t know', () => {
     expect(
       desktopNodeCommandSchema.safeParse({ kind: 'display', to: 'off', argv: ['rm'] }).success,
