@@ -646,6 +646,13 @@
 .day-nudge.coach .day-nudge-app {
   color: var(--seen);
 }
+.day-nudge p.day-nudge-done {
+  color: var(--ok);
+}
+.day-nudge-actions button.primary {
+  color: var(--void);
+  background: var(--seen);
+}
 .day-nudge strong .day-dot {
   margin-right: 2px;
 }

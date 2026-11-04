@@ -92,6 +92,7 @@ import type { SceneView } from './SceneEditor';
 import { DayChip, DayNudges } from '../workspace/DayDock';
 import { clock, dayAt } from '../workspace/demoDay';
 import { useReplay } from '../workspace/state/replay';
+import { demoLampAt, useCoach } from '../workspace/state/coach';
 import { statsStore } from '../workspace/state/stats';
 import { useStore } from '../workspace/state/store';
 
@@ -438,7 +439,11 @@ function IsoViewOf({
   // Live, the dock only asks: the room stays as it is.
   const replaying = mode === 'demo';
   const replayMug = useReplay((r) => (r.open && replaying ? dayAt(r.minute).mug : null));
-  const replayLamp = useReplay((r) => (r.open && replaying ? dayAt(r.minute).lamp : null));
+  // A coach nudge's "Turn it off" switches the replay's lamp off until the day switches it again.
+  const coachExtra = useCoach((c) => c.extra);
+  const replayLamp = useReplay((r) =>
+    r.open && replaying ? demoLampAt(r.minute, dayAt(r.minute).lamp, coachExtra) : null,
+  );
   const replayClock = useReplay((r) => (r.open && replaying ? clock(Math.floor(r.minute)) : null));
 
   // The mug, then every other remembered object the pin can place; the zones, the trail and the lit lights.

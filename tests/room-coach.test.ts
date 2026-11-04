@@ -1,6 +1,7 @@
 import { describe, expect, it, mock } from 'bun:test';
 import {
   COACH,
+  actionEvents,
   coachDay,
   coachFacts,
   coachLine,
@@ -17,6 +18,7 @@ import {
   type CoachView,
   type CoachWords,
   type DeskMemory,
+  type StatEvent,
 } from '@livinglayer/domain';
 import type { Fetcher } from '../apps/server/src/config.js';
 import { testApp } from './lib/app.js';
@@ -129,8 +131,56 @@ describe('coachDay', () => {
     expect(day()).toEqual(nudges);
   });
 
-  it('nudges about drinks, the screen and the cat over the sample day', () => {
-    expect(new Set(day().map((n) => n.topic))).toEqual(new Set(['drink', 'screen', 'cat', 'food']));
+  it('nudges about drinks, the screen, the cat, food and the lamp over the sample day', () => {
+    expect(new Set(day().map((n) => n.topic))).toEqual(
+      new Set(['drink', 'screen', 'cat', 'food', 'lampAway']),
+    );
+  });
+
+  it('keeps a snoozed topic quiet until the snooze ends', () => {
+    const z = { topic: 'drink' as const, from: at(8 * 60), to: at(12 * 60) };
+    const nudges = coachDay(history(23 * 60), at(6 * 60 + 30), at(23 * 60), [z]);
+    const drinks = nudges.filter((n) => n.topic === 'drink').map((n) => n.at);
+    expect(drinks.some((t) => t >= z.from && t < z.to)).toBe(false);
+    expect(drinks.some((t) => t >= z.to)).toBe(true);
+  });
+});
+
+describe('a nudge’s action', () => {
+  const day = (h: AskHistory) => coachDay(h, at(6 * 60 + 30), at(23 * 60));
+  const after = (h: AskHistory, extra: StatEvent[]): AskHistory => ({
+    ...h,
+    events: [...h.events, ...extra].sort((a, b) => a.at - b.at),
+  });
+
+  it('logs a sip, so the next drink nudge waits 20 minutes from it', () => {
+    const h = history(23 * 60);
+    const nudge = day(h).find((n) => n.topic === 'drink' && n.at > at(10 * 60))!;
+    const acted = day(after(h, actionEvents(nudge, nudge.at)));
+    const next = acted.find((n) => n.topic === 'drink' && n.at > nudge.at)!;
+    expect(next.at - nudge.at).toBeGreaterThanOrEqual(COACH.thirstyMin * 60_000);
+    // Up to the action, the day is the same.
+    expect(acted.filter((n) => n.at <= nudge.at)).toEqual(day(h).filter((n) => n.at <= nudge.at));
+  });
+
+  it('takes a 5-minute break, so the screen’s stretch starts again after it', () => {
+    const h = history(23 * 60);
+    const nudge = day(h).find((n) => n.topic === 'screen')!;
+    const [off, on] = actionEvents(nudge, nudge.at);
+    expect(on!.at - off!.at).toBe(5 * 60_000);
+    const screen = coachFacts(after(h, [off!, on!]), on!.at + 10 * 60_000).find(
+      (f) => f.topic === 'screen',
+    )!;
+    expect(screen.minutes).toBe(10);
+  });
+
+  it('switches the lamp off, so it stops being left on', () => {
+    const h = history(23 * 60);
+    const nudge = day(h).find((n) => n.topic === 'lampAway')!;
+    const events = actionEvents(nudge, nudge.at);
+    expect(events.map((e) => [e.thingId, e.key, e.value])).toEqual([['lamp', 'power', false]]);
+    const facts = coachFacts(after(h, events), events[0]!.at + 60_000);
+    expect(facts.some((f) => f.topic === 'lampAway')).toBe(false);
   });
 });
 

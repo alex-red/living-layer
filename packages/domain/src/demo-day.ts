@@ -158,7 +158,7 @@ const FOOD_IDS: Record<string, string> = {
 const SCREEN_DAY: [number, number][] = [
   [465, 750],
   [795, 1040],
-  [1140, 1175],
+  [1140, 1150],
 ];
 
 /** A small seeded generator, so the made-up days are the same on every run. */

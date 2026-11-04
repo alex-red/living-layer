@@ -1,9 +1,15 @@
 import { useEffect } from 'react';
 import {
+  COACH_ACTIONS,
+  COACH_SNOOZE_MIN,
+  DEMO_DAY,
+  actionEvents,
   coachDay,
   demoHistory,
   midnightOf,
   type CoachNudge,
+  type CoachSnooze,
+  type StatEvent,
   type CoachView,
   type Mode,
 } from '@livinglayer/domain';
@@ -25,6 +31,13 @@ interface Coach {
   /** Why the last "Check now" didn't nudge, or a note on how it did. */
   said: string | null;
   checking: boolean;
+  /** Demo: what the nudges' buttons did, as the person's own events, and the topics snoozed. */
+  extra: StatEvent[];
+  snoozes: CoachSnooze[];
+  /** Nudges acted on, by id: what each says now it's done. */
+  acted: Record<string, string>;
+  /** A question a button asked, for the dock's Ask to put. */
+  askNext: string | null;
 }
 
 const coachStore = createStore<Coach>({
@@ -33,6 +46,10 @@ const coachStore = createStore<Coach>({
   dismissed: [],
   said: null,
   checking: false,
+  extra: [],
+  snoozes: [],
+  acted: {},
+  askNext: null,
 });
 
 export function useCoach<S>(select: (c: Coach) => S): S {
@@ -41,6 +58,53 @@ export function useCoach<S>(select: (c: Coach) => S): S {
 
 export function dismissNudge(id: string) {
   coachStore.set((c) => ({ ...c, dismissed: [...c.dismissed, id] }));
+}
+
+/**
+ * Do what a nudge's button says, in the demo: the sip, break or light off
+ * joins the sample day's history from the replay's minute (so the coach's
+ * later nudges follow from it, and the lamp goes dark), and the nudge says
+ * it's done. Live, the buttons wait for now.
+ */
+export function actOnNudge(nudge: CoachNudge, at: number) {
+  const action = COACH_ACTIONS[nudge.topic];
+  coachStore.set((c) => ({
+    ...c,
+    extra: [...c.extra, ...actionEvents(nudge, at)],
+    acted: { ...c.acted, [nudge.id]: action.done },
+    askNext: action.does === 'ask' ? 'What should I eat first?' : c.askNext,
+  }));
+}
+
+/** Keep a nudge's topic quiet for a while from the replay's minute, and put the nudge away. */
+export function snoozeNudge(nudge: CoachNudge, at: number) {
+  coachStore.set((c) => ({
+    ...c,
+    snoozes: [...c.snoozes, { topic: nudge.topic, from: at, to: at + COACH_SNOOZE_MIN * 60_000 }],
+    dismissed: [...c.dismissed, nudge.id],
+  }));
+}
+
+export function takeAskNext(): string | null {
+  const q = coachStore.get().askNext;
+  if (q) coachStore.set((c) => ({ ...c, askNext: null }));
+  return q;
+}
+
+/**
+ * Whether the demo's lamp is on at `minute`: as the sample day has it, unless
+ * a nudge's button switched it off since the day last switched it.
+ */
+export function demoLampAt(minute: number, scripted: boolean, extra: readonly StatEvent[]) {
+  const day = midnightOf(Date.now());
+  const off = extra
+    .filter((e) => e.thingId === 'lamp' && e.key === 'power' && e.value === false)
+    .map((e) => (e.at - day) / 60_000)
+    .filter((m) => m <= minute)
+    .at(-1);
+  if (off === undefined) return scripted;
+  const switchedSince = DEMO_DAY.some((e) => e.lamp !== undefined && e.at > off && e.at <= minute);
+  return switchedSince ? scripted : false;
 }
 
 /** Look now: a nudge joins the notifications; else the dock says why it kept quiet. */
@@ -94,18 +158,32 @@ export function useLiveCoach(active: boolean) {
   }, [active]);
 }
 
-let demoDay: { day: number; nudges: CoachNudge[] } | null = null;
+let demoDay: {
+  day: number;
+  extra: readonly StatEvent[];
+  snoozes: readonly CoachSnooze[];
+  nudges: CoachNudge[];
+} | null = null;
 /**
  * The coach over the demo's sample day, offline: a look every few minutes
- * from morning to night, worked out once a day. The replay shows each nudge
- * as its minute passes.
+ * from morning to night, following what the nudges' buttons did. Worked out
+ * again only when the day or those change.
  */
-export function demoCoachDay(): CoachNudge[] {
+export function demoCoachDay(
+  extra: readonly StatEvent[],
+  snoozes: readonly CoachSnooze[],
+): CoachNudge[] {
   const day = midnightOf(Date.now());
-  if (demoDay?.day !== day) {
+  if (demoDay?.day !== day || demoDay.extra !== extra || demoDay.snoozes !== snoozes) {
     const at = (minute: number) => day + minute * 60_000;
     const history = { ...demoHistory(at(DAY_END)), watched: null };
-    demoDay = { day, nudges: coachDay(history, at(DAY_START), at(DAY_END)) };
+    history.events = [...history.events, ...extra].sort((a, b) => a.at - b.at);
+    demoDay = {
+      day,
+      extra,
+      snoozes,
+      nudges: coachDay(history, at(DAY_START), at(DAY_END), snoozes),
+    };
   }
   return demoDay.nudges;
 }

@@ -396,9 +396,15 @@ export function quietWords(facts: readonly CoachFact[]): string {
 /**
  * The coach over a stretch of time, offline: a look every `COACH.everyMin`
  * minutes from `from` to `to`, each nudging about its most due fact unless
- * it nudged about that one lately. What the demo's replay shows.
+ * it nudged about that one lately or its topic is snoozed. What the demo's
+ * replay shows.
  */
-export function coachDay(history: AskHistory, from: number, to: number): CoachNudge[] {
+export function coachDay(
+  history: AskHistory,
+  from: number,
+  to: number,
+  snoozes: readonly CoachSnooze[] = [],
+): CoachNudge[] {
   const nudges: CoachNudge[] = [];
   // Only the last day's events matter to any look in it, and filtering fewer is faster.
   const recentHistory = {
@@ -406,11 +412,76 @@ export function coachDay(history: AskHistory, from: number, to: number): CoachNu
     events: history.events.filter((e) => e.at > from - 86_400_000),
   };
   for (let at = from; at <= to; at += COACH.everyMin * MINUTE) {
-    const due = dueFacts(coachFacts(recentHistory, at), nudges, at);
+    const due = dueFacts(coachFacts(recentHistory, at), nudges, at).filter(
+      (f) => !snoozes.some((z) => z.topic === f.topic && at >= z.from && at < z.to),
+    );
     const fact = due[0];
     if (fact) nudges.push(coachNudge(fact, coachLine(fact, at, nudges.length), at, 'offline'));
   }
   return nudges;
+}
+
+/** What a nudge's button does: log a sip, take a break, switch something off, ask, or nothing. */
+export type CoachDoes = 'drink' | 'break' | 'screenOff' | 'lampOff' | 'ask' | 'none';
+
+/**
+ * Each topic's button, what it does and what the nudge says once done. For
+ * now only the demo acts (`actionEvents`); live, the buttons wait.
+ */
+export const COACH_ACTIONS: Record<CoachTopic, { label: string; does: CoachDoes; done: string }> = {
+  drink: { label: 'Log a sip', does: 'drink', done: 'Sip logged. Your mug feels seen.' },
+  screen: {
+    label: 'Take 5',
+    does: 'break',
+    done: 'Screen off for 5 minutes. Go look at a tree.',
+  },
+  late: { label: 'Bed, fine', does: 'screenOff', done: 'Screen off. Sleep well, night owl.' },
+  lampAway: {
+    label: 'Turn it off',
+    does: 'lampOff',
+    done: 'Lamp off. The electricity bill sends its regards.',
+  },
+  cat: { label: 'Respect the cat', does: 'none', done: 'The cat acknowledges you. Barely.' },
+  food: { label: 'What do I eat?', does: 'ask', done: 'Asked the room what to eat first.' },
+};
+/** Minutes a snoozed topic keeps quiet. */
+export const COACH_SNOOZE_MIN = 30;
+/** A topic kept quiet from a time until another, ms. */
+export interface CoachSnooze {
+  topic: CoachTopic;
+  from: number;
+  to: number;
+}
+
+/**
+ * What doing a nudge's action at `when` adds to the room's history, as the
+ * person's own events: a sip from the mug, the screen off for a 5-minute
+ * break (or for the night), the light off. Nothing for an action that only
+ * answers.
+ */
+export function actionEvents(nudge: CoachNudge, when: number): StatEvent[] {
+  // Done after the nudge it answers, so the nudge itself still stands.
+  const at = Math.max(when, nudge.at + MINUTE);
+  const thingId = nudge.factId.slice(nudge.factId.indexOf(':') + 1);
+  const ev = (key: StatKey, ms: number, value: StatEvent['value']): StatEvent => ({
+    thingId,
+    key,
+    at: ms,
+    value,
+    source: 'person',
+    confidence: 1,
+  });
+  switch (COACH_ACTIONS[nudge.topic].does) {
+    case 'drink':
+      return [ev('lastUsed', at, at)];
+    case 'break':
+      return [ev('power', at, false), ev('power', at + 5 * MINUTE, true)];
+    case 'screenOff':
+    case 'lampOff':
+      return [ev('power', at, false)];
+    default:
+      return [];
+  }
 }
 
 /** What Spark answers: which fact, and the nudge in its words. Flat and strict. */

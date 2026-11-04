@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
 import {
   DEMO_ASK_EXAMPLES,
   DEMO_DAY,
@@ -7,6 +7,8 @@ import {
   type AskExample,
   type AskKind,
   COACH,
+  COACH_ACTIONS,
+  COACH_SNOOZE_MIN,
   type CoachNudge,
   type CoachTopic,
   clockOf,
@@ -19,10 +21,13 @@ import { IconButton } from '../ui/controls';
 import { DAY_END, DAY_START, DAY_THINGS, clock, dayNudges, eventsUntil } from './demoDay';
 import { useDesk, useLabCalls, useView } from './LabContext';
 import {
+  actOnNudge,
   checkCoach,
   demoCoachDay,
   dismissNudge,
+  snoozeNudge,
   switchCoach,
+  takeAskNext,
   useCoach,
   useLiveCoach,
 } from './state/coach';
@@ -30,12 +35,7 @@ import { REPLAY_SPEEDS, playReplay, setReplay, useReplay, useReplayClock } from 
 import './day.css';
 
 const NUDGES = dayNudges();
-/** The room coach's nudges over the sample day, as minutes of it, for the track. */
-const COACH_TICKS = demoCoachDay().map((n) => ({
-  id: n.id,
-  title: n.title,
-  minute: Math.round((n.at - midnightOf(Date.now())) / 60_000),
-}));
+
 /** How long a nudge stays on the phone, in minutes of the day. */
 const NUDGE_SHOWN = 90;
 
@@ -94,6 +94,17 @@ function Dock() {
   const speed = useReplay((r) => r.speed);
   const last = eventsUntil(minute).at(-1);
   const [cited, setCited] = useState<number[]>([]);
+  const extra = useCoach((c) => c.extra);
+  const snoozes = useCoach((c) => c.snoozes);
+  // The room coach's nudges over the sample day, as minutes of it, for the track.
+  const coachTicks = useMemo(() => {
+    const day = midnightOf(Date.now());
+    return demoCoachDay(extra, snoozes).map((n) => ({
+      id: n.id,
+      title: n.title,
+      minute: Math.round((n.at - day) / 60_000),
+    }));
+  }, [extra, snoozes]);
   return (
     <section className="day-dock" aria-label="Day replay">
       <div className="day-bar">
@@ -124,7 +135,7 @@ function Dock() {
               title={`${clock(n.at)} · ${n.title}`}
             />
           ))}
-          {COACH_TICKS.map((n) => (
+          {coachTicks.map((n) => (
             <span
               key={n.id}
               className="day-tick coach"
@@ -253,6 +264,15 @@ function Ask({
       if (n === asked.current) setAsking('');
     }
   };
+  // A nudge's button may ask a question ("What do I eat?"): put it as if typed.
+  const askNext = useCoach((c) => c.askNext);
+  const askFromNudge = useEffectEvent(() => {
+    const q = takeAskNext();
+    if (q) void ask(q);
+  });
+  useEffect(() => {
+    if (askNext) askFromNudge();
+  }, [askNext]);
   const clear = () => {
     show(null);
     setQuestion('');
@@ -530,14 +550,14 @@ function Bars({ bars }: { bars: NonNullable<RoomAnswer['bars']> }) {
   );
 }
 
-/** A coach nudge's dot and its button, by topic. */
-const TOPIC: Record<CoachTopic, { dot: string; action: string }> = {
-  drink: { dot: 'mug', action: 'Sipping now' },
-  screen: { dot: 'monitor', action: 'Fine, I’ll blink' },
-  late: { dot: 'monitor', action: 'Five more minutes' },
-  lampAway: { dot: 'lamp', action: 'Oops' },
-  cat: { dot: 'cat', action: 'Respect the cat' },
-  food: { dot: 'fridge', action: 'On it' },
+/** A coach nudge's dot, by topic. */
+const TOPIC_DOT: Record<CoachTopic, string> = {
+  drink: 'mug',
+  screen: 'monitor',
+  late: 'monitor',
+  lampAway: 'lamp',
+  cat: 'cat',
+  food: 'fridge',
 };
 /** How long a live coach nudge stays over the room, ms. */
 const LIVE_SHOWN_MS = 30 * 60_000;
@@ -556,6 +576,8 @@ interface Shown {
   action?: string | undefined;
   dot?: string;
   bySpark?: boolean;
+  /** A room coach's nudge, whose buttons act in the demo. */
+  nudge?: CoachNudge;
 }
 
 /**
@@ -571,6 +593,9 @@ export function DayNudges() {
   const live = useCoach((c) => c.live);
   const checked = useCoach((c) => c.checked);
   const dismissed = useCoach((c) => c.dismissed);
+  const acted = useCoach((c) => c.acted);
+  const extra = useCoach((c) => c.extra);
+  const snoozes = useCoach((c) => c.snoozes);
   useLiveCoach(mode === 'live');
   const today = midnightOf(Date.now());
   const shown = useMemo((): Shown[] => {
@@ -581,9 +606,9 @@ export function DayNudges() {
       coach: true,
       title: n.title,
       body: n.body,
-      action: TOPIC[n.topic].action,
-      dot: TOPIC[n.topic].dot,
+      dot: TOPIC_DOT[n.topic],
       bySpark: n.by === 'spark',
+      nudge: n,
     });
     if (mode === 'live')
       return (live?.nudges ?? [])
@@ -602,17 +627,19 @@ export function DayNudges() {
         body: n.body,
         action: n.action,
       })),
-      ...demoCoachDay()
+      ...demoCoachDay(extra, snoozes)
         .filter((n) => n.at <= now && now - n.at < COACH_SHOWN * 60_000)
         .map((n) => coachCard(n, clockOf(n.at))),
       ...checked.map((n) => coachCard(n, clockOf(n.at))),
     ];
-  }, [mode, live, replaying, minute, today, checked]);
+  }, [mode, live, replaying, minute, today, checked, extra, snoozes]);
   const left = shown
     .filter((n) => !dismissed.includes(n.id))
     .sort((a, b) => b.at - a.at)
     .slice(0, SHOWN_AT_ONCE);
   if (!left.length) return null;
+  const demo = mode === 'demo';
+  const now = today + minute * 60_000;
   return (
     <div className="day-nudges" aria-label="Notifications" role="log">
       {left.map((n) => (
@@ -636,14 +663,35 @@ export function DayNudges() {
             {n.dot && <span className={`day-dot ${n.dot}`} aria-hidden="true" />} {n.title}
           </strong>
           <p>{n.body}</p>
+          {n.nudge && acted[n.id] && (
+            <p className="day-nudge-done" role="status">
+              ✓ {acted[n.id]}
+            </p>
+          )}
           <div className="day-nudge-actions">
-            {n.action && (
-              <button type="button" onClick={() => dismissNudge(n.id)}>
-                {n.action}
-              </button>
+            {n.nudge && demo && !acted[n.id] ? (
+              <>
+                <button type="button" className="primary" onClick={() => actOnNudge(n.nudge!, now)}>
+                  {COACH_ACTIONS[n.nudge.topic].label}
+                </button>
+                <button
+                  type="button"
+                  title={`Keep quiet about this for ${COACH_SNOOZE_MIN} min`}
+                  onClick={() => snoozeNudge(n.nudge!, now)}
+                >
+                  Snooze
+                </button>
+              </>
+            ) : (
+              !n.nudge &&
+              n.action && (
+                <button type="button" onClick={() => dismissNudge(n.id)}>
+                  {n.action}
+                </button>
+              )
             )}
             <button type="button" onClick={() => dismissNudge(n.id)}>
-              Dismiss
+              {n.nudge && acted[n.id] ? 'Done' : 'Dismiss'}
             </button>
           </div>
         </article>

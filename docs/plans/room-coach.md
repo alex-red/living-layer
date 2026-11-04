@@ -11,6 +11,8 @@ Every few minutes the room coach looks at what the room's stats say now and, whe
 - **Opt-in live.** The live coach looks every `COACH.everyMin` minutes only while switched on (`room_coach` in settings; the switch is in the dock). While the camera isn't watching, camera stats are left out: an old sighting isn't now.
 - **Easy to demo.** The demo's replay runs the coach over the sample day offline (`coachDay`), so its nudges pop up over the room as the day plays and sit on the track as cyan dots. _Check now_ looks as of the replay's minute; live, it asks Spark at once.
 
+- **Buttons that act, in the demo for now.** Each topic has one (`COACH_ACTIONS`): _Log a sip_, _Take 5_ (the screen off for 5 minutes), _Bed, fine_, _Turn it off_ (the lamp), _What do I eat?_ (asks the room), _Respect the cat_. In the demo, `actionEvents` adds what it did to the sample day as the person's own events, so the coach's later nudges follow from it and the replay's lamp goes dark; _Snooze_ keeps the topic quiet for 30 minutes. The sample day's evening session ends at 19:10, so the lamp is left on and the coach catches it. Live, a nudge has only _Dismiss_ until the buttons switch real things.
+
 ## Shape
 
 - `packages/domain/src/room-coach.ts`: `coachFacts`, `dueFacts`, `coachLine` (the offline lines), `coachDay`, `coachWordsSchema`, `readCoachWords`.
@@ -21,4 +23,4 @@ Every few minutes the room coach looks at what the room's stats say now and, whe
 ## Later
 
 - Push a nudge to the phone through Home Assistant's notify, as the scripted nudges say they would.
-- A button that acts: _Oops_ on a lamp left on could switch it off.
+- The buttons live: _Turn it off_ through Home Assistant, _Log a sip_ as the mug's Last used, a snooze kept by the server.
