@@ -1,4 +1,5 @@
 import { ThingStats } from './ThingStats';
+import { ThingLayer } from './ThingLayer';
 import { lazy, useEffect, useState, type ReactNode } from 'react';
 import { useNow } from '../useNow';
 import {
@@ -1115,6 +1116,7 @@ function MugPanel() {
           Edit model {mugModel(memory) ? '· fitted' : ''} →
         </Button>
       </div>
+      <ThingLayer thing={mugOf(memory)!} disabled={Boolean(busy)} />
       <ThingStats id={mugOf(memory)!.id} label={mugOf(memory)!.label} type="mug" />
       {sightings.length > 0 && (
         <Details

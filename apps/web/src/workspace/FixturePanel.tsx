@@ -44,7 +44,6 @@ import { Glyph } from '../Glyph';
 import { Button, Check, Field, Select, type ButtonVariant } from '../ui/controls';
 import { useItemSprite } from '../iso/sprites';
 import type { FixturePlacing } from '../iso/IsoView';
-import { LayerButtons } from '../iso/LayerButtons';
 import {
   useCalibration,
   useCamera,
@@ -60,6 +59,8 @@ import {
 import { builtInLamps, builtInThings, controlLabel, ownLayout, roomLabel } from './labels';
 import { pinScene } from './progress';
 import { Ago, Details, Panel, useCall } from './panel';
+import { ThingLayer } from './ThingLayer';
+import { LayerButtons } from '../iso/LayerButtons';
 import { useStore } from './state/store';
 import { watchStore } from '../watch';
 import { ChooseDevicesLink } from './ChooseDevicesLink';
@@ -913,18 +914,7 @@ export function FixturePanel({ id }: { id: string }) {
         >
           Turn ↻
         </Button>
-        <LayerButtons
-          layer={f.layer ?? 0}
-          disabled={off || moving}
-          onLayer={(by) =>
-            save(
-              { ...inputOf(f), layer: (f.layer ?? 0) + by },
-              by > 0
-                ? `Drew the ${f.label.toLowerCase()} over what it overlaps.`
-                : `Drew the ${f.label.toLowerCase()} behind what it overlaps.`,
-            )
-          }
-        />
+        <ThingLayer thing={f} disabled={off || moving} />
         <Button size="sm" disabled={off || moving} onClick={() => lab.openModel(f.id)}>
           {f.state ? `Edit “${f.state}” model` : 'Edit model'}
         </Button>

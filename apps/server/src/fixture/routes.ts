@@ -7,6 +7,7 @@ import {
   fixturesDraftBodySchema,
   fixturesEditBodySchema,
   fixturesFindBodySchema,
+  fixturesLayerBodySchema,
   fixturesPhotoBodySchema,
   fixturesPromoteBodySchema,
   fixturesReferenceQuerySchema,
@@ -54,6 +55,20 @@ export async function fixtureRoutes(
       request.body,
     );
     return desk.anchorFixture(mode, id, segmentRunId, detectionId);
+  });
+  /** Draw a thing on another layer, like a z-index; nothing else about it changes. */
+  app.post('/layer', async (request) => {
+    const { mode, fixtureId, layer } = parseInput(fixturesLayerBodySchema, request.body);
+    desk.available(mode);
+    return store.updateMemory(mode, (memory) => {
+      const fixture = memory.fixtures?.find((f) => f.id === fixtureId);
+      if (!fixture)
+        throw new LabError('fixture_unknown', 'That fixture is not in this desk memory.', 404);
+      if (layer) fixture.layer = layer;
+      else delete fixture.layer;
+      fixture.updatedAt = new Date().toISOString();
+      return memory;
+    });
   });
   /** Stop following a fixture; it stays where it was last seen. */
   app.post('/untrack', async (request) => {

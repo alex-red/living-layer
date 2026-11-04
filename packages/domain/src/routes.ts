@@ -178,6 +178,7 @@ interface ApiRoutes {
   'fixtures/delete': { body: R.FixturesDeleteBody; response: DeskMemory };
   'fixtures/anchor': { body: R.FixturesAnchorBody; response: DeskMemory };
   'fixtures/untrack': { body: R.ModeId; response: DeskMemory };
+  'fixtures/layer': { body: R.FixturesLayerBody; response: DeskMemory };
   'fixtures/photo': {
     body: R.FixturesPhotoBody;
     response: { run: EvidenceRun<{ views: number; iou: number }>; memory: DeskMemory };

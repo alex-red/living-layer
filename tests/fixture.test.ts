@@ -669,6 +669,38 @@ describe('fixture routes', () => {
   });
 });
 
+describe('a thing’s draw layer', () => {
+  const pickMug = async (s: Awaited<ReturnType<typeof setup>>) => {
+    const segment = (await s.post('segment', { concept: 'mug' })).json<EvidenceRun<Segmentation>>();
+    return (
+      await s.post('desk/select', { segmentRunId: segment.id, detectionId: '7' })
+    ).json<DeskMemory>();
+  };
+  it('changes only the layer, so the mug stays a thing the camera follows', async () => {
+    const s = await setup();
+    const before = mug(await pickMug(s))!;
+    const after = mug(
+      (await s.post('fixtures/layer', { fixtureId: before.id, layer: 2 })).json<DeskMemory>(),
+    )!;
+    const { layer, updatedAt: _a, ...rest } = after;
+    const { updatedAt: _b, ...was } = before;
+    expect(layer).toBe(2);
+    expect(rest).toEqual(was);
+  });
+  it('drops the layer when it goes back to 0', async () => {
+    const s = await setup();
+    const { id } = mug(await pickMug(s))!;
+    await s.post('fixtures/layer', { fixtureId: id, layer: 1 });
+    const back = (await s.post('fixtures/layer', { fixtureId: id, layer: 0 })).json<DeskMemory>();
+    expect(mug(back)).not.toHaveProperty('layer');
+  });
+  it('refuses a thing that isn’t there', async () => {
+    const s = await setup();
+    const r = await s.post('fixtures/layer', { fixtureId: crypto.randomUUID(), layer: 1 });
+    expect(r.statusCode).toBe(404);
+  });
+});
+
 describe('drafting a fixture from a reference picture', () => {
   type Drafted = { run: EvidenceRun; draft: FixtureDraft };
   it('sizes a fixture by the scene’s own desk', () => {

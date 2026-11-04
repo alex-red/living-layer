@@ -48,6 +48,7 @@ const ROUTES = [
   '/api/fixtures/draft [POST]',
   '/api/fixtures/edit [POST]',
   '/api/fixtures/find [POST]',
+  '/api/fixtures/layer [POST]',
   '/api/fixtures/photo [POST]',
   '/api/fixtures/promote [POST]',
   '/api/fixtures/reference [GET]',

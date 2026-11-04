@@ -14,7 +14,13 @@ import {
 } from './fixture.js';
 import { MAX_DISMISSED } from './fixture-scan.js';
 import { ILLUSTRATION_NOTE_MAX, pictureLayerRef, sceneIllustrationSchema } from './illustration.js';
-import { isoSceneKindSchema, isoSceneSchema, surfacePinSchema, textureRef } from './iso.js';
+import {
+  isoSceneKindSchema,
+  isoSceneSchema,
+  layerSchema,
+  surfacePinSchema,
+  textureRef,
+} from './iso.js';
 import { isoItemSchema } from './iso-item.js';
 import { MAIN_RULE, roomCalibrationSchema, zoneOnSurfaceSchema, zoneRectSchema } from './memory.js';
 import { MAX_PHOTO_THINGS, PHOTO_AS } from './photo-scene.js';
@@ -453,6 +459,12 @@ export const fixturesStateBodySchema = z
   })
   .strict();
 export type FixturesStateBody = z.input<typeof fixturesStateBodySchema>;
+
+/** POST /api/fixtures/layer: a thing's draw layer alone, so a tracked thing stays tracked. */
+export const fixturesLayerBodySchema = z
+  .object({ mode: modeSchema, fixtureId: z.string().uuid(), layer: layerSchema })
+  .strict();
+export type FixturesLayerBody = z.input<typeof fixturesLayerBodySchema>;
 
 /** POST /api/fixtures/control */
 export const fixturesControlBodySchema = z

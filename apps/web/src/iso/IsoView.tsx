@@ -65,6 +65,7 @@ import {
   type Point,
 } from '@livinglayer/domain';
 import { applyHomography, runOutput, type MugSpot } from '@livinglayer/domain';
+import { withThingLayers } from './thingLayer';
 import { apiAt } from '../api';
 import { ZoomPan } from '../ZoomPan';
 import type { BaseRect } from './BaseHandles';
@@ -606,7 +607,18 @@ function IsoViewOf({
     // A motion zone is drawn on the camera's picture: a plushie stands above the surface.
     // A zone that is a thing isn't drawn: it is wherever the thing is.
     const drawingRule = Boolean(ruleDraft && ruleMap && !ruleDraft.motion && !ruleDraft.anchor);
-    return { objects, note, o, mug, trail, zones, ruleTarget, ruleMap, lit, drawingRule };
+    return {
+      objects: withThingLayers(objects, memory?.fixtures),
+      note,
+      o,
+      mug,
+      trail,
+      zones,
+      ruleTarget,
+      ruleMap,
+      lit,
+      drawingRule,
+    };
   }, [
     memory,
     pin,
