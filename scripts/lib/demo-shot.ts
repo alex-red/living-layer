@@ -23,6 +23,18 @@ export type Beat =
   | { kind: 'focus'; t: number; box: Box | null }
   | { kind: 'lower'; t: number; dur: number; title: string; sub: string }
   | { kind: 'title'; t: number; dur: number; text: string; sub: string }
+  /**
+   * A full-frame card on black: a line of text (typed on a letter at a time
+   * when `typed`), or a slate standing in for a clip not filmed yet.
+   */
+  | {
+      kind: 'card';
+      t: number;
+      dur: number;
+      text: string;
+      sub: string;
+      look: 'plain' | 'typed' | 'slate';
+    }
   /** From `t` until the next `speed` beat, the cut plays `speed` times faster. */
   | { kind: 'speed'; t: number; speed: number };
 
@@ -287,6 +299,8 @@ Style: Lower,Menlo,${px(30)},${assColour(TONE.seen)},${assColour(TONE.seen)},&H0
 Style: LowerSub,Avenir Next,${px(28)},${assColour(TONE.text2)},${assColour(TONE.text2)},&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,7,0,0,0,1
 Style: Shape,Avenir Next,10,${assColour(TONE.card)},${assColour(TONE.card)},&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,7,0,0,0,1
 Style: Title,Avenir Next,${px(96)},${assColour(TONE.text)},${assColour(TONE.text)},&H00000000,&H00000000,1,0,0,0,100,100,-1,0,1,0,0,5,0,0,0,1
+Style: Card,Avenir Next,${px(58)},${assColour(TONE.text)},${assColour(TONE.text)},&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,5,${px(160)},${px(160)},0,1
+Style: Slate,Menlo,${px(34)},${assColour(TONE.text2)},${assColour(TONE.text2)},&H00000000,&H00000000,0,0,0,0,100,100,${px(2)},0,1,0,0,5,${px(160)},${px(160)},0,1
 Style: TitleSub,Menlo,${px(26)},${assColour(TONE.seen)},${assColour(TONE.seen)},&H00000000,&H00000000,0,0,0,0,100,100,${px(4)},0,1,0,0,5,0,0,0,1
 
 [Events]
@@ -367,8 +381,64 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
           `{${fade}\\pos(${W / 2},${H / 2 + px(62)})}${assText(b.sub.toUpperCase())}`,
         );
     }
+    if (b.kind === 'card') {
+      const t = at(b.t);
+      const end = t + b.dur;
+      dialogue(0, t, end, 'Shape', `{\\pos(0,0)\\1c${assColour(TONE.void)}}${rect(W, H)}`);
+      const text = assText(b.text);
+      // A short plain card is a title: large and bold, its line under it in the HUD's type.
+      const title = b.look === 'plain' && b.text.length <= 28;
+      const centre = `\\pos(${W / 2},${H / 2 - (b.sub ? px(title ? 20 : 24) : 0)})`;
+      if (b.look === 'typed') {
+        // Each prefix shown with the rest drawn clear, so the line stays where it will end.
+        const steps = typedSteps(text);
+        steps.forEach((step, k) =>
+          dialogue(
+            1,
+            t + step.at,
+            k + 1 < steps.length ? t + steps[k + 1]!.at : end,
+            'Card',
+            `{${centre}}${text.slice(0, step.chars)}{\\alpha&HFF&}${text.slice(step.chars)}`,
+          ),
+        );
+      } else
+        dialogue(
+          1,
+          t,
+          end,
+          b.look === 'slate' ? 'Slate' : title ? 'Title' : 'Card',
+          `{${centre}${b.look === 'plain' ? '\\fad(200,200)' : ''}}${text}`,
+        );
+      if (b.sub)
+        dialogue(
+          1,
+          t + (title ? 0.25 : 0),
+          end,
+          title ? 'TitleSub' : 'LowerSub',
+          `{\\an5\\pos(${W / 2},${H / 2 + px(title ? 62 : 44)})${title ? '\\fad(250,200)' : ''}}${assText(title ? b.sub.toUpperCase() : b.sub)}`,
+        );
+    }
   }
   return head + ev.join('\n') + '\n';
+}
+
+/** Letters a second for a typed card. */
+export const TYPED_CPS = 22;
+
+/**
+ * When each prefix of a typed card shows: a letter every 1/TYPED_CPS s, a
+ * little longer after a comma or a full stop, as a hand would type it. Each
+ * step's `at` is seconds from the card's start; the last shows the whole line.
+ */
+export function typedSteps(text: string): { at: number; chars: number }[] {
+  const steps: { at: number; chars: number }[] = [];
+  let at = 0.3;
+  for (let i = 1; i <= text.length; i++) {
+    steps.push({ at, chars: i });
+    const c = text[i - 1]!;
+    at += 1 / TYPED_CPS + (c === ',' ? 0.18 : /[.?!]/.test(c) ? 0.3 : 0);
+  }
+  return steps;
 }
 
 // ---- The film ----

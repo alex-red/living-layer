@@ -9,7 +9,13 @@
  *   bun run shot tour zone               several; `all` for every one
  *   bun run shot tour --compose          cut again from the last take, without recording
  *   bun run shot zone --dry              rehearse: drive the lab, no recording
- *   bun run shot film                    join the cut shots → out/demo-video/film.mp4
+ *   bun run shot scene hook              cut one scene of the film → out/demo-video/scenes/hook.mp4
+ *   bun run shot film                    cut every scene and join them → out/demo-video/film.mp4
+ *
+ * The film is scenes (`scripts/shots/scenes.ts`): each a run of shots' cuts,
+ * clips filmed on the phone (under out/demo-video/phone/) and cards. A clip
+ * not filmed yet, or a shot not cut yet, shows as a slate saying what to do,
+ * so the film can be cut at any point.
  *
  * The voice: put `<n>.wav` (or .m4a, .mp3, .aiff) for line n of a shot in
  * `<voice dir>/<shot>/` (default out/demo-video/voice/, `--voice <dir>`) and
@@ -23,6 +29,7 @@ import { join, relative, resolve } from 'node:path';
 import { flag, has, parseArgs } from './lib/args.js';
 import {
   cameraKeys,
+  estimateSeconds,
   joinFilter,
   overlays,
   rampFilter,
@@ -32,6 +39,8 @@ import {
   type Take,
 } from './lib/demo-shot.js';
 import { Director, LAB, audioSeconds, voiceFile, type Shot } from './lib/director.js';
+import { clipFilter, clipSeconds, sceneBeats, timeline, type Scene } from './lib/scenes.js';
+import { SCENES } from './shots/scenes.js';
 import { SHOTS } from './shots/index.js';
 
 const args = parseArgs();
@@ -166,16 +175,211 @@ async function compose(shot: Shot, take: Take) {
   );
 }
 
-function film() {
-  const cuts = SHOTS.map((s) => ({ s, file: join(outDir, s.name, 'cut.mp4') })).filter((c) =>
-    existsSync(c.file),
+/** A black stretch of `seconds`, silent: under a card or a slate. */
+function blank(file: string, seconds: number) {
+  ffmpeg(
+    [
+      '-f',
+      'lavfi',
+      '-i',
+      `color=c=0x0a0c12:s=${OUT.width}x${OUT.height}:r=${FPS}`,
+      '-f',
+      'lavfi',
+      '-i',
+      'anullsrc=r=48000:cl=stereo',
+      '-t',
+      seconds.toFixed(3),
+      '-c:v',
+      'libx264',
+      '-preset',
+      'veryfast',
+      '-crf',
+      '18',
+      '-pix_fmt',
+      'yuv420p',
+      '-c:a',
+      'aac',
+      '-ar',
+      '48000',
+      file,
+    ],
+    'a blank stretch',
   );
-  if (!cuts.length) throw new Error('No shots cut yet: bun run shot all');
-  const lengths = cuts.map((c) => audioSeconds(c.file));
+}
+
+/** A filmed clip trimmed, filled to the frame and sped up, with its sound or silence. */
+function clipSegment(
+  part: Extract<Scene['parts'][number], { clip: string }>,
+  src: string,
+  file: string,
+) {
+  const speed = part.speed ?? 1;
+  const trim = [
+    ...(part.from ? ['-ss', String(part.from)] : []),
+    ...(part.to !== undefined ? ['-to', String(part.to)] : []),
+  ];
+  const audio = part.sound
+    ? ['-filter:a', `${speed !== 1 ? `atempo=${speed},` : ''}aresample=48000`, '-ac', '2']
+    : ['-an'];
+  const hasAudio =
+    part.sound &&
+    String(
+      spawnSync('ffprobe', [
+        '-v',
+        'error',
+        '-select_streams',
+        'a',
+        '-show_entries',
+        'stream=index',
+        '-of',
+        'csv=p=0',
+        src,
+      ]).stdout,
+    ).trim();
+  ffmpeg(
+    [
+      ...trim,
+      '-i',
+      src,
+      ...(hasAudio ? [] : ['-f', 'lavfi', '-i', 'anullsrc=r=48000:cl=stereo']),
+      '-map',
+      '0:v',
+      '-map',
+      hasAudio ? '0:a' : '1:a',
+      '-vf',
+      clipFilter(OUT, FPS, speed),
+      ...(hasAudio ? audio : []),
+      '-shortest',
+      '-c:v',
+      'libx264',
+      '-preset',
+      'veryfast',
+      '-crf',
+      '16',
+      '-pix_fmt',
+      'yuv420p',
+      '-c:a',
+      'aac',
+      '-ar',
+      '48000',
+      file,
+    ],
+    `the clip ${part.clip}`,
+  );
+}
+
+/** One scene: its parts cut one after another, its slates, lines, lower thirds and voice. */
+async function renderScene(scene: Scene): Promise<string> {
+  const dir = join(outDir, 'scenes', scene.name);
+  mkdirSync(dir, { recursive: true });
+  const parts: { file: string; length: number; missing: string | null }[] = [];
+  scene.parts.forEach((part, k) => {
+    const file = join(dir, `part-${k + 1}.mp4`);
+    if ('shot' in part) {
+      const cut = join(outDir, part.shot, 'cut.mp4');
+      if (existsSync(cut))
+        return parts.push({ file: cut, length: audioSeconds(cut), missing: null });
+      blank(file, 5);
+      return parts.push({ file, length: 5, missing: rel(cut) });
+    }
+    if ('clip' in part) {
+      const src = resolve(outDir, part.clip);
+      if (existsSync(src)) {
+        clipSegment(part, src, file);
+        return parts.push({ file, length: clipSeconds(part, audioSeconds(src)), missing: null });
+      }
+      blank(file, part.seconds);
+      return parts.push({ file, length: part.seconds, missing: rel(src) });
+    }
+    blank(file, part.seconds);
+    return parts.push({ file, length: part.seconds, missing: null });
+  });
+  // Each part's real length, as encoded, so the overlays land on it.
+  for (const p of parts) p.length = audioSeconds(p.file);
+  const lines = scene.lines ?? [];
+  const voices = lines.map((_, i) => voiceFile(voiceDir, scene.name, i));
+  const seconds = lines.map((l, i) =>
+    voices[i] ? audioSeconds(voices[i]!) : estimateSeconds(l.text),
+  );
+  const ass = join(dir, 'overlays.ass');
+  await Bun.write(
+    ass,
+    overlays(
+      sceneBeats(scene, parts, seconds),
+      lines.map((l) => l.text),
+      [],
+      OUT,
+    ),
+  );
+  const { length } = timeline(parts.map((p) => p.length));
+  const voiced = lines.flatMap((l, i) => (voices[i] ? [{ file: voices[i]!, at: l.at }] : []));
+  const n = parts.length;
+  const joined = `${parts.map((_, k) => `[${k}:v][${k}:a]`).join('')}concat=n=${n}:v=1:a=1[cv][ca]`;
+  const video = `[cv]subtitles=${ass}[v]`;
+  const audio = voiced.length
+    ? voiced
+        .map((v, k) => `[${n + k}:a]aresample=48000,adelay=${Math.round(v.at * 1000)}:all=1[a${k}]`)
+        .join(';') +
+      `;[ca]${voiced.map((_, k) => `[a${k}]`).join('')}amix=inputs=${voiced.length + 1}:normalize=0,atrim=0:${length.toFixed(3)}[a]`
+    : '[ca]anull[a]';
+  const out = join(outDir, 'scenes', `${scene.name}.mp4`);
+  ffmpeg(
+    [
+      ...parts.flatMap((p) => ['-i', p.file]),
+      ...voiced.flatMap((v) => ['-i', v.file]),
+      '-filter_complex',
+      `${joined};${video};${audio}`,
+      '-map',
+      '[v]',
+      '-map',
+      '[a]',
+      '-c:v',
+      'libx264',
+      '-preset',
+      'slow',
+      '-crf',
+      '16',
+      '-pix_fmt',
+      'yuv420p',
+      '-c:a',
+      'aac',
+      '-b:a',
+      '192k',
+      '-ar',
+      '48000',
+      '-movflags',
+      '+faststart',
+      out,
+    ],
+    `cutting the scene ${scene.name}`,
+  );
+  ffmpeg(
+    [
+      '-i',
+      out,
+      '-vf',
+      `fps=9/${length.toFixed(3)},scale=640:-1,tile=3x3:padding=6`,
+      '-frames:v',
+      '1',
+      join(dir, 'sheet.png'),
+    ],
+    `sheet for the scene ${scene.name}`,
+  );
+  const todo = parts.filter((p) => p.missing).map((p) => p.missing);
+  console.log(
+    `${scene.title.padEnd(30)} → ${rel(out)} (${length.toFixed(1)} s)${todo.length ? `, slates for ${todo.join(', ')}` : ''}`,
+  );
+  return out;
+}
+
+async function film() {
+  const cuts: string[] = [];
+  for (const scene of SCENES) cuts.push(await renderScene(scene));
+  const lengths = cuts.map((c) => audioSeconds(c));
   const out = join(outDir, 'film.mp4');
   ffmpeg(
     [
-      ...cuts.flatMap((c) => ['-i', c.file]),
+      ...cuts.flatMap((c) => ['-i', c]),
       '-filter_complex',
       `${joinFilter(lengths, FADE)};[a]loudnorm=I=-14:TP=-1.5:LRA=11[an]`,
       '-map',
@@ -203,9 +407,7 @@ function film() {
     'joining the film',
   );
   const total = audioSeconds(out);
-  console.log(`→ ${rel(out)}: ${cuts.map((c) => c.s.name).join(' · ')}, ${total.toFixed(1)} s`);
-  const missing = SHOTS.filter((s) => !cuts.some((c) => c.s === s)).map((s) => s.name);
-  if (missing.length) console.log(`  not cut yet: ${missing.join(', ')}`);
+  console.log(`→ ${rel(out)}: ${SCENES.length} scenes, ${total.toFixed(1)} s`);
   if (total > 178) console.warn(`  over 2:58: judges may stop at 3:00`);
 }
 
@@ -213,11 +415,24 @@ const names = args.positional;
 if (!names.length || names[0] === 'list') {
   for (const s of SHOTS)
     console.log(`${s.at.padStart(5)}  ${s.name.padEnd(8)} ${s.about} (${s.lines.length} lines)`);
-  console.log('\nbun run shot <name…|all> [--compose] [--dry] [--voice <dir>] · bun run shot film');
+  console.log('\nScenes, in film order:');
+  for (const s of SCENES) console.log(`  ${s.name.padEnd(10)} ${s.title}`);
+  console.log(
+    '\nbun run shot <shot…|all> [--compose] [--dry] [--voice <dir>] · bun run shot scene <scene…> · bun run shot film',
+  );
   process.exit(0);
 }
 if (names[0] === 'film') {
-  film();
+  await film();
+  process.exit(0);
+}
+if (names[0] === 'scene') {
+  const wanted = names.slice(1);
+  const scenes = wanted.length ? wanted.map((n) => SCENES.find((s) => s.name === n) ?? n) : SCENES;
+  const unknownScenes = scenes.filter((s): s is string => typeof s === 'string');
+  if (unknownScenes.length)
+    throw new Error(`No scene ${unknownScenes.join(', ')}: bun run shot list`);
+  for (const scene of scenes as Scene[]) await renderScene(scene);
   process.exit(0);
 }
 const chosen = names[0] === 'all' ? SHOTS : names.map((n) => SHOTS.find((s) => s.name === n) ?? n);

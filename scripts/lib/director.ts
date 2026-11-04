@@ -122,6 +122,19 @@ export class Director {
     await this.page.getByRole('button', { name: 'Demo', exact: true }).click({ timeout: 20_000 });
   }
 
+  /**
+   * The lab open in Live, as it is: nothing is reset, so a Live shot shows the
+   * real room and changes only what it does on camera.
+   */
+  async live() {
+    await this.page.goto(`${LAB}/?recording`);
+    const live = this.page
+      .getByRole('group', { name: 'Data source' })
+      .getByRole('button', { name: 'Live', exact: true });
+    await live.waitFor({ timeout: 20_000 });
+    if ((await live.getAttribute('aria-pressed')) !== 'true') await live.click();
+  }
+
   /** Start capturing. Everything before this is off camera. */
   async roll() {
     await this.page.mouse.move(this.pointer.x, this.pointer.y);
