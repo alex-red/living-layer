@@ -34,7 +34,7 @@
   border: 1px solid var(--line-strong);
   background: var(--stage);
   box-shadow:
-    0 24px 64px rgb(0 0 0 / 45%),
+    var(--shadow-modal),
     0 0 0 6px rgb(255 255 255 / 1.5%);
 }
 /* Vignette on the frame edge only. */

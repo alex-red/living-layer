@@ -9,6 +9,7 @@ import {
 import { useItemSprite, usePropSprite } from '../iso/sprites';
 import { typing } from '../shortcuts';
 import { Button, IconButton } from '../ui/controls';
+import { Dialog } from '../ui/Dialog';
 import { CLOSE_SHARE, inSentence, type Brush, type BrushStroke, type Share } from './useBrush';
 import { useStore } from './state/store';
 
@@ -190,37 +191,28 @@ function RecipePreview({ recipe }: { recipe: FixtureRecipe }) {
         <RecipeImage recipe={recipe} />
       </button>
       {open && (
-        <div className="keys-backdrop" onClick={() => setOpen(false)}>
-          <div
-            className="keys-dialog recipe-dialog"
-            role="dialog"
-            aria-modal="true"
-            aria-label={`${recipe.label}, the drafted model`}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="keys-head">
-              <h3>{recipe.label}</h3>
-              <IconButton label="Close" onClick={() => setOpen(false)}>
-                ×
-              </IconButton>
-            </div>
-            <div className="recipe-dialog-model">
-              <RecipeImage recipe={recipe} turns={turns} />
-            </div>
-            <div className="recipe-dialog-row">
-              <IconButton framed label="Turn it back" onClick={() => setTurns((t) => (t + 3) % 4)}>
-                ↺
-              </IconButton>
-              <span className="micro">
-                {w} × {d} × {h} cm · {recipe.parts.length} parts
-              </span>
-              <IconButton framed label="Turn it" onClick={() => setTurns((t) => (t + 1) % 4)}>
-                ↻
-              </IconButton>
-            </div>
-            <p className="micro">{recipe.parts.map((p) => p.name).join(' · ')}</p>
+        <Dialog
+          title={recipe.label}
+          label={`${recipe.label}, the drafted model`}
+          className="recipe-dialog"
+          onClose={() => setOpen(false)}
+        >
+          <div className="recipe-dialog-model">
+            <RecipeImage recipe={recipe} turns={turns} />
           </div>
-        </div>
+          <div className="recipe-dialog-row">
+            <IconButton framed label="Turn it back" onClick={() => setTurns((t) => (t + 3) % 4)}>
+              ↺
+            </IconButton>
+            <span className="micro">
+              {w} × {d} × {h} cm · {recipe.parts.length} parts
+            </span>
+            <IconButton framed label="Turn it" onClick={() => setTurns((t) => (t + 1) % 4)}>
+              ↻
+            </IconButton>
+          </div>
+          <p className="micro">{recipe.parts.map((p) => p.name).join(' · ')}</p>
+        </Dialog>
       )}
     </>
   );

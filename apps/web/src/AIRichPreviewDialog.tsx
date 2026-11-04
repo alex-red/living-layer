@@ -341,7 +341,7 @@ const StepList = memo(function StepList({
               {s.state === 'done'
                 ? '✓'
                 : s.state === 'failed'
-                  ? '✕'
+                  ? '×'
                   : s.state === 'stopped'
                     ? '■'
                     : s.state === 'pending'

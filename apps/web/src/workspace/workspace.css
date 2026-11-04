@@ -173,9 +173,7 @@
   border: 1px solid var(--line-strong);
   border-radius: var(--r-panel);
   background: var(--glass-thick);
-  box-shadow:
-    var(--glass-edge),
-    0 16px 48px rgb(0 0 0 / 50%);
+  box-shadow: var(--glass-edge), var(--shadow-float);
   backdrop-filter: blur(28px) saturate(140%);
   -webkit-backdrop-filter: blur(28px) saturate(140%);
   animation: pop-in var(--t-base) var(--ease-out);
@@ -625,9 +623,7 @@ button.ol-group-head:hover {
   border: 1px solid var(--line-strong);
   border-radius: var(--r-card);
   background: var(--glass-thick);
-  box-shadow:
-    var(--glass-edge),
-    0 8px 24px rgb(0 0 0 / 40%);
+  box-shadow: var(--glass-edge), var(--shadow-low);
   backdrop-filter: blur(20px) saturate(140%);
   -webkit-backdrop-filter: blur(20px) saturate(140%);
   animation: rise-in var(--t-base) var(--ease-out);
@@ -654,9 +650,7 @@ button.ol-group-head:hover {
   border: 1px solid var(--line-strong);
   border-radius: var(--r-panel);
   background: var(--glass-thick);
-  box-shadow:
-    var(--glass-edge),
-    0 16px 48px rgb(0 0 0 / 50%);
+  box-shadow: var(--glass-edge), var(--shadow-float);
   backdrop-filter: blur(28px) saturate(140%);
   -webkit-backdrop-filter: blur(28px) saturate(140%);
   transform-origin: top left;
@@ -1290,7 +1284,7 @@ button.ol-group-head:hover {
     position: sticky;
     bottom: 12px;
     z-index: var(--z-pin-tag);
-    box-shadow: 0 8px 24px rgb(0 0 0 / 50%);
+    box-shadow: var(--shadow-low);
   }
   .onboarding {
     padding: 8px 0;
@@ -1822,9 +1816,7 @@ button.ol-group-head:hover {
   border: 1px solid var(--line-strong);
   border-radius: var(--r-panel);
   background: var(--glass-thick);
-  box-shadow:
-    var(--glass-edge),
-    0 16px 48px rgb(0 0 0 / 50%);
+  box-shadow: var(--glass-edge), var(--shadow-float);
   backdrop-filter: blur(28px) saturate(140%);
   -webkit-backdrop-filter: blur(28px) saturate(140%);
   animation: rise-in var(--t-base) var(--ease-out);
@@ -1940,9 +1932,6 @@ button.ol-group-head:hover {
 .brush-preview-open:hover,
 .brush-preview-open:focus-visible {
   border-color: var(--line-strong);
-}
-.recipe-dialog {
-  width: min(520px, 100%);
 }
 .recipe-dialog-model {
   display: grid;

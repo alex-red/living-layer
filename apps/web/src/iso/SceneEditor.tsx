@@ -884,7 +884,7 @@ export function SceneEditor({
                 setSelected(undefined);
               }}
             >
-              ✕
+              ×
             </IconButton>
             {lamp && (
               <Select

@@ -1779,10 +1779,10 @@ export function ItemEditor({
           )}
           <div className="item-turns">
             <IconButton framed label="Turn left" onClick={() => setTurns((t) => t - 1)}>
-              ⟲
+              ↺
             </IconButton>
             <IconButton framed label="Turn right" onClick={() => setTurns((t) => t + 1)}>
-              ⟳
+              ↻
             </IconButton>
           </div>
           <p

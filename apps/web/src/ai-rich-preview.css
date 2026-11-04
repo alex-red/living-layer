@@ -13,7 +13,7 @@
   color: var(--text);
   box-shadow:
     var(--glass-edge),
-    0 24px 80px rgb(0 0 0 / 55%),
+    var(--shadow-modal),
     0 0 0 1px rgb(0 0 0 / 40%);
   backdrop-filter: blur(24px) saturate(140%);
 }

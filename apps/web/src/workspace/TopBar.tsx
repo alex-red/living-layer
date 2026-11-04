@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Dialog } from '../ui/Dialog';
 import { Glyph } from '../Glyph';
 import { Button, Check, IconButton, Segmented } from '../ui/controls';
 import { estimateLabel, usd } from '../cost';
@@ -466,35 +467,21 @@ function MoreMenu({ close }: { close: () => void }) {
 export function KeysDialog() {
   const { setShowKeys } = useView();
   return (
-    <div className="keys-backdrop" onClick={() => setShowKeys(false)}>
-      <div
-        className="keys-dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-label="Keyboard shortcuts"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="keys-head">
-          <h3>Keyboard shortcuts</h3>
-          <IconButton label="Close" onClick={() => setShowKeys(false)}>
-            ×
-          </IconButton>
-        </div>
-        <dl>
-          {SHORTCUTS.map((k) => (
-            <div key={k.action}>
-              <dt>
-                {k.keys.split(' ').map((key) => (
-                  <kbd key={key}>{key}</kbd>
-                ))}
-              </dt>
-              <dd>{k.label}</dd>
-            </div>
-          ))}
-        </dl>
-        <p className="micro">Shortcuts wait while you type in a field.</p>
-      </div>
-    </div>
+    <Dialog title="Keyboard shortcuts" className="keys-dialog" onClose={() => setShowKeys(false)}>
+      <dl>
+        {SHORTCUTS.map((k) => (
+          <div key={k.action}>
+            <dt>
+              {k.keys.split(' ').map((key) => (
+                <kbd key={key}>{key}</kbd>
+              ))}
+            </dt>
+            <dd>{k.label}</dd>
+          </div>
+        ))}
+      </dl>
+      <p className="micro">Shortcuts wait while you type in a field.</p>
+    </Dialog>
   );
 }
 

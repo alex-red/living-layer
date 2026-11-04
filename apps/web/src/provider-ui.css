@@ -19,9 +19,7 @@
   border-radius: var(--r-panel);
   border: 1px solid var(--line-strong);
   background: rgb(17 20 29 / 94%);
-  box-shadow:
-    var(--glass-edge),
-    0 12px 32px rgb(0 0 0 / 40%);
+  box-shadow: var(--glass-edge), var(--shadow-float);
   backdrop-filter: blur(20px) saturate(140%);
   font-size: var(--fs-12);
 }

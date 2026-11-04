@@ -7,6 +7,7 @@ import {
   type ReactNode,
 } from 'react';
 import { createPortal } from 'react-dom';
+import { Button } from '../ui/controls';
 import { useFrameQueue } from './frame';
 import {
   cameraFromMarks,
@@ -315,9 +316,8 @@ export function RoomCalibrate({
               : 'Give the room’s size inside its walls.'}
           </span>
           {suggestions.map((x) => (
-            <button
+            <Button
               key={x.wall}
-              className="secondary"
               title={
                 x.wall === 'Both walls'
                   ? lines.length
@@ -331,7 +331,7 @@ export function RoomCalibrate({
                 ? `Room ${x.room.w} × ${x.room.d} cm`
                 : `${x.wall} ${x.wall === 'Back wall' ? x.room.w : x.room.d} cm`}{' '}
               · {x.error.toFixed(0)} px
-            </button>
+            </Button>
           ))}
           <label title="The back wall: the one running right from the far corner.">
             Back wall
@@ -383,18 +383,16 @@ export function RoomCalibrate({
                 }
               />
               cm
-              <button
-                className="secondary"
+              <Button
                 aria-label={`Remove height line ${k + 1}`}
                 onClick={() => setLines(lines.filter((_, j) => j !== k))}
               >
-                ✕
-              </button>
+                ×
+              </Button>
             </label>
           ))}
           {lines.length < 8 && (
-            <button
-              className="secondary"
+            <Button
               title="Draw a line from the floor straight up to something whose height you know, like a desk's top (76 cm for an ALEX), then type its height. It gives the room's real size."
               onClick={() =>
                 setLines([
@@ -408,23 +406,21 @@ export function RoomCalibrate({
               }
             >
               Add height line
-            </button>
+            </Button>
           )}
           {uprights.map((_, k) => (
             <label key={`v${k}`} title="Drag its ends along something that stands straight up.">
               Vertical line {k + 1}
-              <button
-                className="secondary"
+              <Button
                 aria-label={`Remove vertical line ${k + 1}`}
                 onClick={() => setUprights(uprights.filter((_, j) => j !== k))}
               >
-                ✕
-              </button>
+                ×
+              </Button>
             </label>
           ))}
           {uprights.length < 8 && (
-            <button
-              className="secondary"
+            <Button
               title="Drag a line along something that stands straight up, like a shelf's post, a door's edge or a desk's leg; no length needed. Two or three, apart across the frame, set the camera's tilt, so the room's uprights lean as they do in the picture."
               onClick={() =>
                 setUprights([
@@ -437,7 +433,7 @@ export function RoomCalibrate({
               }
             >
               Add vertical line
-            </button>
+            </Button>
           )}
           <label>
             <input
@@ -455,16 +451,15 @@ export function RoomCalibrate({
             />
             Left wall handle is its far corner
           </label>
-          <button
-            className="primary"
-            disabled={!good || busy}
+          <Button
+            variant="primary"
+            disabled={!good}
+            busy={busy && 'Saving…'}
             onClick={() => onSave({ marks, room, ...(heightCm ? { heightCm } : {}) })}
           >
-            {busy ? 'Saving…' : 'Save calibration'}
-          </button>
-          <button className="secondary" onClick={onCancel}>
-            Cancel
-          </button>
+            Save calibration
+          </Button>
+          <Button onClick={onCancel}>Cancel</Button>
         </span>,
       )}
     </>

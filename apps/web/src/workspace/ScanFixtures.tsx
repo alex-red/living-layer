@@ -120,7 +120,7 @@ export function ScanFixtures({
                   })
                 }
               >
-                ✕
+                ×
               </IconButton>
             </span>
           ))}

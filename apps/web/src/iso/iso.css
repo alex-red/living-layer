@@ -1020,7 +1020,7 @@
   border-color: color-mix(in srgb, var(--tint) 45%, transparent);
   transform: translateY(-1px);
   box-shadow:
-    0 6px 16px rgb(0 0 0 / 35%),
+    var(--shadow-low),
     0 0 0 1px color-mix(in srgb, var(--tint) 18%, transparent);
 }
 .prop-card:active {
