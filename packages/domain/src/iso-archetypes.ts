@@ -9,6 +9,7 @@ import {
   type Paint,
 } from './iso-item.js';
 import { lathe as turned, rbox, tube } from './item-build.js';
+import { catParts } from './member-models.js';
 
 /**
  * Recipes for the objects people put on desks: each turns a few measured
@@ -350,141 +351,11 @@ const bandPaint = (bands: Band[]): Paint[] =>
 
 /** The parts for a fit, in item space: the body centred on the footprint. */
 export function buildItem(label: string, fit: ArchetypeFit): IsoItem {
-  if (fit.family === 'cat') {
-    const { body, accent } = fit.colors;
-    const material = fit.material;
-    const ear = (id: string, x: number, y: number, z: number): ItemPart => ({
-      id,
-      shape: 'lathe',
-      at: { x: round(x), y: round(y), z: round(z) },
-      size: { w: 0.14, d: 0.14, h: 0.2 },
-      color: body,
-      taper: 1,
-      profile: [
-        { r: 1, z: 0 },
-        { r: 0.15, z: 1 },
-      ],
-      material,
-    });
-    if (fit.pose === 'sleeping') {
-      return {
-        label,
-        parts: [
-          {
-            id: 'body',
-            shape: 'blob',
-            at: { x: 0.12, y: 0.14, z: 0 },
-            size: { w: 0.72, d: 0.68, h: 0.42 },
-            color: body,
-            taper: 1,
-            rough: 0.15,
-            material,
-          },
-          {
-            id: 'head',
-            shape: 'blob',
-            at: { x: 0.44, y: 0.46, z: 0.04 },
-            size: { w: 0.36, d: 0.36, h: 0.34 },
-            color: body,
-            taper: 1,
-            rough: 0.1,
-            material,
-          },
-          ear('ear-l', 0.48, 0.62, 0.3),
-          ear('ear-r', 0.64, 0.48, 0.3),
-          {
-            id: 'tail',
-            shape: 'tube',
-            at: { x: 0.1, y: 0.1, z: 0.02 },
-            size: { w: 0.68, d: 0.68, h: 0.18 },
-            color: accent,
-            taper: 0.7,
-            radius: 0.06,
-            path: [
-              { x: 0.15, y: 0.4, z: 0.4 },
-              { x: 0.1, y: 0.85, z: 0.3 },
-              { x: 0.55, y: 0.9, z: 0.25 },
-              { x: 0.85, y: 0.65, z: 0.2 },
-            ],
-            material,
-          },
-        ],
-      };
-    }
+  if (fit.family === 'cat')
     return {
       label,
-      parts: [
-        {
-          id: 'body',
-          shape: 'blob',
-          at: { x: 0.2, y: 0.18, z: 0 },
-          size: { w: 0.56, d: 0.56, h: 0.74 },
-          color: body,
-          taper: 0.82,
-          rough: 0.12,
-          material,
-        },
-        {
-          id: 'chest',
-          shape: 'blob',
-          at: { x: 0.38, y: 0.38, z: 0.14 },
-          size: { w: 0.36, d: 0.36, h: 0.46 },
-          color: accent,
-          taper: 0.85,
-          rough: 0.08,
-          material,
-        },
-        {
-          id: 'paw-l',
-          shape: 'rbox',
-          at: { x: 0.42, y: 0.6, z: 0 },
-          size: { w: 0.14, d: 0.18, h: 0.14 },
-          color: accent,
-          taper: 1,
-          radius: 0.45,
-          material,
-        },
-        {
-          id: 'paw-r',
-          shape: 'rbox',
-          at: { x: 0.6, y: 0.42, z: 0 },
-          size: { w: 0.18, d: 0.14, h: 0.14 },
-          color: accent,
-          taper: 1,
-          radius: 0.45,
-          material,
-        },
-        {
-          id: 'head',
-          shape: 'blob',
-          at: { x: 0.34, y: 0.34, z: 0.62 },
-          size: { w: 0.42, d: 0.42, h: 0.4 },
-          color: body,
-          taper: 1,
-          rough: 0.08,
-          material,
-        },
-        ear('ear-l', 0.38, 0.56, 0.94),
-        ear('ear-r', 0.56, 0.38, 0.94),
-        {
-          id: 'tail',
-          shape: 'tube',
-          at: { x: 0.08, y: 0.08, z: 0.04 },
-          size: { w: 0.38, d: 0.38, h: 0.68 },
-          color: body,
-          taper: 0.75,
-          radius: 0.055,
-          path: [
-            { x: 0.65, y: 0.65, z: 0.1 },
-            { x: 0.2, y: 0.25, z: 0.25 },
-            { x: 0.15, y: 0.2, z: 0.65 },
-            { x: 0.35, y: 0.35, z: 0.92 },
-          ],
-          material,
-        },
-      ],
+      parts: catParts(fit.colors.body, fit.colors.accent, fit.pose, fit.material),
     };
-  }
   if (fit.family === 'flat') {
     const w = clamp(fit.w, 0.05, 1);
     const d = clamp(fit.d, 0.05, 1);

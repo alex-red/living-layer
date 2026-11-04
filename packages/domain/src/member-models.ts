@@ -1,11 +1,13 @@
-import type { IsoItem, ItemPart, Paint } from './iso-item.js';
+import type { IsoItem, ItemMaterial, ItemPart, Paint } from './iso-item.js';
 import { blob, buildModel, faceDecal, lathe, pixels, rbox, tube } from './item-build.js';
 
 /**
  * The household's models ([plan](../../../docs/plans/people-and-pets.md)): a
- * person standing or sitting, and a dog standing or lying, built from a look
- * (a few colours) in real centimetres. Each is a little chunky, a head about
- * a sixth of an adult's height, so it still reads at the room's size.
+ * person standing or sitting, a dog standing or lying and a cat sitting up or
+ * asleep, built from a look (a few colours) in centimetres. They are chibi:
+ * a big round head (a third of a person's height), a short round body and
+ * stubby limbs, so a face reads across a room, and so a person stands about
+ * 150 cm, shorter than life, to keep that head in proportion.
  *
  * In the item's frame before its turns the room sees the +y side on the
  * left and the +x side on the right; one item unit is the model's box's
@@ -28,14 +30,14 @@ export interface PetLook {
 type PersonPose = 'standing' | 'sitting';
 type DogPose = 'standing' | 'lying';
 
-/** A standing adult's box, cm: shoulders and arms, turned to face the corner. */
-export const PERSON_CM = { w: 50, d: 50, h: 176 } as const;
+/** A standing person's box, cm: head and arms, turned to face the corner. */
+export const PERSON_CM = { w: 54, d: 54, h: 152 } as const;
 /** A medium dog's box, cm, nose to tail along +x. */
-export const DOG_CM = { w: 74, d: 30, h: 56 } as const;
+export const DOG_CM = { w: 68, d: 34, h: 56 } as const;
 /** A dog lying down, cm. */
-export const DOG_LYING_CM = { w: 78, d: 30, h: 28 } as const;
+export const DOG_LYING_CM = { w: 68, d: 34, h: 30 } as const;
 
-type Look = { color: string; material?: 'fabric' | 'matte' | 'gloss' };
+type Look = { color: string; material?: ItemMaterial };
 /** The way a figure faces and where it is centred, in cm of its frame. */
 interface Frame {
   origin: { x: number; y: number };
@@ -130,11 +132,14 @@ function limb(
   const hi = { x: Math.max(...ps.map((p) => p.x)), y: Math.max(...ps.map((p) => p.y)) };
   const z0 = Math.min(...ps.map((p) => p.z));
   const z1 = Math.max(...ps.map((p) => p.z));
-  // A side with no length still needs a size: the path runs down its middle.
-  const least = f.unit * 0.025;
+  // A side shorter than the tube is thick is as thick as it, the path down its middle.
+  const least = Math.max(2 * radius, f.unit * 0.025);
   const side = (a: number, b: number) =>
     b - a >= least ? { from: a, size: b - a } : { from: (a + b) / 2 - least / 2, size: least };
-  const [x, y, z] = [side(lo.x, hi.x), side(lo.y, hi.y), side(z0, z1)];
+  const [x, y] = [side(lo.x, hi.x), side(lo.y, hi.y)];
+  // Nothing goes under the floor.
+  const up = side(z0, z1);
+  const z = { from: Math.max(0, up.from), size: up.size };
   const share = (v: number, s: { from: number; size: number }) =>
     Math.round(((v - s.from) / s.size) * 1000) / 1000;
   return tube(
@@ -146,18 +151,25 @@ function limb(
   );
 }
 
-/** Open eyes, rosy cheeks and a small smile, on the face the room sees. */
+/** Big dark eyes with a glint, rosy cheeks and a small smile, on the face the room sees. */
 const PERSON_FACE = pixels(
-  ['....e....e....', '....e....e....', '..............', '..c...mm...c..'],
-  { e: '#2a1d1a', c: '#e79a8e', m: '#9c4a45' },
+  [
+    '....we....we....',
+    '....ee....ee....',
+    '....ee....ee....',
+    '................',
+    '.cc....mm....cc.',
+  ],
+  { w: '#ffffff', e: '#1d1514', c: '#f2a1a1', m: '#b0504c' },
 );
-const DOG_FACE = pixels(['.e...e.', '.e...e.'], { e: '#1f1714' });
+const DOG_FACE = pixels(['.we...we.', '.ee...ee.'], { w: '#ffffff', e: '#1d1514' });
 
-const TORSO = [
-  { r: 0.84, z: 0 },
-  { r: 0.92, z: 0.4 },
-  { r: 1, z: 0.8 },
-  { r: 0.72, z: 1 },
+/** A round little body, widest at the chest. */
+const BODY = [
+  { r: 0.9, z: 0 },
+  { r: 1, z: 0.35 },
+  { r: 0.95, z: 0.75 },
+  { r: 0.7, z: 1 },
 ];
 /** Hair over the top of the head: a dome. */
 const DOME = [
@@ -172,128 +184,107 @@ const HIPS = [
   { r: 0.96, z: 1 },
 ];
 const LEG = [
-  { r: 0.85, z: 0 },
-  { r: 1, z: 0.65 },
+  { r: 0.9, z: 0 },
+  { r: 1, z: 0.5 },
   { r: 1, z: 1 },
 ];
 
-/** The head, neck and hair of a person whose shoulders top out at `z`, `a` cm ahead of its middle. */
-function headParts(f: Frame, look: PersonLook, a: number, z: number, neck = true): ItemPart[] {
-  const head = z + 4;
-  const top = head + 30;
-  const parts: ItemPart[] = [];
-  if (neck) parts.push(round(f, 'neck', a, 0, 11, z - 4, head + 3, { color: look.skin }));
-  parts.push(
-    lump(f, 'head', a + 1, 0, 32, 32, head, top, {
+/** How big a head is: a third of a person's height, so a face reads across a room. */
+const HEAD = { w: 48, h: 50 };
+
+/** The head and hair of a person whose body tops out at `z`, `a` cm ahead of its middle. */
+function headParts(f: Frame, look: PersonLook, a: number, z: number): ItemPart[] {
+  const head = z - 4;
+  const top = head + HEAD.h;
+  const hair = { color: look.hair };
+  const parts: ItemPart[] = [
+    lump(f, 'head', a + 1, 0, HEAD.w, HEAD.w, head, top, {
       color: look.skin,
       material: 'matte',
       rough: 0.02,
-      paint: [faceDecal('front', PERSON_FACE, { across: [0.1, 0.9], up: [0.3, 0.52] })],
+      paint: [faceDecal('front', PERSON_FACE, { across: [0.12, 0.88], up: [0.3, 0.52] })],
     }),
-    round(f, 'hair', a - 1, 0, 34, head + 19, top + 3, { color: look.hair, profile: DOME }),
-  );
-  // Behind the head, and behind the neck where it reaches lower, so it never shows under the chin.
+    // A fringe just over the eyes, and the crown above it.
+    round(f, 'hair', a - 1, 0, HEAD.w + 3, head + 29, top + 4, { ...hair, profile: DOME }),
+  ];
+  // Behind the head, never under the chin.
   if (look.hairStyle === 'long')
     parts.push(
-      lump(f, 'hair-back', a - 12, 0, 16, 28, head - 16, top - 4, {
-        color: look.hair,
-        rough: 0.06,
-      }),
-      lump(f, 'hair-r', a - 3, 13, 9, 9, head - 12, head + 22, { color: look.hair, rough: 0.05 }),
-      lump(f, 'hair-l', a - 3, -13, 9, 9, head - 12, head + 22, { color: look.hair, rough: 0.05 }),
+      lump(f, 'hair-back', a - 12, 0, 28, HEAD.w - 2, head - 8, top - 6, { ...hair, rough: 0.05 }),
+      lump(f, 'hair-r', a - 2, 21, 12, 12, head - 2, head + 32, { ...hair, rough: 0.04 }),
+      lump(f, 'hair-l', a - 2, -21, 12, 12, head - 2, head + 32, { ...hair, rough: 0.04 }),
     );
   else
     parts.push(
-      lump(f, 'hair-back', a - 8, 0, 20, 28, head + 6, top - 1, { color: look.hair, rough: 0.06 }),
+      lump(f, 'hair-back', a - 10, 0, 30, HEAD.w - 2, head + 8, top - 2, { ...hair, rough: 0.05 }),
     );
   if (look.hairStyle === 'bun')
-    parts.push(lump(f, 'hair-bun', a - 9, 0, 13, 13, top - 2, top + 9, { color: look.hair }));
+    parts.push(lump(f, 'hair-bun', a - 12, 0, 18, 18, top - 3, top + 14, hair));
   return parts;
 }
 
 /**
  * A person's parts in a frame: standing in the middle of their box, or
  * sitting with their hips at the frame's origin on a seat `seatCm` high.
+ * Chibi: a big head, a short round body, stubby arms and big shoes.
  */
-function personParts(
-  f: Frame,
-  look: PersonLook,
-  pose: PersonPose,
-  seatCm = 46,
-  full = true,
-): ItemPart[] {
+function personParts(f: Frame, look: PersonLook, pose: PersonPose, seatCm = 46): ItemPart[] {
   const cloth = (color: string) => ({ color });
+  const arm = (id: string, side: 1 | -1, points: [number, number, number][]) =>
+    limb(
+      f,
+      id,
+      points.map(([a, b, z]) => [a, b * side, z] as [number, number, number]),
+      7,
+      cloth(look.top),
+    );
   if (pose === 'sitting') {
     const z = seatCm;
-    const shoulder = z + 60;
-    const shoes: Paint[] = [{ kind: 'band', from: 0, to: 0.16, color: look.shoes }];
+    const top = z + 54;
+    const shoes: Paint[] = [{ kind: 'band', from: 0, to: 0.2, color: look.shoes }];
     return [
-      block(f, 'thigh-r', 16, 9, 46, 15, z, z + 15, cloth(look.bottom)),
-      block(f, 'thigh-l', 16, -9, 46, 15, z, z + 15, cloth(look.bottom)),
-      round(f, 'shin-r', 36, 9, 13, 0, z + 6, { ...cloth(look.bottom), paint: shoes }),
-      round(f, 'shin-l', 36, -9, 13, 0, z + 6, { ...cloth(look.bottom), paint: shoes }),
-      round(f, 'hips', -1, 0, 34, z, z + 16, { ...cloth(look.bottom), profile: HIPS }),
-      round(f, 'torso', -2, 0, 38, z + 10, shoulder, { ...cloth(look.top), profile: TORSO }),
-      limb(
-        f,
-        'arm-r',
-        [
-          [-2, 21, shoulder - 6],
-          [6, 23, z + 30],
-          [24, 15, z + 20],
-        ],
-        5.5,
-        cloth(look.top),
-      ),
-      limb(
-        f,
-        'arm-l',
-        [
-          [-2, -21, shoulder - 6],
-          [6, -23, z + 30],
-          [24, -15, z + 20],
-        ],
-        5.5,
-        cloth(look.top),
-      ),
-      ...headParts(f, look, -2, shoulder, full),
+      block(f, 'thigh-r', 12, 9.5, 30, 17, z, z + 16, cloth(look.bottom)),
+      block(f, 'thigh-l', 12, -9.5, 30, 17, z, z + 16, cloth(look.bottom)),
+      round(f, 'shin-r', 24, 9.5, 16, 0, z + 6, { ...cloth(look.bottom), paint: shoes }),
+      round(f, 'shin-l', 24, -9.5, 16, 0, z + 6, { ...cloth(look.bottom), paint: shoes }),
+      round(f, 'hips', -2, 0, 38, z, z + 18, { ...cloth(look.bottom), profile: HIPS }),
+      round(f, 'torso', -3, 0, 42, z + 12, top, { ...cloth(look.top), profile: BODY }),
+      arm('arm-r', 1, [
+        [-3, 22, top - 6],
+        [6, 25, z + 28],
+        [16, 17, z + 20],
+      ]),
+      arm('arm-l', -1, [
+        [-3, 22, top - 6],
+        [6, 25, z + 28],
+        [16, 17, z + 20],
+      ]),
+      ...headParts(f, look, -2, top),
     ];
   }
-  const shoulder = 140;
-  const parts = [
-    block(f, 'shoe-r', 3, 9, 15, 12, 0, 7, { color: look.shoes, material: 'matte', radius: 0.45 }),
-    block(f, 'shoe-l', 3, -9, 15, 12, 0, 7, { color: look.shoes, material: 'matte', radius: 0.45 }),
-    round(f, 'leg-r', 0, 9, 16, 5, 82, { ...cloth(look.bottom), profile: LEG }),
-    round(f, 'leg-l', 0, -9, 16, 5, 82, { ...cloth(look.bottom), profile: LEG }),
-    round(f, 'hips', 0, 0, 34, 76, 94, { ...cloth(look.bottom), profile: HIPS }),
-    round(f, 'torso', 0, 0, 38, 90, shoulder, { ...cloth(look.top), profile: TORSO }),
-    limb(
-      f,
-      'arm-r',
-      [
-        [0, 21, shoulder - 6],
-        [1, 24, 112],
-        [3, 24, 90],
-      ],
-      6,
-      cloth(look.top),
-    ),
-    limb(
-      f,
-      'arm-l',
-      [
-        [0, -21, shoulder - 6],
-        [1, -24, 112],
-        [3, -24, 90],
-      ],
-      6,
-      cloth(look.top),
-    ),
-    lump(f, 'hand-r', 3, 24, 10, 10, 78, 91, { color: look.skin, material: 'matte' }),
-    lump(f, 'hand-l', 3, -24, 10, 10, 78, 91, { color: look.skin, material: 'matte' }),
-    ...headParts(f, look, 0, shoulder),
+  const top = 100;
+  const shoe = { color: look.shoes, material: 'matte' as const, radius: 0.5 };
+  return [
+    block(f, 'shoe-r', 4, 10, 18, 14, 0, 10, shoe),
+    block(f, 'shoe-l', 4, -10, 18, 14, 0, 10, shoe),
+    round(f, 'leg-r', 0, 9.5, 18, 8, 48, { ...cloth(look.bottom), profile: LEG }),
+    round(f, 'leg-l', 0, -9.5, 18, 8, 48, { ...cloth(look.bottom), profile: LEG }),
+    round(f, 'hips', 0, 0, 38, 42, 62, { ...cloth(look.bottom), profile: HIPS }),
+    round(f, 'torso', 0, 0, 42, 56, top, { ...cloth(look.top), profile: BODY }),
+    arm('arm-r', 1, [
+      [0, 22, top - 6],
+      [2, 27, 80],
+      [4, 27, 68],
+    ]),
+    arm('arm-l', -1, [
+      [0, 22, top - 6],
+      [2, 27, 80],
+      [4, 27, 68],
+    ]),
+    lump(f, 'hand-r', 4, 27, 13, 13, 56, 69, { color: look.skin, material: 'matte' }),
+    lump(f, 'hand-l', 4, -27, 13, 13, 56, 69, { color: look.skin, material: 'matte' }),
+    ...headParts(f, look, 0, top),
   ];
-  return parts;
 }
 
 /** A person standing, facing the room's camera, in a box of `PERSON_CM`. */
@@ -309,8 +300,7 @@ export function personItem(label: string, look: PersonLook): IsoItem {
 /**
  * A person sitting, in another thing's item frame (a chair's): hips at
  * `hip` (item units), facing `facing`, on a seat whose top is `seatZ` units
- * up, one unit being `unitCm`. `full` keeps the neck; without it the figure
- * is a part lighter, for a seat with many parts of its own.
+ * up, one unit being `unitCm`.
  */
 export function sittingParts(
   look: PersonLook,
@@ -320,14 +310,13 @@ export function sittingParts(
     seatZ: number;
     unitCm: number;
   },
-  full = false,
 ): ItemPart[] {
   const f: Frame = {
     origin: { x: place.hip.x * place.unitCm, y: place.hip.y * place.unitCm },
     facing: place.facing,
     unit: place.unitCm,
   };
-  return personParts(f, look, 'sitting', place.seatZ * place.unitCm, full);
+  return personParts(f, look, 'sitting', place.seatZ * place.unitCm);
 }
 
 /** A dog standing or lying along +x, its head to the room's right, in a box of `DOG_CM`. */
@@ -336,54 +325,149 @@ export function dogItem(label: string, look: PetLook, pose: DogPose = 'standing'
   // Ahead is +x, its right is -y: the room sees its left flank.
   const f: Frame = { origin: { x: 0, y: L.d / 2 }, facing: { x: 1, y: 0 }, unit: L.w };
   const fur = { color: look.body };
-  const paws: Paint[] = [{ kind: 'band', from: 0, to: 0.22, color: look.accent }];
-  const face = { paint: [faceDecal('right', DOG_FACE, { across: [0.15, 0.85], up: [0.5, 0.75] })] };
-  if (pose === 'lying') {
+  const accent = { color: look.accent };
+  const ear = { color: look.ear, radius: 0.5 };
+  const nose = { color: '#1f1714', material: 'gloss' as const };
+  const paws: Paint[] = [{ kind: 'band', from: 0, to: 0.3, color: look.accent }];
+  const face = { paint: [faceDecal('right', DOG_FACE, { across: [0.1, 0.9], up: [0.46, 0.7] })] };
+  if (pose === 'lying')
     return buildModel(label, [
-      lump(f, 'body', 32, 0, 50, 26, 0, 21, { ...fur, rough: 0.06 }),
-      lump(f, 'chest', 50, 0, 18, 18, 0, 18, { color: look.accent }),
-      block(f, 'paw-r', 62, 6, 20, 7, 0, 6, { color: look.accent, radius: 0.5 }),
-      block(f, 'paw-l', 62, -6, 20, 7, 0, 6, { color: look.accent, radius: 0.5 }),
-      lump(f, 'head', 60, 0, 18, 17, 6, 24, { ...fur, rough: 0.03, ...face }),
-      block(f, 'snout', 69, 0, 11, 9, 7, 15, { color: look.accent, radius: 0.5 }),
-      lump(f, 'nose', 75, 0, 4, 4, 11, 15, { color: '#1f1714', material: 'gloss' }),
-      block(f, 'ear-r', 58, 8.5, 7, 2.5, 9, 22, { color: look.ear, radius: 0.5 }),
-      block(f, 'ear-l', 58, -8.5, 7, 2.5, 9, 22, { color: look.ear, radius: 0.5 }),
+      lump(f, 'body', 26, 0, 40, 28, 0, 20, { ...fur, rough: 0.05 }),
+      lump(f, 'chest', 40, 0, 16, 20, 0, 18, accent),
+      block(f, 'paw-r', 52, 7, 18, 9, 0, 7, { ...accent, radius: 0.5 }),
+      block(f, 'paw-l', 52, -7, 18, 9, 0, 7, { ...accent, radius: 0.5 }),
+      lump(f, 'head', 50, 0, 24, 24, 6, 30, { ...fur, rough: 0.02, ...face }),
+      block(f, 'snout', 61, 0, 10, 12, 8, 17, { ...accent, radius: 0.5 }),
+      lump(f, 'nose', 66, 0, 5, 5, 12, 17, nose),
+      block(f, 'ear-r', 48, 12.5, 9, 4, 6, 24, ear),
+      block(f, 'ear-l', 48, -12.5, 9, 4, 6, 24, ear),
       limb(
         f,
         'tail',
         [
-          [8, -6, 4],
-          [2, -9, 3],
-          [-1, -12, 2],
+          [8, -6, 5],
+          [1, -10, 4],
+          [-1, -14, 3],
         ],
-        3,
+        3.5,
         fur,
       ),
     ]);
-  }
   return buildModel(label, [
-    lump(f, 'body', 32, 0, 44, 22, 22, 46, { ...fur, rough: 0.06 }),
-    lump(f, 'chest', 50, 0, 16, 18, 22, 44, { color: look.accent }),
-    block(f, 'leg-fr', 50, 6, 8, 7, 0, 28, { ...fur, radius: 0.5, paint: paws }),
-    block(f, 'leg-fl', 50, -6, 8, 7, 0, 28, { ...fur, radius: 0.5, paint: paws }),
-    block(f, 'leg-br', 16, 6, 9, 7, 0, 30, { ...fur, radius: 0.5, paint: paws }),
-    block(f, 'leg-bl', 16, -6, 9, 7, 0, 30, { ...fur, radius: 0.5, paint: paws }),
-    lump(f, 'head', 58, 0, 18, 17, 36, 54, { ...fur, rough: 0.03, ...face }),
-    block(f, 'snout', 67, 0, 11, 9, 37, 45, { color: look.accent, radius: 0.5 }),
-    lump(f, 'nose', 72.5, 0, 4, 4, 41, 45, { color: '#1f1714', material: 'gloss' }),
-    block(f, 'ear-r', 56, 8.5, 7, 2.5, 39, 52, { color: look.ear, radius: 0.5 }),
-    block(f, 'ear-l', 56, -8.5, 7, 2.5, 39, 52, { color: look.ear, radius: 0.5 }),
+    lump(f, 'body', 28, 0, 36, 26, 16, 40, { ...fur, rough: 0.05 }),
+    lump(f, 'chest', 40, 0, 16, 20, 16, 38, accent),
+    block(f, 'leg-fr', 40, 7, 10, 9, 0, 24, { ...fur, radius: 0.5, paint: paws }),
+    block(f, 'leg-fl', 40, -7, 10, 9, 0, 24, { ...fur, radius: 0.5, paint: paws }),
+    block(f, 'leg-br', 16, 7, 10, 9, 0, 24, { ...fur, radius: 0.5, paint: paws }),
+    block(f, 'leg-bl', 16, -7, 10, 9, 0, 24, { ...fur, radius: 0.5, paint: paws }),
+    lump(f, 'head', 50, 0, 26, 26, 30, 56, { ...fur, rough: 0.02, ...face }),
+    block(f, 'snout', 61, 0, 10, 12, 33, 42, { ...accent, radius: 0.5 }),
+    lump(f, 'nose', 66, 0, 5, 5, 38, 43, nose),
+    block(f, 'ear-r', 47, 12.5, 9, 4, 32, 51, ear),
+    block(f, 'ear-l', 47, -12.5, 9, 4, 32, 51, ear),
     limb(
       f,
       'tail',
       [
-        [12, 0, 40],
-        [5, 0, 46],
-        [2, 0, 55],
+        [9, 0, 32],
+        [2, 0, 38],
+        [4, 0, 47],
       ],
-      3,
+      3.5,
       fur,
     ),
   ]);
+}
+
+/** A cat sitting up, cm, facing the room's camera. */
+export const CAT_CM = { w: 30, d: 30, h: 36 } as const;
+/** A cat curled up asleep, cm. */
+export const CAT_SLEEPING_CM = { w: 34, d: 34, h: 18 } as const;
+const CAT_FACE = pixels(['.we...we.', '.ee...ee.', '....n....', '...m.m...'], {
+  w: '#ffffff',
+  e: '#1d1514',
+  n: '#ec7f86',
+  m: '#3d2219',
+});
+const CAT_ASLEEP = pixels(['.ee...ee.', '.........', '....n....'], {
+  e: '#3d2219',
+  n: '#ec7f86',
+});
+const EAR_INSIDE = pixels(['..p..', '.ppp.', '.ppp.', 'ppppp'], { p: '#f2a3a3' });
+const EAR = [
+  { r: 1, z: 0 },
+  { r: 0.8, z: 0.4 },
+  { r: 0.12, z: 1 },
+];
+
+/**
+ * A cat's parts, `body` and `accent` its two colours: sitting up with its
+ * face to the room (`idle`), or curled up asleep with its tail round it.
+ * Chibi like the people: a big head, a round body, little paws.
+ */
+export function catParts(
+  body: string,
+  accent: string,
+  pose: 'idle' | 'sleeping',
+  material: ItemMaterial = 'fabric',
+): ItemPart[] {
+  const box = pose === 'sleeping' ? CAT_SLEEPING_CM : CAT_CM;
+  const f: Frame = {
+    origin: { x: box.w / 2, y: box.d / 2 },
+    facing: { x: Math.SQRT1_2, y: Math.SQRT1_2 },
+    unit: box.w,
+  };
+  const fur: Look = { color: body, material };
+  const ear = (id: string, a: number, b: number, z: number, size = 7) =>
+    round(f, id, a, b, size, z, z + size + 1, {
+      ...fur,
+      profile: EAR,
+      paint: [faceDecal('front', EAR_INSIDE, { across: [0.25, 0.75], up: [0.05, 0.7] })],
+    });
+  if (pose === 'sleeping')
+    return [
+      lump(f, 'body', -4, 0, 24, 22, 0, 12, { ...fur, rough: 0.04 }),
+      lump(f, 'head', 9, 1, 15, 15, 0, 13, {
+        ...fur,
+        rough: 0.02,
+        paint: [faceDecal('front', CAT_ASLEEP, { across: [0.12, 0.88], up: [0.3, 0.6] })],
+      }),
+      ear('ear-l', 8, -3, 10, 5),
+      ear('ear-r', 8, 5, 10, 5),
+      limb(
+        f,
+        'tail',
+        [
+          [-12, -6, 2],
+          [0, -13, 2],
+          [10, -8, 2],
+        ],
+        2.6,
+        fur,
+      ),
+    ];
+  return [
+    lump(f, 'body', -2, 0, 22, 22, 0, 20, { ...fur, rough: 0.04 }),
+    lump(f, 'chest', 4, 0, 12, 12, 3, 17, { color: accent, material }),
+    lump(f, 'paw-r', 7, 4, 6, 6, 0, 5, { color: accent, material }),
+    lump(f, 'paw-l', 7, -4, 6, 6, 0, 5, { color: accent, material }),
+    lump(f, 'head', 2, 0, 22, 22, 15, 33, {
+      ...fur,
+      rough: 0.02,
+      paint: [faceDecal('front', CAT_FACE, { across: [0.12, 0.88], up: [0.22, 0.6] })],
+    }),
+    ear('ear-r', 0, 6.5, 29),
+    ear('ear-l', 0, -6.5, 29),
+    limb(
+      f,
+      'tail',
+      [
+        [-10, 4, 2],
+        [-12, 10, 6],
+        [-7, 13, 15],
+      ],
+      2.4,
+      fur,
+    ),
+  ];
 }

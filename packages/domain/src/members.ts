@@ -1,6 +1,8 @@
 import { catItem } from './iso-archetypes.js';
 import type { IsoItem } from './iso-item.js';
 import {
+  CAT_CM,
+  CAT_SLEEPING_CM,
   DOG_CM,
   DOG_LYING_CM,
   PERSON_CM,
@@ -95,7 +97,7 @@ export const MEMBER_POSES: Record<MemberType, readonly string[]> = {
 export function memberSizeCm(type: MemberType, pose?: string): { w: number; d: number; h: number } {
   if (type === 'person') return PERSON_CM;
   if (type === 'dog') return pose === 'lying' ? DOG_LYING_CM : DOG_CM;
-  return pose === 'sleeping' ? { w: 28, d: 26, h: 18 } : { w: 26, d: 28, h: 32 };
+  return pose === 'sleeping' ? CAT_SLEEPING_CM : CAT_CM;
 }
 
 /** A member's model in a pose (its first when none is given), in its look. */

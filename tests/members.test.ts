@@ -34,7 +34,7 @@ describe('a person or pet added by name', () => {
     expect(d).toMatchObject({
       label: 'Robin',
       type: 'person',
-      size: { w: 1.67, d: 1.67, h: 5.87 },
+      size: { w: 1.8, d: 1.8, h: 5.07 },
     });
     expect(fixtureType({ model: d.model })).toBe('person');
   });

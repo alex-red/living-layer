@@ -16,6 +16,7 @@ import {
   type CatFit,
 } from './iso-archetypes.js';
 import { ISO_TILE_CM } from './iso-furniture.js';
+import { CAT_CM, CAT_SLEEPING_CM } from './member-models.js';
 import {
   MEMBER_POSES,
   isMemberType,
@@ -631,11 +632,11 @@ export function defaultFixtureStates(f: {
       states: {
         idle: {
           model: stateVariantModel(f.model, 'idle'),
-          size: sizeInTiles({ w: 26, d: 28, h: 32 }),
+          size: sizeInTiles(CAT_CM),
         },
         sleeping: {
           model: stateVariantModel(f.model, 'sleeping'),
-          size: sizeInTiles({ w: 28, d: 26, h: 18 }),
+          size: sizeInTiles(CAT_SLEEPING_CM),
         },
       },
     };
@@ -949,7 +950,7 @@ const STARTER_META: Record<
     archetype: 'cat',
     suggested: 'none',
     description: 'A cat with idle and sleeping poses.',
-    sizeCm: { w: 26, d: 28, h: 32 },
+    sizeCm: CAT_CM,
     colors: ['#d88b4b', '#f2e6d8'],
   },
   monitor: {
