@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent,
+} from 'react';
 import {
   MAX_EXPOSED,
   MAX_FIXTURES,
@@ -11,7 +19,10 @@ import {
   otherObjects,
   placedFixtures,
   type DeskMemory,
+  type DesktopNodeView,
+  type EvidenceRun,
   type Fixture,
+  type LampResult,
   type StatKey,
   type StatNow,
 } from '@livinglayer/domain';
@@ -44,7 +55,8 @@ import {
   type ThingRow,
 } from './sceneOutline';
 import { useThingStats } from './state/stats';
-import { useDesktopNodes } from './state/nodes';
+import { keepNodes, useDesktopNodes } from './state/nodes';
+import { deviceGroups, type DeviceRow, type DeviceState } from './haDevices';
 
 const GLYPH: Record<StepState, string> = { done: '✓', current: '●', todo: '◌', locked: '–' };
 
@@ -786,14 +798,121 @@ function Zones({ outline }: { outline: SceneOutline }) {
 /** How often the outline looks for desktops again: slower than their panel, which looks every few seconds. */
 const DESKTOPS_POLL_MS = 15_000;
 
-/** Desktop nodes, shared by every scene: found, adopted, and whether they answer. */
+/** Copy a line to the clipboard, saying so; the browser may refuse outside a secure page. */
+function useCopy() {
+  const { setMessage } = useFeedback();
+  return (text: string, what: string) =>
+    void navigator.clipboard
+      ?.writeText(text)
+      .then(() => setMessage(`Copied ${what}.`))
+      .catch(() => setMessage(`Couldn’t copy ${what}: ${text}`));
+}
+
+/** Desktop nodes, shared by every scene: found, adopted, and whether they answer. Right-click one to drive it. */
 function Desktops() {
-  const { mode, memory } = useLabParts(useView(), useDesk());
+  const lab = useLabParts(useView(), useDesk(), useFeedback(), useNavigation());
+  const { mode, memory } = lab;
   const nodes = useDesktopNodes(mode, DESKTOPS_POLL_MS);
+  const { call, off } = useCall();
+  const copy = useCopy();
+  const [menu, setMenu] = useState<{ id: string; at: { x: number; y: number } } | null>(null);
+  const closeMenu = useCallback(() => setMenu(null), []);
   /** The monitor's state follows each switch at once; the node's status only on the next look. */
   const display = (n: (typeof nodes)[number]) =>
     memory?.fixtures?.find((f) => f.id === n.fixtureId)?.state ?? n.status?.display ?? 'unknown';
   const adopted = nodes.filter((n) => n.adopted);
+  const node = menu ? nodes.find((n) => n.id === menu.id) : undefined;
+  const items = (n: (typeof nodes)[number]): MenuItem[] => {
+    const shown = display(n);
+    const canDisplay = n.adopted && n.online && n.caps.includes('display');
+    const screen = (to: 'on' | 'off') =>
+      void call<{ memory: DeskMemory; lamp: LampResult | null }>(
+        'nodes/command',
+        { id: n.id, command: { kind: 'display', to } },
+        (r) => {
+          lab.setMemory(r.memory, false);
+          lab.setMessage(
+            r.lamp?.explanation ??
+              (to === 'on' ? `Woke ${n.name}’s display.` : `Put ${n.name}’s display to sleep.`),
+          );
+        },
+      );
+    return [
+      ...(!n.adopted
+        ? [
+            {
+              label: 'Adopt',
+              disabled: off || n.taken,
+              title: n.taken ? 'Another lab has it: unpair it there first.' : undefined,
+              onSelect: () =>
+                void call<{ nodes: DesktopNodeView[]; memory: DeskMemory }>(
+                  'nodes/adopt',
+                  { id: n.id },
+                  (r) => {
+                    keepNodes(mode, r.nodes);
+                    lab.setMemory(r.memory, false);
+                    lab.setMessage(`Adopted ${n.name}.`);
+                  },
+                ),
+            },
+          ]
+        : [
+            {
+              label: 'Display on',
+              heading: 'Display',
+              checked: shown === 'on',
+              disabled: off || !canDisplay,
+              title: canDisplay
+                ? undefined
+                : n.online
+                  ? 'It can’t switch its display.'
+                  : 'It isn’t answering.',
+              onSelect: () => screen('on'),
+            },
+            {
+              label: 'Display off',
+              checked: shown === 'off',
+              disabled: off || !canDisplay,
+              onSelect: () => screen('off'),
+            },
+          ]),
+      {
+        label: 'Open in Desktops',
+        separated: true,
+        onSelect: () => lab.select({ kind: 'desktops' }),
+      },
+      ...(n.fixtureId && memory?.fixtures?.some((f) => f.id === n.fixtureId)
+        ? [
+            {
+              label: 'Open its monitor',
+              onSelect: () => lab.select({ kind: 'fixture', id: n.fixtureId! }),
+            },
+          ]
+        : []),
+      { label: 'Copy address', onSelect: () => copy(n.address, `${n.name}’s address`) },
+      ...(n.adopted
+        ? [
+            {
+              label: 'Forget',
+              separated: true,
+              destructive: true,
+              disabled: off,
+              title: 'Give up its token; it can be adopted again.',
+              onSelect: () =>
+                void call<{ nodes: DesktopNodeView[]; memory: DeskMemory }>(
+                  'nodes/forget',
+                  { id: n.id },
+                  (r) => {
+                    keepNodes(mode, r.nodes);
+                    lab.setMemory(r.memory, false);
+                    lab.setMessage(`Forgot ${n.name}; it can be adopted again.`);
+                  },
+                ),
+            },
+          ]
+        : []),
+    ];
+  };
   return (
     <details className="ol-ha" open={nodes.length > 0}>
       <summary>
@@ -807,24 +926,40 @@ function Desktops() {
         </small>
       </summary>
       <ul className="ol-tree">
-        {nodes.map((n) => (
-          <Row
-            key={n.id}
-            label={n.name}
-            detail={
-              !n.adopted
-                ? n.taken
-                  ? 'another lab’s'
-                  : 'found · adopt it'
-                : !n.online
-                  ? 'not answering'
-                  : `display ${display(n)}`
-            }
-            glyph={n.adopted ? (n.online ? '▭' : '◌') : '＋'}
-            className={n.adopted ? (n.online ? 'done' : 'missing') : 'current'}
-            target={{ kind: 'desktops' }}
-          />
-        ))}
+        {nodes.map((n) => {
+          const shown = display(n);
+          return (
+            <Row
+              key={n.id}
+              label={n.name}
+              detail={
+                !n.adopted
+                  ? n.taken
+                    ? 'another lab’s'
+                    : 'found · adopt it'
+                  : !n.online
+                    ? 'not answering'
+                    : n.address
+              }
+              meta={
+                n.adopted && n.online
+                  ? shown === 'unknown'
+                    ? '—'
+                    : shown.toUpperCase()
+                  : undefined
+              }
+              metaTone={shown === 'on' ? 'warm' : undefined}
+              glyph={n.adopted ? (n.online ? '▭' : '◌') : '＋'}
+              className={n.adopted ? (n.online ? 'done' : 'missing') : 'current'}
+              title="Right-click for its display and more"
+              target={{ kind: 'desktops' }}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                setMenu({ id: n.id, at: menuAt(e) });
+              }}
+            />
+          );
+        })}
         {!nodes.length && (
           <Row
             label="Drive a desktop’s screen"
@@ -835,21 +970,186 @@ function Desktops() {
           />
         )}
       </ul>
+      {menu && node && (
+        <ContextMenu
+          at={menu.at}
+          label={`${node.name} actions`}
+          items={items(node)}
+          onClose={closeMenu}
+        />
+      )}
     </details>
   );
 }
 
-/** Home Assistant, shared by every scene: the devices it may switch and what it shows there. */
+const DEVICE_GLYPH: Record<DeviceState, string> = {
+  on: '●',
+  off: '○',
+  unknown: '◌',
+  unavailable: '×',
+};
+const DEVICE_META: Record<DeviceState, string> = {
+  on: 'ON',
+  off: 'OFF',
+  unknown: '—',
+  unavailable: 'N/A',
+};
+
+/**
+ * Home Assistant, shared by every scene: every device it may switch, by
+ * kind and with its state, and what Living Layer shows there. Right-click a
+ * device to switch it, a kind to switch them all.
+ */
 function HomeAssistant() {
-  const lab = useLabParts(useFeedback(), useDesk(), useView());
+  const lab = useLabParts(useFeedback(), useDesk(), useView(), useNavigation());
   const { memory, busy } = lab;
   // What Home Assistant shows changes as the watcher reports: only this renders for it.
   const broker = useStore(exposeStore, (v) => v?.broker.state);
   const states = useStore(exposeStore, (v) => v?.states);
+  const { call } = useCall();
+  const copy = useCopy();
+  const [menu, setMenu] = useState<{
+    kind: 'device' | 'group' | 'exposed';
+    id: string;
+    at: { x: number; y: number };
+  } | null>(null);
+  const closeMenu = useCallback(() => setMenu(null), []);
+  /** The devices being switched now, shown as such until the answer comes. */
+  const [switching, setSwitching] = useState<ReadonlySet<string>>(new Set());
   const exposed = memory?.exposed ?? [];
-  const ready = lab.entities.length && (lab.mode === 'demo' || lab.lampReady);
+  const blocked = lab.mode === 'live' && !lab.lampReady;
+  const ready = lab.entities.length && !blocked;
+  const groups = useMemo(
+    () =>
+      deviceGroups({
+        entities: lab.entities,
+        states: lab.deviceStates,
+        fixtures: memory?.fixtures ?? [],
+        unknownIsOff: lab.mode === 'demo',
+      }),
+    [lab.entities, lab.deviceStates, memory?.fixtures, lab.mode],
+  );
+  const devices = groups.flatMap((g) => g.devices);
+  const onCount = groups.reduce((n, g) => n + g.on, 0);
+  const mark = (ids: string[], on: boolean) =>
+    setSwitching((now) => {
+      const next = new Set(now);
+      for (const id of ids) {
+        if (on) next.add(id);
+        else next.delete(id);
+      }
+      return next;
+    });
+  const turn = async (list: DeviceRow[], action: 'on' | 'off') => {
+    const ids = list.map((d) => d.entityId);
+    mark(ids, true);
+    // One at a time: each is its own request to Home Assistant, checked before the next.
+    for (const d of list)
+      await call<{ memory: DeskMemory; event: EvidenceRun<LampResult> | null }>(
+        'fixtures/control',
+        { entityId: d.entityId, action },
+        (r) => {
+          lab.setMemory(r.memory, false);
+          lab.setMessage(r.event?.output.explanation ?? `${d.name} is ${action}.`);
+        },
+      ).finally(() => mark([d.entityId], false));
+  };
+  const why = blocked ? 'Switching is off: HA_LIVE_ENABLED=false in .env.' : undefined;
+  const switchItems = (list: DeviceRow[], all: boolean): MenuItem[] => {
+    const one = list.length === 1 ? list[0] : null;
+    const waiting = list.some((d) => switching.has(d.entityId));
+    return [
+      {
+        label: all ? 'Turn all on' : 'Turn on',
+        checked: one ? one.state === 'on' : undefined,
+        disabled: blocked || waiting,
+        title: why,
+        onSelect: () => void turn(list, 'on'),
+      },
+      {
+        label: all ? 'Turn all off' : 'Turn off',
+        checked: one ? one.state === 'off' : undefined,
+        disabled: blocked || waiting,
+        title: why,
+        onSelect: () => void turn(list, 'off'),
+      },
+      ...(one
+        ? [
+            {
+              label: 'Toggle',
+              disabled: blocked || waiting,
+              title: why,
+              onSelect: () => void turn([one], one.state === 'on' ? 'off' : 'on'),
+            },
+          ]
+        : []),
+    ];
+  };
+  const menuItems = (): MenuItem[] => {
+    if (!menu) return [];
+    if (menu.kind === 'group') {
+      const g = groups.find((x) => x.domain === menu.id);
+      return g
+        ? [
+            ...switchItems(g.devices, true),
+            {
+              label: 'Choose devices…',
+              separated: true,
+              onSelect: () => lab.select({ kind: 'devices' }),
+            },
+          ]
+        : [];
+    }
+    if (menu.kind === 'exposed') {
+      const e = exposed.find((x) => x.id === menu.id);
+      if (!e) return [];
+      const entityId = states?.find((s) => s.id === e.id)?.entityId;
+      return [
+        { label: 'Open', onSelect: () => lab.select({ kind: 'entity', id: e.id }) },
+        ...(entityId
+          ? [{ label: 'Copy entity id', onSelect: () => copy(entityId, 'the entity id') }]
+          : []),
+        {
+          label: 'Stop showing it',
+          separated: true,
+          destructive: true,
+          disabled: Boolean(busy),
+          title: 'Remove it from Home Assistant.',
+          onSelect: () =>
+            void call<DeskMemory>('expose/delete', { id: e.id }, (m) => {
+              lab.setMemory(m, false);
+              lab.setMessage(`Home Assistant no longer shows “${e.name}”.`);
+            }),
+        },
+      ];
+    }
+    const d = devices.find((x) => x.entityId === menu.id);
+    if (!d) return [];
+    return [
+      ...switchItems([d], false),
+      ...(d.fixtureIds[0]
+        ? [
+            {
+              label: 'Open its thing',
+              separated: true,
+              onSelect: () => lab.select({ kind: 'fixture', id: d.fixtureIds[0]! }),
+            },
+          ]
+        : []),
+      {
+        label: 'Device settings…',
+        separated: !d.fixtureIds[0],
+        onSelect: () => lab.select({ kind: 'devices' }),
+      },
+      { label: 'Copy entity id', onSelect: () => copy(d.entityId, 'the entity id') },
+    ];
+  };
+  const openMenu = (kind: 'device' | 'group' | 'exposed', id: string) => (e: MouseEvent) => {
+    e.preventDefault();
+    setMenu({ kind, id, at: menuAt(e) });
+  };
   return (
-    <details className="ol-ha">
+    <details className="ol-ha" open={devices.length > 0}>
       <summary>
         <span className="tiny">HOME ASSISTANT</span>
         <small className={`ol-broker ${broker ?? ''}`}>
@@ -862,21 +1162,71 @@ function HomeAssistant() {
                 : broker === 'error'
                   ? 'can’t connect'
                   : 'not connected'}
-          {` · ${lab.entities.length} device${lab.entities.length === 1 ? '' : 's'}`}
+          {devices.length
+            ? ` · ${onCount} of ${devices.length} on`
+            : ` · ${lab.entities.length} device${lab.entities.length === 1 ? '' : 's'}`}
         </small>
       </summary>
       <ul className="ol-tree">
+        {groups.map((g) => (
+          <Fragment key={g.domain}>
+            <li>
+              <button
+                className="ol-ha-group"
+                title="Right-click to switch them all"
+                onClick={() => lab.select({ kind: 'devices' })}
+                onContextMenu={openMenu('group', g.domain)}
+              >
+                <span className="tiny">{g.label}</span>
+                <small>
+                  {g.on
+                    ? `${g.on} of ${g.devices.length} on`
+                    : g.devices.every((d) => d.state === 'off')
+                      ? 'all off'
+                      : 'none on'}
+                </small>
+              </button>
+            </li>
+            {g.devices.map((d) => {
+              const busyNow = switching.has(d.entityId);
+              return (
+                <Row
+                  key={d.entityId}
+                  label={d.name}
+                  detail={d.entityId}
+                  meta={busyNow ? '…' : DEVICE_META[d.state]}
+                  metaTone={
+                    d.state === 'on' ? 'warm' : d.state === 'unavailable' ? 'unknown' : undefined
+                  }
+                  glyph={DEVICE_GLYPH[d.state]}
+                  className={`device ${d.state} ${busyNow ? 'switching' : ''}`}
+                  title={`${d.entityId} · right-click to switch it`}
+                  target={
+                    d.fixtureIds[0] ? { kind: 'fixture', id: d.fixtureIds[0] } : { kind: 'devices' }
+                  }
+                  onContextMenu={openMenu('device', d.entityId)}
+                />
+              );
+            })}
+          </Fragment>
+        ))}
         <Row
-          label="Devices it can switch"
+          label={devices.length ? 'Choose devices' : 'Devices it can switch'}
           detail={
-            lab.entities.length
-              ? `${lab.entities.length} ready${lab.mode === 'live' && !lab.lampReady ? ' · switching off' : ''}`
-              : 'connect, then pick a few'
+            devices.length ? (blocked ? 'switching off' : undefined) : 'connect, then pick a few'
           }
-          glyph={ready ? '✓' : '●'}
-          className={ready ? 'done' : 'current'}
+          glyph={devices.length ? '⚙' : ready ? '✓' : '●'}
+          className={devices.length ? 'add' : ready ? 'done' : 'current'}
           target={{ kind: 'devices' }}
         />
+        {exposed.length > 0 && (
+          <li>
+            <span className="ol-ha-group static">
+              <span className="tiny">Shown in Home Assistant</span>
+              <small>{exposed.length}</small>
+            </span>
+          </li>
+        )}
         {exposed.map((e) => (
           <Row
             key={e.id}
@@ -885,6 +1235,7 @@ function HomeAssistant() {
             glyph="◆"
             className="seen"
             target={{ kind: 'entity', id: e.id }}
+            onContextMenu={openMenu('exposed', e.id)}
           />
         ))}
         <Row
@@ -896,6 +1247,14 @@ function HomeAssistant() {
           disabled={exposed.length >= MAX_EXPOSED || Boolean(busy)}
         />
       </ul>
+      {menu && (
+        <ContextMenu
+          at={menu.at}
+          label="Home Assistant actions"
+          items={menuItems()}
+          onClose={closeMenu}
+        />
+      )}
     </details>
   );
 }

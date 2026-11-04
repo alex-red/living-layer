@@ -598,6 +598,63 @@ button.ol-group-head:hover {
 .ol-ha[open] summary::after {
   transform: rotate(90deg);
 }
+/* A kind of device (Lights, Switches), its count on; right-click switches them all. */
+.ol-ha-group {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  margin-top: 6px;
+  padding: 3px 8px 2px;
+  border: 0;
+  border-radius: var(--r-chip);
+  background: none;
+  color: var(--text-3);
+  text-align: left;
+}
+li:first-child > .ol-ha-group {
+  margin-top: 0;
+}
+button.ol-ha-group:hover {
+  background: var(--surface-2);
+  color: var(--text-2);
+}
+.ol-ha-group small {
+  font: 600 var(--fs-11) / 1 var(--mono);
+}
+/* A device by its state: lit when on, faint when off, grey when nothing is known. */
+.ol-row.device.on .ol-glyph {
+  color: var(--warm);
+  text-shadow: 0 0 8px var(--warm-glow);
+}
+.ol-row.device.off .ol-glyph,
+.ol-row.device.unknown .ol-glyph {
+  color: var(--text-3);
+}
+.ol-row.device.unavailable .ol-glyph,
+.ol-row.device.unavailable .ol-label {
+  color: var(--unsure);
+}
+.ol-row.device .ol-text small {
+  overflow: hidden;
+  font-family: var(--mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ol-row.device.switching .ol-meta {
+  animation: ol-switching 0.9s ease-in-out infinite alternate;
+}
+@keyframes ol-switching {
+  to {
+    opacity: 0.3;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ol-row.device.switching .ol-meta {
+    animation: none;
+  }
+}
 
 /* Outline: picking fixtures to delete several at once. */
 .ol-head-actions {

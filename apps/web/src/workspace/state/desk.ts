@@ -159,12 +159,17 @@ export function useDeskSlice(deps: ViewSlice & FeedbackSlice & RunLogSlice): Des
   const haStates = useStore(haStore, (v) => (v?.link === 'connected' ? v.states : null));
   /** Home Assistant's devices as it reports them now, while live and connected; else null. */
   const liveHa = useStore(haStore, (v) => (mode === 'live' && v?.link === 'connected' ? v : null));
-  const lightsOn = useMemo(() => {
+  /** Each device's state as far as it is known: Home Assistant's now (live), else the last confirmed. */
+  const deviceStates = useMemo(() => {
     const states = new Map<string, string>(lightStates(memory, runs));
     if (mode === 'live' && haStates)
       for (const [entity, state] of Object.entries(haStates)) states.set(entity, state);
-    return new Set([...states].filter(([, s]) => s === 'on').map(([entity]) => entity));
+    return states;
   }, [memory, runs, mode, haStates]);
+  const lightsOn = useMemo(
+    () => new Set([...deviceStates].filter(([, s]) => s === 'on').map(([entity]) => entity)),
+    [deviceStates],
+  );
   /** What a rule or a fixture may switch: the lights, then the switches. */
   const entities = useMemo(
     () => [
@@ -178,6 +183,7 @@ export function useDeskSlice(deps: ViewSlice & FeedbackSlice & RunLogSlice): Des
   );
   return useStableSlice({
     deskReady,
+    deviceStates,
     edits,
     entities,
     historyTick,
@@ -209,6 +215,7 @@ export function useDeskSlice(deps: ViewSlice & FeedbackSlice & RunLogSlice): Des
 /** What the Desk slice of the lab offers: its state, derived values and actions. */
 export interface DeskSlice {
   deskReady: boolean;
+  deviceStates: Map<string, string>;
   edits: RefObject<number>;
   entities: string[];
   historyTick: number;
