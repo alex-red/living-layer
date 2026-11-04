@@ -26,3 +26,6 @@ docs/demo-video.md
 # Local TLS certificate and key
 auto.crt
 auto.key
+
+# Demo video studio, kept local
+studio/
