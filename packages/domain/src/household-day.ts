@@ -22,7 +22,8 @@ interface SpotInfo {
 const HOME_SPOTS: Record<HomeSpot, SpotInfo> = {
   chair: { label: 'at the table', seat: 'chair' },
   'chair-back': { label: 'at the table, by the wall', seat: 'chair-back' },
-  table: { label: 'by the table', at: { x: 2.1, y: 4.4 } },
+  // The table's open end, where the camera sees it: its other sides are behind the chairs.
+  table: { label: 'by the table', at: { x: 7.9, y: 4.4 } },
   shelf: { label: 'by the bookshelf', at: { x: 8.3, y: 2.2 } },
   plant: { label: 'by the plant', at: { x: 2.4, y: 6.7 } },
   door: { label: 'by the door', at: { x: 8.8, y: 6.6 } },
