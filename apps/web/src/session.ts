@@ -165,6 +165,13 @@ export type DeskKeys = Record<Mode, string>;
 export function deskKeys(desks: SessionSave['desks']): DeskKeys {
   return { demo: JSON.stringify(desks.demo ?? null), live: JSON.stringify(desks.live ?? null) };
 }
+/**
+ * Whether a desk saved elsewhere (a script, another tab) changed its things:
+ * an edit a named save doesn't hold yet. The watcher's sightings and decisions
+ * change a desk all the time and aren't one.
+ */
+export const thingsChanged = (a: DeskMemory, b: DeskMemory) =>
+  JSON.stringify(a.fixtures ?? []) !== JSON.stringify(b.fixtures ?? []);
 /** The desks an autosave writes: this tab's where it changed them since `seen`, else the stored ones. */
 export function desksToSave(
   ours: SessionSave['desks'],

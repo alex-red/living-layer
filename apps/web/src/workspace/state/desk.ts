@@ -12,6 +12,7 @@ import { lightStates } from '../labels';
 import { haStore } from '../../watch';
 import { useStore } from './store';
 import { pushHistory, sameDesk } from './helpers';
+import { thingsChanged } from '../../session';
 import type { ViewSlice } from './view';
 import type { FeedbackSlice } from './feedback';
 import type { RunLogSlice } from './runlog';
@@ -100,6 +101,9 @@ export function useDeskSlice(deps: ViewSlice & FeedbackSlice & RunLogSlice): Des
   };
   /** Each desk's tag as last applied, so an unchanged desk answers 304 and isn't sent again. */
   const deskTags = useRef<Partial<Record<Mode, string>>>({});
+  /** The desks as last rendered, for the poll, which outlives a render. */
+  const memoriesNow = useRef(memories);
+  memoriesNow.current = memories;
   // A desk saved by a script (`bun run thing`) or another tab shows here within a few seconds.
   useEffect(() => {
     let stopped = false;
@@ -111,6 +115,9 @@ export function useDeskSlice(deps: ViewSlice & FeedbackSlice & RunLogSlice): Des
         // Not applied when a write of this tab's landed meanwhile: its tag is kept, so it is asked again.
         if (!next || stopped || started !== memoryWrites.current) return;
         deskTags.current[mode] = next.tag;
+        // Things changed elsewhere are edits too, so the named save in use offers to keep them.
+        const shown = memoriesNow.current[mode];
+        if (shown && thingsChanged(shown, next.data)) edits.current++;
         setMemories((current) => {
           const had = current[mode];
           return had && sameDesk(had, next.data) ? current : { ...current, [mode]: next.data };
