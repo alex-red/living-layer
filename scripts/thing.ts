@@ -9,6 +9,7 @@
  *   bun run thing set "cat tower" .data/models/sleeping.ts --state sleeping --activate
  *   bun run thing state "cat tower" sleeping            show that state (`none` for its own)
  *   bun run thing stat "cat tower" +occupied            switch a stat on (-occupied off)
+ *   bun run thing follow "cat tower" sleeping occupied  show a state while a stat is on (`none` to stop)
  *
  * A model is any source `bun run model` reads, checked before it is sent
  * (`buildModel`); its height follows the model (`stateSizeFor`) unless
@@ -24,6 +25,8 @@ import {
   fixtureInput,
   fixtureSize,
   occupantOf,
+  STATE_FOLLOWS,
+  type StateFollows,
   stateSizeFor,
   STAT_KEYS,
   type DeskMemory,
@@ -170,7 +173,7 @@ switch (command) {
     console.log(`size ${JSON.stringify(f.size)} · ${f.model.parts.length} parts`);
     for (const [name, s] of Object.entries(f.states ?? {}))
       console.log(
-        `  ${name}: ${s.model.parts.length} parts${s.size ? ` · size ${JSON.stringify(s.size)}` : ''}`,
+        `  ${name}: ${s.model.parts.length} parts${s.size ? ` · size ${JSON.stringify(s.size)}` : ''}${s.follows ? ` · shows while ${s.follows}` : ''}`,
       );
     const stats = m.thingStats?.[f.id] ?? [];
     console.log(`stats: ${stats.map((s) => s.key).join(', ') || 'none'}`);
@@ -191,13 +194,34 @@ switch (command) {
     console.log(summary(saved.fixtures!.find((x) => x.id === f.id)!));
     break;
   }
+  case 'follow': {
+    const [ref, state, stat] = rest;
+    if (!ref || !state || !stat)
+      throw new Error(
+        `usage: bun run thing follow <thing> <state> <${STATE_FOLLOWS.join('|')}|none>`,
+      );
+    if (stat !== 'none' && !STATE_FOLLOWS.includes(stat as StateFollows))
+      throw new Error(`A state follows ${STATE_FOLLOWS.join(' or ')}, not "${stat}"`);
+    const f = await find(ref);
+    const saved = await call<DeskMemory>('POST', 'fixtures/state', {
+      mode,
+      fixtureId: f.id,
+      follow: { state, stat: stat === 'none' ? null : stat },
+    });
+    const after = saved.fixtures!.find((x) => x.id === f.id)!;
+    const follows = Object.entries(after.states ?? {}).flatMap(([n, s]) =>
+      s.follows ? [`${n} while ${s.follows}`] : [],
+    );
+    console.log(`${after.label}: ${follows.join(', ') || 'no state follows a stat'}`);
+    break;
+  }
   case 'stat':
     if (rest.length < 2) throw new Error('usage: bun run thing stat <thing> +occupied|-occupied');
     await setStat(rest[0]!, rest[1]!);
     break;
   default:
     console.log(
-      'usage: bun run thing list | show <thing> | set <thing> <source> [--state s --activate] | state <thing> <state|none> | stat <thing> +<stat>|-<stat>',
+      'usage: bun run thing list | show <thing> | set <thing> <source> [--state s --activate] | state <thing> <state|none> | stat <thing> +<stat>|-<stat> | follow <thing> <state> <stat|none>',
     );
     process.exit(command ? 1 : 0);
 }

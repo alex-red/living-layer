@@ -1,4 +1,4 @@
-import { fixtureEntities, type Fixture } from './fixture.js';
+import { fixtureEntities, stateFollowing, type Fixture, type StateFollows } from './fixture.js';
 import type { IsoBox, IsoScene, Point } from './iso.js';
 import {
   MAX_ITEM_PARTS,
@@ -16,7 +16,7 @@ import type { StatsNow } from './stats.js';
  * (`Fixture.states`), the way a cat has `idle` and `sleeping`. Props stay
  * layout and never carry one: furniture is made a thing first
  * (`promoteGroup`). A thing with an `occupied` state shows it while its
- * occupied stat is on (`followOccupied`).
+ * occupied stat is on (`followState`).
  */
 export const OCCUPIED_STATE = 'occupied';
 /** The fewest of the occupant's parts a variant keeps, so it still reads as it. */
@@ -184,21 +184,22 @@ export function variantItem(
 }
 
 /**
- * Things with an `occupied` state showing what their occupied stat says: that
- * state while on, their own model when it turns off, as they are while it has
- * no value. Only the occupied state is switched off, so a lamp's `on` stays.
- * The same list when nothing changes.
+ * Things with a state that follows `stat` showing what it says
+ * (`stateFollowing`): that state while it is on, their own model when it
+ * turns off, as they are while it has no value. Only that state is switched
+ * off, so a lamp's `on` stays. The same list when nothing changes.
  */
-export function followOccupied<F extends Pick<Fixture, 'id' | 'state' | 'states'>>(
+export function followState<F extends Pick<Fixture, 'id' | 'state' | 'states'>>(
   fixtures: F[],
-  occupied: (thingId: string) => boolean | null,
+  stat: StateFollows,
+  value: (thingId: string) => boolean | null,
 ): F[] {
   let changed = false;
   const next = fixtures.map((f) => {
-    if (!f.states?.[OCCUPIED_STATE]) return f;
-    const on = occupied(f.id);
-    const want =
-      on === true ? OCCUPIED_STATE : on === false && f.state === OCCUPIED_STATE ? null : f.state;
+    const shown = stateFollowing(f, stat);
+    if (!shown) return f;
+    const on = value(f.id);
+    const want = on === true ? shown : on === false && f.state === shown ? null : f.state;
     if ((want ?? null) === (f.state ?? null)) return f;
     changed = true;
     return { ...f, state: want ?? null };
@@ -230,7 +231,8 @@ export function followPower<
 }
 /**
  * Things showing what their stats read now: an occupied variant while
- * occupied (`followOccupied`), on or off as their power reads (`followPower`).
+ * a state that follows a stat while it is on (`followState`), on or off as
+ * their power reads (`followPower`).
  * The watcher saves it; the room draws it from the stats it streams, so it
  * changes as they do. The same list when nothing changes.
  */
@@ -241,5 +243,10 @@ export function followStats<
     const v = stats[id]?.[key]?.value;
     return typeof v === 'boolean' ? v : null;
   };
-  return followPower(followOccupied(fixtures, reading('occupied')), reading('power'));
+  const followed = followState(
+    followState(fixtures, 'occupied', reading('occupied')),
+    'power',
+    reading('power'),
+  );
+  return followPower(followed, reading('power'));
 }

@@ -5,6 +5,9 @@ import {
   DEMO_REFERENCES,
   ISO_PRESETS,
   STARTER_TEMPLATES,
+  STATE_FOLLOWS,
+  STAT_KINDS,
+  type StateFollows,
   calibrationOf,
   linkedFixtures,
   groupLayer,
@@ -821,6 +824,7 @@ export function FixturePanel({ id }: { id: string }) {
       state?: string | null;
       fixture?: NonNullable<FixtureInput['states']>[string];
       remove?: string;
+      follow?: { state: string; stat: StateFollows | null };
     },
     done: string,
   ) =>
@@ -966,6 +970,27 @@ export function FixturePanel({ id }: { id: string }) {
             )}
           </div>
         )}
+        {f.state && f.states?.[f.state] && (
+          <Field label={`Show “${f.state}” while`}>
+            <Select<StateFollows | ''>
+              id="fixture-state-follows"
+              value={f.states[f.state]!.follows ?? ''}
+              disabled={off || moving}
+              options={[
+                { value: '', label: 'I choose it' },
+                ...STATE_FOLLOWS.map((k) => ({ value: k, label: STAT_KINDS[k].label })),
+              ]}
+              onChange={(stat) =>
+                setFixtureState(
+                  { follow: { state: f.state!, stat: stat || null } },
+                  stat
+                    ? `The ${f.label.toLowerCase()} shows “${f.state}” while its ${STAT_KINDS[stat].label.toLowerCase()} stat is on.`
+                    : `The ${f.label.toLowerCase()} shows “${f.state}” only when you choose it.`,
+                )
+              }
+            />
+          </Field>
+        )}
         <div className="save-actions">
           <input
             aria-label="New state"
@@ -991,7 +1016,8 @@ export function FixturePanel({ id }: { id: string }) {
         </div>
         <p className="micro">
           Each state can have its own model and size. Select a state, then click Edit model or
-          adjust Size to customise it.
+          adjust Size to customise it. A state can show by itself while a stat is on, and the thing
+          goes back to its own model when it turns off.
         </p>
       </Details>
       <FixturePhoto fixture={f} disabled={off || moving} />

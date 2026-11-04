@@ -6,7 +6,7 @@ import {
   DEMO_CAMERA,
   DEMO_FRAME,
   fixtureBox,
-  followOccupied,
+  followState,
   groupLabels,
   itemHeight,
   ISO_PRESETS,
@@ -175,18 +175,36 @@ describe('a variant’s model', () => {
     expect(ids.filter((id) => id.startsWith('on-'))).toHaveLength(catModel.parts.length);
   });
 
+  it('shows a state named for the stat it follows, whatever it is called', () => {
+    const things = [
+      { id: 'tower', state: null, states: { sleeping: { follows: 'occupied' } } },
+      { id: 'tv', state: null, states: { playing: { follows: 'power' } } },
+    ] as unknown as Fixture[];
+    const sat = followState(things, 'occupied', () => true);
+    expect(sat.map((f) => f.state)).toEqual(['sleeping', null]);
+    expect(followState(sat, 'occupied', () => false).map((f) => f.state)).toEqual([null, null]);
+    expect(followState(things, 'power', () => true).map((f) => f.state)).toEqual([null, 'playing']);
+  });
+
+  it('lets a state named occupied that follows another stat go its own way', () => {
+    const things = [
+      { id: 'a', state: null, states: { occupied: { follows: 'power' } } },
+    ] as unknown as Fixture[];
+    expect(followState(things, 'occupied', () => true)).toBe(things);
+  });
+
   it('shows the occupied state while the stat is on, and only switches that one off', () => {
     const things = [
       { id: 'a', state: null, states: { occupied: {} } },
       { id: 'b', state: 'on', states: { occupied: {} } },
       { id: 'c', state: null },
     ] as unknown as Fixture[];
-    const on = followOccupied(things, () => true);
+    const on = followState(things, 'occupied', () => true);
     expect(on.map((f) => f.state)).toEqual(['occupied', 'occupied', null]);
-    expect(followOccupied(on, () => null)).toBe(on);
-    const off = followOccupied(on, (id) => (id === 'a' ? false : null));
+    expect(followState(on, 'occupied', () => null)).toBe(on);
+    const off = followState(on, 'occupied', (id) => (id === 'a' ? false : null));
     expect(off.map((f) => f.state)).toEqual([null, 'occupied', null]);
-    expect(followOccupied(things, () => false)).toBe(things);
+    expect(followState(things, 'occupied', () => false)).toBe(things);
   });
 });
 

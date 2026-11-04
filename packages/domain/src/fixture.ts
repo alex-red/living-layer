@@ -24,6 +24,7 @@ import {
   type IsoSceneKind,
 } from './iso.js';
 import type { DeskObservation } from './memory.js';
+import type { StatKey } from './stats.js';
 import { foodSchema } from './food.js';
 
 /**
@@ -97,6 +98,13 @@ const fixtureReferenceSchema = z
   .object({ runId: z.string().min(1), asset: z.string().min(1) })
   .strict()
   .nullable();
+/**
+ * The stats a state can follow: it shows while the stat is on (a tower's
+ * `sleeping` while it is occupied), and the thing goes back to its own
+ * model when it turns off. On/off stats only.
+ */
+export const STATE_FOLLOWS = ['occupied', 'power'] as const satisfies readonly StatKey[];
+export type StateFollows = (typeof STATE_FOLLOWS)[number];
 export const fixtureStateInputSchema = z
   .object({
     model: z.preprocess(
@@ -108,12 +116,30 @@ export const fixtureStateInputSchema = z
     ),
     size: fixtureSizeSchema.optional(),
     reference: fixtureReferenceSchema.optional(),
+    /** The stat it shows while on (`STATE_FOLLOWS`). */
+    follows: z.enum(STATE_FOLLOWS).optional(),
   })
   .strict();
 export interface FixtureState {
   model: SavedItem;
   size?: z.infer<typeof fixtureSizeSchema>;
   reference?: z.infer<typeof fixtureReferenceSchema>;
+  follows?: StateFollows;
+}
+/**
+ * The state a thing shows while a stat is on: the one that follows it, or,
+ * for occupied, one named `occupied` that follows nothing else (as the
+ * brush's variants are). Null when none does.
+ */
+export function stateFollowing(
+  f: Partial<Pick<Fixture, 'states'>>,
+  stat: StateFollows,
+): string | null {
+  const states = Object.entries(f.states ?? {});
+  const named = states.find(([, s]) => s.follows === stat)?.[0];
+  if (named) return named;
+  const occupied = f.states?.occupied;
+  return stat === 'occupied' && occupied && !occupied.follows ? 'occupied' : null;
 }
 
 /** What a person sends to save a fixture; the server adds the rest. */
@@ -342,6 +368,7 @@ export function fixtureInput(f: Fixture): FixtureInput {
                 model: { label: v.model.label, parts: v.model.parts },
                 ...(v.size ? { size: v.size } : {}),
                 ...(v.reference !== undefined ? { reference: v.reference } : {}),
+                ...(v.follows ? { follows: v.follows } : {}),
               },
             ]),
           ),

@@ -5,6 +5,7 @@ import {
   fixtureSize,
   restOn,
   starterTemplateModel,
+  stateFollowing,
   stateSizeFor,
   topOf,
   type DeskMemory,
@@ -86,5 +87,78 @@ describe('saving a state’s model', () => {
     });
     const f = res.json<DeskMemory>().fixtures!.find((x) => x.id === id)!;
     expect(fixtureSize(f, 'sleeping')).toEqual(given);
+  });
+});
+
+describe('a state that follows a stat', () => {
+  async function withSleeping() {
+    const app = await testApp();
+    const { id: _id, ...input } = fixtureInput(
+      fixture({
+        label: 'Cat tree',
+        size,
+        model: { ...fixture().model, ...tree },
+        control: { kind: 'none' },
+      }),
+    );
+    const id = (await app.post('fixtures/save', { mode: 'live', fixture: input }))
+      .json<DeskMemory>()
+      .fixtures!.at(-1)!.id;
+    await app.post('fixtures/state', {
+      mode: 'live',
+      fixtureId: id,
+      state: 'sleeping',
+      fixture: { model: withCat },
+    });
+    await app.post('fixtures/state', { mode: 'live', fixtureId: id, state: null });
+    const follow = async (state: string, stat: 'occupied' | 'power' | null) =>
+      app.post('fixtures/state', { mode: 'live', fixtureId: id, follow: { state, stat } });
+    const thing = async () => (await app.memory('live')).fixtures!.find((f) => f.id === id)!;
+    return { app, id, follow, thing };
+  }
+
+  it('is set without changing the state shown', async () => {
+    const { follow, thing } = await withSleeping();
+    expect((await follow('sleeping', 'occupied')).statusCode).toBe(200);
+    const f = await thing();
+    expect(f.states?.sleeping?.follows).toBe('occupied');
+    expect(f.state).toBeNull();
+    expect(stateFollowing(f, 'occupied')).toBe('sleeping');
+  });
+
+  it('keeps following when its model is replaced', async () => {
+    const { app, id, follow, thing } = await withSleeping();
+    await follow('sleeping', 'occupied');
+    await app.post('fixtures/state', {
+      mode: 'live',
+      fixtureId: id,
+      state: 'sleeping',
+      fixture: { model: tree },
+    });
+    expect((await thing()).states?.sleeping?.follows).toBe('occupied');
+  });
+
+  it('takes the stat from any other state that followed it, and lets go with null', async () => {
+    const { app, id, follow, thing } = await withSleeping();
+    await app.post('fixtures/state', {
+      mode: 'live',
+      fixtureId: id,
+      state: 'napping',
+      fixture: { model: tree },
+    });
+    await follow('napping', 'occupied');
+    await follow('sleeping', 'occupied');
+    const f = await thing();
+    expect(f.states?.sleeping?.follows).toBe('occupied');
+    expect(f.states?.napping?.follows).toBeUndefined();
+    await follow('sleeping', null);
+    expect(stateFollowing(await thing(), 'occupied')).toBeNull();
+  });
+
+  it('refuses a state the thing doesn’t have', async () => {
+    const { follow } = await withSleeping();
+    const res = await follow('dancing', 'occupied');
+    expect(res.statusCode).toBe(400);
+    expect(res.body).toContain('no “dancing” state');
   });
 });

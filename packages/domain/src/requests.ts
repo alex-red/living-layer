@@ -11,6 +11,7 @@ import {
   fixtureInputSchema,
   fixtureStateInputSchema,
   fixtureStateNameSchema,
+  STATE_FOLLOWS,
 } from './fixture.js';
 import { MAX_DISMISSED } from './fixture-scan.js';
 import { ILLUSTRATION_NOTE_MAX, pictureLayerRef, sceneIllustrationSchema } from './illustration.js';
@@ -456,6 +457,11 @@ export const fixturesStateBodySchema = z
     state: fixtureStateNameSchema.nullable().optional(),
     fixture: fixtureStateInputSchema.optional(),
     remove: fixtureStateNameSchema.optional(),
+    /** Which stat a state shows while on, or null for none; the shown state stays as it is. */
+    follow: z
+      .object({ state: fixtureStateNameSchema, stat: z.enum(STATE_FOLLOWS).nullable() })
+      .strict()
+      .optional(),
   })
   .strict();
 export type FixturesStateBody = z.input<typeof fixturesStateBodySchema>;

@@ -251,7 +251,14 @@ export async function saveFixture(
  */
 export function setFixtureState(
   store: EvidenceStore,
-  { mode, fixtureId, state, fixture: stateInput, remove }: Parsed<typeof fixturesStateBodySchema>,
+  {
+    mode,
+    fixtureId,
+    state,
+    fixture: stateInput,
+    remove,
+    follow,
+  }: Parsed<typeof fixturesStateBodySchema>,
 ) {
   const memory = store.memory(mode);
   const target = memory.fixtures?.find((f) => f.id === fixtureId);
@@ -285,6 +292,11 @@ export function setFixtureState(
           : states[state]?.reference !== undefined
             ? { reference: states[state]!.reference }
             : {}),
+        ...(stateInput.follows
+          ? { follows: stateInput.follows }
+          : states[state]?.follows
+            ? { follows: states[state]!.follows }
+            : {}),
       };
     } else if (!states[state] && state !== 'on' && state !== 'off') {
       const currentModel = fixtureModel(target);
@@ -293,6 +305,23 @@ export function setFixtureState(
         size: fixtureSize(target),
       };
     }
+  }
+  if (follow) {
+    const s = states[follow.state];
+    if (!s)
+      throw new LabError(
+        'fixture_state',
+        `The ${target.label} has no “${follow.state}” state of its own to show.`,
+        400,
+      );
+    // A stat shows one state: any other that followed it stops.
+    for (const [name, other] of Object.entries(states))
+      if (follow.stat && name !== follow.state && other.follows === follow.stat) {
+        const { follows: _was, ...rest } = other;
+        states[name] = rest;
+      }
+    const { follows: _had, ...rest } = s;
+    states[follow.state] = follow.stat ? { ...rest, follows: follow.stat } : rest;
   }
   const nextState =
     state !== undefined ? state : remove && target.state === remove ? null : (target.state ?? null);
