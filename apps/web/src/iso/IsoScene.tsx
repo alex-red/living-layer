@@ -2,7 +2,7 @@ import { StatBadges } from './StatBadges';
 import {
   CALLOUT_SIDE,
   CALLOUT_WIDTH,
-  Callouts,
+  ZoomedCallouts,
   calloutDensity,
   layoutCallouts,
   type CalloutDensity,
@@ -592,6 +592,10 @@ function IsoSceneView({
   const maxY = side && cards ? cards.extent.maxY : roomMaxY;
   const viewW = maxX - minX;
   const viewH = maxY - minY;
+  const sceneBox = useMemo(
+    () => ({ minX, minY, width: viewW, height: viewH }),
+    [minX, minY, viewW, viewH],
+  );
   // How wide a card is drawn on screen picks how much it says (`calloutDensity`).
   useEffect(() => {
     const el = svg.current;
@@ -966,7 +970,14 @@ function IsoSceneView({
           />
         );
       })}
-      {cards && <Callouts placed={cards.placed} density={density} />}
+      {cards && (
+        <ZoomedCallouts
+          callouts={callouts}
+          fit={cards.placed}
+          viewBox={sceneBox}
+          density={density}
+        />
+      )}
       {onResizeFixture &&
         !editing &&
         !drawing &&

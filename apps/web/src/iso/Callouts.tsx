@@ -13,7 +13,9 @@ import {
   type StatKey,
   type StatNow,
 } from '@livinglayer/domain';
+import { useMemo } from 'react';
 import { useNow } from '../useNow';
+import { useZoomView } from '../ZoomPan';
 import { useThingStats } from '../workspace/state/stats';
 import { statTone } from './StatBadges';
 import type { IsoObject } from './IsoScene';
@@ -107,31 +109,55 @@ interface Placed {
   at: { sx: number; sy: number };
   x: number;
   y: number;
+  /** Its height as drawn, in scene units. */
   h: number;
   side: 'left' | 'right';
+  /** How much the card is drawn scaled: 1 at fit, 1 / zoom when zoomed, so it keeps its size. */
+  k: number;
 }
 type Bounds = { minX: number; maxX: number; minY: number; maxY: number };
+
+/**
+ * The part of the scene a zoomed view shows, in scene units: the scene is
+ * drawn in a `view.w` × `view.h` box, fitted like `xMidYMid meet`, then
+ * scaled by `view.s` and moved by `view.x`, `view.y`.
+ */
+export function visibleScene(
+  view: { s: number; x: number; y: number; w: number; h: number },
+  box: { minX: number; minY: number; width: number; height: number },
+): Bounds {
+  const k = Math.min(view.w / box.width, view.h / box.height);
+  const ox = (view.w - box.width * k) / 2;
+  const oy = (view.h - box.height * k) / 2;
+  const toX = (px: number) => box.minX + ((px - view.x) / view.s - ox) / k;
+  const toY = (py: number) => box.minY + ((py - view.y) / view.s - oy) / k;
+  return { minX: toX(0), maxX: toX(view.w), minY: toY(0), maxY: toY(view.h) };
+}
 /**
  * The cards in two columns at the scene's sides. Things are split left to
  * right where the two columns come out nearest the same height, so lines
  * don't cross; each card sits by its thing's height on screen, pushed down
  * so none overlap. `extent` is how far the columns reach, for the view to
- * grow to.
+ * grow to. With `zoom`, the cards are drawn that much smaller, so a zoomed
+ * view keeps them their size on screen at its edges.
  */
 export function layoutCallouts(
   callouts: IsoCallout[],
   bounds: Bounds,
   density: CalloutDensity = 'full',
+  zoom = 1,
 ): { placed: Placed[]; extent: { minY: number; maxY: number } } {
+  const k = 1 / zoom;
   const all = callouts
-    .map((c) => ({ c, at: toIso(c.anchor), h: heightOf(c, density) }))
+    .map((c) => ({ c, at: toIso(c.anchor), h: heightOf(c, density) * k }))
     .sort((a, b) => a.at.sx - b.at.sx);
-  const total = all.reduce((sum, a) => sum + a.h + GAP, 0);
+  const gap = GAP * k;
+  const total = all.reduce((sum, a) => sum + a.h + gap, 0);
   let split = 0;
   let best = Infinity;
-  for (let k = 0, left = 0; k <= all.length; left += k < all.length ? all[k]!.h + GAP : 0, k++) {
+  for (let i = 0, left = 0; i <= all.length; left += i < all.length ? all[i]!.h + gap : 0, i++) {
     const off = Math.abs(left - (total - left));
-    if (off < best) [best, split] = [off, k];
+    if (off < best) [best, split] = [off, i];
   }
   const placed: Placed[] = [];
   let minY = bounds.minY;
@@ -140,21 +166,52 @@ export function layoutCallouts(
     const column = (side === 'left' ? all.slice(0, split) : all.slice(split)).sort(
       (a, b) => a.at.sy - b.at.sy,
     );
-    const x = side === 'left' ? bounds.minX + 4 : bounds.maxX - 4 - W;
-    const height = column.reduce((sum, a) => sum + a.h + GAP, -GAP);
+    const x = side === 'left' ? bounds.minX + 4 * k : bounds.maxX - (4 + W) * k;
+    const height = column.reduce((sum, a) => sum + a.h + gap, -gap);
     // A column taller than the room starts above it; the view grows to hold it.
-    let next = Math.min(bounds.minY + 4, (bounds.minY + bounds.maxY) / 2 - height / 2);
+    let next = Math.min(bounds.minY + 4 * k, (bounds.minY + bounds.maxY) / 2 - height / 2);
     for (const { c, at, h } of column) {
-      const y = Math.max(next, at.sy - h / 2 - 30);
-      next = y + h + GAP;
-      placed.push({ c, at, x, y, h, side });
+      const y = Math.max(next, at.sy - h / 2 - 30 * k);
+      next = y + h + gap;
+      placed.push({ c, at, x, y, h, side, k });
     }
     if (column.length) {
-      minY = Math.min(minY, placed.find((p) => p.side === side)!.y - 4);
-      maxY = Math.max(maxY, next - GAP + 4);
+      minY = Math.min(minY, placed.find((p) => p.side === side)!.y - 4 * k);
+      maxY = Math.max(maxY, next - gap + 4 * k);
     }
   }
   return { placed, extent: { minY, maxY } };
+}
+
+/**
+ * The stats layer's cards as the view is zoomed: at fit, beside the room as
+ * `fit` laid them out; zoomed in, at the edges of what the pane shows, their
+ * own size on screen, only for the things in sight. Reads the zoom itself, so
+ * a pan draws only the cards again.
+ */
+export function ZoomedCallouts({
+  callouts,
+  fit,
+  viewBox,
+  density = 'full',
+}: {
+  callouts: IsoCallout[];
+  fit: Placed[];
+  viewBox: { minX: number; minY: number; width: number; height: number };
+  density?: CalloutDensity;
+}) {
+  const view = useZoomView();
+  const zoomed = view.s > 1 && view.w > 0 && view.h > 0 && density !== 'pips';
+  const shown = useMemo(() => {
+    if (!zoomed) return fit;
+    const seen = visibleScene(view, viewBox);
+    const inSight = callouts.filter((c) => {
+      const at = toIso(c.anchor);
+      return at.sx > seen.minX && at.sx < seen.maxX && at.sy > seen.minY && at.sy < seen.maxY;
+    });
+    return layoutCallouts(inSight, seen, density, view.s).placed;
+  }, [zoomed, fit, view, viewBox, callouts, density]);
+  return <Callouts placed={shown} density={density} />;
 }
 
 /**
@@ -183,10 +240,10 @@ export function Callouts({
     );
   return (
     <g className={`iso-callouts ${density}`} aria-label="Things’ stats">
-      {placed.map(({ c, at, x, y, h, side }) => {
-        const edge = side === 'left' ? x + W : x;
-        const knee = side === 'left' ? edge + 10 : edge - 10;
-        const lineY = y + head / 2 + 1;
+      {placed.map(({ c, at, x, y, h, side, k }) => {
+        const edge = side === 'left' ? x + W * k : x;
+        const knee = side === 'left' ? edge + 10 * k : edge - 10 * k;
+        const lineY = y + (head / 2 + 1) * k;
         const tone = c.builtIn ? 'idle' : (foodNow(c.food, now)?.tone ?? 'ok');
         return (
           <g key={c.id} className={`iso-callout ${tone}`} data-callout={c.id}>
@@ -196,7 +253,13 @@ export function Callouts({
             />
             <circle className="iso-callout-dot" cx={at.sx} cy={at.sy} r={1.8} />
             <HealthPip food={c.food} at={at} now={now} />
-            <foreignObject x={x} y={y} width={W} height={h}>
+            <foreignObject
+              x={0}
+              y={0}
+              width={W}
+              height={h / k}
+              transform={`translate(${x} ${y}) scale(${k})`}
+            >
               <button
                 type="button"
                 className="callout-card"

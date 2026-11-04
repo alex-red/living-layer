@@ -2,6 +2,7 @@ import {
   createContext,
   useContext,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type CSSProperties,
@@ -30,6 +31,23 @@ const MAX_STEP = 4;
 const ZoomStep = createContext(1);
 export function useZoomStep(): number {
   return useContext(ZoomStep);
+}
+
+/**
+ * The view as it is drawn: its zoom `s`, its pan `x`, `y` and the box's size
+ * `w`, `h`, in pixels; `s` is 1 and the box 0 × 0 outside a `ZoomPan`. It
+ * changes on every pan and zoom step, so only small parts should read it.
+ */
+export interface ZoomView {
+  s: number;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+const ZoomViewContext = createContext<ZoomView>({ s: 1, x: 0, y: 0, w: 0, h: 0 });
+export function useZoomView(): ZoomView {
+  return useContext(ZoomViewContext);
 }
 
 interface View {
@@ -86,6 +104,21 @@ export function ZoomPan({
     null,
   );
   const swallowClick = useRef(false);
+  // The box's size, for what reads the view (`useZoomView`).
+  const [size, setSize] = useState({ w: 0, h: 0 });
+  useEffect(() => {
+    const b = box.current;
+    if (!b) return;
+    const read = () => setSize({ w: b.clientWidth, h: b.clientHeight });
+    read();
+    const watch = new ResizeObserver(read);
+    watch.observe(b);
+    return () => watch.disconnect();
+  }, []);
+  const drawn = useMemo(
+    () => ({ s: view.s, x: view.x, y: view.y, w: size.w, h: size.h }),
+    [view, size],
+  );
 
   const viewKey = String(resetKey);
   // The view written next, with where and at what box size, kept until it is
@@ -289,7 +322,7 @@ export function ZoomPan({
         }
       >
         <ZoomStep.Provider value={Math.min(MAX_STEP, 2 ** Math.round(Math.log2(view.s)))}>
-          {children}
+          <ZoomViewContext.Provider value={drawn}>{children}</ZoomViewContext.Provider>
         </ZoomStep.Provider>
       </div>
       {!off && (

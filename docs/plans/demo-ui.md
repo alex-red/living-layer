@@ -12,7 +12,7 @@ Phases 1–4 are built (78ac92c, 13f0ca2, 9509b61, be33f3a) and checked in the r
 - Phase 5 is built: the ignition is retimed to whole frames at 30 fps and shared with the room's lamp glow; every zone fills the same way over 250 ms (the camera's main zone no longer turns green while the room's stays magenta); the selected thing is ringed on the camera and outlined in the room. Checked by sampling the animation at 30 fps and reading computed styles in the running lab (the pane was hidden, so not judged by eye or on a recording).
 - Kept on purpose: env-var names in provider error hints (they are the fix, and show only on failure); model ids in the readiness popover (the video names each model); capitals typed into `.tiny` labels (CSS uppercases them anyway); the za-menu and layers list, which are inline content rather than a third menu style.
 - Labels no longer overlap in the room: a thing the camera places (the mug) gets a stats card beside the room like the others, instead of a badge stacked on its name.
-- Room callout cards still clip at the iso pane's edge when zoomed in.
+- Zoomed in, the room's cards stand at the edges of what the pane shows, at their size at fit, for the things in sight only (they used to sit beside the room, outside the pane).
 
 ## What's already good
 
