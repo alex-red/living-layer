@@ -466,7 +466,7 @@ export function coachDay(
 }
 
 /** What a nudge's button does: log a sip, take a break, switch something off, ask, or nothing. */
-export type CoachDoes = 'drink' | 'break' | 'screenOff' | 'lampOff' | 'ask' | 'none';
+type CoachDoes = 'drink' | 'break' | 'screenOff' | 'lampOff' | 'ask' | 'none';
 
 /**
  * Each topic's button, what it does and what the nudge says once done. For

@@ -3,7 +3,7 @@ import { HOUSEHOLD, doing, householdAt } from './household-day.js';
 import type { MemberType } from './members.js';
 
 /** Where a person or pet is, as the room's things say it: home or out, sitting, asleep. */
-export interface MemberPlace {
+interface MemberPlace {
   home: boolean;
   /** As words after their name: "is sitting in the chair", "is asleep", "is out". */
   text: string;

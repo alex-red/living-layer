@@ -10,7 +10,7 @@ import { seatPerson, standUp } from './seating.js';
  * the dock lists its changes, and asking the room and its nudges read it.
  * Times are minutes since midnight; each span lasts until the next.
  */
-export type HomeSpot = 'chair' | 'chair-back' | 'shelf' | 'table' | 'plant' | 'door' | 'away';
+type HomeSpot = 'chair' | 'chair-back' | 'shelf' | 'table' | 'plant' | 'door' | 'away';
 interface SpotInfo {
   /** Where they are, as words after their name: "Robin is at the table". */
   label: string;
@@ -19,7 +19,7 @@ interface SpotInfo {
   /** The chair of the Home room they sit in. */
   seat?: string;
 }
-export const HOME_SPOTS: Record<HomeSpot, SpotInfo> = {
+const HOME_SPOTS: Record<HomeSpot, SpotInfo> = {
   chair: { label: 'at the table', seat: 'chair' },
   'chair-back': { label: 'at the table, by the wall', seat: 'chair-back' },
   table: { label: 'by the table', at: { x: 2.1, y: 4.4 } },
@@ -42,7 +42,7 @@ export const HOUSEHOLD = [
   { name: 'Miso', type: 'cat' },
   { name: 'Biscuit', type: 'dog' },
 ] as const;
-export type HouseholdName = (typeof HOUSEHOLD)[number]['name'];
+type HouseholdName = (typeof HOUSEHOLD)[number]['name'];
 
 export const HOUSEHOLD_DAY: Record<HouseholdName, readonly HomeSpan[]> = {
   Robin: [
@@ -110,7 +110,7 @@ export function doing(span: Pick<HomeSpan, 'spot' | 'pose'>): string {
 }
 
 /** One change in the household's day, for the dock's timeline and the nudges. */
-export interface HomeEvent {
+interface HomeEvent {
   at: number;
   name: HouseholdName;
   text: string;
@@ -157,7 +157,7 @@ export function householdEvents(): HomeEvent[] {
 export const householdThingId = (name: HouseholdName) => `household:${name}`;
 
 /** The household's members among the Home room's things, by name. */
-export function householdThings(fixtures: readonly Fixture[]): Map<HouseholdName, Fixture> {
+function householdThings(fixtures: readonly Fixture[]): Map<HouseholdName, Fixture> {
   const out = new Map<HouseholdName, Fixture>();
   for (const { name, type } of HOUSEHOLD) {
     const f = fixtures.find(
