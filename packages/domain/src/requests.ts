@@ -337,6 +337,8 @@ export const fixturesEditBodySchema = z
     prompt: z.string().trim().min(1).max(400),
     /** The model as the editor has it now, saved or not, so a follow-up builds on the last edit. */
     item: isoItemSchema,
+    /** Ids of the parts the person brushed over, to say what the request means by "it" or "this". */
+    focus: z.array(z.string().min(1).max(60)).max(12).optional(),
     jobId: z.string().uuid().optional(),
   })
   .strict();

@@ -19,6 +19,7 @@ import {
   fixtureSize,
   fixtureStateNames,
   isoItemSchema,
+  partsUnder,
   previewItem,
   rotateItem,
   sizeInTiles,
@@ -29,6 +30,7 @@ import {
   type Fixture,
   type FixtureInput,
   type IsoItem,
+  type IsoScreen,
   type ItemPartDraft,
   type IsoItemDraft,
   type Paint,
@@ -45,6 +47,8 @@ import { Button, Check, IconButton, Segmented } from '../ui/controls';
 /** Colours to offer next to the sampled ones: neutral materials, not the signal hues. */
 const MATERIALS = ['#ece5d0', '#b3a796', '#73604c', '#3c554a', '#5f7c88', '#4a5164', '#1f232f'];
 const PREVIEW_SCALE = ITEM_SPRITES.editor.scale;
+/** How wide the brush that points at parts is either side of the stroke, in screen pixels. */
+const BRUSH_RADIUS_PX = 10;
 /** The onion skin's choice that compares an unsaved edit with the saved model. */
 const BEFORE_EDIT = '__saved__';
 const SOURCE: Record<SavedItem['source'], string> = {
@@ -857,8 +861,15 @@ export function ItemEditor({
   }) => void;
   /** Resize the fixture's base footprint/height. */
   onFixtureSize?: (size: FixtureInput['size']) => void;
-  /** Change the draft as the person asks, with AI: the answer, not saved, or null when there is none. */
-  onAiEdit?: (prompt: string, current: IsoItem) => Promise<{ item: IsoItem; note: string } | null>;
+  /**
+   * Change the draft as the person asks, with AI, pointed at the parts they
+   * brushed: the answer, not saved, or null when there is none.
+   */
+  onAiEdit?: (
+    prompt: string,
+    current: IsoItem,
+    focus: string[],
+  ) => Promise<{ item: IsoItem; note: string } | null>;
   /** Why editing with AI can't be asked now, when it can't. */
   aiEditBlocked?: string | null;
 }) {
@@ -866,6 +877,10 @@ export function ItemEditor({
   // The AI's edits to this draft, each with the draft it replaced, so the last can be undone.
   const [aiSteps, setAiSteps] = useState<(AiEditStep & { before: IsoItemDraft })[]>([]);
   const [selected, setSelected] = useState(item?.parts[0]?.id ?? '');
+  // The parts brushed for the next AI edit, and the stroke being painted on the preview.
+  const [focus, setFocus] = useState<string[]>([]);
+  const [brushing, setBrushing] = useState(false);
+  const [stroke, setStroke] = useState<{ points: IsoScreen[]; radius: number } | null>(null);
   const [turns, setTurns] = useState(0);
   const [addShape, setAddShape] = useState<ItemPartDraft['shape']>('lathe');
   const [view, setView] = useState<'model' | 'states' | 'photo'>('model');
@@ -1029,6 +1044,26 @@ export function ItemEditor({
 
   const shown = shownNow!;
   const shownPart = shown.parts.find((p) => p.id === selected);
+  // Brushed parts an edit or a delete since took away point at nothing.
+  const pointedAt = focus.filter((id) => draft.parts.some((p) => p.id === id));
+  function strokePoint(e: PointerEvent<SVGElement>): IsoScreen | null {
+    const ctm = previewSvg.current?.getScreenCTM();
+    if (!ctm) return null;
+    const p = new DOMPoint(e.clientX, e.clientY).matrixTransform(ctm.inverse());
+    return { sx: p.x, sy: p.y };
+  }
+  function endStroke() {
+    if (!stroke) return;
+    const picked = partsUnder(deferredShown ?? shown, stroke.points, stroke.radius, {
+      scale: PREVIEW_SCALE,
+      resolution: ITEM_SPRITES.editor.resolution,
+    });
+    setFocus((f) => [
+      ...f.filter((id) => draft!.parts.some((p) => p.id === id)),
+      ...picked.filter((id) => !f.includes(id)),
+    ]);
+    setStroke(null);
+  }
   const isLitGlow = Boolean(fixture?.control.kind === 'light' && fixture.state === 'on');
   const pad = 22;
   // The canvas frames both the model and its onion skin, so a part an edit took away still shows.
@@ -1057,6 +1092,12 @@ export function ItemEditor({
   const paints = part?.paint ?? [];
 
   function handleCanvasKeyDown(e: KeyboardEvent<SVGSVGElement>) {
+    if (e.key === 'Escape' && brushing) {
+      e.preventDefault();
+      setBrushing(false);
+      setStroke(null);
+      return;
+    }
     if (!part) return;
     const step = 0.02;
     if (e.shiftKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
@@ -1265,15 +1306,27 @@ export function ItemEditor({
           busy={busy}
           blocked={aiEditBlocked ?? (valid ? null : `Fix the model first: ${problem}.`)}
           steps={aiSteps}
+          focus={pointedAt}
+          brushing={brushing}
+          onBrushing={(on) => {
+            setBrushing(on);
+            setStroke(null);
+          }}
+          onUnfocus={(id) => setFocus((f) => (id ? f.filter((x) => x !== id) : []))}
           onAsk={async (prompt) => {
             const before = draft;
-            const answer = await onAiEdit(prompt, previewItem(before));
+            const asked = pointedAt;
+            const answer = await onAiEdit(prompt, previewItem(before), asked);
             if (!answer) return false;
             setDraft({ label: answer.item.label, parts: answer.item.parts });
             setSelected((s) =>
               answer.item.parts.some((p) => p.id === s) ? s : (answer.item.parts[0]?.id ?? ''),
             );
-            setAiSteps((steps) => [...steps, { prompt, note: answer.note, before }]);
+            setAiSteps((steps) => [
+              ...steps,
+              { prompt, note: answer.note, before, ...(asked.length ? { focus: asked } : {}) },
+            ]);
+            setBrushing(false);
             return true;
           }}
           onUndo={() => {
@@ -1861,6 +1914,52 @@ export function ItemEditor({
                     </g>
                   );
                 })}
+              {shown.parts
+                .filter((p) => pointedAt.includes(p.id))
+                .map((p) => (
+                  <polygon
+                    key={`focus-${p.id}`}
+                    className="studio-focus"
+                    points={isoBoxWireframe(p.at, p.size).hull}
+                  />
+                ))}
+              {stroke && (
+                <polyline
+                  className="studio-brush-stroke"
+                  points={stroke.points.map((p) => `${p.sx},${p.sy}`).join(' ')}
+                  strokeWidth={stroke.radius * 2}
+                />
+              )}
+              {brushing && (
+                <rect
+                  className="studio-brush-hit"
+                  x={frame.x}
+                  y={frame.y}
+                  width={frame.w}
+                  height={frame.h}
+                  onPointerDown={(e) => {
+                    e.stopPropagation();
+                    const at = strokePoint(e);
+                    const scale = previewSvg.current?.getScreenCTM()?.a ?? 1;
+                    if (!at) return;
+                    e.currentTarget.setPointerCapture(e.pointerId);
+                    setStroke({ points: [at], radius: BRUSH_RADIUS_PX / scale });
+                  }}
+                  onPointerMove={(e) => {
+                    e.stopPropagation();
+                    const at = strokePoint(e);
+                    if (!stroke || !at) return;
+                    const last = stroke.points.at(-1)!;
+                    if (Math.hypot(at.sx - last.sx, at.sy - last.sy) < stroke.radius / 2) return;
+                    setStroke({ ...stroke, points: [...stroke.points, at] });
+                  }}
+                  onPointerUp={(e) => {
+                    e.stopPropagation();
+                    endStroke();
+                  }}
+                  onPointerCancel={() => setStroke(null)}
+                />
+              )}
               {wipe && (
                 <g
                   className="studio-wipe"

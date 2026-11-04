@@ -780,6 +780,8 @@ export interface Sprite {
   x: number;
   y: number;
   pixel: number;
+  /** The part each pixel shows, by index into the model's parts; -1 where none does. */
+  owner: Int16Array;
 }
 
 /** A clean finish's steps from darkest to lightest. */
@@ -1066,7 +1068,7 @@ export function renderSprite(g: VoxelGrid, opts: SpriteOptions): Sprite {
     rgba[p * 4 + 2] = b;
     rgba[p * 4 + 3] = Math.round(alpha[p]! * 255);
   }
-  return { width, height, rgba, x: x0, y: y0, pixel };
+  return { width, height, rgba, x: x0, y: y0, pixel, owner: hitPart };
 }
 
 interface ItemView {

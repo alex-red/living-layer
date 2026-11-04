@@ -353,6 +353,39 @@
 .ai-edit-asked {
   color: var(--text);
 }
+/* The parts the brush points at, as chips: magenta, like any choice of yours. */
+.ai-edit-focus {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+.ai-edit-focus [aria-pressed='true'] {
+  border-color: var(--chosen);
+  color: var(--chosen);
+}
+.ai-edit-chip {
+  display: inline-flex;
+  gap: 2px;
+  align-items: center;
+  padding: 1px 2px 1px 8px;
+  border: 1px solid var(--chosen-glow);
+  border-radius: var(--r-chip);
+  background: var(--chosen-wash);
+  color: var(--text);
+  font-size: var(--fs-12);
+}
+.ai-edit-chip button {
+  padding: 0 4px;
+  border: 0;
+  background: none;
+  color: var(--text-2);
+  font: inherit;
+  cursor: pointer;
+}
+.ai-edit-chip button:hover:not(:disabled) {
+  color: var(--text);
+}
 @media (max-width: 767px) {
   .ai-edit-form {
     grid-template-columns: 1fr auto;
@@ -525,6 +558,28 @@
   stroke: var(--chosen);
   stroke-width: 0.5;
   stroke-dasharray: 2 2;
+  pointer-events: none;
+}
+/* The AI edit's brush on the preview: the stroke as it is painted, and the parts it points at. */
+.studio-brush-hit {
+  fill: transparent;
+  cursor: crosshair;
+  touch-action: none;
+}
+.studio-brush-stroke {
+  fill: none;
+  stroke: var(--chosen);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0.35;
+  pointer-events: none;
+}
+.studio-focus {
+  fill: var(--chosen-wash);
+  stroke: var(--chosen);
+  stroke-width: 1px;
+  stroke-dasharray: 4 3;
+  vector-effect: non-scaling-stroke;
   pointer-events: none;
 }
 .studio-gizmo {

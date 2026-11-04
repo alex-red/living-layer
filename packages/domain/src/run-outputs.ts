@@ -36,6 +36,8 @@ export interface FixtureEditOutput {
   edited: string;
   label: string;
   prompt: string;
+  /** The parts the person brushed over to point at, when they did. */
+  focus?: string[];
   note: string;
   parts: number;
   item: IsoItem;

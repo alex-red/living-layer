@@ -97,6 +97,32 @@ describe('the demo’s AI edit', () => {
   });
 });
 
+describe('an edit pointed at parts with the brush', () => {
+  it('paints the brushed parts in the demo when the request names none', () => {
+    const item = mug();
+    const answer = demoEdit(item, 'make it red', ['handle'])!;
+    expect(answer.note).toBe('Painted the handle red.');
+    for (const p of answer.item.parts)
+      expect(p.color).toBe(
+        p.id === 'handle' ? '#c8423b' : item.parts.find((q) => q.id === p.id)!.color,
+      );
+  });
+
+  it('paints a part the request names over the brushed ones', () => {
+    const answer = demoEdit(mug(), 'make the body blue', ['handle'])!;
+    expect(answer.note).toBe('Painted the body blue.');
+  });
+
+  it('tells Spark which parts were brushed, and says nothing of it when none were', () => {
+    const voxels = editorVoxels(lamp().parts);
+    const size = { w: 1, d: 1, h: 4.85 };
+    expect(editPrompt('Floor lamp', size, 'round this', false, voxels, ['base'])).toContain(
+      'The person brushed over the "base" part to show what they mean',
+    );
+    expect(editPrompt('Floor lamp', size, 'round this', false, voxels)).not.toContain('brushed');
+  });
+});
+
 describe('how an edit shows', () => {
   it('draws a tall, thin model with more voxels, and a squat one as its preset says', () => {
     expect(detailResolution(lamp().parts, 64)).toBe(192);
@@ -158,6 +184,24 @@ describe('POST /api/fixtures/edit', () => {
       item,
     });
     expect(gone.statusCode).toBe(404);
+  });
+
+  it('answers the demo with only the brushed parts changed, dropping ones the model lacks', async () => {
+    const { post } = await testApp({ name: 'edit-focus' });
+    const thing = await addThing(post, 'demo');
+    const item = mug();
+    const res = await post('fixtures/edit', {
+      fixtureId: thing.id,
+      prompt: 'make it red',
+      item,
+      focus: ['handle', 'lid'],
+    });
+    expect(res.statusCode, res.body).toBe(200);
+    const body = res.json<{ item: IsoItem; run: { output: { focus: string[] } } }>();
+    expect(body.item.parts.filter((p) => p.color === '#c8423b').map((p) => p.id)).toEqual([
+      'handle',
+    ]);
+    expect(body.run.output.focus).toEqual(['handle']);
   });
 
   it('asks Spark live with the model’s parts and render, keeping the parts the person locked', async () => {

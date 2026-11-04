@@ -47,21 +47,24 @@ const shown = async (png: Buffer) =>
  */
 export async function editFixture(
   { store, meta, run, jobs }: Pick<RouteDeps, 'store' | 'meta' | 'run' | 'jobs'>,
-  { mode, fixtureId, prompt, item, jobId }: Parsed<typeof fixturesEditBodySchema>,
+  { mode, fixtureId, prompt, item, focus = [], jobId }: Parsed<typeof fixturesEditBodySchema>,
 ) {
   const fixture = store.memory(mode).fixtures?.find((f) => f.id === fixtureId);
   if (!fixture) throw new LabError('fixture_missing', 'That fixture is gone.', 404);
   const from: IsoItem = { label: item.label, parts: item.parts };
+  // Only parts the model has: a brushed part an earlier edit removed means nothing now.
+  const brushed = [...new Set(focus)].filter((id) => from.parts.some((p) => p.id === id));
   const output = (edited: IsoItem, note: string): FixtureEditOutput => ({
     edited: fixture.id,
     label: fixture.label,
     prompt,
+    ...(brushed.length ? { focus: brushed } : {}),
     note,
     parts: edited.parts.length,
     item: edited,
   });
   if (mode !== 'live') {
-    const answer = demoEdit(from, prompt);
+    const answer = demoEdit(from, prompt, brushed);
     if (!answer)
       throw new LabError(
         'edit_demo',
@@ -95,6 +98,7 @@ export async function editFixture(
         prompt,
         Boolean(photo),
         editorVoxels(from.parts),
+        brushed,
       );
       const images = await Promise.all([...(photo ? [photo.png] : []), render].map(shown));
       const answer = await meta.sculptEdit(

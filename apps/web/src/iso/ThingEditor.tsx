@@ -54,10 +54,19 @@ export function ThingEditor({ objectId }: { objectId: string | undefined }) {
       setAsking(false);
     }
   }
-  /** The draft changed by the person's words: Spark in Live, a recolour in the demo. Nothing is saved. */
-  async function aiEdit(prompt: string, current: IsoItem) {
+  /**
+   * The draft changed by the person's words, pointed at the parts they
+   * brushed: Spark in Live, a recolour in the demo. Nothing is saved.
+   */
+  async function aiEdit(prompt: string, current: IsoItem, focus: string[]) {
     if (!target) return null;
-    const body = { mode, fixtureId: target.id, prompt, item: current };
+    const body = {
+      mode,
+      fixtureId: target.id,
+      prompt,
+      item: current,
+      ...(focus.length ? { focus } : {}),
+    };
     const thing = target.label.toLowerCase();
     try {
       const answer =

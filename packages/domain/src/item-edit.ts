@@ -22,25 +22,31 @@ const said = (words: string, name: string) =>
 
 /**
  * The demo's answer to an AI edit, with no model call: a colour named in the
- * request paints the parts it names ("make the handle red"), else every part
- * ("paint it blue"). Null for anything else, which only Spark can do.
+ * request paints the parts it names ("make the handle red"), else the parts
+ * the person brushed (`focus`), else every part ("paint it blue"). Null for
+ * anything else, which only Spark can do.
  */
-export function demoEdit(item: IsoItem, request: string): { item: IsoItem; note: string } | null {
+export function demoEdit(
+  item: IsoItem,
+  request: string,
+  focus: readonly string[] = [],
+): { item: IsoItem; note: string } | null {
   const words = request.toLowerCase();
   const colour = Object.keys(COLOURS).find((c) => said(words, c));
   if (!colour) return null;
-  const named = item.parts.filter((p) => !p.locked && said(words, p.id.toLowerCase()));
-  const painted = new Set(
-    (named.length ? named : item.parts.filter((p) => !p.locked)).map((p) => p.id),
-  );
+  const open = item.parts.filter((p) => !p.locked);
+  const named = open.filter((p) => said(words, p.id.toLowerCase()));
+  const brushed = open.filter((p) => focus.includes(p.id));
+  const chosen = named.length ? named : brushed;
+  const painted = new Set((chosen.length ? chosen : open).map((p) => p.id));
   if (!painted.size) return null;
   return {
     item: {
       ...item,
       parts: item.parts.map((p) => (painted.has(p.id) ? { ...p, color: COLOURS[colour]! } : p)),
     },
-    note: named.length
-      ? `Painted the ${named.map((p) => p.id).join(' and ')} ${colour}.`
+    note: chosen.length
+      ? `Painted the ${chosen.map((p) => p.id).join(' and ')} ${colour}.`
       : `Painted it ${colour}.`,
   };
 }

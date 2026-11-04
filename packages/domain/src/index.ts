@@ -30,6 +30,7 @@ export * from './item-fit.js';
 export * from './splat.js';
 export * from './item-sculpt.js';
 export * from './item-edit.js';
+export * from './item-pick.js';
 export * from './recipe-sculpt.js';
 export * from './photo-scene.js';
 export * from './iso-face.js';
