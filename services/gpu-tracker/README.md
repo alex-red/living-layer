@@ -5,33 +5,35 @@ Follows chosen things through the camera with SAM 2.1's streaming video predicto
 The lab picks what is followed and sends a box per thing. The node reads the camera itself (RTSP, or `file://` for a test), cuts the camera's crop, and streams each thing's box back over server-sent events, in shares of the cropped frame like the lab's own boxes. The API is described at the top of `server.py`; everything but `/health` takes `Authorization: Bearer $TRACKER_TOKEN`.
 
 ```sh
-bun run gpu-tracker deploy                      # rsync to iolinux, token in its .env, compose up --build
-bun run gpu-tracker check --box mug=0.361,0.508,0.062,0.083
-bun run gpu-tracker watch --box mug=… --box mouse=… [--seconds 30] [--motion 0]
+bun run gpu-tracker deploy                      # rsync to $GPU_TRACKER_HOST, token in its .env, compose up --build
+bun run gpu-tracker check --box mug=0.361,0.508,0.062,0.083 [--image <png>]
+bun run gpu-tracker watch --box mug=… --box mouse=… [--seconds 30] [--fps 10] [--motion 0]
 bun run gpu-tracker stop
 ```
 
+`GPU_TRACKER_HOST` is the GPU machine as ssh reaches it; deploy and stop need it, and check and watch need it unless `GPU_TRACKER_URL` and `GPU_TRACKER_TOKEN` are set. On the host, its `.env` can also set `TRACKER_MODEL`, `TRACKER_RESEED_FRAMES` (300) and `TRACKER_MOTION` (0.015).
+
 ## In the lab
 
-Set `GPU_TRACKER_URL` (`http://iolinux.lan:43450`) and `GPU_TRACKER_TOKEN` (the host's `TRACKER_TOKEN`) in `.env` and restart the server. While the live camera is watched, the watcher opens the same camera on the node with every followed thing at its current box, and reads its results (`apps/server/src/gpu-tracker.ts`). They never judge a zone; each one only corrects the local track (`gpuCorrections`, `packages/domain/src/gpu-track.ts`):
+Set `GPU_TRACKER_URL` (`http://<gpu-host>:43450`) and `GPU_TRACKER_TOKEN` (the host's `TRACKER_TOKEN`) in `.env` and restart the server. While the live camera is watched, the watcher opens the same camera on the node with every followed thing at its current box, and reads its results (`apps/server/src/gpu-tracker.ts`). They never judge a zone; each one only corrects the local track (`gpuCorrections`, `packages/domain/src/gpu-track.ts`):
 
 - a thing the GPU sees surely (score ≥ 0.8) and steadily (two results agreeing) where the local match lost it, or far from where the local match put it, starts again there, with no SAM call or whole-frame search; the canvas marks it `GPU`;
 - a thing the local match follows at rest that the GPU lost is handed back to the GPU at the local box, at most every 10 s.
 
 The watch summary in the inspector says how fast it runs and how many tracks it fixed, or why it is unavailable. When the node is down the watcher follows on this machine as before and retries every 5 s. Demo mode never calls it. It isn't gated by _Let tracking call AI_: it is your own machine, not a billed API.
 
-The watcher's health bar has a **This machine | GPU node** switch. With the GPU node chosen, its verdict says what the node is doing (`gpuHealth`): _waiting_ while it connects, _stalled_ when it is unavailable (this machine follows meanwhile), _behind_ after 5 s without a result. Its numbers (frame rate, work per frame, CPU) stay this machine's, since the local match still reads every frame; the GPU's step, result rate and fixes are its own rows below them. On a still desk the node sends about one result a second: it skips frames where nothing moved.
+The watcher's health bar has a **This machine | Apple Vision | GPU node** switch (Apple Vision is [the vision tracker](../vision-tracker/README.md)). With the GPU node chosen, its verdict says what the node is doing (`gpuHealth`): _waiting_ while it connects, _stalled_ when it is unavailable (this machine follows meanwhile), _behind_ after 5 s without a result. Its numbers (frame rate, work per frame, CPU) stay this machine's, since the local match still reads every frame; the GPU's step, result rate and fixes are its own rows below them. On a still desk the node sends about one result a second: it skips frames where nothing moved.
 
 **One camera client.** The node reads the camera through the lab's relay (mediamtx), not the camera itself: with a GPU tracker configured, the relay also serves its RTSP on the network to user `gpu` (the tracker's token as its password, from the tracker's address only). A Wi-Fi camera sending two full streams halved both: the tab's view fell from 24 to 11 fps and froze 18% of the time. Without the relay the node reads the camera directly.
 
 **PyAV and the GIL.** FFmpeg's logs go straight to stderr (`av.logging.restore_default_callback()`). Routed through Python, a decoder thread logging a corrupt frame waited for the GIL while a replaced session's reader held it, freeing that decoder: the whole node stopped answering. Corrupt frames are common on this Wi-Fi camera.
 
-## The GPU on iolinux
+## Sharing the GPU
 
-vLLM holds 0.93 of the 4090 and the docker-AI-orchestrator owns it, so the tracker runs only while vLLM is stopped (`restart: "no"`):
+On the machine it was built on, vLLM holds 0.93 of the 4090 and the docker-AI-orchestrator owns it, so the tracker runs only while vLLM is stopped (`restart: "no"`):
 
 ```sh
-curl -X POST localhost:7001/admin/pause && docker stop vllm     # on iolinux, before
+curl -X POST localhost:7001/admin/pause && docker stop vllm     # on the GPU host, before
 docker start vllm && curl -X POST localhost:7001/admin/resume   # after: stop the tracker first
 ```
 

@@ -9,9 +9,9 @@
  *   bun run gpu-tracker stop                   stop following and the container
  *
  * Boxes are shares of the camera's cropped frame, as the lab's. The host is
- * GPU_TRACKER_HOST (ssh, default iolinux.lan), the node GPU_TRACKER_URL
- * (default http://<host>:43450); its token is read from the host's .env unless
- * GPU_TRACKER_TOKEN is set. Results go to out/gpu-tracker/.
+ * GPU_TRACKER_HOST (its ssh host; needed to deploy and stop), the node
+ * GPU_TRACKER_URL (default http://<host>:43450); its token is read from the
+ * host's .env unless GPU_TRACKER_TOKEN is set. Results go to out/gpu-tracker/.
  */
 import { Database } from 'bun:sqlite';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -22,7 +22,13 @@ import { dataDir } from './lib/evidence.js';
 
 const args = parseArgs();
 const command = args.positional[0];
-const host = process.env.GPU_TRACKER_HOST ?? 'iolinux.lan';
+const host = process.env.GPU_TRACKER_HOST ?? '';
+// Check and watch can go by the node's URL and token alone; anything over ssh needs the host.
+const byUrl = process.env.GPU_TRACKER_URL && process.env.GPU_TRACKER_TOKEN;
+if (!host && !(byUrl && (command === 'check' || command === 'watch'))) {
+  console.error('Set GPU_TRACKER_HOST to the GPU machine, as ssh reaches it (e.g. gpu-box.lan).');
+  process.exit(1);
+}
 const url = process.env.GPU_TRACKER_URL ?? `http://${host}:43450`;
 const remoteDir = 'docker/livinglayer-tracker';
 const out = resolve(import.meta.dir, '..', 'out', 'gpu-tracker');

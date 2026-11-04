@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, mock } from 'bun:test';
 import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
-import { hostname, tmpdir } from 'node:os';
+import { hostname, networkInterfaces, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import sharp from 'sharp';
 import { parseConfig, type Fetcher } from '../apps/server/src/config.js';
@@ -237,6 +237,21 @@ describe('local API and provenance', () => {
       url: '/api/lamp',
       payload: { mode: 'demo' },
       headers: { host: `${name}:43430`, origin: `http://${name}:43430` },
+    });
+    expect(res.statusCode).not.toBe(403);
+    await app.close();
+  });
+  it('accepts the lab opened at one of this machine’s own addresses, as the dev banner prints', async () => {
+    const app = await buildApp(config());
+    const own = Object.values(networkInterfaces())
+      .flat()
+      .find((a) => a?.family === 'IPv4' && !a.internal)?.address;
+    if (!own) return void (await app.close());
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/lamp',
+      payload: { mode: 'demo' },
+      headers: { host: `${own}:43430`, origin: `http://${own}:43430` },
     });
     expect(res.statusCode).not.toBe(403);
     await app.close();

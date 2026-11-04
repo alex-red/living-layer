@@ -2,7 +2,7 @@ import Fastify from 'fastify';
 import staticFiles from '@fastify/static';
 import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { hostname } from 'node:os';
+import { hostname, networkInterfaces } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import {
   runOutput,
@@ -71,8 +71,19 @@ import {
 } from './nodes.js';
 import { demoLamp, demoLampFor } from './demo.js';
 
-/** Hosts the lab may be opened at: loopback, and this machine by name on the network. */
-const LAB_HOSTS = ['localhost', '127.0.0.1', hostname(), hostname().split('.')[0]!];
+/**
+ * Hosts the lab may be opened at: loopback, and this machine on the network,
+ * by name or by one of its own addresses (the dev banner prints one).
+ */
+const LAB_HOSTS = [
+  'localhost',
+  '127.0.0.1',
+  hostname(),
+  hostname().split('.')[0]!,
+  ...Object.values(networkInterfaces())
+    .flat()
+    .flatMap((a) => (a?.family === 'IPv4' && !a.internal ? [a.address] : [])),
+];
 
 const watching = new WeakMap<object, Record<Mode, Watcher>>();
 /** The camera watchers of an app `buildApp` made, for tests. */
