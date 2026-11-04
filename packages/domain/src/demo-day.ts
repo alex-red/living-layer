@@ -80,17 +80,41 @@ export const DEMO_FOOD: readonly { label: string; useByDays: number }[] = [
   { label: 'Eggs', useByDays: 12 },
 ];
 
-/** Questions the dock offers: each has a number, a chart or a comparison to show. */
-export const DEMO_ASK_EXAMPLES = [
-  'How many times did I drink in the last hour?',
-  'How long was my screen on today?',
-  'What was my longest stretch without a drink?',
-  'Did the cat nap more than yesterday?',
-  'How long did I work at my desk this week?',
-  'Was the lamp on while I was away?',
-  'How long was the mug in the main zone today?',
-  'What should I eat first?',
-  'What happened today?',
+/**
+ * Questions the dock offers: each has a number, a chart or a comparison to
+ * show. `label` is the chip's short name; `thing` the demo thing it is about,
+ * for its colour.
+ */
+export const DEMO_ASK_EXAMPLES: readonly { label: string; question: string; thing: string }[] = [
+  {
+    label: 'Drinks this hour',
+    question: 'How many times did I drink in the last hour?',
+    thing: 'mug',
+  },
+  { label: 'Screen time', question: 'How long was my screen on today?', thing: 'monitor' },
+  {
+    label: 'Longest dry spell',
+    question: 'What was my longest stretch without a drink?',
+    thing: 'mug',
+  },
+  {
+    label: 'Cat vs yesterday',
+    question: 'Did the cat nap more than yesterday?',
+    thing: 'cat-tree',
+  },
+  {
+    label: 'Desk time this week',
+    question: 'How long did I work at my desk this week?',
+    thing: 'mouse',
+  },
+  { label: 'Lamp while away', question: 'Was the lamp on while I was away?', thing: 'lamp' },
+  {
+    label: 'Mug in the zone',
+    question: 'How long was the mug in the main zone today?',
+    thing: 'zone:main',
+  },
+  { label: 'Eat first', question: 'What should I eat first?', thing: 'milk' },
+  { label: 'Today so far', question: 'What happened today?', thing: 'summary' },
 ];
 
 /** The demo room's things that keep stats, as asking it sees them. */

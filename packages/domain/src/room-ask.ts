@@ -87,8 +87,17 @@ export interface RoomAnswer {
     unit: 'times' | 'minutes';
     values: { label: string; from: number; value: number }[];
   } | null;
-  /** The same measure over the window it was compared with. */
-  compared: { label: string; value: number; words: string } | null;
+  /** The answer's one number, to show large: "3 drinks", "5 h 3 min", "9:42". */
+  figure: string | null;
+  /** The same measure over the window it was compared with, and which way it went since. */
+  compared: {
+    label: string;
+    value: number;
+    words: string;
+    trend: 'more' | 'less' | 'same';
+  } | null;
+  /** Food by its use-by day, soonest first: days left, below 0 once gone off. */
+  foods: { thingId: string; label: string; days: number }[] | null;
   /** The query it answered, after `readAsk`; null when it asks back. */
   query: AskQuery | null;
   /** A question back, when the question couldn't be read. */
@@ -631,9 +640,43 @@ function comparedWords(t: Track, q: AskQuery, value: number): string {
 }
 /** One clause comparing now with before: "2 more than yesterday by this time (4)". */
 function compareClause(now: number, before: number, label: string, words: string): string {
+  const trend = trendOf(now, before);
+  if (trend === 'same') return `About the same as ${label} (${words}).`;
+  return `That’s ${trend} than ${label} (${words}).`;
+}
+function trendOf(now: number, before: number): 'more' | 'less' | 'same' {
   const d = Math.round((now - before) * 10) / 10;
-  if (Math.abs(d) < 0.5) return `About the same as ${label} (${words}).`;
-  return `That’s ${d > 0 ? 'more' : 'less'} than ${label} (${words}).`;
+  return Math.abs(d) < 0.5 ? 'same' : d > 0 ? 'more' : 'less';
+}
+/** A count, as the figure shows it: "3 drinks", "1 visit", "4 times". */
+function countFigure(t: Track, n: number): string {
+  const voice = voiceOf(t.thing, t.key);
+  const [one, many] =
+    voice === 'drink'
+      ? ['drink', 'drinks']
+      : voice === 'cat'
+        ? ['visit', 'visits']
+        : voice === 'pointer'
+          ? ['stretch', 'stretches']
+          : ['time', 'times'];
+  return `${n} ${n === 1 ? one : many}`;
+}
+/** The figure of one track's answer, from its value. */
+function figureOf(t: Track, q: AskQuery, value: number | null): string | null {
+  if (value === null) return null;
+  switch (q.measure) {
+    case 'count':
+      return countFigure(t, value);
+    case 'duration':
+    case 'longest':
+    case 'longestGap':
+      return spanOf(value * MINUTE);
+    case 'last':
+    case 'first':
+      return clockOf(value);
+    default:
+      return null;
+  }
 }
 
 /**
@@ -642,7 +685,7 @@ function compareClause(now: number, before: number, label: string, words: string
  * the window it was compared with.
  */
 export function answerAsk(q: AskQuery, history: AskHistory, now: number): RoomAnswer {
-  const empty = { notes: [], cites: [], bars: null, compared: null };
+  const empty = { notes: [], cites: [], bars: null, compared: null, figure: null, foods: null };
   if (q.clarify) return { ...empty, text: q.clarify, query: null, clarify: q.clarify };
   if (q.measure === 'useBy')
     return { ...empty, ...foodAnswer(q, history, now), query: q, clarify: null };
@@ -781,7 +824,12 @@ export function answerAsk(q: AskQuery, history: AskHistory, now: number): RoomAn
               : `the ${q.amount} days before`;
     }
     const words = comparedWords(first.t, q, before);
-    compared = { label, value: Math.round(before * 10) / 10, words };
+    compared = {
+      label,
+      value: Math.round(before * 10) / 10,
+      words,
+      trend: trendOf(first.value, before),
+    };
     text += ` ${compareClause(first.value, before, label, words)}`;
   }
   return {
@@ -789,7 +837,9 @@ export function answerAsk(q: AskQuery, history: AskHistory, now: number): RoomAn
     notes,
     cites: answers.flatMap((a) => a.cites).slice(-6),
     bars: answers.length === 1 ? first.bars : null,
+    figure: answers.length === 1 ? figureOf(first.t, q, first.value) : null,
     compared,
+    foods: null,
     query: q,
     clarify: null,
   };
@@ -830,7 +880,7 @@ function whileAnswer(
   w: Track,
   q: AskQuery,
   span: { from: number; to: number; words: string },
-): Pick<RoomAnswer, 'text' | 'cites'> {
+): Pick<RoomAnswer, 'text' | 'cites' | 'figure'> {
   const on = q.whileOn !== false;
   const spans = spansOf(w, span.from, span.to, on);
   const win = `${span.words} while ${stateWords(w, on)}`;
@@ -838,7 +888,11 @@ function whileAnswer(
   if (q.measure === 'count') {
     const n = spans.reduce((sum, s) => sum + countOf(t, s.from, s.to), 0);
     const shown = risings(t).filter((e) => inside(e.at));
-    return { text: countSentence(t, n, win), cites: shown.slice(-4).map((e) => cite(t, e)) };
+    return {
+      text: countSentence(t, n, win),
+      figure: countFigure(t, n),
+      cites: shown.slice(-4).map((e) => cite(t, e)),
+    };
   }
   const ms = spans.reduce((sum, s) => sum + onMs(t, s.from, s.to), 0);
   // What it rests on: when each overlap began and ended, from either thing.
@@ -851,6 +905,7 @@ function whileAnswer(
   const tracks = [t, w];
   return {
     text: durationSentence(t, ms, win),
+    figure: spanOf(ms),
     cites: edges.slice(-4).map((e) =>
       cite(
         tracks.find((x) => x.thing.id === e.thingId && x.key === e.key)!,
@@ -865,7 +920,7 @@ function totalsAnswer(
   q: AskQuery,
   span: { from: number; to: number; words: string },
   totals: NonNullable<AskHistory['totals']>,
-): Pick<RoomAnswer, 'text' | 'bars' | 'notes'> {
+): Pick<RoomAnswer, 'text' | 'bars' | 'notes' | 'figure'> {
   const first = dayOf(span.from);
   const rows = totals.filter((r) => r.thingId === t.thing.id && r.key === t.key && r.day >= first);
   // A count is a count; seconds on or active are minutes.
@@ -890,6 +945,10 @@ function totalsAnswer(
       q.measure === 'count' || daily === 'count'
         ? countSentence(t, Math.round(sum), span.words)
         : durationSentence(t, sum * MINUTE, span.words),
+    figure:
+      q.measure === 'count' || daily === 'count'
+        ? countFigure(t, Math.round(sum))
+        : spanOf(sum * MINUTE),
     bars: values.length > 1 ? { unit: daily === 'count' ? 'times' : 'minutes', values } : null,
     notes: ['Added up from the day totals, which are kept for good; a bar is a week.'],
   };
@@ -899,7 +958,7 @@ function foodAnswer(
   q: AskQuery,
   history: AskHistory,
   now: number,
-): Pick<RoomAnswer, 'text' | 'cites' | 'notes'> {
+): Pick<RoomAnswer, 'text' | 'cites' | 'notes' | 'foods'> {
   const today = dayOf(now);
   const foods = history.things
     .filter((t) => t.expires && (q.thing === null || t.id === q.thing))
@@ -922,9 +981,10 @@ function foodAnswer(
       .slice(-1)
       .map((e) => ({ at: e.at, thingId: t.id, text: `${t.label} taken out` })),
   );
+  const all = foods.map(({ t, n }) => ({ thingId: t.id, label: t.label, days: n }));
   if (q.thing !== null) {
     const { t, n } = foods[0]!;
-    return { text: `${cap(nameOf(t))} ${when(n)}.`, cites: taken, notes: [] };
+    return { text: `${cap(nameOf(t))} ${when(n)}.`, cites: taken, notes: [], foods: all };
   }
   const gone = foods.filter((f) => f.n < 0);
   const good = foods.filter((f) => f.n >= 0);
@@ -943,6 +1003,7 @@ function foodAnswer(
     text: parts.filter(Boolean).join(' '),
     cites: taken.sort((a, b) => a.at - b.at).slice(-4),
     notes: ['Use-by days come from each food’s card, not the camera.'],
+    foods: all,
   };
 }
 

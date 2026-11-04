@@ -88,6 +88,9 @@
   background: var(--chosen-wash);
   box-shadow: inset 0 0 0 1px var(--chosen);
 }
+.day-dot.summary {
+  background: conic-gradient(var(--chosen), var(--warm), var(--ok), var(--seen), var(--chosen));
+}
 .day-dot.mouse,
 .day-dot.other {
   background: var(--text-3);
@@ -118,107 +121,433 @@
   color: var(--text-2);
 }
 
-.day-ask {
+.day-tick.cited {
+  top: 50%;
+  width: 9px;
+  height: 9px;
+  margin: -4.5px 0 0 -4.5px;
+  z-index: 1;
+  border-radius: 50%;
+  border: 2px solid var(--seen);
+  background: var(--surface-1);
+  box-shadow: 0 0 6px var(--seen-glow);
+  animation: ask-in var(--t-base) var(--ease-out);
+}
+
+/* "Ask your room": a pill to type in, chips to start from, and an answer that
+   leads with its number. Answers are what was seen (cyan). */
+.ask {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
 }
-.day-ask-row {
+.ask-bar {
   display: flex;
-  gap: 6px;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 4px 0 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 18px;
+  background: var(--surface-2);
+  transition:
+    border-color var(--t-fast),
+    box-shadow var(--t-fast);
 }
-.day-ask-input {
+.ask-bar:focus-within {
+  border-color: var(--seen);
+  box-shadow: 0 0 0 3px var(--seen-wash);
+}
+.ask-spark {
+  font-size: var(--fs-15);
+  color: var(--seen);
+}
+.ask-input {
   flex: 1;
   min-width: 0;
-  padding: 4px 8px;
-  border: 1px solid var(--line-strong);
-  border-radius: var(--r-button);
-  font: var(--fs-13) / 18px var(--ui);
+  padding: 0;
+  border: 0;
+  outline: 0;
+  font: var(--fs-14) / 20px var(--ui);
   color: var(--text);
-  background: var(--surface-2);
+  background: transparent;
 }
-.day-ask-input:focus {
-  outline: 1px solid var(--chosen);
+.ask-input:focus,
+.ask-input:focus-visible {
+  outline: none;
+  box-shadow: none;
 }
-.day-examples,
-.day-cites {
+.ask-input::placeholder {
+  color: var(--text-3);
+}
+.ask-send {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 50%;
+  font: 600 var(--fs-15) / 1 var(--ui);
+  color: var(--void);
+  background: var(--seen);
+  cursor: pointer;
+  transition:
+    opacity var(--t-fast),
+    transform var(--t-fast);
+}
+.ask-send:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+.ask-send:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.ask-spinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: ask-spin 700ms linear infinite;
+}
+.ask-error {
+  margin: 0;
+  font: var(--fs-12) / 16px var(--ui);
+  color: var(--blocked);
+}
+
+.ask-suggestions,
+.ask-cites {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
+  align-items: center;
+  gap: 6px;
 }
-.day-example,
-.day-cite {
-  padding: 2px 8px;
+.ask-lead-label {
+  margin-right: 2px;
+  font: 500 var(--fs-11) / 14px var(--mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+.ask-chip,
+.ask-cite {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px 3px 8px;
   border: 1px solid var(--line);
-  border-radius: var(--r-chip);
-  font: var(--fs-12) / 16px var(--ui);
+  border-radius: 999px;
+  font: var(--fs-12) / 18px var(--ui);
   color: var(--text-2);
   background: var(--surface-2);
   cursor: pointer;
+  transition:
+    color var(--t-fast),
+    border-color var(--t-fast),
+    background var(--t-fast);
 }
-.day-example:hover,
-.day-cite:hover {
+.ask-chip:hover,
+.ask-cite:hover {
   color: var(--text);
   border-color: var(--line-strong);
+  background: var(--surface-3);
 }
-.day-answer {
+.ask-cite time {
+  font: var(--fs-11) / 18px var(--mono);
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+.ask-cite.still {
+  cursor: default;
+}
+.ask-cite.still:hover {
+  color: var(--text-2);
+  border-color: var(--line);
+  background: var(--surface-2);
+}
+
+.ask-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  background: linear-gradient(135deg, var(--seen-wash), transparent 60%), var(--surface-2);
+  animation: ask-in var(--t-base) var(--ease-out);
+}
+.ask-card.clarify {
+  background: linear-gradient(135deg, var(--unsure-wash), transparent 60%), var(--surface-2);
+}
+.ask-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ask-q {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font: var(--fs-12) / 16px var(--ui);
+  color: var(--text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ask-q::before {
+  content: '“';
+}
+.ask-q::after {
+  content: '”';
+}
+.ask-asof {
+  font: var(--fs-11) / 14px var(--mono);
+  color: var(--text-3);
+}
+.ask-body {
+  display: grid;
+  gap: 14px;
+}
+.ask-body.charted {
+  grid-template-columns: minmax(0, 1fr) minmax(180px, 1.1fr);
+  align-items: end;
+}
+@media (max-width: 720px) {
+  .ask-body.charted {
+    grid-template-columns: 1fr;
+  }
+}
+.ask-main {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
   gap: 6px;
-  padding: 8px 10px;
-  border-left: 2px solid var(--seen);
-  background: var(--seen-wash);
+  min-width: 0;
 }
-.day-answer p {
+.ask-figure {
   margin: 0;
-  font: var(--fs-14) / 20px var(--ui);
+  line-height: 1;
   color: var(--text);
+  font-variant-numeric: tabular-nums;
 }
-.day-answer p.day-note,
-.day-ask-error {
-  margin: 0;
+.ask-figure .num {
+  font: 600 var(--fs-34) / 1 var(--ui);
+  letter-spacing: -0.02em;
+}
+.ask-figure .unit {
+  margin: 0 2px;
+  font: 500 var(--fs-15) / 1 var(--ui);
   color: var(--text-2);
 }
-.day-ask-error {
+.ask-trend {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font: 500 var(--fs-12) / 16px var(--ui);
+  color: var(--seen);
+  background: var(--seen-wash);
+}
+.ask-trend.same {
+  color: var(--text-2);
+  background: var(--surface-3);
+}
+.ask-text {
+  margin: 0;
+  font: var(--fs-13) / 19px var(--ui);
+  color: var(--text-2);
+}
+.ask-text.big {
+  font: var(--fs-15) / 22px var(--ui);
+  color: var(--text);
+}
+.ask-back {
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  margin-right: 8px;
+  border-radius: 50%;
+  font: 600 var(--fs-12) / 1 var(--ui);
+  color: var(--void);
+  background: var(--unsure);
+  vertical-align: 1px;
+}
+.ask-notes {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.ask-notes li {
+  font: var(--fs-12) / 16px var(--ui);
+  color: var(--text-3);
+}
+.ask-notes li::before {
+  content: 'ⓘ ';
+}
+.ask-again {
+  align-self: flex-start;
+  padding: 0;
+  border: 0;
+  font: 500 var(--fs-12) / 16px var(--ui);
+  color: var(--seen);
+  background: transparent;
+  cursor: pointer;
+}
+.ask-again:hover {
+  text-decoration: underline;
+}
+
+/* Loading: the question, then where the answer will be. */
+.ask-card.loading {
+  gap: 8px;
+}
+.ask-shimmer {
+  display: block;
+  width: 40%;
+  height: 12px;
+  border-radius: 6px;
+  background: linear-gradient(90deg, var(--surface-3), var(--line-strong), var(--surface-3));
+  background-size: 200% 100%;
+  animation: ask-shimmer 1.2s ease-in-out infinite;
+}
+.ask-shimmer.wide {
+  width: 22%;
+  height: 28px;
+}
+
+/* Food by its use-by day. */
+.ask-foods {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 4px 6px;
+  width: 100%;
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.ask-foods li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 10px;
+  border-radius: var(--r-button);
+  font: var(--fs-13) / 18px var(--ui);
+  color: var(--text);
+  background: var(--surface-1);
+}
+.ask-rank {
+  width: 14px;
+  font: var(--fs-11) / 18px var(--mono);
+  color: var(--text-3);
+}
+.ask-food {
+  flex: 1;
+}
+.ask-days {
+  padding: 0 8px;
+  border-radius: 999px;
+  font: 500 var(--fs-11) / 18px var(--mono);
+  color: var(--ok);
+  background: var(--ok-wash);
+}
+.ask-foods .soon .ask-days {
+  color: var(--warm);
+  background: var(--warm-wash);
+}
+.ask-foods .gone .ask-days {
   color: var(--blocked);
+  background: var(--blocked-wash);
 }
-.day-cite.still {
-  cursor: default;
-}
-/* An answer's count or time per hour or day. */
-.day-bars {
+
+/* An answer's count or time per hour or day; the highest bar labelled. */
+.ask-bars {
   display: flex;
   align-items: stretch;
-  gap: 2px;
-  width: 100%;
-  max-width: 420px;
-  height: 64px;
+  gap: 3px;
+  height: 96px;
+  padding-bottom: 2px;
 }
-.day-bar-col {
+.ask-col {
   display: flex;
   flex: 1;
   flex-direction: column;
-  justify-content: flex-end;
   min-width: 0;
 }
-.day-bar-track {
+.ask-bar-value {
+  height: 14px;
+  font: 500 var(--fs-11) / 14px var(--mono);
+  text-align: center;
+  white-space: nowrap;
+  color: var(--seen);
+}
+.ask-bar-track {
   display: flex;
   flex: 1;
   align-items: flex-end;
+  border-bottom: 1px solid var(--line);
 }
-.day-bar-fill {
+.ask-bar-fill {
   display: block;
   width: 100%;
-  min-height: 1px;
-  border-radius: 2px 2px 0 0;
+  min-height: 2px;
+  border-radius: 3px 3px 0 0;
+  background: color-mix(in srgb, var(--seen) 45%, transparent);
+  transform-origin: bottom;
+  animation: ask-grow var(--t-slow) var(--ease-out);
+}
+.ask-col.top .ask-bar-fill,
+.ask-col:hover .ask-bar-fill {
   background: var(--seen);
 }
-.day-bar-label {
-  height: 14px;
+.ask-bar-label {
+  height: 16px;
+  padding-top: 2px;
   font: var(--fs-11) / 14px var(--mono);
   text-align: center;
+  white-space: nowrap;
   color: var(--text-3);
+}
+
+@keyframes ask-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+@keyframes ask-grow {
+  from {
+    transform: scaleY(0);
+  }
+}
+@keyframes ask-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes ask-shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -100% 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ask-card,
+  .ask-bar-fill,
+  .day-tick.cited,
+  .ask-shimmer {
+    animation: none;
+  }
 }
 
 /* Notifications as a phone shows them, over the room's top right. */

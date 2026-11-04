@@ -8,14 +8,11 @@ import {
   type RoomAnswer,
 } from '@livinglayer/domain';
 import { api } from '../api';
-import { Button, IconButton } from '../ui/controls';
+import { IconButton } from '../ui/controls';
 import { DAY_END, DAY_START, DAY_THINGS, clock, dayNudges, eventsUntil } from './demoDay';
 import { useLabCalls } from './LabContext';
 import { REPLAY_SPEEDS, playReplay, setReplay, useReplay, useReplayClock } from './state/replay';
 import './day.css';
-
-/** Example questions offered before the first ask: a few, so the dock stays one glance. */
-const SHOWN_EXAMPLES = 4;
 
 const NUDGES = dayNudges();
 /** How long a nudge stays on the phone, in minutes of the day. */
@@ -42,6 +39,7 @@ function Dock() {
   const playing = useReplay((r) => r.playing);
   const speed = useReplay((r) => r.speed);
   const last = eventsUntil(minute).at(-1);
+  const [cited, setCited] = useState<number[]>([]);
   return (
     <section className="day-dock" aria-label="Day replay">
       <div className="day-bar">
@@ -71,6 +69,9 @@ function Dock() {
               style={{ left: share(n.at) }}
               title={`${clock(n.at)} · ${n.title}`}
             />
+          ))}
+          {cited.map((m) => (
+            <span key={m} className="day-tick cited" style={{ left: share(m) }} />
           ))}
           <input
             type="range"
@@ -114,7 +115,7 @@ function Dock() {
           'Nothing has happened yet today.'
         )}
       </p>
-      <Ask minute={minute} />
+      <Ask minute={minute} onCited={setCited} />
     </section>
   );
 }
@@ -123,35 +124,45 @@ function Thing({ e }: { e: DayEvent }) {
   return <span className={`day-dot ${e.thing}`} title={DAY_THINGS[e.thing]} aria-hidden="true" />;
 }
 
-/** The dot a cited thing is drawn with, by its id in the demo. */
+/** The dot a thing is drawn with, by its id in the demo. */
 function dotOf(thingId: string): string {
   if (thingId === 'cat-tree') return 'cat';
   if (thingId.startsWith('zone:')) return 'zone';
-  if (['milk', 'leftover-chicken', 'spinach'].includes(thingId)) return 'fridge';
-  return ['mug', 'lamp', 'monitor', 'mouse'].includes(thingId) ? thingId : 'other';
+  if (['milk', 'leftover-chicken', 'spinach', 'eggs'].includes(thingId)) return 'fridge';
+  return ['mug', 'lamp', 'monitor', 'mouse', 'summary'].includes(thingId) ? thingId : 'other';
 }
+
+type Asked = RoomAnswer & { question: string; asOf: number };
 
 /**
  * "Ask your room": a question about the room's history, read by Spark (live)
  * or offline (the demo, as of the replay's minute) and answered by the server
- * from the things' events. Every answer cites the events it rests on; in the
- * demo a cited time moves the replay there.
+ * from the things' events. The answer leads with its number, then the
+ * sentence, a chart and what it rests on; the times it cites are marked on
+ * the day's track, and in the demo a cited time moves the replay there.
  */
-function Ask({ minute }: { minute: number }) {
+function Ask({ minute, onCited }: { minute: number; onCited: (minutes: number[]) => void }) {
   const calls = useLabCalls();
   const [question, setQuestion] = useState('');
-  const [asking, setAsking] = useState(false);
+  const [asking, setAsking] = useState('');
   const [error, setError] = useState('');
-  const [answer, setAnswer] = useState<(RoomAnswer & { question: string }) | null>(null);
+  const [answer, setAnswer] = useState<Asked | null>(null);
   const asked = useRef(0);
+  const input = useRef<HTMLInputElement>(null);
   const demo = calls.mode() === 'demo';
   // The sample day is today: the replay's minute is a time today.
   const today = midnightOf(Date.now());
+  const show = (a: Asked | null) => {
+    setAnswer(a);
+    onCited(
+      a ? a.cites.filter((c) => c.at >= today).map((c) => Math.round((c.at - today) / 60_000)) : [],
+    );
+  };
   const ask = async (q: string) => {
     if (!q.trim()) return;
     setQuestion(q);
     setError('');
-    setAsking(true);
+    setAsking(q);
     const n = ++asked.current;
     try {
       const run = await api('things/ask', {
@@ -159,115 +170,279 @@ function Ask({ minute }: { minute: number }) {
         question: q,
         ...(demo ? { at: today + minute * 60_000 } : {}),
       });
-      if (n === asked.current) setAnswer({ question: q, ...run.output });
+      if (n === asked.current) show({ question: q, asOf: minute, ...run.output });
     } catch (e) {
       if (n === asked.current) setError(e instanceof Error ? e.message : 'The question failed.');
     } finally {
-      if (n === asked.current) setAsking(false);
+      if (n === asked.current) setAsking('');
     }
   };
+  const clear = () => {
+    show(null);
+    setQuestion('');
+    input.current?.focus();
+  };
+  const others = DEMO_ASK_EXAMPLES.filter((e) => e.question !== answer?.question);
   return (
-    <div className="day-ask">
+    <div className="ask">
       <form
-        className="day-ask-row"
+        className="ask-bar"
         onSubmit={(e) => {
           e.preventDefault();
           void ask(question);
         }}
       >
+        <span className="ask-spark" aria-hidden="true">
+          ✦
+        </span>
         <input
-          className="day-ask-input"
+          ref={input}
+          className="ask-input"
           aria-label="Ask your room"
           placeholder={
-            demo ? `Ask your room, as of ${clock(minute)}` : 'Ask your room about its history'
+            demo
+              ? `Ask your room about its day, as of ${clock(minute)}`
+              : 'Ask your room about its history'
           }
           value={question}
           onChange={(e) => setQuestion(e.target.value)}
         />
-        <Button size="sm" type="submit" disabled={!question.trim() || asking}>
-          {asking ? 'Asking…' : 'Ask'}
-        </Button>
+        <button
+          type="submit"
+          className="ask-send"
+          aria-label="Ask"
+          title="Ask (Enter)"
+          disabled={!question.trim() || Boolean(asking)}
+        >
+          {asking ? <span className="ask-spinner" aria-hidden="true" /> : '↑'}
+        </button>
       </form>
       {error && (
-        <p className="day-ask-error micro" role="alert">
+        <p className="ask-error" role="alert">
           {error}
         </p>
       )}
-      {!answer && (
-        <div className="day-examples" role="group" aria-label="Example questions">
-          {DEMO_ASK_EXAMPLES.slice(0, SHOWN_EXAMPLES).map((q) => (
-            <button key={q} type="button" className="day-example" onClick={() => void ask(q)}>
-              {q}
-            </button>
-          ))}
+      {asking ? (
+        <div className="ask-card loading" aria-busy="true">
+          <p className="ask-q">{asking}</p>
+          <span className="ask-shimmer wide" />
+          <span className="ask-shimmer" />
         </div>
+      ) : answer ? (
+        <Answer
+          answer={answer}
+          demo={demo}
+          today={today}
+          minute={minute}
+          onClear={clear}
+          onAgain={() => void ask(answer.question)}
+        />
+      ) : (
+        <Suggestions items={DEMO_ASK_EXAMPLES} onAsk={(q) => void ask(q)} />
       )}
-      {answer && (
-        <div className="day-answer" role="status">
-          <p>{answer.text}</p>
-          {answer.bars && <Bars bars={answer.bars} />}
-          {answer.notes.map((n) => (
-            <p key={n} className="day-note micro">
-              {n}
-            </p>
-          ))}
-          {answer.cites.length > 0 && (
-            <div className="day-cites" role="group" aria-label="What it rests on">
-              {answer.cites.map((c, i) => {
-                const seek = demo && c.at >= today;
-                const body = (
-                  <>
-                    <span className={`day-dot ${dotOf(c.thingId)}`} aria-hidden="true" />{' '}
-                    {clockOf(c.at)} {c.text}
-                  </>
-                );
-                return seek ? (
-                  <button
-                    key={i}
-                    type="button"
-                    className="day-cite"
-                    title="Show the room then"
-                    onClick={() =>
-                      setReplay({ minute: Math.round((c.at - today) / 60_000), playing: false })
-                    }
-                  >
-                    {body}
-                  </button>
-                ) : (
-                  <span key={i} className="day-cite still">
-                    {body}
-                  </span>
-                );
-              })}
-            </div>
-          )}
-          <Button size="sm" variant="text" onClick={() => setAnswer(null)}>
-            Ask something else
-          </Button>
-        </div>
+      {answer && !asking && (
+        <Suggestions
+          items={others.slice(0, 4)}
+          lead={answer.clarify ? 'Try' : 'Also ask'}
+          onAsk={(q) => void ask(q)}
+        />
       )}
     </div>
   );
 }
 
-/** A count or a time per hour or per day, as bars. */
+function Suggestions({
+  items,
+  lead,
+  onAsk,
+}: {
+  items: readonly (typeof DEMO_ASK_EXAMPLES)[number][];
+  lead?: string;
+  onAsk: (question: string) => void;
+}) {
+  return (
+    <div className="ask-suggestions" role="group" aria-label={lead ?? 'Example questions'}>
+      {lead && <span className="ask-lead-label">{lead}</span>}
+      {items.map((e) => (
+        <button
+          key={e.question}
+          type="button"
+          className="ask-chip"
+          title={e.question}
+          onClick={() => onAsk(e.question)}
+        >
+          <span className={`day-dot ${dotOf(e.thing)}`} aria-hidden="true" />
+          {e.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+const TREND_ARROW = { more: '▲', less: '▼', same: '=' } as const;
+
+function Answer({
+  answer,
+  demo,
+  today,
+  minute,
+  onClear,
+  onAgain,
+}: {
+  answer: Asked;
+  demo: boolean;
+  today: number;
+  minute: number;
+  onClear: () => void;
+  onAgain: () => void;
+}) {
+  const { compared, figure, bars, foods, cites, notes } = answer;
+  // The replay has moved on since the answer: it may no longer hold.
+  const stale = demo && Math.abs(minute - answer.asOf) >= 5;
+  return (
+    <article className={`ask-card${answer.clarify ? ' clarify' : ''}`} role="status">
+      <header className="ask-head">
+        <p className="ask-q">{answer.question}</p>
+        {demo && <span className="ask-asof">as of {clock(answer.asOf)}</span>}
+        <IconButton label="Clear the answer" size="sm" onClick={onClear}>
+          ×
+        </IconButton>
+      </header>
+      <div className={`ask-body${bars ? ' charted' : ''}`}>
+        <div className="ask-main">
+          {figure && <Figure value={figure} />}
+          {compared && (
+            <span
+              className={`ask-trend ${compared.trend}`}
+              title={`${compared.label}: ${compared.words}`}
+            >
+              <span aria-hidden="true">{TREND_ARROW[compared.trend]}</span>{' '}
+              {compared.trend === 'same' ? 'About the same as' : `${cap(compared.trend)} than`}{' '}
+              {compared.label} · {compared.words}
+            </span>
+          )}
+          <p className={figure ? 'ask-text' : 'ask-text big'}>
+            {answer.clarify && (
+              <span className="ask-back" aria-hidden="true">
+                ?
+              </span>
+            )}
+            {answer.text}
+          </p>
+          {foods && <Foods foods={foods} />}
+        </div>
+        {bars && <Bars bars={bars} />}
+      </div>
+      {cites.length > 0 && (
+        <div className="ask-cites" role="group" aria-label="What it rests on">
+          <span className="ask-lead-label">Seen</span>
+          {cites.map((c, i) => {
+            const seek = demo && c.at >= today;
+            const body = (
+              <>
+                <span className={`day-dot ${dotOf(c.thingId)}`} aria-hidden="true" />
+                <time>{clockOf(c.at)}</time> {c.text}
+              </>
+            );
+            return seek ? (
+              <button
+                key={i}
+                type="button"
+                className="ask-cite"
+                title="Show the room then"
+                onClick={() =>
+                  setReplay({ minute: Math.round((c.at - today) / 60_000), playing: false })
+                }
+              >
+                {body}
+              </button>
+            ) : (
+              <span key={i} className="ask-cite still">
+                {body}
+              </span>
+            );
+          })}
+        </div>
+      )}
+      {notes.length > 0 && (
+        <ul className="ask-notes">
+          {notes.map((n) => (
+            <li key={n}>{n}</li>
+          ))}
+        </ul>
+      )}
+      {stale && (
+        <button type="button" className="ask-again" onClick={onAgain}>
+          ↻ The day is at {clock(minute)} now · ask again
+        </button>
+      )}
+    </article>
+  );
+}
+
+const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+
+/** "5 h 3 min" with its numbers large and its units small. */
+function Figure({ value }: { value: string }) {
+  return (
+    <p className="ask-figure">
+      {value.split(/(\d+(?::\d+)?)/).map((part, i) =>
+        part === '' ? null : /\d/.test(part) ? (
+          <span key={i} className="num">
+            {part}
+          </span>
+        ) : (
+          <span key={i} className="unit">
+            {part}
+          </span>
+        ),
+      )}
+    </p>
+  );
+}
+
+/** Food by its use-by day, soonest first. */
+function Foods({ foods }: { foods: NonNullable<RoomAnswer['foods']> }) {
+  const when = (d: number) =>
+    d < 0 ? 'gone off' : d === 0 ? 'today' : d === 1 ? 'tomorrow' : `${d} days`;
+  const tone = (d: number) => (d < 0 ? 'gone' : d <= 1 ? 'soon' : 'fine');
+  return (
+    <ol className="ask-foods">
+      {foods.map((f, i) => (
+        <li key={f.thingId} className={tone(f.days)}>
+          <span className="ask-rank">{i + 1}</span>
+          <span className="ask-food">{f.label}</span>
+          <span className="ask-days">{when(f.days)}</span>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+/** A count or a time per hour or per day, as bars: the highest one labelled. */
 function Bars({ bars }: { bars: NonNullable<RoomAnswer['bars']> }) {
   const max = Math.max(...bars.values.map((v) => v.value), 1);
+  const top = bars.values.findIndex((v) => v.value === max);
   const unit = bars.unit === 'times' ? '' : ' min';
   // Label every bar when they fit, else every third.
   const every = bars.values.length > 12 ? 3 : 1;
   return (
     <div
-      className="day-bars"
+      className="ask-bars"
       role="img"
       aria-label={bars.values.map((v) => `${v.label}: ${v.value}${unit}`).join(', ')}
     >
       {bars.values.map((v, i) => (
-        <div key={v.from} className="day-bar-col" title={`${v.label}: ${v.value}${unit}`}>
-          <span className="day-bar-track">
-            <span className="day-bar-fill" style={{ height: `${(v.value / max) * 100}%` }} />
+        <div
+          key={v.from}
+          className={`ask-col${i === top ? ' top' : ''}`}
+          title={`${v.label}: ${v.value}${unit}`}
+        >
+          <span className="ask-bar-value">{i === top ? `${v.value}${unit}` : ''}</span>
+          <span className="ask-bar-track">
+            <span className="ask-bar-fill" style={{ height: `${(v.value / max) * 100}%` }} />
           </span>
-          <span className="day-bar-label">{i % every === 0 ? v.label : ''}</span>
+          <span className="ask-bar-label">{i % every === 0 || i === top ? v.label : ''}</span>
         </div>
       ))}
     </div>

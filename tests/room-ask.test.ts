@@ -99,6 +99,18 @@ describe('answerAsk', () => {
     expect(a.text).toMatch(/That’s (more|less) than yesterday by this time/);
   });
 
+  it('says which way a comparison went, as its words do', () => {
+    const a = ask('Did the cat nap more than yesterday?', 1000);
+    expect(a.text).toContain(`That’s ${a.compared!.trend} than`);
+  });
+
+  it('gives the one number to show large, in the answer’s own units', () => {
+    expect(ask('How many times did I drink in the last hour?', 600).figure).toBe('2 drinks');
+    expect(ask('How long was my screen on today?', 1000).figure).toBe('8 h 10 min');
+    expect(ask('What was my longest stretch without a drink?', 1000).figure).toBe('3 h 20 min');
+    expect(ask('What happened today?', 1000).figure).toBeNull();
+  });
+
   it('draws a week as a bar a day, the quiet day lowest', () => {
     const a = ask('How long did I work at my desk this week?', 1000);
     expect(a.bars!.values).toHaveLength(7);
@@ -107,8 +119,8 @@ describe('answerAsk', () => {
   });
 
   it('answers every question the dock offers without asking back', () => {
-    for (const q of DEMO_ASK_EXAMPLES) {
-      const a = ask(q, 1000);
+    for (const { question } of DEMO_ASK_EXAMPLES) {
+      const a = ask(question, 1000);
       expect(a.clarify).toBeNull();
       expect(a.text.length).toBeGreaterThan(20);
     }
@@ -158,6 +170,15 @@ describe('answerAsk about food', () => {
     expect(ask('What should I eat first?', 1000).text).toBe(
       'Eat the leftover chicken first: it goes off today. Then milk (tomorrow), spinach (in 4 days), eggs (in 12 days).',
     );
+  });
+
+  it('lists the food soonest first, with its days left', () => {
+    expect(ask('What should I eat first?', 1000).foods!.map((f) => [f.label, f.days])).toEqual([
+      ['Leftover chicken', 0],
+      ['Milk', 1],
+      ['Spinach', 4],
+      ['Eggs', 12],
+    ]);
   });
 
   it('says when one food goes off, citing when it was last taken out', () => {
