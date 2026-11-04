@@ -19,7 +19,9 @@ import sharp from 'sharp';
 import {
   STARTER_TEMPLATES,
   detailResolution,
+  ISO_TILE,
   ITEM_SPRITES,
+  roomSpriteLook,
   fromSculpt,
   renderSprite,
   sculptPrints,
@@ -174,13 +176,20 @@ export async function spritePng(
   look: SpriteLook = {},
 ): Promise<{ png: Buffer; width: number; height: number }> {
   const preset = ITEM_SPRITES[look.preset ?? 'editor'] as { scale?: number; resolution: number };
+  const scale = look.scale ?? preset.scale ?? 3;
+  // In the room, as the room draws it at fit: a detailed model finer (`roomSpriteLook`).
+  const room =
+    look.preset === 'room' ? roomSpriteLook(item.parts, scale * ISO_TILE.width, 1) : null;
   const s = renderSprite(
     voxelize(item.parts, {
-      resolution: detailResolution(item.parts, look.resolution ?? preset.resolution),
+      resolution: detailResolution(
+        item.parts,
+        look.resolution ?? room?.resolution ?? preset.resolution,
+      ),
     }),
     {
-      scale: look.scale ?? preset.scale ?? 3,
-      pixel: look.pixel ?? 1,
+      scale,
+      pixel: look.pixel ?? room?.pixel ?? 1,
       finish: look.finish ?? 'clean',
       shadow: look.shadow ?? false,
     },

@@ -1,4 +1,4 @@
-import type { ItemPart } from './iso-item.js';
+import { SCULPT_PARTS, type ItemPart } from './iso-item.js';
 /**
  * The sizes a Thing's model is drawn at, by where it is shown: `scale` tiles
  * per item unit and `resolution` voxels along its longest side (more for a
@@ -50,6 +50,34 @@ export function detailResolution(parts: readonly ItemPart[], resolution: number)
   const { w, d, h } = extent(parts);
   const thin = Math.max(w, d, h) / Math.max(w, d, 1e-3);
   return Math.round(resolution * Math.min(THIN_DETAIL_MAX, Math.max(1, thin)));
+}
+/** How much finer the room draws a detailed model: one with more parts than Spark sculpts as a rule. */
+const DETAILED_FINER = 2;
+/** The most voxels along a room thing's longest side when zoomed in, before `DETAILED_FINER`. */
+const ROOM_MAX_RESOLUTION = 64;
+/** The widest a room thing is drawn, in sprite pixels, however far the view zooms. */
+const MAX_ROOM_SPRITE_PX = 512;
+/**
+ * How a thing in the room is drawn: voxels along its longest side and iso
+ * pixels per sprite pixel. It is drawn finer as the view zooms in, so its
+ * pixels stay about the size they are at fit, and a detailed model (a cat
+ * with its face painted on, asleep on its tree) twice as fine again, the
+ * same size with smaller pixels, so its small parts and prints still read.
+ * `width` is one item unit's width in iso pixels.
+ */
+export function roomSpriteLook(
+  parts: readonly ItemPart[],
+  width: number,
+  zoom: number,
+): { resolution: number; pixel?: number } {
+  const fine = parts.length > SCULPT_PARTS ? DETAILED_FINER : 1;
+  let step = 1;
+  while (step < zoom && width * step * fine * 2 <= MAX_ROOM_SPRITE_PX) step *= 2;
+  const k = step * fine;
+  return {
+    resolution: Math.min(ROOM_MAX_RESOLUTION * fine, ITEM_SPRITES.room.resolution * k),
+    ...(k > 1 ? { pixel: 1 / k } : {}),
+  };
 }
 /** About how many voxels the editor draws a model with, across its footprint and up its height. */
 export function editorVoxels(parts: readonly ItemPart[]): { across: number; tall: number } {

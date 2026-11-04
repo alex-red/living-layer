@@ -5,6 +5,8 @@ import {
   editNote,
   editorVoxels,
   editPrompt,
+  catItem,
+  roomSpriteLook,
   MAX_ITEM_PARTS,
   sculptPartsFor,
   floorLampItem,
@@ -135,6 +137,21 @@ describe('an edit pointed at parts with the brush', () => {
       'The person brushed over the "base" part to show what they mean',
     );
     expect(editPrompt('Floor lamp', size, 'round this', false, voxels)).not.toContain('brushed');
+  });
+});
+
+describe('how a thing is drawn in the room', () => {
+  // A cat asleep on its tree: more parts than Spark sculpts as a rule.
+  const detailed = [...starterTemplateModel('cat-tree').parts, ...catItem('Cat', 'sleeping').parts];
+  it('draws a detailed model twice as fine at fit, the same size in smaller pixels', () => {
+    expect(detailed.length).toBeGreaterThan(12);
+    expect(roomSpriteLook(lamp().parts, 160, 1)).toEqual({ resolution: 32 });
+    expect(roomSpriteLook(detailed, 160, 1)).toEqual({ resolution: 64, pixel: 0.5 });
+  });
+
+  it('draws finer still as the view zooms in, a detailed model as far again', () => {
+    expect(roomSpriteLook(lamp().parts, 64, 4)).toEqual({ resolution: 64, pixel: 0.25 });
+    expect(roomSpriteLook(detailed, 64, 4)).toEqual({ resolution: 128, pixel: 0.125 });
   });
 });
 

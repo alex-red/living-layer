@@ -45,8 +45,6 @@ const presetName = (flag(args, 'preset') ?? 'editor') as ItemSpritePreset;
 const preset = ITEM_SPRITES[presetName] as { scale?: number; resolution: number };
 if (!preset) throw new Error(`No preset "${presetName}": ${Object.keys(ITEM_SPRITES).join(', ')}`);
 const scale = Number(flag(args, 'scale') ?? preset.scale ?? 3);
-const resolution = Number(flag(args, 'res') ?? preset.resolution);
-const pixel = Number(flag(args, 'px') ?? 1);
 const finish = (flag(args, 'finish') ?? 'clean') as 'clean' | 'pixel';
 const mode = (flag(args, 'mode') ?? 'live') as Mode;
 const turnsFlag = flag(args, 'turns');
@@ -57,8 +55,9 @@ const CELL = Number(flag(args, 'cell') ?? 360);
 const look: SpriteLook = {
   preset: presetName,
   scale,
-  resolution,
-  pixel,
+  // Unset, the preset's (the room's own for a detailed model, `roomSpriteLook`).
+  ...(flag(args, 'res') ? { resolution: Number(flag(args, 'res')) } : {}),
+  ...(flag(args, 'px') ? { pixel: Number(flag(args, 'px')) } : {}),
   finish,
   shadow: has(args, 'shadow'),
   cell: CELL,

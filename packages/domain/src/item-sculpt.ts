@@ -4,6 +4,7 @@ import { bezier, clampFiniteOrLow, textHash } from './math.js';
 import {
   ITEM_MATERIALS,
   MAX_ITEM_PARTS,
+  SCULPT_PARTS,
   itemPartSchema,
   printSchema,
   type IsoItem,
@@ -70,8 +71,6 @@ export const sculptSchemaOf = (max: number) =>
     })
     .strict();
 const sculptSchema = sculptSchemaOf(MAX_ITEM_PARTS);
-/** The parts Spark sculpts a thing in, as a rule: few enough to answer in seconds. */
-const SCULPT_PARTS = 12;
 /**
  * The most parts Spark may answer with when it starts from `from`: the rule,
  * or as many as that model already has (a cat drawn onto its tree), so it

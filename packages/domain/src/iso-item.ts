@@ -390,6 +390,8 @@ export function upgradeItem<T extends { parts: readonly unknown[] }>(item: T): T
  * its tree) or a promoted prop may use them all.
  */
 export const MAX_ITEM_PARTS = 24;
+/** The parts Spark sculpts a thing in, as a rule; a model with more is a detailed one. */
+export const SCULPT_PARTS = 12;
 export const isoItemSchema = z.preprocess(
   (raw) =>
     typeof raw === 'object' && raw !== null && Array.isArray((raw as { parts?: unknown }).parts)

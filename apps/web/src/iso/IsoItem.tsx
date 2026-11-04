@@ -1,10 +1,7 @@
-import { ISO_TILE, ITEM_SPRITES, toIso, type IsoItem, type IsoVec } from '@livinglayer/domain';
+import { ISO_TILE, roomSpriteLook, toIso, type IsoItem, type IsoVec } from '@livinglayer/domain';
 import { memo } from 'react';
 import { useZoomStep } from '../ZoomPan';
 import { useItemSprite } from './sprites';
-
-/** The widest a room thing is drawn, in sprite pixels, however far the view zooms. */
-const MAX_ROOM_SPRITE_PX = 512;
 
 /**
  * An item model drawn by the voxel kernel as one pixel-art sprite, with item
@@ -44,8 +41,7 @@ function ItemSpriteView({
   selected?: string;
   /**
    * Voxels along the model's longest side: 64 for close-ups. Unset, it is a
-   * thing in the room, drawn finer as the view zooms in so its pixels stay
-   * about the size they are at fit.
+   * thing in the room (`roomSpriteLook`).
    */
   resolution?: number;
   /** Warm light cast when a lamp fixture is on. */
@@ -53,13 +49,13 @@ function ItemSpriteView({
 }) {
   const index = item.parts.findIndex((p) => p.id === selected);
   const zoom = useZoomStep();
-  let detail = 1;
-  if (resolution === undefined)
-    while (detail < zoom && scale * ISO_TILE.width * detail * 2 <= MAX_ROOM_SPRITE_PX) detail *= 2;
+  const look =
+    resolution === undefined
+      ? roomSpriteLook(item.parts, scale * ISO_TILE.width, zoom)
+      : { resolution };
   const sprite = useItemSprite(item, {
     scale,
-    resolution: resolution ?? Math.min(64, ITEM_SPRITES.room.resolution * detail),
-    ...(detail > 1 ? { pixel: 1 / detail } : {}),
+    ...look,
     ...(index >= 0 ? { select: index } : {}),
     ...(glow ? { glow } : {}),
   });
