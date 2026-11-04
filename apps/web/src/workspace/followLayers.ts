@@ -1,5 +1,5 @@
 /** Which of the trackers' boxes the canvas draws: the tracking layer's, the follower's or the watcher's. */
-export type FollowDraw = 'tracking' | 'follow' | 'watch' | null;
+type FollowDraw = 'tracking' | 'follow' | 'watch' | null;
 
 /**
  * Over the live camera the Tracking layer owns every tracker's boxes, so with it off none are drawn;
