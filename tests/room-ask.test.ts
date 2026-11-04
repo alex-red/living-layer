@@ -1,6 +1,7 @@
 import { describe, expect, it, mock } from 'bun:test';
 import {
   DEMO_ASK_EXAMPLES,
+  askExamples,
   answerAsk,
   dayOf,
   demoAsk,
@@ -219,6 +220,29 @@ describe('answerAsk past the events’ 30 days', () => {
     expect(a.text).toBe('Your screen was on for 60 h in the last 60 days.');
     expect(a.bars!.values.reduce((sum, v) => sum + v.value, 0)).toBe(60 * 60);
     expect(a.notes.at(-1)).toContain('a bar is a week');
+  });
+});
+
+describe('askExamples', () => {
+  const things = history(1000).things;
+
+  it('offers one question per thing, then what to eat first and the day so far', () => {
+    const labels = askExamples(things, 9).map((e) => e.label);
+    expect(labels.slice(0, 3)).toEqual(['Drinks today', 'Screen time', 'Computer mouse in use']);
+    expect(labels.slice(-2)).toEqual(['Eat first', 'Today so far']);
+    expect(labels).toHaveLength(9);
+  });
+
+  it('words each question so the room can answer it', () => {
+    for (const e of askExamples(things, 20)) {
+      const q = readAsk(demoAsk(e.question, things), things);
+      expect(q.clarify).toBeNull();
+      if (e.thing !== 'summary' && e.label !== 'Eat first') expect(q.thing).toBe(e.thing);
+    }
+  });
+
+  it('offers nothing when no thing keeps a history', () => {
+    expect(askExamples([])).toEqual([]);
   });
 });
 

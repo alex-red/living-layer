@@ -7,13 +7,13 @@ import {
   WATCH,
   activityStep,
   answerAsk,
+  askThingsOf,
   around,
   askSince,
   calibrationOf,
   dayOf,
   demoAsk,
   demoHistory,
-  zoneThingId,
   featureDifference,
   fixtureEntity,
   fixtureInFrame,
@@ -40,7 +40,6 @@ import {
   type Activity,
   type AskHistory,
   type AskQuery,
-  type AskThing,
   type DeskMemory,
   type EmptyLook,
   type LumaFrame,
@@ -720,23 +719,6 @@ export class StatRunner {
   }
 }
 
-/**
- * What asking about the room can read: the things that keep stats, food
- * with a use-by day, and the zones, whose fillings are their occupied stat.
- */
-function askThings(memory: DeskMemory): AskThing[] {
-  const things: AskThing[] = (memory.fixtures ?? []).flatMap((f) => {
-    const stats = (memory.thingStats?.[f.id] ?? []).map((s) => s.key);
-    const expires = f.food?.expires;
-    return stats.length || expires
-      ? [{ id: f.id, label: f.label, stats, ...(expires ? { expires } : {}) }]
-      : [];
-  });
-  for (const r of memory.rules ?? [])
-    things.push({ id: zoneThingId(r.id), label: r.label, stats: ['occupied'], zone: true });
-  return things;
-}
-
 /** The lab's routes for things' stats. */
 export async function statRoutes(
   app: FastifyInstance,
@@ -763,7 +745,7 @@ export async function statRoutes(
         const history: AskHistory =
           mode === 'demo'
             ? { ...demoHistory(now), watched: null }
-            : { things: askThings(store.memory(mode)), events: [], watched: null };
+            : { things: askThingsOf(store.memory(mode)), events: [], watched: null };
         let read: Partial<ProviderResult<AskQuery>> & { output: AskQuery };
         if (mode === 'demo' || !history.things.length)
           read = { output: demoAsk(question, history.things) };

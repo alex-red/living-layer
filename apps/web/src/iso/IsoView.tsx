@@ -435,9 +435,11 @@ function IsoViewOf({
   const defaultLight = lights[0] ?? '';
 
   // The day replay, when open, stands the mug and switches the lamp as the sample day had them.
-  const replayMug = useReplay((r) => (r.open ? dayAt(r.minute).mug : null));
-  const replayLamp = useReplay((r) => (r.open ? dayAt(r.minute).lamp : null));
-  const replayClock = useReplay((r) => (r.open ? clock(Math.floor(r.minute)) : null));
+  // Live, the dock only asks: the room stays as it is.
+  const replaying = mode === 'demo';
+  const replayMug = useReplay((r) => (r.open && replaying ? dayAt(r.minute).mug : null));
+  const replayLamp = useReplay((r) => (r.open && replaying ? dayAt(r.minute).lamp : null));
+  const replayClock = useReplay((r) => (r.open && replaying ? clock(Math.floor(r.minute)) : null));
 
   // The mug, then every other remembered object the pin can place; the zones, the trail and the lit lights.
   const model = useMemo(() => {

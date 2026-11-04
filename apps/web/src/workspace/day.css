@@ -143,6 +143,24 @@
   padding-top: 8px;
   border-top: 1px solid var(--line);
 }
+.ask-title {
+  font: 600 var(--fs-14) / 18px var(--ui);
+  color: var(--text);
+  white-space: nowrap;
+}
+.ask-sub {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-3);
+}
+.ask-empty {
+  margin: 0;
+  font: var(--fs-13) / 18px var(--ui);
+  color: var(--text-2);
+}
 .ask-bar {
   display: flex;
   align-items: center;

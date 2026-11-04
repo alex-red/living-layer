@@ -2,6 +2,9 @@ import { useMemo, useRef, useState } from 'react';
 import {
   DEMO_ASK_EXAMPLES,
   DEMO_DAY,
+  askExamples,
+  askThingsOf,
+  type AskExample,
   clockOf,
   midnightOf,
   type DayEvent,
@@ -10,7 +13,7 @@ import {
 import { api } from '../api';
 import { IconButton } from '../ui/controls';
 import { DAY_END, DAY_START, DAY_THINGS, clock, dayNudges, eventsUntil } from './demoDay';
-import { useLabCalls } from './LabContext';
+import { useDesk, useLabCalls, useView } from './LabContext';
 import { REPLAY_SPEEDS, playReplay, setReplay, useReplay, useReplayClock } from './state/replay';
 import './day.css';
 
@@ -30,8 +33,40 @@ function share(minute: number) {
  */
 export function DayDock() {
   const open = useReplay((r) => r.open);
+  const { mode } = useView();
   useReplayClock();
-  return open ? <Dock /> : null;
+  if (!open) return null;
+  return mode === 'live' ? <LiveDock /> : <Dock />;
+}
+
+const noCites = () => {};
+
+/**
+ * Live, the dock is only "Ask your room", about the room's own history: no
+ * sample day to play back, and examples from the things that keep stats.
+ */
+function LiveDock() {
+  const { memory } = useDesk();
+  const examples = useMemo(() => askExamples(memory ? askThingsOf(memory) : []), [memory]);
+  return (
+    <section className="day-dock" aria-label="Ask your room">
+      <div className="day-bar">
+        <span className="ask-title">
+          <span className="ask-spark" aria-hidden="true">
+            ✦
+          </span>{' '}
+          Ask your room
+        </span>
+        <span className="ask-sub micro">
+          From what your camera and devices kept · one small model call a question
+        </span>
+        <IconButton label="Close" onClick={() => setReplay({ open: false })}>
+          ×
+        </IconButton>
+      </div>
+      <Ask minute={0} examples={examples} onCited={noCites} />
+    </section>
+  );
 }
 
 function Dock() {
@@ -115,7 +150,7 @@ function Dock() {
           'Nothing has happened yet today.'
         )}
       </p>
-      <Ask minute={minute} onCited={setCited} />
+      <Ask minute={minute} examples={DEMO_ASK_EXAMPLES} onCited={setCited} />
     </section>
   );
 }
@@ -141,7 +176,15 @@ type Asked = RoomAnswer & { question: string; asOf: number };
  * sentence, a chart and what it rests on; the times it cites are marked on
  * the day's track, and in the demo a cited time moves the replay there.
  */
-function Ask({ minute, onCited }: { minute: number; onCited: (minutes: number[]) => void }) {
+function Ask({
+  minute,
+  examples,
+  onCited,
+}: {
+  minute: number;
+  examples: readonly AskExample[];
+  onCited: (minutes: number[]) => void;
+}) {
   const calls = useLabCalls();
   const [question, setQuestion] = useState('');
   const [asking, setAsking] = useState('');
@@ -182,7 +225,7 @@ function Ask({ minute, onCited }: { minute: number; onCited: (minutes: number[])
     setQuestion('');
     input.current?.focus();
   };
-  const others = DEMO_ASK_EXAMPLES.filter((e) => e.question !== answer?.question);
+  const others = examples.filter((e) => e.question !== answer?.question);
   return (
     <div className="ask">
       <form
@@ -237,8 +280,13 @@ function Ask({ minute, onCited }: { minute: number; onCited: (minutes: number[])
           onClear={clear}
           onAgain={() => void ask(answer.question)}
         />
+      ) : examples.length ? (
+        <Suggestions items={examples} onAsk={(q) => void ask(q)} />
       ) : (
-        <Suggestions items={DEMO_ASK_EXAMPLES} onAsk={(q) => void ask(q)} />
+        <p className="ask-empty">
+          Nothing here keeps a history yet. Switch a stat on in a thing’s card, or add a zone, and
+          its history can be asked about.
+        </p>
       )}
       {answer && !asking && (
         <Suggestions
@@ -256,7 +304,7 @@ function Suggestions({
   lead,
   onAsk,
 }: {
-  items: readonly (typeof DEMO_ASK_EXAMPLES)[number][];
+  items: readonly AskExample[];
   lead?: string;
   onAsk: (question: string) => void;
 }) {
@@ -454,7 +502,10 @@ function Bars({ bars }: { bars: NonNullable<RoomAnswer['bars']> }) {
  * the day, as notifications over the room.
  */
 export function DayNudges() {
-  const open = useReplay((r) => r.open);
+  const replaying = useReplay((r) => r.open);
+  const { mode } = useView();
+  // The sample day's nudges: live has no scripted day to send them.
+  const open = replaying && mode === 'demo';
   const minute = useReplay((r) => Math.floor(r.minute));
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
   const shown = useMemo(
@@ -494,16 +545,22 @@ export function DayNudges() {
 /** The chip over the room that opens the replay. */
 export function DayChip() {
   const open = useReplay((r) => r.open);
+  const { mode } = useView();
+  const live = mode === 'live';
   return (
-    <div className="layer-chips iso day" role="group" aria-label="Your day">
+    <div className="layer-chips iso day" role="group" aria-label={live ? 'Ask' : 'Your day'}>
       <button
         type="button"
         className="layer-chip"
         aria-pressed={open}
-        title="Play back a sample day of the room, ask about it, and see the nudges it sends"
+        title={
+          live
+            ? 'Ask your room about its history: what your things did, from the stats they keep'
+            : 'Play back a sample day of the room, ask about it, and see the nudges it sends'
+        }
         onClick={() => setReplay({ open: !open, playing: false })}
       >
-        ◷ Your day
+        {live ? '✦ Ask your room' : '◷ Your day'}
       </button>
     </div>
   );

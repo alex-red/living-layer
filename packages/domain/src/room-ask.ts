@@ -6,8 +6,9 @@
  * `demoAsk` reads a question offline in Spark's shape, for the demo.
  */
 import { z } from 'zod';
-import { midnightOf, type AskThing } from './demo-day.js';
+import { midnightOf, zoneThingId, type AskThing } from './demo-day.js';
 import { daysUntil } from './food.js';
+import type { DeskMemory } from './memory.js';
 import { STAT_KEYS, STAT_KINDS, dayOf, type StatEvent, type StatKey } from './stats.js';
 
 const ASK_MEASURES = [
@@ -1005,6 +1006,80 @@ function foodAnswer(
     notes: ['Use-by days come from each food’s card, not the camera.'],
     foods: all,
   };
+}
+
+/**
+ * The things a room can be asked about: each fixture with a stat switched on
+ * or a use-by day, and each zone, whose fillings are its occupied stat.
+ */
+export function askThingsOf(memory: DeskMemory): AskThing[] {
+  const things: AskThing[] = (memory.fixtures ?? []).flatMap((f) => {
+    const stats = (memory.thingStats?.[f.id] ?? []).map((s) => s.key);
+    const expires = f.food?.expires;
+    return stats.length || expires
+      ? [{ id: f.id, label: f.label, stats, ...(expires ? { expires } : {}) }]
+      : [];
+  });
+  for (const r of memory.rules ?? [])
+    things.push({ id: zoneThingId(r.id), label: r.label, stats: ['occupied'], zone: true });
+  return things;
+}
+
+/** An example question for the ask panel: the chip's short name, the question, the thing it's about. */
+export interface AskExample {
+  label: string;
+  question: string;
+  thing: string;
+}
+
+/**
+ * Example questions about a room's own things, one per thing's first stat
+ * (up to `max`), then what to eat first when any food has a use-by day, and
+ * the day so far. Worded as a person would ask, so Spark reads them easily.
+ */
+export function askExamples(things: readonly AskThing[], max = 6): AskExample[] {
+  // "my desk mug", "the desk lamp": the person's own words for a thing.
+  const mine = (t: AskThing) => nameOf(t).replace(/^your /, 'my ');
+  const Label = (t: AskThing) => cap(t.label.replace(/^my\s+/i, ''));
+  const out: AskExample[] = [];
+  for (const t of things) {
+    const key = t.stats[0];
+    if (!key) continue;
+    const ex = (label: string, question: string) => out.push({ label, question, thing: t.id });
+    switch (voiceOf(t, key)) {
+      case 'drink':
+        ex('Drinks today', `How many times did I drink from ${mine(t)} today?`);
+        break;
+      case 'food':
+        ex(`${Label(t)} last out`, `When was ${mine(t)} last taken out?`);
+        break;
+      case 'screen':
+        ex('Screen time', `How long was ${mine(t)} on today?`);
+        break;
+      case 'cat':
+        ex('Cat on its tree', `How long was the cat on ${mine(t)} today?`);
+        break;
+      case 'pointer':
+        ex(`${Label(t)} in use`, `How long was ${mine(t)} in use today?`);
+        break;
+      case 'zone':
+        ex(`In ${t.label.toLowerCase()}`, `How long was something in ${mine(t)} today?`);
+        break;
+      default:
+        if (key === 'lastUsed') ex(`${Label(t)} last used`, `When did I last use ${mine(t)}?`);
+        else if (key === 'occupied')
+          ex(`${Label(t)} occupied`, `How long was ${mine(t)} occupied today?`);
+        else ex(`${Label(t)} on today`, `How long was ${mine(t)} on today?`);
+    }
+  }
+  const food = things.find((t) => t.expires);
+  const extra: AskExample[] = [
+    ...(food ? [{ label: 'Eat first', question: 'What should I eat first?', thing: food.id }] : []),
+    ...(things.length
+      ? [{ label: 'Today so far', question: 'What happened today?', thing: 'summary' }]
+      : []),
+  ];
+  return [...out.slice(0, max - extra.length), ...extra];
 }
 
 /** How far back a query reads events, ms: what `answerAsk` needs and no more. */

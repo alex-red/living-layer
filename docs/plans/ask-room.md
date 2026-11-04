@@ -43,6 +43,7 @@ The sample week gives each of these a real number, a chart and a comparison:
 - `MetaAdapter.ask`: the question, the things with their stats, the local time now.
 - `watch_spans` in the store: written by `StatRunner.setWatching` and each flush.
 - The dock's Ask calls the route and draws the answer, its notes, its bars and its cites (a cite moves the replay there).
+- Live, the chip is _Ask your room_ and the dock is only the ask: no sample day, no scripted mug, lamp or nudges. Its example chips come from the room's own things (`askThingsOf`, `askExamples`), one per thing that keeps a stat.
 
 ## Beyond one stat
 
