@@ -38,7 +38,7 @@ export function useZoomStep(): number {
  * `w`, `h`, in pixels; `s` is 1 and the box 0 × 0 outside a `ZoomPan`. It
  * changes on every pan and zoom step, so only small parts should read it.
  */
-export interface ZoomView {
+interface ZoomView {
   s: number;
   x: number;
   y: number;

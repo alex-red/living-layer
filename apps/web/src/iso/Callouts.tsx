@@ -219,13 +219,7 @@ export function ZoomedCallouts({
  * day and how much is left, its stats), joined to the thing by a thin elbow
  * line, beside the room rather than over it.
  */
-export function Callouts({
-  placed,
-  density = 'full',
-}: {
-  placed: Placed[];
-  density?: CalloutDensity;
-}) {
+function Callouts({ placed, density = 'full' }: { placed: Placed[]; density?: CalloutDensity }) {
   const now = useNow(60_000);
   const head = METRICS[density === 'compact' ? 'compact' : 'full'].head;
   if (density === 'pips')
