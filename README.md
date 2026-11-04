@@ -172,8 +172,8 @@ Living Layer was built for the [Meta Global AI Developer Hackathon](https://cere
 - DINOv3 ViT-S/16, an optional local appearance model downloaded from [ONNX Community](https://huggingface.co/onnx-community/dinov3-vits16-pretrain-lvd1689m-ONNX), under its own DINOv3 license
 - SAM 2.1 (`facebook/sam2.1-hiera-small`, Apache-2.0, through Hugging Face transformers), which the optional GPU tracker node runs ([services/gpu-tracker](services/gpu-tracker/README.md))
 - Apple Vision's object tracker, part of macOS, which the optional vision tracker calls ([services/vision-tracker](services/vision-tracker/README.md))
-- SAM 3D Objects, experimental and off unless `SAM3D_ENABLED=true`, through mlx-spatial on this machine or fal.ai ([details](docs/plans/sam3d-experiment.md))
-- [ffmpeg](https://ffmpeg.org/) and [MediaMTX](https://github.com/bluenviron/mediamtx), installed separately, which the server runs to read cameras and relay them to the tab
+- [SAM 3D Objects](https://github.com/facebookresearch/sam-3d-objects) (SAM License), experimental and off unless `SAM3D_ENABLED=true`, through mlx-spatial on this machine or fal.ai ([details](docs/plans/sam3d-experiment.md))
+- [FFmpeg](https://ffmpeg.org/) (LGPL 2.1 or later; GPL 2 or later when built with its GPL parts) and [MediaMTX](https://github.com/bluenviron/mediamtx) (MIT), installed separately, which the server runs to read cameras and relay them to the tab
 - Open source packages listed in `package.json`, including Fastify, React, Vite, sharp, zod, and the OpenAI SDK
 
 ## License
