@@ -16,6 +16,34 @@ import {
 import { useNow } from '../useNow';
 import { useThingStats } from '../workspace/state/stats';
 import { statTone } from './StatBadges';
+import type { IsoObject } from './IsoScene';
+
+/**
+ * Cards for the things the camera places (the mug, a mouse) that keep stats,
+ * by their thing's id, each on the top of its box. Selecting one opens it as
+ * an object: the mug is the outline's `main`.
+ */
+export function sightedCallouts(
+  objects: readonly IsoObject[],
+  statsOf: (thingId: string) => readonly StatKey[],
+  select: (objectId: string) => void,
+): IsoCallout[] {
+  return objects.flatMap((o) => {
+    const id = o.thingId ?? o.id;
+    const stats = statsOf(id);
+    if (!stats.length) return [];
+    const { at, size } = o.box;
+    return [
+      {
+        id,
+        label: o.label,
+        anchor: { x: at.x + size.w / 2, y: at.y + size.d / 2, z: at.z + size.h },
+        stats,
+        onSelect: () => select(o.id === 'tracked' ? 'main' : o.id),
+      },
+    ];
+  });
+}
 
 /** A thing the stats layer writes up: a card beside the room, a line to the thing. */
 export interface IsoCallout {

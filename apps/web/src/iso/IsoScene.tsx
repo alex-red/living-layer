@@ -204,10 +204,13 @@ const ObjectMarker = memo(function ObjectMarker({
   box,
   object,
   stats,
+  calledOut,
 }: {
   box: IsoBox;
   object: IsoObject;
   stats: boolean;
+  /** Its card beside the room names it, so the room doesn't too. */
+  calledOut?: boolean;
 }) {
   const head = toIso({
     x: box.at.x + box.size.w / 2,
@@ -235,10 +238,12 @@ const ObjectMarker = memo(function ObjectMarker({
       ) : (
         <Solid box={box} color={TONES.ceramic} shape="cylinder" />
       )}
-      <text x={head.sx} y={head.sy - 10}>
-        {object.unsure ? '◌ ' : '✓ '}
-        {object.label.toUpperCase()}
-      </text>
+      {!calledOut && (
+        <text x={head.sx} y={head.sy - 10}>
+          {object.unsure ? '◌ ' : '✓ '}
+          {object.label.toUpperCase()}
+        </text>
+      )}
       {stats && <StatBadges id={object.thingId ?? object.id} x={head.sx} y={head.sy - 22} />}
     </g>
   );
@@ -836,7 +841,8 @@ function IsoSceneView({
             key={`object-${item.object.id}`}
             box={item.object.box}
             object={item.object}
-            stats={stats}
+            stats={stats && !calledOut?.has(item.object.thingId ?? item.object.id)}
+            calledOut={stats && Boolean(calledOut?.has(item.object.thingId ?? item.object.id))}
           />
         ) : (
           <FixtureMarker

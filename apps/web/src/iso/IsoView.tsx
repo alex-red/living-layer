@@ -84,7 +84,7 @@ import { FRIDGE_ANGLES, fromAngle, type FridgeAngle } from './fridgeAngle';
 import { Later } from '../Later';
 import { LayerChips } from '../workspace/LayerChips';
 import { DESK_THINGS } from '../workspace/labels';
-import type { IsoCallout } from './Callouts';
+import { sightedCallouts, type IsoCallout } from './Callouts';
 import { ThingEditor } from './ThingEditor';
 import { pinScene, type WorkScene as Kind } from '../workspace/progress';
 import './iso.css';
@@ -742,8 +742,8 @@ function IsoViewOf({
   const viewSurface = view.scene.surfaces.find((s) => s.id === surface?.id) ?? surface;
   /**
    * The stats layer's cards: each thing that keeps food or stats, or is named
-   * like food, and each food thing still drawn with the room, which the card
-   * invites to be made a thing.
+   * like food, each thing the camera places that keeps stats, and each food
+   * thing still drawn with the room, which the card invites to be made a thing.
    */
   const callouts: IsoCallout[] = useMemo(() => {
     const top = (b: {
@@ -783,7 +783,13 @@ function IsoViewOf({
           ]
         : [],
     );
-    return [...things, ...drawn];
+    // A thing the camera places (the mug, a mouse) gets a card like any other, by its thing's id.
+    const sighted = sightedCallouts(
+      view.objects,
+      (id) => (memory?.thingStats?.[id] ?? []).map((s) => s.key),
+      (id) => select({ kind: 'object', id }),
+    );
+    return [...things, ...sighted, ...drawn];
   }, [view, memory?.fixtures, memory?.thingStats, kind, onFixture, select]);
   // Turned, a fixture's box isn't where it stands: it is moved and sized from the usual corner.
   const turned = angle === 'left';
