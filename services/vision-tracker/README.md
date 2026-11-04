@@ -6,6 +6,8 @@ It steers layer 1 instead of replacing it. Each frame, the watcher sends the box
 
 `apps/server/src/vision-tracker.ts` builds it with `swiftc -O` into `DATA_DIR/bin/vision-tracker-<hash of main.swift>` the first time it is chosen (about a second), and spawns it once. The protocol is at the top of `main.swift`: a JSON line and the grey frame's bytes in, a JSON line out. A frame it hasn't answered within 250 ms stops it, and the watcher goes on without it.
 
+Building it needs `swiftc` (Xcode's command line tools, `xcode-select --install`) unless the helper is built already; without either the choice isn't offered. `bun run doctor` says which. It is offered in live mode only: demo frames come one deliberate move at a time, with nothing for it to follow.
+
 ## Measured (November 4, M4 Pro, 320 × 240 grey, the watcher's own frames)
 
 | What                                 | Result                                                      |

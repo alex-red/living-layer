@@ -1,6 +1,6 @@
 # Plan: many things at once
 
-Status: phases 0–4 built in part (see each phase's _as built_), with tracking made [local first](#local-first); phases 5 and 6 not started. Builds on [tracking.md](tracking.md) (always-on watching, built). Nothing here is measured on real clips yet: the five recordings of phase 0 are still to make, so every number below is from made-up frames or the still office clip.
+Status: phases 0–4 built in part (see each phase's _as built_), with tracking made [local first](#local-first); phase 5 built as the GPU and Apple Vision trackers ([as built](#phase-5-as-built-the-gpu-and-apple-vision-trackers)); phase 6 not started. Builds on [tracking.md](tracking.md) (always-on watching, built). Nothing here is measured on real clips yet: the five recordings of phase 0 are still to make, so every number below is from made-up frames or the still office clip.
 
 ## Local first
 
@@ -168,6 +168,13 @@ Only if phases 1–4 leave swaps or SAM calls the bench can't get under target.
 - **Shape.** A small HTTP worker (`TRACKER_WORKER_URL`) that takes the full-size stills the watcher already keeps and masks to start from, and streams boxes back. Off unless configured, like `SAM3D_ENABLED`. `bun run doctor` reports it.
 - **Decide by:** ID switches and false-sure frames on `swap`, `cross` and `busy` versus phases 1–4, frames a second sustained at 16 things, and the latency from still to box. Keep it only if it removes swaps the cheap path can't, at ≥ 5 Hz on the 4090.
 
+### Phase 5 as built (the GPU and Apple Vision trackers)
+
+- **Two workers, chosen by hand.** The watcher's Tracker switch (`POST /api/watch/backend`, `local`, `vision` or `gpu`) picks what follows things beside the local match; live only, and each choice only where it is offered. The local match still reads every frame and still judges every zone: neither worker's box ever does.
+- **GPU** ([services/gpu-tracker](../../services/gpu-tracker/README.md)): SAM 2.1's video predictor (`sam2.1-hiera-small`) on an NVIDIA GPU, through `apps/server/src/gpu-tracker.ts`. The plan's `TRACKER_WORKER_URL` became `GPU_TRACKER_URL` with `GPU_TRACKER_TOKEN`; off unless both are set. The node reads the camera itself (the lab's relay's RTSP while the relay runs), not the stills the watcher keeps, and streams boxes back. `gpuCorrections` (`packages/domain/src/gpu-track.ts`) reads each result against the local track: a thing it sees surely and steadily where the local match lost it, or far from where the local match put it, starts again there; one followed at rest that it lost is handed back at the local box. Not gated by _Let tracking call AI_: it is our own machine. `bun run doctor` doesn't report it.
+- **Apple Vision** ([services/vision-tracker](../../services/vision-tracker/README.md)): `VNTrackObjectRequest` in a small Swift helper, on Apple silicon. It doesn't replace layer 1 but steers it: `stepLocalTrack` searches around Vision's box first, and the template still has to match there. `bun run doctor` says whether it is offered.
+- **Not done:** the candidates weren't compared on the phase 0 clips (there are none yet), so neither worker is judged by the plan's _decide by_.
+
 ## Phase 6: lift the caps and show it
 
 - **Limits.** `MAX_OTHER_OBJECTS` 4 → 15 (16 things with the mug, matching `segmentBoxes`' 16 masks). `MAX_FIXTURES` stays 12, but the watcher's total of followed things is capped at 24 with a clear message. Raise only after phase 0's `still-16` numbers show the cost holds.
@@ -185,7 +192,7 @@ Only if phases 1–4 leave swaps or SAM calls the bench can't get under target.
 5. Worker experiment, only if the bench calls for it.
 6. Caps, canvas, demo's second mug, docs (architecture's Tracking section; an "As built" here).
 
-Each phase: `bun run bench:track` on every clip before and after (`bun run bench:at HEAD track` once the bench has a truth mode), unit tests of the pure parts (`assignTracks`, `watchFrame`, the Kalman step) with made-up frames, and the watcher end to end in demo mode.
+Each phase: `bun run bench:track` on every clip before and after (`bench:at` takes only `fit`, `room` and `rooms`), unit tests of the pure parts (`assignTracks`, `watchFrame`, the Kalman step) with made-up frames, and the watcher end to end in demo mode.
 
 ## Not doing
 

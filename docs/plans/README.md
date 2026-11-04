@@ -35,7 +35,7 @@ The design notes Living Layer was built from. Each one says what was planned, an
 | Plan                                   | Status                                                   |
 | -------------------------------------- | -------------------------------------------------------- |
 | [tracking.md](tracking.md)             | Built. Always-on tracking by the server.                 |
-| [multi-tracking.md](multi-tracking.md) | Phases 0–4 built in part; 5 and 6 not started.           |
+| [multi-tracking.md](multi-tracking.md) | Phases 0–4 built in part; phase 5 built as the GPU and Apple Vision trackers; 6 not started. |
 | [streaming.md](streaming.md)           | Network cameras built; the phone's later phases on hold. |
 | [mqtt.md](mqtt.md)                     | Built. Our own entities in Home Assistant over MQTT.     |
 | [desktop-node.md](desktop-node.md)     | Built; not yet run on a real desktop.                    |

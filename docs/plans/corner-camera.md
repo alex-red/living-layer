@@ -1,4 +1,6 @@
-# Corner camera, isometric room first · draft, October 30, 2026
+# Corner camera, isometric room first · plan, October 30, 2026
+
+Status: built, see [As built](#as-built--october-30-2026).
 
 Today a photo is the base. We pin a surface in it, recover a camera from that one surface, and lay a 2.5D scene over the photo: photo textures (`photo-texture.ts`) and furniture nudged until it matches its mask (`layoutPhoto`, about 1,800 lines). The demo is a separate world: an illustrated close-up of a desk (`desk.svg`, `DEMO_POSITIONS`, `DEMO_SURFACE`), shaped nothing like a room.
 
