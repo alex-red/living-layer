@@ -15,10 +15,17 @@ const isScreen = (label: string) => SCREEN.test(label);
 export const roomSceneOf = (memory: Pick<DeskMemory, 'mode' | 'camera' | 'scene'>) =>
   calibrationOf(memory)?.scene ?? (memory.scene ? 'custom' : 'office');
 
-/** The screens in a lab's room: the Things a desktop's display can be. */
-export function roomScreens(memory: DeskMemory): Fixture[] {
+/**
+ * The Things in a lab's room a desktop's display can be: its screens (by
+ * name) first, then the rest, for a monitor named otherwise.
+ */
+export function displayChoices(memory: DeskMemory): { screens: Fixture[]; others: Fixture[] } {
   const room = roomSceneOf(memory);
-  return (memory.fixtures ?? []).filter((f) => f.scene === room && isScreen(f.label));
+  const here = (memory.fixtures ?? []).filter((f) => f.scene === room);
+  return {
+    screens: here.filter((f) => isScreen(f.label)),
+    others: here.filter((f) => !isScreen(f.label)),
+  };
 }
 
 /** Four points in shares of the frame, clockwise from the top left as the camera sees them. */

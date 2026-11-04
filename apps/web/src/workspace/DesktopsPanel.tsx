@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import {
-  roomScreens,
+  displayChoices,
   type DeskMemory,
   type DesktopNodeView,
   type LampResult,
@@ -69,7 +69,7 @@ export function DesktopsPanel() {
     <Panel tiny="DESKTOPS" title="Desktops it can drive" status={summary} tone={tone}>
       <p className="micro">
         A desktop running <code>living-layer-node</code> lets Living Layer wake or sleep its
-        display, show a banner and open a page, from here, from its monitor in the office, or as a
+        display, show a banner and open a page, from here, from its monitor in the room, or as a
         zone’s step.
         {lab.mode === 'demo' && ' In the demo it is virtual: nothing leaves this machine.'}
       </p>
@@ -116,11 +116,15 @@ function NodeCard({
 }) {
   const { call, off } = useCall();
   const lab = useLabParts(useView(), useDesk(), useFeedback());
-  const screens = lab.memory ? roomScreens(lab.memory) : [];
+  const { screens, others } = lab.memory ? displayChoices(lab.memory) : { screens: [], others: [] };
   // Only a monitor in the room being worked in: one elsewhere (the office preset's) isn't this room's.
-  const monitor = screens.find((f) => f.id === n.fixtureId);
-  const [chosen, setChosen] = useState('');
-  const pick = screens.find((f) => f.id === chosen) ?? screens.find((f) => f.id !== monitor?.id);
+  const monitor = [...screens, ...others].find((f) => f.id === n.fixtureId);
+  const choices = [
+    ...(monitor ? [] : [{ value: '', label: 'Not linked: choose one', disabled: true }]),
+    ...screens.map((f) => ({ value: f.id, label: f.label })),
+    ...(others.length ? [{ value: '-', label: '── Other things ──', disabled: true }] : []),
+    ...others.map((f) => ({ value: f.id, label: f.label })),
+  ];
   const link = (fixtureId: string) =>
     void call<{ nodes: DesktopNodeView[]; memory: DeskMemory; fixtureId: string }>(
       'nodes/link',
@@ -171,38 +175,32 @@ function NodeCard({
       ) : (
         <>
           <DesktopControls node={n} disabled={disabled || off || !n.online} />
-          <div className="save-actions">
-            {monitor ? (
+          <div className="dn-monitor">
+            <Field
+              label="Its monitor"
+              hint={
+                screens.length + others.length
+                  ? 'The Thing in this room that is its screen: it lights as the display does.'
+                  : 'Nothing in this room yet: add its monitor to the room, then choose it here.'
+              }
+            >
+              <Select
+                value={monitor?.id ?? ''}
+                disabled={disabled || off || !choices.length}
+                options={choices}
+                onChange={(id) => id && id !== monitor?.id && link(id)}
+              />
+            </Field>
+            {monitor && (
               <Button variant="text" onClick={onOpenMonitor}>
-                Its monitor, {monitor.label} →
+                Show it →
               </Button>
-            ) : !screens.length ? (
-              <p className="micro">
-                No monitor in this room yet. Add one to the room, then link it here.
-              </p>
-            ) : null}
+            )}
           </div>
-          {pick && (
-            <div className="save-actions">
-              <Field label={monitor ? 'Another monitor' : 'Its monitor in this room'}>
-                <Select
-                  value={pick.id}
-                  disabled={disabled || off}
-                  options={screens
-                    .filter((f) => f.id !== monitor?.id)
-                    .map((f) => ({ value: f.id, label: f.label }))}
-                  onChange={setChosen}
-                />
-              </Field>
-              <Button disabled={disabled || off} onClick={() => link(pick.id)}>
-                Link
-              </Button>
-            </div>
-          )}
           {lab.mode === 'live' && (
             <Details summary="Forget">
               <p className="micro">
-                The desktop forgets this lab, and its monitor stays in the office as a plain thing.
+                The desktop forgets this lab, and its monitor stays in the room as a plain thing.
               </p>
               <Button disabled={disabled || off} onClick={forget}>
                 Forget {n.name}

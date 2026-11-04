@@ -3,6 +3,7 @@ import {
   DESKTOP_NODE_SERVICE,
   desktopNodeEntity,
   fixtureEntity,
+  displayChoices,
   placeTemplate,
   promoteBuiltIn,
   type DeskMemory,
@@ -245,6 +246,20 @@ describe('desktop nodes, live', () => {
     expect(fixtureEntity(byId(memory, side!.id))).toBe(desktopNodeEntity(CACHY.id));
     expect(byId(memory, first!.id).control).toEqual({ kind: 'none' });
     expect(nodes[0]).toMatchObject({ fixtureId: side!.id });
+  });
+
+  it('offers the room’s screens first, then its other Things, and nothing from the office', async () => {
+    const { memory, things } = await ownRoom(['Dell U2720', 'Side monitor']);
+    const { screens, others } = displayChoices(await memory('live'));
+    expect(screens.map((f) => f.label)).toEqual(['Side monitor']);
+    expect(others.map((f) => f.id)).toEqual([things[0]!.id]);
+  });
+
+  it('links a monitor named otherwise when it is chosen', async () => {
+    const { live, things } = await ownRoom(['Dell U2720']);
+    expect((await live('nodes/adopt', { id: CACHY.id })).json().fixtureId).toBeNull();
+    const r = (await live('nodes/link', { id: CACHY.id, fixtureId: things[0]!.id })).json();
+    expect(fixtureEntity(byId(r.memory, things[0]!.id))).toBe(desktopNodeEntity(CACHY.id));
   });
 
   it('refuses to link a desktop this lab hasn’t adopted', async () => {

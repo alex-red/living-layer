@@ -18,7 +18,7 @@ import {
   nodesForgetBodySchema,
   nodesLinkBodySchema,
   roomSceneOf,
-  roomScreens,
+  displayChoices,
   modeOnlySchema,
   promoteBuiltIn,
   type DeskMemory,
@@ -381,7 +381,7 @@ async function attach(
   const memory = deps.store.memory(mode);
   const on = memory.fixtures?.find((f) => fixtureEntity(f) === entityId);
   if (on) return { memory, fixtureId: on.id };
-  const screen = roomScreens(memory).find((f) => f.control.kind === 'none');
+  const screen = displayChoices(memory).screens.find((f) => f.control.kind === 'none');
   if (screen) return link(deps, mode, entityId, screen.id, display);
   if (roomSceneOf(memory) !== MONITOR.scene) return { memory, fixtureId: null };
   const monitor = memory.fixtures?.find(

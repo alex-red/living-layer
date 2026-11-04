@@ -41,3 +41,11 @@
   flex: 1;
   min-width: 0;
 }
+.dn-monitor {
+  display: grid;
+  gap: 4px;
+  justify-items: start;
+}
+.dn-monitor .ui-field {
+  width: 100%;
+}
