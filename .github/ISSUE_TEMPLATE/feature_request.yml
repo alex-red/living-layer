@@ -1,0 +1,15 @@
+name: Feature request
+description: Something Living Layer could do
+labels: [enhancement]
+body:
+  - type: textarea
+    id: need
+    attributes:
+      label: What you want to do
+      description: The situation and what you'd like to happen, rather than a solution.
+    validations:
+      required: true
+  - type: textarea
+    id: ideas
+    attributes:
+      label: Ideas for how

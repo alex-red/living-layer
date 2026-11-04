@@ -38,7 +38,7 @@ const loopbackRelay: Relay = {
   stop() {},
 };
 /** The same relay also served on the network to the GPU node. */
-const RELAYED = (id: string) => `rtsp://gpu:secret@192.168.11.250:43434/cam-${id}`;
+const RELAYED = (id: string) => `rtsp://gpu:secret@192.168.1.50:43434/cam-${id}`;
 const networkRelay: Relay = { ...loopbackRelay, remoteRtspFor: (camera) => RELAYED(camera.id) };
 async function setup(env: Record<string, string> = {}, fetcher?: Fetcher, relay?: Relay) {
   const t = await testApp({
@@ -133,9 +133,9 @@ describe('the camera relay with the GPU tracker as a reader', () => {
     const dir = tempDir('relay-reader');
     // `true` exits at once: the relay writes its file and is then not running.
     const relay = new CameraRelay(dir, Bun.which('true')!, 47733, undefined, {
-      host: '192.168.11.250',
+      host: '192.168.1.50',
       pass: 'secret',
-      ips: ['192.168.11.20'],
+      ips: ['192.168.1.51'],
     });
     const camera = {
       id: 'aa11',
@@ -149,7 +149,7 @@ describe('the camera relay with the GPU tracker as a reader', () => {
     const text = readFileSync(join(dir, 'relay', 'mediamtx.yml'), 'utf8');
     expect(text).toContain('rtspAddress: :47734');
     expect(text).toContain(
-      ['  - user: gpu', '    pass: "secret"', '    ips: ["192.168.11.20"]'].join('\n'),
+      ['  - user: gpu', '    pass: "secret"', '    ips: ["192.168.1.51"]'].join('\n'),
     );
     // Others on the network still read nothing: the open user is loopback only.
     expect(text).toContain(['  - user: any', '    ips: ["127.0.0.1", "::1"]'].join('\n'));

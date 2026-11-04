@@ -6,26 +6,34 @@ playwright-report/
 *.log
 *.tsbuildinfo
 .DS_Store
+__pycache__/
+.venv/
 
 # Local config and data (captures, SQLite history, evidence exports)
 .env
 .env.*
 !.env.example
-.data/
-artifacts/
+/.data/
+/artifacts/
+*.sqlite
+*.sqlite-*
+
+# Agent sessions' local settings and worktrees
+/.claude/
 
 # Private planning notes
-hackathon/
+/hackathon/
 
 # Script output (contact sheets, bench results)
-out/
+/out/
 
 # Demo video script, kept local
-docs/demo-video.md
+/docs/demo-video.md
 
-# Local TLS certificate and key
+# Local TLS certificates and keys
 auto.crt
 auto.key
+*.pem
 
-# Demo video studio, kept local
-studio/
+# Demo video studio, kept local (apps/web/src/studio is the app's own page)
+/studio/

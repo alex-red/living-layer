@@ -10,6 +10,8 @@ The absent-target case returns a finalized empty output-text lane and a complete
 
 `items/` holds masked crops for the item fit benchmark (`bun scripts/fit-bench.ts`): a `<name>.png` with the SAM mask in alpha and every pixel outside it cleared, and a `<name>.json` of `{ "label", "archetype", "elevation"? }`. The four `mug-*.png` crops are real: the project owner's own Tim Hortons mug on their desk, cut from live captures by SAM 3.1 masks and published with the owner's consent on 2026-10-28. Nothing but the masked mug is kept; the wordmark is the mug's own print. Add only crops you have the right to publish, with their provenance.
 
+`apps/web/public/demo/fridge/*.webp` (open, left door, right door, closed) start from the project owner's own photos of their fridge, published with their consent. Before publishing they were redrawn by Muse Image with everyday store-brand items in place of the real ones and the planner wiped, then cut to 960 × 1280 WebP. The demo's Fridge scene shows them until a camera or photo of its own is there.
+
 Real captures and raw SAM responses belong under ignored `.data/evidence/`, with explicit provenance and consent before publishing. Demo evidence must retain `mode: "demo"`; it never advances live proof.
 
 The parser is governed by the [SAM license](../licenses/meta-sam-LICENSE.txt). No third-party photographs or frontend assets are bundled.

@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for taking a look. Issues and pull requests are both welcome. For anything bigger than a small fix, open an issue first so we can agree on the approach.
+Thanks for taking a look. Issues and pull requests are both welcome. For anything bigger than a small fix, open an issue first so we can agree on the approach. Please follow the [Code of Conduct](CODE_OF_CONDUCT.md), and report security problems privately as [SECURITY.md](SECURITY.md) describes.
 
 ## Setup
 

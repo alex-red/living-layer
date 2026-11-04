@@ -1,0 +1,31 @@
+name: Bug report
+description: Something doesn't work as it should
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: In Demo mode if you can, so it reproduces without your camera or keys.
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Mode
+      options: [Demo, Live]
+  - type: input
+    id: version
+    attributes:
+      label: Commit and Bun version
+      placeholder: 'git rev-parse --short HEAD; bun --version'
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or screenshots
+      description: Remove camera URLs, tokens, keys and photos of your home before posting.
