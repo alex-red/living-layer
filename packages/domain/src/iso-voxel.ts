@@ -552,7 +552,15 @@ export function voxelize(
         ? insideOf(part)!.liquid!
         : zone === 1
           ? (insideOf(part)?.wall ?? part.color)
-          : paintAt(part, x, y, z, normals[k * 3 + 2]!);
+          : paintAt(
+              part,
+              x,
+              y,
+              z,
+              // In a slab one voxel thick (a coaster at room size) the normal can point anywhere:
+              // open above and below, it is the top the room sees, and paints as one.
+              oz === 0 && !at(ix, iy, iz + 1) ? 1 : normals[k * 3 + 2]!,
+            );
     let c = lab(hex);
     const material = zone === 2 ? 'gloss' : (part.material ?? 'matte');
     if (material === 'wood') {

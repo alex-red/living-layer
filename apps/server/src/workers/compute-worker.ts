@@ -11,7 +11,10 @@ self.onmessage = (event: MessageEvent<{ id: number; job: ComputeJob }>) => {
       self.postMessage({ id, result: fitItem(job.input) });
     } else if (job.op === 'refit') {
       const { camera, scene, recipe, place, outline } = job;
-      self.postMessage({ id, result: refitRecipe(camera, scene, recipe, place, outline) });
+      self.postMessage({
+        id,
+        result: refitRecipe(camera, scene, recipe, place, outline, job.options),
+      });
     } else {
       const picture: RoomPicture = renderRoom(job.camera, job.solids, job.options);
       // The pixels, ids and depths move to the server without a copy.

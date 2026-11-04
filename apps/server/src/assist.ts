@@ -37,6 +37,8 @@ import {
   RECIPE_OPS,
   readIntent,
   resolveSelection,
+  flatThicknessOf,
+  printFromPhoto,
   refineRecipe,
   roomMask,
   selectionBox,
@@ -57,6 +59,7 @@ import {
   type RecipeOp,
   type RecipePlace,
   type Refiner,
+  type RefitOptions,
   type Resolved,
   type Segmentation,
   type SelectionShape,
@@ -771,7 +774,7 @@ export async function finishDraft(
           against: Bits,
           check: (r: FixtureRecipe, place: RecipePlace) => RecipeCheck,
           /** Fit each look's size to the outline: the camera measured it. */
-          refit: boolean,
+          refit: false | RefitOptions,
         ) => Promise<Shaped | null>)
       | null;
     steps: DraftSteps;
@@ -791,13 +794,22 @@ export async function finishDraft(
   // Measured standing where the thing it replaces stood: a monitor on the desk, not on the floor.
   // A new thing stands on whatever surface its outline's foot lands on: a coaster on the desk.
   const floor = stands?.z ?? outlineRests(room.camera, room.scene, outline);
-  const box = modelAxes(photoBox(room.camera, outline, room.scene.grid, { floor }), turns);
   // Spark names a form only when one is close; a mug's isn't, and the old default made it drawers.
   const named = [
     intent.product,
     create?.op === 'create' ? create.label : null,
     draft.target?.label,
   ];
+  // A flat thing's thickness is the usual one for its name: from a high corner its outline is all
+  // footprint, and the camera read a 0.5 cm coaster as 4 cm tall and 2 cm deep.
+  const flatCm = named.reduce<number | null>((h, n) => h ?? (n ? flatThicknessOf(n) : null), null);
+  const box = modelAxes(
+    photoBox(room.camera, outline, room.scene.grid, {
+      floor,
+      ...(flatCm !== null ? { height: flatCm / ISO_TILE_CM } : {}),
+    }),
+    turns,
+  );
   const form: PropForm =
     create?.form ??
     room.scene.props.find((p) => p.group === targetProp && p.form)?.form ??
@@ -819,7 +831,7 @@ export async function finishDraft(
   };
   // A thing running out of the top of the picture has no height the camera can measure: the camera
   // gives its footprint, and its height comes from a lookup or, failing one, its template.
-  const seenH = box?.cutTop ? null : (box?.h ?? null);
+  const seenH = box?.cutTop || flatCm !== null ? null : (box?.h ?? null);
   const seenD = hidden || raised ? null : (box?.d ?? null);
   if (create) {
     const query = intent.product ?? draft.target?.label ?? 'furniture';
@@ -832,7 +844,7 @@ export async function finishDraft(
               sizeCm: {
                 w: box.w,
                 d: seenD ?? drawnD,
-                h: seenH ?? furnitureSpec(form).heightCm,
+                h: seenH ?? flatCm ?? furnitureSpec(form).heightCm,
               },
               sources: [{ kind: 'photo', title: 'The room’s camera' }],
               confidence: Math.min(0.5, box.iou / 2),
@@ -858,6 +870,9 @@ export async function finishDraft(
     );
     const fromPhoto = found.facts.origin.size === 'photo';
     const unseen = [
+      ...(box && flatCm !== null && fromPhoto
+        ? [`it is flat, so its thickness isn’t the camera’s (the usual ${flatCm} cm)`]
+        : []),
       ...(box?.cutTop
         ? [
             `its top is out of the picture, so its height isn’t the camera’s (${fromPhoto ? `the template’s ${furnitureSpec(form).heightCm} cm` : 'the lookup’s'})`,
@@ -931,14 +946,14 @@ export async function finishDraft(
     checkRecipe(room.camera, room.scene, r, at!, against, rgba);
   // A size the camera measured is only as sure as its box, so Spark's looks are fitted to the
   // outline in theirs; never a size looked up or asked for.
-  const refit =
-    Boolean(create) &&
+  // A flat thing's known thickness stays as it is: only its footprint is the camera's.
+  const refit: false | RefitOptions = Boolean(create) &&
     draft.facts?.origin.size === 'photo' &&
-    !edits.some((o) => o.op === 'resize');
+    !edits.some((o) => o.op === 'resize') && { keepHeight: flatCm !== null };
   // The model as built is fitted so too, kept when it matches better: from a high corner a flat
   // coaster's box is as tall as it is wide, and without Spark (a timeout, the demo) that stood.
   if (refit && recipe && place) {
-    const fitted = await refitRecipeAsync(room.camera, room.scene, recipe, place, against);
+    const fitted = await refitRecipeAsync(room.camera, room.scene, recipe, place, against, refit);
     if (fitted.iou > check(recipe).iou) {
       draft.recipe = recipe = fitted.recipe;
       draft.place = place = fitted.place;
@@ -949,6 +964,8 @@ export async function finishDraft(
   // 7. A new model, or one asked to look like the photo, is shaped from the photo by Spark.
   steps.run('shape');
   let shaped: Shaped | null = null;
+  let shapeNote: string;
+  let shapeImage: Buffer | undefined;
   if (recipe && place && shaper && (create || matchPhoto)) {
     const before = check(recipe);
     let failed: string | null = null;
@@ -959,34 +976,33 @@ export async function finishDraft(
       failed = e instanceof Error ? e.message : 'it failed';
     }
     // Spark's best look stands only if it matches the photo better than the model as built.
-    if (shaped && draftScore(shaped.check) < draftScore(before))
-      await steps.done(
-        'shape',
-        `Spark’s shapes matched the photo less well (IoU ${shaped.check.iou.toFixed(2)}, as built ${before.iou.toFixed(2)}), so it is as built`,
-        shaped.render,
-      );
-    else if (shaped) {
+    if (shaped && draftScore(shaped.check) < draftScore(before)) {
+      shapeNote = `Spark’s shapes matched the photo less well (IoU ${shaped.check.iou.toFixed(2)}, as built ${before.iou.toFixed(2)}), so it is as built`;
+      shapeImage = shaped.render;
+    } else if (shaped) {
       draft.recipe = recipe = shaped.recipe;
       draft.place = place = shaped.place;
-      await steps.done(
-        'shape',
-        `${recipe.parts.length} parts, IoU ${shaped.check.iou.toFixed(2)} (as built ${before.iou.toFixed(2)}). ${shaped.note}`,
-        shaped.render,
-      );
+      shapeNote = `${recipe.parts.length} parts, IoU ${shaped.check.iou.toFixed(2)} (as built ${before.iou.toFixed(2)}). ${shaped.note}`;
+      shapeImage = shaped.render;
     } else
-      await steps.done(
-        'shape',
-        failed
-          ? `Spark couldn’t shape it, so it is as built: ${failed}`
-          : 'No usable model came back, so it is as built',
-      );
+      shapeNote = failed
+        ? `Spark couldn’t shape it, so it is as built: ${failed}`
+        : 'No usable model came back, so it is as built';
   } else
-    await steps.done(
-      'shape',
+    shapeNote =
       !shaper && (create || matchPhoto)
         ? 'Demo: built from its form, with no model calls'
-        : 'Not needed',
-    );
+        : 'Not needed';
+  // A flat thing's print is read off the photo where it stands: no model call draws a coaster's
+  // pattern from 40 pixels, and a colour asked for paints the part under the print, not over it.
+  if (recipe && place && (create || matchPhoto)) {
+    const printed = printFromPhoto(room.camera, room.scene, recipe, place, against, rgba);
+    if (printed) {
+      draft.recipe = recipe = printed.recipe;
+      shapeNote = `${shapeNote.replace(/\.$/, '')}. Its top’s print is read off the photo in ${printed.colours} colours.`;
+    }
+  }
+  await steps.done('shape', shapeNote, shapeImage);
   steps.check();
 
   // 8. The camera check, and Spark's refinements of a new model not shaped from the photo

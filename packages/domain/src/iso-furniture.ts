@@ -1,6 +1,6 @@
 import { bezier, type Vec3 } from './math.js';
 import type { IsoBox, IsoProp, IsoSize, IsoTone, IsoVec } from './iso.js';
-import type { ItemMaterial } from './iso-item.js';
+import type { Decal, ItemMaterial } from './iso-item.js';
 import type { FixtureRecipe } from './recipe.js';
 
 /**
@@ -67,6 +67,8 @@ interface PropPartBase {
   material?: ItemMaterial;
   /** A recipe part's name (`top-shade`), so a thing made of it can find its shades. */
   name?: string;
+  /** A recipe part's print on its top, read off a photo. */
+  decal?: Decal;
 }
 /** One part of a model, in tiles, relative to the prop's corner; each shape has its own fields. */
 export type PropPart = PropPartBase &
@@ -763,6 +765,7 @@ export function recipeModel(recipe: FixtureRecipe, w: number, d: number, h: numb
       tone: p.tone,
       ...(p.color ? { color: p.color } : {}),
       ...(p.material ? { material: p.material } : {}),
+      ...(p.decal ? { decal: p.decal } : {}),
       name: p.name,
     };
     switch (p.shape) {
@@ -801,6 +804,8 @@ function turnPart(p: PropPart, d: number): PropPart {
     ...p,
     at: { x: d - p.at.y - p.size.d, y: p.at.x, z: p.at.z },
     size: { w: p.size.d, d: p.size.w, h: p.size.h },
+    // A top decal turns with its part: its `turns` undoes this turn when it is painted.
+    ...(p.decal ? { decal: { ...p.decal, turns: (p.decal.turns + 1) % 4 } } : {}),
   };
   return p.shape === 'tube'
     ? { ...turned, shape: 'tube', path: p.path.map((q) => ({ x: 1 - q.y, y: q.x, z: q.z })) }
@@ -847,13 +852,15 @@ const TUBE_SEGMENTS = 8;
  */
 export function propSolids(
   prop: IsoProp,
-): { box: IsoBox; shape: IsoProp['shape']; tone: IsoTone; color?: string }[] {
+): { box: IsoBox; shape: IsoProp['shape']; tone: IsoTone; color?: string; decal?: Decal }[] {
   const model = propModel(prop, true);
   if (!model) return [{ box: prop, shape: prop.shape, tone: prop.tone }];
   return model.flatMap((q) => {
     const at = { x: prop.at.x + q.at.x, y: prop.at.y + q.at.y, z: prop.at.z + q.at.z };
     // A recipe part's own colour, where it has one: a camera's picture shows it, not the tone.
     const look = { ...(q.color ? { color: q.color } : {}), tone: q.tone };
+    // Its top's print, which a camera sees too; a tube's run of boxes has no top to print.
+    const printed = q.decal ? { ...look, decal: q.decal } : look;
     if (q.shape === 'tube' && q.path && q.path.length >= 2 && q.radius) {
       const r = q.radius;
       const control = q.path.map((c) => ({
@@ -887,7 +894,7 @@ export function propSolids(
     }
     return [
       {
-        ...look,
+        ...printed,
         box: { at, size: q.size },
         shape: q.shape === 'lathe' ? ('cylinder' as const) : ('prism' as const),
       },

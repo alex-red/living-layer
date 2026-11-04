@@ -9,6 +9,7 @@ import {
   type FixtureRecipe,
   type IsoScene,
   type RecipePlace,
+  type RefitOptions,
   type RoomCamera,
   type PixelWindow,
   type RoomPicture,
@@ -30,6 +31,7 @@ export type ComputeJob =
       recipe: FixtureRecipe;
       place: RecipePlace;
       outline: Bits;
+      options?: RefitOptions;
     };
 
 /**
@@ -118,9 +120,10 @@ export const refitRecipeAsync = (
   recipe: FixtureRecipe,
   place: RecipePlace,
   outline: Bits,
+  options: RefitOptions = {},
 ): Promise<ReturnType<typeof refitRecipe>> =>
-  run({ op: 'refit', camera, scene, recipe, place, outline }, () =>
-    refitRecipe(camera, scene, recipe, place, outline),
+  run({ op: 'refit', camera, scene, recipe, place, outline, options }, () =>
+    refitRecipe(camera, scene, recipe, place, outline, options),
   );
 export function closeCompute(): void {
   for (const { worker } of slots.splice(0)) worker.terminate();

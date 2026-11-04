@@ -279,6 +279,21 @@ const FORM_WORDS: [RegExp, PropForm][] = [
   // Flat and round: a turned form, so it starts as a disc and not a butter dish's block and lid.
   [/\b(coaster|saucer|plate)s?\b/, 'jar'],
 ];
+/**
+ * How thick flat things usually are, in cm, read off a name. From a room's
+ * high corner a flat thing's outline is all footprint: the camera can't tell
+ * its thickness, and read a coaster as 4 cm tall.
+ */
+const FLAT_WORDS: [RegExp, number][] = [
+  [/\b(coaster|place ?mat|mouse ?pad|mouse ?mat|desk ?mat)s?\b/, 0.5],
+  [/\bsaucers?\b/, 1.5],
+  [/\bplates?\b/, 2],
+];
+/** A flat thing's usual thickness in cm from its name, or null for anything else. */
+export function flatThicknessOf(name: string): number | null {
+  const text = name.toLowerCase();
+  return FLAT_WORDS.find(([re]) => re.test(text))?.[1] ?? null;
+}
 /** The built-in form nearest each kind of small thing; a mouse, a cat or an unknown has none. */
 const FORM_OF_ARCHETYPE: Partial<Record<Archetype, PropForm>> = {
   mug: 'jar',
@@ -411,7 +426,17 @@ export function photoBox(
   camera: RoomCamera,
   mask: Bits,
   grid?: IsoScene['grid'],
-  { floor = 0 }: { floor?: number } = {},
+  {
+    floor = 0,
+    height,
+  }: {
+    floor?: number;
+    /**
+     * Its height in tiles when it is known (a coaster's): only its footprint is fitted. From a
+     * high corner a flat thing's outline fits a small, tall box as well as its own.
+     */
+    height?: number;
+  } = {},
 ): {
   w: number;
   d: number;
@@ -439,7 +464,7 @@ export function photoBox(
   const start = unprojectRoom(camera, { x: (x0 + x1) / 2, y: y1 }, floor);
   if (!start) return null;
   const score = ([cx, cy, w, d, h]: number[]) => {
-    if (w! < 0.05 || d! < 0.05 || h! < 0.05) return -1;
+    if (w! < 0.05 || d! < 0.05 || h! < Math.min(0.05, height ?? 0.05)) return -1;
     // Nothing stands outside the room's walls.
     if (
       grid &&
@@ -464,12 +489,13 @@ export function photoBox(
     }
     return both / (drawn + area - both);
   };
-  let best = [start.x, start.y, 0.5, 0.5, 0.5];
+  let best = [start.x, start.y, 0.5, 0.5, height ?? 0.5];
   let bestScore = score(best);
-  const steps = [0.5, 0.5, 0.5, 0.5, 0.5];
+  // A known height isn't stepped.
+  const steps = [0.5, 0.5, 0.5, 0.5, height === undefined ? 0.5 : 0];
   for (let round = 0; round < 400 && Math.max(...steps) > 0.01; round++) {
     let moved = false;
-    for (let k = 0; k < 5; k++)
+    for (let k = 0; k < (height === undefined ? 5 : 4); k++)
       for (const sign of [1, -1]) {
         const next = best.slice();
         next[k]! += sign * steps[k]!;
@@ -561,6 +587,8 @@ export interface RecipeCheck {
  * photo wins over one that only fills the same outline.
  */
 export const draftScore = (c: Pick<RecipeCheck, 'iou' | 'deltaE'>) => c.iou - (c.deltaE ?? 0) / 100;
+/** Mean ΔE past which a model's colours plainly aren't the photo's, and its check says so. */
+const FAR_COLOUR = 20;
 /** A recipe at least this close to the outline needs no refining. */
 export const RECIPE_TARGET = { iou: 0.75 } as const;
 
@@ -678,7 +706,11 @@ export function checkRecipe(
     `The model covers ${Math.round((1 - missing) * 100)}% of the outline (IoU ${iou.toFixed(2)}).`,
     missing > 0.1 ? `Most of the outline it misses is on its ${worst(0)}.` : '',
     extra > 0.1 ? `It is drawn beyond the outline mostly on its ${worst(1)}.` : '',
-    colour !== null ? `Its colours are ΔE ${Math.round(colour)} from the photo’s.` : '',
+    colour === null
+      ? ''
+      : colour > FAR_COLOUR
+        ? `Its colours are far from the photo’s (ΔE ${Math.round(colour)}): the camera sees other colours or a pattern it doesn’t have.`
+        : `Its colours are ΔE ${Math.round(colour)} from the photo’s.`,
   ]
     .filter(Boolean)
     .join(' ');
@@ -709,6 +741,13 @@ function scaleRecipe(r: FixtureRecipe, k: { w: number; d: number; h: number }): 
   };
 }
 
+export interface RefitOptions {
+  /**
+   * Leave the model's height as it is: a flat thing's (a coaster's) is known,
+   * and from a high corner its outline fits a thicker, smaller one as well.
+   */
+  keepHeight?: boolean;
+}
 /** How far a refit may scale a model along an axis, either way. */
 const REFIT_SCALE = 4;
 /** How many checks a refit may spend: each draws the room, about 20 ms. */
@@ -735,6 +774,7 @@ export function refitRecipe(
   recipe: FixtureRecipe,
   place: RecipePlace,
   outline: Bits,
+  { keepHeight = false }: RefitOptions = {},
 ): { recipe: FixtureRecipe; place: RecipePlace; iou: number } {
   // Log scale along w, d, h, then the middle's move in tiles.
   const at = (v: number[]) => ({
@@ -754,18 +794,21 @@ export function refitRecipe(
   const sweep = Math.log(REFIT_SCALE);
   for (let s = -sweep; s <= sweep + 1e-9; s += sweep / 8) {
     if (Math.abs(s) < 1e-9) continue;
-    const next = iouOf([s, s, s, 0, 0]);
+    const next = iouOf([s, s, keepHeight ? 0 : s, 0, 0]);
     if (next > iou) [k, iou] = [s, next];
   }
   // Then each axis and its middle, a step at a time, each axis paying for its stretch from k.
   // The camera's box already stood about there: its middle moves by at most half its width.
   const span = (Math.max(recipe.sizeCm.w, recipe.sizeCm.d) * Math.exp(k)) / ISO_TILE_CM;
-  const limit = [...Array(3).fill(sweep), span / 2, span / 2];
-  const lo = [-sweep, -sweep, -sweep, -span / 2, -span / 2];
+  // A height kept is never scaled: its bounds are its own.
+  const hk = keepHeight ? 0 : k;
+  const hSweep = keepHeight ? 0 : sweep;
+  const limit = [sweep, sweep, hSweep, span / 2, span / 2];
+  const lo = [-sweep, -sweep, -hSweep, -span / 2, -span / 2];
   const score = (v: number[], fit: number) =>
-    fit - REFIT_STRETCH * (Math.abs(v[0]! - k) + Math.abs(v[1]! - k) + Math.abs(v[2]! - k));
+    fit - REFIT_STRETCH * (Math.abs(v[0]! - k) + Math.abs(v[1]! - k) + Math.abs(v[2]! - hk));
   const step = [0.25, 0.25, 0.25, span / 4, span / 4];
-  let best = [k, k, k, 0, 0];
+  let best = [k, k, hk, 0, 0];
   let bestScore = score(best, iou);
   // Each round takes the best of every one-axis step, not the first that helps: a model grown
   // wide and moved aside can match about as well as one the right size.

@@ -89,11 +89,12 @@ function propPart(prop: IsoProp): ItemPart {
 }
 /** One part of a furniture model in the kernel's terms. */
 const modelPart = (p: PropPart, i: number): ItemPart => {
-  const { tone, ...rest } = p;
+  const { tone, decal, ...rest } = p;
   return {
     id: `p${i}`,
     taper: 1,
     ...rest,
+    ...(decal ? { paint: [decal] } : {}),
     color: p.color ?? PROP_TONES[tone],
     material: p.material ?? TONE_MATERIAL[tone] ?? 'matte',
   };
@@ -109,7 +110,11 @@ export function propSpriteKey(prop: IsoProp, lit: boolean): string {
  * of their own (a recipe painted green), so those keep their colour.
  */
 function paletteOf(model: PropPart[] | null): string[] {
-  const own = [...new Set(model?.flatMap((p) => (p.color ? [p.color] : [])) ?? [])];
+  const own = [
+    ...new Set(
+      model?.flatMap((p) => [...(p.color ? [p.color] : []), ...(p.decal?.colors ?? [])]) ?? [],
+    ),
+  ];
   return own.length ? [...PROP_PALETTE, ...own.flatMap(rampOf)] : PROP_PALETTE;
 }
 /** The last few props' grids, by what they were sampled from: a prop is drawn lit and unlit. */

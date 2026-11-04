@@ -16,6 +16,7 @@ import {
   type IsoScene,
   type RecipeCheck,
   type RecipePlace,
+  type RefitOptions,
   type RoomCamera,
   type Usage,
   uprightAt,
@@ -77,7 +78,7 @@ export async function shapeFromPhoto({
   request: string;
   check: (r: FixtureRecipe, place: RecipePlace) => RecipeCheck;
   /** Fit each look's size to the outline: only for a size the camera measured. */
-  refit?: boolean;
+  refit?: false | RefitOptions;
   /** Each billed call's usage and model, for the run. */
   onCall: (r: { usage: Usage | null; model: string; requestId: string | null }) => void;
   signal?: AbortSignal;
@@ -129,7 +130,14 @@ export async function shapeFromPhoto({
     if (!next) break;
     current = next;
     if (refit)
-      ({ recipe: current, place: at } = await refitRecipeAsync(camera, scene, next, at, against));
+      ({ recipe: current, place: at } = await refitRecipeAsync(
+        camera,
+        scene,
+        next,
+        at,
+        against,
+        refit,
+      ));
     const render = await drawn(current, at);
     shown = render;
     const checked = check(current, at);

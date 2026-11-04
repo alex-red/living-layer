@@ -79,7 +79,11 @@ const paintSchema = z.discriminatedUnion('kind', [
     })
     .strict(),
   z.object({ kind: z.literal('top'), color: hexColorSchema }).strict(),
-  z
+  decalSchemaOf(),
+]);
+/** A decal layer: pixels painted on a part's top or around it. */
+function decalSchemaOf() {
+  return z
     .object({
       kind: z.literal('decal'),
       face: z.enum(['around', 'top']),
@@ -110,8 +114,9 @@ const paintSchema = z.discriminatedUnion('kind', [
         d.data.length === d.w * d.h &&
         [...d.data].every((c) => c === '.' || DECAL_CHARS.indexOf(c) < d.colors.length),
       { message: 'Decal data must have w × h pixels, each a colour index or a dot.' },
-    ),
-]);
+    );
+}
+export const decalSchema = decalSchemaOf();
 export type Paint = z.infer<typeof paintSchema>;
 export type Decal = Extract<Paint, { kind: 'decal' }>;
 const point2 = z.object({ x: share, y: share }).strict();

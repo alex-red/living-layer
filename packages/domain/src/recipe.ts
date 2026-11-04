@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { ISO_TONES } from './iso-furniture.js';
-import { hexColorSchema, ITEM_MATERIALS } from './iso-item.js';
+import { decalSchema, hexColorSchema, ITEM_MATERIALS } from './iso-item.js';
 
 /**
  * A recipe: a model as data, in real centimetres, for things no built-in
@@ -67,9 +67,13 @@ export const recipePartSchema = z
     tubeCm: z.number().positive().max(20).optional(),
     /** Blob: how lumpy, 0 to 1. */
     rough: share.optional(),
+    /** What is printed on its top, read off the photo: a coaster's pattern, a book's cover. */
+    decal: decalSchema.optional(),
   })
   .strict()
   .superRefine((p, ctx) => {
+    if (p.decal && p.decal.face !== 'top')
+      ctx.addIssue({ code: 'custom', message: `${p.name}: a part's decal is on its top.` });
     if (p.shape === 'lathe' && !p.profile)
       ctx.addIssue({ code: 'custom', message: `${p.name}: a lathe needs a profile.` });
     if (p.profile?.some((q, i) => i > 0 && q.z < p.profile![i - 1]!.z))

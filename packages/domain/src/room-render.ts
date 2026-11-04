@@ -1,6 +1,7 @@
 import { KEY_LIGHT, type Vec3 } from './math.js';
 import type { IsoBox, IsoScene, IsoTone } from './iso.js';
 import { hexLab, labRgb, rampLab, type Lab } from './color.js';
+import type { Decal } from './iso-item.js';
 import { propSolids } from './iso-furniture.js';
 import { PROP_TONES } from './iso-prop-sprite.js';
 import { toCamera, type RoomCamera } from './room-camera.js';
@@ -20,6 +21,8 @@ export interface RoomSolid {
   color: Lab;
   /** Lit evenly, as the iso view draws the floor and walls. */
   flat?: boolean;
+  /** A print on its top, painted as the item kernel paints a top decal. */
+  decal?: Decal;
 }
 export interface RoomPicture {
   width: number;
@@ -45,6 +48,7 @@ export function sceneSolids(scene: IsoScene): RoomSolid[] {
       shape: s.shape === 'cylinder' ? ('cylinder' as const) : ('prism' as const),
       color: hexLab(s.color ?? PROP_TONES[s.tone as IsoTone]),
       flat: s.tone === 'wall',
+      ...(s.decal ? { decal: s.decal } : {}),
     })),
   );
 }
@@ -305,6 +309,7 @@ export function renderRoom(
       const poly = clipNear(cam);
       if (poly.length < 3) continue;
       const lab = shade(solid.color, face.normal, !!solid.flat);
+      const print = !labels && face.normal[2] > 0.5 ? topPrint(camera, solid) : null;
       const px = poly.map(([x, y, z]) => ({
         x: (camera.f * x) / z + camera.cx,
         y: (camera.f * y) / z + camera.cy,
@@ -317,7 +322,8 @@ export function renderRoom(
           if (z > depth[i]! + 1e-4) return;
           depth[i] = z;
           ids[i] = id!;
-          if (!labels) color.set(lab, i * 3);
+          if (!labels)
+            color.set((print && print(i % width, (i - (i % width)) / width)) ?? lab, i * 3);
         });
     }
   }
@@ -342,6 +348,51 @@ export function renderRoom(
         rgba[o + 3] = 255;
       }
   return { width, height, rgba, ids, names, depth };
+}
+
+/**
+ * A solid's top decal as the camera sees it: the colour at a frame pixel, or
+ * null where the decal leaves the top its own colour. The pixel's ray meets
+ * the top's plane, and the decal is read there as `paintAt` reads a top decal.
+ */
+function topPrint(
+  camera: RoomCamera,
+  { box: { at, size }, decal, flat }: RoomSolid,
+): ((x: number, y: number) => Lab | null) | null {
+  if (!decal || decal.face !== 'top' || size.w <= 0 || size.d <= 0) return null;
+  const labs = decal.colors.map((c) => shade(hexLab(c), [0, 0, 1], !!flat));
+  const top = at.z + size.h;
+  const { right, down, forward, position, f, cx, cy } = camera;
+  // Height from the camera to the top, along the ray's own z.
+  const rise = top - position[2];
+  return (x, y) => {
+    const u = (x + 0.5 - cx) / f;
+    const v = (y + 0.5 - cy) / f;
+    const dz = right[2]! * u + down[2]! * v + forward[2]!;
+    if (Math.abs(dz) < 1e-9) return null;
+    const k = rise / dz;
+    let s = (position[0] + k * (right[0]! * u + down[0]! * v + forward[0]!) - at.x) / size.w;
+    let t = (position[1] + k * (right[1]! * u + down[1]! * v + forward[1]!) - at.y) / size.d;
+    // Undo the quarter turns: (x, y) went to (1 - y, x) each time.
+    for (let q = 0; q < decal.turns; q++) {
+      const was = s;
+      s = t;
+      t = 1 - was;
+    }
+    if (s < decal.u0 || s > decal.u1 || t < decal.v0 || t > decal.v1) return null;
+    const col = Math.min(
+      decal.w - 1,
+      Math.floor(((s - decal.u0) / (decal.u1 - decal.u0)) * decal.w),
+    );
+    const row = Math.min(
+      decal.h - 1,
+      Math.floor(((t - decal.v0) / (decal.v1 - decal.v0)) * decal.h),
+    );
+    const ch = decal.data.charCodeAt(row * decal.w + col);
+    // '.' leaves the top as it is; '0'–'9' and 'a'–'f' index the colours.
+    if (ch === 46) return null;
+    return labs[ch <= 57 ? ch - 48 : ch - 87] ?? null;
+  };
 }
 
 /** The part of a polygon in front of the camera's near plane, in camera coordinates. */
