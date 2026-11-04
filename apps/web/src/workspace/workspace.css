@@ -769,7 +769,8 @@ button.ol-group-head:hover {
   min-height: 0;
   overflow-y: auto;
   display: grid;
-  align-content: center;
+  /* Safe: when it is taller than the pane it starts at the top, not above it, out of reach. */
+  align-content: safe center;
   gap: 20px;
   padding: 24px clamp(8px, 4vw, 48px);
 }
