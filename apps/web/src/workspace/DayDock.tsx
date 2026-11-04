@@ -6,6 +6,9 @@ import {
   askThingsOf,
   type AskExample,
   type AskKind,
+  COACH,
+  type CoachNudge,
+  type CoachTopic,
   clockOf,
   midnightOf,
   type DayEvent,
@@ -15,10 +18,24 @@ import { api } from '../api';
 import { IconButton } from '../ui/controls';
 import { DAY_END, DAY_START, DAY_THINGS, clock, dayNudges, eventsUntil } from './demoDay';
 import { useDesk, useLabCalls, useView } from './LabContext';
+import {
+  checkCoach,
+  demoCoachDay,
+  dismissNudge,
+  switchCoach,
+  useCoach,
+  useLiveCoach,
+} from './state/coach';
 import { REPLAY_SPEEDS, playReplay, setReplay, useReplay, useReplayClock } from './state/replay';
 import './day.css';
 
 const NUDGES = dayNudges();
+/** The room coach's nudges over the sample day, as minutes of it, for the track. */
+const COACH_TICKS = demoCoachDay().map((n) => ({
+  id: n.id,
+  title: n.title,
+  minute: Math.round((n.at - midnightOf(Date.now())) / 60_000),
+}));
 /** How long a nudge stays on the phone, in minutes of the day. */
 const NUDGE_SHOWN = 90;
 
@@ -65,6 +82,7 @@ function LiveDock() {
           ×
         </IconButton>
       </div>
+      <CoachBar minute={0} />
       <Ask minute={0} examples={examples} onCited={noCites} />
     </section>
   );
@@ -104,6 +122,14 @@ function Dock() {
               className="day-tick nudge"
               style={{ left: share(n.at) }}
               title={`${clock(n.at)} · ${n.title}`}
+            />
+          ))}
+          {COACH_TICKS.map((n) => (
+            <span
+              key={n.id}
+              className="day-tick coach"
+              style={{ left: share(n.minute) }}
+              title={`${clock(n.minute)} · Room coach: ${n.title}`}
             />
           ))}
           {cited.map((m) => (
@@ -151,6 +177,7 @@ function Dock() {
           'Nothing has happened yet today.'
         )}
       </p>
+      <CoachBar minute={minute} />
       <Ask minute={minute} examples={DEMO_ASK_EXAMPLES} onCited={setCited} />
     </section>
   );
@@ -503,47 +530,184 @@ function Bars({ bars }: { bars: NonNullable<RoomAnswer['bars']> }) {
   );
 }
 
+/** A coach nudge's dot and its button, by topic. */
+const TOPIC: Record<CoachTopic, { dot: string; action: string }> = {
+  drink: { dot: 'mug', action: 'Sipping now' },
+  screen: { dot: 'monitor', action: 'Fine, I’ll blink' },
+  late: { dot: 'monitor', action: 'Five more minutes' },
+  lampAway: { dot: 'lamp', action: 'Oops' },
+  cat: { dot: 'cat', action: 'Respect the cat' },
+  food: { dot: 'fridge', action: 'On it' },
+};
+/** How long a live coach nudge stays over the room, ms. */
+const LIVE_SHOWN_MS = 30 * 60_000;
+/** How long a coach nudge stays over the replay, in minutes of the day. */
+const COACH_SHOWN = 30;
+/** Notifications shown at once, newest first. */
+const SHOWN_AT_ONCE = 3;
+
+interface Shown {
+  id: string;
+  at: number;
+  time: string;
+  coach: boolean;
+  title: string;
+  body: string;
+  action?: string | undefined;
+  dot?: string;
+  bySpark?: boolean;
+}
+
 /**
- * The nudges Home Assistant would have pushed to the phone by this minute of
- * the day, as notifications over the room.
+ * Notifications over the room, as a phone shows them. In the demo, while the
+ * day plays: the nudges Home Assistant would have pushed and the room coach's,
+ * each as its minute passes, and any "Check now" brought. Live: what the room
+ * coach said in the last half hour.
  */
 export function DayNudges() {
   const replaying = useReplay((r) => r.open);
   const { mode } = useView();
-  // The sample day's nudges: live has no scripted day to send them.
-  const open = replaying && mode === 'demo';
   const minute = useReplay((r) => Math.floor(r.minute));
-  const [dismissed, setDismissed] = useState<Set<string>>(new Set());
-  const shown = useMemo(
-    () => NUDGES.filter((n) => n.at <= minute && minute - n.at < NUDGE_SHOWN),
-    [minute],
-  );
-  if (!open) return null;
-  const left = shown.filter((n) => !dismissed.has(n.id));
+  const live = useCoach((c) => c.live);
+  const checked = useCoach((c) => c.checked);
+  const dismissed = useCoach((c) => c.dismissed);
+  useLiveCoach(mode === 'live');
+  const today = midnightOf(Date.now());
+  const shown = useMemo((): Shown[] => {
+    const coachCard = (n: CoachNudge, time: string): Shown => ({
+      id: n.id,
+      at: n.at,
+      time,
+      coach: true,
+      title: n.title,
+      body: n.body,
+      action: TOPIC[n.topic].action,
+      dot: TOPIC[n.topic].dot,
+      bySpark: n.by === 'spark',
+    });
+    if (mode === 'live')
+      return (live?.nudges ?? [])
+        .filter((n) => Date.now() - n.at < LIVE_SHOWN_MS)
+        .map((n) => coachCard(n, clockOf(n.at)));
+    if (!replaying) return [];
+    const now = today + minute * 60_000;
+    const recent = (at: number) => at <= now && now - at < NUDGE_SHOWN * 60_000;
+    return [
+      ...NUDGES.filter((n) => recent(today + n.at * 60_000)).map((n): Shown => ({
+        id: n.id,
+        at: today + n.at * 60_000,
+        time: clock(n.at),
+        coach: false,
+        title: n.title,
+        body: n.body,
+        action: n.action,
+      })),
+      ...demoCoachDay()
+        .filter((n) => n.at <= now && now - n.at < COACH_SHOWN * 60_000)
+        .map((n) => coachCard(n, clockOf(n.at))),
+      ...checked.map((n) => coachCard(n, clockOf(n.at))),
+    ];
+  }, [mode, live, replaying, minute, today, checked]);
+  const left = shown
+    .filter((n) => !dismissed.includes(n.id))
+    .sort((a, b) => b.at - a.at)
+    .slice(0, SHOWN_AT_ONCE);
   if (!left.length) return null;
-  const dismiss = (id: string) => setDismissed((d) => new Set(d).add(id));
   return (
     <div className="day-nudges" aria-label="Notifications" role="log">
       {left.map((n) => (
-        <article key={n.id} className="day-nudge">
+        <article key={n.id} className={`day-nudge${n.coach ? ' coach' : ''}`}>
           <header>
-            <span className="day-nudge-app">Home Assistant · Living Layer</span>
-            <time>{clock(n.at)}</time>
+            <span className="day-nudge-app">
+              {n.coach ? (
+                <>
+                  <span className="ask-spark" aria-hidden="true">
+                    ✦
+                  </span>{' '}
+                  Room coach{n.bySpark ? ' · Spark' : ''}
+                </>
+              ) : (
+                'Home Assistant · Living Layer'
+              )}
+            </span>
+            <time>{n.time}</time>
           </header>
-          <strong>{n.title}</strong>
+          <strong>
+            {n.dot && <span className={`day-dot ${n.dot}`} aria-hidden="true" />} {n.title}
+          </strong>
           <p>{n.body}</p>
           <div className="day-nudge-actions">
             {n.action && (
-              <button type="button" onClick={() => dismiss(n.id)}>
+              <button type="button" onClick={() => dismissNudge(n.id)}>
                 {n.action}
               </button>
             )}
-            <button type="button" onClick={() => dismiss(n.id)}>
+            <button type="button" onClick={() => dismissNudge(n.id)}>
               Dismiss
             </button>
           </div>
         </article>
       ))}
+    </div>
+  );
+}
+
+/**
+ * The room coach's strip in the dock: what it does, "Check now", and live,
+ * the switch and when it looks next. A quiet answer shows beside it.
+ */
+function CoachBar({ minute }: { minute: number }) {
+  const { mode } = useView();
+  const live = useCoach((c) => c.live);
+  const checking = useCoach((c) => c.checking);
+  const said = useCoach((c) => c.said);
+  const demo = mode === 'demo';
+  const on = demo || Boolean(live?.on);
+  const next =
+    !demo && live?.nextAt ? Math.max(1, Math.ceil((live.nextAt - Date.now()) / 60_000)) : null;
+  return (
+    <div className="coach-bar">
+      <span className="coach-name">
+        <span className="ask-spark" aria-hidden="true">
+          ✦
+        </span>{' '}
+        Room coach
+      </span>
+      {!demo && (
+        <button
+          type="button"
+          role="switch"
+          aria-checked={on}
+          className="coach-switch"
+          title={
+            on
+              ? 'Stop the coach looking every few minutes'
+              : 'Have the coach look every few minutes: one small Spark call when something is due'
+          }
+          onClick={() => void switchCoach(!on)}
+        >
+          <span aria-hidden="true" />
+        </button>
+      )}
+      <span className="coach-about micro">
+        {demo
+          ? `Looks every ${COACH.everyMin} min as the day plays, and nudges when something’s due`
+          : on
+            ? `Looks every ${COACH.everyMin} min${next ? ` · next in ${next} min` : ''} · one small Spark call when something’s due`
+            : `Off · switch it on to look every ${COACH.everyMin} min`}
+      </span>
+      {said && <span className="coach-said micro">{said}</span>}
+      <button
+        type="button"
+        className="ask-chip coach-check"
+        disabled={checking}
+        title={demo ? `Look at the room as of ${clock(minute)}` : 'Look at the room now'}
+        onClick={() =>
+          void checkCoach(mode, demo ? midnightOf(Date.now()) + minute * 60_000 : undefined)
+        }
+      >
+        {checking ? 'Looking…' : 'Check now'}
+      </button>
     </div>
   );
 }

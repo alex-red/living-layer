@@ -83,7 +83,7 @@ export type AskKind =
   | 'other'
   | 'summary';
 /** One event an answer rests on. */
-interface AskCite {
+export interface AskCite {
   at: number;
   thingId: string;
   kind: AskKind;
@@ -327,7 +327,7 @@ function voiceOf(thing: AskThing, key: StatKey): Voice {
   return 'other';
 }
 /** The kind a thing's dot shows: its voice, with lights told apart. */
-function kindOf(thing: AskThing, key: StatKey | undefined): AskKind {
+export function thingKind(thing: AskThing, key: StatKey | undefined): AskKind {
   if (thing.food || thing.expires) return 'food';
   if (!key) return 'other';
   const voice = voiceOf(thing, key);
@@ -362,7 +362,7 @@ function eventText(t: Track, e: StatEvent): string {
 const cite = (t: Track, e: StatEvent): AskCite => ({
   at: e.at,
   thingId: t.thing.id,
-  kind: kindOf(t.thing, t.key),
+  kind: thingKind(t.thing, t.key),
   text: eventText(t, e),
 });
 
@@ -1088,10 +1088,10 @@ export function askExamples(things: readonly AskThing[], max = 6): AskExample[] 
   for (const t of things) {
     const key = t.stats[0];
     // One of each kind, so three foods don't crowd out the lamp.
-    if (!key || kinds.has(kindOf(t, key))) continue;
-    kinds.add(kindOf(t, key));
+    if (!key || kinds.has(thingKind(t, key))) continue;
+    kinds.add(thingKind(t, key));
     const ex = (label: string, question: string) =>
-      out.push({ label, question, thing: t.id, kind: kindOf(t, key) });
+      out.push({ label, question, thing: t.id, kind: thingKind(t, key) });
     switch (voiceOf(t, key)) {
       case 'drink':
         ex('Drinks today', `How many times did I drink from ${mine(t)} today?`);

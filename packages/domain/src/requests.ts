@@ -199,6 +199,30 @@ export const thingsAskBodySchema = z
   .strict();
 export type ThingsAskBody = z.input<typeof thingsAskBodySchema>;
 
+/** POST /api/coach/check: the room coach looks now, as of `at` in the demo. */
+export const coachCheckBodySchema = z
+  .object({
+    mode: modeSchema,
+    /** Look as of this time, ms: the demo's replay minute. Now when absent. */
+    at: z
+      .number()
+      .int()
+      .positive()
+      .refine((at) => at <= Date.now() + 86_400_000, { message: 'That time is still to come.' })
+      .optional(),
+  })
+  .strict();
+export type CoachCheckBody = z.input<typeof coachCheckBodySchema>;
+
+/** POST /api/coach/switch: whether the live room coach looks every few minutes. */
+export const coachSwitchBodySchema = z
+  .object({ mode: z.literal('live').default('live'), on: z.boolean() })
+  .strict();
+export type CoachSwitchBody = z.input<typeof coachSwitchBodySchema>;
+
+/** GET /api/coach/:mode */
+export const coachQuerySchema = z.object({ mode: modeSchema }).strict();
+
 /** POST /api/things/learn: the person says how the thing looks now. */
 export const thingsLearnBodySchema = z
   .object({

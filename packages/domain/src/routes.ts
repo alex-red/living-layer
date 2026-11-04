@@ -25,6 +25,7 @@ import type { Job } from './item-sculpt.js';
 import type { Quad } from './iso.js';
 import type { RunOf } from './run-outputs.js';
 import type { RoomAnswer } from './room-ask.js';
+import type { CoachCheck, CoachView } from './room-coach.js';
 import type { StatNow, StatsNow, ThingStatsView } from './stats.js';
 import type { WatchView } from './watch.js';
 
@@ -114,6 +115,10 @@ interface ApiRoutes {
   watch: { body: R.WatchBody; response: WatchView };
   'things/stats': { body: R.ThingsStatsBody; response: { memory: DeskMemory; stats: StatsNow } };
   'things/ask': { body: R.ThingsAskBody; response: EvidenceRun<RoomAnswer> };
+  'coach/check': { body: R.CoachCheckBody; response: CoachCheck };
+  'coach/switch': { body: R.CoachSwitchBody; response: CoachView };
+  'coach/demo': { body: undefined; response: CoachView };
+  'coach/live': { body: undefined; response: CoachView };
   'things/learn': { body: R.ThingsLearnBody; response: { now: StatNow; stats: StatsNow } };
   'things/used': { body: R.ThingsUsedBody; response: { now: StatNow; stats: StatsNow } };
   [path: `things/${'demo' | 'live'}/${string}`]: { body: undefined; response: ThingStatsView };

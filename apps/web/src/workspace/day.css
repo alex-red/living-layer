@@ -571,6 +571,85 @@
   }
 }
 
+/* The room coach: its strip in the dock, its ticks on the track, its notifications. */
+.coach-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+.coach-name {
+  font: 600 var(--fs-13) / 18px var(--ui);
+  color: var(--text);
+  white-space: nowrap;
+}
+.coach-about {
+  flex: 1;
+  min-width: 160px;
+  color: var(--text-3);
+}
+.coach-said {
+  color: var(--seen);
+}
+.coach-check:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.coach-switch {
+  position: relative;
+  flex-shrink: 0;
+  width: 30px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: 9px;
+  background: var(--surface-3);
+  cursor: pointer;
+  transition:
+    background var(--t-fast),
+    border-color var(--t-fast);
+}
+.coach-switch span {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--text-2);
+  transition:
+    transform var(--t-fast) var(--ease-out),
+    background var(--t-fast);
+}
+.coach-switch[aria-checked='true'] {
+  border-color: var(--seen);
+  background: var(--seen-wash);
+}
+.coach-switch[aria-checked='true'] span {
+  transform: translateX(12px);
+  background: var(--seen);
+}
+.day-tick.coach {
+  top: auto;
+  bottom: 1px;
+  width: 5px;
+  height: 5px;
+  margin-left: -2.5px;
+  border-radius: 50%;
+  background: var(--seen);
+}
+.day-nudge.coach {
+  border-color: color-mix(in srgb, var(--seen) 45%, var(--line-strong));
+}
+.day-nudge.coach .day-nudge-app {
+  color: var(--seen);
+}
+.day-nudge strong .day-dot {
+  margin-right: 2px;
+}
+
 /* Notifications as a phone shows them, over the room's top right. */
 .day-nudges {
   position: absolute;

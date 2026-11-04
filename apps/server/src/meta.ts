@@ -40,6 +40,8 @@ import {
   type FactNeed,
   type FactSource,
   type ProductFacts,
+  type CoachFact,
+  coachWordsSchema,
   type Usage,
   type Segmentation,
 } from '@livinglayer/domain';
@@ -89,6 +91,8 @@ export const SPARK_CALLS = {
   intent: { tokens: 8192, timeoutMs: 90_000 },
   // A question read as one query from closed lists: no picture, little to reason over.
   ask: { tokens: 4096, timeoutMs: DEFAULT_SPARK_TIMEOUT_MS, effort: 'low' },
+  // The room coach's nudge every few minutes: a line from given facts, so the least thinking and few tokens.
+  coach: { tokens: 1024, timeoutMs: DEFAULT_SPARK_TIMEOUT_MS, effort: 'minimal' },
   // Spark reasons over the photo and the model's parts first: 8192 ran out before it answered.
   refine: { tokens: 16384, timeoutMs: 150_000 },
 } as const;
@@ -490,6 +494,26 @@ export class MetaAdapter {
         'compare: previous for “more than yesterday” or “than the hour before” (the window before), average for “than usual”, else none.',
         'while and whileOn: when the question counts or adds up time only while another thing was on (whileOn true) or off (false), that thing’s id; “while I was away” is the screen or the desk’s zone off. Else both null.',
         'clarify: if the question isn’t about these things or can’t be one query, a short question back; else null.',
+      ].join('\n'),
+    });
+  }
+  /**
+   * The room coach: pick the fact most worth a nudge and word it as a funny,
+   * kind friend would, with the facts' own numbers.
+   */
+  async coach(facts: readonly CoachFact[], now: number, signal?: AbortSignal) {
+    return this.structured('coach', {
+      name: 'room_coach',
+      schema: coachWordsSchema,
+      what: 'nudge',
+      signal,
+      text: [
+        'You are the room coach in a smart-home app: a funny, warm, slightly cheeky friend who nudges the person about their habits. Think dry humour, light roasting, never mean, never preachy, no health lectures.',
+        `It is ${new Date(now).toLocaleString('en-GB', { weekday: 'long', hour: '2-digit', minute: '2-digit' })}. The room's sensors say (id: fact):`,
+        ...facts.map((f) => `- ${f.id}: ${f.text}`),
+        'Pick the one fact most worth a nudge right now and write it as a phone notification.',
+        'factId: that fact’s id exactly as listed. title: at most 6 words. body: one or two short sentences, at most 140 characters, casual (“like 3 hours, dude” is fine), at most one emoji.',
+        'Use the numbers as given, rounded the way a person says them; don’t invent anything the facts don’t say. Vary your jokes: no “hydration station”.',
       ].join('\n'),
     });
   }

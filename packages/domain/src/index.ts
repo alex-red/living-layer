@@ -64,3 +64,4 @@ export * from './sprite-presets.js';
 export * from './desktop-node.js';
 export * from './demo-day.js';
 export * from './room-ask.js';
+export * from './room-coach.js';

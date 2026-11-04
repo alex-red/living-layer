@@ -119,6 +119,7 @@ export type RunKind =
   | 'fixture'
   | 'assist'
   | 'ask'
+  | 'coach'
   | 'lamp'
   | 'observation'
   | 'zone'

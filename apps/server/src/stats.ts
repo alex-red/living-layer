@@ -245,6 +245,10 @@ export class StatRunner {
   private get now() {
     return this.deps.now?.() ?? Date.now();
   }
+  /** Whether the camera is watching now: camera stats are current only while it is. */
+  get isWatching() {
+    return this.watching;
+  }
   subscribe(listener: () => void) {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);

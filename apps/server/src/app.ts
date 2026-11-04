@@ -55,6 +55,7 @@ import { reconstruct } from './sam3d.js';
 import { createRunner } from './runs.js';
 import { Exposer, exposeRoutes } from './expose.js';
 import { statRoutes } from './stats.js';
+import { RoomCoach, coachRoutes } from './coach.js';
 import { MqttLink, type MqttConnect } from './mqtt.js';
 import { MqttControl } from './mqtt-control.js';
 import {
@@ -598,6 +599,16 @@ export async function buildApp(
   app.register((scope) => statRoutes(scope, { store, runners: statRunners, meta, run }), {
     prefix: '/api/things',
   });
+  // The room coach: live, it looks every few minutes while switched on.
+  const coach = new RoomCoach({
+    store,
+    meta,
+    run,
+    runners: statRunners,
+    log: (message) => app.log.warn(message),
+  });
+  coach.start();
+  app.register((scope) => coachRoutes(scope, { coach }), { prefix: '/api/coach' });
   // Whatever a person changes in a desk, the watchers follow and the entities shown in Home
   // Assistant follow. A root hook, so it covers every plugin's routes.
   app.addHook('onResponse', async (request, reply) => {
@@ -645,6 +656,7 @@ export async function buildApp(
   });
   app.addHook('onClose', async () => {
     haLive.stop();
+    coach.stop();
     clearInterval(tick);
     watchers.demo.stop();
     watchers.live.stop();

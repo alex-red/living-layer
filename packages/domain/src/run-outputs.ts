@@ -1,6 +1,7 @@
 import type { EvidenceRun, LampResult, RunFailure, RunKind, Scene, Segmentation } from './api.js';
 import type { AssistDraft } from './assist.js';
 import type { RoomAnswer } from './room-ask.js';
+import type { CoachCheck } from './room-coach.js';
 import type { FixtureDraft, FixtureInput } from './fixture.js';
 import type { FixtureScan, MappedThing } from './fixture-scan.js';
 import type { PictureFind } from './illustration.js';
@@ -87,6 +88,7 @@ interface RunOutputs {
   fixture: FixtureRunOutput;
   assist: AssistDraft;
   ask: RoomAnswer;
+  coach: CoachCheck;
   lamp: LampResult;
   placement: PlacementDecision;
 }
