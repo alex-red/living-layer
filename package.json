@@ -32,6 +32,7 @@
     "browser": "bun scripts/browser.ts",
     "trace": "bun scripts/trace.ts",
     "record": "bun scripts/record.ts",
+    "shot": "bun scripts/shot.ts",
     "bench": "bun scripts/room-bench.ts; bun scripts/fit-bench.ts",
     "bench:room": "bun scripts/room-bench.ts",
     "bench:fit": "bun scripts/fit-bench.ts",
