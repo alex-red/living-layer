@@ -32,6 +32,7 @@ import {
   renderRoom,
   roomMask,
   sceneSolids,
+  solidsWindow,
   type FixtureRecipe,
   type RecipeCheck,
 } from '@livinglayer/domain';
@@ -72,6 +73,9 @@ describe('the form a new model is built from, by its name', () => {
     expect(formOfName('standing desk')).toBe('desk');
     expect(formOfName('lamp table')).toBe('table');
     expect(formOfName('mouse')).toBeNull();
+    // Flat and round, so a turned form: never a butter dish's block and lid.
+    expect(formOfName('black coaster')).toBe('jar');
+    expect(formOfName('saucer')).toBe('jar');
     const mug = assembleRecipe(formOfName('mug')!, { query: 'mug', name: 'mug', sources: [] });
     expect(mug.parts.some((p) => p.role === 'drawer')).toBe(false);
     expect(Math.max(mug.sizeCm.w, mug.sizeCm.d, mug.sizeCm.h)).toBeLessThan(15);
@@ -191,6 +195,48 @@ describe('refitting a model’s size to its outline', () => {
       expect(fit.place.z).toBe(place.z);
     }
   }, 30_000);
+});
+
+describe('drawing only part of the room', () => {
+  it('draws the window around the monitor as the whole picture does, and nothing outside it', () => {
+    const solids = [floorSolid(DEMO_ROOM.grid), ...sceneSolids(DEMO_ROOM)];
+    const screen = solidsWindow(
+      DEMO_CAMERA,
+      solids.filter((x) => x.id === 'monitor'),
+    )!;
+    expect(screen.x1 - screen.x0).toBeGreaterThan(5);
+    const whole = renderRoom(DEMO_CAMERA, solids);
+    const part = renderRoom(DEMO_CAMERA, solids, { window: screen });
+    let same = 0;
+    let outside = 0;
+    for (let y = 0; y < whole.height; y++)
+      for (let x = 0; x < whole.width; x++) {
+        const i = y * whole.width + x;
+        const inside = x >= screen.x0 && x < screen.x1 && y >= screen.y0 && y < screen.y1;
+        if (!inside) {
+          if (part.ids[i] !== -1 || part.rgba[i * 4 + 3] !== 0) outside++;
+          continue;
+        }
+        const rgba = [0, 1, 2, 3].every((k) => part.rgba[i * 4 + k] === whole.rgba[i * 4 + k]);
+        if (rgba && part.names[part.ids[i]!] === whole.names[whole.ids[i]!]) same++;
+      }
+    expect(same).toBe((screen.x1 - screen.x0) * (screen.y1 - screen.y0));
+    expect(outside).toBe(0);
+  });
+});
+
+describe('refitting a coaster the camera saw from its corner', () => {
+  it('flattens one built as tall as its box into a disc the coaster’s size', () => {
+    // From high in a corner the demo's 10 cm cork coaster has a box as tall as it is wide.
+    const z = DEMO_ROOM.surfaces.find((s) => s.id === 'desk:top')!.z;
+    const at = { cx: 6.05, cy: 2.45, z, turns: 0, replaces: null };
+    const tall = recipeFromForm('jar', { w: 5.6, d: 7.5, h: 3.75 }, 'coaster');
+    const fit = refitRecipe(DEMO_CAMERA, DEMO_ROOM, tall, at, roomMask(frame, 'coaster'));
+    expect(fit.iou).toBeGreaterThan(0.9);
+    expect(fit.recipe.sizeCm.h).toBeLessThan(1.5);
+    expect(Math.abs(fit.recipe.sizeCm.w - 10)).toBeLessThan(1);
+    expect(Math.abs(fit.recipe.sizeCm.d - 10)).toBeLessThan(1);
+  });
 });
 
 describe('refining a recipe against the outline', () => {

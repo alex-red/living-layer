@@ -7,6 +7,7 @@ import {
   draftScore,
   floorSolid,
   recipeFromSculpt,
+  RECIPE_TARGET,
   recipeToSculpt,
   sceneSolids,
   sceneWithRecipe,
@@ -41,7 +42,7 @@ const LOOKS = ['first', 'again'] as const;
  * Spark reshapes a brush model from the camera's picture
  * (`brushSculptPrompt`): the photo cut around the thing beside the model
  * drawn through the same camera and cut the same way, twice, each look
- * starting from the last. Each look is checked against the camera, outline
+ * starting from the last; once when the first already meets `RECIPE_TARGET`. Each look is checked against the camera, outline
  * and colours (`draftScore`); the best is kept. Null when no look gave a
  * usable model, so the model built from its form stands. With `refit`, each
  * look's size and footprint are fitted to the outline with its own shape
@@ -89,7 +90,10 @@ export async function shapeFromPhoto({
   const drawn = async (r: FixtureRecipe, at: RecipePlace) => {
     // The model alone on the floor, so Spark sees its parts and not what stands round it.
     const solids = sceneSolids(sceneWithRecipe(scene, r, at)).filter((s) => s.id === 'candidate');
-    const pic = await renderRoomAsync(camera, [floorSolid(scene.grid), ...solids]);
+    // Only the pixels cut out are drawn.
+    const pic = await renderRoomAsync(camera, [floorSolid(scene.grid), ...solids], {
+      window: { x0: box.left, y0: box.top, x1: box.left + box.width, y1: box.top + box.height },
+    });
     return sharp(Buffer.from(pic.rgba), {
       raw: { width: pic.width, height: pic.height, channels: 4 },
     })
@@ -124,13 +128,11 @@ export async function shapeFromPhoto({
     if (refit)
       ({ recipe: current, place: at } = await refitRecipeAsync(camera, scene, next, at, against));
     render = await drawn(current, at);
-    looks.push({
-      recipe: current,
-      place: at,
-      check: check(current, at),
-      note: answer.output.note,
-      render,
-    });
+    const checked = check(current, at);
+    looks.push({ recipe: current, place: at, check: checked, note: answer.output.note, render });
+    // A look that already matches the outline isn't asked again: each look is a call of half a
+    // minute or more.
+    if (checked.iou >= RECIPE_TARGET.iou) break;
   }
   if (!looks.length) return null;
   const best = looks.reduce((a, b) => (draftScore(b.check) > draftScore(a.check) ? b : a));

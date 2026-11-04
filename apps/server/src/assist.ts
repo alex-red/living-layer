@@ -77,6 +77,7 @@ import {
 } from '@livinglayer/domain';
 import { sparkRefiner } from './build.js';
 import { shapeFromPhoto, type Shaped } from './brush-sculpt.js';
+import { refitRecipeAsync } from './workers/compute.js';
 import { demoPng } from './demo.js';
 import { demoIntent } from './demo-intent.js';
 import { LabError, liveImage, parseInput, requireCalibration } from './errors.js';
@@ -934,6 +935,16 @@ export async function finishDraft(
     Boolean(create) &&
     draft.facts?.origin.size === 'photo' &&
     !edits.some((o) => o.op === 'resize');
+  // The model as built is fitted so too, kept when it matches better: from a high corner a flat
+  // coaster's box is as tall as it is wide, and without Spark (a timeout, the demo) that stood.
+  if (refit && recipe && place) {
+    const fitted = await refitRecipeAsync(room.camera, room.scene, recipe, place, against);
+    if (fitted.iou > check(recipe).iou) {
+      draft.recipe = recipe = fitted.recipe;
+      draft.place = place = fitted.place;
+    }
+  }
+  steps.check();
 
   // 7. A new model, or one asked to look like the photo, is shaped from the photo by Spark.
   steps.run('shape');

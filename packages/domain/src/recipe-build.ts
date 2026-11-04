@@ -29,7 +29,7 @@ import {
   type RecipeRole,
 } from './recipe.js';
 import { projectRoom, unprojectRoom, type RoomCamera } from './room-camera.js';
-import { floorSolid, renderRoom, sceneSolids } from './room-render.js';
+import { floorSolid, renderRoom, sceneSolids, solidsWindow } from './room-render.js';
 
 /**
  * Building a recipe for the thing a person selected
@@ -276,6 +276,8 @@ const FORM_WORDS: [RegExp, PropForm][] = [
   [/\b(cabinet|drawers?|dresser|chest)\b/, 'cabinet'],
   [/\b(monitor|screen)\b/, 'monitor'],
   [/\bkeyboard\b/, 'keyboard'],
+  // Flat and round: a turned form, so it starts as a disc and not a butter dish's block and lid.
+  [/\b(coaster|saucer|plate)s?\b/, 'jar'],
 ];
 /** The built-in form nearest each kind of small thing; a mouse, a cat or an unknown has none. */
 const FORM_OF_ARCHETYPE: Partial<Record<Archetype, PropForm>> = {
@@ -304,7 +306,7 @@ export function formOfName(name: string): PropForm | null {
 const SMALL_CM = 40;
 /**
  * The form a new model is built from when nothing named one: a plain block
- * for a small thing the camera measured (a coaster, a remote), so it isn't
+ * for a small thing the camera measured (a remote), so it isn't
  * drawn as a chest of drawers; a cabinet for anything bigger or unmeasured.
  */
 export function fallbackForm(sizeCm: { w: number; d: number; h: number } | null): PropForm {
@@ -577,9 +579,7 @@ export function checkRecipe(
   photo?: Uint8Array | Uint8ClampedArray,
 ): RecipeCheck {
   const s = sceneWithRecipe(scene, recipe, place);
-  // Its colours drawn only when there is a photo to compare them with.
-  const picture = renderRoom(camera, [floorSolid(s.grid), ...sceneSolids(s)], { labels: !photo });
-  const k = picture.names.indexOf('candidate');
+  const solids = sceneSolids(s);
   // Mismatch by side of the outline's box, for the report.
   let [x0, x1, y0, y1] = [Infinity, -1, Infinity, -1];
   for (let i = 0; i < outline.data.length; i++)
@@ -590,7 +590,28 @@ export function checkRecipe(
     }
   const mx = (x0 + x1) / 2;
   const my = (y0 + y1) / 2;
-  const { width } = outline;
+  const { width, height } = outline;
+  // Only the pixels the outline or the model can cover are drawn and compared: the rest count
+  // for neither, and a small thing's check drew a whole room for a few hundred of them.
+  const drawnBox = solidsWindow(
+    camera,
+    solids.filter((x) => x.id === 'candidate'),
+  );
+  const win =
+    drawnBox && x1 >= 0
+      ? {
+          x0: Math.min(drawnBox.x0, x0),
+          y0: Math.min(drawnBox.y0, y0),
+          x1: Math.max(drawnBox.x1, x1 + 1),
+          y1: Math.max(drawnBox.y1, y1 + 1),
+        }
+      : { x0: 0, y0: 0, x1: width, y1: height };
+  // Its colours drawn only when there is a photo to compare them with.
+  const picture = renderRoom(camera, [floorSolid(s.grid), ...solids], {
+    labels: !photo,
+    window: win,
+  });
+  const k = picture.names.indexOf('candidate');
   // Its drawing, and the same with the gaps across each row filled: SAM outlines an open
   // shelf with what stands in it and the wall seen through it, so an open frame is judged
   // by its envelope as well as its parts, whichever matches the outline better.
@@ -598,10 +619,10 @@ export function checkRecipe(
   const filled = new Uint8Array(outline.data.length);
   // The colours compared, drawn and photographed, for after the loop.
   const pairs: [Lab, Lab][] = [];
-  for (let y = 0; y * width < outline.data.length; y++) {
+  for (let y = win.y0; y < win.y1; y++) {
     let first = -1;
     let last = -1;
-    for (let x = 0; x < width; x++) {
+    for (let x = win.x0; x < win.x1; x++) {
       const i = y * width + x;
       if (picture.ids[i] !== k) continue;
       drawnAt[i] = 1;
@@ -623,19 +644,19 @@ export function checkRecipe(
     let both = 0;
     let drawn = 0;
     let wanted = 0;
-    for (let i = 0; i < outline.data.length; i++) {
-      const isDrawn = mask[i] === 1;
-      const isWanted = outline.data[i] === 1;
-      if (isDrawn) drawn++;
-      if (isWanted) wanted++;
-      if (isDrawn && isWanted) both++;
-      if (isDrawn === isWanted) continue;
-      const x = i % width;
-      const y = Math.floor(i / width);
-      const slot = isWanted ? 0 : 1;
-      sides[x < mx ? 'left' : 'right']![slot]++;
-      sides[y < my ? 'top' : 'bottom']![slot]++;
-    }
+    for (let y = win.y0; y < win.y1; y++)
+      for (let x = win.x0; x < win.x1; x++) {
+        const i = y * width + x;
+        const isDrawn = mask[i] === 1;
+        const isWanted = outline.data[i] === 1;
+        if (isDrawn) drawn++;
+        if (isWanted) wanted++;
+        if (isDrawn && isWanted) both++;
+        if (isDrawn === isWanted) continue;
+        const slot = isWanted ? 0 : 1;
+        sides[x < mx ? 'left' : 'right']![slot]++;
+        sides[y < my ? 'top' : 'bottom']![slot]++;
+      }
     return { both, drawn, wanted, sides, iou: both / Math.max(1, drawn + wanted - both) };
   };
   const asDrawn = compare(drawnAt);

@@ -10,6 +10,7 @@ import {
   type IsoScene,
   type RecipePlace,
   type RoomCamera,
+  type PixelWindow,
   type RoomPicture,
   type RoomSolid,
 } from '@livinglayer/domain';
@@ -20,7 +21,7 @@ export type ComputeJob =
       op: 'render';
       camera: RoomCamera;
       solids: RoomSolid[];
-      options?: { labels?: boolean; scratch?: boolean };
+      options?: { labels?: boolean; scratch?: boolean; window?: PixelWindow };
     }
   | {
       op: 'refit';
@@ -105,7 +106,7 @@ export const fitItemAsync = (input: FitInput): Promise<FitOutput> =>
 export const renderRoomAsync = (
   camera: RoomCamera,
   solids: RoomSolid[],
-  options?: { labels?: boolean; scratch?: boolean },
+  options?: { labels?: boolean; scratch?: boolean; window?: PixelWindow },
 ): Promise<RoomPicture> =>
   run({ op: 'render', camera, solids, ...(options ? { options } : {}) }, () =>
     renderRoom(camera, solids, options),

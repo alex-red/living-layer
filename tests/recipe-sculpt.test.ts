@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'bun:test';
-import { uprightTilt } from '../apps/server/src/brush-sculpt.js';
+import { shapeFromPhoto, uprightTilt } from '../apps/server/src/brush-sculpt.js';
+import { demoPng } from '../apps/server/src/demo.js';
+import type { MetaAdapter } from '../apps/server/src/meta.js';
 import {
   DEMO_CAMERA,
+  DEMO_ROOM,
+  demoFrame,
+  placeOfGroup,
+  roomMask,
+  type RecipeCheck,
   brushSculptPrompt,
   placeRecipe,
   propSolids,
@@ -130,5 +137,46 @@ describe('a brush model shaped from the photo', () => {
     expect(p).toContain(`about ${Math.round(right)}° to the right of the picture's vertical`);
     expect(p).toContain('Posts and sides at that angle stand straight');
     expect(brushSculptPrompt(shelf(), 'x', 'first', 0.3)).toContain('runs straight up the picture');
+  });
+});
+
+describe('how many looks Spark is asked for', () => {
+  const desk = recipeFromForm('desk', { w: 160, d: 80, h: 72 }, 'Desk');
+  /** Spark sending back the model it was given, and the check giving `iou` each time. */
+  const shapeAt = async (iou: number) => {
+    let calls = 0;
+    const meta = {
+      sculpt: async () => {
+        calls++;
+        return {
+          output: { parts: recipeToSculpt(desk), note: 'Kept it.' },
+          usage: null,
+          model: 'spark',
+          requestId: null,
+        };
+      },
+    } as unknown as MetaAdapter;
+    const check = (): RecipeCheck => ({ iou, missing: 0, extra: 0, report: '', deltaE: 0 });
+    await shapeFromPhoto({
+      meta,
+      camera: DEMO_CAMERA,
+      scene: DEMO_ROOM,
+      place: placeOfGroup(DEMO_ROOM, 'desk')!,
+      recipe: desk,
+      frame: await demoPng(),
+      against: roomMask(demoFrame(), 'desk'),
+      request: 'make it match',
+      check,
+      onCall: () => {},
+    });
+    return calls;
+  };
+
+  it('asks once when the first look already matches the outline', async () => {
+    expect(await shapeAt(0.9)).toBe(1);
+  });
+
+  it('asks again when the first look falls short of the outline', async () => {
+    expect(await shapeAt(0.5)).toBe(2);
   });
 });

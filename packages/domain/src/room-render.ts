@@ -195,18 +195,82 @@ function lensFalloff(width: number, height: number): Float64Array {
   return falloff;
 }
 
+/** A rectangle of the frame's pixels: from `x0`, `y0` up to, not including, `x1`, `y1`. */
+export interface PixelWindow {
+  x0: number;
+  y0: number;
+  x1: number;
+  y1: number;
+}
+/**
+ * The pixels the solids can cover, grown by `margin` and kept in the frame:
+ * the box of their corners as the camera sees them. Null when a corner is at
+ * or behind the camera's near plane, where the box doesn't bound them.
+ */
+export function solidsWindow(
+  camera: RoomCamera,
+  solids: RoomSolid[],
+  margin = 2,
+): PixelWindow | null {
+  let [x0, y0, x1, y1] = [Infinity, Infinity, -Infinity, -Infinity];
+  for (const { box } of solids)
+    for (const x of [box.at.x, box.at.x + box.size.w])
+      for (const y of [box.at.y, box.at.y + box.size.d])
+        for (const z of [box.at.z, box.at.z + box.size.h]) {
+          const [cx, cy, cz] = toCamera(camera, { x, y, z });
+          if (cz < NEAR) return null;
+          const px = (camera.f * cx) / cz + camera.cx;
+          const py = (camera.f * cy) / cz + camera.cy;
+          [x0, y0, x1, y1] = [
+            Math.min(x0, px),
+            Math.min(y0, py),
+            Math.max(x1, px),
+            Math.max(y1, py),
+          ];
+        }
+  return clampWindow(camera, {
+    x0: Math.floor(x0) - margin,
+    y0: Math.floor(y0) - margin,
+    x1: Math.ceil(x1) + margin + 1,
+    y1: Math.ceil(y1) + margin + 1,
+  });
+}
+/** A window kept inside the camera's frame; empty ones stay empty. */
+function clampWindow({ frame }: RoomCamera, w: PixelWindow): PixelWindow {
+  const x0 = Math.max(0, Math.min(frame.width, w.x0));
+  const y0 = Math.max(0, Math.min(frame.height, w.y0));
+  return {
+    x0,
+    y0,
+    x1: Math.max(x0, Math.min(frame.width, w.x1)),
+    y1: Math.max(y0, Math.min(frame.height, w.y1)),
+  };
+}
+
 /**
  * Draw the solids through the camera. With `labels`, only which solid covers
  * each pixel is worked out, for matching drawings against masks quickly; with
  * `scratch` too, its `ids` are only good until the next scratch picture, for a
- * caller that reads them at once and keeps nothing.
+ * caller that reads them at once and keeps nothing. With `window`, only those
+ * pixels are drawn, each exactly as in the whole picture; the rest are empty
+ * (no solid, black): a check of one small thing needn't draw the whole room.
  */
 export function renderRoom(
   camera: RoomCamera,
   solids: RoomSolid[],
-  { labels = false, scratch = false }: { labels?: boolean; scratch?: boolean } = {},
+  {
+    labels = false,
+    scratch = false,
+    window,
+  }: { labels?: boolean; scratch?: boolean; window?: PixelWindow } = {},
 ): RoomPicture {
   const { width, height } = camera.frame;
+  const {
+    x0: wx0,
+    y0: wy0,
+    x1: wx1,
+    y1: wy1,
+  } = clampWindow(camera, window ?? { x0: 0, y0: 0, x1: width, y1: height });
   // A scratch picture borrows buffers the next scratch picture overwrites.
   let depth: Float32Array;
   let ids: Int16Array;
@@ -247,7 +311,7 @@ export function renderRoom(
         w: 1 / z,
       }));
       for (let t = 1; t + 1 < px.length; t++)
-        fillTriangle(px[0]!, px[t]!, px[t + 1]!, width, height, (i, w) => {
+        fillTriangle(px[0]!, px[t]!, px[t + 1]!, width, wx0, wy0, wx1, wy1, (i, w) => {
           const z = 1 / w;
           // On a tie the later solid wins: a mug drawn after the desk stands on its top.
           if (z > depth[i]! + 1e-4) return;
@@ -260,8 +324,8 @@ export function renderRoom(
   const rgba = new Uint8ClampedArray(labels ? 0 : width * height * 4);
   const falloff = labels ? EMPTY : lensFalloff(width, height);
   if (!labels)
-    for (let y = 0; y < height; y++)
-      for (let x = 0; x < width; x++) {
+    for (let y = wy0; y < wy1; y++)
+      for (let x = wx0; x < wx1; x++) {
         const i = y * width + x;
         const bg = ids[i]! < 0;
         // A lens darkens toward the corners a little.
@@ -298,21 +362,27 @@ function clipNear(poly: Vec3[]): Vec3[] {
 }
 
 type Vertex = { x: number; y: number; w: number };
-/** Every pixel centre inside the triangle, with 1/depth interpolated across it. */
+/**
+ * Every pixel centre inside the triangle and the window (`wx0`, `wy0` up to,
+ * not including, `wx1`, `wy1`), with 1/depth interpolated across it.
+ */
 function fillTriangle(
   a: Vertex,
   b: Vertex,
   c: Vertex,
   width: number,
-  height: number,
+  wx0: number,
+  wy0: number,
+  wx1: number,
+  wy1: number,
   plot: (i: number, w: number) => void,
 ) {
   const area = (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
   if (Math.abs(area) < 1e-9) return;
-  const x0 = Math.max(0, Math.floor(Math.min(a.x, b.x, c.x)));
-  const x1 = Math.min(width - 1, Math.ceil(Math.max(a.x, b.x, c.x)));
-  const y0 = Math.max(0, Math.floor(Math.min(a.y, b.y, c.y)));
-  const y1 = Math.min(height - 1, Math.ceil(Math.max(a.y, b.y, c.y)));
+  const x0 = Math.max(wx0, Math.floor(Math.min(a.x, b.x, c.x)));
+  const x1 = Math.min(wx1 - 1, Math.ceil(Math.max(a.x, b.x, c.x)));
+  const y0 = Math.max(wy0, Math.floor(Math.min(a.y, b.y, c.y)));
+  const y1 = Math.min(wy1 - 1, Math.ceil(Math.max(a.y, b.y, c.y)));
   for (let y = y0; y <= y1; y++)
     for (let x = x0; x <= x1; x++) {
       const px = x + 0.5;
