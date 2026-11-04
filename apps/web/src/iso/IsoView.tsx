@@ -367,6 +367,11 @@ function IsoViewOf({
     [setSelected, setMessage, refresh],
   );
   const onFixture = useCallback((id: string) => select({ kind: 'fixture', id }), [select]);
+  // The mug is `tracked` in the room and `main` in the outline.
+  const onObject = useCallback(
+    (id: string) => select({ kind: 'object', id: id === 'tracked' ? 'main' : id }),
+    [select],
+  );
   /** A thing's light, switch or desktop display turned on or off from its card. */
   const onSwitch = useCallback(
     (id: string, action: 'on' | 'off') =>
@@ -1062,6 +1067,7 @@ function IsoViewOf({
                 objects={view.objects}
                 fixtures={view.fixtures}
                 onFixture={onFixture}
+                onObject={onObject}
                 onMoveFixture={tool === 'select' && !turned ? onMoveFixture : undefined}
                 onFixtureMenu={onFixtureMenu}
                 onResizeFixture={tool === 'scale' && !turned ? onResizeFixture : undefined}

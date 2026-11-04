@@ -55,9 +55,12 @@
 .iso-prop .iso-hit-shape .side,
 .iso-prop .iso-hit-shape .top,
 .iso-fixture .iso-hit-shape .side,
-.iso-fixture .iso-hit-shape .top {
+.iso-fixture .iso-hit-shape .top,
+.iso-object .iso-hit-shape .side,
+.iso-object .iso-hit-shape .top {
   fill-opacity: 0;
   stroke: none;
+  filter: none;
 }
 .iso-surface {
   fill: none;
@@ -1659,7 +1662,8 @@
   width: 64px;
 }
 /* Fixtures stand where a person put them; a click selects one. */
-.iso-fixture {
+.iso-fixture,
+.iso-object {
   cursor: pointer;
 }
 .iso-fixture text {

@@ -205,12 +205,14 @@ const ObjectMarker = memo(function ObjectMarker({
   object,
   stats,
   calledOut,
+  onSelect,
 }: {
   box: IsoBox;
   object: IsoObject;
   stats: boolean;
   /** Its card beside the room names it, so the room doesn't too. */
   calledOut?: boolean;
+  onSelect?: (id: string) => void;
 }) {
   const head = toIso({
     x: box.at.x + box.size.w / 2,
@@ -221,6 +223,7 @@ const ObjectMarker = memo(function ObjectMarker({
     <g
       className={`iso-object ${object.unsure ? 'unsure' : ''} ${object.focused ? 'focused' : ''}`}
       data-object={object.id}
+      onClick={onSelect ? () => onSelect(object.id) : undefined}
     >
       {object.focused && (
         <polygon
@@ -234,7 +237,11 @@ const ObjectMarker = memo(function ObjectMarker({
         />
       )}
       {object.item ? (
-        <ItemSprite item={object.item} origin={box.at} scale={box.size.w} />
+        <>
+          <ItemSprite item={object.item} origin={box.at} scale={box.size.w} />
+          {/* The sprite lets the pointer through; its box, invisible, is what is clicked. */}
+          {onSelect && <Solid box={box} color="#000000" className="iso-hit-shape" />}
+        </>
       ) : (
         <Solid box={box} color={TONES.ceramic} shape="cylinder" />
       )}
@@ -471,6 +478,7 @@ function IsoSceneView({
   objects = NO_OBJECTS,
   fixtures = NO_FIXTURES,
   onFixture,
+  onObject,
   onMoveFixture,
   onFixtureMenu,
   onResizeFixture,
@@ -495,6 +503,8 @@ function IsoSceneView({
   fixtures?: IsoFixture[];
   /** A click on a fixture selects it. */
   onFixture?: (id: string) => void;
+  /** A click on a placed object selects it: `tracked` is the mug. */
+  onObject?: (id: string) => void;
   /** Drag a fixture to stand it elsewhere: its footprint's new centre, on a surface or the floor. */
   onMoveFixture?: (id: string, to: { x: number; y: number; surfaceId: string | null }) => void;
   /** Right-click on a fixture, at the pointer in the window. */
@@ -848,6 +858,7 @@ function IsoSceneView({
             object={item.object}
             stats={stats && !calledOut?.has(item.object.thingId ?? item.object.id)}
             calledOut={stats && Boolean(calledOut?.has(item.object.thingId ?? item.object.id))}
+            onSelect={drawing || placing ? undefined : onObject}
           />
         ) : (
           <FixtureMarker
