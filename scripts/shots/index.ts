@@ -8,6 +8,7 @@ import { fridge } from './fridge.js';
 import { sensor } from './sensor.js';
 import { triggers } from './triggers.js';
 import { home } from './home.js';
+import { litter } from './litter.js';
 import { memory } from './memory.js';
 import { plushies } from './plushies.js';
 import { remembers } from './remembers.js';
@@ -25,6 +26,7 @@ export const SHOTS: Shot[] = [
   plushies,
   coach,
   home,
+  litter,
   fridge,
   triggers,
   sensor,
