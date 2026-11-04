@@ -19,6 +19,7 @@ const ROUTES = [
   '/api/desk/:mode [GET]',
   '/api/desk/auto-pin [POST]',
   '/api/desk/camera [POST]',
+  '/api/desk/demo/household [POST]',
   '/api/desk/demo/reset [POST]',
   '/api/desk/objects/forget [POST]',
   '/api/desk/objects/select [POST]',

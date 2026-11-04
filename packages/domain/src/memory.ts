@@ -46,7 +46,7 @@ export type ZoneRect = z.infer<typeof zoneRectSchema>;
  */
 export const zoneOnSurfaceSchema = z
   .object({
-    scene: z.enum(['office', 'desk', 'fridge', 'custom']),
+    scene: z.enum(['office', 'desk', 'fridge', 'home', 'custom']),
     surfaceId: z.string().min(1).max(48),
     a: pointSchema,
     b: pointSchema,
@@ -61,7 +61,7 @@ export const roomCalibrationSchema = z
   .object({
     camera: roomCameraSchema,
     marks: roomMarksSchema,
-    scene: z.enum(['office', 'desk', 'fridge', 'custom']),
+    scene: z.enum(['office', 'desk', 'fridge', 'home', 'custom']),
     /** Root mean square distance of the marks from the fitted camera's floor lines, in pixels. */
     error: z.number().min(0),
     calibratedAt: z.string(),

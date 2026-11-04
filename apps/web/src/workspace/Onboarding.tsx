@@ -96,6 +96,9 @@ export function Onboarding() {
         <Button variant="text" onClick={() => lab.pickScene('fridge')}>
           Fridge
         </Button>
+        <Button variant="text" onClick={() => lab.pickScene('home')}>
+          Home
+        </Button>
         {memory?.scene && (
           <Button variant="text" onClick={() => lab.pickScene('custom')}>
             {memory.scene.label} (yours)

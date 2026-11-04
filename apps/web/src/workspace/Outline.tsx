@@ -632,6 +632,24 @@ function Things({ outline }: { outline: SceneOutline }) {
           Nothing here yet. Add a thing the camera can follow, like a mug, or place one by hand.
         </p>
       )}
+      {lab.mode === 'demo' &&
+        lab.workScene === 'home' &&
+        !outline.groups.some((g) => g.key === 'members') && (
+          <p className="ol-empty">
+            <Button
+              variant="text"
+              disabled={off}
+              onClick={() =>
+                call<DeskMemory>('desk/demo/household', {}, (m) => {
+                  lab.setMemory(m);
+                  lab.setMessage('Robin, Sam, Miso and Biscuit are home.');
+                })
+              }
+            >
+              Bring the household in
+            </Button>
+          </p>
+        )}
       <ul className={`ol-groups ${selecting ? 'selecting' : ''}`}>
         {outline.groups.map(group)}
         {suggested.length > 0 && (

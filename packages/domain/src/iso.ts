@@ -16,7 +16,7 @@ export const ISO_TILE = { width: 64, height: 32 } as const;
 /** Screen pixels per unit of height, close to a tile edge's on-screen length. */
 export const ISO_RISE = 36;
 
-export const isoSceneKindSchema = z.enum(['office', 'desk', 'fridge']);
+export const isoSceneKindSchema = z.enum(['office', 'desk', 'fridge', 'home']);
 export type IsoSceneKind = z.infer<typeof isoSceneKindSchema>;
 export type IsoTone =
   | 'floor'
@@ -367,7 +367,7 @@ export const isoSceneSchema = z
 
 export const surfacePinSchema = z
   .object({
-    scene: z.enum(['office', 'desk', 'fridge', 'custom']),
+    scene: z.enum(['office', 'desk', 'fridge', 'home', 'custom']),
     surfaceId: z.string().min(1).max(40),
     corners: z.tuple([pointSchema, pointSchema, pointSchema, pointSchema]),
     frame: z

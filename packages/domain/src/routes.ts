@@ -90,6 +90,7 @@ interface ApiRoutes {
 
   'desk/demo': { body: undefined; response: DeskMemory };
   'desk/live': { body: undefined; response: DeskMemory };
+  'desk/demo/household': { body: undefined; response: DeskMemory };
   'desk/restore': { body: Wide<R.DeskRestoreBody, 'memory', DeskMemory>; response: DeskMemory };
   'desk/track': {
     body: R.DeskTrackBody;

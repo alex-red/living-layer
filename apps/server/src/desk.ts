@@ -72,7 +72,6 @@ import {
   type LampResult,
   type LightLook,
   zoneThingId,
-  deskDemoResetBodySchema,
 } from '@livinglayer/domain';
 import { EvidenceStore } from './store.js';
 import { LabError, parseInput, safeError } from './errors.js';
@@ -1345,17 +1344,17 @@ export async function deskRoutes(
   });
   /**
    * Put the demo's memory back to the preset, as a fresh data folder has it:
-   * no scene, pin, fixtures or saved models of its own; with `household`, a
-   * person and a cat in the office. For probes against the dev server
-   * (`bun run reset demo`); live memory is never touched.
+   * no scene, pin, fixtures or saved models of its own, and the household
+   * in its Home room. For probes against the dev server (`bun run reset
+   * demo`); live memory is never touched.
    */
-  app.post('/demo/reset', async (request) => {
-    const { household } = parseInput(deskDemoResetBodySchema, request.body ?? {});
+  app.post('/demo/reset', async () => {
     const memory: DeskMemory = { mode: 'demo', lastDecision: null };
     store.saveMemory(memory);
-    if (household) await addDemoHousehold(deps);
-    return store.memory('demo');
+    return addDemoHousehold(deps);
   });
+  /** The household back in the demo's Home room, keeping everything else: when nobody is home there. */
+  app.post('/demo/household', async () => addDemoHousehold(deps));
   /**
    * Put back a whole desk memory: an imported save, an undo or redo, or the
    * empty demo desk. The pin and the scene are checked like any other save;

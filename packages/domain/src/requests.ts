@@ -409,14 +409,6 @@ export const fixturesPromoteBodySchema = z
   .strict();
 export type FixturesPromoteBody = z.input<typeof fixturesPromoteBodySchema>;
 
-/** POST /api/desk/demo/reset */
-export const deskDemoResetBodySchema = z
-  .object({
-    /** Put the demo's household in the office too: a person at the desk, the cat by the shelf. */
-    household: z.boolean().optional(),
-  })
-  .strict();
-
 /** POST /api/fixtures/seat */
 export const fixturesSeatBodySchema = z
   .object({

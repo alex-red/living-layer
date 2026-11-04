@@ -157,25 +157,33 @@ describe('changing what a member is', () => {
 });
 
 describe('the demo’s household', () => {
-  it('seats Robin in the office chair and puts Miso to sleep by the shelf, when asked', async () => {
+  it('is home after a reset: Robin in a chair at the table, the pets asleep and lying down', async () => {
     const { app } = await testApp({ name: 'members-household', appearance: async () => null });
-    const plain = await app.inject({ method: 'POST', url: '/api/desk/demo/reset' });
-    expect(plain.json<DeskMemory>().fixtures ?? []).toEqual([]);
-    const res = await app.inject({
-      method: 'POST',
-      url: '/api/desk/demo/reset',
-      payload: { household: true },
-    });
+    const res = await app.inject({ method: 'POST', url: '/api/desk/demo/reset' });
     expect(res.statusCode, res.body).toBe(200);
-    const fixtures = res.json<DeskMemory>().fixtures!;
-    const robin = fixtures.find((f) => f.label === 'Robin')!;
-    const chair = fixtures.find((f) => f.builtIn === 'chair')!;
+    const home = res.json<DeskMemory>().fixtures!.filter((f) => f.scene === 'home');
+    const robin = home.find((f) => f.label === 'Robin')!;
+    const chair = home.find((f) => f.builtIn === 'chair')!;
     expect(robin.seatedOn).toBe(chair.id);
     expect(chair.state).toBe('seated');
-    expect(fixtures.find((f) => f.label === 'Miso')).toMatchObject({
-      type: 'cat',
-      state: 'sleeping',
-    });
+    expect(home.find((f) => f.label === 'Miso')).toMatchObject({ type: 'cat', state: 'sleeping' });
+    expect(home.find((f) => f.label === 'Biscuit')).toMatchObject({ type: 'dog', state: 'lying' });
+    // Only the Home room has them: the office stays as its preset.
+    expect(res.json<DeskMemory>().fixtures!.some((f) => f.scene === 'office')).toBe(false);
+  });
+
+  it('comes back without touching the rest, and only once', async () => {
+    const { app, post } = await testApp({ name: 'members-bring', appearance: async () => null });
+    await app.inject({ method: 'POST', url: '/api/desk/demo/reset' });
+    const memory = (await app.inject('/api/desk/demo')).json<DeskMemory>();
+    for (const f of memory.fixtures ?? []) await post('fixtures/delete', { fixtureId: f.id });
+    await post('fixtures/save', { fixture: placed('dog', 'Rex', { x: 7, y: 5 }) });
+    const back = await app.inject({ method: 'POST', url: '/api/desk/demo/household' });
+    const again = await app.inject({ method: 'POST', url: '/api/desk/demo/household' });
+    const labels = again.json<DeskMemory>().fixtures!.map((f) => f.label);
+    expect(back.statusCode).toBe(200);
+    expect(labels).toContain('Rex');
+    expect(labels.filter((l) => l === 'Robin')).toHaveLength(1);
   });
 });
 

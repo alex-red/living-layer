@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import type { IsoScene, IsoSceneKind, IsoSurface, SurfacePin } from './iso.js';
 import { cm } from './iso-furniture.js';
-import { placeTemplate } from './iso-templates.js';
+import { placeTemplate, rotateGroup } from './iso-templates.js';
 
 type Item = Parameters<typeof placeTemplate>;
 /** A scene from placed templates, in order. */
@@ -92,10 +92,34 @@ const fridgeScene = compose('fridge', 'Fridge', { w: 7, d: 7 }, [
   ...doorThing('jar', 'jam', 'right', 2, 12, 'Jam', { w: 9, h: 11 }),
 ]);
 
+/**
+ * A living room for the household ([plan](../../../docs/plans/people-and-pets.md)):
+ * a table with a chair either side, a bookshelf and a plant. The
+ * demo puts its people and pets in it (`addDemoHousehold`).
+ */
+const homeScene = rotateGroup(
+  rotateGroup(
+    compose('home', 'Home', { w: 10, d: 8 }, [
+      ['wall', 'wall-back', 0, 0, 0, { size: { w: 10, d: 0.2 }, label: 'Back wall' }],
+      ['wall', 'wall-left', 0, 0.2, 0, { size: { w: 0.2, d: 7.8 }, label: 'Left wall' }],
+      // A 120 × 80 cm table, a chair on the room's side of it and one by the wall.
+      ['table', 'table', 3, 3, 0, { size: { w: cm(120), d: cm(80) } }],
+      ['lamp', 'lamp', 5.9, 3.3, cm(75), { label: 'Table lamp' }],
+      ['chair', 'chair', 3.9, 5.7, 0],
+      ['chair', 'chair-back', 3.9, 0.7, 0],
+      ['shelf', 'shelf', 7.1, 0.2, 0],
+      ['plant', 'plant', 0.35, 6.1, 0],
+    ]),
+    'chair-back',
+  ),
+  'chair-back',
+);
+
 export const ISO_PRESETS: Record<IsoSceneKind, IsoScene> = {
   office: officeScene,
   desk: deskScene,
   fridge: fridgeScene,
+  home: homeScene,
 };
 /** Presets that are a close view of part of another: the office desk is in the office. */
 export const ISO_SCENE_PARENT: Partial<Record<IsoSceneKind, IsoSceneKind>> = { desk: 'office' };
@@ -150,7 +174,9 @@ export function guessedScene(guess: Pick<SceneGuess, 'kind' | 'visibleProps'>): 
 }
 /** One line per preset for the Spark prompt, naming the optional props it can choose. */
 export function presetCatalog(): string {
+  // Home is the demo household's room, not a scene a photo is guessed as (`sceneGuessSchema`).
   return Object.values(ISO_PRESETS)
+    .filter((s) => (sceneGuessSchema.shape.kind.options as readonly string[]).includes(s.kind))
     .map(
       (s) =>
         `${s.kind}: ${[

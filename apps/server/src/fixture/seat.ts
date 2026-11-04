@@ -1,7 +1,10 @@
 import {
   fixturesSeatBodySchema,
+  groupBounds,
+  isMember,
   ISO_PRESETS,
   memberInput,
+  type FixtureInput,
   seatPerson,
   standUp,
   type DeskMemory,
@@ -51,40 +54,41 @@ export async function seatFixture(
 }
 
 /**
- * The demo's household: Robin at the office desk, sitting in its chair, and
- * Miso the cat asleep in front of the bookshelf. Through the same saves the
- * lab makes, so it is what a person adding them by hand gets.
+ * The demo's household in its Home room: Robin at the table, sitting in its
+ * chair, Sam standing by the shelf, Miso the cat asleep by the plant and
+ * Biscuit the dog lying by the table. Through the same saves the lab makes,
+ * so it is what adding them by hand gives. Nothing when someone is home there
+ * already.
  */
 export async function addDemoHousehold(deps: Pick<RouteDeps, 'store' | 'entities'>) {
-  const office = ISO_PRESETS.office;
-  const bounds = (group: string) => {
-    const props = office.props.filter((p) => p.group === group);
-    const x = Math.min(...props.map((p) => p.at.x));
-    const y = Math.min(...props.map((p) => p.at.y));
-    return {
-      x,
-      y,
-      w: Math.max(...props.map((p) => p.at.x + p.size.w)) - x,
-      d: Math.max(...props.map((p) => p.at.y + p.size.d)) - y,
-    };
-  };
-  const chair = bounds('chair');
-  const shelf = bounds('shelf');
-  const person = memberInput('person', 'Robin', { scene: 'office', at: { x: 0, y: 0 } });
-  person.at = {
-    x: chair.x + (chair.w - person.size.w) / 2,
-    y: chair.y + (chair.d - person.size.d) / 2,
-  };
-  const cat = memberInput('cat', 'Miso', { scene: 'office', at: { x: 0, y: 0 } });
-  cat.at = { x: shelf.x + shelf.w / 2 - cat.size.w / 2, y: shelf.y + shelf.d + 0.3 };
   const mode = 'demo';
-  let memory = await saveFixture(deps, { mode, fixture: person });
-  const robin = memory.fixtures!.at(-1)!;
-  memory = await saveFixture(deps, { mode, fixture: cat });
-  const miso = memory.fixtures!.at(-1)!;
-  deps.store.updateMemory(mode, (m) => {
-    const f = m.fixtures?.find((x) => x.id === miso.id);
-    if (f) f.state = 'sleeping';
-  });
-  await seatFixture(deps, { mode, id: robin.id, seat: { group: 'chair' } });
+  if (deps.store.memory(mode).fixtures?.some((f) => f.scene === 'home' && isMember(f)))
+    return deps.store.memory(mode);
+  const chair = groupBounds(ISO_PRESETS.home, 'chair');
+  const at = (x: number, y: number) => ({ scene: 'home' as const, at: { x, y } });
+  const robin = memberInput('person', 'Robin', at(0, 0));
+  if (chair)
+    robin.at = {
+      x: chair.at.x + (chair.size.w - robin.size.w) / 2,
+      y: chair.at.y + (chair.size.d - robin.size.d) / 2,
+    };
+  const household: [FixtureInput, string | null][] = [
+    [robin, null],
+    [memberInput('person', 'Sam', at(7.6, 3.4)), null],
+    [memberInput('cat', 'Miso', at(1.6, 5.6)), 'sleeping'],
+    [memberInput('dog', 'Biscuit', at(7.2, 5.8)), 'lying'],
+  ];
+  let robinId = '';
+  for (const [fixture, state] of household) {
+    const saved = (await saveFixture(deps, { mode, fixture })).fixtures!.at(-1)!;
+    if (fixture === robin) robinId = saved.id;
+    if (state)
+      deps.store.updateMemory(mode, (m) => {
+        const f = m.fixtures?.find((x) => x.id === saved.id);
+        if (f) f.state = state;
+      });
+  }
+  return chair
+    ? seatFixture(deps, { mode, id: robinId, seat: { group: 'chair' } })
+    : deps.store.memory(mode);
 }
