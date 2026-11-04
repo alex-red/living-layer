@@ -1,3 +1,7 @@
+import logo from '../../web/public/logo.svg' with { type: 'text' };
+
+const logoUrl = `data:image/svg+xml,${encodeURIComponent(logo)}`;
+
 /**
  * The page a phone opens from the pairing QR code. It is self-contained (the
  * phone server serves nothing else) and finds its pairing from its own URL.
@@ -14,6 +18,7 @@ export function phonePage(nonce: string, paired: boolean) {
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="dark">
 <title>Living Layer camera</title>
+<link rel="icon" type="image/svg+xml" href="${logoUrl}">
 <style nonce="${nonce}">
   :root { --void: #0a0c12; --surface: #181c28; --line: rgb(170 185 255 / 18%); --text: #ece9f2;
     --text-2: #a9aec2; --seen: #6fd3e0; --ok: #86d9aa; --blocked: #f27c83;
@@ -23,6 +28,7 @@ export function phonePage(nonce: string, paired: boolean) {
   body { display: flex; flex-direction: column; padding: env(safe-area-inset-top) 16px env(safe-area-inset-bottom); }
   header { display: flex; align-items: center; gap: 10px; padding: 14px 0; }
   header b { font-weight: 600; letter-spacing: 0.01em; }
+  .logo { width: 28px; height: 28px; flex: none; }
   .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-2); flex: none; }
   .live .dot { background: var(--ok); box-shadow: 0 0 10px var(--ok); }
   .bad .dot { background: var(--blocked); }
@@ -39,7 +45,7 @@ export function phonePage(nonce: string, paired: boolean) {
 </style>
 </head>
 <body>
-<header><span class="dot"></span><b>Living Layer camera</b></header>
+<header><img class="logo" src="${logoUrl}" width="28" height="28" alt=""><b>Living Layer camera</b><span class="dot" aria-hidden="true"></span></header>
 <div class="frame"><video id="video" autoplay playsinline muted></video></div>
 <p id="status" role="status">${paired ? 'Opening the camera…' : 'This pairing has ended. Scan the new QR code in Living Layer.'}</p>
 <div class="row">

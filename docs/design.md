@@ -4,6 +4,16 @@ Living Layer is a thin layer of software over a real room. The look should feel 
 
 We call the direction **Quiet Neon**. It takes its discipline from Apple's interface guidelines (clarity, deference, depth) and its mood from lo-fi cyberpunk (dusk colours, glass, grain, mono telemetry). Apple sets the rules and cyberpunk sets the atmosphere. When the two conflict, legibility wins.
 
+## Logo
+
+The **object-memory** mark is a cyan isometric cube held in a pink spatial cradle: a thing the camera sees, in a place you chose to remember. Its flat geometry follows the room's isometric view, with generous gaps that remain clear at favicon size. Keep the mark still, with no glow, gradient or extra frame in the UI.
+
+`apps/web/public/logo.svg` is the source of truth. The workspace, studio and camera playground use it through `Logo`; the standalone phone camera embeds the same SVG so it needs no extra request. Adjacent text supplies the accessible name; the mark is decorative there.
+
+Run `bun run brand` after editing the source to regenerate the dark favicon (SVG and multi-size ICO), Apple touch icon, 192/512 px home-screen icons and horizontal `logo-wordmark.svg`. The wordmark uses light text for dark backgrounds; its editable type follows the UI's Inter/system font stack. Use the transparent mark for other backgrounds, leave at least 7/64 of its width clear around the artwork, and keep it at least 16 px wide. The manifest names the app and supplies its home-screen icons.
+
+The original generated concepts and prompts live in `design/logo-variants/`; production uses the clean vector redraw of the selected object-memory direction.
+
 ## Principles
 
 1. **The one warm light.** The interface is cool and dim. Amber (2700 K, the lamp's own colour temperature) is reserved for things that change the physical world. If something glows warm, a real light is involved.

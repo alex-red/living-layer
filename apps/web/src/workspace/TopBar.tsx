@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Dialog } from '../ui/Dialog';
-import { Glyph } from '../Glyph';
+import { Logo } from '../Logo';
 import { Button, Check, IconButton, Segmented } from '../ui/controls';
 import { estimateLabel, usd } from '../cost';
 import { SHORTCUTS } from '../shortcuts';
@@ -542,9 +542,7 @@ export function TopBar({ place }: { place?: string[] } = {}) {
       <div className="topbar-id">
         <h1 className="brand-heading">
           <a className="brand" href="/" aria-label="Living Layer home">
-            <span className="brand-icon">
-              <Glyph />
-            </span>
+            <Logo />
             <span className="brand-name">Living Layer</span>
           </a>
           {mode === 'live' && <span className="live-tag">LIVE</span>}

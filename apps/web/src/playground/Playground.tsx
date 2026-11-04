@@ -4,6 +4,7 @@ import { footInZone, runCost } from '@livinglayer/domain';
 import { api, ApiError } from '../api';
 import { usd } from '../cost';
 import { Glyph } from '../Glyph';
+import { Logo } from '../Logo';
 import { sendToLab } from '../handoff';
 import { MaskOverlay } from '../MaskOverlay';
 import { PhonePairing } from '../PhonePairing';
@@ -528,7 +529,7 @@ export function Playground() {
     <div className="pg">
       <header className="pg-top">
         <a className="pg-brand" href="/">
-          <Glyph /> Living Layer <span className="pg-hud">CAMERA PLAYGROUND</span>
+          <Logo /> Living Layer <span className="pg-hud">CAMERA PLAYGROUND</span>
         </a>
         <div className={`pg-capsule ${status.tone}`} role="status" aria-live="polite">
           {live && <span className="pg-privacy" aria-label="Camera on" />}

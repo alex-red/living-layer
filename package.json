@@ -50,6 +50,7 @@
     "gpu-tracker": "bun scripts/gpu-tracker.ts",
     "reset": "bun scripts/reset.ts",
     "room": "bun scripts/room-view.ts",
+    "brand": "bun scripts/brand-assets.ts",
     "draft": "bun scripts/draft.ts",
     "calib": "bun scripts/calib.ts",
     "truth": "bun scripts/truth.ts",

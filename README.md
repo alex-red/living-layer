@@ -1,3 +1,5 @@
+<p><img src="apps/web/public/logo.svg" width="80" height="80" alt="Living Layer object-memory logo"></p>
+
 # Living Layer
 
 Living Layer gives everyday objects a memory so your smart home can react to them.

@@ -1,4 +1,4 @@
-export function Glyph({ type = 'layers' }: { type?: 'layers' | 'arrow' | 'camera' | 'upload' }) {
+export function Glyph({ type }: { type: 'arrow' | 'camera' | 'upload' }) {
   return (
     <svg
       viewBox="0 0 24 24"
@@ -9,12 +9,7 @@ export function Glyph({ type = 'layers' }: { type?: 'layers' | 'arrow' | 'camera
       strokeWidth="1.5"
       aria-hidden="true"
     >
-      {type === 'layers' ? (
-        <>
-          <path d="m12 3 9 5-9 5-9-5 9-5Z" />
-          <path d="m3 12 9 5 9-5M3 16l9 5 9-5" />
-        </>
-      ) : type === 'arrow' ? (
+      {type === 'arrow' ? (
         <path d="M4 12h16m-6-6 6 6-6 6" />
       ) : type === 'camera' ? (
         <>
