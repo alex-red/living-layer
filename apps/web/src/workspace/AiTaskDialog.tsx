@@ -1,25 +1,25 @@
 import { lazy } from 'react';
 import { runOutput } from '@livinglayer/domain';
 import { Later } from '../Later';
-import type { AIStep } from '../AIRichPreviewDialog';
 import { Button } from '../ui/controls';
 import { useAi, useLabParts, useRunLog } from './LabContext';
-import { setAiTask, useAiTask } from './state/ai-task-store';
+import { setAiTask, taskSteps, useAiTask } from './state/ai-task-store';
 import { RESULT_GLYPH } from './useLabState';
 
-const AIRichPreviewDialog = lazy(() =>
-  import('../AIRichPreviewDialog').then((m) => ({ default: m.AIRichPreviewDialog })),
-);
+const loadDialog = () =>
+  import('../AIRichPreviewDialog').then((m) => ({ default: m.AIRichPreviewDialog }));
+const AIRichPreviewDialog = lazy(loadDialog);
+// Loaded once the page is idle, so the first AI action opens the dialog at once rather than
+// after a request of its own, which waits behind the page's streams when connections run short.
+if (typeof requestIdleCallback === 'function') requestIdleCallback(() => void loadDialog());
+else setTimeout(() => void loadDialog(), 2000);
 
 /** The lab's AI action, running or past, step by step in the AI dialog. */
 export function AiTaskDialog() {
   const lab = useLabParts(useRunLog(), useAi());
   const task = useAiTask();
   if (!task) return null;
-  const steps: AIStep[] = (task.job?.steps ?? []).map((s) => ({
-    ...s,
-    state: s.state === 'waiting' ? 'pending' : s.state,
-  }));
+  const steps = taskSteps(task);
   // The model calls it made, as the run log keeps them, to inspect each one.
   const runs = (task.job?.runIds ?? []).flatMap((id) => lab.runs.find((r) => r.id === id) ?? []);
   // The last run can be reverted; an older modelling run can put its model back on its fixture.

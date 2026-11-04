@@ -4,7 +4,7 @@ import { DEMO_CAMERA, groupInFrame } from '@livinglayer/domain';
 import { followJob } from './follow-job';
 import { api } from '../../api';
 import { useBrush, type Brush } from '../useBrush';
-import { aiTaskStore, setAiTask, updateAiTask, type AiTask } from './ai-task-store';
+import { AI_STALL_MS, aiTaskStore, setAiTask, updateAiTask, type AiTask } from './ai-task-store';
 import { SHORTCUTS } from '../../shortcuts';
 import { pushHistory, stoppedJob } from './helpers';
 import { randomId } from './random-id';
@@ -232,7 +232,7 @@ export function useAiSlice(
    * dialog until it ends. Resolves to its answer, or null when it was stopped.
    */
   async function followAi<T>(
-    task: Pick<AiTask, 'title' | 'description'>,
+    task: Pick<AiTask, 'title' | 'description' | 'sending'>,
     call: (jobId: string, signal: AbortSignal) => Promise<T>,
   ): Promise<T | null> {
     const generation = ++aiGeneration.current;
@@ -256,8 +256,13 @@ export function useAiSlice(
       console.warn(`AI task "${task.title}" (${jobId.slice(0, 8)}): ${what} dropped, ${why}`);
     };
     const stopFollowing = followJob(jobId, (job) => {
-      if (current()) updateAiTask(jobId, { job });
+      if (!current()) return;
+      setAiTask((t) => (t?.jobId === jobId ? { ...t, job, heardAt: t.heardAt ?? Date.now() } : t));
     });
+    // A request the server hasn't taken after a while says so, in its first step.
+    const stall = setTimeout(() => {
+      if (current() && !aiTaskStore.get()?.job) updateAiTask(jobId, { stalled: true });
+    }, AI_STALL_MS);
     try {
       const result = await call(jobId, abort.signal);
       if (current()) {
@@ -277,6 +282,7 @@ export function useAiSlice(
       });
       throw e;
     } finally {
+      clearTimeout(stall);
       stopFollowing();
       if (current()) {
         aiRun.current = null;
@@ -324,7 +330,7 @@ export interface AiSlice {
   closeAiTask: () => void;
   closeAiTaskSoon: (ms: number) => void;
   followAi: <T>(
-    task: Pick<AiTask, 'title' | 'description'>,
+    task: Pick<AiTask, 'title' | 'description' | 'sending'>,
     call: (jobId: string, signal: AbortSignal) => Promise<T>,
   ) => Promise<T | null>;
   lastAiRun: {

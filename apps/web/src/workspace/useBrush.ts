@@ -10,6 +10,7 @@ import type {
 import { api } from '../api';
 import type { AiTask } from './useLabState';
 import { createStore } from './state/store';
+import { brushSending } from './brushSending';
 
 /** A point on the frame, in shares of its width and height. */
 export interface Share {
@@ -66,7 +67,7 @@ export function useBrush({
   mode: Mode;
   frameNow: () => string | undefined;
   followAi: <T>(
-    task: Pick<AiTask, 'title' | 'description'>,
+    task: Pick<AiTask, 'title' | 'description' | 'sending'>,
     call: (jobId: string, signal: AbortSignal) => Promise<T>,
   ) => Promise<T | null>;
   /** Hide the AI dialog after a moment, unless another request starts first. */
@@ -136,6 +137,7 @@ export function useBrush({
                 ? 'Spark reads your follow-up; the model is checked through the room’s camera again.'
                 : 'Spark reads your request, SAM outlines your selection, and a named product is looked up. Up to about $0.25.'
               : 'Demo: read, looked up in the bundled catalog and checked through the demo camera, with no model calls.',
+          sending: brushSending(prompt.trim(), last ? null : shape, mode === 'live' ? held : null),
         },
         (jobId, signal) =>
           api(
