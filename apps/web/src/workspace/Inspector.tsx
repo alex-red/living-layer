@@ -1513,7 +1513,7 @@ function ZonePanel() {
 
 /** Deleting the main zone, with or without a mug to draw it on. */
 function DeleteMainZone({ id, label }: { id: string; label: string }) {
-  const lab = useLabParts(useFeedback(), useDesk());
+  const lab = useLabParts(useFeedback(), useDesk(), useNavigation());
   const { call, off } = useCall();
   return (
     <Details summary="Delete">
@@ -1524,6 +1524,7 @@ function DeleteMainZone({ id, label }: { id: string; label: string }) {
           void call<DeskMemory>('desk/rules/delete', { ruleId: id }, (m) => {
             lab.setMemory(m);
             lab.setMessage(`Removed "${label}".`);
+            lab.select(null);
           })
         }
       >
