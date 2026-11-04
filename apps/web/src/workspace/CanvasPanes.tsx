@@ -67,6 +67,7 @@ import { Popover } from './Popover';
 import { ToolStrip } from './ToolStrip';
 import { BrushOverlay } from './Brush';
 import { shapeOf, type BrushStroke } from './useBrush';
+import { stageSize } from './stage-size';
 import { useDemoFrameUrl } from './demoFrame';
 import { FRIDGE_PHOTO, FRIDGE_VIEWS, fridgeViewUrl, type FridgeView } from './demoFridge';
 
@@ -842,7 +843,7 @@ export function PhotoStage({
   const { mode, camera, image } = lab;
   // The fridge's placeholder is a photo at its own size, not a frame: nothing measured on a frame is drawn over it.
   const fridge = useFridgePlaceholder();
-  const dimensions = fridge ? FRIDGE_PHOTO : lab.dimensions;
+  const dimensions = fridge ? FRIDGE_PHOTO : stageSize(camera, lab.cameraSize, lab.dimensions);
   return (
     <div
       className="scene"
