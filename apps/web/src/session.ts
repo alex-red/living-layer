@@ -172,6 +172,21 @@ export function deskKeys(desks: SessionSave['desks']): DeskKeys {
  */
 export const thingsChanged = (a: DeskMemory, b: DeskMemory) =>
   JSON.stringify(a.fixtures ?? []) !== JSON.stringify(b.fixtures ?? []);
+/** How long the desks rest before the autosave puts them into the named save in use too. */
+export const IN_USE_SAVE_MS = 1500;
+/**
+ * Whether the autosave puts the desks into the named save in use: once the
+ * desks have loaded, when an edit (`edits`, also things changed elsewhere)
+ * came since it was last saved or loaded (`savedEdits`).
+ */
+export function keepsSaveInUse(at: {
+  ready: boolean;
+  inUse: boolean;
+  edits: number;
+  savedEdits: number;
+}) {
+  return at.ready && at.inUse && at.edits !== at.savedEdits;
+}
 /** The desks an autosave writes: this tab's where it changed them since `seen`, else the stored ones. */
 export function desksToSave(
   ours: SessionSave['desks'],

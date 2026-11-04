@@ -17,6 +17,8 @@ import {
   readSession,
   readUi,
   saveName,
+  IN_USE_SAVE_MS,
+  keepsSaveInUse,
   withSave,
   writeSaves,
   writeSession,
@@ -389,6 +391,17 @@ export function useSavesSlice(
   const savedEdits = useRef(0);
   /** Whether there are edits no named save holds, so loading another would lose them. */
   const unsaved = !activeSave || edits.current !== savedEdits.current;
+  // The named save in use keeps up as well: each edit goes into it once the desks rest.
+  const keepInUse = useRef(() => {});
+  keepInUse.current = () => {
+    const at = { ready: deskReady, inUse: Boolean(activeSave), edits: edits.current };
+    if (activeSave && keepsSaveInUse({ ...at, savedEdits: savedEdits.current }))
+      updateSave(activeSave.id);
+  };
+  useEffect(() => {
+    const timer = window.setTimeout(() => keepInUse.current(), IN_USE_SAVE_MS);
+    return () => window.clearTimeout(timer);
+  }, [deskReady, memories, activeSaveId]);
   function markActive(entry: NamedSave | null) {
     setActiveSaveId(entry?.id ?? '');
     writeUi('activeSave', entry?.id ?? '');
