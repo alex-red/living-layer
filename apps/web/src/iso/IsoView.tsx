@@ -148,6 +148,8 @@ export interface RuleDraft {
   onSurface?: ZoneOnSurface;
   /** Set for a zone that is a thing: it isn't drawn, it is wherever the thing is. */
   anchor?: ZoneAnchor;
+  /** Where its rectangle is dragged, when the person chose: the camera picture or the room. */
+  drawOn?: 'picture' | 'room';
 }
 /** A zone being drawn: its frame rectangle, and where in the room when drawn in the room. */
 export type DraftZone = ZoneRect & { onSurface?: ZoneOnSurface };

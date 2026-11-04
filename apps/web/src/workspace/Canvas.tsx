@@ -1,6 +1,6 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useState, type ReactNode } from 'react';
 import { IsoView } from '../iso/IsoView';
-import { Button } from '../ui/controls';
+import { Button, Segmented } from '../ui/controls';
 import { useAi, useCamera, useFeedback, useLabParts, useNavigation, useView } from './LabContext';
 import { DeskStep, Onboarding } from './Onboarding';
 import { BrushPanel } from './Brush';
@@ -16,7 +16,7 @@ import {
   useBrushing,
   useShowIso,
 } from './CanvasPanes';
-import { zoneDrawnOn } from './zoneDraw';
+import { drawZoneOn, stageForZone, zoneDrawnOn } from './zoneDraw';
 
 /** What the canvas is busy with, if it has taken over: one edit mode at a time. */
 function EditBanner() {
@@ -25,6 +25,7 @@ function EditBanner() {
   let text = '';
   let done: (() => void) | null = null;
   let label = 'Cancel';
+  let choice: ReactNode = null;
   if (pinning) {
     text = pinning.corners
       ? `Check the ${pinning.label}’s corners on the photo.`
@@ -36,10 +37,26 @@ function EditBanner() {
     done = () => lab.setDrawing(false);
   } else if (ruleDraft) {
     const name = ruleDraft.label.trim() || 'the zone';
-    const where =
-      zoneDrawnOn(ruleDraft, camera || mode === 'demo') === 'picture'
-        ? 'the camera picture'
-        : 'the iso surface';
+    const liveView = camera || mode === 'demo';
+    const on = zoneDrawnOn(ruleDraft, liveView);
+    const where = on === 'picture' ? 'the camera picture' : 'the iso surface';
+    // With a live view, a zone of things can be drawn on it or in the room.
+    if (liveView && on !== 'thing' && !ruleDraft.motion)
+      choice = (
+        <Segmented
+          label="Draw the zone on"
+          value={on}
+          onChange={(to) => {
+            const next = drawZoneOn(ruleDraft, to);
+            lab.setRuleDraft(next);
+            lab.setStageView(stageForZone(next, liveView, stageView));
+          }}
+          options={[
+            { value: 'picture', label: 'Live', title: 'Drag it on the camera picture' },
+            { value: 'room', label: 'Iso', title: 'Drag it on the room' },
+          ]}
+        />
+      );
     text = ruleDraft.rect
       ? `Drag again on ${where} to redraw ${name}. Save it in the inspector.`
       : `Drag a rectangle on ${where} to draw ${name}.`;
@@ -53,7 +70,10 @@ function EditBanner() {
   return (
     <div className="edit-banner" role="status">
       <span>{text}</span>
-      <Button onClick={done}>{label}</Button>
+      <span className="edit-banner-actions">
+        {choice}
+        <Button onClick={done}>{label}</Button>
+      </span>
     </div>
   );
 }

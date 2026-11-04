@@ -866,6 +866,11 @@ button.ol-ha-group:hover {
   border-color: var(--chosen-glow);
   box-shadow: inset 2px 0 0 var(--chosen);
 }
+.edit-banner-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
 .desk-step {
   display: grid;
   justify-content: stretch;
