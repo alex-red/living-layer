@@ -71,10 +71,22 @@ export interface AskHistory {
   totals?: readonly { day: string; thingId: string; key: StatKey; total: number }[];
 }
 
+/** What kind of thing it is, for the dot it is drawn with; `summary` is the whole room. */
+export type AskKind =
+  | 'drink'
+  | 'food'
+  | 'screen'
+  | 'cat'
+  | 'pointer'
+  | 'light'
+  | 'zone'
+  | 'other'
+  | 'summary';
 /** One event an answer rests on. */
 interface AskCite {
   at: number;
   thingId: string;
+  kind: AskKind;
   text: string;
 }
 /** An answer about the room, with what it rests on. */
@@ -300,12 +312,27 @@ function voiceOf(thing: AskThing, key: StatKey): Voice {
   const l = thing.label.toLowerCase();
   if (thing.zone) return 'zone';
   if (key === 'lastUsed' && /\b(mug|cup|glass|bottle|tumbler|flask)\b/.test(l)) return 'drink';
-  if (key === 'lastUsed' && /\b(milk|egg|chicken|spinach|cheese|butter|juice|leftover|yog)/.test(l))
+  if (
+    key === 'lastUsed' &&
+    (thing.food ||
+      thing.expires ||
+      /\b(milk|egg|chicken|spinach|cheese|butter|juice|leftover|yog|pickle|jam|sauce|bread|fruit|soup|ham)/.test(
+        l,
+      ))
+  )
     return 'food';
   if (key === 'power' && /\b(monitor|screen|display|tv|television)\b/.test(l)) return 'screen';
   if (key === 'occupied' && /\bcat\b/.test(l)) return 'cat';
   if (key === 'activity') return 'pointer';
   return 'other';
+}
+/** The kind a thing's dot shows: its voice, with lights told apart. */
+function kindOf(thing: AskThing, key: StatKey | undefined): AskKind {
+  if (thing.food || thing.expires) return 'food';
+  if (!key) return 'other';
+  const voice = voiceOf(thing, key);
+  if (voice !== 'other') return voice;
+  return /\b(lamp|light|bulb|led|strip)\b/i.test(thing.label) ? 'light' : 'other';
 }
 /** "your desk mug", "the monitor". */
 function nameOf(thing: AskThing): string {
@@ -335,6 +362,7 @@ function eventText(t: Track, e: StatEvent): string {
 const cite = (t: Track, e: StatEvent): AskCite => ({
   at: e.at,
   thingId: t.thing.id,
+  kind: kindOf(t.thing, t.key),
   text: eventText(t, e),
 });
 
@@ -980,7 +1008,12 @@ function foodAnswer(
     history.events
       .filter((e) => e.thingId === t.id && e.key === 'lastUsed' && e.at <= now)
       .slice(-1)
-      .map((e) => ({ at: e.at, thingId: t.id, text: `${t.label} taken out` })),
+      .map((e): AskCite => ({
+        at: e.at,
+        thingId: t.id,
+        kind: 'food',
+        text: `${t.label} taken out`,
+      })),
   );
   const all = foods.map(({ t, n }) => ({ thingId: t.id, label: t.label, days: n }));
   if (q.thing !== null) {
@@ -1017,7 +1050,15 @@ export function askThingsOf(memory: DeskMemory): AskThing[] {
     const stats = (memory.thingStats?.[f.id] ?? []).map((s) => s.key);
     const expires = f.food?.expires;
     return stats.length || expires
-      ? [{ id: f.id, label: f.label, stats, ...(expires ? { expires } : {}) }]
+      ? [
+          {
+            id: f.id,
+            label: f.label,
+            stats,
+            ...(f.food ? { food: true as const } : {}),
+            ...(expires ? { expires } : {}),
+          },
+        ]
       : [];
   });
   for (const r of memory.rules ?? [])
@@ -1030,11 +1071,12 @@ export interface AskExample {
   label: string;
   question: string;
   thing: string;
+  kind: AskKind;
 }
 
 /**
- * Example questions about a room's own things, one per thing's first stat
- * (up to `max`), then what to eat first when any food has a use-by day, and
+ * Example questions about a room's own things, one per kind of thing (its
+ * first stat), up to `max` in all, then what to eat first when any food has a use-by day, and
  * the day so far. Worded as a person would ask, so Spark reads them easily.
  */
 export function askExamples(things: readonly AskThing[], max = 6): AskExample[] {
@@ -1042,10 +1084,14 @@ export function askExamples(things: readonly AskThing[], max = 6): AskExample[] 
   const mine = (t: AskThing) => nameOf(t).replace(/^your /, 'my ');
   const Label = (t: AskThing) => cap(t.label.replace(/^my\s+/i, ''));
   const out: AskExample[] = [];
+  const kinds = new Set<AskKind>();
   for (const t of things) {
     const key = t.stats[0];
-    if (!key) continue;
-    const ex = (label: string, question: string) => out.push({ label, question, thing: t.id });
+    // One of each kind, so three foods don't crowd out the lamp.
+    if (!key || kinds.has(kindOf(t, key))) continue;
+    kinds.add(kindOf(t, key));
+    const ex = (label: string, question: string) =>
+      out.push({ label, question, thing: t.id, kind: kindOf(t, key) });
     switch (voiceOf(t, key)) {
       case 'drink':
         ex('Drinks today', `How many times did I drink from ${mine(t)} today?`);
@@ -1074,9 +1120,25 @@ export function askExamples(things: readonly AskThing[], max = 6): AskExample[] 
   }
   const food = things.find((t) => t.expires);
   const extra: AskExample[] = [
-    ...(food ? [{ label: 'Eat first', question: 'What should I eat first?', thing: food.id }] : []),
+    ...(food
+      ? [
+          {
+            label: 'Eat first',
+            question: 'What should I eat first?',
+            thing: food.id,
+            kind: 'food' as const,
+          },
+        ]
+      : []),
     ...(things.length
-      ? [{ label: 'Today so far', question: 'What happened today?', thing: 'summary' }]
+      ? [
+          {
+            label: 'Today so far',
+            question: 'What happened today?',
+            thing: 'summary',
+            kind: 'summary' as const,
+          },
+        ]
       : []),
   ];
   return [...out.slice(0, max - extra.length), ...extra];

@@ -5,6 +5,7 @@ import {
   askExamples,
   askThingsOf,
   type AskExample,
+  type AskKind,
   clockOf,
   midnightOf,
   type DayEvent,
@@ -159,13 +160,18 @@ function Thing({ e }: { e: DayEvent }) {
   return <span className={`day-dot ${e.thing}`} title={DAY_THINGS[e.thing]} aria-hidden="true" />;
 }
 
-/** The dot a thing is drawn with, by its id in the demo. */
-function dotOf(thingId: string): string {
-  if (thingId === 'cat-tree') return 'cat';
-  if (thingId.startsWith('zone:')) return 'zone';
-  if (['milk', 'leftover-chicken', 'spinach', 'eggs'].includes(thingId)) return 'fridge';
-  return ['mug', 'lamp', 'monitor', 'mouse', 'summary'].includes(thingId) ? thingId : 'other';
-}
+/** The dot a kind of thing is drawn with: the same colours as the day's track. */
+const KIND_DOT: Record<AskKind, string> = {
+  drink: 'mug',
+  food: 'fridge',
+  screen: 'monitor',
+  cat: 'cat',
+  pointer: 'mouse',
+  light: 'lamp',
+  zone: 'zone',
+  other: 'other',
+  summary: 'summary',
+};
 
 type Asked = RoomAnswer & { question: string; asOf: number };
 
@@ -319,7 +325,7 @@ function Suggestions({
           title={e.question}
           onClick={() => onAsk(e.question)}
         >
-          <span className={`day-dot ${dotOf(e.thing)}`} aria-hidden="true" />
+          <span className={`day-dot ${KIND_DOT[e.kind]}`} aria-hidden="true" />
           {e.label}
         </button>
       ))}
@@ -388,7 +394,7 @@ function Answer({
             const seek = demo && c.at >= today;
             const body = (
               <>
-                <span className={`day-dot ${dotOf(c.thingId)}`} aria-hidden="true" />
+                <span className={`day-dot ${KIND_DOT[c.kind] ?? 'other'}`} aria-hidden="true" />
                 <time>{clockOf(c.at)}</time> {c.text}
               </>
             );

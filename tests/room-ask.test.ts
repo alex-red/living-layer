@@ -11,6 +11,7 @@ import {
   readAsk,
   zoneThingId,
   type AskHistory,
+  type AskThing,
   type AskQuery,
   type DeskMemory,
   type EvidenceRun,
@@ -144,6 +145,11 @@ describe('answerAsk', () => {
 });
 
 describe('answerAsk across things', () => {
+  it('cites each event with the kind of thing it came from', () => {
+    const a = ask('Was the lamp on while I was away?', 1000);
+    expect(new Set(a.cites.map((c) => c.kind))).toEqual(new Set(['light', 'screen']));
+  });
+
   it('adds up the lamp’s time only while the screen was off', () => {
     // Lamp 7:42–9:10 and 10:20–12:45; screen off before 7:45 and 12:30–13:15.
     const a = ask('Was the lamp on while I was away?', 1000);
@@ -226,7 +232,7 @@ describe('answerAsk past the events’ 30 days', () => {
 describe('askExamples', () => {
   const things = history(1000).things;
 
-  it('offers one question per thing, then what to eat first and the day so far', () => {
+  it('offers questions about the things, then what to eat first and the day so far', () => {
     const labels = askExamples(things, 9).map((e) => e.label);
     expect(labels.slice(0, 3)).toEqual(['Drinks today', 'Screen time', 'Computer mouse in use']);
     expect(labels.slice(-2)).toEqual(['Eat first', 'Today so far']);
@@ -243,6 +249,29 @@ describe('askExamples', () => {
 
   it('offers nothing when no thing keeps a history', () => {
     expect(askExamples([])).toEqual([]);
+  });
+
+  it('treats a thing with food details as food, whatever its name', () => {
+    const tub: AskThing = { id: 'tub', label: 'Blue tub', stats: ['lastUsed'], food: true };
+    expect(askExamples([tub])[0]).toMatchObject({ label: 'Blue tub last out', kind: 'food' });
+    expect(
+      answerAsk(query({ thing: 'tub' }), { things: [tub], events: [], watched: null }, at(600))
+        .text,
+    ).toBe('The blue tub stayed in today.');
+  });
+
+  it('offers one example per kind of thing, each with its kind', () => {
+    expect(askExamples(things, 20).map((e) => e.kind)).toEqual([
+      'drink',
+      'screen',
+      'pointer',
+      'light',
+      'cat',
+      'food',
+      'zone',
+      'food',
+      'summary',
+    ]);
   });
 });
 

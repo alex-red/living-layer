@@ -91,7 +91,10 @@
 .day-dot.summary {
   background: conic-gradient(var(--chosen), var(--warm), var(--ok), var(--seen), var(--chosen));
 }
-.day-dot.mouse,
+.day-dot.mouse {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--text-2);
+}
 .day-dot.other {
   background: var(--text-3);
 }

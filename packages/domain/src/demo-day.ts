@@ -8,6 +8,7 @@
  * a live room keeps.
  */
 import { addDays } from './food.js';
+import type { AskExample } from './room-ask.js';
 import { dayOf, type StatEvent, type StatKey } from './stats.js';
 
 /** Where the mug stands: on its coaster (inside the main zone), by the keyboard, at the desk's edge, or off the desk. */
@@ -65,6 +66,8 @@ export interface AskThing {
   stats: StatKey[];
   /** A zone, whose occupied stat is something being in it. */
   zone?: true;
+  /** Food: its card keeps food details, so its uses are being taken out. */
+  food?: true;
   /** Its use-by day, `YYYY-MM-DD`, for food. */
   expires?: string;
 }
@@ -85,36 +88,51 @@ export const DEMO_FOOD: readonly { label: string; useByDays: number }[] = [
  * show. `label` is the chip's short name; `thing` the demo thing it is about,
  * for its colour.
  */
-export const DEMO_ASK_EXAMPLES: readonly { label: string; question: string; thing: string }[] = [
+export const DEMO_ASK_EXAMPLES: readonly AskExample[] = [
   {
     label: 'Drinks this hour',
     question: 'How many times did I drink in the last hour?',
     thing: 'mug',
+    kind: 'drink',
   },
-  { label: 'Screen time', question: 'How long was my screen on today?', thing: 'monitor' },
+  {
+    label: 'Screen time',
+    question: 'How long was my screen on today?',
+    thing: 'monitor',
+    kind: 'screen',
+  },
   {
     label: 'Longest dry spell',
     question: 'What was my longest stretch without a drink?',
     thing: 'mug',
+    kind: 'drink',
   },
   {
     label: 'Cat vs yesterday',
     question: 'Did the cat nap more than yesterday?',
     thing: 'cat-tree',
+    kind: 'cat',
   },
   {
     label: 'Desk time this week',
     question: 'How long did I work at my desk this week?',
     thing: 'mouse',
+    kind: 'pointer',
   },
-  { label: 'Lamp while away', question: 'Was the lamp on while I was away?', thing: 'lamp' },
+  {
+    label: 'Lamp while away',
+    question: 'Was the lamp on while I was away?',
+    thing: 'lamp',
+    kind: 'light',
+  },
   {
     label: 'Mug in the zone',
     question: 'How long was the mug in the main zone today?',
     thing: 'zone:main',
+    kind: 'zone',
   },
-  { label: 'Eat first', question: 'What should I eat first?', thing: 'milk' },
-  { label: 'Today so far', question: 'What happened today?', thing: 'summary' },
+  { label: 'Eat first', question: 'What should I eat first?', thing: 'milk', kind: 'food' },
+  { label: 'Today so far', question: 'What happened today?', thing: 'summary', kind: 'summary' },
 ];
 
 /** The demo room's things that keep stats, as asking it sees them. */
