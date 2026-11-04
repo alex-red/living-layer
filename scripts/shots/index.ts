@@ -4,10 +4,22 @@ import { brush } from './brush.js';
 import { coach } from './coach.js';
 import { draft } from './draft.js';
 import { end } from './end.js';
+import { home } from './home.js';
 import { memory } from './memory.js';
 import { plushies } from './plushies.js';
 import { remembers } from './remembers.js';
 import { tour } from './tour.js';
 import { zone } from './zone.js';
 
-export const SHOTS: Shot[] = [tour, draft, zone, brush, memory, end, remembers, plushies, coach];
+export const SHOTS: Shot[] = [
+  tour,
+  draft,
+  zone,
+  brush,
+  memory,
+  end,
+  remembers,
+  plushies,
+  coach,
+  home,
+];

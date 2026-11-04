@@ -17,6 +17,7 @@ import {
   type DayEvent,
   type RoomAnswer,
   householdEvents,
+  topicInRoom,
 } from '@livinglayer/domain';
 import { api } from '../api';
 import { IconButton } from '../ui/controls';
@@ -616,7 +617,7 @@ interface Shown {
  */
 export function DayNudges() {
   const replaying = useReplay((r) => r.open);
-  const { mode } = useView();
+  const { mode, workScene } = useView();
   const minute = useReplay((r) => Math.floor(r.minute));
   const live = useCoach((c) => c.live);
   const checked = useCoach((c) => c.checked);
@@ -645,22 +646,26 @@ export function DayNudges() {
     if (!replaying) return [];
     const now = today + minute * 60_000;
     const recent = (at: number) => at <= now && now - at < NUDGE_SHOWN * 60_000;
+    // The Home room's nudges are the household's; the desk's stay with the office.
+    const here = (n: CoachNudge) => topicInRoom(n.topic, workScene);
     return [
-      ...NUDGES.filter((n) => recent(today + n.at * 60_000)).map((n): Shown => ({
-        id: n.id,
-        at: today + n.at * 60_000,
-        time: clock(n.at),
-        coach: false,
-        title: n.title,
-        body: n.body,
-        action: n.action,
-      })),
+      ...NUDGES.filter((n) => workScene !== 'home' && recent(today + n.at * 60_000)).map(
+        (n): Shown => ({
+          id: n.id,
+          at: today + n.at * 60_000,
+          time: clock(n.at),
+          coach: false,
+          title: n.title,
+          body: n.body,
+          action: n.action,
+        }),
+      ),
       ...demoCoachDay(extra, snoozes)
-        .filter((n) => n.at <= now && now - n.at < COACH_SHOWN * 60_000)
+        .filter((n) => here(n) && n.at <= now && now - n.at < COACH_SHOWN * 60_000)
         .map((n) => coachCard(n, clockOf(n.at))),
-      ...checked.map((n) => coachCard(n, clockOf(n.at))),
+      ...checked.filter(here).map((n) => coachCard(n, clockOf(n.at))),
     ];
-  }, [mode, live, replaying, minute, today, checked, extra, snoozes]);
+  }, [mode, live, replaying, minute, today, checked, extra, snoozes, workScene]);
   const left = shown
     .filter((n) => !dismissed.includes(n.id))
     .sort((a, b) => b.at - a.at)

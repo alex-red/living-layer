@@ -1,6 +1,7 @@
 import { describe, expect, it, mock } from 'bun:test';
 import {
   clockOf,
+  topicInRoom,
   COACH,
   actionEvents,
   coachDay,
@@ -136,6 +137,12 @@ describe('coachDay', () => {
     expect(new Set(day().map((n) => n.topic))).toEqual(
       new Set(['drink', 'screen', 'cat', 'food', 'lampAway', 'alone']),
     );
+  });
+
+  it('keeps the household’s nudges to the Home room and the desk’s to the others', () => {
+    const topics = new Set(day().map((n) => n.topic));
+    expect([...topics].filter((t) => topicInRoom(t, 'home'))).toEqual(['alone']);
+    expect([...topics].filter((t) => topicInRoom(t, 'office'))).not.toContain('alone');
   });
 
   it('says once that the dog is home alone, three hours after the last person went out', () => {

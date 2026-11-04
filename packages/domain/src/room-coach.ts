@@ -283,6 +283,13 @@ export function coachFacts(history: AskHistory, now: number): CoachFact[] {
   return facts.sort((a, b) => b.weight - a.weight);
 }
 
+/**
+ * Whether a nudge belongs over a room: the household's (a pet home alone) over
+ * the Home room, the desk's (drinks, the screen, the lamp) over the others.
+ */
+export const topicInRoom = (topic: CoachTopic, scene: string | null) =>
+  (topic === 'alone') === (scene === 'home');
+
 /** Minutes the coach keeps quiet about a fact after nudging about it. */
 const cooldownOf = (f: CoachFact) =>
   f.topic === 'food' || f.topic === 'alone' ? COACH.foodCooldownMin : COACH.cooldownMin;
