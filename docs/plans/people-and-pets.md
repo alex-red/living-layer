@@ -105,4 +105,4 @@ The watcher was built for a small rigid thing that sits still and is carried (`w
 
 - **Children** (see _Decisions_): the `child` build, switched to from the member's panel.
 - **Choosing a look**: swatches for skin, hair and clothes, or coat and ears, for someone who wants their figure to look like them. The name-picked default stays the starting point.
-- **Where is everyone, across rooms**: on the [roadmap](current.md#roadmap). A home today is one room and one camera per mode (`memory.scene`, `memory.camera`).
+- **Where is everyone, across rooms**: on the [roadmap](README.md#roadmap). A home today is one room and one camera per mode (`memory.scene`, `memory.camera`).

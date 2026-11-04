@@ -1,6 +1,6 @@
 # Plan: the mug is a thing like any other
 
-Status: built on the branch `one-thing` (November 3; see _As built_ below), not yet merged into `main`. The detail of phase 2 of [things-and-stats.md](things-and-stats.md) ("One Thing").
+Status: built (November 3; see _As built_ below). The detail of phase 2 of [things-and-stats.md](things-and-stats.md) ("One Thing").
 
 ## Why
 

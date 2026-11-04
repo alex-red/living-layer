@@ -1,6 +1,6 @@
 # Plan: things and their stats
 
-Status: built (November 3; see _As built_ below). Phase 2, [one Thing](one-thing.md), is on the branch `one-thing`, not yet merged into `main`.
+Status: built (November 3; see _As built_ below). Phase 2, [one Thing](one-thing.md), is built too.
 
 A person wants to know what the things in a room are doing, not only where they are: when the mug was last drunk from, whether the monitor is on, how much the mouse was used today, whether the cat is on its tree. Each of those is a **stat**: a small typed value about one thing, worked out from the camera or from Home Assistant, kept as a history, and shown on the thing's card, over it in the room, over the live camera and in Home Assistant.
 

@@ -1,6 +1,6 @@
 # Plan: a scene from one photo
 
-Status: built, see [architecture.md](../architecture.md#isometric-view). Builds on [isometric.md](isometric.md) and [iso-models.md](iso-models.md), both built. Where the build differs from this plan, [As built](#as-built) says so.
+Status: built, see [architecture.md](../architecture.md#isometric-view). Builds on [iso-models.md](iso-models.md), built. Where the build differs from this plan, [As built](#as-built) says so.
 
 ## Goal
 
@@ -102,7 +102,7 @@ The illustrated `desk.svg` covers the whole loop offline:
 
 ## What not to use
 
-- **Muse Image.** Generated pixels can't be tracked, aren't evidence, and don't work offline. This is the same reason as in [isometric.md](isometric.md#approach). A generated "poster" would look good in a video, but it's the one thing judges could call a trick, and it would compete with the real renderer. Leave it out.
+- **Muse Image.** Generated pixels can't be tracked, aren't evidence, and don't work offline. The isometric room is drawn by our own renderer for the same reason. A generated "poster" would look good in a video, but it's the one thing judges could call a trick, and it would compete with the real renderer. Leave it out.
 - **Muse Wonder** is a coding agent, not something to run at runtime.
 - **SAM video** (a short pan around the desk) would give several views, which fixes the floor-depth guess and fills in the back halves of decals. It's worth doing after the event, not before.
 

@@ -1,6 +1,6 @@
 # Plan: photo-accurate isometric models
 
-Status: built, see [architecture.md](../architecture.md#isometric-view). Builds on [isometric.md](isometric.md) (Phases 1 to 5 built). Where the build differs from this plan, [As built](#as-built) says so.
+Status: built, see [architecture.md](../architecture.md#isometric-view). Builds on the first isometric scenes and items (built; see the [isometric view](../architecture.md#isometric-view)). Where the build differs from this plan, [As built](#as-built) says so.
 
 ## Where we are
 

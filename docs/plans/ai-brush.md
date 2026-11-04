@@ -231,7 +231,7 @@ Steps 1–3 need no model calls and can run in parallel with 4.
 
 ## Timing
 
-[current.md](current.md) puts live validation and the submission (November 4, 7 PM Edmonton) ahead of new features. This plan is about a week of work. If it is to be in the video, the smallest convincing slice is steps 1–3 and 7–8 with the demo only: a rectangle on the demo desk, "make it its own fixture, it's an IKEA Alex desk" answered from the bundled catalog, then "make it green". Live research can follow.
+The hackathon's priorities put live validation and the submission (November 4) ahead of new features. This plan is about a week of work. If it is to be in the video, the smallest convincing slice is steps 1–3 and 7–8 with the demo only: a rectangle on the demo desk, "make it its own fixture, it's an IKEA Alex desk" answered from the bundled catalog, then "make it green". Live research can follow.
 
 ## Open decisions
 

@@ -1,6 +1,6 @@
 # Remote camera streaming
 
-How to make the phone camera (and the other network cameras) as fast, sharp and dependable as the stack allows. Status: the network-camera path is the focus ([network cameras](#network-cameras)). The phone's phases 0 and 1 are built but not measured on a phone ([as built](#as-built-phases-0-and-1)); its phases 2 to 5 are on hold. [current.md](current.md) defers phone-to-server streaming until its checks are done.
+How to make the phone camera (and the other network cameras) as fast, sharp and dependable as the stack allows. Status: the network-camera path is the focus ([network cameras](#network-cameras)). The phone's phases 0 and 1 are built but not measured on a phone ([as built](#as-built-phases-0-and-1)); its phases 2 to 5 are on hold. Phone-to-server streaming waits until the live checks are done.
 
 ## Where it stands
 
@@ -156,7 +156,7 @@ This only goes ahead if phase 2 misses its targets, or the metadata in phase 3 p
 - **LL-HLS or DASH:** seconds of latency.
 - **MJPEG from the phone:** roughly ten times the bytes of H.264 for the same picture.
 - **TURN:** the phone and lab share a LAN, and the pairing page says so.
-- **SAM video:** [current.md](current.md) keeps it parked until its latency and billable frames are measured.
+- **SAM video:** It stays parked until its latency and billable frames are measured.
 - **A native app:** the web page covers what's needed except a full-sensor still on iOS, which phase 3's large-track still approximates.
 
 ## Checks

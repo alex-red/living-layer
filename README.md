@@ -19,11 +19,11 @@ The lab is scene first: it keeps a small map of your room, and every object, zon
 
 The scene outline on the left doubles as the setup checklist. The inspector on the right shows whatever you select, with one main action. Every model call and decision is in the activity drawer below, with what it cost.
 
-Everything runs on your machine. The server binds to `127.0.0.1` and rejects other hosts and origins. A bundled synthetic demo lets you run the whole loop with no API key, camera, or lamp.
+Everything runs on your machine. The server binds to `127.0.0.1` (`bun run dev` also listens on your network, for a phone) and rejects other hosts and origins. A bundled synthetic demo lets you run the whole loop with no API key, camera, or lamp.
 
 See [docs/architecture.md](docs/architecture.md) for the details.
 
-See [current priorities](docs/plans/current.md) for the October 29 source review and the live checks remaining before submission.
+[docs/plans](docs/plans/README.md) has the design notes each part was built from, and the roadmap.
 
 ## Getting started
 
