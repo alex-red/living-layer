@@ -7,11 +7,11 @@ We call the direction **Quiet Neon**. It takes its discipline from Apple's inter
 ## Principles
 
 1. **The one warm light.** The interface is cool and dim. Amber (2700 K, the lamp's own colour temperature) is reserved for things that change the physical world. If something glows warm, a real light is involved.
-2. **Colour means a source.** Cyan is what the model sees. Magenta is what you decided. Amber is what happened in the room. Nothing else gets these colours.
-3. **Never grade the evidence.** Photos and masks show true colour. Atmosphere (grain, vignette, scanlines) goes around the content, never on top of the pixels a decision was based on.
+2. **Colour means a source.** Cyan is what the model sees. Magenta is what you decided. Amber is what happened in the room. Nothing else gets these colours. The one exception is a zone: one whose steps set a light's colour is drawn in that colour, and a motion zone is cyan, because the camera decides it (see [Zone](#components)).
+3. **Never grade the evidence.** Photos and masks show true colour. Atmosphere (grain, vignette, scanlines) goes around the content, never on top of the pixels a decision was based on. A camera filter is the person's own choice, off by default, and only for their eyes: it is CSS or a canvas over the `<video>`, and scans, SAM and the tracker read the plain frames.
 4. **Defer to the scene.** The camera frame is the hero. The UI around it is glass and type, not decoration.
 5. **Telemetry whispers, sentences speak.** Mono uppercase HUD labels add flavour in small doses. Anything a person has to understand is written in plain sentence case.
-6. **Calm by default.** No constant flicker, glitch or pulsing. Motion happens because something changed.
+6. **Calm by default.** No constant flicker, glitch or pulsing. Motion happens because something changed. The exceptions say something is still going on: a recording's blinking dot, the live camera's privacy dot, a dot or shimmer while waiting on AI or other work, a prop still being drawn, and a tracker that has stalled. Each stops when that does. Animated camera filters move too, but only when the person picks one.
 
 ## Colour
 
@@ -39,7 +39,7 @@ Dark is the default and, for now, the only theme. See [open decisions](#open-dec
 
 ### Signals
 
-Each signal has a solid value for text and icons, plus a `-glow` (the same colour at 25%) and a `-wash` (at 10%) for halos and fills.
+Each signal has a solid value for text and icons and a `-wash` (the same colour at 10%) for fills. `--seen`, `--chosen`, `--warm` and `--ok` also have a `-glow` (at 25%) for halos; `--unsure` and `--blocked` don't glow.
 
 | Token       | Value     | Contrast on `--surface-1` | Meaning                                             |
 | ----------- | --------- | ------------------------- | --------------------------------------------------- |
@@ -93,7 +93,7 @@ Display flourish: the large title and big numerals (such as the `0 / 4` checklis
 
 ## Space, shape, and layout
 
-- **Grid:** 4 px base. Spacing steps are 4, 8, 12, 16, 24, 32, 48, 64, 96.
+- **Grid:** spacing stays on the one scale under [Typography](#typography): 2, 4, 6, 8, 10, 12, 16, 24 px, with 32 and 48 for page-level gaps.
 - **Radii:** nearly square. 2 for chips, inputs and buttons, 3 for cards, 4 for panels and the scene frame. Only status dots, checklist rings and the shutter stay round.
 - **HUD brackets:** detections and the scene frame get corner ticks (four L-shaped 12 px strokes) instead of full boxes. Brackets are our "cyberpunk" shape. Cut, chamfered panel corners are not; see [originality](#originality).
 - **Density:** the labs are dense tools. Buttons, inputs, selects and segmented controls are 28 px tall (`--control-h`), 24 px in dense rows and toolbars (`--control-h-sm`); control and body text is 13 px, helper text 12 px. Take heights from the tokens, never a literal.
@@ -132,7 +132,6 @@ Every glass layer gets `backdrop-filter: blur() saturate(140%)`, a `--line` bord
 Key moments:
 
 - **Mask arrives:** a cyan scan line sweeps once across the detection box (400 ms), then the mask fills in.
-- **Zone saved:** the magenta outline settles from dashed to solid, with a soft inner glow, like light projected onto the desk.
 - **Lamp on:** the verify button and ambient light "ignite". Amber brightens with two brief dips over about 300 ms, then holds. That's the only flicker anywhere. It stays under three flashes a second, so it's safe for photosensitive users. Each step lasts whole frames at 30 fps (100 ms, then 67 ms), so a recording keeps both dips; the room's lamp glow uses the same keyframes, and a virtual lamp ignites at half strength.
 - **Something enters a zone:** the zone's own colour grows stronger, its line heavier, and it glows, over `--t-base`. The same on the camera and in the room, for every zone.
 - **Selected:** the thing's box on the camera turns solid and heavier, with a glow in its tone, and the other boxes step back to 45%. In the room the thing's model gets a `--chosen` outline over its floor ring; under the pointer, a fainter one.
@@ -142,7 +141,11 @@ Under `prefers-reduced-motion`, every sweep, ignition and shimmer becomes a 150 
 
 ## Components
 
-**Status capsule.** A floating glass pill, top centre, inspired by the Dynamic Island. It shows the current operation ("Discovering objects", "Lamp on · confirmed") with a signal dot, and replaces today's feedback bar. It expands to show an error message and collapses after 4 s. It's also the `aria-live` region.
+**Status capsule.** A floating glass pill, top centre, inspired by the Dynamic Island. It shows the current operation ("Discovering objects", "Lamp on · confirmed") with a signal dot, and replaces today's feedback bar. A settled message folds to its dot after 6 s (`MESSAGE_SHOWN_MS` in `TopBar.tsx`), so the top bar stays calm; work in progress and errors stay open. It's also the `aria-live` region.
+
+**Readiness.** The pill in the top bar shows today's spend against its limit and the live proof count (`n/4`). It opens a popover with the session strip (Spark and SAM models, Meta, spend, the lamp, live proof), the live checklist and the connection tests.
+
+**Record.** _Record_ in the top bar (or ⌘⇧E) records the tab to a video that downloads when it stops. While recording, the button gives way to a blinking `--blocked` dot, the take's time in tabular mono and _Stop_ (`Recorder.tsx`).
 
 **Segmented control.** One of a few, with a sliding thumb (`<Segmented>`): the mode switch (`Demo | Live`; the code calls demo mode `demo`), the stage view, an item's views. In Live mode, a small `LIVE` HUD tag appears in the top bar.
 
@@ -165,13 +168,27 @@ Only one primary or physical button is visible per step. Icon-only actions are `
 
 **Detections.** HUD brackets in `--seen` around the box, the mask at 24% `--seen-wash` with a 1 px contour, and a mono tag above it: `MUG · #7 · 0.94`. A confirmed detection switches its brackets to `--chosen`.
 
-**Zone.** A `--chosen` outline at 1.5 px with a 10% fill and a mono label `ZN-01`. While you're drawing it, the outline is dashed, with live W×H percentages shown at the corner.
+**Zone.** Every zone, saved or being drawn, is a dashed outline over a faint wash (`--chosen-wash` or 12% of its colour). On the camera the line is 1.5 px, 2.5 px with a glow while something is inside, and the fill goes to 28%; in the room it is 1.25, then 2 (`iso.css`, `saved-zones.css`, `scene.css`). Its colour is `--chosen`, or its light's colour when its steps set one, or `--seen` for a motion zone. A zone turned off is a faint `--text-3` dotted line with no wash. A mono name shows only while you draw it, hover over it or select it: the main zone's `ZN-01` tag (with live W×H percentages while drawing), another zone's name and state (`DESK · OCCUPIED`, `OFF`).
+
+**Zone menu and steps.** Right-clicking a zone, on the photo, the camera, the room or the outline, opens a small menu: _Open_, and _Turn off_ or _Turn on_ (`ZoneMenu.tsx`). An off zone stays where it is drawn but isn't judged and runs nothing. Its steps are edited as two plain-sentence branches, "When the mug enters" and "When it empties" (or when motion starts and stops), each a short list of steps: turn a light on or off in its own colour, warm white or a colour; wait; ask `if` something is inside or the time; show a banner or open a page on a desktop (`ZoneActions.tsx`).
 
 **Outline rows.** The scene outline doubles as the checklist: each row has a status glyph (`✓` done, `●` current, `◌` needs something). A row you can't use yet is dimmed, with a one-line reason ("Set up the office first").
 
 **Evidence log.** A tape of mono rows: time, kind, mode, status glyph, and duration. New rows slide in from the top. The inspector opens as a thick-glass sheet from the right on desktop and from the bottom on mobile.
 
 **Live checklist.** Four rows, each with a ring that fills in `--ok` once it's done. The big `n / 4` numeral uses the chromatic split.
+
+**Camera filters.** The _Filter_ layer chip lays a look over the live camera: a still look (mono, sepia, night…), an animated one, or a privacy filter that blurs the frame or redraws it in blocks over the hidden video (`cameraFilter.ts`, `CameraFilterLayer.tsx`). It's off by default, remembered with the session, and its hint says scans and tracking read the plain frames. Under reduced motion, a privacy filter holds still.
+
+**Stat cards.** A thing's stats (`ThingStats.tsx`) are one card each on `--surface-2`, with a 2 px left edge in its source's colour: `--seen` for what the camera says, `--ok` for what a device reports, `--warm` only for a lamp's confirmed light, `--unsure` when the value is unknown and `--text-3` when it reads off or zero. Each shows its value and since when, today's total, a ribbon of the last 24 hours and the last week as small bars.
+
+**Health bars.** Two kinds. A tracker's (`HealthBar.tsx`) is a mono chip under the camera: a dot, who is tracking and one word (`healthy`, `busy`, `behind`, `stalled`) in `--ok`, `--unsure` or `--blocked`; it opens to the reason, its numbers and recent frames' work against the frame interval, and only a stall says why without opening. A food's is ten cells over it in the room, each a tenth of its keeping time, `--ok` while it keeps, `--unsure` within two days of its use-by, `--blocked` once past it or empty.
+
+**Food cards.** A food thing's card (`FoodCard.tsx`) holds what the person sets, not what the camera sees: its use-by day, when it was opened and how much is left. Its status line reads in words ("Expires tomorrow · half left") in the same three tones.
+
+**Day dock and nudges.** Under the canvas, the day replay plays a sample day on the room with each change and nudge on its track, each kind of thing keeping its dot's colour, and _Ask your room_ beside it (`DayDock.tsx`, `day.css`). An answer card leads with its number large and its units small, then the sentence, a chart and what it rests on; a card asking back is washed in `--unsure`, and a cited time is marked on the track. Room coach nudges arrive as phone-style notifications in thick glass over the room's top right, newest first, three at once, each with a dot for its topic.
+
+**Studio.** `/studio` is the model editor on a page of its own: every thing in the room on the left, the editor on the right, under the same top bar (`studio/Studio.tsx`). A model sits on a mid-grey backdrop (`--studio-1` to `--studio-3`), so black and white things both read. The onion skin compares the model with _Before this edit_, its base or another state, as an overlay or a wipe; _Photo vs model_ and _All states_ sit beside it.
 
 ## Icons
 
@@ -205,11 +222,12 @@ The mood is "lo-fi cyberpunk". The look must not be Cyberpunk 2077's. This is a 
 The workspace and the camera playground both use Quiet Neon. Tokens live in `apps/web/src/tokens.css`, and Inter and JetBrains Mono are self-hosted through `@fontsource-variable`. In place:
 
 - The void background, ambient light, grain, and the glass top bar, outline and inspector.
-- Frame and detection brackets, the scan-line sweep, cyan masks that turn magenta once confirmed, and the dashed-to-solid zone.
-- The status capsule (it replaces the old feedback bar), the segmented mode switch, and the `LIVE` tag.
+- Frame and detection brackets, the scan-line sweep, cyan masks that turn magenta once confirmed, and dashed zones that fill while something is inside.
+- The status capsule (it replaces the old feedback bar), the segmented mode switch, the `LIVE` tag, and _Record_ in the top bar.
 - The lamp ignition and ambient warm-up. A virtual lamp warms the room at half strength and shows a `VIRTUAL` tag, which settles the open decision below.
 - The evidence log with status glyphs, filters and summary stats; the inspector as a sticky side panel that can repeat a call or put its result back on the scene; and the checklist rings.
-- A session strip under the page title with the models, the Meta call budget, spend, lamp state and live proof.
+- The session strip (models, Meta calls, spend, lamp state and live proof) and the live proof checklist, in the top bar's readiness popover.
+- The Studio (`/studio`), on its mid-grey model backdrop.
 - Frames move from the camera playground to the workspace through session storage, never through the server.
 - Reduced-motion, reduced-transparency and high-contrast fallbacks.
 

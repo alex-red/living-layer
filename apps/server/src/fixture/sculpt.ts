@@ -731,10 +731,10 @@ async function sculptSave(
  * model and the picture of it: a close photo sent with the request or one its
  * model was fitted to, else its cut-out from the room's picture when it was
  * lifted, else its last sighting, else the crop its model was fitted to, else
- * the crop of it a room draft kept (seen from the room's camera). Spark revises the parts
- * against a render of the model (one call), then once more against a render
- * of its own draft (a second), and the draft whose silhouette matches the
- * picture better is kept, with any parts the person locked. Live only.
+ * the crop of it a room draft kept (seen from the room's camera). Spark drafts
+ * the parts `SCULPT_DRAFTS` ways at once against a render of the model, and
+ * the draft whose silhouette matches the picture best is kept (one under
+ * `SCULPT_FLOOR` is refused), with any parts the person locked. Live only.
  */
 export async function sculptFixture(
   { store, meta, run, jobs, productsDir }: SculptDeps,
