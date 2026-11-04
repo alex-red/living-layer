@@ -200,6 +200,35 @@ describe('model kernel', () => {
     for (let z = 0; z < top; z += g.size) column += occupied(g, hc.x, hc.y, z) ? '#' : '.';
     expect(column.replace(/(.)\1+/g, '$1')).toBe('.#.#.');
   });
+  it('keeps a part thinner than a voxel that no voxel centre falls in', () => {
+    // A monitor modelled by AI: a 0.02-deep screen on the front of a 0.05 bezel.
+    // At the room's 32 voxels no voxel centre lies in the screen, so it vanished.
+    const part = (id: string, x: number, w: number, color: string): ItemPart => ({
+      id,
+      shape: 'rbox',
+      at: { x, y: 0.01, z: 0.2 },
+      size: { w, d: 0.98, h: 0.6 },
+      color,
+      taper: 1,
+      radius: 0.02,
+    });
+    const parts = [part('bezel', 0, 0.05, '#202024'), part('screen', 0.05, 0.02, '#68b5e8')];
+    const g = voxelize(parts, { resolution: 32 });
+    let screen = 0;
+    for (let i = 0; i < g.occ.length; i++) if (g.occ[i] === 2 && g.surf[i]! >= 0) screen++;
+    // It shows as a whole face, not a speck: most of the 30 × 18 voxels it covers.
+    expect(screen).toBeGreaterThan(300);
+    // In front of the bezel, which keeps its own voxels.
+    const owner = (x: number) =>
+      g.occ[
+        Math.floor((x - g.origin[0]) / g.size) +
+          g.nx *
+            (Math.floor((0.5 - g.origin[1]) / g.size) +
+              g.ny * Math.floor((0.5 - g.origin[2]) / g.size))
+      ];
+    expect(owner(0.03)).toBe(1);
+    expect(owner(0.075)).toBe(2);
+  });
   it('lights a sprite with darker outlines and keeps props to their palette', () => {
     const g = voxelize(buildItem('Box', defaultFit('box', ['#8a90a8', '#8a90a8'])).parts);
     const s = renderSprite(g, { scale: 1, shadow: false });

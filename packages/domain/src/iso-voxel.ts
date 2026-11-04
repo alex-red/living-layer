@@ -474,6 +474,46 @@ export function voxelize(
       }
     }
   }
+  // A part thinner than a voxel can fall between voxel centres and vanish: a
+  // monitor's screen in front of its bezel. One that kept no voxel takes the
+  // empty voxels it passes through (within half a voxel), as a layer of its
+  // own, nearest part first; what other parts filled stays theirs.
+  const kept = new Uint8Array(prims.length);
+  for (let i = 0; i < n; i++) if (best[i]! <= 0) kept[owner[i]!] = 1;
+  const half = size / 2;
+  const lost = prims.flatMap((p, pi) =>
+    !kept[pi] && Math.min(p.max[0] - p.min[0], p.max[1] - p.min[1], p.max[2] - p.min[2]) < size
+      ? [pi]
+      : [],
+  );
+  const empty = lost.length ? new Uint8Array(n) : null;
+  if (empty) for (let i = 0; i < n; i++) empty[i] = best[i]! > 0 ? 1 : 0;
+  for (const pi of lost) {
+    const p = prims[pi]!;
+    const span = (k: 0 | 1 | 2, nk: number): [number, number] => [
+      Math.max(0, Math.floor((p.min[k] - half - origin[k]) / size)),
+      Math.min(nk - 1, Math.ceil((p.max[k] + half - origin[k]) / size)),
+    ];
+    const [x0, x1] = span(0, nx);
+    const [y0, y1] = span(1, ny);
+    const [z0, z1] = span(2, nz);
+    for (let iz = z0; iz <= z1; iz++) {
+      const z = origin[2] + (iz + 0.5) * size;
+      for (let iy = y0; iy <= y1; iy++) {
+        const y = origin[1] + (iy + 0.5) * size;
+        let i = x0 + nx * (iy + ny * iz);
+        for (let ix = x0; ix <= x1; ix++, i++) {
+          if (!empty![i]) continue;
+          const pd = p.dist(origin[0] + (ix + 0.5) * size, y, z);
+          // Below zero, so the voxel is filled; nearer parts win as above.
+          if (pd <= half && pd - half - size < best[i]!) {
+            best[i] = pd - half - size;
+            owner[i] = pi;
+          }
+        }
+      }
+    }
+  }
   for (let i = 0; i < n; i++) if (best[i]! <= 0) occ[i] = prims[owner[i]!]!.part + 1;
   const at = (ix: number, iy: number, iz: number) =>
     ix < 0 || iy < 0 || iz < 0 || ix >= nx || iy >= ny || iz >= nz
