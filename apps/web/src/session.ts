@@ -1,5 +1,6 @@
 import { SAVE_NAME_MAX, upgradeMemory, type DeskMemory, type Mode } from '@livinglayer/domain';
 import type { WorkScene } from './workspace/progress';
+import { CAMERA_FILTER_KINDS, type CameraFilterKind } from './workspace/cameraFilter';
 
 /**
  * The session lives in this browser: what the person chose (scene, view,
@@ -22,6 +23,9 @@ export interface Prefs {
   stats: boolean;
   /** On the room's picture, fixtures as the picture shows them or as their models. */
   fixtureLook: 'picture' | 'model';
+  /** Whether a filter is laid over the live camera's picture, and which one. */
+  cameraFilter: boolean;
+  cameraFilterKind: CameraFilterKind;
   concept: string;
   demoPosition: string;
   /** '' for this device's camera, else the id of a network camera. */
@@ -69,6 +73,8 @@ export const DEFAULT_PREFS: Prefs = {
   corner: true,
   stats: true,
   fixtureLook: 'picture',
+  cameraFilter: false,
+  cameraFilterKind: 'mono',
   concept: 'mug',
   demoPosition: 'centre',
   cameraSource: '',
@@ -106,6 +112,8 @@ export function prefsOf(saved: Partial<Prefs> | undefined): Prefs {
   one('corner', (v) => typeof v === 'boolean');
   one('stats', (v) => typeof v === 'boolean');
   one('fixtureLook', among('picture', 'model'));
+  one('cameraFilter', (v) => typeof v === 'boolean');
+  one('cameraFilterKind', among(...CAMERA_FILTER_KINDS));
   one('concept', (v) => text(v) && (v as string).trim().length > 0);
   one('demoPosition', text);
   one('cameraSource', text);

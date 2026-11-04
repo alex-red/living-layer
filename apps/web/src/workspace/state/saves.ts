@@ -64,6 +64,8 @@ export function useSavesSlice(
     boot,
     busy,
     camera,
+    cameraFilter,
+    cameraFilterKind,
     cameraSource,
     cameraWanted,
     changeMode,
@@ -88,6 +90,8 @@ export function useSavesSlice(
     refresh,
     restoreDesk,
     setBusy,
+    setCameraFilter,
+    setCameraFilterKind,
     setCameraSource,
     setCameraWanted,
     setChoosingScene,
@@ -146,6 +150,8 @@ export function useSavesSlice(
       corner: showCorner,
       stats: showStats,
       fixtureLook,
+      cameraFilter,
+      cameraFilterKind,
       concept,
       demoPosition,
       cameraSource,
@@ -172,6 +178,8 @@ export function useSavesSlice(
       showCorner,
       showStats,
       fixtureLook,
+      cameraFilter,
+      cameraFilterKind,
       concept,
       demoPosition,
       cameraSource,
@@ -505,6 +513,8 @@ export function useSavesSlice(
       setShowCorner(next.corner);
       setShowStats(next.stats);
       setFixtureLook(next.fixtureLook);
+      setCameraFilter(next.cameraFilter);
+      setCameraFilterKind(next.cameraFilterKind);
       setConcept(next.concept);
       if (next.demoPosition in DEMO_POSITIONS) setDemoPosition(next.demoPosition as DemoPosition);
       setCameraSource(next.cameraSource);

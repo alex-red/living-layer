@@ -38,6 +38,8 @@ import { SurfacePin } from '../iso/SurfacePin';
 import { CalibrationOverlay } from '../iso/CalibrationOverlay';
 import type { StageView } from '../session';
 import { Button, Check, Segmented, type Option } from '../ui/controls';
+import { cameraFilterView } from './cameraFilter';
+import { CameraFilterLayer, CameraFilterPicker } from './CameraFilterLayer';
 import {
   useAi,
   useCalibration,
@@ -200,6 +202,16 @@ export function SceneToolbar() {
                 <small>{hint}</small>
               </Check>
             ))}
+            {camera && (
+              <CameraFilterPicker
+                on={lab.cameraFilter}
+                kind={lab.cameraFilterKind}
+                onChoose={(kind) => {
+                  lab.setCameraFilterKind(kind);
+                  lab.setCameraFilter(true);
+                }}
+              />
+            )}
           </div>
         )}
       </Popover>
@@ -282,8 +294,25 @@ function Media() {
   const { camera, mode, image } = lab;
   const fridge = useFridgePlaceholder();
   const demoUrl = useDemoFrameUrl(lab.demoPosition, mode === 'demo');
-  if (camera)
-    return <video ref={lab.video} data-pan muted playsInline aria-label="Desk camera preview" />;
+  if (camera) {
+    const filter = cameraFilterView(lab.cameraFilter, lab.cameraFilterKind);
+    return (
+      <>
+        <video
+          ref={lab.video}
+          data-pan
+          muted
+          playsInline
+          aria-label="Desk camera preview"
+          className={[filter.videoClass, filter.hideVideo && 'camera-hidden']
+            .filter(Boolean)
+            .join(' ')}
+          style={{ filter: filter.videoFilter }}
+        />
+        <CameraFilterLayer video={lab.video} view={filter} />
+      </>
+    );
+  }
   if (fridge)
     return (
       <img

@@ -1,0 +1,119 @@
+/* Camera filters: what is laid over the live camera's picture, for the eyes only. */
+
+/* A privacy canvas stands in for the video: fitted like it, scaled up in hard blocks. */
+.zoom-pan-content > canvas.camera-pixels {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  image-rendering: pixelated;
+  pointer-events: none;
+}
+/* Hidden, not removed: it keeps playing and feeding the frames scans read. */
+.zoom-pan-content > video.camera-hidden {
+  opacity: 0;
+}
+
+/* Drift: colours round the wheel. */
+.cam-fx-drift {
+  animation: cam-drift 10s linear infinite;
+}
+@keyframes cam-drift {
+  from {
+    filter: saturate(1.6) hue-rotate(0deg);
+  }
+  to {
+    filter: saturate(1.6) hue-rotate(360deg);
+  }
+}
+
+/* Scan: a slight flicker on the video, rolling lines over it. */
+.cam-fx-scan {
+  animation: cam-flicker 0.18s steps(2) infinite;
+}
+@keyframes cam-flicker {
+  from {
+    filter: contrast(1.15) brightness(1) saturate(0.85);
+  }
+  to {
+    filter: contrast(1.15) brightness(0.93) saturate(0.85);
+  }
+}
+.camera-scan {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(to bottom, transparent 0%, rgb(255 255 255 / 6%) 50%, transparent 100%) 0 0 /
+      100% 30% no-repeat,
+    repeating-linear-gradient(to bottom, rgb(0 0 0 / 28%) 0 1px, transparent 1px 3px);
+  animation: cam-roll 4s linear infinite;
+}
+@keyframes cam-roll {
+  from {
+    background-position:
+      0 -30%,
+      0 0;
+  }
+  to {
+    background-position:
+      0 130%,
+      0 0;
+  }
+}
+
+/* Glitch: still most of the time, then a jump and a colour split. */
+.cam-fx-glitch {
+  animation: cam-glitch 2.6s steps(1) infinite;
+}
+@keyframes cam-glitch {
+  0%,
+  86%,
+  100% {
+    transform: none;
+    filter: none;
+  }
+  88% {
+    transform: translate(-6px, 1px) skewX(4deg);
+    filter: hue-rotate(90deg) saturate(2.4) contrast(1.3);
+  }
+  90% {
+    transform: translate(5px, -2px);
+    filter: hue-rotate(-60deg) saturate(1.8);
+  }
+  93% {
+    transform: translate(-2px, 0) skewX(-3deg);
+    filter: invert(0.15) contrast(1.4);
+  }
+  96% {
+    transform: translate(3px, 1px);
+    filter: hue-rotate(30deg);
+  }
+}
+
+/* The Layers menu's filter choice, grouped. The chosen one is lit; brighter while the filter is on. */
+.camera-filter-picker {
+  display: grid;
+  gap: 6px;
+  margin-top: 6px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+.camera-filter-group {
+  display: grid;
+  gap: 2px;
+}
+.camera-filter-group > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+}
+.camera-filter-picker .layer-chip[aria-pressed='true']:not([data-on]) {
+  color: var(--text-2);
+}
+.camera-filter-picker .layer-chip[data-on] {
+  color: var(--text);
+  box-shadow: inset 0 0 0 1px var(--chosen);
+}

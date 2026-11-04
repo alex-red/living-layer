@@ -63,6 +63,14 @@ export function useLayers(): Layer[] {
       // It draws only over a running camera.
       views: lab.camera ? ['photo'] : [],
     },
+    {
+      name: 'Filter',
+      hint: 'A look laid over the live camera, for your eyes only: scans and tracking read the plain frames',
+      on: lab.cameraFilter,
+      set: lab.setCameraFilter,
+      // It filters only a running camera's picture.
+      views: lab.camera ? ['photo'] : [],
+    },
     ...(picture
       ? [
           {

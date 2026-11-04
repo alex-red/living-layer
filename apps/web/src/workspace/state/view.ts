@@ -16,6 +16,7 @@ import { parseSelection, selectionHash, type Selection, type WorkScene } from '.
 import type { Tool } from '../ToolStrip';
 import type { FridgeView } from '../demoFridge';
 import type { FridgeAngle } from '../../iso/fridgeAngle';
+import type { CameraFilterKind } from '../cameraFilter';
 import { useStableSlice } from './stable';
 import { createStore, useStore } from './store';
 import type { Prefs, SessionSave } from '../../session';
@@ -67,6 +68,8 @@ export function useViewSlice(): ViewSlice {
   const [showCorner, setShowCorner] = useState(boot.prefs.corner);
   const [showStats, setShowStats] = useState(boot.prefs.stats);
   const [fixtureLook, setFixtureLook] = useState(boot.prefs.fixtureLook);
+  const [cameraFilter, setCameraFilter] = useState(boot.prefs.cameraFilter);
+  const [cameraFilterKind, setCameraFilterKind] = useState(boot.prefs.cameraFilterKind);
   const [showZones, setShowZones] = useState(boot.prefs.zones);
   const [stageView, setStageView] = useState<StageView>(boot.prefs.stageView);
   // What a drag on the canvas does.
@@ -196,6 +199,10 @@ export function useViewSlice(): ViewSlice {
     setRuleDraft,
     setSelection,
     setShowCorner,
+    cameraFilter,
+    cameraFilterKind,
+    setCameraFilter,
+    setCameraFilterKind,
     setShowStats,
     setShowKeys,
     setShowPicture,
@@ -316,6 +323,10 @@ export interface ViewSlice {
   setRuleDraft: Dispatch<SetStateAction<RuleDraft | null>>;
   setSelection: (next: Selection | null) => void;
   setShowCorner: Dispatch<SetStateAction<boolean>>;
+  cameraFilter: boolean;
+  cameraFilterKind: CameraFilterKind;
+  setCameraFilter: Dispatch<SetStateAction<boolean>>;
+  setCameraFilterKind: Dispatch<SetStateAction<CameraFilterKind>>;
   setShowStats: Dispatch<SetStateAction<boolean>>;
   setShowKeys: Dispatch<SetStateAction<boolean>>;
   setShowPicture: Dispatch<SetStateAction<boolean>>;
