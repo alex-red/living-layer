@@ -99,7 +99,7 @@ function deskOf(view: ViewScene, memory?: DeskMemory | null): string | null {
 
 /**
  * How far the guided setup has got. Setup runs in order: the room, then the
- * desk inside it, then objects, a rule and one check. Only the desk waits for
+ * desk inside it, then objects (in the demo only), a rule and one check. Only the desk waits for
  * the room; the later steps are suggestions, never locks, so an expert can
  * still work in any order.
  */
@@ -164,7 +164,11 @@ export function sceneProgress({
     run: 'Run it',
   };
 
-  const order: StepId[] = ['office', 'desk', 'objects', 'rule', 'run'];
+  // A live save needn't remember the mug or any object first: its zones count anything seen.
+  const order: StepId[] =
+    mode === 'live'
+      ? ['office', 'desk', 'rule', 'run']
+      : ['office', 'desk', 'objects', 'rule', 'run'];
   const next = order.find((id) => !done[id]) ?? null;
   const steps = order.map((id): Step => {
     const state: StepState = done[id]

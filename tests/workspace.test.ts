@@ -38,7 +38,6 @@ describe('scene progress', () => {
     expect(states(p)).toEqual({
       office: 'current',
       desk: 'locked',
-      objects: 'todo',
       rule: 'todo',
       run: 'todo',
     });
@@ -68,6 +67,18 @@ describe('scene progress', () => {
     });
     expect(live.room).toBe('office');
     expect(live.pinned).toBe(true);
+  });
+
+  it('finishes a live save with zones and a run but no object remembered', () => {
+    const memory = {
+      ...emptyDesk('live'),
+      surface: deskPin,
+      rules: [{ id: 'main', zone: {} }],
+      lastDecision: { id: 'd' },
+    } as unknown as DeskMemory;
+    const p = sceneProgress({ mode: 'live', workScene: 'desk', memory });
+    expect(p.steps.map((s) => s.id)).not.toContain('objects');
+    expect(p.next).toBeNull();
   });
 
   it('walks through objects, the zone and a run', () => {

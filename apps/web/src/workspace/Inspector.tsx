@@ -1314,22 +1314,28 @@ function ZonePanel() {
     useNavigation(),
     useProbes(),
   );
-  const { call, off } = useCall();
   const { memory, mode, busy, drawing, draftZone, currentObservation, zoneObservation, lampReady } =
     lab;
-  if (!memory || !mugOf(memory))
+  if (!memory || !mugOf(memory)) {
+    const saved = mainZone(memory);
     return (
       <Panel
         tiny="ZONE"
-        title="Main zone"
-        status="Remember the mug first; its zone is drawn on a frame it was seen in."
+        title={saved?.label ?? 'Main zone'}
+        status={
+          saved
+            ? 'Its zone is saved. Remember the mug to draw it again.'
+            : 'Remember the mug first; its zone is drawn on a frame it was seen in.'
+        }
         tone="unsure"
       >
         <Button variant="primary" onClick={() => lab.select({ kind: 'add' })}>
           Find the mug
         </Button>
+        {saved && <DeleteMainZone id={saved.id} label={saved.label} />}
       </Panel>
     );
+  }
   const d = memory.lastDecision?.output;
   const rule = memory.rules?.find((r) => r.id === MAIN_RULE);
   // What it watches: anything seen, unless set to other things.
@@ -1500,23 +1506,30 @@ function ZonePanel() {
           Sightings expire after 5 minutes.
         </p>
       </Details>
-      {main && !drawing && (
-        <Details summary="Delete">
-          <Button
-            variant="danger"
-            disabled={off}
-            onClick={() =>
-              void call<DeskMemory>('desk/rules/delete', { ruleId: main.id }, (m) => {
-                lab.setMemory(m);
-                lab.setMessage(`Removed "${main.label}".`);
-              })
-            }
-          >
-            Delete “{main.label}”
-          </Button>
-        </Details>
-      )}
+      {main && !drawing && <DeleteMainZone id={main.id} label={main.label} />}
     </Panel>
+  );
+}
+
+/** Deleting the main zone, with or without a mug to draw it on. */
+function DeleteMainZone({ id, label }: { id: string; label: string }) {
+  const lab = useLabParts(useFeedback(), useDesk());
+  const { call, off } = useCall();
+  return (
+    <Details summary="Delete">
+      <Button
+        variant="danger"
+        disabled={off}
+        onClick={() =>
+          void call<DeskMemory>('desk/rules/delete', { ruleId: id }, (m) => {
+            lab.setMemory(m);
+            lab.setMessage(`Removed "${label}".`);
+          })
+        }
+      >
+        Delete “{label}”
+      </Button>
+    </Details>
   );
 }
 
