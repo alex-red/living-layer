@@ -39,7 +39,7 @@ import { flag, has, parseArgs } from './lib/args.js';
 import { pictureGrid } from './lib/image.js';
 import { fixtureIn, loadModel, spritePng } from './lib/models.js';
 
-const args = parseArgs();
+const args = parseArgs(undefined, { booleans: ['activate'] });
 const mode = (flag(args, 'mode') ?? 'live') as Mode;
 const api = flag(args, 'api') ?? `http://127.0.0.1:${process.env.PORT ?? 43431}/api`;
 /** How long to wait for the API to come back, ms: the dev server restarts on a commit. */

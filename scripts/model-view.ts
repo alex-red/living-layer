@@ -42,7 +42,9 @@ import { flag, has, parseArgs } from './lib/args.js';
 import { besideReference, parseShare, pictureGrid } from './lib/image.js';
 import { expandStates, loadModel, spritePng, type SpriteLook } from './lib/models.js';
 
-const args = parseArgs();
+const args = parseArgs(undefined, {
+  booleans: ['states', 'room', 'watch', 'uv', 'layers', 'shadow'],
+});
 if (!args.positional.length) {
   console.log(
     'usage: bun run model <source>… [--preset editor] [--against <reference>] [--uv] [--layers] [--turns all]',

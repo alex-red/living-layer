@@ -27,6 +27,14 @@ What isn't obvious from the code. [CONTRIBUTING.md](CONTRIBUTING.md) has setup, 
 - Changing a measurement means editing `FURNITURE_SPECS`, not a literal in a builder. To try values without editing, use `withFurniture` or a `--set` flag (below).
 - The room layout's own numbers (costs, slack, quantiles) live in `LAYOUT_TUNING`; try them with `withLayout` or `--set layout.<key>=…`. To see why a thing landed where it did, use `bun run draft <run> --why <thing>` or `layoutRoom`'s `trace` option, not a hook patched into the source.
 
+## Models made by hand
+
+- Build a thing's model in code with `item-build.ts` (`rbox`, `lathe`, `blob`, `tube`, `pixels`, `faceDecal`, `restOn`, `scaleAbout`, `buildModel`), as a `.ts` module whose default export is the model. A real thing's sources stay local in `.data/models/things/<thing>/` (ignored), like captured rooms.
+- Loop with `bun run model <file>.ts --room --watch` (`--against <photo>`, `--focus <part ids>`), then `bun run thing set <thing> <file>.ts [--state s]`. Flags go after the sources.
+- Judge it with `--room`, not the editor's preset: the room draws 32 voxels along the longest side, and a model of more than 12 parts twice as fine (`roomSpriteLook`). A face or print smaller than that is mush in the room.
+- Paint a face the room sees with `faceDecal('left' | 'right' | 'front', pixels(...))`: the room sees +y on the left and +x on the right. A raw decal's columns run right to left on screen.
+- A state's height follows its model (`stateSizeFor`), and a state can show by itself while a stat is on (`follows`, `bun run thing follow`).
+
 ## The room camera
 
 - Each room has one fixed camera, high in its front corner, calibrated against the room (`room-camera.ts`, `POST /api/room/calibrate`). The isometric room is the base: a scan places templates through that camera (`layoutRoom`), and nothing from the photo is pasted onto the room.
@@ -64,7 +72,8 @@ These run in seconds and need no server. Their output goes to `out/` (ignored).
 | When you change…                        | Run                                                                       | What it tells you                                                                                                                                                                    |
 | --------------------------------------- | ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | a furniture model or template           | `bun run sheet` (`--only chair --zoom 6`, `--room office`)                | every template at every turn as one PNG you can open; time per model                                                                                                                 |
-| a Thing's model, its look or a starter   | `bun run model <source>…` (`--against`, `--uv`, `--layers`, `--turns all`) | any fixture, draft, save, run, starter, stock model or JSON drawn as the app draws it, side by side; `--uv` shows which way paint runs |
+| a Thing's model, its look or a starter   | `bun run model <source>…` (`--room`, `--states`, `--focus <part ids>`, `--against <png>`, `--watch`, `--uv`, `--layers`) | any fixture (`fixture:<name>@<state>`), draft, save, run, starter, stock model, JSON or `.ts` model drawn as the app draws it, side by side; `--room` as the room draws it at fit; `--uv` shows which way paint runs |
+| a thing's model, state or stat in the running app | `bun run thing` (`list`, `show`, `set <thing> <source> [--state s]`, `state`, `stat`, `follow`) | saved through the API, checked first, before and after in `out/thing/`; the open lab shows it within about 3 s |
 | the sculpt prompt, or reading its answers | `bun run sculpt <run>` (`--answer n`)                                     | a stored "Model with AI" run's answers read again with this tree, scored then and now, each as JSON for `bun run model` |
 | a starter's print, or the part it is on  | `bun scripts/starter-prints.ts`                                           | starters' prints set in type into `starter-decals.ts`; `tests/print.test.ts` fails until it runs after such a change |
 | templates, `room-scan.ts`, the renderer | `bun run bench:room`                                                      | position, turn and size margins for rooms scanned by their corner camera                                                                                                             |

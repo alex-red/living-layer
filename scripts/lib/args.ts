@@ -19,7 +19,14 @@ export interface Args {
   flags: Map<string, string[]>;
   positional: string[];
 }
-export function parseArgs(argv = process.argv.slice(2)): Args {
+/**
+ * `booleans` names flags that never take a value, so `--states fixture:x`
+ * keeps `fixture:x` a source rather than the flag's value.
+ */
+export function parseArgs(
+  argv = process.argv.slice(2),
+  { booleans = [] }: { booleans?: readonly string[] } = {},
+): Args {
   const flags = new Map<string, string[]>();
   const positional: string[] = [];
   for (let i = 0; i < argv.length; i++) {
@@ -34,7 +41,7 @@ export function parseArgs(argv = process.argv.slice(2)): Args {
     const value =
       eq >= 0
         ? arg.slice(eq + 1)
-        : next !== undefined && !next.startsWith('--')
+        : next !== undefined && !next.startsWith('--') && !booleans.includes(name)
           ? (i++, next)
           : 'true';
     flags.set(name, [...(flags.get(name) ?? []), value]);

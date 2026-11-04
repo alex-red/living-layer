@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import { starterTemplateModel } from '@livinglayer/domain';
+import { parseArgs } from '../scripts/lib/args.js';
 import { spritePng } from '../scripts/lib/models.js';
 
 describe('a model drawn for a look', () => {
@@ -33,5 +34,16 @@ describe('a model drawn for a look', () => {
     const plain = await spritePng(tree, { preset: 'room', scale: 2.5, zoom: 1 });
     const fine = await spritePng(detailed, { preset: 'room', scale: 2.5, zoom: 1 });
     expect(fine.width).toBeGreaterThan(plain.width * 1.5);
+  });
+});
+
+describe('a script’s flags', () => {
+  it('keeps what follows an on/off flag a source, not its value', () => {
+    const a = parseArgs(['fixture:a', '--states', 'fixture:b', '--focus', 'head'], {
+      booleans: ['states'],
+    });
+    expect(a.positional).toEqual(['fixture:a', 'fixture:b']);
+    expect(a.flags.get('states')).toEqual(['true']);
+    expect(a.flags.get('focus')).toEqual(['head']);
   });
 });
