@@ -43,10 +43,15 @@
   color: var(--text);
   background: var(--control-bg-hover);
 }
-/* Sample values for the food things, centred under the room. */
+/*
+ * Sample values for the food things: in the top corner under "Your day"
+ * (day.css), shown with it, so a narrow pane's bottom row keeps the layers.
+ */
 .layer-chips.iso.sample {
-  left: 50%;
-  transform: translateX(-50%);
+  left: auto;
+  right: 12px;
+  top: 68px;
+  bottom: auto;
 }
 .layer-chips.sample .layer-chip {
   color: var(--text-2);
