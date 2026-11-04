@@ -4,7 +4,7 @@ import { ActivityDrawer } from './workspace/ActivityDrawer';
 import { AiTaskDialog } from './workspace/AiTaskDialog';
 import { Canvas } from './workspace/Canvas';
 import { Inspector } from './workspace/Inspector';
-import { useFeedback, useView } from './workspace/LabContext';
+import { useDesk, useFeedback, useView } from './workspace/LabContext';
 import { LabProvider } from './workspace/LabProvider';
 import { Outline } from './workspace/Outline';
 import { KeysDialog, TopBar } from './workspace/TopBar';
@@ -22,17 +22,33 @@ export function App() {
     <LabProvider>
       <LampShell>
         <TopBar />
-        <main className="workspace">
+        <Workspace>
           <Outline />
           <Canvas />
           <Inspector />
-        </main>
+        </Workspace>
         <ActivityDrawer />
         <ProviderActivity />
         <KeysWhenAsked />
         <AiTaskDialog />
       </LampShell>
     </LabProvider>
+  );
+}
+
+/**
+ * The three panes, held back until the server's desks have loaded, so the
+ * first frame is the room and not an empty setup that flips a moment later.
+ * If the API can't be reached they show, with the error in the top bar.
+ */
+function Workspace({ children }: { children: ReactNode }) {
+  const { deskReady } = useDesk();
+  const { error } = useFeedback();
+  const loading = !deskReady && !error;
+  return (
+    <main className={`workspace${loading ? ' loading' : ''}`} aria-busy={loading}>
+      {children}
+    </main>
   );
 }
 

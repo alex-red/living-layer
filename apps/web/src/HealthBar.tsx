@@ -3,11 +3,11 @@ import type { TrackHealth } from '@livinglayer/domain';
 import { TRACK_HEALTH } from '@livinglayer/domain';
 
 const VERDICT = {
-  waiting: 'WAITING',
-  healthy: 'HEALTHY',
-  strained: 'STRAINED',
-  lagging: 'LAGGING',
-  stalled: 'STALLED',
+  waiting: 'waiting',
+  healthy: 'healthy',
+  strained: 'busy',
+  lagging: 'behind',
+  stalled: 'stalled',
 } as const;
 const ms = (n: number) => (n < 1 ? '<1' : n < 10 ? n.toFixed(1) : String(Math.round(n)));
 const pct = (share: number) => `${Math.round(share * 100)}%`;
@@ -32,16 +32,17 @@ function WorkSpark({ recent, budgetMs }: { recent: number[]; budgetMs: number })
 }
 
 /**
- * How one tracker keeps up, over the camera: its verdict, rate, work per
- * frame and load. Opened, every number behind the verdict and the latest
- * frames' work against the frame interval.
+ * How one tracker keeps up, under the camera: closed, its name and a one-word
+ * verdict, so it reads calmly on screen. Opened, the reason, its rate, work
+ * per frame and load, every number behind the verdict and the latest frames'
+ * work against the frame interval. Only a stall says why without opening.
  */
 export function HealthBar({ who, health: h }: { who: string; health: TrackHealth }) {
   const [open, setOpen] = useState(false);
-  const load = h.cpu !== null ? `CPU ${h.cpu}%` : h.busy !== null ? `BUSY ${pct(h.busy)}` : null;
+  const load = h.cpu !== null ? `CPU ${h.cpu}%` : h.busy !== null ? `busy ${pct(h.busy)}` : null;
   const numbers = [
-    h.fps !== null && `${h.fps.toFixed(1)} FPS`,
-    h.workP95 !== null && `${ms(h.workP95)} MS`,
+    h.fps !== null && `${h.fps.toFixed(1)} fps`,
+    h.workP95 !== null && `${ms(h.workP95)} ms`,
     load,
   ].filter(Boolean);
   const rows: [string, string][] = [
@@ -73,11 +74,14 @@ export function HealthBar({ who, health: h }: { who: string; health: TrackHealth
         <span className="health-dot" aria-hidden="true" />
         <span className="health-who">{who}</span>
         <span className="health-verdict">{VERDICT[h.verdict]}</span>
-        {numbers.length > 0 && <span className="health-numbers">{numbers.join(' · ')}</span>}
       </button>
-      {h.verdict !== 'healthy' && <p className="health-reason">{h.reason}</p>}
+      {h.verdict === 'stalled' && <p className="health-reason">{h.reason}</p>}
       {open && (
         <div className="health-detail">
+          {numbers.length > 0 && <p className="health-numbers">{numbers.join(' · ')}</p>}
+          {h.verdict !== 'healthy' && h.verdict !== 'stalled' && (
+            <p className="health-why">{h.reason}</p>
+          )}
           <WorkSpark recent={h.recent} budgetMs={h.budgetMs} />
           <dl>
             {rows.map(([k, v]) => (

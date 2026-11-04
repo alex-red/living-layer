@@ -697,8 +697,8 @@ function HealthBars({ caption }: { caption: ReactNode }) {
   if (!watcher && !local) return caption;
   return (
     <div className="health-bars">
-      {watcher && <HealthBar who="WATCHER" health={watcher} />}
-      {local && <HealthBar who="LOCAL" health={local} />}
+      {watcher && <HealthBar who="Watcher" health={watcher} />}
+      {local && <HealthBar who="This tab" health={local} />}
     </div>
   );
 }

@@ -6,7 +6,12 @@ import {
   type PlacementRule,
 } from '@livinglayer/domain';
 import { emptyDesk } from '../apps/web/src/session.js';
-import { homeOf, sceneChoices, sceneOutline } from '../apps/web/src/workspace/sceneOutline.js';
+import {
+  entityName,
+  homeOf,
+  sceneChoices,
+  sceneOutline,
+} from '../apps/web/src/workspace/sceneOutline.js';
 import type { WorkScene } from '../apps/web/src/workspace/progress.js';
 
 // What the outline reads of a thing: where it stands, how it is placed, followed and switched.
@@ -135,9 +140,15 @@ describe('the sidebar, one scene at a time', () => {
     expect(outline('desk', memory).rules.map((r) => r.id)).toEqual(['On the desk']);
     expect(outline('fridge', memory).rules[0]).toMatchObject({
       id: 'Fridge',
-      detail: '→ light.desk · occupied',
+      detail: '→ Desk · occupied',
       inside: true,
     });
+  });
+
+  it('names a light by its entity id in words, without the domain', () => {
+    expect(entityName('light.light_bulb_color_hue_1')).toBe('Light bulb color hue 1');
+    expect(entityName('switch.desk_lamp')).toBe('Desk lamp');
+    expect(entityName('lamp')).toBe('lamp');
   });
 
   it('shows a missing thing as missing, and a scene with nothing in it as empty', () => {

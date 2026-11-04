@@ -236,10 +236,25 @@ function ruleHome(
   }
   return pin ? homeOf(pin.scene, pin.surfaceId, memory) : null;
 }
+/**
+ * A Home Assistant entity id as a person reads it: `light.light_bulb_color_hue_1`
+ * is "Light bulb color hue 1", `light.desk` is "Desk".
+ */
+export function entityName(id: string): string {
+  const dot = id.indexOf('.');
+  if (dot < 0) return id;
+  const domain = id.slice(0, dot);
+  const words = id
+    .slice(dot + 1)
+    .replace(/_/g, ' ')
+    .trim();
+  const name = words || domain;
+  return name.charAt(0).toUpperCase() + name.slice(1);
+}
 function ruleRow(r: PlacementRule, mainLight: string): RuleRow {
   const { onEnter, onLeave } = ruleActions(r);
-  const switched = stepEntities([...onEnter, ...onLeave]).map(
-    (e) => e || mainLight || 'the main lamp',
+  const switched = stepEntities([...onEnter, ...onLeave]).map((e) =>
+    e || mainLight ? entityName(e || mainLight) : 'the main lamp',
   );
   const entity =
     switched.length > 2 ? `${switched[0]} +${switched.length - 1}` : switched.join(', ');

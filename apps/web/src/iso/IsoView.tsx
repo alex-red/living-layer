@@ -1076,16 +1076,14 @@ function IsoViewOf({
           </div>
         )}
       </div>
-      {panel === 'room' && (
+      {panel === 'room' && ((ruleDraft && !ruleMap) || note || guess) && (
         <p className="iso-note" role="status">
           {ruleDraft && !ruleMap
             ? 'Pin a surface for the frame this object was seen in, then draw its zone.'
             : note ||
               (guess?.kind === kind
                 ? `Spark: ${guess.summary}`
-                : guess
-                  ? `Spark guessed ${ISO_PRESETS[guess.kind].label}, not this scene. Change the scene to use its guess.`
-                  : 'Placement is still decided on the photo. This view only shows it in the room.')}
+                : `Spark guessed ${ISO_PRESETS[guess!.kind].label}, not this scene. Change the scene to use its guess.`)}
         </p>
       )}
     </div>

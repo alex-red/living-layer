@@ -136,7 +136,7 @@ export function sceneProgress({
   };
   const detail: Record<StepId, [string, string]> = {
     office: [
-      `Working in the ${room === 'custom' ? roomLabel : ISO_PRESETS[room as IsoSceneKind]?.label.toLowerCase()}.`,
+      `Working in ${room === 'custom' ? roomLabel : `the ${ISO_PRESETS[room as IsoSceneKind]?.label.toLowerCase()}`}.`,
       'Photograph your office, or use the demo office.',
     ],
     desk: [

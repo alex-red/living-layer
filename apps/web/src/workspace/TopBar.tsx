@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Glyph } from '../Glyph';
 import { Button, Check, IconButton, Segmented } from '../ui/controls';
 import { estimateLabel, usd } from '../cost';
@@ -34,7 +34,7 @@ function Readiness() {
     <div className="readiness-pop">
       <dl className="session-strip" aria-label="Session">
         <div>
-          <dt>SPARK</dt>
+          <dt>Spark</dt>
           <dd>{status?.meta.sparkModel ?? '…'}</dd>
         </div>
         <div>
@@ -42,14 +42,14 @@ function Readiness() {
           <dd>{status?.meta.samModel ?? '…'}</dd>
         </div>
         <div>
-          <dt>META</dt>
+          <dt>Meta</dt>
           <dd className={metaReady ? 'ok' : 'unsure'}>
             {metaReady ? '● ready' : '◌ off'}
             {status && <small>{status.meta.usedToday} calls today</small>}
           </dd>
         </div>
         <div>
-          <dt>SPENT TODAY</dt>
+          <dt>Spent today</dt>
           <dd className={spendTone}>
             {status ? `≈ ${usd(status.meta.spentToday)}` : '…'}
             {status && <small>of {usd(status.meta.spendLimit)} limit</small>}
@@ -61,11 +61,11 @@ function Readiness() {
           )}
         </div>
         <div>
-          <dt>LAMP</dt>
+          <dt>Lamp</dt>
           <dd className={lampReady ? 'ok' : 'unsure'}>{lampReady ? '● ready' : '◌ off'}</dd>
         </div>
         <div>
-          <dt>LIVE PROOF</dt>
+          <dt>Live proof</dt>
           <dd>{proofCount} / 4</dd>
         </div>
       </dl>
@@ -86,7 +86,7 @@ function Readiness() {
                 text: 'Spark connection',
                 discover: 'Real desk discovery',
                 segment: 'Real mug mask',
-                lamp: 'HA state observed',
+                lamp: 'Lamp state read back',
               }[kind]
             }
             <small>{status?.liveEvidence[kind] ? 'Saved' : 'Pending'}</small>
@@ -116,7 +116,7 @@ function Readiness() {
             disabled={Boolean(busy) || (mode === 'live' && !metaReady)}
             onClick={() => void lab.execute('text')}
           >
-            {busy === 'text' ? 'Checking…' : 'Run text smoke test'}
+            {busy === 'text' ? 'Checking…' : 'Test Spark'}
           </Button>
         </div>
         {mode === 'live' && status && (
@@ -173,7 +173,7 @@ function Readiness() {
             </Button>
             {status.meta.spendLimit !== status.meta.defaultSpendLimit && (
               <Button variant="text" type="button" onClick={() => void lab.saveSpendLimit(null)}>
-                Use .env ({usd(status.meta.defaultSpendLimit)})
+                Use the default ({usd(status.meta.defaultSpendLimit)})
               </Button>
             )}
           </div>
@@ -200,14 +200,14 @@ function SaveWhere({ shared }: { shared: boolean }) {
   return shared ? (
     <span
       className="save-where shared"
-      title="Kept on the server (SQLite) for every browser and device, with a copy in this browser (localStorage)."
+      title="Kept on the server for every browser and device, with a copy in this browser."
     >
       Server
     </span>
   ) : (
     <span
       className="save-where local"
-      title="Only in this browser (localStorage) so far. It goes to the server the next time the server can be reached."
+      title="Only in this browser so far. It goes to the server the next time the server can be reached."
     >
       This browser
     </span>
@@ -395,9 +395,8 @@ function MoreMenu({ close }: { close: () => void }) {
             : 'Saved as you go, once the desks have loaded.'}
       </p>
       <p className="micro">
-        Your scene, view, camera source and filters stay in this browser (localStorage). Both desks
-        (pins, rules, scenes and models) are on the server too. Photos and the evidence log stay out
-        of saves.
+        Your scene, view, camera source and filters stay in this browser. Both desks (pins, rules,
+        scenes and models) are on the server too. Photos and the evidence log stay out of saves.
       </p>
       <div className="save-actions">
         <Button size="sm" onClick={lab.saveEverything}>
@@ -504,6 +503,23 @@ export function KeysDialog() {
  * capsule), and the session: data source, undo, spend and the menu.
  */
 /** `place` stands for the crumbs on a page of its own (the studio), which has no outline either. */
+/** How long a settled message stays in the capsule before it folds to its dot. */
+const MESSAGE_SHOWN_MS = 6000;
+/**
+ * Whether the capsule's text has had its moment: a message folds away after a
+ * few seconds, so the top bar is calm; work in progress and errors stay.
+ */
+function useQuietMessage(text: string, held: boolean) {
+  const [quiet, setQuiet] = useState(false);
+  useEffect(() => {
+    setQuiet(false);
+    if (held || !text) return;
+    const t = setTimeout(() => setQuiet(true), MESSAGE_SHOWN_MS);
+    return () => clearTimeout(t);
+  }, [text, held]);
+  return quiet;
+}
+
 export function TopBar({ place }: { place?: string[] } = {}) {
   const lab = useLabParts(
     useView(),
@@ -515,6 +531,8 @@ export function TopBar({ place }: { place?: string[] } = {}) {
     useSaves(),
   );
   const { mode, busy, camera, cameraPending, status, undo, redo, progress } = lab;
+  const feedback = busy ? `${BUSY[busy] ?? 'Working'}…` : lab.error || lab.message;
+  const quiet = useQuietMessage(feedback, Boolean(busy) || Boolean(lab.error));
   const roomLabel = labelOfRoom(progress.room, lab.memory);
   const crumbs: { label: string; onClick?: () => void }[] = [];
   if (place) crumbs.push(...place.map((label) => ({ label })));
@@ -569,12 +587,15 @@ export function TopBar({ place }: { place?: string[] } = {}) {
           <span aria-hidden="true">☰</span> {crumbs.at(-1)?.label}
         </button>
       )}
-      <div className={`feedback ${lab.capsuleTone}`} role="status" aria-live="polite">
+      <div
+        className={`feedback ${lab.capsuleTone}${quiet ? ' quiet' : ''}`}
+        role="status"
+        aria-live="polite"
+        title={quiet ? feedback : undefined}
+      >
         {camera && <span className="privacy-dot" aria-label="Camera on" />}
         <span className="dot" />
-        <span className="feedback-text">
-          {busy ? `${BUSY[busy] ?? 'Working'}…` : lab.error || lab.message}
-        </span>
+        <span className="feedback-text">{feedback}</span>
         <AiStepsButton />
         {lab.lamp === 'virtual' && <span className="hud-tag">VIRTUAL</span>}
       </div>

@@ -15,10 +15,13 @@ const Playground = lazy(() =>
 );
 const App = lazy(() => import('./App').then((m) => ({ default: m.App })));
 const Studio = lazy(() => import('./studio/Studio').then((m) => ({ default: m.Studio })));
-// Development only: in a production build this and its styles are left out.
-const DevReload = import.meta.env.DEV
-  ? lazy(() => import('./DevReload').then((m) => ({ default: m.DevReload })))
-  : null;
+// Development only: in a production build this and its styles are left out. `?recording`
+// leaves it out too, so a take on the dev server never shows its reload card.
+const recording = new URLSearchParams(window.location.search).has('recording');
+const DevReload =
+  import.meta.env.DEV && !recording
+    ? lazy(() => import('./DevReload').then((m) => ({ default: m.DevReload })))
+    : null;
 const PAGES: Record<string, typeof App> = { '/playground': Playground, '/studio': Studio };
 const Page = PAGES[window.location.pathname.replace(/\/$/, '')] ?? App;
 

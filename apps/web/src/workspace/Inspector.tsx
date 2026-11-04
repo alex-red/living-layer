@@ -1,5 +1,5 @@
 import { ThingStats } from './ThingStats';
-import { lazy, useEffect, useState } from 'react';
+import { lazy, useEffect, useState, type ReactNode } from 'react';
 import { useNow } from '../useNow';
 import {
   MAX_OTHER_OBJECTS,
@@ -957,12 +957,12 @@ function WatchControl() {
       >
         {watching ? 'Pause watching' : 'Watch on the server'}
       </Button>
-      <p className="micro">
+      <p className="micro" title={watching && watch ? `${stats}. ${watch.note}` : undefined}>
         {watching && watch
-          ? `${WATCH_STATE[watch.state]}${watch.camera ? ` ${watch.camera.name}` : ''} · ${stats}. ${watch.note}`
+          ? `${WATCH_STATE[watch.state]}${watch.camera ? ` ${watch.camera.name}` : ''}, with or without this tab.`
           : canWatch
             ? `Follows everything confirmed with no tab open, on this machine${trackingAi ? ', asking SAM only for a thing it has lost' : ''}${mode === 'live' ? '' : ' (here, each move is a frame)'}.`
-            : 'Needs an RTSP network camera (see scripts/share-camera.sh). Follow it in this tab instead.'}
+            : 'Needs a network camera. Follow it in this tab instead.'}
       </p>
       {entangled.length > 0 && (
         <p className="micro">
@@ -973,6 +973,11 @@ function WatchControl() {
       )}
     </>
   );
+}
+
+/** The by-hand steps: folded away while the camera watches, since it finds the thing itself. */
+function ByHand({ folded, children }: { folded: boolean; children: ReactNode }) {
+  return folded ? <Details summary="Find it by hand">{children}</Details> : <>{children}</>;
 }
 
 function MugPanel() {
@@ -987,14 +992,14 @@ function MugPanel() {
     useNavigation(),
     useProbes(),
   );
-  const { memory, mode, camera, busy, status, follow, localZone, trackingAi } = lab;
+  const { memory, mode, camera, busy, status, follow, localZone, trackingAi, watching } = lab;
   const { currentObservation, sightings } = lab;
   // Turns once, when the sighting expires; the seconds tick in `Ago` and `Freshness` alone.
   const observationStale = useOlderThan(mugSighting(memory)?.observedAt, OBSERVATION_MAX_AGE_MS);
   if (!memory || !mugOf(memory))
     return (
       <Panel
-        tiny="OBJECT · MAIN"
+        tiny="THING · MUG"
         title="No mug yet"
         status="Find the mug and confirm its outline first."
         tone="unsure"
@@ -1008,10 +1013,12 @@ function MugPanel() {
   const seen = o && <Ago at={o.observedAt} />;
   return (
     <Panel
-      tiny="OBJECT · MAIN"
+      tiny="THING · MUG"
       title={mugOf(memory)!.label}
       status={
-        !o ? (
+        watching ? (
+          'The camera is watching it.'
+        ) : !o ? (
           'Remembered, but not seen yet. Track it in a frame.'
         ) : currentObservation ? (
           <>Confirmed in this frame · seen {seen}.</>
@@ -1021,41 +1028,46 @@ function MugPanel() {
           <>Seen {seen} in an earlier frame. Track it in this frame to continue.</>
         )
       }
-      tone={currentObservation ? 'chosen' : observationStale ? 'unsure' : 'seen'}
-      aside={o && <Freshness observedAt={o.observedAt} />}
+      tone={watching || currentObservation ? 'chosen' : observationStale ? 'unsure' : 'seen'}
+      aside={o && !watching && <Freshness observedAt={o.observedAt} />}
     >
-      {trackingAi ? (
-        <Button
-          variant="primary"
-          disabled={!lab.canTrack}
-          onClick={() => void lab.track()}
-          title="Segment the mug in the current frame, match it to the remembered mug, and check the zone"
-        >
-          {busy === 'track'
-            ? 'Tracking…'
-            : mode === 'live' && camera
-              ? 'Capture & track'
-              : 'Track the mug'}
-          <Glyph type="arrow" />
-        </Button>
-      ) : (
-        <LocalOutline
-          target="mug"
-          disabled={follow || !o}
-          working={busy === 'track'}
-          onOutline={(d) => void lab.track({ outline: d })}
-        />
-      )}
-      <p className="micro">
-        {!trackingAi
-          ? 'Draw round the mug where it is now to find it in this frame, on this machine.'
-          : mode === 'demo'
-            ? 'Move the mug with the buttons under the canvas, then track it.'
-            : 'Move the mug, start the camera, then capture & track.'}
-      </p>
-      <BoxOnlyNote id={mugOf(memory)!.id} seen={o} />
-      {status && trackingAi && <Cost>{estimateLabel(status.meta.estimates.segment, 'track')}</Cost>}
-      <WatchControl />
+      {watching && <WatchControl />}
+      <ByHand folded={watching}>
+        {trackingAi ? (
+          <Button
+            variant="primary"
+            disabled={!lab.canTrack}
+            onClick={() => void lab.track()}
+            title="Segment the mug in the current frame, match it to the remembered mug, and check the zone"
+          >
+            {busy === 'track'
+              ? 'Tracking…'
+              : mode === 'live' && camera
+                ? 'Capture & track'
+                : 'Track the mug'}
+            <Glyph type="arrow" />
+          </Button>
+        ) : (
+          <LocalOutline
+            target="mug"
+            disabled={follow || !o}
+            working={busy === 'track'}
+            onOutline={(d) => void lab.track({ outline: d })}
+          />
+        )}
+        <p className="micro">
+          {!trackingAi
+            ? 'Draw round the mug where it is now to find it in this frame, on this machine.'
+            : mode === 'demo'
+              ? 'Move the mug with the buttons under the canvas, then track it.'
+              : 'Move the mug, start the camera, then capture & track.'}
+        </p>
+        <BoxOnlyNote id={mugOf(memory)!.id} seen={o} />
+        {status && trackingAi && (
+          <Cost>{estimateLabel(status.meta.estimates.segment, 'track')}</Cost>
+        )}
+      </ByHand>
+      {!watching && <WatchControl />}
       {!lab.canWatch && (
         <>
           <Button
@@ -1158,7 +1170,7 @@ function OtherPanel({ id }: { id: string }) {
     segmentation.concept.trim().toLowerCase() === o.concept.trim().toLowerCase();
   return (
     <Panel
-      tiny={`OBJECT · ${o.concept.toUpperCase()}`}
+      tiny={`THING · ${o.concept.toUpperCase()}`}
       title={o.label}
       status={
         o.observation ? (
@@ -1282,7 +1294,7 @@ function ZonePanel() {
   if (!memory || !mugOf(memory))
     return (
       <Panel
-        tiny="RULE · MAIN"
+        tiny="ZONE"
         title="Main zone"
         status="Remember the mug first; its zone is drawn on a frame it was seen in."
         tone="unsure"
@@ -1316,7 +1328,7 @@ function ZonePanel() {
   const mug = mugOf(memory)!;
   return (
     <Panel
-      tiny="ZONE · MAIN"
+      tiny="ZONE"
       title={main?.label ?? 'Main zone'}
       status={status}
       tone={

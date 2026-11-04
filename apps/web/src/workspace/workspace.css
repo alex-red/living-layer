@@ -9,6 +9,13 @@
   gap: 8px;
   padding: 8px 8px 0;
 }
+/* Until the desks load, the panes wait unseen, then fade in once with the room in them. */
+.workspace > * {
+  transition: opacity var(--t-base) var(--ease-out);
+}
+.workspace.loading > * {
+  opacity: 0;
+}
 .ws-outline,
 .ws-inspector,
 .ws-drawer {

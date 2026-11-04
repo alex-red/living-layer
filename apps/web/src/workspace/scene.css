@@ -494,8 +494,9 @@
   align-items: center;
   --signal: var(--ok);
   border-radius: var(--r-chip);
-  font: 500 11px/14px var(--mono);
+  font: 500 var(--fs-11) / 14px var(--mono);
   letter-spacing: 0.08em;
+  text-transform: uppercase;
   font-variant-numeric: tabular-nums;
   color: var(--text);
   background: var(--glass-regular);
@@ -507,7 +508,7 @@
   --signal: var(--text-3);
 }
 .health-bar.strained {
-  --signal: var(--warm);
+  --signal: var(--unsure);
 }
 .health-bar.lagging,
 .health-bar.stalled {
@@ -521,6 +522,7 @@
   border: 0;
   font: inherit;
   letter-spacing: inherit;
+  text-transform: inherit;
   color: inherit;
   background: none;
   cursor: pointer;
@@ -542,8 +544,15 @@
   color: var(--signal);
 }
 .health-numbers {
-  color: var(--text-2);
+  margin: 4px 0 0;
+  color: var(--text);
   white-space: nowrap;
+}
+.health-why {
+  margin: 2px 0 0;
+  color: var(--signal);
+  text-transform: none;
+  letter-spacing: 0.02em;
 }
 .health-reason {
   margin: 0;

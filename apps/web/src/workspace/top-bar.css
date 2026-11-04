@@ -83,6 +83,22 @@
 }
 .feedback-text {
   min-width: 0;
+  max-width: 600px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition:
+    max-width var(--t-slow) var(--ease-out),
+    opacity var(--t-base) var(--ease-out);
+}
+/* A settled message folds to its dot after a few seconds; hovering shows it again. */
+.feedback.quiet .feedback-text {
+  max-width: 0;
+  opacity: 0;
+}
+.feedback.quiet:hover .feedback-text {
+  max-width: 600px;
+  opacity: 1;
 }
 .dot {
   display: inline-block;

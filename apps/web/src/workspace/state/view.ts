@@ -86,7 +86,12 @@ export function useViewSlice(): ViewSlice {
   const setSelection = (next: Selection | null) => {
     setSelectionState(next);
     const hash = selectionHash(next);
-    window.history.replaceState(null, '', hash || window.location.pathname);
+    // A hash alone keeps the query (`?recording`); clearing it keeps the query too.
+    window.history.replaceState(
+      null,
+      '',
+      hash || window.location.pathname + window.location.search,
+    );
   };
   // What the iso canvas is doing: showing the room, editing the layout, or editing a model.
   // An editor reopens only beside what it edits: the layout with the room, a model with its thing.

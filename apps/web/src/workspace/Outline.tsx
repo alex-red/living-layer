@@ -843,7 +843,15 @@ function HomeAssistant() {
       <summary>
         <span className="tiny">HOME ASSISTANT</span>
         <small className={`ol-broker ${broker ?? ''}`}>
-          {lab.mode === 'demo' ? 'demo' : broker ? `mqtt · ${broker}` : 'not connected'}
+          {lab.mode === 'demo'
+            ? 'demo'
+            : broker === 'connected'
+              ? 'connected'
+              : broker === 'connecting'
+                ? 'connecting…'
+                : broker === 'error'
+                  ? 'can’t connect'
+                  : 'not connected'}
           {` · ${lab.entities.length} device${lab.entities.length === 1 ? '' : 's'}`}
         </small>
       </summary>
@@ -863,7 +871,7 @@ function HomeAssistant() {
           <Row
             key={e.id}
             label={e.name}
-            detail={`ll_${e.key} · ${stateLabel(states?.find((s) => s.id === e.id))}`}
+            detail={stateLabel(states?.find((s) => s.id === e.id))}
             glyph="◆"
             className="seen"
             target={{ kind: 'entity', id: e.id }}
