@@ -296,5 +296,14 @@ describe('making a thing drawn with the room a thing of its own', () => {
     // Nor has a thing the camera sees somewhere else.
     const away = { ...monitor, at: { ...monitor.at, x: monitor.at.x + 4 } };
     expect(draftCropOf(draft, camera, away, name)).toBeNull();
+    // Sharing only a colour isn't being named like it: a coaster under a white mug.
+    const mug = {
+      ...draft,
+      inventory: { things: [{ id: 'mug', label: 'white mug', as: 'mug' }] },
+      detections: { mug: 'o1' },
+      crops: { mug: 'run/crop-mug.png' },
+    } as unknown as PhotoDraft;
+    expect(draftCropOf(mug, camera, monitor, { label: 'black and white coaster' })).toBeNull();
+    expect(draftCropOf(mug, camera, monitor, { label: 'Blue mug' })).toBe('run/crop-mug.png');
   });
 });

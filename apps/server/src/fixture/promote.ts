@@ -25,10 +25,12 @@ const CROP_IOU = 0.2;
 
 /**
  * The room draft's crop of a thing of the room: of the draft things named
- * like it (the same template, or a word of its label), the one whose SAM box
+ * like it (the same template, or what it is: its label's last word against
+ * the draft thing's id or its label's last word), the one whose SAM box
  * overlaps its box seen through the room's camera most. Its group need not
  * keep the draft's id (`monitor-2` for `monitor`), and it may have been moved
- * a little since; a shelf behind a cat tower overlaps it but isn't named so.
+ * a little since; a shelf behind a cat tower overlaps it but isn't named so,
+ * nor is a black and white coaster under a white mug.
  */
 export function draftCropOf(
   draft: PhotoDraft,
@@ -36,13 +38,14 @@ export function draftCropOf(
   box: IsoBox,
   name: { label: string; template?: string | undefined },
 ): string | null {
-  const words = (text: string) => new Set(text.toLowerCase().match(/[a-z]{3,}/g) ?? []);
-  const own = words(name.label);
+  const words = (text: string) => text.toLowerCase().match(/[a-z]{3,}/g) ?? [];
+  // What a thing is, not what it looks like: "white" names a colour, "mug" the thing.
+  const own = words(name.label).at(-1);
   const named = (thingId: string) => {
     const t = draft.inventory.things.find((x) => x.id === thingId);
-    return Boolean(
-      t && (t.as === name.template || [...words(`${t.label} ${t.id}`)].some((w) => own.has(w))),
-    );
+    if (!t) return false;
+    if (name.template && t.as === name.template) return true;
+    return Boolean(own) && [...words(t.id), words(t.label).at(-1)].includes(own);
   };
   const seen = [0, 1].flatMap((u) =>
     [0, 1].flatMap((v) =>
