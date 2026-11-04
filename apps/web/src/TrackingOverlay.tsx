@@ -89,14 +89,22 @@ function liveSightings(
       id: t.id,
       label: t.label,
       box: t.box,
-      // Entangled: followed, but which of two look-alikes it is isn't sure.
-      tone: t.status === 'following' ? 'follow' : t.status === 'entangled' ? 'unsure' : t.status,
+      // Entangled: followed, but which of two look-alikes it is isn't sure. Covered: held
+      // where it was, behind something.
+      tone:
+        t.status === 'following'
+          ? 'follow'
+          : t.status === 'entangled' || t.status === 'covered'
+            ? 'unsure'
+            : t.status,
       note:
         t.status === 'following'
           ? `${LAYER[t.layer]} · ${t.score.toFixed(2)}`
           : t.status === 'entangled'
             ? 'WHICH ONE?'
-            : t.status.toUpperCase(),
+            : t.status === 'covered'
+              ? 'PARTLY HIDDEN'
+              : t.status.toUpperCase(),
     });
   }
   return out;

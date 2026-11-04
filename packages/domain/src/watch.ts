@@ -19,6 +19,7 @@ import {
   matchTemplate,
   recutTemplate,
   stepLocalTrack,
+  stillCovered,
   LOCAL_TRACK,
   type LocalTrack,
   type LumaFrame,
@@ -41,10 +42,13 @@ export interface WatchSubject {
  * `following`: the local match is good. `unsure`: weak or ambiguous for a few
  * frames, box held still. `entangled`: followed, but it came close to a
  * look-alike while one of them moved, so which is which isn't sure; its zones
- * wait. `missing`: nothing could find it, several times; motion where it was,
- * or a match over the whole frame after the view changed, wakes it up again.
+ * wait. `covered`: the match lost it, but it is partly or wholly behind
+ * something at its last place (`stillCovered`): its box holds, nothing is
+ * asked, and its zones keep their verdicts. `missing`: nothing could find
+ * it, several times; motion where it was, or a match over the whole frame
+ * after the view changed, wakes it up again.
  */
-export type WatchStatus = 'following' | 'unsure' | 'entangled' | 'missing';
+export type WatchStatus = 'following' | 'unsure' | 'entangled' | 'covered' | 'missing';
 /** Which layer placed the box last: the local match, the feature model, or SAM. */
 type WatchLayer = 'local' | 'appearance' | 'sam';
 export interface WatchThing {
@@ -70,6 +74,11 @@ export interface WatchThing {
   refound: boolean;
   /** The look-alike it is entangled with, or null. */
   partner: string | null;
+  /**
+   * Woken from missing by motion where it was, and not seen since: being
+   * hidden there doesn't make it covered, only parts of it showing do.
+   */
+  woken: boolean;
 }
 export const WATCH = {
   /** Frames on the other side of a zone edge before the crossing is judged. */
@@ -121,6 +130,7 @@ export function watchThing(subject: WatchSubject, track: LocalTrack, now: number
     goodSteps: 0,
     refound: false,
     partner: null,
+    woken: false,
   };
 }
 
@@ -133,17 +143,28 @@ const inZone = (b: UnitBox, zone: UnitBox) => footInZone(b, { width: 1, height: 
  * is a SAM check due now, to `reanchor` a thing that is lost. `refind` asks the caller
  * to look for it by appearance first; when that finds it, `refound` moves the
  * box there and SAM isn't needed. A missing thing is left alone until its old
- * region moves.
+ * region moves. `covers` are the boxes of followed things in front of it
+ * (`coversOf`): a thing lost behind them, or with enough of it still showing,
+ * is `covered` rather than lost.
  */
 export function watchStep(
   thing: WatchThing,
   frame: LumaFrame,
   now: number,
-  { quietSteps = WATCH.quietSteps, placeGapMs = WATCH.placeGapMs, exclude = [] as UnitBox[] } = {},
+  {
+    quietSteps = WATCH.quietSteps,
+    placeGapMs = WATCH.placeGapMs,
+    exclude = [] as UnitBox[],
+    covers = [] as UnitBox[],
+  } = {},
 ): { thing: WatchThing; ask: 'reanchor' | null; refind: boolean; place: boolean } {
   if (thing.status === 'missing') {
     const motion = frameMotion(thing.track.previous, frame, around(thing.track.box));
     const track = { ...thing.track, previous: frame, motion };
+    // Something in front of where it was, and the part of it that shows still matches:
+    // it never left. Only what shows counts here, not being hidden alone.
+    if (covers.length && stillCovered(frame, track.template, track.box, covers, false))
+      return coveredStep({ ...thing, track });
     if (motion <= LOCAL_TRACK.motionShare) {
       // Put back somewhere else while nobody was near where it was: look over the
       // whole frame now and then, once the view has changed, with no model call.
@@ -163,6 +184,7 @@ export function watchStep(
           ...thing,
           track: { ...track, box: match.box, score: match.score, lead: match.lead, lostSteps: 0 },
           status: 'following',
+          woken: false,
           layer: 'local',
           lastAsk: now,
           misses: 0,
@@ -180,6 +202,7 @@ export function watchStep(
         ...thing,
         track: { ...track, stillSteps: 0, lostSteps: WATCH.lostSteps },
         status: 'unsure',
+        woken: true,
         misses: 0,
         refound: false,
         reanchorGap: WATCH.reanchorGapMs.first,
@@ -192,7 +215,7 @@ export function watchStep(
   const motion = frameMotion(thing.track.previous, frame, around(thing.track.box));
   const stillSteps = motion > LOCAL_TRACK.motionShare ? 0 : thing.track.stillSteps + 1;
   const held =
-    (thing.status === 'following' || thing.status === 'entangled') &&
+    (thing.status === 'following' || thing.status === 'entangled' || thing.status === 'covered') &&
     !thing.track.lostSteps &&
     stillSteps > 0;
   const quiet = held && stillSteps % WATCH.recheckSteps !== 0;
@@ -229,6 +252,13 @@ export function watchStep(
   const step = held && matched.track.lostSteps ? keep : matched;
   const track = step.track;
   const settled = track.stillSteps >= quietSteps;
+  // Still behind what covers it, with nothing moving around it: it stays covered.
+  if (thing.status === 'covered' && step === keep)
+    return { thing: { ...thing, track }, ask: null, refind: false, place: false };
+  // Lost where it stood, but partly showing there or hidden behind a thing in front:
+  // covered, not lost. Its box holds; nothing is looked for or asked.
+  if (track.lostSteps && stillCovered(frame, track.template, thing.track.box, covers, !thing.woken))
+    return coveredStep({ ...thing, track: { ...track, box: thing.track.box } });
   if (track.lostSteps) {
     const next: WatchThing = { ...thing, track, status: 'unsure', crossingSteps: 0, goodSteps: 0 };
     if (step.verdict !== 'reanchor') return { thing: next, ask: null, refind: false, place: false };
@@ -244,6 +274,7 @@ export function watchStep(
     ...thing,
     track,
     status: 'following',
+    woken: false,
     layer: thing.status === 'unsure' ? 'local' : thing.layer,
     crossingSteps: crossed ? thing.crossingSteps + 1 : 0,
     crossedAt: crossed ? (thing.crossedAt ?? now) : null,
@@ -262,6 +293,45 @@ export function watchStep(
 }
 /** What one frame means for one thing, from `watchFrame`. */
 type WatchStepResult = ReturnType<typeof watchStep>;
+/** Covered where its box is: held there, not lost, nothing looked for or asked. */
+function coveredStep(thing: WatchThing): WatchStepResult {
+  return {
+    thing: {
+      ...thing,
+      track: { ...thing.track, lostSteps: 0, velocity: { x: 0, y: 0 } },
+      status: 'covered',
+      woken: false,
+      crossingSteps: 0,
+      crossedAt: null,
+      misses: 0,
+      refound: false,
+      reanchorGap: WATCH.reanchorGapMs.first,
+    },
+    ask: null,
+    refind: false,
+    place: false,
+  };
+}
+/**
+ * The boxes in front of `thing`, that could hide it: other things shown and
+ * overlapping it whose foot is at or below its middle. The camera looks down
+ * from high in a corner, so what stands nearer shows lower in the frame; a
+ * mug standing on a coaster has its foot inside the coaster's box.
+ */
+function coversOf(thing: WatchThing, others: readonly WatchThing[]): UnitBox[] {
+  const b = thing.track.box;
+  return others
+    .filter((o) => o !== thing && o.status !== 'missing')
+    .map((o) => o.track.box)
+    .filter(
+      (o) =>
+        o.x < b.x + b.width &&
+        o.x + o.width > b.x &&
+        o.y < b.y + b.height &&
+        o.y + o.height > b.y &&
+        o.y + o.height >= b.y + b.height / 2,
+    );
+}
 const sameConcept = (a: WatchThing, b: WatchThing) =>
   a.subject.concept.trim().toLowerCase() === b.subject.concept.trim().toLowerCase();
 /** Whether two boxes are within `WATCH.nearWidths` box widths of each other. */
@@ -279,7 +349,11 @@ function near(a: UnitBox, b: UnitBox) {
  * last box and counts as lost for the step, and nothing is judged for it.
  * `hold` are things SAM is being asked about: they aren't stepped, but their
  * boxes are kept clear. Boxes that already overlapped (a phone on a book, two mugs
- * touching) aren't kept off each other.
+ * touching) aren't kept off each other, nor is a covered thing's box: what
+ * covers it may stand further onto it.
+ *
+ * A thing lost behind others (`coversOf`, their boxes after this frame) that
+ * still shows where it was, or is hidden there by one in front, is `covered`.
  *
  * Two things of one concept that come close while either moves are
  * entangled: both are followed, but neither's zones are judged. Once they
@@ -297,6 +371,8 @@ export function watchFrame(
 ): Map<string, WatchStepResult> {
   const shown = (t: WatchThing) => t.status !== 'missing';
   const apart = (a: WatchThing, b: WatchThing) =>
+    a.status !== 'covered' &&
+    b.status !== 'covered' &&
     boxIoU(a.track.box, b.track.box) < LOCAL_TRACK.claimIoU;
   const steps = new Map<string, WatchStepResult>();
   for (const t of things) {
@@ -304,7 +380,8 @@ export function watchFrame(
     const exclude = things
       .filter((o) => o !== t && shown(o) && apart(o, t))
       .map((o) => o.track.box);
-    steps.set(t.subject.id, watchStep(t, frame, now, { ...pace, exclude }));
+    const covers = coversOf(t, things);
+    steps.set(t.subject.id, watchStep(t, frame, now, { ...pace, exclude, covers }));
   }
   const boxOf = (t: WatchThing) => steps.get(t.subject.id)?.thing.track.box ?? t.track.box;
   const moved = (t: WatchThing) =>
@@ -335,6 +412,21 @@ export function watchFrame(
         place: false,
       });
     }
+  // What came in front of a thing moved in this same frame: a thing lost now is checked
+  // again behind the others' new boxes, not the ones they had a frame ago.
+  // One missing before this frame, or woken from it, comes back only for parts that show.
+  const after = things.map((t) => steps.get(t.subject.id)?.thing ?? t);
+  after.forEach((t, i) => {
+    if (!steps.has(t.subject.id) || (t.status !== 'missing' && !t.track.lostSteps)) return;
+    const covers = coversOf(t, after);
+    const { template, box } = t.track;
+    const was = things[i]!;
+    if (
+      covers.length &&
+      stillCovered(frame, template, box, covers, !was.woken && was.status !== 'missing')
+    )
+      steps.set(t.subject.id, coveredStep(t));
+  });
   entangle(things, steps, frame, pace.quietSteps ?? WATCH.quietSteps);
   return steps;
 }
@@ -452,6 +544,7 @@ export function refound(thing: WatchThing, box: UnitBox, frame?: LumaFrame): Wat
         : {}),
     },
     status: 'following',
+    woken: false,
     layer: 'appearance',
     crossingSteps: template && crossed ? WATCH.settleSteps - 1 : 0,
     crossedAt: null,

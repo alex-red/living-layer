@@ -398,8 +398,11 @@ export function evaluateExposed(
       case 'status': {
         const thing = things.find((t) => t.id === s.thingId)!;
         const watched = running(watch) ? watch!.things.find((t) => t.id === s.thingId) : null;
+        // Covered is still where it was, behind something; entangled is followed.
         const status: 'seen' | 'searching' | 'missing' = watched
-          ? watched.status === 'following'
+          ? watched.status === 'following' ||
+            watched.status === 'covered' ||
+            watched.status === 'entangled'
             ? 'seen'
             : watched.status === 'unsure'
               ? 'searching'

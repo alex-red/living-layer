@@ -337,6 +337,136 @@ export function matchTemplate(
   };
 }
 
+const COVER = {
+  /**
+   * The template is matched in this many cells a side, each on its own
+   * (fragment matching); in fewer when that leaves cells too thin to trust.
+   * A coaster across the room is a template of about 120 points.
+   */
+  cells: 3,
+  /** A cell needs this many visible points, with this spread of grey, to say anything. */
+  cellPoints: 12,
+  cellSpread: 4,
+  /** A cell whose visible points correlate this well still shows the thing. */
+  cellScore: 0.6,
+  /** At least this share of the template must still show it, in cells that match, to be partly covered. */
+  showing: 0.25,
+  /** With no followed thing in front, a hand or an untracked thing, more must show. */
+  showingAlone: 0.4,
+  /** Hidden this much by a followed thing in front, it can't be seen at all, so it isn't gone either. */
+  hidden: 0.6,
+};
+/**
+ * How much of the thing still shows at `box`, where it was: its template
+ * matched there cell by cell (fragment matching), leaving out the points
+ * under `covers`, boxes of things in front of it. A mug set down on a
+ * coaster hides half of it; the whole template's correlation then drops
+ * below losing it, though the half that shows matches as well as ever.
+ * `hidden`: share of the template's points under a cover. `showing`: share
+ * in cells that still match. `score`: the correlation over those cells'
+ * points together, so their shading agrees with each other as well.
+ */
+export function visibleMatch(
+  frame: LumaFrame,
+  template: Template,
+  box: UnitBox,
+  covers: UnitBox[] = [],
+): { hidden: number; showing: number; score: number } {
+  const { width: tw, height: th, rows, cols, values } = template;
+  const r = pixelRect(frame, box);
+  const n = values.length;
+  if (r.x + tw > frame.width || r.y + th > frame.height || !n)
+    return { hidden: 0, showing: 0, score: 0 };
+  const rects = covers.map((c) => pixelRect(frame, c));
+  const k = n >= COVER.cells ** 2 * 3 * COVER.cellPoints ? COVER.cells : 2;
+  const cell = new Int32Array(n);
+  const sums = new Float64Array(k * k * 5);
+  let hidden = 0;
+  for (let p = 0; p < n; p++) {
+    const x = r.x + cols[p]!;
+    const y = r.y + rows[p]!;
+    let under = false;
+    for (const c of rects)
+      if (x >= c.x && x < c.x + c.width && y >= c.y && y < c.y + c.height) under = true;
+    if (under) {
+      cell[p] = -1;
+      hidden++;
+      continue;
+    }
+    const c =
+      Math.min(k - 1, Math.floor((rows[p]! * k) / th)) * k +
+      Math.min(k - 1, Math.floor((cols[p]! * k) / tw));
+    cell[p] = c;
+    const t = values[p]!;
+    const f = frame.data[y * frame.width + x]!;
+    const s = c * 5;
+    sums[s]! += 1;
+    sums[s + 1]! += t;
+    sums[s + 2]! += f;
+    sums[s + 3]! += t * t;
+    sums[s + 4]! += f * f;
+  }
+  // Each cell's correlation needs its cross term too: a second pass over its points.
+  const cross = new Float64Array(k * k);
+  for (let p = 0; p < n; p++)
+    if (cell[p]! >= 0)
+      cross[cell[p]!]! += values[p]! * frame.data[(r.y + rows[p]!) * frame.width + r.x + cols[p]!]!;
+  const matched = new Uint8Array(k * k);
+  let shown = 0;
+  for (let c = 0; c < k * k; c++) {
+    const [m, st, sf, stt, sff] = sums.subarray(c * 5, c * 5 + 5);
+    if (m! < COVER.cellPoints) continue;
+    const vt = stt! - (st! * st!) / m!;
+    const vf = sff! - (sf! * sf!) / m!;
+    if (vt / m! < COVER.cellSpread ** 2 || vf <= 1e-6) continue;
+    if ((cross[c]! - (st! * sf!) / m!) / Math.sqrt(vt * vf) < COVER.cellScore) continue;
+    matched[c] = 1;
+    shown += m!;
+  }
+  // The matched cells' points together, each side about its own mean.
+  let m = 0;
+  let st = 0;
+  let sf = 0;
+  let stt = 0;
+  let sff = 0;
+  let stf = 0;
+  for (let c = 0; c < k * k; c++) {
+    if (!matched[c]) continue;
+    m += sums[c * 5]!;
+    st += sums[c * 5 + 1]!;
+    sf += sums[c * 5 + 2]!;
+    stt += sums[c * 5 + 3]!;
+    sff += sums[c * 5 + 4]!;
+    stf += cross[c]!;
+  }
+  const spread = Math.sqrt((stt - (st * st) / m) * (sff - (sf * sf) / m));
+  return {
+    hidden: hidden / n,
+    showing: shown / n,
+    score: m && spread > 1e-6 ? (stf - (st * sf) / m) / spread : 0,
+  };
+}
+/**
+ * Whether a thing the match lost is still where it was, partly or wholly
+ * behind something: enough of it shows in cells that match, or a followed
+ * thing in front hides most of it, so nothing says it left. Absence of
+ * evidence isn't evidence of absence: what can't be seen isn't missing.
+ * `hiddenEnough` false asks for parts to show (a thing already missing
+ * isn't brought back by something merely standing where it was).
+ */
+export function stillCovered(
+  frame: LumaFrame,
+  template: Template,
+  box: UnitBox,
+  covers: UnitBox[],
+  hiddenEnough = true,
+): boolean {
+  const seen = visibleMatch(frame, template, box, covers);
+  if (hiddenEnough && seen.hidden >= COVER.hidden) return true;
+  const need = seen.hidden > 0 ? COVER.showing : COVER.showingAlone;
+  return seen.showing >= need && seen.score >= LOCAL_TRACK.lostScore;
+}
+
 /** Start following from a SAM-confirmed box and, ideally, its mask. Null when the patch can't be followed. */
 export function startLocalTrack(
   frame: LumaFrame,

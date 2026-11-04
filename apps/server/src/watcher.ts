@@ -934,7 +934,9 @@ export class Watcher {
       const side = one?.side ?? 2 * APPEARANCE.side;
       const grid = await model.embed(shot.png, region, side);
       const followed = [...this.things.values()]
-        .filter((t) => t.status === 'following' || t.status === 'entangled')
+        .filter(
+          (t) => t.status === 'following' || t.status === 'entangled' || t.status === 'covered',
+        )
         .map((t) => intoRegion(t.track.box, region));
       const matches: { id: string; box: UnitBox | null }[] = [];
       for (const w of wanted) {
@@ -1049,13 +1051,16 @@ export class Watcher {
     );
   }
   /**
-   * Followed again with no SAM call (its old place matched, or it was found by
-   * how it looks): a fixture the room drew as missing is seen again. Only SAM
-   * moves it in the room, so it stays where SAM last saw it.
+   * Followed again with no SAM call (its old place matched, it was found by
+   * how it looks, or it shows partly behind something where it was): a
+   * fixture the room drew as missing is seen again. Only SAM moves it in the
+   * room, so it stays where SAM last saw it.
    */
   private found(before: WatchThing | undefined, after: WatchThing) {
-    if (after.subject.kind !== 'fixture' || after.status !== 'following') return;
-    if (before?.status === 'following') return;
+    const seen = (t: WatchThing | undefined) =>
+      t?.status === 'following' || t?.status === 'covered';
+    if (after.subject.kind !== 'fixture' || !seen(after)) return;
+    if (seen(before)) return;
     this.deps.tracking.findFixture(this.deps.mode, after.subject.id);
   }
   /**
