@@ -21,7 +21,7 @@ import { BUSY } from './useLabState';
 import { aiTaskStore, setAiTask, useAiTaskPart } from './state/ai-task-store';
 import { roomLabel as labelOfRoom, selectionLabel } from './labels';
 import { viewLabel } from './progress';
-import { startRecording } from '../Recorder';
+import { RecordSection } from '../Recorder';
 // The top bar refines the workspace's styles, as it did when both were one sheet.
 import './workspace.css';
 import './top-bar.css';
@@ -428,16 +428,6 @@ function MoreMenu({ close }: { close: () => void }) {
         >
           Keyboard shortcuts
         </Button>
-        <Button
-          variant="text"
-          title="A video of this tab, downloaded when you stop"
-          onClick={() => {
-            close();
-            void startRecording();
-          }}
-        >
-          Record this tab
-        </Button>
         <a className="text-button" href="/studio">
           Fixture Studio ↗
         </a>
@@ -598,6 +588,7 @@ export function TopBar({ place }: { place?: string[] } = {}) {
         {lab.lamp === 'virtual' && <span className="hud-tag">VIRTUAL</span>}
       </div>
       <nav className="topbar-links">
+        <RecordSection />
         <Segmented
           label="Data source"
           value={mode}

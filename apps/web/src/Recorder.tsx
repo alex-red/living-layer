@@ -13,12 +13,13 @@ import { createStore, useStore } from './workspace/state/store';
 import './recorder.css';
 
 /**
- * Recording this tab to a video file, from the menu or ⌘⇧E (Ctrl+Shift+E) on
- * any page. Chrome asks which tab to share, offering this one first; a short
+ * Recording this tab to a video file, from the header's Record button or ⌘⇧E
+ * (Ctrl+Shift+E) on any page. Chrome asks which tab to share, offering this one first; a short
  * count lets its dialog close before the take starts. While recording, a dot
  * follows the pointer and rings on clicks (the capture leaves the cursor
- * out), and a small control shows the time; hide it for a take without it,
- * then stop with the shortcut or Chrome's "Stop sharing". The file downloads
+ * out), and the header shows the time and Stop. A page without that header
+ * gets a small floating control instead; hide it for a take without it, then
+ * stop with the shortcut or Chrome's "Stop sharing". The file downloads
  * when it stops.
  */
 type RecorderState =
@@ -28,6 +29,8 @@ type RecorderState =
   | { phase: 'recording'; startedAt: number; hidden: boolean };
 
 const recorderStore = createStore<RecorderState>({ phase: 'idle' });
+/** How many header controls are mounted: while one is, the floating control stays away. */
+const headerControls = createStore(0);
 
 const COUNT_FROM = 3;
 const FPS = 30;
@@ -48,7 +51,7 @@ function fail(error: string) {
   recorderStore.set({ phase: 'idle', error });
 }
 
-export async function startRecording() {
+async function startRecording() {
   if (recorderStore.get().phase !== 'idle') return;
   const type =
     typeof MediaRecorder === 'undefined'
@@ -134,6 +137,7 @@ export const useRecording = () => useStore(recorderStore, (s) => s.phase !== 'id
 /** The shortcut, and what shows while a take is set up or running. Mounted once, on every page. */
 export function Recorder() {
   const state = useStore(recorderStore);
+  const inHeader = useStore(headerControls) > 0;
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.repeat || !isRecordKey(e, MAC)) return;
@@ -162,16 +166,15 @@ export function Recorder() {
         <small>Recording starts · {RECORD_KEYS} stops</small>
       </div>
     );
-  if (state.hidden) return null;
+  if (state.hidden || inHeader) return null;
   return <RecordingControl startedAt={state.startedAt} />;
 }
 
 function RecordingControl({ startedAt }: { startedAt: number }) {
-  const now = useNow(500);
   return (
     <div className="recorder" role="status" aria-label="Recording this tab">
       <span className="recorder-dot" aria-hidden="true" />
-      <span className="recorder-time">{formatElapsed(now - startedAt)}</span>
+      <Elapsed startedAt={startedAt} />
       <Button size="sm" variant="ghost" onClick={stopRecording}>
         Stop
       </Button>
@@ -186,4 +189,46 @@ function RecordingControl({ startedAt }: { startedAt: number }) {
       </IconButton>
     </div>
   );
+}
+
+/** Record, or the take's time and Stop: a section of a page's header. */
+export function RecordSection() {
+  const state = useStore(recorderStore);
+  useEffect(() => {
+    headerControls.set((n) => n + 1);
+    return () => headerControls.set((n) => n - 1);
+  }, []);
+  return (
+    <span className="record-section" role="group" aria-label="Record this tab">
+      {state.phase === 'recording' ? (
+        <>
+          <span className="recorder-dot" aria-hidden="true" />
+          <Elapsed startedAt={state.startedAt} />
+          <Button
+            size="sm"
+            variant="ghost"
+            title={`Stop and download (${RECORD_KEYS})`}
+            onClick={stopRecording}
+          >
+            Stop
+          </Button>
+        </>
+      ) : (
+        <Button
+          size="sm"
+          variant="ghost"
+          disabled={state.phase !== 'idle'}
+          title={`A video of this tab, downloaded when you stop (${RECORD_KEYS})`}
+          onClick={() => void startRecording()}
+        >
+          <span className="record-mark" aria-hidden="true" /> Record
+        </Button>
+      )}
+    </span>
+  );
+}
+
+function Elapsed({ startedAt }: { startedAt: number }) {
+  const now = useNow(500);
+  return <span className="recorder-time">{formatElapsed(now - startedAt)}</span>;
 }
