@@ -72,11 +72,12 @@ export const SCENES: Scene[] = [
     lowers: [{ title: 'WATCHER', sub: 'on the server · no tab open', at: 10.6 }],
   },
   { name: 'ask', title: '5 · Ask your room', parts: [{ shot: 'ask' }] },
-  { name: 'photo', title: '6 · One photo, one room', parts: [{ shot: 'draft' }] },
-  { name: 'tell', title: '7 · Tell it what it is', parts: [{ shot: 'brush' }] },
+  { name: 'looks-out', title: '6 · It looks out for you', parts: [{ shot: 'coach' }] },
+  { name: 'photo', title: '7 · One photo, one room', parts: [{ shot: 'draft' }] },
+  { name: 'tell', title: '8 · Tell it what it is', parts: [{ shot: 'brush' }] },
   {
     name: 'switches',
-    title: '8 · Anything can be a switch',
+    title: '9 · Anything can be a switch',
     parts: [
       {
         clip: 'phone/switches/plushie.mov',
@@ -104,7 +105,7 @@ export const SCENES: Scene[] = [
   },
   {
     name: 'end',
-    title: '9 · Control anything',
+    title: '10 · Control anything',
     parts: [
       {
         clip: 'phone/end/poke.mov',
