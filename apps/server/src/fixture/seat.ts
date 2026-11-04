@@ -1,5 +1,8 @@
+import { randomUUID } from 'node:crypto';
 import {
   fixturesAwayBodySchema,
+  keyFromName,
+  MAX_EXPOSED,
   fixturesSeatBodySchema,
   groupBounds,
   isMember,
@@ -83,7 +86,8 @@ export function setAway(
  * The demo's household in its Home room: Robin at the table, sitting in its
  * chair, Sam standing by the shelf, Miso the cat asleep by the plant and
  * Biscuit the dog lying by the table. Through the same saves the lab makes,
- * so it is what adding them by hand gives. Nothing when someone is home there
+ * so it is what adding them by hand gives, each with a device tracker for
+ * Home Assistant (the demo only logs it). Nothing when someone is home there
  * already. Marks the demo as having had them (`householdAt`), so a server
  * starting again doesn't bring back people someone deleted.
  */
@@ -117,7 +121,24 @@ export async function addDemoHousehold(deps: Pick<RouteDeps, 'store' | 'entities
         if (f) f.state = state;
       });
   }
-  return chair
-    ? seatFixture(deps, { mode, id: robinId, seat: { group: 'chair' } })
-    : deps.store.memory(mode);
+  if (chair) await seatFixture(deps, { mode, id: robinId, seat: { group: 'chair' } });
+  // Each of them a device tracker for Home Assistant: home, or not_home while out.
+  return deps.store.updateMemory(mode, (m) => {
+    const exposed = m.exposed ?? [];
+    for (const f of m.fixtures ?? []) {
+      if (f.scene !== 'home' || !isMember(f)) continue;
+      const key = keyFromName(f.label);
+      if (exposed.length >= MAX_EXPOSED || exposed.some((e) => e.key === key)) continue;
+      exposed.push({
+        id: randomUUID(),
+        key,
+        name: f.label,
+        kind: 'device_tracker',
+        source: { kind: 'member', memberId: f.id },
+        icon: f.type === 'person' ? 'mdi:account' : f.type === 'cat' ? 'mdi:cat' : 'mdi:dog',
+      });
+    }
+    m.exposed = exposed;
+    return m;
+  });
 }

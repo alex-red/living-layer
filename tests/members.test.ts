@@ -222,6 +222,13 @@ describe('the demo’s household', () => {
     expect(chair.state).toBe('seated');
     expect(home.find((f) => f.label === 'Miso')).toMatchObject({ type: 'cat', state: 'sleeping' });
     expect(home.find((f) => f.label === 'Biscuit')).toMatchObject({ type: 'dog', state: 'lying' });
+    // Each has a device tracker for Home Assistant, which the demo only logs.
+    expect(res.json<DeskMemory>().exposed!.map((e) => `${e.kind}.${e.key}`)).toEqual([
+      'device_tracker.robin',
+      'device_tracker.sam',
+      'device_tracker.miso',
+      'device_tracker.biscuit',
+    ]);
     // Only the Home room has them: the office stays as its preset.
     expect(res.json<DeskMemory>().fixtures!.some((f) => f.scene === 'office')).toBe(false);
   });

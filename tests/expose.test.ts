@@ -386,6 +386,38 @@ async function setup(env: Record<string, string> = {}, mqttConnect?: MqttConnect
 const whole = { x: 0, y: 0, width: 1, height: 1 };
 
 describe('entities over the lab’s routes', () => {
+  it('tracks a person: home while in, not_home once they go out, where they sit as a sensor', async () => {
+    const s = await setup();
+    const reset = (await s.post('desk/demo/reset')).json<DeskMemory>();
+    const robin = reset.fixtures!.find((f) => f.label === 'Robin')!;
+    for (const [key, kind] of [
+      ['robin_2', 'device_tracker'],
+      ['robin_where', 'sensor'],
+    ] as const)
+      expect(
+        (
+          await s.post('expose/save', {
+            entity: { key, name: key, kind, source: { kind: 'member', memberId: robin.id } },
+          })
+        ).statusCode,
+      ).toBe(200);
+    const robins = (view: ExposeView) =>
+      view.states.filter((x) => x.key.startsWith('robin')).map((x) => [x.entityId, x.state]);
+    // The demo's own tracker for Robin is there already: the one saved here is another.
+    expect(robins(await s.view())).toEqual([
+      ['device_tracker.ll_robin', 'home'],
+      ['device_tracker.ll_robin_2', 'home'],
+      ['sensor.ll_robin_where', 'in the chair'],
+    ]);
+    await s.post('fixtures/away', { id: robin.id, away: true });
+    const out = await s.view();
+    expect(robins(out).map(([, state]) => state)).toEqual(['not_home', 'not_home', 'out']);
+    // Demo mode publishes nothing: it logs what Home Assistant would have heard.
+    expect(
+      out.log.some((l) => l.topic === 'livinglayer/robin/state' && l.payload === 'not_home'),
+    ).toBe(true);
+  });
+
   it('lets a zone tell Home Assistant only, switching nothing', async () => {
     const s = await setup();
     const segment = (await s.post('segment', { concept: 'mug' })).json<EvidenceRun<Segmentation>>();

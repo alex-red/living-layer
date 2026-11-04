@@ -17,6 +17,8 @@ import {
   type PlacementDecision,
   type ZoneRect,
 } from './memory.js';
+import { memberPlace } from './member-place.js';
+import { isMember } from './members.js';
 import { ruleObjects, ruleWho } from './rules.js';
 import type { WatchStatus, WatchView } from './watch.js';
 import { STAT_KEYS, STAT_KINDS, type StatsNow } from './stats.js';
@@ -71,6 +73,11 @@ const exposeSourceSchema = z.discriminatedUnion('kind', [
   z
     .object({ kind: z.literal('stat'), thingId: z.string().min(1).max(64), key: z.enum(STAT_KEYS) })
     .strict(),
+  /**
+   * Where a person or pet is: home or out (`not_home`) as a device tracker
+   * or on and off, or in a word or two as a sensor ("in the chair", "asleep").
+   */
+  z.object({ kind: z.literal('member'), memberId: z.string().min(1).max(64) }).strict(),
   /** Whether the server is watching the camera; as a switch, turns watching on and off. */
   z.object({ kind: z.literal('watching') }).strict(),
   /** A button that checks every rule, as the lab's Check rules does. */
@@ -241,6 +248,7 @@ export const SOURCE_KINDS: Record<ExposeSource['kind'], readonly ExposeKind[]> =
   motion: ['binary_sensor'],
   occupied: ['binary_sensor'],
   stat: ['binary_sensor', 'sensor'],
+  member: ['device_tracker', 'binary_sensor', 'sensor'],
   watching: ['binary_sensor', 'sensor', 'switch'],
   check_rules: ['button'],
 };
@@ -263,6 +271,10 @@ function missingPart(memory: DeskMemory, source: ExposeSource): string | null {
       return memory.thingStats?.[source.thingId]?.some((x) => x.key === source.key)
         ? null
         : `Its ${STAT_KINDS[source.key].label.toLowerCase()} stat is off.`;
+    case 'member':
+      return memory.fixtures?.some((f) => f.id === source.memberId && isMember(f))
+        ? null
+        : 'They aren’t in this home any more.';
     case 'watching':
     case 'check_rules':
       return null;
@@ -394,6 +406,20 @@ export function evaluateExposed(
           observed_at: thing.observation?.observedAt ?? null,
           stale,
         });
+      }
+      case 'member': {
+        const fixtures = memory.fixtures ?? [];
+        const f = fixtures.find((x) => x.id === s.memberId)!;
+        const place = memberPlace(f, fixtures);
+        const attributes = {
+          source: 'memory',
+          member: f.label,
+          type: f.type ?? null,
+          place: place.short,
+        };
+        if (e.kind === 'device_tracker') return on(place.home ? 'home' : 'not_home', attributes);
+        if (e.kind === 'binary_sensor') return on(binary(place.home), attributes);
+        return on(place.short, attributes);
       }
       case 'status': {
         const thing = things.find((t) => t.id === s.thingId)!;

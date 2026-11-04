@@ -6,6 +6,7 @@ import {
   exposedEntityId,
   sensorOptions,
   zonesIn,
+  isMember,
   MAIN_RULE,
   SOURCE_KINDS,
   type DeskMemory,
@@ -32,7 +33,13 @@ interface Preset {
   hint: string;
   needsZone?: boolean;
   needsThing?: boolean;
-  make: (memory: DeskMemory, zone: string, thing: string) => Omit<ExposedInput, 'key'>;
+  needsMember?: boolean;
+  make: (
+    memory: DeskMemory,
+    zone: string,
+    thing: string,
+    member: string,
+  ) => Omit<ExposedInput, 'key'>;
 }
 const PRESETS: Preset[] = [
   {
@@ -128,6 +135,17 @@ const PRESETS: Preset[] = [
     }),
   },
   {
+    id: 'member',
+    label: 'Who’s home',
+    hint: 'A device tracker for a person or pet: home, or not_home while they are out.',
+    needsMember: true,
+    make: (memory, _, __, member) => ({
+      name: memberLabel(memory, member),
+      kind: 'device_tracker',
+      source: { kind: 'member', memberId: member },
+    }),
+  },
+  {
     id: 'watch_switch',
     label: 'Watching switch',
     hint: 'A switch Home Assistant can flip to turn watching on and off, with the camera last chosen here.',
@@ -157,6 +175,7 @@ const SOURCE_LABEL: Record<ExposeSource['kind'], string> = {
   motion: 'something moves in a zone',
   occupied: 'someone is in a zone (compared with it empty)',
   stat: 'one of a thing’s stats (power, last used, activity, occupied)',
+  member: 'where a person or pet is (home, out)',
   watching: 'the server is watching',
   check_rules: 'checking every rule',
 };
@@ -171,6 +190,11 @@ function things(memory: DeskMemory | null | undefined) {
       .map((f) => ({ id: f.id, label: `${f.label} (fixture)` })),
   ];
 }
+/** The people and pets of the home, which a tracker can follow. */
+const members = (memory: DeskMemory | null | undefined) =>
+  (memory?.fixtures ?? []).filter(isMember).map((f) => ({ id: f.id, label: f.label }));
+const memberLabel = (memory: DeskMemory, id: string) =>
+  members(memory).find((m) => m.id === id)?.label ?? 'Someone';
 const thingLabel = (memory: DeskMemory, id: string) =>
   things(memory).find((t) => t.id === id)?.label ??
   memory.fixtures?.find((f) => f.id === id)?.label ??
@@ -208,6 +232,8 @@ function sourceSentence(memory: DeskMemory, e: Pick<ExposedEntity, 'source'>): s
       return `whether “${zoneLabel(memory, s.zoneId)}” looks occupied, compared with it empty${s.samConfirm ? ', confirmed by SAM (billed)' : ''}`;
     case 'stat':
       return `the ${thingLabel(memory, s.thingId)}’s ${STAT_KINDS[s.key].label.toLowerCase()}`;
+    case 'member':
+      return `whether ${memberLabel(memory, s.memberId)} is home, and where`;
     case 'watching':
       return 'whether the server is watching the camera';
     case 'check_rules':
@@ -227,6 +253,7 @@ function sourceOf(
   zone: string,
   thing: string,
   stat: { id: string; key: StatKey },
+  member: string,
 ): ExposeSource {
   const z = 'zoneId' in prev ? prev.zoneId : 'zoneIds' in prev ? prev.zoneIds[0]! : zone;
   const t = 'objectId' in prev ? prev.objectId : 'thingId' in prev ? prev.thingId : thing;
@@ -245,6 +272,8 @@ function sourceOf(
       return { kind, zoneId: z, holdS: 30, samConfirm: false };
     case 'stat':
       return prev.kind === 'stat' ? prev : { kind, thingId: stat.id, key: stat.key };
+    case 'member':
+      return { kind, memberId: prev.kind === 'member' ? prev.memberId : member };
     case 'watching':
     case 'check_rules':
       return { kind };
@@ -268,6 +297,8 @@ function EntityEditor({
   const firstThing = list[0]?.id ?? '';
   const stats = statsOn(memory);
   const firstStat = stats[0] ?? { id: '', key: 'power' as const };
+  const people = members(memory);
+  const firstMember = people[0]?.id ?? '';
   const [draft, setDraft] = useState<Omit<ExposedInput, 'key'> | null>(entity ?? null);
   const [key, setKey] = useState(entity?.key ?? '');
   const [keyEdited, setKeyEdited] = useState(Boolean(entity));
@@ -279,14 +310,20 @@ function EntityEditor({
   };
   if (!draft) {
     const why = (p: Preset) =>
-      p.needsZone && !zones.length ? 'zone' : p.needsThing && !list.length ? 'thing' : null;
+      p.needsZone && !zones.length
+        ? 'zone'
+        : p.needsThing && !list.length
+          ? 'thing'
+          : p.needsMember && !people.length
+            ? 'member'
+            : null;
     const preset = (p: Preset) => (
       <Button
         key={p.id}
         className="expose-preset"
         disabled={Boolean(why(p))}
         onClick={() => {
-          const made = p.make(memory, firstZone, firstThing);
+          const made = p.make(memory, firstZone, firstThing, firstMember);
           setDraft(made);
           setKey(keyFromName(made.name));
         }}
@@ -295,7 +332,7 @@ function EntityEditor({
         <small>{p.hint}</small>
       </Button>
     );
-    const later = (reason: 'zone' | 'thing') => PRESETS.filter((p) => why(p) === reason);
+    const later = (reason: 'zone' | 'thing' | 'member') => PRESETS.filter((p) => why(p) === reason);
     return (
       <div className="expose-presets">
         {PRESETS.filter((p) => !why(p)).map(preset)}
@@ -305,6 +342,14 @@ function EntityEditor({
               After you remember an object (under Objects in the outline):
             </p>
             {later('thing').map(preset)}
+          </>
+        )}
+        {later('member').length > 0 && (
+          <>
+            <p className="micro expose-later">
+              After you add a person or a pet (Add a person, in the outline):
+            </p>
+            {later('member').map(preset)}
           </>
         )}
         {later('zone').length > 0 && (
@@ -367,7 +412,7 @@ function EntityEditor({
           onChange={(e) => {
             const kind = e.target.value as ExposeSource['kind'];
             set({
-              source: sourceOf(kind, s, firstZone, firstThing, firstStat),
+              source: sourceOf(kind, s, firstZone, firstThing, firstStat, firstMember),
               ...(SOURCE_KINDS[kind].includes(draft.kind) ? {} : { kind: SOURCE_KINDS[kind][0]! }),
             });
           }}
@@ -379,7 +424,8 @@ function EntityEditor({
               disabled={
                 (['in_zone', 'any_inside', 'motion', 'occupied'].includes(k) && !zones.length) ||
                 (['zone_of', 'status'].includes(k) && !list.length) ||
-                (k === 'stat' && !stats.length)
+                (k === 'stat' && !stats.length) ||
+                (k === 'member' && !people.length)
               }
             >
               {SOURCE_LABEL[k]}
@@ -428,6 +474,22 @@ function EntityEditor({
           <>
             <span>Thing</span>
             {thingPicker(s.thingId, (thingId) => set({ source: { ...s, thingId } }))}
+          </>
+        )}
+        {s.kind === 'member' && (
+          <>
+            <span>Who</span>
+            <select
+              aria-label="Who"
+              value={s.memberId}
+              onChange={(e) => set({ source: { kind: 'member', memberId: e.target.value } })}
+            >
+              {people.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.label}
+                </option>
+              ))}
+            </select>
           </>
         )}
         {s.kind === 'stat' && (
@@ -678,7 +740,7 @@ export function EntityPanel({ id }: { id: string }) {
   const topic = `livinglayer/${e.key}`;
   return (
     <Panel
-      tiny={`HOME ASSISTANT · ${e.kind === 'binary_sensor' ? 'BINARY SENSOR' : 'SENSOR'}`}
+      tiny={`HOME ASSISTANT · ${e.kind.replace('_', ' ').toUpperCase()}`}
       title={e.name}
       status={
         s && !s.available
