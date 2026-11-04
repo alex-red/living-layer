@@ -291,6 +291,7 @@ describe('askExamples', () => {
       'cat',
       'food',
       'zone',
+      'litter',
       'member',
       'food',
       'summary',

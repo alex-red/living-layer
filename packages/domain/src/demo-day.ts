@@ -15,13 +15,14 @@ import {
   householdThingId,
   type HomeSpan,
 } from './household-day.js';
+import { DEMO_LITTER_CAT, DEMO_LITTER_EMPTIED, DEMO_LITTER_VISITS, LITTER } from './litter.js';
 import type { MemberType } from './members.js';
 import type { AskExample } from './room-ask.js';
 import { dayOf, type StatEvent, type StatKey } from './stats.js';
 
 /** Where the mug stands: on its coaster (inside the main zone), by the keyboard, at the desk's edge, or off the desk. */
 export type MugSpot = 'coaster' | 'keyboard' | 'edge' | 'away';
-export type DayThing = 'mug' | 'lamp' | 'cat' | 'fridge';
+export type DayThing = 'mug' | 'lamp' | 'cat' | 'fridge' | 'litter';
 
 /** One change the camera or Home Assistant saw. */
 export interface DayEvent {
@@ -37,6 +38,8 @@ export interface DayEvent {
   cat?: boolean;
   /** What was taken from the fridge. */
   food?: string;
+  /** Minutes the cat spent in the litter box. */
+  visit?: number;
 }
 
 export const DEMO_DAY: readonly DayEvent[] = [
@@ -85,7 +88,17 @@ export interface AskThing {
    * where at home and how ("is asleep by the plant"), from when, oldest first.
    */
   member?: { type: MemberType; places: readonly { at: number; text: string }[] };
+  /** A litter box: the cat who uses it, and its weight from the box's scale, oldest first. */
+  litter?: { cat: string; weights?: readonly { at: number; kg: number }[] };
 }
+
+/** The demo litter box room's day: each of Juniper's visits, the box cleaning itself after. */
+export const DEMO_LITTER_DAY: readonly DayEvent[] = DEMO_LITTER_VISITS.map(([at, visit]) => ({
+  at,
+  thing: 'litter',
+  visit,
+  text: `${DEMO_LITTER_CAT} used the litter robot (${visit} min); it cleaned itself ${LITTER.cycleWaitMin} min after`,
+}));
 
 /** The thing a zone is when asking about the room: its fillings and emptyings are its occupied stat. */
 export const zoneThingId = (ruleId: string) => `zone:${ruleId}`;
@@ -265,6 +278,41 @@ export const DEMO_FRIDGE_ASK_EXAMPLES: readonly AskExample[] = [
   { label: 'Today so far', question: 'What happened today?', thing: 'summary', kind: 'summary' },
 ];
 
+/** Questions the dock offers in the litter box room, about Juniper and her litter robot. */
+export const DEMO_LITTER_ASK_EXAMPLES: readonly AskExample[] = [
+  {
+    label: 'Visits today',
+    question: 'How many times did Juniper use the litter robot today?',
+    thing: 'litter-robot',
+    kind: 'litter',
+  },
+  {
+    label: 'Visits vs usual',
+    question: 'Did Juniper use the litter robot more than usual today?',
+    thing: 'litter-robot',
+    kind: 'litter',
+  },
+  {
+    label: 'Visits this week',
+    question: 'How many times was the litter robot used this week?',
+    thing: 'litter-robot',
+    kind: 'litter',
+  },
+  {
+    label: 'Last visit',
+    question: 'When did Juniper last use the litter robot?',
+    thing: 'litter-robot',
+    kind: 'litter',
+  },
+  {
+    label: 'Drawer emptied',
+    question: 'When did I last empty the waste drawer?',
+    thing: 'litter-drawer',
+    kind: 'litter',
+  },
+  { label: 'Today so far', question: 'What happened today?', thing: 'summary', kind: 'summary' },
+];
+
 /** Questions the dock offers in the Home room, about the household. */
 export const DEMO_HOME_ASK_EXAMPLES: readonly AskExample[] = [
   {
@@ -306,7 +354,16 @@ const DEMO_ASK_THINGS: readonly AskThing[] = [
   { id: 'spinach', label: 'Spinach', stats: ['lastUsed'] },
   { id: 'eggs', label: 'Eggs', stats: ['lastUsed'] },
   { id: zoneThingId('main'), label: 'Main zone', stats: ['occupied'], zone: true },
+  {
+    id: 'litter-robot',
+    label: 'Litter robot',
+    stats: ['occupied'],
+    litter: { cat: DEMO_LITTER_CAT },
+  },
+  { id: 'litter-drawer', label: 'Waste drawer', stats: ['lastUsed'] },
 ];
+/** Juniper's weight on the litter robot's scale, kg, over the sample week, oldest first: steady. */
+const LITTER_KG = [5.42, 5.4, 5.41, 5.39, 5.41, 5.4, 5.39];
 /** The household's day `back` days before the sample day: the same, a little earlier or later. */
 function householdSpans(
   name: (typeof HOUSEHOLD)[number]['name'],
@@ -351,6 +408,8 @@ interface MadeDay {
   food: [number, string][];
   /** The mug in the main zone (on its coaster). */
   zone: [number, number][];
+  /** The cat's litter box visits: when it went in, minutes inside. */
+  litter: (readonly [number, number])[];
 }
 const between = (r: () => number, a: number, b: number) => Math.round(a + r() * (b - a));
 
@@ -374,7 +433,11 @@ function madeDay(back: number): MadeDay {
     cat.push([m, m + between(r, 25, 140)]);
   const food: [number, string][] = [[between(r, 430, 470), 'Milk']];
   if (r() > 0.5) food.push([between(r, 740, 790), 'Leftover chicken']);
-  return { mug, screen, lamp, cat, food, zone: lamp };
+  // A usual day's litter visits: four or five, morning to night, two or three minutes each.
+  const litter: [number, number][] = [];
+  for (let m = between(r, 380, 460); m < 1380 && litter.length < 5; m += between(r, 200, 300))
+    litter.push([m, between(r, 2, 4)]);
+  return { mug, screen, lamp, cat, food, zone: lamp, litter };
 }
 
 /** The sample day as a made day, with the screen's sessions it doesn't script. */
@@ -395,6 +458,7 @@ function sampleDay(): MadeDay {
     cat: spans((e) => e.cat),
     food: DEMO_DAY.filter((e) => e.food).map((e): [number, string] => [e.at, e.food!]),
     zone: spans((e) => (e.mug ? e.mug === 'coaster' : undefined)),
+    litter: [...DEMO_LITTER_VISITS],
   };
 }
 
@@ -437,6 +501,18 @@ export function demoHistory(at: number): { things: readonly AskThing[]; events: 
     onOff('lamp', 'power', made.lamp);
     onOff('cat-tree', 'occupied', made.cat);
     onOff(zoneThingId('main'), 'occupied', made.zone);
+    onOff(
+      'litter-robot',
+      'occupied',
+      made.litter.map(([m, n]): [number, number] => [m, m + n]),
+    );
+    if (back === DEMO_LITTER_EMPTIED.daysAgo)
+      push(
+        'litter-drawer',
+        'lastUsed',
+        ms(DEMO_LITTER_EMPTIED.minute),
+        ms(DEMO_LITTER_EMPTIED.minute),
+      );
     for (const { name } of HOUSEHOLD) {
       // Home is occupied: pushed when they come or go, and once at midnight.
       let home: boolean | null = null;
@@ -470,9 +546,19 @@ export function demoHistory(at: number): { things: readonly AskThing[]; events: 
       member: { type, places },
     };
   });
+  // One reading from the scale each day, at the day's first visit; oldest first.
+  const weights = LITTER_KG.flatMap((kg, i) => {
+    const back = LITTER_KG.length - 1 - i;
+    const d = new Date(today);
+    d.setDate(d.getDate() - back);
+    const first = back ? madeDay(back).litter[0]![0] : DEMO_LITTER_VISITS[0]![0];
+    const when = d.getTime() + first * 60_000;
+    return when <= at ? [{ at: when, kg }] : [];
+  });
   return {
     things: [
       ...DEMO_ASK_THINGS.map((t) => {
+        if (t.litter) return { ...t, litter: { ...t.litter, weights } };
         const food = DEMO_FOOD.find((f) => f.label === t.label);
         return food
           ? {

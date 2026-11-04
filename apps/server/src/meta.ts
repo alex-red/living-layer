@@ -515,6 +515,7 @@ export class MetaAdapter {
         'factId: that fact’s id exactly as listed. title: at most 6 words. body: one or two short sentences, at most 140 characters, casual (“like 3 hours, dude” is fine), at most one emoji.',
         'Use the numbers as given, rounded the way a person says them; don’t invent anything the facts don’t say. Vary your jokes: no “hydration station”.',
         'For a cook fact, name one simple dish that uses those foods, in a few words.',
+        'For a litter fact, be kind about the cat and never gross; for more visits than usual or none for long, keep the joke gentle and say a vet’s call is worth it if it keeps up, without naming an illness.',
       ].join('\n'),
     });
   }

@@ -28,6 +28,7 @@ import { chosenEntities, haConnection, haRoutes, type OpenSocket } from './ha.js
 import { HaLive } from './ha-live.js';
 import { fixtureRoutes } from './fixture/routes.js';
 import { stockDemoFridge } from './fixture/fridge.js';
+import { addDemoLitterRoom } from './fixture/litter.js';
 import { addDemoHousehold } from './fixture/seat.js';
 import { watchRequest } from './request-signal.js';
 import { LabError, logError } from './errors.js';
@@ -710,9 +711,10 @@ export async function buildApp(
     }
     await watchByDefault(true);
     // A demo that never had its household gets it once, in its Home room, after the rest,
-    // then its fridge stocked: one after the other, as each finds what it saved last.
+    // then its fridge stocked and its litter box room set up: one after the other, as each
+    // finds what it saved last.
     const demo = store.memory('demo');
-    if (!demo.householdAt || !demo.fridgeAt)
+    if (!demo.householdAt || !demo.fridgeAt || !demo.litterAt)
       void (async () => {
         if (!demo.householdAt)
           await addDemoHousehold({ store, entities }).catch((e: unknown) =>
@@ -721,6 +723,10 @@ export async function buildApp(
         if (!demo.fridgeAt)
           await stockDemoFridge({ store, entities }).catch((e: unknown) =>
             console.error('[server] the demo fridge could not be stocked:', e),
+          );
+        if (!demo.litterAt)
+          await addDemoLitterRoom({ store, entities }).catch((e: unknown) =>
+            console.error('[server] the demo litter box room could not be set up:', e),
           );
       })();
   });

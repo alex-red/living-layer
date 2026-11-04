@@ -46,7 +46,7 @@ export type ZoneRect = z.infer<typeof zoneRectSchema>;
  */
 export const zoneOnSurfaceSchema = z
   .object({
-    scene: z.enum(['office', 'desk', 'fridge', 'home', 'custom']),
+    scene: z.enum(['office', 'desk', 'fridge', 'home', 'litter', 'custom']),
     surfaceId: z.string().min(1).max(48),
     a: pointSchema,
     b: pointSchema,
@@ -61,7 +61,7 @@ export const roomCalibrationSchema = z
   .object({
     camera: roomCameraSchema,
     marks: roomMarksSchema,
-    scene: z.enum(['office', 'desk', 'fridge', 'home', 'custom']),
+    scene: z.enum(['office', 'desk', 'fridge', 'home', 'litter', 'custom']),
     /** Root mean square distance of the marks from the fitted camera's floor lines, in pixels. */
     error: z.number().min(0),
     calibratedAt: z.string(),
@@ -169,6 +169,8 @@ export interface DeskMemory {
   householdAt?: string;
   /** When the demo's fridge was first stocked: once, so deleting its food sticks. */
   fridgeAt?: string;
+  /** When the demo's litter box room got its robot made a thing and Juniper, so it isn't done twice. */
+  litterAt?: string;
 }
 /** A camera the server reads frames from: an RTSP stream, never a tab's. */
 export interface WatchCamera {
@@ -636,5 +638,6 @@ export const deskMemorySchema = z.preprocess(
     thingStats: z.record(z.string(), z.array(thingStatSchema)).optional(),
     householdAt: z.string().optional(),
     fridgeAt: z.string().optional(),
+    litterAt: z.string().optional(),
   }),
 ) satisfies z.ZodType<DeskMemory, unknown>;

@@ -8,6 +8,7 @@
 import { z } from 'zod';
 import type { AskThing } from './demo-day.js';
 import { daysUntil } from './food.js';
+import { LITTER, isLitterBox, isWasteDrawer, litterBusy, litterNow } from './litter.js';
 import { clockOf, thingKind, type AskCite, type AskHistory } from './room-ask.js';
 import { dayOf, type StatEvent, type StatKey } from './stats.js';
 
@@ -52,7 +53,10 @@ export type CoachTopic =
   | 'food'
   | 'low'
   | 'cook'
-  | 'alone';
+  | 'alone'
+  | 'drawer'
+  | 'litterBusy'
+  | 'litterQuiet';
 
 /** One thing the coach could nudge about, worked out from the stats. */
 export interface CoachFact {
@@ -65,6 +69,8 @@ export interface CoachFact {
   minutes: number;
   /** The fact in plain words, with its numbers: what Spark words a nudge from. */
   text: string;
+  /** More of its numbers for the offline lines, by name: `{count}` in a line is `count`'s. */
+  fill?: Record<string, string>;
   /** How due it is: 1 is due now, more is overdue. */
   weight: number;
   cites: AskCite[];
@@ -333,8 +339,76 @@ export function coachFacts(history: AskHistory, now: number): CoachFact[] {
       cites: [],
     });
   }
+  // Litter boxes: the drawer filling up, more visits than usual, or none for a long while.
+  for (const box of history.things) {
+    const n = litterNow(history, box, now);
+    if (!n) continue;
+    const name = nameOf(box);
+    const visitCites = (count: number) =>
+      eventsOf(history, box.id, 'occupied', now)
+        .filter((e) => e.value === true)
+        .slice(-count)
+        .map((e) => citeOf(box, 'occupied', e, `${n.cat} went into ${name}`));
+    const drawer = n.drawer;
+    if (drawer?.share != null && drawer.share >= LITTER.drawerFull) {
+      const pct = `${Math.round(drawer.share * 100)}%`;
+      const emptied = history.events.find(
+        (e) => e.thingId === drawer.id && e.key === 'lastUsed' && e.at === drawer.emptiedAt,
+      );
+      const thing = history.things.find((t) => t.id === drawer.id)!;
+      facts.push({
+        id: `drawer:${drawer.id}`,
+        topic: 'drawer',
+        thingId: drawer.id,
+        label: drawer.label,
+        minutes: 0,
+        text: `${drawer.label} is about ${pct} full: ${drawer.visits} visits to ${name} since it was last emptied${drawer.emptiedAt ? `, ${daysAgo(drawer.emptiedAt, now)}` : ''}.`,
+        fill: { share: pct, visits: String(drawer.visits) },
+        weight: drawer.share / LITTER.drawerFull,
+        cites: emptied ? [citeOf(thing, 'lastUsed', emptied, `${drawer.label} emptied`)] : [],
+      });
+    }
+    if (litterBusy(n)) {
+      const count = n.visits.length;
+      const usual = n.usualByNow!;
+      facts.push({
+        id: `litterBusy:${box.id}`,
+        topic: 'litterBusy',
+        thingId: box.id,
+        label: n.cat,
+        minutes: 0,
+        text: `${n.cat} has used ${name} ${count} times today by ${clockOf(now)}; by this time on a usual day it is ${usual} (about ${n.usualDay} a whole day). Visits today average ${n.meanMinutes} min. Frequent short visits can be an early sign of a bladder problem: worth watching, and a vet's call if it keeps up.`,
+        fill: { count: String(count), usual: String(usual) },
+        weight: 1.1,
+        cites: visitCites(3),
+      });
+    }
+    if (n.sinceLast !== null && n.lastVisit && n.sinceLast >= LITTER.quietMin / 2) {
+      facts.push({
+        id: `litterQuiet:${box.id}`,
+        topic: 'litterQuiet',
+        thingId: box.id,
+        label: n.cat,
+        minutes: n.sinceLast,
+        text: `${n.cat} hasn't used ${name} for ${hm(n.sinceLast)}, since ${clockOf(n.lastVisit.at)}. A cat that doesn't go for a day needs a vet.`,
+        weight: n.sinceLast / LITTER.quietMin,
+        cites: visitCites(1),
+      });
+    }
+  }
   return facts.sort((a, b) => b.weight - a.weight);
 }
+
+/** "today", "yesterday", "5 days ago": when something was, by the day. */
+function daysAgo(at: number, now: number): string {
+  const d = Math.round((dayStart(now) - dayStart(at)) / 86_400_000);
+  return d <= 0 ? 'today' : d === 1 ? 'yesterday' : `${d} days ago`;
+}
+const dayStart = (ms: number) => {
+  const d = new Date(ms);
+  d.setHours(0, 0, 0, 0);
+  return d.getTime();
+};
 
 /** "milk, spinach and eggs". */
 function andList(items: readonly string[]): string {
@@ -355,24 +429,39 @@ function offIn(days: number): string {
 const FRIDGE_TOPICS: ReadonlySet<CoachTopic> = new Set(['food', 'low', 'cook']);
 /** The fridge's own: said only over the fridge, and in a room of one's own. */
 const FRIDGE_ONLY: ReadonlySet<CoachTopic> = new Set(['low', 'cook']);
+/** The litter box room's topics: its drawer, and the cat's visits. */
+const LITTER_TOPICS: ReadonlySet<CoachTopic> = new Set(['drawer', 'litterBusy', 'litterQuiet']);
+/** Topics said only over their own room (and in a room of one's own), never in the shared day. */
+const OWN_ROOM: ReadonlySet<CoachTopic> = new Set([...FRIDGE_ONLY, ...LITTER_TOPICS]);
+/** The rooms with a coach day of their own, and its topics. */
+const ROOM_TOPICS: Partial<Record<string, ReadonlySet<CoachTopic>>> = {
+  fridge: FRIDGE_TOPICS,
+  litter: LITTER_TOPICS,
+};
 /**
  * Whether a nudge belongs over a room: the household's (a pet home alone) over
  * the Home room, the fridge's (food going off, running low, dinner) over the
- * fridge, the desk's (drinks, the screen, the lamp, the cat) and food going
- * off today over the office and the desk. A room of one's own shows all but
- * the household's.
+ * fridge, the litter box's (its drawer, the cat's visits) over the litter box
+ * room, the desk's (drinks, the screen, the lamp, the cat) and food going off
+ * today over the office and the desk. A room of one's own shows all but the
+ * household's.
  */
 export function topicInRoom(topic: CoachTopic, scene: string | null): boolean {
   if (scene === 'home') return topic === 'alone';
   if (topic === 'alone') return false;
-  if (scene === 'fridge') return FRIDGE_TOPICS.has(topic);
-  if (scene === 'office' || scene === 'desk') return !FRIDGE_ONLY.has(topic);
+  const own = scene ? ROOM_TOPICS[scene] : undefined;
+  if (own) return own.has(topic);
+  if (scene === 'office' || scene === 'desk') return !OWN_ROOM.has(topic);
   return true;
 }
 
-/** Minutes the coach keeps quiet about a fact after nudging about it: food and a pet once a stretch. */
+/** Minutes the coach keeps quiet about a fact after nudging about it: food, a pet and the drawer once a stretch. */
 const cooldownOf = (f: CoachFact) =>
-  FRIDGE_TOPICS.has(f.topic) || f.topic === 'alone' ? COACH.foodCooldownMin : COACH.cooldownMin;
+  f.topic === 'litterQuiet'
+    ? 3 * 60
+    : FRIDGE_TOPICS.has(f.topic) || LITTER_TOPICS.has(f.topic) || f.topic === 'alone'
+      ? COACH.foodCooldownMin
+      : COACH.cooldownMin;
 
 /**
  * The facts worth a nudge now, most due first: due, not nudged about within
@@ -466,6 +555,32 @@ const LINES: Record<CoachTopic, [string, string][]> = {
       '{span} since anyone was home. {name} has started reorganising the cushions.',
     ],
   ],
+  drawer: [
+    [
+      'Drawer duty 🧹',
+      'The {label} is {share} full. The robot does the scooping; emptying is still your job.',
+    ],
+    [
+      'Bin day, robot edition',
+      'The {label} is at {share}. Empty it before the robot starts refusing service.',
+    ],
+  ],
+  litterBusy: [
+    [
+      'Busy day for {name}',
+      '{name} has been to the litter box {count} times already; usually it’s {usual} by now. Worth keeping an eye on.',
+    ],
+    [
+      'Keep an eye on {name}',
+      '{count} litter trips today against {usual} by now on a usual day. If it keeps up tomorrow, call the vet.',
+    ],
+  ],
+  litterQuiet: [
+    [
+      'Check on {name}?',
+      'No litter box visit from {name} for {span}. Probably nothing, but worth a look.',
+    ],
+  ],
   food: [
     [
       'About the {label}…',
@@ -510,7 +625,8 @@ export function coachLine(fact: CoachFact, at: number, seed = 0): { title: strin
       .replaceAll('{clock}', clockOf(at))
       .replaceAll('{label}', fact.label.replace(/^my\s+/i, '').toLowerCase())
       .replaceAll('{name}', fact.label)
-      .replaceAll('{days}', goneDays);
+      .replaceAll('{days}', goneDays)
+      .replace(/\{(\w+)\}/g, (all, key: string) => fact.fill?.[key] ?? all);
   const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
   return { title: cap(fill(title)), body: cap(fill(body)) };
 }
@@ -544,10 +660,10 @@ export function quietWords(facts: readonly CoachFact[]): string {
 /**
  * The coach over a stretch of time, offline: a look every `COACH.everyMin`
  * minutes from `from` to `to`, each nudging about its most due fact unless
- * it nudged about that one lately or its topic is snoozed. The fridge
- * (`scene`) keeps a day of its own, about its food alone; every other room
- * shares one, about all but the fridge's own topics, each showing what
- * belongs over it (`topicInRoom`). What the demo's replay shows.
+ * it nudged about that one lately or its topic is snoozed. The fridge and
+ * the litter box room (`scene`) each keep a day of their own, about their
+ * own topics alone; every other room shares one, about all but those, each
+ * showing what belongs over it (`topicInRoom`). What the demo's replay shows.
  */
 export function coachDay(
   history: AskHistory,
@@ -557,14 +673,23 @@ export function coachDay(
   scene?: string | null,
 ): CoachNudge[] {
   const nudges: CoachNudge[] = [];
-  // Only the last day's events matter to any look in it, and filtering fewer is faster.
+  // Only the last day's events matter to any look in it, and filtering fewer is faster;
+  // a litter box and its drawer keep their week, for the usual visits and the last emptying.
+  const weekly = new Set(
+    history.things.filter((t) => isLitterBox(t.label) || isWasteDrawer(t.label)).map((t) => t.id),
+  );
   const recentHistory = {
     ...history,
-    events: history.events.filter((e) => e.at > from - 86_400_000),
+    events: history.events.filter(
+      (e) =>
+        e.at > from - 86_400_000 ||
+        (weekly.has(e.thingId) && e.at > from - (LITTER.usualDays + 2) * 86_400_000),
+    ),
   };
   for (let at = from; at <= to; at += COACH.everyMin * MINUTE) {
+    const own = scene ? ROOM_TOPICS[scene] : undefined;
     const facts = coachFacts(recentHistory, at).filter((f) =>
-      scene === 'fridge' ? FRIDGE_TOPICS.has(f.topic) : !FRIDGE_ONLY.has(f.topic),
+      own ? own.has(f.topic) : !OWN_ROOM.has(f.topic),
     );
     const due = dueFacts(facts, nudges, at).filter(
       (f) => !snoozes.some((z) => z.topic === f.topic && at >= z.from && at < z.to),
@@ -576,13 +701,16 @@ export function coachDay(
 }
 
 /** What a nudge's button does: log a sip, take a break, switch something off, ask, or nothing. */
-type CoachDoes = 'drink' | 'break' | 'screenOff' | 'lampOff' | 'ask' | 'none';
+type CoachDoes = 'drink' | 'break' | 'screenOff' | 'lampOff' | 'emptied' | 'ask' | 'none';
 
 /**
  * Each topic's button, what it does and what the nudge says once done. For
  * now only the demo acts (`actionEvents`); live, the buttons wait.
  */
-export const COACH_ACTIONS: Record<CoachTopic, { label: string; does: CoachDoes; done: string }> = {
+export const COACH_ACTIONS: Record<
+  CoachTopic,
+  { label: string; does: CoachDoes; done: string; /** What an `ask` asks the room. */ ask?: string }
+> = {
   drink: { label: 'Log a sip', does: 'drink', done: 'Sip logged. Your mug feels seen.' },
   screen: {
     label: 'Take 5',
@@ -596,10 +724,27 @@ export const COACH_ACTIONS: Record<CoachTopic, { label: string; does: CoachDoes;
     done: 'Lamp off. The electricity bill sends its regards.',
   },
   cat: { label: 'Respect the cat', does: 'none', done: 'The cat acknowledges you. Barely.' },
-  food: { label: 'What do I eat?', does: 'ask', done: 'Asked the room what to eat first.' },
+  food: {
+    label: 'What do I eat?',
+    does: 'ask',
+    done: 'Asked the room what to eat first.',
+    ask: 'What should I eat first?',
+  },
   low: { label: 'Got it', does: 'none', done: 'Noted. Future you thanks present you.' },
   cook: { label: 'Sounds good', does: 'none', done: 'Dinner, sorted. The spinach is relieved.' },
   alone: { label: 'On my way', does: 'none', done: 'Noted. Tail wagging has begun in advance.' },
+  drawer: {
+    label: 'Emptied it',
+    does: 'emptied',
+    done: 'Drawer emptied. The robot thanks you, quietly.',
+  },
+  litterBusy: {
+    label: 'See the week',
+    does: 'ask',
+    done: 'Asked the room about the week’s visits.',
+    ask: 'How many times was the litter robot used this week?',
+  },
+  litterQuiet: { label: 'Checked', does: 'none', done: 'Thanks. A quick look is always worth it.' },
 };
 /** Minutes a snoozed topic keeps quiet. */
 export const COACH_SNOOZE_MIN = 30;
@@ -630,6 +775,7 @@ export function actionEvents(nudge: CoachNudge, when: number): StatEvent[] {
   });
   switch (COACH_ACTIONS[nudge.topic].does) {
     case 'drink':
+    case 'emptied':
       return [ev('lastUsed', at, at)];
     case 'break':
       return [ev('power', at, false), ev('power', at + 5 * MINUTE, true)];

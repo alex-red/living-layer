@@ -9,6 +9,9 @@ import {
   coachQuerySchema,
   coachSwitchBodySchema,
   demoHistory,
+  isLitterBox,
+  isWasteDrawer,
+  LITTER,
   dueFacts,
   quietWords,
   topicInRoom,
@@ -97,11 +100,19 @@ export class RoomCoach {
     if (mode === 'demo') return { ...demoHistory(now), watched: null };
     const runner = this.deps.runners.live;
     runner.flush();
-    const events = this.deps.store
-      .allStatEvents('live', now - 86_400_000)
+    const things = askThingsOf(this.deps.store.memory('live'));
+    // A litter box and its drawer keep their week: the usual visits, and when it was last emptied.
+    const weekSince = now - (LITTER.usualDays + 2) * 86_400_000;
+    const weekly = things
+      .filter((t) => isLitterBox(t.label) || isWasteDrawer(t.label))
+      .flatMap((t) =>
+        this.deps.store.statEvents('live', t.id, weekSince).filter((e) => e.at <= now - 86_400_000),
+      );
+    const events = [...weekly, ...this.deps.store.allStatEvents('live', now - 86_400_000)]
       // While the camera isn't watching, what it last saw isn't now: leave its stats out.
-      .filter((e) => e.at <= now && (runner.isWatching || e.source !== 'camera'));
-    return { things: askThingsOf(this.deps.store.memory('live')), events, watched: null };
+      .filter((e) => e.at <= now && (runner.isWatching || e.source !== 'camera'))
+      .sort((a, b) => a.at - b.at);
+    return { things, events, watched: null };
   }
   /**
    * Look now. `force` (the page's "Check now") nudges about the most due fact

@@ -55,6 +55,8 @@ export const PROP_FORMS = [
   'butter',
   'tub',
   'greens',
+  'litter-robot',
+  'litter-mat',
 ] as const;
 export type PropForm = (typeof PROP_FORMS)[number];
 
@@ -211,6 +213,23 @@ export const FURNITURE_SPECS = {
   tub: { heightCm: 9, lidCm: 1.5, fill: 0.6 },
   /** An open clamshell of salad leaves (spinach), its clear rim this share of the way up. */
   greens: { heightCm: 9, rim: 0.55 },
+  /**
+   * A self-cleaning litter box: a round white housing over a pedestal, its
+   * globe's entry facing the room and a step under it, 56 × 69 cm and 75 tall.
+   * The housing is a ball as wide as the box, the entry this wide across its
+   * front; the step's tread stands this high, this deep and this thick.
+   */
+  'litter-robot': {
+    heightCm: 75,
+    housingCm: 56,
+    entryCm: 36,
+    pedestalWCm: 44,
+    stepZCm: 22,
+    stepDCm: 15,
+    stepCm: 4,
+  },
+  /** A honeycomb mat that catches litter off paws, its raised border this wide. */
+  'litter-mat': { heightCm: 1.2, borderCm: 2.5 },
 } satisfies Record<PropForm, { heightCm: number } & Record<string, number | boolean>>;
 type FurnitureSpecs = typeof FURNITURE_SPECS;
 export type FurnitureOverrides = { [F in PropForm]?: Partial<FurnitureSpecs[F]> };
@@ -561,6 +580,172 @@ const book: Build<'book'> = (w, d, h, { spec }) => {
   ];
 };
 
+/** A ball's profile: (radius, height) as shares of its box, bottom to top. */
+const BALL = Array.from({ length: 13 }, (_, i) => {
+  const z = i / 12;
+  return { r: Math.max(0.12, Math.sqrt(1 - (2 * z - 1) ** 2)), z };
+});
+/**
+ * A ball pushed out through a ball housing (centre `c`, radius `r`) toward
+ * `dir`, so it shows as a cap whose rim meets the housing in a circle of
+ * radius `rim` and which stands `out` proud at its middle: an entry, a panel
+ * or a window that follows the housing's curve. With k = r + out and the
+ * rim's plane X from the centre, the cap's ball has radius ((k − X)² + rim²) / 2(k − X).
+ */
+function cap(
+  c: IsoVec,
+  r: number,
+  dir: IsoVec,
+  rim: number,
+  out: number,
+  tone: IsoTone,
+  o: Opts = {},
+): PropPart {
+  const len = Math.hypot(dir.x, Math.hypot(dir.y, dir.z));
+  const k = r + out;
+  const X = Math.sqrt(Math.max(r * r - rim * rim, 0));
+  const er = ((k - X) ** 2 + rim ** 2) / (2 * (k - X));
+  const at = (v: number, d: number) => v + (d / len) * (k - er) - er;
+  return turned(
+    at(c.x, dir.x),
+    at(c.y, dir.y),
+    at(c.z, dir.z),
+    2 * er,
+    2 * er,
+    2 * er,
+    tone,
+    BALL,
+    o,
+  );
+}
+/**
+ * A self-cleaning litter box, facing +y, built for its real 56 cm width (a
+ * wider or taller box scales it): a grey plinth and a white pedestal holding
+ * the waste drawer, its seam and handle under the step; the round white
+ * housing on it; on its front the entry, dark inside, with a raised white
+ * bezel, the grey litter bed and the white bumper lip at its foot, the
+ * sifting screen's panel and a row of vent holes over it; the control panel
+ * and its display on top, a sensor window on the right side, and the step's
+ * grooved tread in front. At most 24 parts, so it can be made a Thing.
+ */
+const litterRobot: Build<'litter-robot'> = (w, d, h, { spec, outline }) => {
+  const sx = w / cm(56);
+  const sz = h / cm(spec.heightCm);
+  const ball = Math.min(cm(spec.housingCm) * sx, w);
+  const r = ball / 2;
+  const back = cm(2) * sx;
+  const ballZ = h - ball;
+  const pedW = cm(spec.pedestalWCm) * sx;
+  const front = back + ball;
+  const c = { x: w / 2, y: back + r, z: ballZ + r };
+  const stepZ = cm(spec.stepZCm) * sz;
+  const stepW = pedW * 0.9;
+  const stepY = front - cm(4) * sx;
+  const stepD = Math.min(d - stepY, cm(spec.stepDCm + 4) * sx);
+  const tread = cm(spec.stepCm) * sz;
+  const parts: PropPart[] = [
+    box(
+      (w - pedW) / 2 - cm(1) * sx,
+      back + ball * 0.1,
+      0,
+      pedW + cm(2) * sx,
+      ball * 0.84,
+      cm(1.5) * sz,
+      'steel',
+      {
+        radius: 0.3,
+      },
+    ),
+    box((w - pedW) / 2, back + ball * 0.12, 0, pedW, ball * 0.8, ballZ + ball * 0.3, 'ceramic', {
+      radius: 0.2,
+      material: 'gloss',
+    }),
+    turned((w - ball) / 2, back, ballZ, ball, ball, ball, 'ceramic', BALL, { material: 'gloss' }),
+    // The drawer under the step, its tread on top.
+    box((w - stepW) / 2, stepY, 0, stepW, stepD, stepZ, 'ceramic', {
+      radius: 0.18,
+      material: 'gloss',
+    }),
+    box(
+      (w - stepW * 0.96) / 2,
+      stepY + cm(1) * sx,
+      stepZ,
+      stepW * 0.96,
+      stepD - cm(1) * sx,
+      tread,
+      'screen',
+      {
+        radius: 0.3,
+      },
+    ),
+  ];
+  if (outline) return parts;
+  const entry = Math.min((cm(spec.entryCm) * sx) / 2, r * 0.8);
+  const ahead = { x: 0, y: 1, z: 0 };
+  const groove = (share: number) =>
+    box(
+      (w - stepW * 0.8) / 2,
+      stepY + stepD * share,
+      stepZ + tread * 0.7,
+      stepW * 0.8,
+      cm(1.2) * sx,
+      tread * 0.4,
+      'fabric',
+      {
+        radius: 0.4,
+      },
+    );
+  const vent = (dx: number) =>
+    cap(c, r, { x: dx, y: 0.62, z: 0.78 }, cm(1.3) * sx, cm(0.6) * sx, 'screen');
+  parts.push(
+    groove(0.35),
+    groove(0.65),
+    // The drawer's seam across its front, and the handle's recess.
+    box(
+      (w - stepW) / 2 - cm(0.3) * sx,
+      stepY + stepD - cm(0.8) * sx,
+      stepZ * 0.9,
+      stepW + cm(0.6) * sx,
+      cm(0.8) * sx,
+      cm(0.8) * sz,
+      'steel',
+      {
+        radius: 0.3,
+      },
+    ),
+    box(
+      w / 2 - cm(5) * sx,
+      stepY + stepD - cm(0.8) * sx,
+      stepZ * 0.55,
+      cm(10) * sx,
+      cm(0.8) * sx,
+      cm(2) * sz,
+      'screen',
+      {
+        radius: 0.4,
+      },
+    ),
+    // The entry: the raised bezel, the dark inside, the litter bed's grey and the bumper lip.
+    cap(c, r, ahead, entry + cm(2.5) * sx, cm(1.6) * sx, 'ceramic', { material: 'gloss' }),
+    cap(c, r, ahead, entry, cm(2.2) * sx, 'screen'),
+    cap(c, r, { x: 0, y: 1, z: -0.45 }, entry * 0.7, cm(2.5) * sx, 'appliance'),
+    cap(c, r, { x: -0.25, y: 1, z: 0.15 }, entry * 0.45, cm(2.4) * sx, 'steel', {
+      material: 'metal',
+    }),
+    cap(c, r, { x: 0, y: 1, z: -0.95 }, entry * 0.62, cm(3) * sx, 'ceramic', { material: 'gloss' }),
+    vent(-0.12),
+    vent(0),
+    vent(0.12),
+    // The control panel on top toward the front, its display lit blue, and the side's sensor window.
+    cap(c, r, { x: 0, y: 0.45, z: 1 }, cm(7) * sx, cm(1) * sx, 'screen'),
+    cap(c, r, { x: 0.1, y: 0.45, z: 1 }, cm(3.5) * sx, cm(1.4) * sx, 'glass', {
+      material: 'gloss',
+    }),
+    cap(c, r, { x: 1, y: 0.35, z: 0.1 }, cm(4) * sx, cm(0.8) * sx, 'screen'),
+  );
+  return parts;
+};
+
 const BUILDS: { [F in PropForm]: Build<F> } = {
   desk: legged('steel', false),
   table: legged('wood', true),
@@ -755,6 +940,17 @@ const BUILDS: { [F in PropForm]: Build<F> } = {
     box(0, 0, 0, w, d, h * spec.rim, 'glass', { radius: 0.15 }),
     box(w * 0.06, d * 0.06, h * 0.2, w * 0.88, d * 0.88, h * 0.8, 'plant', { radius: 0.5 }),
   ],
+  'litter-robot': litterRobot,
+  // A black mat: its border a shade lighter round the dark honeycomb.
+  'litter-mat': (w, d, h, { spec }) => {
+    const border = Math.min(cm(spec.borderCm), w / 4, d / 4);
+    return [
+      box(0, 0, 0, w, d, h * 0.7, 'fabric', { radius: 0.05 }),
+      box(border, border, h * 0.4, w - 2 * border, d - 2 * border, h * 0.6, 'screen', {
+        radius: 0.05,
+      }),
+    ];
+  },
 };
 
 /**

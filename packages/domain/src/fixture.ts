@@ -1210,10 +1210,12 @@ export function starterFixtureDraft(
 export function memberDraft(
   type: MemberType,
   name: string,
+  /** A look of its kind to give it, instead of the one its name picks. */
+  given?: string,
 ): FixtureDraft & { type: MemberType; look: string } {
   const meta = STARTER_META[type];
   const label = name.trim() || meta.label;
-  const look = lookFor(type, label);
+  const look = given ?? lookFor(type, label);
   const seeded = memberStates(type, label, look);
   return {
     label,
@@ -1234,8 +1236,9 @@ export function memberInput(
   type: MemberType,
   name: string,
   where: Pick<FixtureInput, 'scene' | 'at'> & Partial<Pick<FixtureInput, 'surfaceId' | 'turns'>>,
+  look?: string,
 ): FixtureInput {
-  const d = memberDraft(type, name);
+  const d = memberDraft(type, name, look);
   const model = (m: SavedItem) => ({ label: d.label, parts: m.parts });
   return {
     label: d.label,

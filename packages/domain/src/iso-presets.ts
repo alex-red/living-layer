@@ -117,11 +117,29 @@ const homeScene = rotateGroup(
   'chair-back',
 );
 
+/**
+ * A small room for the cat's litter box: the self-cleaning litter robot
+ * against the back wall, its mat in front of the step, a cabinet with the
+ * treats on it and a plant. The demo's cat, Juniper, sits beside the mat
+ * (`addDemoLitterRoom`), and the robot keeps her visits as its occupied stat.
+ */
+const litterScene = compose('litter', 'Litter box room', { w: 8, d: 7 }, [
+  ['wall', 'wall-back', 0, 0, 0, { size: { w: 8, d: 0.2 }, label: 'Back wall' }],
+  ['wall', 'wall-left', 0, 0.2, 0, { size: { w: 0.2, d: 6.8 }, label: 'Left wall' }],
+  // The robot 6 cm off the back wall, its mat against the step.
+  ['litter-robot', 'litter-robot', 1.4, 0.4, 0],
+  ['litter-mat', 'litter-mat', 1.4 + (cm(56) - cm(76)) / 2, 0.4 + cm(69), 0],
+  ['cabinet', 'cabinet', 4.6, 0.2, 0, { size: { w: cm(80), d: cm(40) } }],
+  ['jar', 'treats', 5.1, 0.55, cm(72), { label: 'Cat treats' }],
+  ['plant', 'plant', 0.35, 5, 0],
+]);
+
 export const ISO_PRESETS: Record<IsoSceneKind, IsoScene> = {
   office: officeScene,
   desk: deskScene,
   fridge: fridgeScene,
   home: homeScene,
+  litter: litterScene,
 };
 /** Presets that are a close view of part of another: the office desk is in the office. */
 export const ISO_SCENE_PARENT: Partial<Record<IsoSceneKind, IsoSceneKind>> = { desk: 'office' };
@@ -176,7 +194,7 @@ export function guessedScene(guess: Pick<SceneGuess, 'kind' | 'visibleProps'>): 
 }
 /** One line per preset for the Spark prompt, naming the optional props it can choose. */
 export function presetCatalog(): string {
-  // Home is the demo household's room, not a scene a photo is guessed as (`sceneGuessSchema`).
+  // Home and the litter box room are the demo's rooms, not scenes a photo is guessed as (`sceneGuessSchema`).
   return Object.values(ISO_PRESETS)
     .filter((s) => (sceneGuessSchema.shape.kind.options as readonly string[]).includes(s.kind))
     .map(

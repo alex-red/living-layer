@@ -51,6 +51,7 @@ export * from './screen.js';
 export * from './item-screen.js';
 export * from './promote.js';
 export * from './food.js';
+export * from './litter.js';
 export * from './camera.js';
 export * from './room-camera.js';
 export * from './room-render.js';

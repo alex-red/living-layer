@@ -4,6 +4,8 @@ import {
   DEMO_DAY,
   DEMO_FRIDGE_ASK_EXAMPLES,
   DEMO_HOME_ASK_EXAMPLES,
+  DEMO_LITTER_ASK_EXAMPLES,
+  DEMO_LITTER_DAY,
   askExamples,
   askThingsOf,
   type AskExample,
@@ -102,11 +104,12 @@ function Dock() {
   const playing = useReplay((r) => r.playing);
   const speed = useReplay((r) => r.speed);
   // In the Home room the day is the household's: who came home, sat down, fell asleep.
-  // At the fridge it is the fridge's: what came out of it.
+  // At the fridge it is the fridge's: what came out of it. In the litter box room, Juniper's visits.
   const { workScene } = useView();
   const home = workScene === 'home';
   const fridge = workScene === 'fridge';
-  const day = fridge ? FRIDGE_DAY : DEMO_DAY;
+  const litter = workScene === 'litter';
+  const day = fridge ? FRIDGE_DAY : litter ? DEMO_LITTER_DAY : DEMO_DAY;
   const last = home ? null : eventsUntil(minute, day).at(-1);
   const lastHome = home ? HOME_DAY.filter((e) => e.at <= minute).at(-1) : null;
   const [cited, setCited] = useState<number[]>([]);
@@ -152,7 +155,7 @@ function Dock() {
                   title={`${clock(e.at)} · ${e.text}`}
                 />
               ))}
-          {NUDGES.map((n) => (
+          {NUDGES.filter(() => !litter).map((n) => (
             <span
               key={n.id}
               className="day-tick nudge"
@@ -222,7 +225,13 @@ function Dock() {
       <Ask
         minute={minute}
         examples={
-          home ? DEMO_HOME_ASK_EXAMPLES : fridge ? DEMO_FRIDGE_ASK_EXAMPLES : DEMO_ASK_EXAMPLES
+          home
+            ? DEMO_HOME_ASK_EXAMPLES
+            : fridge
+              ? DEMO_FRIDGE_ASK_EXAMPLES
+              : litter
+                ? DEMO_LITTER_ASK_EXAMPLES
+                : DEMO_ASK_EXAMPLES
         }
         onCited={setCited}
       />
@@ -244,6 +253,7 @@ const KIND_DOT: Record<AskKind, string> = {
   light: 'lamp',
   zone: 'zone',
   member: 'member',
+  litter: 'litter',
   other: 'other',
   summary: 'summary',
 };
@@ -598,6 +608,9 @@ const TOPIC_DOT: Record<CoachTopic, string> = {
   low: 'fridge',
   cook: 'fridge',
   alone: 'member',
+  drawer: 'litter',
+  litterBusy: 'litter',
+  litterQuiet: 'litter',
 };
 /** How long a live coach nudge stays over the room, ms. */
 const LIVE_SHOWN_MS = 30 * 60_000;
@@ -659,7 +672,8 @@ export function DayNudges() {
     const recent = (at: number) => at <= now && now - at < NUDGE_SHOWN * 60_000;
     // The Home room's nudges are the household's, the fridge's its food; the desk's stay with the office.
     const here = (n: CoachNudge) => topicInRoom(n.topic, workScene);
-    const pushed = (id: string) => (workScene === 'fridge' ? id === 'food' : workScene !== 'home');
+    const pushed = (id: string) =>
+      workScene === 'fridge' ? id === 'food' : workScene !== 'home' && workScene !== 'litter';
     return [
       ...NUDGES.filter((n) => pushed(n.id) && recent(today + n.at * 60_000)).map((n): Shown => ({
         id: n.id,

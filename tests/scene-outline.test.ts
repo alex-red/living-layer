@@ -60,6 +60,7 @@ describe('the sidebar, one scene at a time', () => {
       ['desk', true],
       ['fridge', false],
       ['home', false],
+      ['litter', false],
     ]);
   });
 
@@ -72,6 +73,7 @@ describe('the sidebar, one scene at a time', () => {
       ['desk', true],
       ['fridge', true],
       ['home', true],
+      ['litter', true],
     ]);
   });
 

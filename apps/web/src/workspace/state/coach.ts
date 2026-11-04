@@ -72,8 +72,13 @@ export function actOnNudge(nudge: CoachNudge, at: number) {
     ...c,
     extra: [...c.extra, ...actionEvents(nudge, at)],
     acted: { ...c.acted, [nudge.id]: action.done },
-    askNext: action.does === 'ask' ? 'What should I eat first?' : c.askNext,
+    askNext: action.does === 'ask' ? (action.ask ?? c.askNext) : c.askNext,
   }));
+}
+
+/** Add the person's own events to the demo's sample day (the litter card's drawer emptied), as a nudge's button does. */
+export function addDemoEvents(events: readonly StatEvent[]) {
+  coachStore.set((c) => ({ ...c, extra: [...c.extra, ...events] }));
 }
 
 /** Keep a nudge's topic quiet for a while from the replay's minute, and put the nudge away. */
@@ -175,7 +180,8 @@ let demoDay: {
 /**
  * The coach over the demo's sample day for the room on screen, offline: a
  * look every few minutes from morning to night (the fridge's own day about
- * its food, or the one the other rooms share), following what the nudges'
+ * its food, the litter box room's about the cat's visits and its drawer, or
+ * the one the other rooms share), following what the nudges'
  * buttons did. Worked out again only when one of those changes.
  */
 export function demoCoachDay(
@@ -184,7 +190,8 @@ export function demoCoachDay(
   scene: string | null,
 ): CoachNudge[] {
   const day = midnightOf(Date.now());
-  scene = scene === 'fridge' ? scene : null;
+  // The fridge and the litter box room keep days of their own; the rest share one.
+  scene = scene === 'fridge' || scene === 'litter' ? scene : null;
   if (
     demoDay?.day !== day ||
     demoDay.extra !== extra ||

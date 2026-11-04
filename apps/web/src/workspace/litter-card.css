@@ -1,0 +1,123 @@
+/* A litter box's card: a status line, four tiles, today by the hour beside the week. */
+.litter-status {
+  margin: 0 0 8px;
+  font: 500 var(--fs-12) / var(--fs-17) var(--ui);
+  color: var(--text-2);
+}
+.litter-status.watch {
+  color: var(--unsure);
+}
+.litter-tiles {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+.litter-tile {
+  --tile: var(--ok);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-left: 2px solid var(--tile);
+  border-radius: var(--r-card);
+  background: var(--surface-2);
+}
+.litter-tile.watch {
+  --tile: var(--unsure);
+}
+.litter-name {
+  font: 500 var(--fs-11) / 14px var(--mono);
+  color: var(--text-3);
+}
+.litter-value {
+  font-size: var(--fs-17);
+  color: var(--tile);
+  font-variant-numeric: tabular-nums;
+}
+.litter-sub {
+  overflow: hidden;
+  color: var(--text-2);
+  font-size: var(--fs-11);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.litter-fill {
+  display: block;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--line);
+}
+.litter-fill span {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--tile);
+}
+.litter-charts {
+  display: grid;
+  grid-template-columns: 3fr 2fr;
+  gap: 10px;
+  margin: 10px 0 6px;
+}
+.litter-charts figure {
+  margin: 0;
+  min-width: 0;
+}
+.litter-hours,
+.litter-week {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  gap: 1px;
+  height: 44px;
+  margin-top: 4px;
+  border-bottom: 1px solid var(--line);
+}
+.litter-hours span {
+  flex: 1;
+  min-height: 0;
+  border-radius: 1px 1px 0 0;
+  background: var(--ok);
+  opacity: 0.75;
+}
+.litter-hours span.now {
+  opacity: 1;
+  box-shadow: 0 0 0 1px var(--text-2);
+}
+.litter-week {
+  gap: 3px;
+  height: 56px;
+  border-bottom: 0;
+}
+.litter-week .day {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: stretch;
+  height: 100%;
+}
+.litter-week .bar {
+  display: block;
+  margin-bottom: 2px;
+  border-radius: 2px 2px 0 0;
+  background: var(--text-3);
+}
+.litter-week .bar.today {
+  background: var(--ok);
+}
+.litter-week .label {
+  color: var(--text-3);
+  font: 500 9px / 12px var(--mono);
+  text-align: center;
+}
+.litter-week .usual {
+  position: absolute;
+  right: 0;
+  left: 0;
+  margin-bottom: 14px;
+  border-top: 1px dashed var(--unsure);
+  pointer-events: none;
+}

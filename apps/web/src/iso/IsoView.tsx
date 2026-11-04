@@ -474,7 +474,9 @@ function IsoViewOf({
   // The day replay, when open, stands the mug and switches the lamp as the sample day had them.
   // Live, the dock only asks: the room stays as it is.
   const replaying = mode === 'demo';
-  const replayMug = useReplay((r) => (r.open && replaying ? dayAt(r.minute).mug : null));
+  // The mug is the office's: the fridge, Home and the litter box room keep days of their own.
+  const mugRoom = kind !== 'fridge' && kind !== 'home' && kind !== 'litter';
+  const replayMug = useReplay((r) => (r.open && replaying && mugRoom ? dayAt(r.minute).mug : null));
   // A coach nudge's "Turn it off" switches the replay's lamp off until the day switches it again.
   const coachExtra = useCoach((c) => c.extra);
   const replayLamp = useReplay((r) =>

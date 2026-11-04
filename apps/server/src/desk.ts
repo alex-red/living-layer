@@ -78,6 +78,7 @@ import { EvidenceStore } from './store.js';
 import { LabError, parseInput, safeError } from './errors.js';
 import { noteControl } from './fixture/control.js';
 import { stockDemoFridge } from './fixture/fridge.js';
+import { addDemoLitterRoom } from './fixture/litter.js';
 import { addDemoHousehold } from './fixture/seat.js';
 import type { RouteDeps } from './route-deps.js';
 import type { SwitchOptions, Switched } from './control.js';
@@ -1370,14 +1371,15 @@ export async function deskRoutes(
   /**
    * Put the demo's memory back to the preset, as a fresh data folder has it:
    * no scene, pin, fixtures or saved models of its own, the household
-   * in its Home room and the fridge stocked. For probes against the dev
+   * in its Home room, the fridge stocked and the litter box room set up. For probes against the dev
    * server (`bun run reset demo`); live memory is never touched.
    */
   app.post('/demo/reset', async () => {
     const memory: DeskMemory = { mode: 'demo', lastDecision: null };
     store.saveMemory(memory);
     await addDemoHousehold(deps);
-    return stockDemoFridge(deps);
+    await stockDemoFridge(deps);
+    return addDemoLitterRoom(deps);
   });
   /** The household back in the demo's Home room, keeping everything else: when nobody is home there. */
   app.post('/demo/household', async () => addDemoHousehold(deps));

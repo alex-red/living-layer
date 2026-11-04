@@ -18,6 +18,7 @@ export const DAY_THINGS: Record<DayThing, string> = {
   lamp: 'Desk lamp',
   cat: 'Cat tree',
   fridge: 'Fridge',
+  litter: 'Litter robot',
 };
 
 /** Where the replay starts and ends. */

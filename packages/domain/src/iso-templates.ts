@@ -519,6 +519,19 @@ export const PROP_TEMPLATES = {
     onTop: true,
     build: modelled('Salad leaves', 'greens', 'glass'),
   },
+  // A self-cleaning litter box as sold: 56 cm wide, 69 deep with its step, 75 tall.
+  'litter-robot': {
+    label: 'Litter robot',
+    size: { w: cm(56), d: cm(69) },
+    onTop: false,
+    build: modelled('Litter robot', 'litter-robot', 'ceramic'),
+  },
+  'litter-mat': {
+    label: 'Litter mat',
+    size: { w: cm(76), d: cm(60) },
+    onTop: false,
+    build: modelled('Litter mat', 'litter-mat', 'screen'),
+  },
 } satisfies Record<string, Template>;
 export type TemplateId = keyof typeof PROP_TEMPLATES;
 export const TEMPLATE_IDS = Object.keys(PROP_TEMPLATES) as [TemplateId, ...TemplateId[]];

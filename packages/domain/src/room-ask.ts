@@ -8,6 +8,7 @@
 import { z } from 'zod';
 import { midnightOf, zoneThingId, type AskThing } from './demo-day.js';
 import { daysUntil } from './food.js';
+import { isLitterBox, isWasteDrawer } from './litter.js';
 import { memberPlace } from './member-place.js';
 import { isMemberType } from './members.js';
 import type { DeskMemory } from './memory.js';
@@ -83,6 +84,7 @@ export type AskKind =
   | 'light'
   | 'zone'
   | 'member'
+  | 'litter'
   | 'other'
   | 'summary';
 /** One event an answer rests on. */
@@ -312,11 +314,24 @@ const countOf = (t: Track, from: number, to: number) =>
     : stretches(t, from, to).filter((s) => s.began).length;
 
 /** What kind of thing it is, for the words. */
-type Voice = 'drink' | 'food' | 'screen' | 'cat' | 'pointer' | 'zone' | 'member' | 'other';
+type Voice =
+  | 'drink'
+  | 'food'
+  | 'screen'
+  | 'cat'
+  | 'pointer'
+  | 'zone'
+  | 'member'
+  | 'litter'
+  | 'drawer'
+  | 'other';
 function voiceOf(thing: AskThing, key: StatKey): Voice {
   const l = thing.label.toLowerCase();
   if (thing.zone) return 'zone';
   if (thing.member) return 'member';
+  // A litter box's visits, and its drawer emptied: before the cat's tree and food.
+  if (key === 'occupied' && isLitterBox(thing.label)) return 'litter';
+  if (key === 'lastUsed' && isWasteDrawer(thing.label)) return 'drawer';
   if (key === 'lastUsed' && /\b(mug|cup|glass|bottle|tumbler|flask)\b/.test(l)) return 'drink';
   if (
     key === 'lastUsed' &&
@@ -338,6 +353,7 @@ export function thingKind(thing: AskThing, key: StatKey | undefined): AskKind {
   if (thing.member) return 'member';
   if (!key) return 'other';
   const voice = voiceOf(thing, key);
+  if (voice === 'drawer') return 'litter';
   if (voice !== 'other') return voice;
   return /\b(lamp|light|bulb|led|strip)\b/i.test(thing.label) ? 'light' : 'other';
 }
@@ -347,6 +363,9 @@ function nameOf(thing: AskThing): string {
   if (thing.member) return l;
   return /^my\s/i.test(l) ? `your ${l.slice(3)}` : `the ${l.charAt(0).toLowerCase()}${l.slice(1)}`;
 }
+/** Who uses a litter box: its cat's name, or "the cat" (`The cat` to start a sentence). */
+const catOf = (thing: AskThing, start = true) =>
+  thing.litter?.cat ?? (start ? 'The cat' : 'the cat');
 /** What one event says, as a cite. */
 function eventText(t: Track, e: StatEvent): string {
   const voice = voiceOf(t.thing, t.key);
@@ -356,7 +375,13 @@ function eventText(t: Track, e: StatEvent): string {
       ? `Drink from ${nameOf(t.thing)}`
       : voice === 'food'
         ? `${t.thing.label} taken out`
-        : `${cap(nameOf(t.thing))} used`;
+        : voice === 'drawer'
+          ? `${cap(nameOf(t.thing))} emptied`
+          : `${cap(nameOf(t.thing))} used`;
+  if (voice === 'litter')
+    return on
+      ? `${catOf(t.thing)} went into ${nameOf(t.thing)}`
+      : `${catOf(t.thing)} came out of ${nameOf(t.thing)}`;
   if (voice === 'cat') return on ? 'The cat climbed its tree' : 'The cat left its tree';
   if (voice === 'member') return `${t.thing.label} ${on ? 'came home' : 'went out'}`;
   if (voice === 'zone')
@@ -395,6 +420,14 @@ function countSentence(t: Track, n: number, win: string): string {
       return `${cap(name)} had ${n} busy stretch${n === 1 ? '' : 'es'} ${win}.`;
     case 'member':
       return n ? `${name} came home ${times(n)} ${win}.` : `${name} didn’t come home ${win}.`;
+    case 'litter':
+      return n
+        ? `${catOf(t.thing)} used ${name} ${times(n)} ${win}.`
+        : `${catOf(t.thing)} didn’t use ${name} ${win}.`;
+    case 'drawer':
+      return n
+        ? `${cap(name)} was emptied ${times(n)} ${win}.`
+        : `${cap(name)} wasn’t emptied ${win}.`;
     case 'zone':
       return n
         ? `Something came into ${name} ${times(n)} ${win}.`
@@ -415,6 +448,10 @@ function durationSentence(t: Track, ms: number, win: string): string {
     return ms < MINUTE
       ? `${name} wasn’t home ${win}.`
       : `${name} was home for ${spanOf(ms)} ${win}.`;
+  if (voiceOf(t.thing, t.key) === 'litter')
+    return ms < MINUTE
+      ? `${catOf(t.thing)} didn’t use ${name} ${win}.`
+      : `${catOf(t.thing)} spent ${spanOf(ms)} in ${name} ${win}.`;
   if (ms < MINUTE)
     return voiceOf(t.thing, t.key) === 'cat'
       ? `The cat wasn’t on its tree ${win}.`
@@ -432,8 +469,14 @@ function durationSentence(t: Track, ms: number, win: string): string {
       return `${cap(name)} was ${t.key === 'occupied' ? 'occupied' : 'on'} for ${spanOf(ms)} ${win}.`;
   }
 }
-const ago = (at: number, now: number) =>
-  now - at < MINUTE ? 'just now' : `${spanOf(now - at)} ago`;
+/** "just now", "25 min ago", "3 h 10 min ago", and past a day "5 days ago". */
+const ago = (at: number, now: number) => {
+  const ms = now - at;
+  if (ms < MINUTE) return 'just now';
+  if (ms < DAY) return `${spanOf(ms)} ago`;
+  const days = Math.round(ms / DAY);
+  return `${days} day${days === 1 ? '' : 's'} ago`;
+};
 
 /** The bars of a count or a time: per hour for up to a day, per day beyond. */
 function barsOf(t: Track, from: number, to: number, unit: 'times' | 'minutes'): RoomAnswer['bars'] {
@@ -528,15 +571,19 @@ function answerTrack(
           ? `Your ${which} drink from ${name} was`
           : voice === 'food'
             ? `${Name} was ${which} taken out`
-            : voice === 'cat'
-              ? `The cat ${which} climbed its tree`
-              : voice === 'member'
-                ? `${name} ${which} came home`
-                : voice === 'zone'
-                  ? `Something ${which} came into ${name}`
-                  : t.key === 'lastUsed'
-                    ? `${Name} was ${which} used`
-                    : `${Name} ${which} ${t.key === 'activity' ? 'got busy' : 'came on'}`;
+            : voice === 'litter'
+              ? `${catOf(t.thing)} ${which} used ${name}`
+              : voice === 'drawer'
+                ? `${Name} was ${which} emptied`
+                : voice === 'cat'
+                  ? `The cat ${which} climbed its tree`
+                  : voice === 'member'
+                    ? `${name} ${which} came home`
+                    : voice === 'zone'
+                      ? `Something ${which} came into ${name}`
+                      : t.key === 'lastUsed'
+                        ? `${Name} was ${which} used`
+                        : `${Name} ${which} ${t.key === 'activity' ? 'got busy' : 'came on'}`;
       const inWin = q.measure === 'first' ? ` ${win}` : '';
       if (!e)
         return {
@@ -547,7 +594,9 @@ function answerTrack(
         };
       const state =
         t.key !== 'lastUsed' && q.measure === 'last' && isOn(t.key, valueAt(t, to))
-          ? ' It’s still on.'
+          ? voice === 'litter'
+            ? ` ${catOf(t.thing)} is still in it.`
+            : ' It’s still on.'
           : '';
       const when = midnightOf(e.at) === midnightOf(now) ? '' : ` ${dayName(e.at, now)}`;
       return {
@@ -584,15 +633,19 @@ function answerTrack(
       const what =
         voice === 'drink'
           ? 'without a drink'
-          : voice === 'cat'
-            ? 'with the cat off its tree'
-            : voice === 'member'
-              ? `with ${name} out`
-              : voice === 'zone'
-                ? `with ${name} empty`
-                : t.key === 'lastUsed'
-                  ? `without using ${name}`
-                  : `with ${name} ${t.key === 'activity' ? 'idle' : 'off'}`;
+          : voice === 'litter'
+            ? `without a visit to ${name}`
+            : voice === 'drawer'
+              ? `without emptying ${name}`
+              : voice === 'cat'
+                ? 'with the cat off its tree'
+                : voice === 'member'
+                  ? `with ${name} out`
+                  : voice === 'zone'
+                    ? `with ${name} empty`
+                    : t.key === 'lastUsed'
+                      ? `without using ${name}`
+                      : `with ${name} ${t.key === 'activity' ? 'idle' : 'off'}`;
       const near = (at: number) => t.events.filter((e) => Math.abs(e.at - at) < 1000);
       return {
         text: `Your longest stretch ${what} ${win} was ${spanOf(best.next - best.end)}, from ${clockOf(best.end)} to ${until}.`,
@@ -611,15 +664,17 @@ function answerTrack(
           bars: null,
         };
       const what =
-        voice === 'cat'
-          ? 'The cat’s longest nap on its tree'
-          : voice === 'member'
-            ? `${name}’s longest stretch at home`
-            : voice === 'pointer'
-              ? 'Your longest focus stretch'
-              : voice === 'zone'
-                ? `The longest anything stayed in ${name}`
-                : `The longest ${name} stayed ${t.key === 'occupied' ? 'occupied' : 'on'}`;
+        voice === 'litter'
+          ? `${catOf(t.thing)}’s longest visit to ${name}`
+          : voice === 'cat'
+            ? 'The cat’s longest nap on its tree'
+            : voice === 'member'
+              ? `${name}’s longest stretch at home`
+              : voice === 'pointer'
+                ? 'Your longest focus stretch'
+                : voice === 'zone'
+                  ? `The longest anything stayed in ${name}`
+                  : `The longest ${name} stayed ${t.key === 'occupied' ? 'occupied' : 'on'}`;
       const until = best.to >= now - MINUTE ? 'now' : clockOf(best.to);
       const near = t.events.filter((e) => e.at === best.from || e.at === best.to);
       return {
@@ -639,23 +694,28 @@ function answerTrack(
         return { ...memberNow(t.thing, to)!, bars: null };
       const last = [...t.events].reverse().find((e) => e.at <= to);
       const on = isOn(t.key, last?.value ?? null);
-      const subject = voice === 'cat' ? 'The cat' : cap(name);
+      const subject =
+        voice === 'cat' ? 'The cat' : voice === 'litter' && on ? catOf(t.thing) : cap(name);
       const state =
-        voice === 'cat'
+        voice === 'litter'
           ? on
-            ? 'is on its tree'
-            : 'isn’t on its tree'
-          : voice === 'zone'
+            ? `is in ${name}`
+            : 'is free'
+          : voice === 'cat'
             ? on
-              ? 'has something in it'
-              : 'is empty'
-            : t.key === 'activity'
+              ? 'is on its tree'
+              : 'isn’t on its tree'
+            : voice === 'zone'
               ? on
-                ? 'is in use'
-                : 'is idle'
-              : on
-                ? 'is on'
-                : 'is off';
+                ? 'has something in it'
+                : 'is empty'
+              : t.key === 'activity'
+                ? on
+                  ? 'is in use'
+                  : 'is idle'
+                : on
+                  ? 'is on'
+                  : 'is off';
       return {
         text: last
           ? `${subject} ${state}, since ${clockOf(last.at)}.`
@@ -784,8 +844,13 @@ export function answerAsk(q: AskQuery, history: AskHistory, now: number): RoomAn
       const voice = voiceOf(t.thing, t.key);
       if (t.key === 'lastUsed') {
         const n = countOf(t, span.from, span.to);
-        if (!n && voice === 'food') return [];
+        if (!n && (voice === 'food' || voice === 'drawer')) return [];
         return [countSentence(t, n, '').replace(/ \.$/, '.')];
+      }
+      // A litter box's day is its visits, not the minutes they add up to.
+      if (voice === 'litter') {
+        const n = countOf(t, span.from, span.to);
+        return n ? [countSentence(t, n, '').replace(/ \.$/, '.')] : [];
       }
       const ms = onMs(t, span.from, span.to);
       return ms >= MINUTE ? [durationSentence(t, ms, '').replace(/ \.$/, '.')] : [];
@@ -805,7 +870,7 @@ export function answerAsk(q: AskQuery, history: AskHistory, now: number): RoomAn
     return {
       ...empty,
       text: lines.length
-        ? `${cap(span.words)}: ${lines.map((l) => l.charAt(0).toLowerCase() + l.slice(1).replace(/\.$/, '')).join('; ')}.`
+        ? `${cap(span.words)}: ${lines.map((l) => l.replace(/^(The|Your|You|Something|Nothing|No)\b/, (w) => w.toLowerCase()).replace(/\.$/, '')).join('; ')}.`
         : `Nothing has happened ${span.words} yet.`,
       notes,
       cites,
@@ -922,6 +987,8 @@ function stateWords(t: Track, on: boolean): string {
   switch (voiceOf(t.thing, t.key)) {
     case 'cat':
       return on ? 'the cat was on its tree' : 'the cat was off its tree';
+    case 'litter':
+      return on ? `${catOf(t.thing, false)} was in ${name}` : `${name} was free`;
     case 'zone':
       return on ? `something was in ${name}` : `${name} was empty`;
     case 'member':
@@ -1090,6 +1157,11 @@ function foodAnswer(
  * or a use-by day, and each zone, whose fillings are its occupied stat.
  */
 export function askThingsOf(memory: DeskMemory): AskThing[] {
+  // A litter box is used by the cat in its room, else the household's only cat.
+  const cats = (memory.fixtures ?? []).filter((f) => f.type === 'cat');
+  const catBy = (scene: string) =>
+    (cats.find((c) => c.scene === scene) ?? (cats.length === 1 ? cats[0] : undefined))?.label ??
+    'The cat';
   const things: AskThing[] = (memory.fixtures ?? []).flatMap((f) => {
     const stats = (memory.thingStats?.[f.id] ?? []).map((s) => s.key);
     const expires = f.food?.expires;
@@ -1102,6 +1174,7 @@ export function askThingsOf(memory: DeskMemory): AskThing[] {
             ...(f.food ? { food: true as const } : {}),
             ...(expires ? { expires } : {}),
             ...(f.food?.left && f.food.left !== 'full' ? { left: f.food.left } : {}),
+            ...(isLitterBox(f.label) ? { litter: { cat: catBy(f.scene) } } : {}),
           },
         ]
       : [];
@@ -1171,6 +1244,12 @@ export function askExamples(things: readonly AskThing[], max = 6): AskExample[] 
       case 'member':
         ex(`Where’s ${t.label}?`, `Where is ${t.label} now?`);
         break;
+      case 'litter':
+        ex('Litter visits', `How many times was ${mine(t)} used today?`);
+        break;
+      case 'drawer':
+        ex('Drawer emptied', `When did I last empty ${mine(t)}?`);
+        break;
       default:
         if (key === 'lastUsed') ex(`${Label(t)} last used`, `When did I last use ${mine(t)}?`);
         else if (key === 'occupied')
@@ -1225,6 +1304,8 @@ const THING_WORDS: [RegExp, RegExp][] = [
     /\b(mouse|keyboard|work(ed|ing)?|desk time|focus|busy|at (my|the) desk)\b/i,
   ],
   [/\blamp\b|\blight\b/i, /\b(lamp|lights?)\b/i],
+  [/\b(waste|litter)\s+drawer\b/i, /\b(drawer|empt(y|ied|ying))\b/i],
+  [/\blitter\b/i, /\b(litter|poop|pee|potty|toilet|bathroom)\b/i],
   [/\bcat\b/i, /\b(cat|kitty|nap(s|ped)?)\b/i],
 ];
 
@@ -1328,11 +1409,11 @@ export function demoAsk(question: string, things: readonly AskThing[]): AskQuery
                   ? 'count'
                   : /\bhow long\b|\bhow much time\b|\bscreen time\b|\bduration\b/.test(q)
                     ? 'duration'
-                    : /\b(is|are)\b.*\b(on|now|there|up)\b|\bright now\b|\bcurrently\b/.test(
+                    : /\b(is|are)\b.*\b(on|now|there|up|free|empty)\b|\bright now\b|\bcurrently\b/.test(
                           main,
                         ) && during === undefined
                       ? 'now'
-                      : thing?.stats[0] === 'lastUsed'
+                      : thing?.stats[0] === 'lastUsed' || (thing && isLitterBox(thing.label))
                         ? 'count'
                         : thing
                           ? 'duration'

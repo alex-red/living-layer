@@ -1,5 +1,6 @@
 import { ThingStats } from './ThingStats';
 import { FoodCard } from './FoodCard';
+import { LitterCard } from './LitterCard';
 import { useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   DEMO_REFERENCES,
@@ -1252,6 +1253,7 @@ export function FixturePanel({ id }: { id: string }) {
         </Field>
       )}
       <FoodCard fixture={f} />
+      <LitterCard fixture={f} />
       <ThingStats id={f.id} label={f.label} {...(f.type ? { type: f.type } : {})} />
       <Details summary="What it is">
         <FixtureType fixture={f} disabled={off || moving} />

@@ -65,7 +65,11 @@ const CAT_LOOKS: Record<string, PetLook> = {
   'cat-grey': { body: '#8f939b', accent: '#e8e5df', ear: '#8f939b' },
   // No black coats: the rooms' floors are dark, and a black cat on one is a hole.
   'cat-cream': { body: '#e6d3b3', accent: '#fbf6ee', ear: '#e6d3b3' },
+  // A long-haired brown tabby with a white chest: the litter box room's Juniper.
+  'cat-tabby': { body: '#8a6748', accent: '#efe8dc', ear: '#8a6748' },
 };
+/** Looks only ever given by key, never picked from a name, so adding one moves nobody's. */
+const KEYED_ONLY = new Set(['cat-tabby']);
 const DOG_LOOKS: Record<string, PetLook> = {
   'dog-golden': { body: '#d9a55b', accent: '#f3e2c0', ear: '#a86f35' },
   'dog-brown': { body: '#7a4e2d', accent: '#d8b48a', ear: '#4f3220' },
@@ -75,7 +79,7 @@ const LOOKS = { person: PERSON_LOOKS, cat: CAT_LOOKS, dog: DOG_LOOKS } as const;
 
 /** The look a new member of this name gets: the same name always picks the same one. */
 export function lookFor(type: MemberType, name: string): string {
-  const keys = Object.keys(LOOKS[type]);
+  const keys = Object.keys(LOOKS[type]).filter((k) => !KEYED_ONLY.has(k));
   let h = 0;
   for (const ch of name.trim().toLowerCase()) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
   return keys[h % keys.length]!;

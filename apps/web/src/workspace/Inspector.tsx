@@ -505,6 +505,7 @@ function RoomPanel() {
             { value: 'office', label: 'Office' },
             { value: 'fridge', label: 'Fridge' },
             { value: 'home', label: 'Home' },
+            { value: 'litter', label: 'Litter box room' },
             ...(memory?.scene ? [{ value: 'custom' as const, label: memory.scene.label }] : []),
           ]}
         />
