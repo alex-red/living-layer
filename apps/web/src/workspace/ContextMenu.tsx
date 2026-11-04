@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { Fragment, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
 
 export interface MenuItem {
@@ -9,10 +9,17 @@ export interface MenuItem {
   disabled?: boolean;
   /** A line above it, to set it apart from the items before. */
   separated?: boolean;
+  /** For one choice among several: whether it is the one chosen (a radio item, ticked). */
+  checked?: boolean;
+  /** A small label above it, naming the group it starts. */
+  heading?: string;
+  /** A tooltip. */
+  title?: string;
 }
 
 /**
- * A right-click menu at the pointer, kept inside the window. It takes focus
+ * A right-click menu at the pointer, or a button's menu (`above` it when
+ * the button is low on the screen), kept inside the window. It takes focus
  * on its first item, moves with the arrow keys, and closes on a choice, a
  * click outside, Escape, Tab, scrolling or resizing; focus goes back to
  * what opened it. It is drawn on the body: a pane's backdrop filter would
@@ -23,11 +30,14 @@ export function ContextMenu({
   items,
   label,
   onClose,
+  above = false,
 }: {
   at: { x: number; y: number };
   items: MenuItem[];
   label: string;
   onClose: () => void;
+  /** Its bottom at `at` rather than its top. */
+  above?: boolean;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const [place, setPlace] = useState(at);
@@ -46,11 +56,18 @@ export function ContextMenu({
     const gap = 8;
     setPlace({
       x: Math.max(gap, Math.min(at.x, window.innerWidth - box.width - gap)),
-      y: Math.max(gap, Math.min(at.y, window.innerHeight - box.height - gap)),
+      y: Math.max(
+        gap,
+        Math.min(above ? at.y - box.height : at.y, window.innerHeight - box.height - gap),
+      ),
     });
-  }, [at.x, at.y]);
+  }, [at.x, at.y, above]);
   useEffect(() => {
-    ref.current?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus();
+    // The chosen item when there is one, else the first.
+    (
+      ref.current?.querySelector<HTMLButtonElement>('button[aria-checked="true"]:not(:disabled)') ??
+      ref.current?.querySelector<HTMLButtonElement>('button:not(:disabled)')
+    )?.focus();
     const outside = (e: PointerEvent) => {
       if (!ref.current?.contains(e.target as Node)) closeRef.current();
     };
@@ -88,7 +105,7 @@ export function ContextMenu({
   return createPortal(
     <div
       ref={ref}
-      className="context-menu"
+      className={`context-menu ${above ? 'above' : ''}`}
       role="menu"
       aria-label={label}
       style={{ left: place.x, top: place.y }}
@@ -96,18 +113,26 @@ export function ContextMenu({
       onContextMenu={(e) => e.preventDefault()}
     >
       {items.map((item) => (
-        <button
-          key={item.label}
-          role="menuitem"
-          className={`${item.destructive ? 'destructive' : ''} ${item.separated ? 'separated' : ''}`}
-          disabled={item.disabled}
-          onClick={() => {
-            close();
-            item.onSelect();
-          }}
-        >
-          {item.label}
-        </button>
+        <Fragment key={item.label}>
+          {item.heading && (
+            <span className="menu-heading" role="presentation">
+              {item.heading}
+            </span>
+          )}
+          <button
+            role={item.checked === undefined ? 'menuitem' : 'menuitemradio'}
+            aria-checked={item.checked}
+            className={`${item.destructive ? 'destructive' : ''} ${item.separated ? 'separated' : ''}`}
+            disabled={item.disabled}
+            title={item.title}
+            onClick={() => {
+              close();
+              item.onSelect();
+            }}
+          >
+            {item.label}
+          </button>
+        </Fragment>
       ))}
     </div>,
     document.body,

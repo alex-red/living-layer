@@ -695,6 +695,46 @@ button.ol-group-head:hover {
 .context-menu button:disabled {
   opacity: 0.45;
 }
+/* A button's menu low on the screen opens upwards, from its bottom. */
+.context-menu.above {
+  transform-origin: bottom left;
+}
+/* A group's name, above its first item, with the group's line over it. */
+.context-menu .menu-heading {
+  position: relative;
+  margin-top: 8px;
+  padding: 4px 10px 2px;
+  color: var(--text-3);
+  font: 500 var(--fs-11) / 14px var(--mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.context-menu .menu-heading::before {
+  content: '';
+  position: absolute;
+  top: -5px;
+  right: 6px;
+  left: 6px;
+  height: 1px;
+  background: var(--line);
+}
+.context-menu .menu-heading + button.separated {
+  margin-top: 0;
+}
+.context-menu .menu-heading + button.separated::before {
+  display: none;
+}
+/* The chosen one of a radio group, ticked. */
+.context-menu button[aria-checked] {
+  padding-left: 26px;
+  position: relative;
+}
+.context-menu button[aria-checked='true']::after {
+  content: '✓';
+  position: absolute;
+  left: 9px;
+  color: var(--chosen);
+}
 @keyframes menu-in {
   from {
     opacity: 0;

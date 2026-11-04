@@ -1,3 +1,5 @@
+import type { MenuItem } from './ContextMenu';
+
 /**
  * A look laid over the live camera's picture, for the person's eyes only.
  * A look or an animation is CSS on the `<video>`; a privacy filter draws
@@ -5,6 +7,7 @@
  * the frames a scan, SAM or the tracker read (drawn from the video onto a
  * canvas of their own) are untouched.
  */
+
 export type CameraFilterKind =
   | 'mono'
   | 'contrast'
@@ -240,4 +243,29 @@ export function paintPixels(
       data[i + 3] = 255;
     }
   }
+}
+
+/**
+ * The Filter button's menu: Off, then each filter under its group's heading,
+ * the one showing ticked. Choosing a filter turns it on.
+ */
+export function cameraFilterMenu(
+  on: boolean,
+  kind: CameraFilterKind,
+  act: { choose: (kind: CameraFilterKind) => void; off: () => void },
+): MenuItem[] {
+  const items: MenuItem[] = [
+    { label: 'Off', checked: !on, title: 'The camera’s picture as it is', onSelect: act.off },
+  ];
+  for (const { group, label } of CAMERA_FILTER_GROUPS)
+    CAMERA_FILTER_KINDS.filter((k) => CAMERA_FILTERS[k].group === group).forEach((k, i) =>
+      items.push({
+        label: CAMERA_FILTERS[k].label,
+        title: CAMERA_FILTERS[k].title,
+        checked: on && k === kind,
+        ...(i === 0 ? { heading: label, separated: true } : {}),
+        onSelect: () => act.choose(k),
+      }),
+    );
+  return items;
 }

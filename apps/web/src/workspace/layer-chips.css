@@ -39,7 +39,8 @@
 .layer-chip:hover {
   color: var(--text);
 }
-.layer-chip[aria-pressed='true'] {
+.layer-chip[aria-pressed='true'],
+.layer-chip[data-on] {
   color: var(--text);
   background: var(--control-bg-hover);
 }
@@ -64,4 +65,8 @@
 .layer-chips.angles .layer-chip:disabled {
   cursor: default;
   opacity: 0.5;
+}
+/* What a menu chip shows while on, e.g. the camera's filter. */
+.layer-chip-detail {
+  color: var(--text-2);
 }

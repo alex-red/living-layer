@@ -39,7 +39,7 @@ import { CalibrationOverlay } from '../iso/CalibrationOverlay';
 import type { StageView } from '../session';
 import { Button, Check, Segmented, type Option } from '../ui/controls';
 import { cameraFilterView } from './cameraFilter';
-import { CameraFilterLayer, CameraFilterPicker } from './CameraFilterLayer';
+import { CameraFilterLayer } from './CameraFilterLayer';
 import {
   useAi,
   useCalibration,
@@ -202,16 +202,6 @@ export function SceneToolbar() {
                 <small>{hint}</small>
               </Check>
             ))}
-            {camera && (
-              <CameraFilterPicker
-                on={lab.cameraFilter}
-                kind={lab.cameraFilterKind}
-                onChoose={(kind) => {
-                  lab.setCameraFilterKind(kind);
-                  lab.setCameraFilter(true);
-                }}
-              />
-            )}
           </div>
         )}
       </Popover>

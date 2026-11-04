@@ -1,14 +1,5 @@
 import { useEffect, useRef, type RefObject } from 'react';
-import {
-  CAMERA_FILTERS,
-  CAMERA_FILTER_GROUPS,
-  CAMERA_FILTER_KINDS,
-  paintPixels,
-  pixelGrid,
-  type CameraFilterKind,
-  type CameraFilterView,
-  type PixelSpec,
-} from './cameraFilter';
+import { paintPixels, pixelGrid, type CameraFilterView, type PixelSpec } from './cameraFilter';
 import './camera-filter.css';
 
 // Privacy canvases redraw at most this often: blocks this big need no more, and it spares the page.
@@ -78,42 +69,5 @@ export function CameraFilterLayer({
       {view.pixel && <PixelCanvas video={video} spec={view.pixel} />}
       {view.overlay === 'scan' && <div className="camera-scan" aria-hidden="true" />}
     </>
-  );
-}
-
-/** The Layers menu's choice of filter, by group; choosing one turns the filter on. */
-export function CameraFilterPicker({
-  on,
-  kind,
-  onChoose,
-}: {
-  on: boolean;
-  kind: CameraFilterKind;
-  onChoose: (kind: CameraFilterKind) => void;
-}) {
-  return (
-    <div className="camera-filter-picker" role="group" aria-label="Camera filter">
-      <span className="tiny">CAMERA FILTER</span>
-      {CAMERA_FILTER_GROUPS.map(({ group, label }) => (
-        <div key={group} className="camera-filter-group" role="group" aria-label={label}>
-          <small>{label}</small>
-          <div>
-            {CAMERA_FILTER_KINDS.filter((k) => CAMERA_FILTERS[k].group === group).map((k) => (
-              <button
-                key={k}
-                type="button"
-                className="layer-chip"
-                aria-pressed={k === kind}
-                data-on={on && k === kind ? '' : undefined}
-                title={CAMERA_FILTERS[k].title}
-                onClick={() => onChoose(k)}
-              >
-                {CAMERA_FILTERS[k].label}
-              </button>
-            ))}
-          </div>
-        </div>
-      ))}
-    </div>
   );
 }

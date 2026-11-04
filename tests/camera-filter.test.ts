@@ -3,6 +3,7 @@ import {
   CAMERA_FILTERS,
   CAMERA_FILTER_GROUPS,
   CAMERA_FILTER_KINDS,
+  cameraFilterMenu,
   cameraFilterView,
   paintPixels,
   pixelGrid,
@@ -121,5 +122,42 @@ describe('camera filter', () => {
 
   test('drops a saved kind it does not know', () => {
     expect(prefsOf({ cameraFilterKind: 'sepiaa' as never }).cameraFilterKind).toBe('mono');
+  });
+});
+
+describe('camera filter menu', () => {
+  const noop = { choose: () => {}, off: () => {} };
+
+  test('ticks Off while the filter is off', () => {
+    const items = cameraFilterMenu(false, 'dither', noop);
+    expect(items.filter((i) => i.checked).map((i) => i.label)).toEqual(['Off']);
+  });
+
+  test('ticks the filter showing while it is on', () => {
+    const items = cameraFilterMenu(true, 'dither', noop);
+    expect(items.filter((i) => i.checked).map((i) => i.label)).toEqual(['Dither']);
+  });
+
+  test('offers every filter once, after Off', () => {
+    const labels = cameraFilterMenu(false, 'mono', noop).map((i) => i.label);
+    expect(labels).toEqual(['Off', ...CAMERA_FILTER_KINDS.map((k) => CAMERA_FILTERS[k].label)]);
+  });
+
+  test('heads each group at its first filter', () => {
+    const headings = cameraFilterMenu(false, 'mono', noop).flatMap((i) =>
+      i.heading ? [`${i.heading}:${i.label}`] : [],
+    );
+    expect(headings).toEqual(['Looks:Mono', 'Animated:Drift', 'Privacy:Blur']);
+  });
+
+  test('chooses the filter picked, and turns it off from Off', () => {
+    const chosen: string[] = [];
+    const items = cameraFilterMenu(true, 'mono', {
+      choose: (k) => chosen.push(k),
+      off: () => chosen.push('off'),
+    });
+    items.find((i) => i.label === 'Crawl')!.onSelect();
+    items.find((i) => i.label === 'Off')!.onSelect();
+    expect(chosen).toEqual(['crawl', 'off']);
   });
 });
