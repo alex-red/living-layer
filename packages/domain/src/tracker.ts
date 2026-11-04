@@ -100,6 +100,8 @@ export const LOCAL_TRACK = {
   velocityGain: 0.4,
   /** How much velocity a lost step keeps, so a guess ahead fades rather than runs off. */
   velocityKeep: 0.5,
+  /** How far around a hint (another tracker's box) to search first, as a share of the frame. */
+  hintRadius: 0.04,
 };
 
 /** The box moved on by the track's velocity, kept inside the frame. */
@@ -492,6 +494,17 @@ export function startLocalTrack(
     : null;
 }
 
+/** A box of `size`'s size with its centre on `at`'s, kept inside the frame. */
+function centredOn(at: UnitBox, size: UnitBox): UnitBox {
+  const x = at.x + at.width / 2 - size.width / 2;
+  const y = at.y + at.height / 2 - size.height / 2;
+  return {
+    ...size,
+    x: Math.min(1 - size.width, Math.max(0, x)),
+    y: Math.min(1 - size.height, Math.max(0, y)),
+  };
+}
+
 const inZone = (b: UnitBox, zone: UnitBox) =>
   b.x >= zone.x &&
   b.y >= zone.y &&
@@ -511,12 +524,22 @@ const inZone = (b: UnitBox, zone: UnitBox) =>
  * `quietSteps` frames. A mug being carried is usually lost and often crossing
  * the zone; once it is set down the widened search mostly finds it again by
  * itself, and SAM is only needed if it doesn't.
+ *
+ * A `hint` (where Apple Vision's tracker sees it, on a Mac) is searched
+ * around first, a little way each side; when the template doesn't match
+ * there surely, the usual search runs as if there were no hint.
  */
 export function stepLocalTrack(
   track: LocalTrack,
   frame: LumaFrame,
   zone: UnitBox | null,
-  { settleSteps = 3, lostSteps = 3, quietSteps = 8, exclude = [] as UnitBox[] } = {},
+  {
+    settleSteps = 3,
+    lostSteps = 3,
+    quietSteps = 8,
+    exclude = [] as UnitBox[],
+    hint = null as UnitBox | null,
+  } = {},
 ): { track: LocalTrack; verdict: LocalVerdict } {
   const motion = frameMotion(track.previous, frame, around(track.box));
   const still = {
@@ -527,8 +550,23 @@ export function stepLocalTrack(
   const settled = still.stillSteps >= quietSteps;
   const radius = Math.min(1, LOCAL_TRACK.searchRadius * (1 + track.lostSteps));
   const ahead = predicted(track);
-  const match = matchTemplate(frame, track.template, ahead, radius, exclude);
-  if (!match || match.score < LOCAL_TRACK.lostScore || match.lead < LOCAL_TRACK.minLead) {
+  const sure = (m: LocalMatch | null) =>
+    m !== null && m.score >= LOCAL_TRACK.lostScore && m.lead >= LOCAL_TRACK.minLead;
+  // A hint is only where to look first: the template still has to match there.
+  const steered =
+    hint === null
+      ? null
+      : matchTemplate(
+          frame,
+          track.template,
+          centredOn(hint, ahead),
+          LOCAL_TRACK.hintRadius,
+          exclude,
+        );
+  const match = sure(steered)
+    ? steered
+    : matchTemplate(frame, track.template, ahead, radius, exclude);
+  if (!match || !sure(match)) {
     const keep = LOCAL_TRACK.velocityKeep;
     const next = {
       ...track,

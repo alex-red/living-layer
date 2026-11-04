@@ -48,6 +48,7 @@ import { jobRoutes, Jobs, runningJobs } from './jobs.js';
 import { listStreams, streamRoutes, type NetworkStream } from './streams.js';
 import { CameraRegistry, cameraRoutes, streamCrop } from './cameras.js';
 import type { Relay } from './relay.js';
+import { VisionTracker } from './vision-tracker.js';
 import { Watcher, setWatching, watchRoutes, type WatcherDeps } from './watcher.js';
 import { Appearance } from './appearance.js';
 import { DemoSource } from './frames.js';
@@ -489,6 +490,7 @@ export async function buildApp(
   app.register(roomRoutes, { prefix: '/api/room', store, meta, run });
   // The server watches the camera, so rules fire with no tab open.
   let model: Promise<Appearance | null> | null = null;
+  let vision: Promise<VisionTracker | null> | null = null;
   const demoPicture = new DemoSource();
   const watcherDeps = (mode: Mode): WatcherDeps => ({
     mode,
@@ -519,6 +521,10 @@ export async function buildApp(
     ...(options.frames ? { source: options.frames } : {}),
     cameraUrl: (camera) => cameras.urlOf(camera),
     cameraCrop: (camera) => cameras.cropOf(camera),
+    // Demo frames come one deliberate move at a time, so there is nothing for Vision to follow.
+    ...(mode === 'live' && config.visionTracker
+      ? { vision: () => (vision ??= VisionTracker.load(config.dataDir)) }
+      : {}),
   });
   const watchers = {
     demo: new Watcher(watcherDeps('demo')),

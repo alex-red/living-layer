@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs';
 import { loadConfig } from '../apps/server/src/config.js';
 import { APPEARANCE_MODEL, appearanceModelPath } from '../apps/server/src/appearance.js';
+import { visionTrackerBinary } from '../apps/server/src/vision-tracker.js';
 try {
   const config = loadConfig();
   console.log('Living Layer readiness (no network requests)');
@@ -22,6 +23,10 @@ try {
   );
   console.log(
     `Finding lost things by appearance: ${APPEARANCE_MODEL.name} ${existsSync(appearanceModelPath(config.dataDir)) ? 'present' : 'missing (bun run fetch-model; without it lost things go straight to SAM)'}`,
+  );
+  const apple = process.platform === 'darwin' && process.arch === 'arm64';
+  console.log(
+    `Apple Vision steering the watcher: ${!config.visionTracker ? 'off (VISION_TRACKER)' : !apple ? 'on, but this is not Apple silicon, so unused' : existsSync(visionTrackerBinary(config.dataDir)) ? 'on, helper built' : Bun.which('swiftc') ? 'on, helper built on first watch' : 'on, but swiftc is missing (xcode-select --install)'}`,
   );
   console.log(
     'Demo workflow is available without credentials. Live connectivity and physical effect are not tested by doctor.',

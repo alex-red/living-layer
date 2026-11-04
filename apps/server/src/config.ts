@@ -30,6 +30,8 @@ const schema = z.object({
    * fal.ai's host with FAL_KEY. Off unless SAM3D_ENABLED is true, whatever is set.
    */
   SAM3D_ENABLED: flag,
+  /** Apple Vision's object tracker steering the live watcher's search, on Apple silicon (experimental). */
+  VISION_TRACKER: flag,
   SAM3D_MLX_WEIGHTS: z.string().default(''),
   SAM3D_MLX_BIN: z.string().default('mlx-spatial-sam3d'),
   FAL_KEY: z.string().default(''),
@@ -96,6 +98,8 @@ export interface Config {
   timeoutMs: number;
   /** Where SAM 3D runs, when it can: this machine, fal.ai, or nowhere. */
   sam3d: { kind: 'local'; weights: string; bin: string } | { kind: 'fal'; key: string } | null;
+  /** Whether the live watcher asks Apple Vision where moved things went (`vision-tracker.ts`). */
+  visionTracker: boolean;
   haUrl: string;
   haToken: string;
   haEntity: string;
@@ -235,6 +239,7 @@ export function parseConfig(env: NodeJS.ProcessEnv, cwd = process.cwd()): Config
         : value.FAL_KEY
           ? { kind: 'fal', key: value.FAL_KEY }
           : null,
+    visionTracker: value.VISION_TRACKER,
     haUrl: value.HA_URL.replace(/\/$/, ''),
     haToken: value.HA_TOKEN,
     haEntity: value.HA_ENTITY_ID,

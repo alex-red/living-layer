@@ -17,6 +17,7 @@ import {
   outOfRegion,
   searchRegion,
   frameMotion,
+  around,
   stepMotionZones,
   MOTION_ZONE,
   ALL_STILL,
@@ -78,6 +79,7 @@ import {
   HealthMeter,
 } from '@livinglayer/domain';
 import type { Appearance } from './appearance.js';
+import type { VisionTracker } from './vision-tracker.js';
 import type { DeskTracking } from './desk.js';
 import { LabError, parseInput, safeError } from './errors.js';
 import { ProcessLoad } from './health.js';
@@ -139,6 +141,8 @@ export interface WatcherDeps {
   cameraUrl?: (camera: WatchCamera) => string | null;
   /** The zoomed view a camera's frames are cut to, or null for the whole frame. */
   cameraCrop?: (camera: WatchCamera) => CameraCrop | null;
+  /** Apple Vision's tracker, steering each frame's search on a Mac; live only, with `VISION_TRACKER`. */
+  vision?: () => Promise<VisionTracker | null>;
   now?: () => number;
 }
 
@@ -217,6 +221,10 @@ export class Watcher {
   private lastSam = new Map<string, number>();
   private comparing = false;
   private model: Appearance | null = null;
+  private vision: VisionTracker | null = null;
+  /** A frame waiting for Vision's boxes, and the latest one to come meanwhile. */
+  private steering = false;
+  private nextFrame: LumaFrame | null = null;
   private emitTimer: ReturnType<typeof setTimeout> | null = null;
   private generation = 0;
   /** The SAM asks in flight; stopping or restarting the watch aborts them. */
@@ -594,6 +602,7 @@ export class Watcher {
         `${camera!.name} was removed. Choose another camera to watch.`,
       );
     this.model ??= await this.deps.appearance();
+    this.vision ??= (await this.deps.vision?.()) ?? null;
     this.statRunner.embed = this.model ? (frame, rect) => this.zoneFeatures(frame, rect) : null;
     const source =
       this.deps.source?.(camera) ??
@@ -614,7 +623,7 @@ export class Watcher {
     });
     try {
       await source.start(
-        (frame) => this.frame(frame),
+        (frame) => this.steer(frame),
         (error) => {
           if (generation !== this.generation) return;
           this.noteRun('lost');
@@ -644,7 +653,7 @@ export class Watcher {
   private watchingNote(memory: DeskMemory) {
     const count = this.things.size;
     return count
-      ? `Watching ${count} thing${count === 1 ? '' : 's'}${this.ai ? '' : ', on this machine only'}.${memory.fixedCamera ? '' : ' Mark the camera fixed so zones carry over to new frames.'}`
+      ? `Watching ${count} thing${count === 1 ? '' : 's'}${this.ai ? '' : ', on this machine only'}${this.vision ? ', with Apple Vision' : ''}.${memory.fixedCamera ? '' : ' Mark the camera fixed so zones carry over to new frames.'}`
       : 'Watching, but nothing is confirmed yet: confirm the mug or an object first.';
   }
   /**
@@ -812,7 +821,42 @@ export class Watcher {
       maxGapMs: run.maxGapMs,
     });
   }
-  private frame(frame: LumaFrame) {
+  /**
+   * With Apple Vision, a frame first asks it where the things that moved
+   * went, and is stepped with its answer. A frame that comes meanwhile waits,
+   * and a later one takes its place: frames are stepped in order, none twice.
+   */
+  private steer(frame: LumaFrame) {
+    const vision = this.vision;
+    if (!vision) return this.frame(frame);
+    if (this.steering) return void (this.nextFrame = frame);
+    this.steering = true;
+    const generation = this.generation;
+    // Only things that may have moved: a still desk costs Vision nothing.
+    const boxes = new Map(
+      [...this.things.values()]
+        .filter(
+          (t) =>
+            t.status !== 'missing' &&
+            !this.held.has(t.subject.id) &&
+            (t.track.lostSteps > 0 ||
+              frameMotion(t.track.previous, frame, around(t.track.box)) > LOCAL_TRACK.motionShare),
+        )
+        .map((t) => [t.subject.id, t.track.box]),
+    );
+    void vision
+      .step(frame, boxes)
+      .catch(() => new Map<string, UnitBox>())
+      .then((hints) => {
+        this.steering = false;
+        if (generation !== this.generation) return void (this.nextFrame = null);
+        this.frame(frame, hints);
+        const next = this.nextFrame;
+        this.nextFrame = null;
+        if (next) this.steer(next);
+      });
+  }
+  private frame(frame: LumaFrame, hints: ReadonlyMap<string, UnitBox> = new Map()) {
     const started = performance.now();
     const previous = this.lastFrame;
     this.lastFrame = frame;
@@ -837,6 +881,7 @@ export class Watcher {
       now,
       this.pace,
       this.held,
+      hints,
     )) {
       this.found(this.things.get(id), step.thing);
       this.things.set(id, step.thing);

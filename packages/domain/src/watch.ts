@@ -156,6 +156,7 @@ export function watchStep(
     placeGapMs = WATCH.placeGapMs,
     exclude = [] as UnitBox[],
     covers = [] as UnitBox[],
+    hint = null as UnitBox | null,
   } = {},
 ): { thing: WatchThing; ask: 'reanchor' | null; refind: boolean; place: boolean } {
   if (thing.status === 'missing') {
@@ -246,6 +247,7 @@ export function watchStep(
           lostSteps: WATCH.lostSteps,
           quietSteps,
           exclude,
+          hint,
         });
   // A recheck with nothing moving around it can't have lost it: a white mug on a plain
   // desk often matches the place beside it about as well, and that alone isn't a loss.
@@ -361,6 +363,9 @@ function near(a: UnitBox, b: UnitBox) {
  * two are assigned jointly (`assignTracks`); with a margin of `MULTI.minMargin`
  * they are sure again (swapped, if that is what their looks say), else they
  * stay entangled until a person confirms one.
+ *
+ * `hints` are where another tracker (Apple Vision, on a Mac) sees things in
+ * this frame: each one's search starts there (`stepLocalTrack`).
  */
 export function watchFrame(
   things: WatchThing[],
@@ -368,6 +373,7 @@ export function watchFrame(
   now: number,
   pace: { quietSteps?: number; placeGapMs?: number } = {},
   hold: ReadonlySet<string> = new Set(),
+  hints: ReadonlyMap<string, UnitBox> = new Map(),
 ): Map<string, WatchStepResult> {
   const shown = (t: WatchThing) => t.status !== 'missing';
   const apart = (a: WatchThing, b: WatchThing) =>
@@ -381,7 +387,8 @@ export function watchFrame(
       .filter((o) => o !== t && shown(o) && apart(o, t))
       .map((o) => o.track.box);
     const covers = coversOf(t, things);
-    steps.set(t.subject.id, watchStep(t, frame, now, { ...pace, exclude, covers }));
+    const hint = hints.get(t.subject.id) ?? null;
+    steps.set(t.subject.id, watchStep(t, frame, now, { ...pace, exclude, covers, hint }));
   }
   const boxOf = (t: WatchThing) => steps.get(t.subject.id)?.thing.track.box ?? t.track.box;
   const moved = (t: WatchThing) =>
