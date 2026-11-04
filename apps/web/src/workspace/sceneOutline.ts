@@ -275,8 +275,9 @@ function ruleRow(r: PlacementRule, mainLight: string): RuleRow {
   };
 }
 
-/** What a person or pet is doing: sitting in their seat, or the pose they're in. */
+/** What a person or pet is doing: out, sitting in their seat, or the pose they're in. */
 function memberDetail(f: Fixture, fixtures: Fixture[]): string {
+  if (f.away) return 'out';
   const seat = f.seatedOn ? fixtures.find((x) => x.id === f.seatedOn) : undefined;
   if (seat) return `in the ${seat.label.toLowerCase()}`;
   return f.state ?? '';

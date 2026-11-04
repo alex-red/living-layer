@@ -63,6 +63,8 @@ import {
   placedFixtures,
   drawnFixtures,
   householdReplay,
+  isMemberType,
+  memberCard,
   surfaceWorld,
   type Point,
 } from '@livinglayer/domain';
@@ -800,6 +802,7 @@ function IsoViewOf({
    * like food, each thing the camera places that keeps stats, and each food
    * thing still drawn with the room, which the card invites to be made a thing.
    */
+  const homeThings = things;
   const callouts: IsoCallout[] = useMemo(() => {
     const top = (b: {
       at: { x: number; y: number; z: number };
@@ -855,8 +858,40 @@ function IsoViewOf({
       (id) => (memory?.thingStats?.[id] ?? []).map((s) => s.key),
       (id) => select({ kind: 'object', id }),
     );
-    return [...things, ...sighted, ...drawn];
-  }, [view, memory?.fixtures, memory?.thingStats, kind, onFixture, onSwitch, select]);
+    // People and pets: where they are and how, a seated one's card on their seat.
+    const members = homeThings.flatMap((f): IsoCallout[] => {
+      if (!isMemberType(f.type)) return [];
+      const shownAt =
+        view.fixtures.find((x) => x.id === f.id) ??
+        (f.seatedOn ? view.fixtures.find((x) => x.id === f.seatedOn) : undefined);
+      if (!shownAt) return [];
+      return [
+        {
+          id: f.id,
+          label: f.label,
+          anchor: top(shownAt.box),
+          member: memberCard({ ...f, type: f.type }, homeThings, replayHome),
+          onSelect: () => onFixture(f.id),
+        },
+      ];
+    });
+    return [
+      ...members,
+      ...things.filter((c) => !members.some((m) => m.id === c.id)),
+      ...sighted,
+      ...drawn,
+    ];
+  }, [
+    view,
+    memory?.fixtures,
+    memory?.thingStats,
+    kind,
+    onFixture,
+    onSwitch,
+    select,
+    homeThings,
+    replayHome,
+  ]);
   // Turned, a fixture's box isn't where it stands: it is moved and sized from the usual corner.
   const turned = angle === 'left';
   // Dragging on the room draws a zone: a rule's draft, or the mug's.

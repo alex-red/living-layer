@@ -4,6 +4,7 @@ import {
   householdAt,
   householdEvents,
   householdReplay,
+  memberCard,
   type DeskMemory,
   type Fixture,
 } from '@livinglayer/domain';
@@ -65,5 +66,25 @@ describe('the Home room replayed', () => {
   it('stands everyone up again: no chair stays seated when its person is out', async () => {
     const room = householdReplay(await home(), 1300);
     expect(room.filter((f) => f.state === 'seated')).toEqual([]);
+  });
+});
+
+describe('a person’s or pet’s card', () => {
+  it('says where they are and how, and since when while the day is replayed', async () => {
+    const room = householdReplay(await home(), 600);
+    const miso = byLabel(room, 'Miso')!;
+    expect(memberCard({ ...miso, type: 'cat' }, room, 600)).toEqual({
+      place: 'Asleep by the plant',
+      detail: 'Cat · since 8:00',
+    });
+  });
+
+  it('says what the room holds otherwise: Robin in the chair, as the demo starts', async () => {
+    const room = await home();
+    const robin = byLabel(room, 'Robin')!;
+    expect(memberCard({ ...robin, type: 'person' }, room, null)).toEqual({
+      place: 'Sitting in the chair',
+      detail: 'Lives here',
+    });
   });
 });

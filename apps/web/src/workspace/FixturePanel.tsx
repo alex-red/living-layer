@@ -654,10 +654,17 @@ function MemberPose({
       lab.setMemory(m);
       lab.setMessage(done);
     });
-  if (f.type === 'person')
-    return (
-      <div className="save-actions">
-        {seat ? (
+  // Out of the house or home: out, they aren't drawn, and Home Assistant hears not_home.
+  const away = (out: boolean) =>
+    void call<DeskMemory>('fixtures/away', { id: f.id, away: out }, (m) => {
+      lab.setMemory(m);
+      lab.setMessage(out ? `${f.label} went out.` : `${f.label} is home.`);
+    });
+  return (
+    <div className="save-actions">
+      {f.type === 'person' &&
+        !f.away &&
+        (seat ? (
           <Button size="sm" disabled={disabled} onClick={() => sit(null, `${f.label} stands up.`)}>
             Stand up
           </Button>
@@ -670,10 +677,19 @@ function MemberPose({
           >
             Sit down
           </Button>
-        )}
-      </div>
-    );
-  return null;
+        ))}
+      <Button
+        size="sm"
+        disabled={disabled}
+        title={
+          f.away ? undefined : 'They aren’t drawn while out, and Home Assistant hears not_home.'
+        }
+        onClick={() => away(!f.away)}
+      >
+        {f.away ? 'Back home' : 'Went out'}
+      </Button>
+    </div>
+  );
 }
 
 /**
@@ -995,7 +1011,9 @@ export function FixturePanel({ id }: { id: string }) {
         moving
           ? 'Click where it stands now. Esc cancels.'
           : member
-            ? `Lives here · ${seat ? `in the ${seat.label.toLowerCase()}` : (f.state ?? 'standing')}, in the ${where.toLowerCase()}`
+            ? f.away
+              ? `Lives here · out of the house`
+              : `Lives here · ${seat ? `in the ${seat.label.toLowerCase()}` : (f.state ?? 'standing')}, in the ${where.toLowerCase()}`
             : entityId
               ? `${controlLabel(f)} · ${entityId} · in the ${where.toLowerCase()}`
               : f.state

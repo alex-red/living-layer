@@ -59,6 +59,8 @@ export interface IsoCallout {
   /** Stats it keeps, read live by its id. */
   stats?: readonly StatKey[];
   lamp?: boolean;
+  /** A person or pet: where they are and how, and what they are (`memberCard`). */
+  member?: { place: string; detail: string };
   /** What can be done to it from its card: on and off for a thing a light, switch or desktop drives. */
   actions?: readonly CalloutAction[];
   onSelect?: () => void;
@@ -101,6 +103,7 @@ export const CALLOUT_WIDTH = W;
 /** How many lines a card takes, so the cards can be stacked before they render. */
 function linesOf(c: IsoCallout, density: CalloutDensity): number {
   const actions = c.actions?.length && !c.builtIn ? 1 : 0;
+  if (c.member) return (density === 'compact' ? 1 : 2) + actions;
   if (density === 'compact') return (c.builtIn ? 1 : c.food?.expires ? 2 : 1) + actions;
   if (c.builtIn) return 2;
   const food = c.food
@@ -407,7 +410,14 @@ function Callouts({ placed, density = 'full' }: { placed: Placed[]; density?: Ca
                   title={c.builtIn ? `Open the ${c.label.toLowerCase()}` : undefined}
                 >
                   <span className="callout-name">{c.label}</span>
-                  {density === 'compact' ? (
+                  {c.member ? (
+                    <>
+                      <span className="callout-row big member">{c.member.place}</span>
+                      {density !== 'compact' && (
+                        <span className="callout-row muted">{c.member.detail}</span>
+                      )}
+                    </>
+                  ) : density === 'compact' ? (
                     <CompactLines c={c} now={now} />
                   ) : c.builtIn ? (
                     <>
