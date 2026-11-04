@@ -97,11 +97,11 @@ export function cameraAt(keys: CameraKey[], t: number): Omit<CameraKey, 't'> {
 }
 
 /**
- * The same curve as an ffmpeg `zoompan` filter (time from the input frame
- * number). zoompan crops and scales in one step; a per-frame `scale` then
- * `crop` keeps the first frame's size. No st()/ld(): their ';' would end the
- * filter chain. The zoom is clamped at 1, since a rounded 0.99999 makes a
- * frame narrower than the output and ffmpeg dies without a word.
+ * The same curve as ffmpeg filters: `perspective` samples the view's corners
+ * from the take at fractional pixels (time from the frame number), then one
+ * scale to `out`. zoompan rounds its window to whole pixels, so a slow zoom
+ * judders; a per-frame `scale` then `crop` keeps the first frame's size. No
+ * st()/ld(): their ';' would end the filter chain. The zoom is clamped at 1.
  */
 export function zoomFilter(keys: CameraKey[], out: Size, fps: number): string {
   const curve = (k: 'zoom' | 'cx' | 'cy') =>
@@ -115,11 +115,19 @@ export function zoomFilter(keys: CameraKey[], out: Size, fps: number): string {
         return `+(${d.toFixed(5)})*${u}*${u}*(3-2*${u})`;
       })
       .join('');
+  const z = `max(1,${curve('zoom')})`;
+  // The centre, kept so the view never leaves the take while the zoom and centre ease together.
+  const cx = `clip(${curve('cx')},0.5/${z},1-0.5/${z})`;
+  const cy = `clip(${curve('cy')},0.5/${z},1-0.5/${z})`;
+  const left = `W*(${cx}-0.5/${z})`;
+  const right = `W*(${cx}+0.5/${z})`;
+  const top = `H*(${cy}-0.5/${z})`;
+  const bottom = `H*(${cy}+0.5/${z})`;
   return (
-    `zoompan=z='max(1,${curve('zoom')})'` +
-    `:x='clip((${curve('cx')})*iw-iw/zoom/2,0,iw-iw/zoom)'` +
-    `:y='clip((${curve('cy')})*ih-ih/zoom/2,0,ih-ih/zoom)'` +
-    `:d=1:s=${out.width}x${out.height}:fps=${fps}`
+    `perspective=x0='${left}':y0='${top}':x1='${right}':y1='${top}'` +
+    `:x2='${left}':y2='${bottom}':x3='${right}':y3='${bottom}'` +
+    `:interpolation=cubic:sense=source:eval=frame,` +
+    `scale=${out.width}:${out.height}:flags=lanczos,fps=${fps}`
   );
 }
 

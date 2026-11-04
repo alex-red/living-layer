@@ -76,15 +76,16 @@ describe('camera', () => {
     for (let t = 0; t < 4; t += 0.05) expect(cameraAt(keys, t).zoom).toBeGreaterThanOrEqual(1);
   });
 
-  test('the zoom filter clamps at 1 and has no semicolon to break the filter chain', () => {
+  test('the zoom filter samples at fractional pixels, clamps at 1 and has no semicolon to break the chain', () => {
     const keys = cameraKeys(
       [{ kind: 'focus', t: 1, box: { x: 400, y: 225, width: 800, height: 450 } }],
       VIEW,
     );
     const filter = zoomFilter(keys, OUT, 30);
-    expect(filter).toStartWith("zoompan=z='max(1,");
+    expect(filter).toStartWith('perspective=');
+    expect(filter).toContain('max(1,');
     expect(filter).not.toContain(';');
-    expect(filter).toContain('s=1920x1080:fps=30');
+    expect(filter).toEndWith('scale=1920:1080:flags=lanczos,fps=30');
   });
 });
 

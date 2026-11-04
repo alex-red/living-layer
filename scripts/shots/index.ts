@@ -2,8 +2,9 @@
 import type { Shot } from '../lib/director.js';
 import { brush } from './brush.js';
 import { draft } from './draft.js';
+import { end } from './end.js';
 import { memory } from './memory.js';
 import { tour } from './tour.js';
 import { zone } from './zone.js';
 
-export const SHOTS: Shot[] = [tour, draft, zone, brush, memory];
+export const SHOTS: Shot[] = [tour, draft, zone, brush, memory, end];

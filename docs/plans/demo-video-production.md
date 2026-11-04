@@ -45,14 +45,14 @@ Remotion stays an option for the two moments that are pure motion graphics (cold
 shots/<name>.ts ──► director (Playwright + screencast) ──► take.mp4 (3200×1800) + beats.json
 lines (text) ──► voice (draft: say · final: you or ElevenLabs) ──► vo-*.wav ──┘
 phone footage ──► sync to beats (lamp/zone event times) ───────────────────────┐
-compose (ffmpeg: zoompan, xfade, setpts ramps, libass, music ducking, loudnorm) ─► shot.mp4 → film.mp4
+compose (ffmpeg: perspective zoom, xfade, setpts ramps, libass, music ducking, loudnorm) ─► shot.mp4 → film.mp4
 check: contact sheet per shot, total ≤ 2:58, loudness, a muted watch
 ```
 
 1. **Director** (`bun run shot <name>`: `scripts/shot.ts`, `scripts/lib/director.ts`, shots in `scripts/shots/`). A shot is a TypeScript function using a small vocabulary: `say(i)` (start line i, wait for it), `sayOver(i)` (start it and keep acting; `until(t)` waits for its end), `click(locator)` (an eased pointer glide and click), `drag`, `type`, `focus(locator, { part })` / `focus(null)` (a zoom target), `lower(title, sub)`, `title(text)`, `cue(locator)` (wait for the app), `task(title)` (wait out an AI steps dialog), `fast(n)` (an n× stretch). Set-up is off camera; each take starts from **Reset everything to demo** or a saved Live room. Fresh Chrome profile, headless, `--force-device-scale-factor=2`.
 2. **Voice.** Lines live beside the shot. Draft with `say` for timing (it's what the proof uses), then record the real thing: your own voice, one file per line, read to the draft timing, beats the best synthetic voice for a hackathon. ElevenLabs is the fallback (a cloned voice from a minute of you). Whatever the voice, the director re-paces to its lengths.
 3. **Captions.** From the lines, not from transcription (they're the script). One line per caption, at most about 42 characters a row, cut at phrase ends. Word-by-word highlighting is possible in libass (`\k` tags) if wanted.
-4. **Compose.** Per shot: `zoompan` driven by the beats' focus keys (smoothstep, 0.9 s), libass for captions, lower thirds and titles in the app's tokens (`--seen` cyan, `--void`), `setpts` ramps on `fast` stretches with the voice at normal speed. Film: `xfade` between shots (0.3 s), a quiet music bed ducked under the voice (`sidechaincompress`), `loudnorm` to −14 LUFS, H.264 1080p (and 4K from the 2× source if wanted).
+4. **Compose.** Per shot: a zoom (`perspective`, sampled at fractional pixels, then one scale) driven by the beats' focus keys (smoothstep, 0.9 s), libass for captions, lower thirds and titles in the app's tokens (`--seen` cyan, `--void`), `setpts` ramps on `fast` stretches with the voice at normal speed. Film: `xfade` between shots (0.3 s), a quiet music bed ducked under the voice (`sidechaincompress`), `loudnorm` to −14 LUFS, H.264 1080p (and 4K from the 2× source if wanted).
 5. **Real-world shots.** The phone records the room (hand, mug, lamp, plushie) in 4K. They're synced to the screen take through events both can see: the lamp turning on is at a known time in the activity log and visible on the phone, which is enough to align within a frame. The cold open's split view is composed by ffmpeg (`hstack` with a gutter) from the phone clip and the twin's take, not recorded as one screen.
 6. **Check.** Each compose writes a contact sheet (as `out/demo-video/sheet3.png`) and prints the shot's length; the film step fails if the total exceeds 2:58. Watch once muted: captions must carry the story.
 
@@ -84,30 +84,30 @@ Learned on the way:
 - `st()`/`ld()` shorten ffmpeg expressions but their `;` ends a filter chain: write the sums out.
 - The first launch once timed out waiting for the **Demo** button; wait for the page, not a fixed time.
 
-Not yet judged: whether `zoompan`'s whole-pixel steps show as jitter on slow pans (watch it at full size; if they do, zoom in the page with a CSS transform during capture, which also keeps text crisp, or render the zoom in Bun). The draft voice is robotic by design. The iso callout ("CREAM MUG · Nothing kept yet") clips at the pane's edge when zoomed, already listed in `demo-ui.md`.
+Judged afterwards: `zoompan`'s whole-pixel window did judder (a line fixed in the take moved 9.6, 8.4, 9.7, 11.8, 10.2, 12.1 px a frame mid-zoom); `perspective` samples at fractional pixels and moves it smoothly (… 10.1, 10.5, 10.7, 11, 10.9, 10.7 …), so the zoom uses that now. The draft voice is robotic by design. The iso callout ("CREAM MUG · Nothing kept yet") clips at the pane's edge when zoomed, already listed in `demo-ui.md`.
 
 ## Status (2026-11-04)
 
 Built: `bun run shot` (`list`, a shot's name, `all`, `film`; `--compose` re-cuts without recording, `--dry` rehearses). The pure parts (camera curve, ramps, captions, joins) are in `scripts/lib/demo-shot.ts` with unit tests (`tests/demo-shot.test.ts`). Each shot writes `out/demo-video/<shot>/cut.mp4`, `take.json` and a contact sheet `sheet.png`; `bun run shot film` joins the cut shots into `out/demo-video/film.mp4` with cross-fades and loudness at −14 LUFS, and warns past 2:58.
 
-Five shots run end to end in Demo mode, offline: `tour` (0:15), `draft` (0:35), `zone` (1:05), `brush` (1:25), `memory` (1:50); the film is about 94 s. Each starts from `POST /api/desk/demo/reset`; the later ones draft the demo frame off camera first (`draftedRoom`), since the reset demo has no mug.
+Six shots run end to end in Demo mode, offline: `tour` (0:15), `draft` (0:35), `zone` (1:05), `brush` (1:25), `memory` (1:50), `end` (2:45). Each starts from `POST /api/desk/demo/reset`; the later ones draft the demo frame off camera first (`draftedRoom`), since the reset demo has no mug.
 
 **The voice is left out, with its slot ready.** Lines are captions and pace the take by an estimate (2.5 words a second). Put `<n>.wav` (or `.m4a`, `.mp3`, `.aiff`) for line n in `out/demo-video/voice/<shot>/` (or `--voice <dir>`) and record the shot again: the take waits for each file's real length and the cut mixes it in. Checked with a throwaway recording on `zone`: both lines voiced and audible, the take re-paced from 16.0 s to 14.9 s.
 
 Found while scripting (Demo mode, worth a look before the Live takes):
 
-- **The zone doesn't see the mug.** In the drafted demo room, a zone drawn over the mug reads "Mug on the desk: outside" on **Check zones**, and the demo's _Right_ / _Front left_ don't move the mug in the room. So `zone` ends on the saved rule, and the lamp moment is left to the Live take.
+- **Drag a zone down through the thing.** On the iso desk a screen drag runs along the desk's diagonals: a diagonal drag over the mug made a thin strip beside it, which read "outside" (my mistake, not the app's). Dragged down through the mug, as the browser spec does, it reads "inside, light confirmed". The drafted demo room has no lamp model and its _Right_ / _Front left_ don't move the mug there, so `zone` ends on **Check zones**; the real lamp is the Live take's.
 - **The brush asks back on the script's line.** "It's an IKEA Alex desk" alone gets "which would you like?" from the demo's reader (also offline in `bun run brush --around desk`); "Turn this into its own fixture, it's an IKEA Alex desk" builds it. Try the short one live before relying on it.
 - **Putting a brushed model in a drafted room is refused** ("the room's camera is calibrated on the Office preset…"), so `brush` uses the preset office.
 - **Tracking in Demo** wants _Let tracking call AI_; the shots don't turn it on, since it's server-wide and would also apply to the Live camera.
 - The draft's finished-steps card stays in a corner until dismissed; `draftedRoom` dismisses it.
 
-Not yet: Live versions of the shots (`draft`, `zone`, `brush` with real calls), `motion` (1:15) and `server` (2:20), which need the real camera and phone footage, the cold open and end card, speed ramps in use (`fast` is built and tested, no Demo shot needs it), music, and judging the zooms at full size for `zoompan` jitter.
+Not yet: Live versions of the shots (`draft`, `zone`, `brush` with real calls), `motion` (1:15) and `server` (2:20), which need the real camera and phone footage, the cold open's phone half, speed ramps in use (`fast` is built and tested, no Demo shot needs it), and music.
 
 ## Phases
 
 1. ~~**Director as a tool.**~~ Done (above).
-2. ~~**All screen shots in Demo.**~~ Done for the five that Demo can show.
+2. ~~**All screen shots in Demo.**~~ Done for the six that Demo can show.
 3. **Voice (1–2 h).** Record your lines (or clone); re-run the shots to the real lengths.
 4. **Live takes (½ day, about 10 calls).** Switch the shots that need it to Live; phone footage for the cold open, motion, and the server cutaway; sync on the lamp.
 5. **Film (2 h).** Joins, music, loudness, end card; a muted watch; export 1080p and 4K; upload unlisted and check in the player judges will use.
