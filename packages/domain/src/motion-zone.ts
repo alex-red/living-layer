@@ -9,7 +9,9 @@
  * Zones side by side contest a start: an arm reaching for one crosses its
  * neighbour first, so the first to move isn't the one touched. From the
  * first motion among them they gather it a moment, the latest counting most,
- * and only the one moving most by then starts: where the hand got to.
+ * and only the one moving most by then starts: where the hand got to. A
+ * neighbour already moving counts too: the hand on it spills onto the zones
+ * beside it, and none of them starts unless it moved more.
  */
 import { z } from 'zod';
 import { around, type UnitBox } from './tracker.js';
@@ -108,6 +110,8 @@ interface MotionContest {
   at: number;
   /** Each one's motion so far, fading. */
   sums: Record<string, number>;
+  /** Each one's motion so far, not fading: what a moving neighbour is weighed by. */
+  totals: Record<string, number>;
   /** Those that moved long enough to start on their own. */
   ready: string[];
 }
@@ -181,8 +185,10 @@ export function stepMotionZones(
     const fade = open ? 0.5 ** ((now - open.at) / MOTION_ZONE.contestHalfLifeMs) : 1;
     const sums: Record<string, number> = {};
     for (const [id, sum] of Object.entries(open?.sums ?? {})) sums[id] = sum * fade;
+    const totals: Record<string, number> = { ...open?.totals };
     const ready = new Set(open?.ready);
     let moved = false;
+    const spilled: Record<string, number> = {};
     for (const zone of group) {
       const from = was.zones[zone.id] ?? STILL;
       const share = frame.shares[zone.id] ?? 0;
@@ -196,28 +202,37 @@ export function stepMotionZones(
       if (from.moving || group.length === 1) {
         state.zones[zone.id] = step.state;
         if (step.event) events.push({ id: zone.id, event: step.event });
+        if (from.moving && !ignored && share >= zone.trigger.share) spilled[zone.id] = share;
         continue;
       }
       if (!ignored && share >= zone.trigger.share) {
         sums[zone.id] = (sums[zone.id] ?? 0) + share;
+        totals[zone.id] = (totals[zone.id] ?? 0) + share;
         moved = true;
       }
       if (step.event === 'started') ready.add(zone.id);
       state.zones[zone.id] = step.event ? { ...step.state, moving: false } : step.state;
     }
     if (!open && !moved) continue;
+    // A moving zone's own motion, gathered while its neighbours contest, so a still one must beat it.
+    for (const [id, share] of Object.entries(spilled)) totals[id] = (totals[id] ?? 0) + share;
     const since = open?.since ?? now;
     const movedAt = moved ? now : open!.movedAt;
     const over =
       now - since >= contestMs || (ready.size > 0 && now - movedAt >= MOTION_ZONE.contestQuietMs);
     if (!over) {
-      state.contests[key] = { since, movedAt, at: now, sums, ready: [...ready] };
+      state.contests[key] = { since, movedAt, at: now, sums, totals, ready: [...ready] };
       continue;
     }
     let winner: MotionZone | null = null;
     for (const zone of group)
       if (ready.has(zone.id) && (sums[zone.id] ?? 0) > (winner ? sums[winner.id]! : 0))
         winner = zone;
+    // A moving neighbour that moved as much over the contest is where the hand is, reaching
+    // or drawing back: the motion beside it is its spill. Unfaded, as drawing back crosses last.
+    const total = (z: MotionZone) => totals[z.id] ?? 0;
+    if (winner && group.some((z) => state.zones[z.id]!.moving && total(z) >= total(winner!)))
+      winner = null;
     for (const zone of group)
       if (!state.zones[zone.id]!.moving)
         state.zones[zone.id] =

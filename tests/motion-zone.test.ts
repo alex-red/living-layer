@@ -127,6 +127,48 @@ describe('motion zones side by side', () => {
     expect(frames.findIndex((f) => f.events.length) * 100).toBe(100 + MOTION_ZONE.contestQuietMs);
   });
 
+  // Shares from a clip of the office camera: a hand on the blue plushy spills onto its neighbours.
+  const onBlue = [
+    { blue: 0.16, yellow: 0.19 },
+    { blue: 0.13, yellow: 0.05 },
+    { blue: 0.2, yellow: 0.06 },
+    { blue: 0.21, yellow: 0.09 },
+    { blue: 0.2, yellow: 0.12 },
+    { blue: 0.24, yellow: 0.12 },
+    { blue: 0.21, yellow: 0.13 },
+  ];
+  const touchBlue = [{ blue: 0.2 }, { blue: 0.2 }, {}, {}, {}];
+  it('start no neighbour the hand on a moving zone spills onto', () => {
+    const frames = runZones(plushies, [...touchBlue, ...onBlue, ...Array(5).fill({})]);
+    expect(events(frames)).toEqual(['blue started']);
+  });
+  it('start no neighbour the hand crosses last, drawing back from a moving zone', () => {
+    const back = [
+      { blue: 0.21, yellow: 0.04 },
+      { blue: 0.19, yellow: 0.06 },
+      { blue: 0.24, yellow: 0.12 },
+      { blue: 0.2, yellow: 0.07 },
+      { blue: 0.21, yellow: 0.25 },
+      { blue: 0.08, yellow: 0.16 },
+      { yellow: 0.11 },
+    ];
+    const frames = runZones(plushies, [...touchBlue, ...back, ...Array(5).fill({})]);
+    expect(events(frames)).toEqual(['blue started']);
+  });
+  it('start a neighbour reached while another is moving, when it moves more', () => {
+    const onPink = [
+      { pink: 0.07, blue: 0.07 },
+      { pink: 0.16, blue: 0.15 },
+      { pink: 0.07, blue: 0.07 },
+      { pink: 0.13, blue: 0.1 },
+      { pink: 0.16, blue: 0.07 },
+      { pink: 0.2, blue: 0.06 },
+      { pink: 0.32, blue: 0.06 },
+    ];
+    const frames = runZones(plushies, [...touchBlue, ...onPink, ...Array(5).fill({})]);
+    expect(events(frames)).toEqual(['blue started', 'pink started']);
+  });
+
   it('start nothing for one noisy frame among neighbours', () => {
     expect(events(runZones(plushies, [{ blue: 0.5 }, ...Array(10).fill({})]))).toEqual([]);
   });
