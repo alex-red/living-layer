@@ -4,6 +4,15 @@ Goal: every screen in the demo video's shots (`docs/demo-video.md`, 1440 × 900)
 
 Found on 2026-11-03 by walking the running lab (Live, office desk, 1440 × 900 and 1280 × 720) and a static audit of `apps/web/src`. Demo mode, the first screen, photo review, the AI brush panel, zone actions and Your day were not walked yet (the camera was on, which locks the mode switch): phase 0 does that.
 
+## Status (2026-11-04)
+
+Phases 1–4 are built (78ac92c, 13f0ca2, 9509b61, be33f3a) and checked in the running lab, Live, at 1440 × 900 and 1280 × 720. Left:
+
+- Phase 0's walk: Demo mode, the first screen, photo review, the AI brush panel, zone actions and Your day haven't been looked at (the camera was on, which locks the mode switch).
+- Phase 5 (lamp warm-up timing, zone transitions, hover outlines) not started.
+- Kept on purpose: env-var names in provider error hints (they are the fix, and show only on failure); model ids in the readiness popover (the video names each model); capitals typed into `.tiny` labels (CSS uppercases them anyway); the za-menu and layers list, which are inline content rather than a third menu style.
+- Room callout cards still clip at the iso pane's edge when zoomed in.
+
 ## What's already good
 
 Colour, radius and z-index tokens are used almost everywhere (z-index 37/37, radius 130/168). `Button`/`IconButton` are used about 300 times against 65 raw buttons. There's a global `:focus-visible`, reduced-motion/transparency/contrast fallbacks, and dark-only by decision. So this is a tightening pass, not a redesign.
