@@ -35,6 +35,8 @@ export interface Shot {
   setup(d: Director): Promise<void>;
   /** On camera. */
   run(d: Director): Promise<void>;
+  /** Off camera, after the cut: undo what the take left (a Live shot leaves the lab as it found it). */
+  after?(d: Director): Promise<void>;
 }
 
 export interface DirectorOptions {
@@ -47,6 +49,8 @@ export interface DirectorOptions {
   dir: string;
   /** False to rehearse: drive the lab, capture nothing. */
   record: boolean;
+  /** Say cues aloud and wait for them (`--cue`), for a take that needs a hand in the room. */
+  cues?: boolean;
 }
 
 /** A line's voice file, if it has been recorded. */
@@ -314,6 +318,17 @@ export class Director {
     await this.click(target);
     await this.page.keyboard.press('ControlOrMeta+a');
     await this.page.keyboard.type(text, { delay: perKey * 1000 });
+  }
+
+  /**
+   * A cue for whoever is in the room, said aloud: true when cues are on
+   * (`--cue`) and the shot should wait for it, false to go on without.
+   */
+  prompt(text: string): boolean {
+    if (!this.options.cues) return false;
+    console.log(`  cue: ${text}`);
+    spawn('say', [text], { stdio: 'ignore' });
+    return true;
   }
 
   /** Wait for the app (a thing shown, a run done), up to `timeout` seconds. */

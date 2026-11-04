@@ -17,7 +17,7 @@ export const SCENES: Scene[] = [
       },
       {
         clip: 'phone/hook/plushies.mov',
-        note: 'poke the pink plushie, the lamp turns purple; the white one, green; pink again',
+        note: 'poke the pink plushie, the bulb turns pink; the blue one, blue; the yellow one, yellow; pink again',
         seconds: 6.5,
         sound: true,
       },
@@ -35,7 +35,7 @@ export const SCENES: Scene[] = [
       { shot: 'plushies' },
       {
         clip: 'phone/plushie/poke.mov',
-        note: 'a close poke of the pink plushie, the lamp turning purple',
+        note: 'a close poke of the pink plushie, the bulb turning pink',
         seconds: 3,
         sound: true,
       },
@@ -80,7 +80,7 @@ export const SCENES: Scene[] = [
     parts: [
       {
         clip: 'phone/switches/plushie.mov',
-        note: 'the plushie poked, the lamp purple',
+        note: 'the pink plushie poked, the bulb pink',
         seconds: 2.2,
       },
       { clip: 'phone/switches/mug.mov', note: 'the mug down, the lamp on', seconds: 2.2 },
@@ -108,7 +108,7 @@ export const SCENES: Scene[] = [
     parts: [
       {
         clip: 'phone/end/poke.mov',
-        note: 'back to the shelf: poke the plushie, the lamp goes purple; hold on the room',
+        note: 'back to the plushies: poke the pink one, the bulb goes pink; hold on the room',
         seconds: 5,
         sound: true,
       },

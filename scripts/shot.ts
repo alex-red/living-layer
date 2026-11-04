@@ -9,6 +9,7 @@
  *   bun run shot tour zone               several; `all` for every one
  *   bun run shot tour --compose          cut again from the last take, without recording
  *   bun run shot zone --dry              rehearse: drive the lab, no recording
+ *   bun run shot plushies --cue          say cues aloud and wait for them (a hand in the room)
  *   bun run shot scene hook              cut one scene of the film → out/demo-video/scenes/hook.mp4
  *   bun run shot film                    cut every scene and join them → out/demo-video/film.mp4
  *
@@ -70,6 +71,7 @@ async function record(shot: Shot, dry: boolean): Promise<Take | null> {
     voiceDir,
     dir,
     record: !dry,
+    cues: has(args, 'cue'),
   });
   try {
     await d.open();
@@ -77,6 +79,7 @@ async function record(shot: Shot, dry: boolean): Promise<Take | null> {
     await d.roll();
     await shot.run(d);
     const take = await d.cut();
+    await shot.after?.(d);
     await d.close();
     if (dry) return null;
     await Bun.write(join(dir, 'take.json'), JSON.stringify(take, null, 2));
