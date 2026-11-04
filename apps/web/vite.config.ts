@@ -1,4 +1,4 @@
-import { defineConfig, loadEnv, type Plugin } from 'vite';
+import { createLogger, defineConfig, loadEnv, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import { resolve } from 'node:path';
 
@@ -14,12 +14,25 @@ const endWithParent: Plugin = {
   },
 };
 
+/**
+ * Quiet while the API server isn't listening (starting, restarting, stopped): the page's polls
+ * would each log a refused connection. `bun run dev` already says when it stops; the page gets 502.
+ */
+const logger = createLogger();
+const logError = logger.error.bind(logger);
+logger.error = (msg, options) => {
+  const code = (options?.error as { code?: string } | null | undefined)?.code;
+  if (code === 'ECONNREFUSED' && msg.includes('http proxy error')) return;
+  logError(msg, options);
+};
+
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, resolve('../..'), 'PORT');
   // `bun run dev` watches for changes and the page offers to reload (`DevReload.tsx`).
   const control = process.env.LIVING_LAYER_DEV_CONTROL;
   return {
     plugins: [react(), endWithParent],
+    customLogger: logger,
     server: {
       // No hot reload: an edit, often another session's half-done one, would reload the page under you.
       hmr: false,
