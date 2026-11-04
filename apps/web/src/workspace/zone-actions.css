@@ -252,7 +252,7 @@
 /* What a zone's last change ran. */
 .za-log {
   margin: 0;
-  padding-left: 18px;
+  padding-left: 16px;
   color: var(--text-2);
   font-size: var(--fs-12);
   line-height: 18px;

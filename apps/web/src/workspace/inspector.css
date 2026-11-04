@@ -6,7 +6,7 @@
   overflow: hidden;
 }
 .inspector code {
-  font: 500 12px/16px var(--mono);
+  font: 500 var(--fs-12) / 16px var(--mono);
   color: var(--seen);
 }
 .inspector p {
@@ -21,7 +21,7 @@
   padding: 10px;
   border-top: 1px solid var(--line);
   background: rgb(5 6 10 / 60%);
-  font: 400 12px/18px var(--mono);
+  font: 400 var(--fs-12) / 18px var(--mono);
   color: var(--text-2);
 }
 
@@ -38,7 +38,7 @@
   margin-right: auto;
 }
 .inspector-head h3 {
-  font: 600 14px/20px var(--ui);
+  font: 600 var(--fs-14) / 20px var(--ui);
 }
 .inspector-kind {
   display: inline-block;
@@ -47,7 +47,7 @@
   text-transform: uppercase;
 }
 .inspector-head .result {
-  font: 500 12px/16px var(--mono);
+  font: 500 var(--fs-12) / 16px var(--mono);
 }
 .inspector-detail {
   color: var(--text) !important;
@@ -64,13 +64,13 @@
   min-width: 0;
 }
 .inspector-facts dt {
-  font: 500 11px/14px var(--mono);
+  font: 500 var(--fs-11) / 14px var(--mono);
   letter-spacing: 0.08em;
   color: var(--text-3);
 }
 .inspector-facts dd {
   overflow-wrap: anywhere;
-  font: 500 12px/16px var(--mono);
+  font: 500 var(--fs-12) / 16px var(--mono);
   font-variant-numeric: tabular-nums;
   color: var(--text);
 }

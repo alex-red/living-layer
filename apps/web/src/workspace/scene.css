@@ -14,7 +14,7 @@
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  font: 500 11px/14px var(--mono);
+  font: 500 var(--fs-11) / 14px var(--mono);
   letter-spacing: 0.08em;
 }
 .overlay-toggle {
@@ -32,7 +32,7 @@
   width: 100%;
   border-radius: var(--r-panel);
   border: 1px solid var(--line-strong);
-  background: #05060a;
+  background: var(--stage);
   box-shadow:
     0 24px 64px rgb(0 0 0 / 45%),
     0 0 0 6px rgb(255 255 255 / 1.5%);
@@ -64,7 +64,7 @@
   text-align: center;
   background:
     repeating-linear-gradient(0deg, rgb(255 255 255 / 3%) 0 1px, transparent 1px 3px),
-    radial-gradient(circle at 50% 45%, var(--surface-2), #05060a 70%);
+    radial-gradient(circle at 50% 45%, var(--surface-2), var(--stage) 70%);
 }
 .empty-scene svg {
   width: 24px;
@@ -72,7 +72,7 @@
   color: var(--seen);
 }
 .empty-scene h3 {
-  font: 600 17px/22px var(--ui);
+  font: 600 var(--fs-17) / 22px var(--ui);
 }
 .empty-scene p {
   color: var(--text-2);
@@ -114,7 +114,7 @@
   z-index: var(--z-tag);
   right: 40px;
   bottom: 14px;
-  padding: 3px 8px;
+  padding: 4px 8px;
   border-radius: var(--r-chip);
   color: var(--text-2);
   background: var(--glass-thin);
@@ -134,9 +134,9 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 3px 8px;
+  padding: 4px 8px;
   border-radius: var(--r-chip);
-  font: 500 11px/14px var(--mono);
+  font: 500 var(--fs-11) / 14px var(--mono);
   letter-spacing: 0.08em;
   font-variant-numeric: tabular-nums;
   color: var(--text);
@@ -327,7 +327,7 @@
   transform: translateY(calc(-100% - 6px));
   padding: 2px 6px;
   border-radius: var(--r-chip);
-  font: 500 11px/14px var(--mono);
+  font: 500 var(--fs-11) / 14px var(--mono);
   letter-spacing: 0.08em;
   color: var(--chosen);
   background: rgb(10 12 18 / 75%);
@@ -494,7 +494,7 @@
   align-items: center;
   --signal: var(--ok);
   border-radius: var(--r-chip);
-  font: 500 var(--fs-11) / 14px var(--mono);
+  font: 500 var(--fs-11) / var(--fs-14) var(--mono);
   letter-spacing: 0.08em;
   text-transform: uppercase;
   font-variant-numeric: tabular-nums;
@@ -518,7 +518,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 3px 8px;
+  padding: 4px 8px;
   border: 0;
   font: inherit;
   letter-spacing: inherit;

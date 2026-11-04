@@ -41,9 +41,9 @@
 }
 .aip-dialog-body {
   display: grid;
-  gap: 14px;
+  gap: 12px;
   max-height: calc(100dvh - 34px);
-  padding: 18px;
+  padding: 16px;
   overflow: auto;
 }
 
@@ -61,7 +61,7 @@
 }
 .aip-head h2 {
   margin: 0;
-  font-size: 17px;
+  font-size: var(--fs-17);
   font-weight: 600;
   letter-spacing: -0.01em;
 }
@@ -89,7 +89,7 @@
 /* The meter: one segment per step */
 .aip-meter {
   display: flex;
-  gap: 3px;
+  gap: 4px;
   height: 3px;
 }
 .aip-meter-seg {
@@ -318,7 +318,7 @@ button.aip-step-row:hover {
   border-radius: 50%;
   background: var(--surface-1);
   color: var(--text-3);
-  font: 600 11px/1 var(--mono);
+  font: 600 var(--fs-11) / 1 var(--mono);
   transition:
     background var(--t-base),
     border-color var(--t-base),
@@ -394,7 +394,7 @@ button.aip-step-row:hover {
 .aip-step-time {
   min-width: 34px;
   color: var(--text-3);
-  font: 500 11px/1 var(--mono);
+  font: 500 var(--fs-11) / 1 var(--mono);
   font-variant-numeric: tabular-nums;
   text-align: right;
 }
@@ -546,7 +546,7 @@ button.aip-step-row:hover {
   border-radius: var(--r-chip);
   background: var(--seen-wash);
   color: var(--seen);
-  font: 500 11px/14px var(--mono);
+  font: 500 var(--fs-11) / 14px var(--mono);
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
@@ -567,7 +567,7 @@ button.aip-step-row:hover {
 }
 .aip-runs code {
   color: var(--text-3);
-  font: 500 11px var(--mono);
+  font: 500 var(--fs-11) var(--mono);
 }
 .aip-dialog.review .aip-kicker {
   color: var(--text-2);
@@ -613,7 +613,7 @@ button.aip-step-row:hover {
 }
 .aip-history-row small {
   color: var(--text-3);
-  font: 500 11px var(--mono);
+  font: 500 var(--fs-11) var(--mono);
   font-variant-numeric: tabular-nums;
 }
 .aip-history-mark.done {

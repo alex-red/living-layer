@@ -5,6 +5,8 @@
 
   /* Surfaces */
   --void: #0a0c12;
+  /* Behind the picture: a shade deeper than the page, so the frame reads as a window. */
+  --stage: #05060a;
   --surface-1: #11141d;
   --surface-2: #181c28;
   --surface-3: #212637;
@@ -38,9 +40,16 @@
   /* Type */
   --ui: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter Variable', system-ui, sans-serif;
   --mono: ui-monospace, 'SF Mono', 'JetBrains Mono Variable', Menlo, monospace;
+  /* Apple's text styles, tightened: HUD label 11, metadata 12–13, callout 14,
+     body 15, headline 17, title 22, large title 34. Nothing smaller than 11. */
   --fs-11: 11px;
   --fs-12: 12px;
   --fs-13: 13px;
+  --fs-14: 14px;
+  --fs-15: 15px;
+  --fs-17: 17px;
+  --fs-22: 22px;
+  --fs-34: 34px;
 
   /* Shape: nearly square, so the scene reads as an instrument, not an app. */
   --r-chip: 2px;

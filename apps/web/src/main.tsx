@@ -4,7 +4,6 @@ import './ui/controls.css';
 import './ui/surfaces.css';
 import { lazy, StrictMode, Suspense } from 'react';
 import { createRoot } from 'react-dom/client';
-import { Later } from './Later';
 import '@fontsource-variable/inter';
 import '@fontsource-variable/jetbrains-mono';
 import './styles.css';
@@ -27,9 +26,10 @@ const Page = PAGES[window.location.pathname.replace(/\/$/, '')] ?? App;
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <Later>
+    {/* The page itself loads onto the bare background: a word in the corner would flash. */}
+    <Suspense fallback={null}>
       <Page />
-    </Later>
+    </Suspense>
     {DevReload && (
       <Suspense fallback={null}>
         <DevReload />

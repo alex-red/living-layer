@@ -4,7 +4,7 @@
 .frame-label,
 .hud-tag,
 .live-tag {
-  font: 500 11px/14px var(--mono);
+  font: 500 var(--fs-11) / 14px var(--mono);
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--text-3);

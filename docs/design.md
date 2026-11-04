@@ -22,6 +22,7 @@ Dark is the default and, for now, the only theme. See [open decisions](#open-dec
 | Token           | Value                    | Use                                      |
 | --------------- | ------------------------ | ---------------------------------------- |
 | `--void`        | `#0A0C12`                | Page background                          |
+| `--stage`       | `#05060A`                | Behind the camera picture and the room   |
 | `--surface-1`   | `#11141D`                | Panels                                   |
 | `--surface-2`   | `#181C28`                | Cards, inputs                            |
 | `--surface-3`   | `#212637`                | Raised controls, hover                   |
@@ -84,7 +85,9 @@ The scale follows Apple's text styles, slightly tightened for a dense tool:
 | HUD label   | 11 / 14, mono      | 500    | Uppercase, `letter-spacing: 0.08em` |
 | HUD value   | 13 / 16, mono      | 500    | IDs, durations, coordinates, scores |
 
-**11 px is the floor.**
+**11 px is the floor.** Each size is a token (`--fs-11` … `--fs-34`); write `font: 500 var(--fs-11) / 14px var(--mono)`, never a raw size. Labels drawn inside the isometric room are in scene units and scale with its zoom, so they're exempt.
+
+Spacing sits on one scale: 2, 4, 6, 8, 10, 12, 16, 24 px (and 32, 48 for page-level gaps).
 
 Display flourish: the large title and big numerals (such as the `0 / 4` checklist) can carry a 1 px chromatic split, with `text-shadow: -1px 0 var(--seen-glow), 1px 0 var(--chosen-glow)`. Use it nowhere else.
 

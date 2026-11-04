@@ -14,7 +14,7 @@
   background: var(--glass-thick);
   backdrop-filter: blur(12px);
   color: var(--text);
-  font: 12px var(--ui);
+  font: var(--fs-12) var(--ui);
 }
 
 .dev-reload-text {

@@ -45,7 +45,7 @@
   box-shadow: none;
 }
 .concept-input span {
-  font: 500 11px/14px var(--mono);
+  font: 500 var(--fs-11) / 14px var(--mono);
   letter-spacing: 0.08em;
   color: var(--text-3);
 }
@@ -85,14 +85,14 @@
 .detections {
   width: 100%;
   border-collapse: collapse;
-  font: 500 12px/16px var(--mono);
+  font: 500 var(--fs-12) / 16px var(--mono);
   font-variant-numeric: tabular-nums;
   color: var(--text-2);
 }
 .detections caption {
   padding-bottom: 6px;
   text-align: left;
-  font: 400 13px/18px var(--ui);
+  font: 400 var(--fs-13) / 18px var(--ui);
   color: var(--text-2);
 }
 .detections th {

@@ -92,6 +92,10 @@
     opacity var(--t-base) var(--ease-out);
 }
 /* A settled message folds to its dot after a few seconds; hovering shows it again. */
+.feedback.quiet {
+  gap: 6px;
+  padding-inline: 10px;
+}
 .feedback.quiet .feedback-text {
   max-width: 0;
   opacity: 0;
@@ -143,7 +147,7 @@
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: #30d158;
+  background: var(--ok);
   flex: none;
 }
 
@@ -192,7 +196,7 @@
   justify-content: space-between;
 }
 .keys-head h3 {
-  font: 600 15px/20px var(--ui);
+  font: 600 var(--fs-15) / 20px var(--ui);
 }
 .keys-dialog dl {
   display: grid;
@@ -216,6 +220,6 @@
   border: 1px solid var(--line-strong);
   border-radius: var(--r-button);
   background: var(--surface-2);
-  font: 12px/18px var(--mono);
+  font: var(--fs-12) / 18px var(--mono);
   text-align: center;
 }

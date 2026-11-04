@@ -30,7 +30,7 @@
 }
 .day-clock {
   min-width: 44px;
-  font: 500 15px/18px var(--mono);
+  font: 500 var(--fs-15) / 18px var(--mono);
   color: var(--text);
   font-variant-numeric: tabular-nums;
 }
@@ -103,13 +103,13 @@
   padding: 2px 6px;
   border: 1px solid var(--line-strong);
   border-radius: var(--r-chip);
-  font: 500 11px/14px var(--mono);
+  font: 500 var(--fs-11) / 14px var(--mono);
   color: var(--text-2);
   background: transparent;
   cursor: pointer;
 }
 .day-tag {
-  font: 500 10px/14px var(--mono);
+  font: 500 var(--fs-11) / 14px var(--mono);
   letter-spacing: 0.08em;
   color: var(--unsure);
 }
@@ -130,10 +130,10 @@
 .day-ask-input {
   flex: 1;
   min-width: 0;
-  padding: 5px 8px;
+  padding: 4px 8px;
   border: 1px solid var(--line-strong);
   border-radius: var(--r-button);
-  font: 13px/18px var(--ui);
+  font: var(--fs-13) / 18px var(--ui);
   color: var(--text);
   background: var(--surface-2);
 }
@@ -151,7 +151,7 @@
   padding: 2px 8px;
   border: 1px solid var(--line);
   border-radius: var(--r-chip);
-  font: 12px/16px var(--ui);
+  font: var(--fs-12) / 16px var(--ui);
   color: var(--text-2);
   background: var(--surface-2);
   cursor: pointer;
@@ -172,7 +172,7 @@
 }
 .day-answer p {
   margin: 0;
-  font: 14px/20px var(--ui);
+  font: var(--fs-14) / 20px var(--ui);
   color: var(--text);
 }
 .day-answer p.day-note,
@@ -216,7 +216,7 @@
 }
 .day-bar-label {
   height: 14px;
-  font: 10px/14px var(--mono);
+  font: var(--fs-11) / 14px var(--mono);
   text-align: center;
   color: var(--text-3);
 }
@@ -235,7 +235,7 @@
 .day-nudge {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 4px;
   padding: 10px 12px;
   border: 1px solid var(--line-strong);
   border-radius: 12px;
@@ -248,16 +248,16 @@
 .day-nudge header {
   display: flex;
   justify-content: space-between;
-  font: 11px/14px var(--ui);
+  font: var(--fs-11) / 14px var(--ui);
   color: var(--text-3);
 }
 .day-nudge strong {
-  font: 600 14px/18px var(--ui);
+  font: 600 var(--fs-14) / 18px var(--ui);
   color: var(--text);
 }
 .day-nudge p {
   margin: 0;
-  font: 13px/18px var(--ui);
+  font: var(--fs-13) / 18px var(--ui);
   color: var(--text-2);
 }
 .day-nudge-actions {
@@ -270,7 +270,7 @@
   padding: 4px 8px;
   border: 0;
   border-radius: 8px;
-  font: 500 12px/16px var(--ui);
+  font: 500 var(--fs-12) / 16px var(--ui);
   color: var(--text);
   background: var(--surface-3);
   cursor: pointer;

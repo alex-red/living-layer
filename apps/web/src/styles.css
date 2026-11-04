@@ -12,7 +12,7 @@ body {
   min-height: 100vh;
   color: var(--text);
   background: var(--void);
-  font: 400 13px/19px var(--ui);
+  font: 400 var(--fs-13) / 19px var(--ui);
   font-synthesis: none;
   -webkit-font-smoothing: antialiased;
 }
@@ -128,7 +128,7 @@ p {
     0 0 24px var(--chosen-glow);
 }
 .object-card strong {
-  font-size: 14px;
+  font-size: var(--fs-14);
   line-height: 19px;
 }
 .object-card small {
