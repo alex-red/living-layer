@@ -17,6 +17,7 @@ import {
 } from '@livinglayer/domain';
 import { Button, Check, IconButton, NumberInput, Segmented, Select } from '../ui/controls';
 import { useView } from './LabContext';
+import { deviceName } from './sceneOutline';
 import { useDesktopNodes } from './state/nodes';
 import './zone-actions.css';
 
@@ -218,7 +219,9 @@ export function ZoneActionsEditor({
         ctx={ctx}
       />
       <p className="micro">
-        A new trigger stops steps still running from the last one. {used}/{MAX_ZONE_STEPS} steps.
+        A new trigger stops steps still running from the last one.
+        {/* The count matters only near the limit. */}
+        {used > MAX_ZONE_STEPS - 8 && ` ${used}/${MAX_ZONE_STEPS} steps.`}
       </p>
     </div>
   );
@@ -519,8 +522,15 @@ function StepFields({
               options={[
                 ...(known
                   ? []
-                  : [{ value: step.entityId, label: step.entityId || 'Choose a device' }]),
-                ...ctx.entities.map((e) => ({ value: e, label: e })),
+                  : [
+                      {
+                        value: step.entityId,
+                        label: step.entityId
+                          ? deviceName(step.entityId, ctx.desktops)
+                          : 'Choose a device',
+                      },
+                    ]),
+                ...ctx.entities.map((e) => ({ value: e, label: deviceName(e, ctx.desktops) })),
               ]}
             />
           </div>

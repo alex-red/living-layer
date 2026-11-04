@@ -6,7 +6,7 @@ import {
   type SurfacePin,
 } from '@livinglayer/domain';
 import { emptyDesk } from '../apps/web/src/session.js';
-import { controlLabel, lightStates, sceneOf } from '../apps/web/src/workspace/labels.js';
+import { controlLabel, lightStates, sceneOf, theRoom } from '../apps/web/src/workspace/labels.js';
 import {
   parseSelection,
   roomOf,
@@ -208,5 +208,15 @@ describe('selection', () => {
   it('points each step at where it is worked on', () => {
     expect(selectionForStep('objects', emptyDesk('demo'))).toEqual({ kind: 'add' });
     expect(selectionForStep('run')).toEqual({ kind: 'rule', id: 'main' });
+  });
+});
+
+describe('the room in a sentence', () => {
+  it('says "the office" for a preset room', () => {
+    expect(theRoom('office')).toBe('the office');
+  });
+  it('says a named room by its own name, without "the"', () => {
+    const memory = { scene: { label: 'My office' } } as unknown as DeskMemory;
+    expect(theRoom('custom', memory)).toBe('My office');
   });
 });

@@ -60,7 +60,7 @@ export function ScanFixtures({
     <Details summary="Scan and map fixtures" open={open}>
       <p className="micro">
         {live
-          ? `Spark finds the room’s fixtures and desk things in ${lab.camera ? 'what the camera shows' : lab.image ? 'the desk photo' : 'the room’s photo'}, SAM outlines each one, and each moves to where it stands.${adding ? ' New ones are modelled and added.' : ''}`
+          ? `Finds the fixtures in ${lab.camera ? 'what the camera shows' : lab.image ? 'the desk photo' : 'the room’s photo'} and moves each to where it stands.${adding ? ' New ones are modelled and added.' : ''}`
           : `Scans the demo office, no model calls. The room’s fixtures move to where they stand.${adding ? ' New ones are modelled and added.' : ''}`}
       </p>
       {scenes.length > 1 && (

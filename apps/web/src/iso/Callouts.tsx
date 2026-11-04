@@ -184,6 +184,27 @@ export function layoutCallouts(
 }
 
 /**
+ * How far below the pane's top each column of cards starts, in pixels: clear
+ * of the view's tag and Randomize on the left, the zoom and "Your day" on the right.
+ */
+const CORNER_PX = { left: 60, right: 72 } as const;
+
+/**
+ * The cards moved down, a column at a time and keeping their order, so none
+ * starts in the pane's top corners. `top` is the pane's top edge in scene
+ * units and `pxPerUnit` how many pixels a scene unit is drawn.
+ */
+export function clearCorners(placed: Placed[], top: number, pxPerUnit: number): Placed[] {
+  let out = placed;
+  for (const side of ['left', 'right'] as const) {
+    const ys = placed.filter((p) => p.side === side).map((p) => p.y);
+    const shift = ys.length ? top + CORNER_PX[side] / pxPerUnit - Math.min(...ys) : 0;
+    if (shift > 0) out = out.map((p) => (p.side === side ? { ...p, y: p.y + shift } : p));
+  }
+  return out;
+}
+
+/**
  * The stats layer's cards as the view is zoomed: at fit, beside the room as
  * `fit` laid them out; zoomed in, at the edges of what the pane shows, their
  * own size on screen, only for the things in sight. Reads the zoom itself, so
@@ -203,13 +224,15 @@ export function ZoomedCallouts({
   const view = useZoomView();
   const zoomed = view.s > 1 && view.w > 0 && view.h > 0 && density !== 'pips';
   const shown = useMemo(() => {
-    if (!zoomed) return fit;
+    if (!view.w || !view.h) return fit;
     const seen = visibleScene(view, viewBox);
+    const px = Math.min(view.w / viewBox.width, view.h / viewBox.height) * view.s;
+    if (!zoomed) return clearCorners(fit, seen.minY, px);
     const inSight = callouts.filter((c) => {
       const at = toIso(c.anchor);
       return at.sx > seen.minX && at.sx < seen.maxX && at.sy > seen.minY && at.sy < seen.maxY;
     });
-    return layoutCallouts(inSight, seen, density, view.s).placed;
+    return clearCorners(layoutCallouts(inSight, seen, density, view.s).placed, seen.minY, px);
   }, [zoomed, fit, view, viewBox, callouts, density]);
   return <Callouts placed={shown} density={density} />;
 }

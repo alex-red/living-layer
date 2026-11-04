@@ -48,6 +48,11 @@ function Workspace({ children }: { children: ReactNode }) {
   return (
     <main className={`workspace${loading ? ' loading' : ''}`} aria-busy={loading}>
       {children}
+      {loading && (
+        <p className="workspace-wait" role="status">
+          Loading your room…
+        </p>
+      )}
     </main>
   );
 }

@@ -400,14 +400,24 @@ export function placeAnchor(memory: DeskMemory, rule: PlacementRule): PlacementR
   return { ...rule, zone, anchor: seenAt ? { ...anchor, seenAt } : anchor };
 }
 /** What a rule counts, in words: "anything", "the mug", "the mug or the book". */
+/**
+ * A thing named in a sentence: "my desk mug" for one named as yours, else
+ * "the book", its first letter lowered unless it starts a capitalised word
+ * like "IKEA", so no sentence reads "the My desk mug".
+ */
+export function theThing(label: string): string {
+  if (/^(my|your)\s/i.test(label)) return label.charAt(0).toLowerCase() + label.slice(1);
+  const word = /^[A-Z][a-z]/.test(label) ? label.charAt(0).toLowerCase() + label.slice(1) : label;
+  return `the ${word}`;
+}
 export function ruleWho(
   memory: DeskMemory,
   rule: Pick<PlacementRule, 'objects' | 'motion' | 'match'>,
 ): string {
   if (rule.motion) return 'motion';
   if (rule.objects === 'any') return 'anything';
-  const names = rule.objects.map(
-    (id) => `the ${objectById(memory, id)?.label ?? 'forgotten thing'}`,
+  const names = rule.objects.map((id) =>
+    theThing(objectById(memory, id)?.label ?? 'forgotten thing'),
   );
   const last = rule.match === 'all' ? 'and' : 'or';
   return names.length > 1 ? `${names.slice(0, -1).join(', ')} ${last} ${names.at(-1)}` : names[0]!;

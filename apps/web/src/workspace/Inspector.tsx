@@ -57,7 +57,7 @@ import { ThingZoneLink } from './ThingZoneLink';
 import { ZoneActionsEditor, actionsProblem } from './ZoneActions';
 import { SavedZoneWatches, ZoneWatches, zoneThings } from './ZoneWatches';
 import { Later } from '../Later';
-import { mainSurface, roomLabel, surfaceRows, type LabRead } from './labels';
+import { mainSurface, roomLabel, surfaceRows, theRoom, type LabRead } from './labels';
 import { pinScene, viewLabel, type Selection } from './progress';
 import { TRANSITION, centre, type Lab } from './useLabState';
 import './inspector.css';
@@ -618,16 +618,14 @@ function SurfacePanel({ id, closeView }: { id: string; closeView?: boolean }) {
   return (
     <Panel
       tiny={
-        closeView
-          ? `CLOSE VIEW · IN THE ${roomLabel(progress.room, memory).toUpperCase()}`
-          : 'SURFACE'
+        closeView ? `CLOSE VIEW · IN ${theRoom(progress.room, memory).toUpperCase()}` : 'SURFACE'
       }
       title={title}
       status={
         demoPin
           ? `The demo ${label} is pinned for you.`
           : row.pinned
-            ? `Pinned on a ${memory!.surface!.frame.width}×${memory!.surface!.frame.height} frame.`
+            ? 'Its corners are pinned.'
             : needPhoto
               ? `Add a close photo of the ${label}, then pin its four corners.`
               : `Pin the ${label} to place objects on it.`
@@ -649,9 +647,7 @@ function SurfacePanel({ id, closeView }: { id: string; closeView?: boolean }) {
             <Glyph type="arrow" />
           </Button>
           <p className="micro">
-            Scans what the camera shows, adds what the room hasn’t got, and follows each one from
-            SAM’s outline in the scan: what stays put as a fixture, a mug or anything else that
-            moves as an object.
+            Finds each thing on the desk, adds what the room hasn’t got, and follows them.
           </p>
           {mode === 'live' && <Cost>1 Spark and 1 SAM call for the scan; following is free.</Cost>}
         </>
@@ -689,8 +685,7 @@ function SurfacePanel({ id, closeView }: { id: string; closeView?: boolean }) {
       ) : null}
       {closeView && row.pinned && progress.view && (
         <p className="micro">
-          Shared with the {roomLabel(progress.room, memory).toLowerCase()}: what you place here
-          shows there too.
+          Shared with {theRoom(progress.room, memory)}: what you place here shows there too.
         </p>
       )}
       {closeView && row.pinned && progress.view === 'custom-desk' && (

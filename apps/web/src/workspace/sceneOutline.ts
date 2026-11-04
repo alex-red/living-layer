@@ -1,6 +1,7 @@
 import {
   DEMO_SURFACE,
   ISO_PRESETS,
+  desktopNodeEntity,
   ruleActions,
   stepEntities,
   foodNow,
@@ -250,6 +251,11 @@ export function entityName(id: string): string {
     .trim();
   const name = words || domain;
   return name.charAt(0).toUpperCase() + name.slice(1);
+}
+/** A device a step can switch, by name: a desktop's screen as "thinkpad1 display", else its entity in words. */
+export function deviceName(id: string, desktops: readonly { id: string; name: string }[]): string {
+  const desktop = desktops.find((d) => desktopNodeEntity(d.id) === id);
+  return desktop ? `${desktop.name} display` : entityName(id);
 }
 function ruleRow(r: PlacementRule, mainLight: string): RuleRow {
   const { onEnter, onLeave } = ruleActions(r);

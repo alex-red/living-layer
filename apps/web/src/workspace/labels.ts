@@ -36,6 +36,15 @@ export function roomLabel(room: WorkScene | null, memory?: DeskMemory | null): s
   return room === 'custom' ? (memory?.scene?.label ?? 'My room') : ISO_PRESETS[room].label;
 }
 
+/**
+ * The room in a sentence: "the office" for a preset, its own name for one
+ * you named ("My office"), so no sentence reads "the My office".
+ */
+export function theRoom(room: WorkScene | null, memory?: DeskMemory | null): string {
+  const label = roomLabel(room, memory);
+  return room === 'custom' ? label : `the ${label.toLowerCase()}`;
+}
+
 /** The surface pin this mode uses: the saved one, or the demo desk's. */
 const pinOf = (mode: Mode, memory?: DeskMemory | null) =>
   memory?.surface ?? (mode === 'demo' ? DEMO_SURFACE : null);

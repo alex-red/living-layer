@@ -2,6 +2,7 @@ import { describe, expect, it } from 'bun:test';
 import type { StatKey } from '@livinglayer/domain';
 import {
   CALLOUT_WIDTH,
+  clearCorners,
   layoutCallouts,
   sightedCallouts,
   visibleScene,
@@ -79,5 +80,26 @@ describe('cards in a zoomed view', () => {
       expect(p.x + CALLOUT_WIDTH * p.k).toBeLessThanOrEqual(seen.maxX);
     }
     expect(zoomed[0]!.h).toBe(fit[0]!.h / 2);
+  });
+});
+
+describe("cards clear of the pane's corners", () => {
+  const seen = { minX: -100, maxX: 100, minY: -50, maxY: 50 };
+  const cards = [-60, -40, 40, 60].map((x) => ({
+    id: `c${x}`,
+    label: 'Thing',
+    anchor: { x, y: 0, z: 0 },
+  }));
+  it('moves a column that starts in a top corner down below it, keeping its order and gaps', () => {
+    const placed = layoutCallouts(cards, seen).placed;
+    // At 2 pixels a unit, the right column starts 36 units below the top.
+    const right = clearCorners(placed, seen.minY, 2).filter((p) => p.side === 'right');
+    const before = placed.filter((p) => p.side === 'right');
+    expect(Math.min(...right.map((p) => p.y))).toBeGreaterThanOrEqual(seen.minY + 36);
+    expect(right[1]!.y - right[0]!.y).toBe(before[1]!.y - before[0]!.y);
+  });
+  it('leaves a column that already starts low enough where it is', () => {
+    const low = layoutCallouts(cards, seen).placed.map((p) => ({ ...p, y: p.y + 200 }));
+    expect(clearCorners(low, seen.minY, 2)).toEqual(low);
   });
 });

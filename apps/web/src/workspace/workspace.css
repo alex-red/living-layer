@@ -13,8 +13,27 @@
 .workspace > * {
   transition: opacity var(--t-base) var(--ease-out);
 }
-.workspace.loading > * {
+.workspace.loading > :not(.workspace-wait) {
   opacity: 0;
+}
+/* Said only when loading is slow: it fades in after a moment, so a quick load shows nothing. */
+.workspace-wait {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  margin: 0;
+  font: 500 var(--fs-11) / 14px var(--mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  pointer-events: none;
+  animation: wait-in var(--t-base) var(--ease-out) 600ms both;
+}
+@keyframes wait-in {
+  from {
+    opacity: 0;
+  }
 }
 .ws-outline,
 .ws-inspector,

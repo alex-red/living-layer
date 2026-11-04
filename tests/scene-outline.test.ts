@@ -7,6 +7,7 @@ import {
 } from '@livinglayer/domain';
 import { emptyDesk } from '../apps/web/src/session.js';
 import {
+  deviceName,
   entityName,
   homeOf,
   sceneChoices,
@@ -149,6 +150,12 @@ describe('the sidebar, one scene at a time', () => {
     expect(entityName('light.light_bulb_color_hue_1')).toBe('Light bulb color hue 1');
     expect(entityName('switch.desk_lamp')).toBe('Desk lamp');
     expect(entityName('lamp')).toBe('lamp');
+  });
+
+  it("names a desktop's display switch by the desktop, and any other device by its entity", () => {
+    const desktops = [{ id: '00106a7c5385', name: 'thinkpad1' }];
+    expect(deviceName('switch.node_00106a7c5385_display', desktops)).toBe('thinkpad1 display');
+    expect(deviceName('light.light_bulb_color_hue_2', desktops)).toBe('Light bulb color hue 2');
   });
 
   it('shows a missing thing as missing, and a scene with nothing in it as empty', () => {

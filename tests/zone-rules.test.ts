@@ -2,6 +2,7 @@ import { describe, expect, it } from 'bun:test';
 import {
   ruleGate,
   ruleWho,
+  theThing,
   upgradeMemory,
   withoutThings,
   type DeskMemory,
@@ -82,8 +83,8 @@ describe('zones that count any thing, or several', () => {
       inside: [],
     });
     expect(ruleGate(memory(70, 10), books, NOW).decision).toBe('inside');
-    expect(ruleWho(memory(0, 0), books)).toBe('the Book');
-    expect(ruleWho(memory(0, 0), rule({ objects: [MUG, BOOK] }))).toBe('the Mug or the Book');
+    expect(ruleWho(memory(0, 0), books)).toBe('the book');
+    expect(ruleWho(memory(0, 0), rule({ objects: [MUG, BOOK] }))).toBe('the mug or the book');
     expect(ruleWho(memory(0, 0), rule())).toBe('anything');
   });
   it('keeps a thing with a stale sighting where it was last seen', () => {
@@ -146,9 +147,19 @@ describe('zones that wait for all of the things they name', () => {
     });
   });
   it('reads as all of them, and is any one again once one is forgotten', () => {
-    expect(ruleWho(memory(0, 0), both)).toBe('the Mug and the Book');
+    expect(ruleWho(memory(0, 0), both)).toBe('the mug and the book');
     const [left] = withoutThings([both], [BOOK]);
     expect(left).toMatchObject({ objects: [MUG] });
     expect(left).not.toHaveProperty('match');
+  });
+});
+
+describe('a thing named in a sentence', () => {
+  it('keeps a thing named as yours without "the"', () => {
+    expect(theThing('My desk mug')).toBe('my desk mug');
+  });
+  it('puts "the" before any other, lowering a plain first letter only', () => {
+    expect(theThing('Small purple mouse')).toBe('the small purple mouse');
+    expect(theThing('IKEA Alex desk')).toBe('the IKEA Alex desk');
   });
 });

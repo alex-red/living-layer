@@ -4,7 +4,10 @@
   z-index: var(--z-tag);
   left: 40px;
   bottom: 14px;
+  /* In a narrow pane they wrap upward, inside the frame's corner marks, rather than run past them. */
+  max-width: calc(100% - 80px);
   display: flex;
+  flex-wrap: wrap;
   gap: 2px;
   padding: 2px;
   border-radius: var(--r-chip);
@@ -17,6 +20,7 @@
 .layer-chips.iso {
   left: 12px;
   bottom: 10px;
+  max-width: calc(100% - 24px);
 }
 .layer-chips:hover,
 .layer-chips:focus-within {
@@ -45,13 +49,13 @@
   background: var(--control-bg-hover);
 }
 /*
- * Sample values for the food things: in the top corner under "Your day"
- * (day.css), shown with it, so a narrow pane's bottom row keeps the layers.
+ * Sample values for the food things: under the view's tag in the top left,
+ * so a narrow pane's bottom row keeps the layers and the top right its zoom
+ * and "Your day". The cards beside the room keep clear of both corners.
  */
 .layer-chips.iso.sample {
-  left: auto;
-  right: 12px;
-  top: 68px;
+  left: 12px;
+  top: 32px;
   bottom: auto;
 }
 .layer-chips.sample .layer-chip {
