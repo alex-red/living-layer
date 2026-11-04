@@ -3,6 +3,7 @@ import { ISO_PRESETS, isoSurface } from './iso-presets.js';
 import { ITEM_MATERIALS, isoItemSchema, mugItem, type SavedItem } from './iso-item.js';
 import { withStarterPrint } from './starter-prints.js';
 import { screenPart } from './item-screen.js';
+import { dysonFanItem } from './dyson-fan.js';
 import {
   archetypeSchema,
   buildItem,
@@ -83,6 +84,7 @@ export const STARTER_TEMPLATES = [
   'monitor',
   'lamp',
   'floor-lamp',
+  'dyson-fan',
   'plant',
   'mug',
   'tim-hortons-mug',
@@ -977,6 +979,14 @@ const STARTER_META: Record<
     sizeCm: { w: 36, d: 36, h: 175 },
     colors: ['#1e1f24', '#f1ede4'],
   },
+  'dyson-fan': {
+    label: 'Dyson Fan',
+    archetype: 'box',
+    suggested: 'none',
+    description: 'A bladeless tower fan: an open loop on a perforated base.',
+    sizeCm: { w: 28, d: 28, h: 102 },
+    colors: ['#e9e8ec', '#aeaeb6'],
+  },
   plant: {
     label: 'Potted plant',
     archetype: 'plant',
@@ -1108,11 +1118,13 @@ export function starterTemplateModel(
           }
         : template === 'floor-lamp'
           ? floorLampItem(label, colors)
-          : template === 'cat-tree'
-            ? catTreeItem(label, colors)
-            : meta.archetype === 'mug'
-              ? withStarterPrint(template, mugItem(colors[0], colors[1], label))
-              : buildItem(label, defaultFit(meta.archetype, colors));
+          : template === 'dyson-fan'
+            ? dysonFanItem(label, colors)
+            : template === 'cat-tree'
+              ? catTreeItem(label, colors)
+              : meta.archetype === 'mug'
+                ? withStarterPrint(template, mugItem(colors[0], colors[1], label))
+                : buildItem(label, defaultFit(meta.archetype, colors));
   const saved: SavedItem = {
     ...base,
     source: 'placeholder',
