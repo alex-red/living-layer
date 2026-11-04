@@ -30,8 +30,9 @@ const schema = z.object({
    * fal.ai's host with FAL_KEY. Off unless SAM3D_ENABLED is true, whatever is set.
    */
   SAM3D_ENABLED: flag,
-  /** Apple Vision's object tracker steering the live watcher's search, on Apple silicon (experimental). */
-  VISION_TRACKER: flag,
+  /** The GPU tracker node (`services/gpu-tracker/`) the live watcher follows things with too; off unless set. */
+  GPU_TRACKER_URL: z.string().default(''),
+  GPU_TRACKER_TOKEN: z.string().default(''),
   SAM3D_MLX_WEIGHTS: z.string().default(''),
   SAM3D_MLX_BIN: z.string().default('mlx-spatial-sam3d'),
   FAL_KEY: z.string().default(''),
@@ -98,8 +99,8 @@ export interface Config {
   timeoutMs: number;
   /** Where SAM 3D runs, when it can: this machine, fal.ai, or nowhere. */
   sam3d: { kind: 'local'; weights: string; bin: string } | { kind: 'fal'; key: string } | null;
-  /** Whether the live watcher asks Apple Vision where moved things went (`vision-tracker.ts`). */
-  visionTracker: boolean;
+  /** The GPU tracker node, when both its URL and token are set. */
+  gpuTracker: { url: string; token: string } | null;
   haUrl: string;
   haToken: string;
   haEntity: string;
@@ -239,7 +240,10 @@ export function parseConfig(env: NodeJS.ProcessEnv, cwd = process.cwd()): Config
         : value.FAL_KEY
           ? { kind: 'fal', key: value.FAL_KEY }
           : null,
-    visionTracker: value.VISION_TRACKER,
+    gpuTracker:
+      value.GPU_TRACKER_URL && value.GPU_TRACKER_TOKEN
+        ? { url: value.GPU_TRACKER_URL.replace(/\/$/, ''), token: value.GPU_TRACKER_TOKEN }
+        : null,
     haUrl: value.HA_URL.replace(/\/$/, ''),
     haToken: value.HA_TOKEN,
     haEntity: value.HA_ENTITY_ID,

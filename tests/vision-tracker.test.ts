@@ -6,8 +6,12 @@ import {
   type LumaFrame,
   type UnitBox,
   type WatchThing,
+  type WatchView,
 } from '@livinglayer/domain';
 import { VisionTracker } from '../apps/server/src/vision-tracker.js';
+import { watchersOf } from '../apps/server/src/app.js';
+import type { FrameSource } from '../apps/server/src/frames.js';
+import { testApp } from './lib/app.js';
 
 const W = 160;
 const H = 100;
@@ -66,6 +70,17 @@ describe('steering the local match with a hint', () => {
     );
     expect(steered.get('mug')!.thing.status).toBe('following');
     expect(at(steered.get('mug')!.thing)).toEqual({ x: 130, y: 70 });
+    // Credited to Vision: the usual search wouldn't have reached it.
+    expect(steered.get('mug')!.steered).toBe(true);
+    expect(steered.get('mug')!.thing.layer).toBe('vision');
+  });
+
+  it("doesn't credit Vision for a move the usual search reaches", () => {
+    const moved = scene([{ x: 26, y: 22, seed: 7 }]);
+    const steps = watchFrame([mug], moved, 10_000, {}, new Set(), new Map([['mug', box(26, 22)]]));
+    expect(at(steps.get('mug')!.thing)).toEqual({ x: 26, y: 22 });
+    expect(steps.get('mug')!.steered).toBeUndefined();
+    expect(steps.get('mug')!.thing.layer).not.toBe('vision');
   });
 
   it('finds it by the usual search when the hint is somewhere else', () => {
@@ -147,5 +162,91 @@ describe('the Vision helper', () => {
     expect((await helper.step(frame(10), new Map([['mug', box(20, 20)]]))).size).toBe(0);
     expect((await helper.step(frame(10), new Map([['mug', box(20, 20)]]))).size).toBe(0);
     expect(performance.now() - started).toBeLessThan(1000);
+  });
+});
+
+describe('Apple Vision as the tracker backend', () => {
+  /** The lab with a live camera to watch; `vision` stands in for this host's Apple Vision, if any. */
+  async function setup(vision?: () => Promise<VisionTracker | null>) {
+    let push: (frame: LumaFrame) => void = () => {};
+    const t = await testApp({
+      name: 'vision-backend',
+      ...(vision ? { vision } : {}),
+      appearance: async () => null,
+      browseCameras: async () => [],
+      frames: (): FrameSource => ({
+        start: async (onFrame) => void (push = onFrame),
+        stop() {},
+        snapshot: async () => ({ png: Buffer.alloc(0), width: 0, height: 0 }),
+      }),
+    });
+    const backend = (backend: string) =>
+      t.app.inject({ method: 'POST', url: '/api/watch/backend', payload: { backend } });
+    const live = async () => (await t.get('watch/live')).json<WatchView>();
+    const watch = async () => {
+      const saved = await t.app.inject({
+        method: 'POST',
+        url: '/api/cameras/save',
+        payload: { name: 'Office cam', url: 'rtsp://192.168.1.20:554/stream1', scene: null },
+      });
+      const id = `cam:${saved.json<{ camera: { id: string } }>().camera.id}`;
+      await t.app.inject({
+        method: 'POST',
+        url: '/api/watch',
+        payload: { mode: 'live', on: true, streamId: id },
+      });
+      await watchersOf(t.app).live.idle();
+    };
+    return { ...t, backend, live, watch, push: (frame: LumaFrame) => push(frame) };
+  }
+  /** A stand-in for loading the helper, counting the loads; `script` is what it runs. */
+  function helper(script = 'process.stdin.resume()') {
+    const loads = { count: 0 };
+    const load = async () => {
+      loads.count++;
+      return VisionTracker.spawn([process.execPath, '-e', script]);
+    };
+    return { loads, load };
+  }
+
+  it('is offered on a host that can run it, and only there', async () => {
+    const mac = await setup(helper().load);
+    expect((await mac.live()).backends).toEqual(['local', 'vision']);
+    const other = await setup();
+    expect((await other.live()).backends).toEqual(['local']);
+    const refused = await other.backend('vision');
+    expect(refused.statusCode).toBe(409);
+    expect(refused.json<{ error: { code: string } }>().error.code).toBe('tracker_backend');
+  });
+
+  it('starts the helper only once chosen, and keeps it for the next time', async () => {
+    const h = helper();
+    const s = await setup(h.load);
+    await s.watch();
+    expect(h.loads.count).toBe(0);
+    expect((await s.backend('vision')).json<WatchView>().backend).toBe('vision');
+    await watchersOf(s.app).live.idle();
+    expect(h.loads.count).toBe(1);
+    expect((await s.backend('local')).json<WatchView>().backend).toBe('local');
+    await s.backend('vision');
+    await watchersOf(s.app).live.idle();
+    expect(h.loads.count).toBe(1);
+  });
+
+  it('says when the helper stopped, and starts a new one when chosen again', async () => {
+    const h = helper('process.exit(0)');
+    const s = await setup(h.load);
+    await s.watch();
+    await s.backend('vision');
+    await watchersOf(s.app).live.idle();
+    expect((await s.live()).vision?.state).toBe('steering');
+    await new Promise((r) => setTimeout(r, 200));
+    s.push({ width: W, height: H, data: new Uint8Array(W * H) });
+    expect((await s.live()).vision?.state).toBe('stopped');
+    await s.backend('local');
+    expect((await s.live()).vision).toBeUndefined();
+    await s.backend('vision');
+    await watchersOf(s.app).live.idle();
+    expect(h.loads.count).toBe(2);
   });
 });

@@ -28,6 +28,7 @@ import { MaskOverlay } from '../MaskOverlay';
 import { RectHandles, dragRect, grabOf, type Grab } from '../RectGrab';
 import { StatsOverlay, TrackingOverlay, selectedThing } from '../TrackingOverlay';
 import { HealthBar } from '../HealthBar';
+import { TrackerBackendSwitch, gpuRows, visionRows } from '../TrackerBackend';
 import './scene.css';
 import { Later } from '../Later';
 import type { RoomOption } from '../CameraSetup';
@@ -84,7 +85,13 @@ const RoomCalibrate = lazy(() =>
 );
 
 /** Which layer placed a watched thing's box last, as its tag says it. */
-const WATCH_LAYER = { local: 'LOCAL', appearance: 'LOOKS', sam: 'SAM' } as const;
+const WATCH_LAYER = {
+  local: 'LOCAL',
+  vision: 'VISION',
+  appearance: 'LOOKS',
+  sam: 'SAM',
+  gpu: 'GPU',
+} as const;
 
 const VIEWS: Option<StageView>[] = [
   { value: 'photo', label: 'Photo' },
@@ -732,12 +739,20 @@ function FollowLayers() {
  * else the line's own caption. Each renders at its tracker's rate, alone.
  */
 function HealthBars({ caption }: { caption: ReactNode }) {
-  const watcher = useStore(watchStore, (w) => (w?.on ? (w.health ?? null) : null));
+  const watch = useStore(watchStore);
+  const watcher = watch?.on ? (watch.health ?? null) : null;
   const local = useStore(followHealthStore);
   if (!watcher && !local) return caption;
   return (
     <div className="health-bars">
-      {watcher && <HealthBar who="Watcher" health={watcher} />}
+      {watcher && watch && (
+        <HealthBar
+          who={watch.backend === 'gpu' ? 'Watcher · GPU' : 'Watcher'}
+          health={watcher}
+          control={<TrackerBackendSwitch watch={watch} />}
+          more={[...gpuRows(watch), ...visionRows(watch)]}
+        />
+      )}
       {local && <HealthBar who="This tab" health={local} />}
     </div>
   );

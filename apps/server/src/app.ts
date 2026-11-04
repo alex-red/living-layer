@@ -48,7 +48,8 @@ import { jobRoutes, Jobs, runningJobs } from './jobs.js';
 import { listStreams, streamRoutes, type NetworkStream } from './streams.js';
 import { CameraRegistry, cameraRoutes, streamCrop } from './cameras.js';
 import type { Relay } from './relay.js';
-import { VisionTracker } from './vision-tracker.js';
+import { GpuTracker } from './gpu-tracker.js';
+import { VisionTracker, visionTrackerSupported } from './vision-tracker.js';
 import { Watcher, setWatching, watchRoutes, type WatcherDeps } from './watcher.js';
 import { Appearance } from './appearance.js';
 import { DemoSource } from './frames.js';
@@ -84,6 +85,8 @@ export async function buildApp(
     frames?: WatcherDeps['source'];
     /** The feature model; tests pass null to leave it out. */
     appearance?: () => Promise<Appearance | null>;
+    /** Apple Vision's tracker, found on Apple silicon unless given; null leaves it out. */
+    vision?: (() => Promise<VisionTracker | null>) | null;
     /** Home Assistant's websocket, for signing in; tests pass their own. */
     haSocket?: OpenSocket;
     /** The MQTT client; tests pass their own. */
@@ -491,6 +494,16 @@ export async function buildApp(
   // The server watches the camera, so rules fire with no tab open.
   let model: Promise<Appearance | null> | null = null;
   let vision: Promise<VisionTracker | null> | null = null;
+  const steerer =
+    options.vision !== undefined
+      ? options.vision
+      : visionTrackerSupported(config.dataDir)
+        ? async () => {
+            // One helper for both choices of it, and a new one once it stopped.
+            if (!(await vision)?.alive) vision = VisionTracker.load(config.dataDir);
+            return vision;
+          }
+        : null;
   const demoPicture = new DemoSource();
   const watcherDeps = (mode: Mode): WatcherDeps => ({
     mode,
@@ -520,11 +533,15 @@ export async function buildApp(
     appearance: options.appearance ?? (() => (model ??= Appearance.load(config.dataDir))),
     ...(options.frames ? { source: options.frames } : {}),
     cameraUrl: (camera) => cameras.urlOf(camera),
+    remoteUrl: (camera) => cameras.remoteUrlOf(camera),
     cameraCrop: (camera) => cameras.cropOf(camera),
-    // Demo frames come one deliberate move at a time, so there is nothing for Vision to follow.
-    ...(mode === 'live' && config.visionTracker
-      ? { vision: () => (vision ??= VisionTracker.load(config.dataDir)) }
-      : {}),
+    // Demo mode makes no network calls.
+    gpu:
+      mode === 'live' && config.gpuTracker
+        ? new GpuTracker(config.gpuTracker.url, config.gpuTracker.token, options.fetcher)
+        : null,
+    // Offered on Apple silicon. Demo frames come one deliberate move at a time: nothing for it to follow.
+    ...(mode === 'live' && steerer ? { vision: steerer } : {}),
   });
   const watchers = {
     demo: new Watcher(watcherDeps('demo')),

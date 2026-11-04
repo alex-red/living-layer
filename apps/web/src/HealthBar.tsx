@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import type { TrackHealth } from '@livinglayer/domain';
 import { TRACK_HEALTH } from '@livinglayer/domain';
 
@@ -36,8 +36,19 @@ function WorkSpark({ recent, budgetMs }: { recent: number[]; budgetMs: number })
  * verdict, so it reads calmly on screen. Opened, the reason, its rate, work
  * per frame and load, every number behind the verdict and the latest frames'
  * work against the frame interval. Only a stall says why without opening.
+ * `control` (a switch for what does the tracking) and `more` rows open with it.
  */
-export function HealthBar({ who, health: h }: { who: string; health: TrackHealth }) {
+export function HealthBar({
+  who,
+  health: h,
+  control,
+  more = [],
+}: {
+  who: string;
+  health: TrackHealth;
+  control?: ReactNode;
+  more?: [string, string][];
+}) {
   const [open, setOpen] = useState(false);
   const load = h.cpu !== null ? `CPU ${h.cpu}%` : h.busy !== null ? `busy ${pct(h.busy)}` : null;
   const numbers = [
@@ -56,11 +67,13 @@ export function HealthBar({ who, health: h }: { who: string; health: TrackHealth
     ...(h.busy !== null ? [['On frames', pct(h.busy)] as [string, string]] : []),
     ...(h.cpu !== null ? [['Server CPU', `${h.cpu}%`] as [string, string]] : []),
     ...(h.ffmpegCpu !== null ? [['ffmpeg CPU', `${h.ffmpegCpu}%`] as [string, string]] : []),
+    ...(h.visionCpu != null ? [['Apple Vision CPU', `${h.visionCpu}%`] as [string, string]] : []),
     ...(h.driftMs !== null ? [['Timers late', `${h.driftMs} ms`] as [string, string]] : []),
     [
       'Things',
       `${h.things}${h.lost ? `, ${h.lost} lost` : ''}${h.looking ? `, ${h.looking} looked for` : ''}`,
     ],
+    ...more,
   ];
   return (
     <div className={`health-bar ${h.verdict}`}>
@@ -78,6 +91,7 @@ export function HealthBar({ who, health: h }: { who: string; health: TrackHealth
       {h.verdict === 'stalled' && <p className="health-reason">{h.reason}</p>}
       {open && (
         <div className="health-detail">
+          {control}
           {numbers.length > 0 && <p className="health-numbers">{numbers.join(' · ')}</p>}
           {h.verdict !== 'healthy' && h.verdict !== 'stalled' && (
             <p className="health-why">{h.reason}</p>

@@ -1,14 +1,14 @@
 /**
  * What the server process is doing while it watches: how late its timers
  * run (anything blocking the event loop shows here), its CPU and that of the
- * ffmpeg decoding the camera, each as % of one core. Sampled on a timer, never
+ * ffmpeg decoding the camera and Apple Vision's helper, each as % of one core. Sampled on a timer, never
  * per frame.
  */
 
 const TICK_MS = 500;
 /** Drift is the worst of the last few ticks, so one slow tick is seen for a while. */
 const DRIFT_TICKS = 10;
-/** ffmpeg's CPU is read with `ps`, every few ticks. */
+/** ffmpeg's and the helper's CPU are read with `ps`, every few ticks. */
 const FFMPEG_EVERY = 10;
 
 /** `ps -o time=`: `[[dd-]hh:]mm:ss[.ss]`, in seconds; null when it isn't one. */
@@ -33,19 +33,40 @@ async function processCpu(pid: number): Promise<number | null> {
   }
 }
 
+/** Another process's CPU, from `ps` read now and then: the change between two reads. */
+class ChildCpu {
+  value: number | null = null;
+  private from: { pid: number; cpu: number; at: number } | null = null;
+  reset() {
+    this.value = null;
+    this.from = null;
+  }
+  async read(pid: number | null | undefined, at: number, running: () => boolean) {
+    if (!pid) return this.reset();
+    const cpu = await processCpu(pid);
+    if (cpu === null || !running()) return;
+    const from = this.from;
+    if (from?.pid === pid && at > from.at)
+      this.value = Math.round(((cpu - from.cpu) * 1000 * 100) / (at - from.at));
+    this.from = { pid, cpu, at };
+  }
+}
+
 export class ProcessLoad {
   private timer: ReturnType<typeof setInterval> | null = null;
   private drifts: number[] = [];
   private cpu: number | null = null;
-  private ffmpegCpu: number | null = null;
+  private ffmpeg = new ChildCpu();
+  private vision = new ChildCpu();
   private lastTick = 0;
   private lastUsage = process.cpuUsage();
   private ticks = 0;
-  private ffmpegFrom: { pid: number; cpu: number; at: number } | null = null;
   constructor(
     /** The decoding process, when there is one. */
     private pid: () => number | null | undefined,
     private onTick: () => void,
+    /** Apple Vision's helper, while it steers. */
+    private helper: () => number | null | undefined = () => null,
   ) {}
   start() {
     this.stop();
@@ -60,15 +81,16 @@ export class ProcessLoad {
     this.timer = null;
     this.drifts = [];
     this.cpu = null;
-    this.ffmpegCpu = null;
-    this.ffmpegFrom = null;
+    this.ffmpeg.reset();
+    this.vision.reset();
     this.ticks = 0;
   }
   read() {
     return {
       driftMs: this.drifts.length ? Math.round(Math.max(...this.drifts)) : null,
       cpu: this.cpu,
-      ffmpegCpu: this.ffmpegCpu,
+      ffmpegCpu: this.ffmpeg.value,
+      visionCpu: this.vision.value,
     };
   }
   private tick() {
@@ -80,17 +102,11 @@ export class ProcessLoad {
     this.lastUsage = process.cpuUsage();
     this.lastTick = at;
     this.cpu = Math.round(((usage.user + usage.system) / 1000 / wall) * 100);
-    if (this.ticks++ % FFMPEG_EVERY === 0) void this.readFfmpeg(at);
+    if (this.ticks++ % FFMPEG_EVERY === 0) {
+      const running = () => this.timer !== null;
+      void this.ffmpeg.read(this.pid(), at, running);
+      void this.vision.read(this.helper(), at, running);
+    }
     this.onTick();
-  }
-  private async readFfmpeg(at: number) {
-    const pid = this.pid();
-    if (!pid) return void (this.ffmpegCpu = null);
-    const cpu = await processCpu(pid);
-    if (cpu === null || !this.timer) return;
-    const from = this.ffmpegFrom;
-    if (from?.pid === pid && at > from.at)
-      this.ffmpegCpu = Math.round(((cpu - from.cpu) * 1000 * 100) / (at - from.at));
-    this.ffmpegFrom = { pid, cpu, at };
   }
 }

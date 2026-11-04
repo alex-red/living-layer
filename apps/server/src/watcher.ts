@@ -4,6 +4,7 @@ import {
   runOutput,
   modeOnlySchema,
   watchBodySchema,
+  watchBackendBodySchema,
   watchDemoBodySchema,
   appearanceSure,
   asked,
@@ -77,8 +78,17 @@ import {
   mugOf,
   followStats,
   HealthMeter,
+  gpuCorrections,
+  gpuGiven,
+  gpuHealth,
+  gpuOverruled,
+  GPU_TRACK,
+  type GpuTrackerView,
+  type TrackerBackend,
+  type VisionTrackerView,
 } from '@livinglayer/domain';
 import type { Appearance } from './appearance.js';
+import type { GpuTracker, GpuTracks } from './gpu-tracker.js';
 import type { VisionTracker } from './vision-tracker.js';
 import type { DeskTracking } from './desk.js';
 import { LabError, parseInput, safeError } from './errors.js';
@@ -141,7 +151,11 @@ export interface WatcherDeps {
   cameraUrl?: (camera: WatchCamera) => string | null;
   /** The zoomed view a camera's frames are cut to, or null for the whole frame. */
   cameraCrop?: (camera: WatchCamera) => CameraCrop | null;
-  /** Apple Vision's tracker, steering each frame's search on a Mac; live only, with `VISION_TRACKER`. */
+  /** The URL another machine (the GPU tracker) reads a camera from: its own, not this machine's relay. */
+  remoteUrl?: (camera: WatchCamera) => string | null;
+  /** The GPU tracker node, following the same things on another machine; live only, when configured. */
+  gpu?: GpuTracker | null;
+  /** Apple Vision's tracker, steering each frame's search: the `vision` backend, given on Apple silicon only. */
   vision?: () => Promise<VisionTracker | null>;
   now?: () => number;
 }
@@ -221,10 +235,22 @@ export class Watcher {
   private lastSam = new Map<string, number>();
   private comparing = false;
   private model: Appearance | null = null;
+  /** Apple Vision, once loaded, and whether it steers now (the `vision` backend while watching). */
   private vision: VisionTracker | null = null;
+  private steerer: VisionTracker | null = null;
   /** A frame waiting for Vision's boxes, and the latest one to come meanwhile. */
   private steering = false;
-  private nextFrame: LumaFrame | null = null;
+  private nextFrame: { frame: LumaFrame; at: number } | null = null;
+  private visionSeen = { ms: null as number | null, found: 0, dropped: 0, stopped: false };
+  /** The GPU tracker while it follows: its state, its last sure box per thing, when each was handed back. */
+  private gpu: GpuTrackerView | null = null;
+  private gpuLast = new Map<string, UnitBox>();
+  /** The GPU's last sure box for each thing it sees, and when it came: the local match takes it while fresh. */
+  private gpuSeen = new Map<string, { box: UnitBox; at: number }>();
+  /** When each thing's GPU box was last checked against its own look. */
+  private gpuVerified = new Map<string, number>();
+  private gpuReseeded = new Map<string, number>();
+  private gpuArrivals: number[] = [];
   private emitTimer: ReturnType<typeof setTimeout> | null = null;
   private generation = 0;
   /** The SAM asks in flight; stopping or restarting the watch aborts them. */
@@ -262,6 +288,7 @@ export class Watcher {
         const h = this.healthNow();
         if (h && `${h.verdict}:${h.reason}` !== this.healthSaid) this.emit();
       },
+      () => (this.steerer?.alive ? this.steerer.pid : null),
     );
     this.statRunner = new StatRunner({
       mode: deps.mode,
@@ -296,6 +323,41 @@ export class Watcher {
   private memory() {
     return this.deps.store.memory(this.deps.mode);
   }
+  /** The tracker backends this watcher can use: the GPU tracker only live, and once configured. */
+  get backends(): TrackerBackend[] {
+    if (this.deps.mode !== 'live') return ['local'];
+    return [
+      'local',
+      ...(this.deps.vision ? (['vision'] as const) : []),
+      ...(this.deps.gpu ? (['gpu'] as const) : []),
+    ];
+  }
+  private get backend(): TrackerBackend {
+    const chosen = this.deps.store.trackerBackend();
+    return this.backends.includes(chosen) ? chosen : 'local';
+  }
+  /** The backend was switched: start or stop the GPU tracker beside the local match, keeping every track. */
+  backendChanged() {
+    const watching = this.state === 'watching' || this.state === 'paused';
+    if (this.backend !== 'vision' || !watching) this.steerer = null;
+    else if (!this.steerer) {
+      const generation = this.generation;
+      void this.track(
+        this.loadVision().then((vision) => {
+          if (generation !== this.generation || this.backend !== 'vision') return;
+          this.steerer = vision;
+          if (this.note.startsWith('Watching')) this.note = this.watchingNote(this.memory());
+          this.emit(true);
+        }),
+      );
+    }
+    if (this.backend !== 'gpu' || !watching) this.stopGpu();
+    else if (!this.gpu) {
+      const camera = this.memory().watch?.camera;
+      if (camera) this.startGpu(camera);
+    }
+    this.emit(true);
+  }
   view(): WatchView {
     const memory = this.memory();
     const camera = memory.watch?.camera;
@@ -307,9 +369,13 @@ export class Watcher {
       camera: camera ? { id: camera.id, name: camera.name } : null,
       appearance: Boolean(this.model),
       ai: this.ai,
+      backend: this.backend,
+      backends: this.backends,
       ...this.stats,
       stats: this.statRunner.current(),
       ...this.healthPart(),
+      ...(this.gpu ? { gpu: this.gpuNow()! } : {}),
+      ...this.visionPart(),
       things: [...this.things.values()].map((t) => ({
         id: t.subject.id,
         kind: t.subject.kind,
@@ -325,12 +391,14 @@ export class Watcher {
   private healthNow() {
     if (this.state !== 'watching' && this.state !== 'paused') return null;
     const things = [...this.things.values()];
-    return this.health.read(this.now, {
+    const health = this.health.read(this.now, {
       ...this.load.read(),
       looking: this.held.size + this.pending.length,
       lost: things.filter((t) => t.status === 'missing').length,
       things: things.length,
     });
+    const gpu = this.gpuNow();
+    return gpu ? gpuHealth(health, gpu) : health;
   }
   private healthPart() {
     const health = this.healthNow();
@@ -580,6 +648,7 @@ export class Watcher {
     this.asking.abort();
     this.asking = new AbortController();
     this.source?.stop();
+    this.stopGpu();
     this.things.clear();
     this.pending = [];
     this.held.clear();
@@ -602,7 +671,7 @@ export class Watcher {
         `${camera!.name} was removed. Choose another camera to watch.`,
       );
     this.model ??= await this.deps.appearance();
-    this.vision ??= (await this.deps.vision?.()) ?? null;
+    this.steerer = this.backend === 'vision' ? await this.loadVision() : null;
     this.statRunner.embed = this.model ? (frame, rect) => this.zoneFeatures(frame, rect) : null;
     const source =
       this.deps.source?.(camera) ??
@@ -649,11 +718,119 @@ export class Watcher {
     this.statRunner.setWatching(true);
     this.statRunner.sync(memory);
     this.say('watching', this.watchingNote(memory));
+    if (this.deps.mode === 'live' && camera) this.startGpu(camera);
+  }
+  /** Follow the same things on the GPU tracker too, when there is one; its results only correct local tracks. */
+  private startGpu(camera: WatchCamera) {
+    const gpu = this.deps.gpu;
+    if (!gpu || this.backend !== 'gpu') return;
+    const url = this.deps.remoteUrl ? this.deps.remoteUrl(camera) : camera.url;
+    if (!url) return;
+    const crop = this.deps.cameraCrop?.(camera) ?? null;
+    this.gpu = {
+      state: 'connecting',
+      note: '',
+      ms: null,
+      rate: 0,
+      sinceMs: null,
+      placing: 0,
+      fixes: 0,
+      overruled: 0,
+      reseeds: 0,
+    };
+    const generation = this.generation;
+    gpu.start(
+      url,
+      crop,
+      this.gpuThings(),
+      (tracks) => {
+        if (generation === this.generation) this.gpuTracks(tracks);
+      },
+      (state, note) => {
+        if (generation !== this.generation || !this.gpu) return;
+        if (this.gpu.state === state && this.gpu.note === note) return;
+        this.gpu = { ...this.gpu, state, note };
+        this.emit(true);
+      },
+    );
+  }
+  /** The GPU tracker's view now: how long since its last result. */
+  private gpuNow(): GpuTrackerView | null {
+    if (!this.gpu) return null;
+    const last = this.gpuArrivals.at(-1);
+    return { ...this.gpu, sinceMs: last === undefined ? null : this.now - last };
+  }
+  private stopGpu() {
+    this.deps.gpu?.stop();
+    this.gpu = null;
+    this.gpuLast.clear();
+    this.gpuSeen.clear();
+    this.gpuVerified.clear();
+    this.gpuReseeded.clear();
+    this.gpuArrivals = [];
+  }
+  private gpuThings() {
+    return [...this.things.values()].map((t) => ({ id: t.subject.id, box: t.track.box }));
+  }
+  /** One GPU result: local tracks it shows lost or astray start again there; things it lost are handed back. */
+  private gpuTracks(tracks: GpuTracks) {
+    if (!this.gpu || (this.state !== 'watching' && this.state !== 'paused')) return;
+    const now = this.now;
+    this.gpuArrivals = [...this.gpuArrivals.filter((t) => now - t < 5000), now];
+    const { local, reseed } = gpuCorrections(
+      [...this.things.values()],
+      tracks.things,
+      this.gpuLast,
+      this.held,
+      this.gpuReseeded,
+      now,
+    );
+    for (const { id, box } of local) {
+      const thing = this.things.get(id);
+      if (!thing) continue;
+      const next = refound(thing, box, this.lastFrame ?? undefined, 'gpu');
+      this.found(thing, next);
+      this.things.set(id, next);
+      this.refinding.delete(id);
+    }
+    // Found by the GPU: no SAM call or whole-frame search for them.
+    const fixed = new Set(local.map((l) => l.id));
+    this.pending = this.pending.filter((p) => !fixed.has(p.id));
+    for (const r of reseed) this.gpuReseeded.set(r.id, now);
+    this.deps.gpu?.reseed(reseed);
+    this.gpuLast = new Map(
+      tracks.things.flatMap((t) => (t.seen && t.box ? [[t.id, t.box] as const] : [])),
+    );
+    for (const t of tracks.things)
+      if (t.seen && t.box && t.score >= GPU_TRACK.sureScore)
+        this.gpuSeen.set(t.id, { box: t.box, at: now });
+      else this.gpuSeen.delete(t.id);
+    this.gpu = {
+      ...this.gpu,
+      ms: tracks.ms,
+      rate: Math.round((this.gpuArrivals.length / 5) * 10) / 10,
+      fixes: this.gpu.fixes + local.length,
+      reseeds: this.gpu.reseeds + reseed.length,
+    };
+    this.emit(local.length > 0);
+  }
+  /** Apple Vision's helper, started the first time it is chosen, or again once stopped; null when it can't be. */
+  private async loadVision() {
+    if (!this.vision?.alive) this.vision = (await this.deps.vision?.()) ?? null;
+    this.visionSeen = { ms: null, found: 0, dropped: 0, stopped: false };
+    return this.vision;
+  }
+  private visionPart(): { vision?: VisionTrackerView } {
+    const watching = this.state === 'watching' || this.state === 'paused';
+    if (this.backend !== 'vision' || !watching) return {};
+    const { ms, found, dropped } = this.visionSeen;
+    const state = !this.steerer ? 'unavailable' : this.steerer.alive ? 'steering' : 'stopped';
+    return { vision: { state, ms, found, dropped } };
   }
   private watchingNote(memory: DeskMemory) {
     const count = this.things.size;
     return count
-      ? `Watching ${count} thing${count === 1 ? '' : 's'}${this.ai ? '' : ', on this machine only'}${this.vision ? ', with Apple Vision' : ''}.${memory.fixedCamera ? '' : ' Mark the camera fixed so zones carry over to new frames.'}`
+      ? `Watching ${count} thing${count === 1 ? '' : 's'}${this.ai ? '' : ', on this machine only'}${this.backend !== 'vision' ? '' : !this.steerer ? ', but Apple Vision could not start' : this.steerer.alive ? ', steered by Apple Vision' : ', but Apple Vision stopped'}.${memory.fixedCamera ? '' : ' Mark the camera fixed so zones carry over to new frames.'}`
       : 'Watching, but nothing is confirmed yet: confirm the mug or an object first.';
   }
   /**
@@ -679,6 +856,7 @@ export class Watcher {
         }
         // The count it started with is stale once things are confirmed or forgotten.
         if (this.note.startsWith('Watching')) this.note = this.watchingNote(memory);
+        if (this.gpu) this.deps.gpu?.setThings(this.gpuThings());
         this.emit(true);
       })(),
     );
@@ -694,6 +872,7 @@ export class Watcher {
     this.emitTimer = null;
     this.source?.stop();
     this.source = null;
+    this.stopGpu();
     this.things.clear();
     this.boxOnly.clear();
     this.closeSeen.clear();
@@ -826,11 +1005,21 @@ export class Watcher {
    * went, and is stepped with its answer. A frame that comes meanwhile waits,
    * and a later one takes its place: frames are stepped in order, none twice.
    */
-  private steer(frame: LumaFrame) {
-    const vision = this.vision;
-    if (!vision) return this.frame(frame);
-    if (this.steering) return void (this.nextFrame = frame);
+  private steer(frame: LumaFrame, at = this.now) {
+    const vision = this.steerer;
+    if (vision && !vision.alive && !this.visionSeen.stopped) {
+      // Said once: the frames go on without it from here.
+      this.visionSeen.stopped = true;
+      if (this.note.startsWith('Watching')) this.note = this.watchingNote(this.memory());
+      this.emit(true);
+    }
+    if (!vision?.alive) return this.frame(frame);
+    if (this.steering) {
+      if (this.nextFrame) this.visionSeen.dropped++;
+      return void (this.nextFrame = { frame, at });
+    }
     this.steering = true;
+    const asked = performance.now();
     const generation = this.generation;
     // Only things that may have moved: a still desk costs Vision nothing.
     const boxes = new Map(
@@ -850,14 +1039,20 @@ export class Watcher {
       .then((hints) => {
         this.steering = false;
         if (generation !== this.generation) return void (this.nextFrame = null);
-        this.frame(frame, hints);
+        if (boxes.size) this.visionSeen.ms = Math.round((performance.now() - asked) * 10) / 10;
+        // Vision's answer is part of the frame's work, and the frame counts from when it came.
+        this.frame(frame, hints, { at, startedAt: asked });
         const next = this.nextFrame;
         this.nextFrame = null;
-        if (next) this.steer(next);
+        if (next) this.steer(next.frame, next.at);
       });
   }
-  private frame(frame: LumaFrame, hints: ReadonlyMap<string, UnitBox> = new Map()) {
-    const started = performance.now();
+  private frame(
+    frame: LumaFrame,
+    hints: ReadonlyMap<string, UnitBox> = new Map(),
+    steered?: { at: number; startedAt: number },
+  ) {
+    const started = steered?.startedAt ?? performance.now();
     const previous = this.lastFrame;
     this.lastFrame = frame;
     this.stats.frames++;
@@ -874,6 +1069,25 @@ export class Watcher {
         if (frameMotion(previous, frame, z.rect) > LOCAL_TRACK.motionShare)
           this.motionAt.set(z.id, now);
     if (previous && this.motionZones.length) this.moveZones(previous, frame, now);
+    // Where the GPU tracker sees things now: no search on this machine for those.
+    const given =
+      this.gpu?.state === 'following' ? gpuGiven(this.gpuSeen, now) : new Map<string, UnitBox>();
+    // Once a second each, the GPU's box against the thing's own look: one surely wrong is
+    // overruled, this frame searched here instead, and the GPU seeded again where it is.
+    for (const [id, box] of given) {
+      if (now - (this.gpuVerified.get(id) ?? -Infinity) < GPU_TRACK.verifyMs) continue;
+      this.gpuVerified.set(id, now);
+      const thing = this.things.get(id);
+      const local = thing && gpuOverruled(thing, frame, box);
+      if (!local) continue;
+      given.delete(id);
+      this.gpuSeen.delete(id);
+      this.gpuReseeded.set(id, now);
+      this.deps.gpu?.reseed([{ id, box: local }]);
+      if (this.gpu) this.gpu.overruled++;
+    }
+    if (this.gpu) this.gpu.placing = given.size;
+    if (given.size) this.pending = this.pending.filter((p) => !given.has(p.id));
     // Together, so no two things settle on one place. Things being looked for hold still meanwhile.
     for (const [id, step] of watchFrame(
       [...this.things.values()],
@@ -882,7 +1096,9 @@ export class Watcher {
       this.pace,
       this.held,
       hints,
+      given,
     )) {
+      if (step.steered) this.visionSeen.found++;
       this.found(this.things.get(id), step.thing);
       this.things.set(id, step.thing);
       this.settled(step.thing);
@@ -909,7 +1125,7 @@ export class Watcher {
       this.lastOccupancyCheck = now;
       void this.track(this.compareZones(frame));
     }
-    this.health.frame(now, performance.now() - started);
+    this.health.frame(steered?.at ?? now, performance.now() - started);
     this.emit();
   }
   /**
@@ -1415,6 +1631,22 @@ export async function watchRoutes(
       if (!camera) throw new LabError('watch_camera', 'Choose a network camera to watch.', 409);
     }
     return setWatching(store, watchers[mode], on, camera);
+  });
+  /** Switch what follows things for the live watcher: this machine alone, steered by Apple Vision, or the GPU tracker correcting it. */
+  app.post('/backend', async (request) => {
+    const { backend } = parseInput(watchBackendBodySchema, request.body);
+    const live = watchers.live;
+    if (!live.backends.includes(backend))
+      throw new LabError(
+        'tracker_backend',
+        backend === 'vision'
+          ? 'Apple Vision needs a Mac with Apple silicon and Xcode’s command line tools (xcode-select --install).'
+          : 'No GPU tracker is configured: set GPU_TRACKER_URL and GPU_TRACKER_TOKEN in .env and restart the server.',
+        409,
+      );
+    store.setTrackerBackend(backend);
+    live.backendChanged();
+    return live.view();
   });
   app.post('/demo', async (request) => {
     const { position } = parseInput(watchDemoBodySchema, request.body);

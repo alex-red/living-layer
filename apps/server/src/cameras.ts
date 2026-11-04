@@ -134,6 +134,17 @@ export class CameraRegistry {
     });
   }
   /** What the watcher reads: a saved camera's real URL, null once it's removed; anything else as kept. */
+  /**
+   * What another machine (the GPU tracker) reads a camera from: the relay's
+   * network RTSP when it may, so the camera keeps one client, else the camera
+   * itself. Never the relay's loopback address, which only this machine reaches.
+   */
+  remoteUrlOf(camera: WatchCamera): string | null {
+    const id = savedIdOf(camera.id);
+    const saved = id === null ? null : this.get(id);
+    if (id === null) return camera.url;
+    return saved && (this.relay?.remoteRtspFor?.(saved) ?? saved.url);
+  }
   urlOf(camera: WatchCamera): string | null {
     const id = savedIdOf(camera.id);
     const saved = id === null ? null : this.get(id);

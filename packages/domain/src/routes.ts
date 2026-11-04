@@ -124,6 +124,7 @@ interface ApiRoutes {
   'things/used': { body: R.ThingsUsedBody; response: { now: StatNow; stats: StatsNow } };
   [path: `things/${'demo' | 'live'}/${string}`]: { body: undefined; response: ThingStatsView };
   'watch/demo': { body: R.WatchDemoBody; response: unknown };
+  'watch/backend': { body: R.WatchBackendBody; response: WatchView };
 
   'scene/classify': { body: Image; response: EvidenceRun<SceneGuess> };
   'scene/draft': {

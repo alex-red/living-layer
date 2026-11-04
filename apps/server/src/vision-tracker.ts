@@ -17,8 +17,17 @@ export function visionTrackerBinary(dataDir: string) {
 }
 
 /**
+ * Whether this host can run the helper: a Mac with Apple silicon, with the
+ * helper built already or `swiftc` (Xcode's command line tools) to build it.
+ */
+export function visionTrackerSupported(dataDir: string): boolean {
+  if (process.platform !== 'darwin' || process.arch !== 'arm64') return false;
+  return Boolean(Bun.which('swiftc')) || existsSync(visionTrackerBinary(dataDir));
+}
+
+/**
  * Apple Vision's object tracker in a small Swift helper, on Apple silicon
- * only (`VISION_TRACKER`). It tells the watcher where to look for a thing
+ * only: the live watcher's `vision` backend. It tells the watcher where to look for a thing
  * that moved: the template match searches there first and still decides
  * (`stepLocalTrack`'s `hint`). About 0.35 ms a thing at the watcher's
  * 320 × 240, a few MB, and nothing to download: it is part of macOS.
@@ -30,6 +39,14 @@ export class VisionTracker {
   private constructor(private proc: Bun.Subprocess<'pipe', 'pipe', 'ignore'>) {
     this.lines = readLines(proc.stdout);
     void proc.exited.then(() => (this.dead = true));
+  }
+  /** Whether it still answers: a helper that crashed or ran late is stopped for good. */
+  get alive() {
+    return !this.dead;
+  }
+  /** The helper's process, for its CPU. */
+  get pid() {
+    return this.proc.pid;
   }
   /** Runs `command`, which speaks the helper's protocol; tests pass a stand-in. */
   static spawn(command: string[]): VisionTracker {
@@ -43,7 +60,7 @@ export class VisionTracker {
    * build. Never throws.
    */
   static async load(dataDir: string): Promise<VisionTracker | null> {
-    if (process.platform !== 'darwin' || process.arch !== 'arm64') return null;
+    if (!visionTrackerSupported(dataDir)) return null;
     try {
       const binary = visionTrackerBinary(dataDir);
       if (!existsSync(binary)) {

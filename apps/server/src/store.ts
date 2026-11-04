@@ -22,6 +22,7 @@ import {
   type StatEvent,
   type StatKey,
   type StoredSave,
+  type TrackerBackend,
 } from '@livinglayer/domain';
 
 type Payload = { payload: string };
@@ -341,6 +342,15 @@ export class EvidenceStore {
   setTrackingAi(on: boolean): void {
     if (on) this.setSetting('tracking_ai', 'on');
     else this.deleteSetting('tracking_ai');
+  }
+  /** What follows things for the live watcher: this machine unless Apple Vision or the GPU tracker was chosen. */
+  trackerBackend(): TrackerBackend {
+    const chosen = this.setting('tracker_backend');
+    return chosen === 'gpu' || chosen === 'vision' ? chosen : 'local';
+  }
+  setTrackerBackend(backend: TrackerBackend): void {
+    if (backend === 'local') this.deleteSetting('tracker_backend');
+    else this.setSetting('tracker_backend', backend);
   }
   /** A value kept in `settings`, or null. */
   setting(key: string): string | null {

@@ -125,6 +125,7 @@ const ROUTES = [
   '/api/watch [POST]',
   '/api/watch/:mode [GET]',
   '/api/watch/:mode/events [GET]',
+  '/api/watch/backend [POST]',
   '/api/watch/demo [POST]',
 ];
 

@@ -54,6 +54,8 @@ export interface TrackHealth {
   /** The process's CPU, and ffmpeg's, as % of one core, when measured. */
   cpu: number | null;
   ffmpegCpu: number | null;
+  /** Apple Vision's helper's CPU, % of one core, while it steers. */
+  visionCpu?: number | null;
   /** Things being looked for again (SAM or a whole-frame search), and things lost. */
   looking: number;
   lost: number;
@@ -64,7 +66,7 @@ export interface TrackHealth {
 
 /** What a tracker knows beyond its frames. */
 type HealthExtra = Partial<
-  Pick<TrackHealth, 'driftMs' | 'cpu' | 'ffmpegCpu' | 'looking' | 'lost' | 'things'>
+  Pick<TrackHealth, 'driftMs' | 'cpu' | 'ffmpegCpu' | 'visionCpu' | 'looking' | 'lost' | 'things'>
 >;
 
 const round1 = (n: number) => Math.round(n * 10) / 10;
@@ -156,6 +158,7 @@ export class HealthMeter {
       driftMs: extra.driftMs ?? null,
       cpu: extra.cpu ?? null,
       ffmpegCpu: extra.ffmpegCpu ?? null,
+      ...(extra.visionCpu != null ? { visionCpu: extra.visionCpu } : {}),
       looking: extra.looking ?? 0,
       lost: extra.lost ?? 0,
       things: extra.things ?? 0,

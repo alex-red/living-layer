@@ -26,7 +26,7 @@ try {
   );
   const apple = process.platform === 'darwin' && process.arch === 'arm64';
   console.log(
-    `Apple Vision steering the watcher: ${!config.visionTracker ? 'off (VISION_TRACKER)' : !apple ? 'on, but this is not Apple silicon, so unused' : existsSync(visionTrackerBinary(config.dataDir)) ? 'on, helper built' : Bun.which('swiftc') ? 'on, helper built on first watch' : 'on, but swiftc is missing (xcode-select --install)'}`,
+    `Apple Vision tracker (the Watcher's Tracker choice): ${!apple ? 'not offered, this is not Apple silicon' : existsSync(visionTrackerBinary(config.dataDir)) ? 'offered, helper built' : Bun.which('swiftc') ? 'offered, helper built when first chosen' : 'not offered, swiftc is missing (xcode-select --install)'}`,
   );
   console.log(
     'Demo workflow is available without credentials. Live connectivity and physical effect are not tested by doctor.',

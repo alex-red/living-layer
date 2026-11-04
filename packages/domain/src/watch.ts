@@ -49,8 +49,11 @@ export interface WatchSubject {
  * after the view changed, wakes it up again.
  */
 export type WatchStatus = 'following' | 'unsure' | 'entangled' | 'covered' | 'missing';
-/** Which layer placed the box last: the local match, the feature model, or SAM. */
-type WatchLayer = 'local' | 'appearance' | 'sam';
+/**
+ * Which layer placed the box last: the local match, the local match where Apple Vision
+ * pointed it past its usual search, the feature model, SAM, or the GPU tracker.
+ */
+type WatchLayer = 'local' | 'vision' | 'appearance' | 'sam' | 'gpu';
 export interface WatchThing {
   subject: WatchSubject;
   track: LocalTrack;
@@ -157,9 +160,18 @@ export function watchStep(
     exclude = [] as UnitBox[],
     covers = [] as UnitBox[],
     hint = null as UnitBox | null,
+    given = null as UnitBox | null,
   } = {},
-): { thing: WatchThing; ask: 'reanchor' | null; refind: boolean; place: boolean } {
-  if (thing.status === 'missing') {
+): {
+  thing: WatchThing;
+  ask: 'reanchor' | null;
+  refind: boolean;
+  place: boolean;
+  /** Found where a hint pointed, outside the usual search (`stepLocalTrack`). */
+  steered?: boolean;
+} {
+  // Another tracker sees it (`given`): a missing thing is back, followed from there.
+  if (thing.status === 'missing' && !given) {
     const motion = frameMotion(thing.track.previous, frame, around(thing.track.box));
     const track = { ...thing.track, previous: frame, motion };
     // Something in front of where it was, and the part of it that shows still matches:
@@ -232,23 +244,32 @@ export function watchStep(
   const keep = {
     track: { ...thing.track, previous: frame, motion, stillSteps, velocity: { x: 0, y: 0 } },
     verdict: 'follow' as const,
+    steered: false,
   };
-  const matched = quiet
-    ? keep
-    : unchanged
-      ? {
-          track: { ...thing.track, previous: frame, motion, stillSteps, lostSteps },
-          verdict:
-            lostSteps >= WATCH.lostSteps && stillSteps >= quietSteps
-              ? ('reanchor' as const)
-              : ('follow' as const),
-        }
-      : stepLocalTrack(thing.track, frame, null, {
-          lostSteps: WATCH.lostSteps,
-          quietSteps,
-          exclude,
-          hint,
-        });
+  // The GPU tracker's box stands in for the local match: no search here, the zones judged as ever.
+  const matched = given
+    ? {
+        track: { ...keep.track, box: given, lostSteps: 0 },
+        verdict: 'follow' as const,
+        steered: false,
+      }
+    : quiet
+      ? keep
+      : unchanged
+        ? {
+            track: { ...thing.track, previous: frame, motion, stillSteps, lostSteps },
+            verdict:
+              lostSteps >= WATCH.lostSteps && stillSteps >= quietSteps
+                ? ('reanchor' as const)
+                : ('follow' as const),
+            steered: false,
+          }
+        : stepLocalTrack(thing.track, frame, null, {
+            lostSteps: WATCH.lostSteps,
+            quietSteps,
+            exclude,
+            hint,
+          });
   // A recheck with nothing moving around it can't have lost it: a white mug on a plain
   // desk often matches the place beside it about as well, and that alone isn't a loss.
   const step = held && matched.track.lostSteps ? keep : matched;
@@ -277,7 +298,13 @@ export function watchStep(
     track,
     status: 'following',
     woken: false,
-    layer: thing.status === 'unsure' ? 'local' : thing.layer,
+    layer: given
+      ? 'gpu'
+      : step.steered
+        ? 'vision'
+        : thing.status === 'unsure'
+          ? 'local'
+          : thing.layer,
     crossingSteps: crossed ? thing.crossingSteps + 1 : 0,
     crossedAt: crossed ? (thing.crossedAt ?? now) : null,
     goodSteps,
@@ -291,6 +318,7 @@ export function watchStep(
     ask: null,
     refind: false,
     place,
+    ...(step.steered ? { steered: true } : {}),
   };
 }
 /** What one frame means for one thing, from `watchFrame`. */
@@ -365,7 +393,9 @@ function near(a: UnitBox, b: UnitBox) {
  * stay entangled until a person confirms one.
  *
  * `hints` are where another tracker (Apple Vision, on a Mac) sees things in
- * this frame: each one's search starts there (`stepLocalTrack`).
+ * this frame: each one's search starts there (`stepLocalTrack`). `given`
+ * boxes (the GPU tracker's, sure and fresh) are where things are: no search
+ * at all, only the motion, the zones and the claims.
  */
 export function watchFrame(
   things: WatchThing[],
@@ -374,6 +404,7 @@ export function watchFrame(
   pace: { quietSteps?: number; placeGapMs?: number } = {},
   hold: ReadonlySet<string> = new Set(),
   hints: ReadonlyMap<string, UnitBox> = new Map(),
+  given: ReadonlyMap<string, UnitBox> = new Map(),
 ): Map<string, WatchStepResult> {
   const shown = (t: WatchThing) => t.status !== 'missing';
   const apart = (a: WatchThing, b: WatchThing) =>
@@ -388,7 +419,16 @@ export function watchFrame(
       .map((o) => o.track.box);
     const covers = coversOf(t, things);
     const hint = hints.get(t.subject.id) ?? null;
-    steps.set(t.subject.id, watchStep(t, frame, now, { ...pace, exclude, covers, hint }));
+    steps.set(
+      t.subject.id,
+      watchStep(t, frame, now, {
+        ...pace,
+        exclude,
+        covers,
+        hint,
+        given: given.get(t.subject.id) ?? null,
+      }),
+    );
   }
   const boxOf = (t: WatchThing) => steps.get(t.subject.id)?.thing.track.box ?? t.track.box;
   const moved = (t: WatchThing) =>
@@ -532,7 +572,12 @@ export function placed(thing: WatchThing, now: number, blocked: boolean): WatchT
  * it isn't matched against the desk it stood on before, and found only once
  * all was still, its zones are judged at the next still step.
  */
-export function refound(thing: WatchThing, box: UnitBox, frame?: LumaFrame): WatchThing {
+export function refound(
+  thing: WatchThing,
+  box: UnitBox,
+  frame?: LumaFrame,
+  layer: WatchLayer = 'appearance',
+): WatchThing {
   const template = frame && recutTemplate(thing.track.template, frame, box);
   const crossed = thing.subject.zones.some((z) => inZone(box, z.rect) !== z.inside);
   return {
@@ -552,7 +597,7 @@ export function refound(thing: WatchThing, box: UnitBox, frame?: LumaFrame): Wat
     },
     status: 'following',
     woken: false,
-    layer: 'appearance',
+    layer,
     crossingSteps: template && crossed ? WATCH.settleSteps - 1 : 0,
     crossedAt: null,
   };
@@ -580,6 +625,37 @@ export function missed(thing: WatchThing): WatchThing {
 }
 
 /** What the lab shows of the watcher; sent on every change. */
+/**
+ * What follows things for the live watcher: this machine alone (the local
+ * match, the feature model), the same steered by Apple Vision on a Mac with
+ * Apple silicon, or the GPU tracker node correcting it.
+ */
+export type TrackerBackend = 'local' | 'vision' | 'gpu';
+/** The GPU tracker as the watcher sees it: whether its results arrive, and what they fixed. */
+/** Apple Vision as the watcher sees it, while it is the backend. */
+export interface VisionTrackerView {
+  /** `stopped`: the helper crashed or ran late, and frames go on without it. */
+  state: 'steering' | 'stopped' | 'unavailable';
+  /** Its last answer's round trip, ms. */
+  ms: number | null;
+  /** Things it found outside the usual search, and frames dropped while it answered. */
+  found: number;
+  dropped: number;
+}
+export interface GpuTrackerView {
+  state: 'connecting' | 'following' | 'error';
+  note: string;
+  /** Its last step, ms, results a second lately, and how long since the last one, ms. */
+  ms: number | null;
+  rate: number;
+  sinceMs: number | null;
+  /** Things it places now (the local match skipped for them), local tracks it started again, things handed back to it. */
+  placing: number;
+  fixes: number;
+  /** Its boxes this machine overruled: the thing's own look surely elsewhere. */
+  overruled: number;
+  reseeds: number;
+}
 export interface WatchView {
   mode: 'demo' | 'live';
   on: boolean;
@@ -600,6 +676,16 @@ export interface WatchView {
   stats?: StatsNow;
   /** How the watcher keeps up with its camera, while it watches. */
   health?: TrackHealth;
+  /**
+   * The tracker backend chosen, and those this server can use: Apple Vision
+   * only on Apple silicon, the GPU one only once configured.
+   */
+  backend: TrackerBackend;
+  backends: TrackerBackend[];
+  /** The GPU tracker, while it is the backend and the live camera is watched. */
+  gpu?: GpuTrackerView;
+  /** Apple Vision, while it is the backend and the live camera is watched. */
+  vision?: VisionTrackerView;
   things: {
     id: string;
     kind: WatchKind;

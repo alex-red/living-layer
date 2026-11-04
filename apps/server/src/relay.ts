@@ -14,7 +14,18 @@ export interface Relay {
   sync(cameras: SavedCamera[]): Promise<void>;
   whepFor(camera: SavedCamera): string | null;
   rtspFor(camera: SavedCamera): string | null;
+  /** What another machine on the network (the GPU tracker) reads instead of the camera, when it may. */
+  remoteRtspFor?(camera: SavedCamera): string | null;
   stop(): void;
+}
+
+/** A machine on the network allowed to read the relay's RTSP: the GPU tracker. */
+export interface RelayReader {
+  /** This machine's address as that machine reaches it. */
+  host: string;
+  /** Its password (user `gpu`), and the addresses it may read from (any when empty). */
+  pass: string;
+  ips: string[];
 }
 
 /**
@@ -26,6 +37,10 @@ export interface Relay {
  * routes forward to them); with a `mediaHost`, for a lab opened from another
  * machine, its WebRTC media is also offered there, else that tab has no path
  * to it and falls back to the MJPEG.
+ *
+ * With a `reader` (the GPU tracker), its RTSP is also served on the network,
+ * to that one reader with its own password, so the camera keeps one client:
+ * a Wi-Fi camera split between two full streams freezes for both.
  *
  * Without mediamtx (or with `CAMERA_RELAY=off`) there is no relay, and saved
  * cameras fall back to the server's MJPEG preview and their own RTSP.
@@ -41,6 +56,7 @@ export class CameraRelay implements Relay {
     private port: number,
     /** This machine's network address, when the lab is served beyond loopback. */
     private mediaHost?: string,
+    private reader?: RelayReader,
   ) {
     this.dir = join(dataDir, 'relay');
   }
@@ -50,10 +66,11 @@ export class CameraRelay implements Relay {
     binary: string,
     port: number,
     mediaHost?: string,
+    reader?: RelayReader,
   ): CameraRelay | null {
     if (binary === 'off') return null;
     const found = Bun.which(binary);
-    return found ? new CameraRelay(dataDir, found, port, mediaHost) : null;
+    return found ? new CameraRelay(dataDir, found, port, mediaHost, reader) : null;
   }
   /** mediamtx reads RTSP(S); an HTTP stream stays on the server's preview. */
   static relays(camera: SavedCamera) {
@@ -77,6 +94,13 @@ export class CameraRelay implements Relay {
       ? `rtsp://127.0.0.1:${this.port + 1}/${this.path(camera)}`
       : null;
   }
+  /** What the GPU tracker reads instead of the camera, while the relay runs and it may. */
+  remoteRtspFor(camera: SavedCamera): string | null {
+    const r = this.reader;
+    return r && this.running && CameraRelay.relays(camera)
+      ? `rtsp://gpu:${encodeURIComponent(r.pass)}@${r.host}:${this.port + 1}/${this.path(camera)}`
+      : null;
+  }
   private config(cameras: SavedCamera[]) {
     const s = JSON.stringify;
     const paths = cameras.filter(CameraRelay.relays).flatMap((c) => [
@@ -98,6 +122,15 @@ export class CameraRelay implements Relay {
       '    ips: ["127.0.0.1", "::1"]',
       '    permissions:',
       '      - action: read',
+      ...(this.reader
+        ? [
+            '  - user: gpu',
+            `    pass: ${s(this.reader.pass)}`,
+            ...(this.reader.ips.length ? [`    ips: ${s(this.reader.ips)}`] : []),
+            '    permissions:',
+            '      - action: read',
+          ]
+        : []),
       'api: false',
       'metrics: false',
       'pprof: false',
@@ -107,7 +140,8 @@ export class CameraRelay implements Relay {
       'srt: false',
       'rtsp: true',
       'rtspTransports: [tcp]',
-      `rtspAddress: 127.0.0.1:${this.port + 1}`,
+      // On the network only for the GPU tracker, whose user needs its password there.
+      `rtspAddress: ${this.reader ? '' : '127.0.0.1'}:${this.port + 1}`,
       'webrtc: true',
       `webrtcAddress: 127.0.0.1:${this.port}`,
       'webrtcAllowOrigins: []',

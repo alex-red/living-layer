@@ -527,7 +527,8 @@ const inZone = (b: UnitBox, zone: UnitBox) =>
  *
  * A `hint` (where Apple Vision's tracker sees it, on a Mac) is searched
  * around first, a little way each side; when the template doesn't match
- * there surely, the usual search runs as if there were no hint.
+ * there surely, the usual search runs as if there were no hint. `steered`
+ * says the hint found it outside the usual search, where it would have been lost.
  */
 export function stepLocalTrack(
   track: LocalTrack,
@@ -540,7 +541,7 @@ export function stepLocalTrack(
     exclude = [] as UnitBox[],
     hint = null as UnitBox | null,
   } = {},
-): { track: LocalTrack; verdict: LocalVerdict } {
+): { track: LocalTrack; verdict: LocalVerdict; steered: boolean } {
   const motion = frameMotion(track.previous, frame, around(track.box));
   const still = {
     previous: frame,
@@ -580,6 +581,7 @@ export function stepLocalTrack(
     return {
       track: next,
       verdict: next.lostSteps >= lostSteps && settled ? 'reanchor' : 'follow',
+      steered: false,
     };
   }
   const crossed = zone !== null && inZone(match.box, zone) !== track.inside;
@@ -597,8 +599,12 @@ export function stepLocalTrack(
     lostSteps: 0,
     crossingSteps: crossed ? track.crossingSteps + 1 : 0,
   };
+  // Found by the hint where the usual search wouldn't have looked.
+  const beyond =
+    Math.abs(match.box.x - ahead.x) > radius || Math.abs(match.box.y - ahead.y) > radius;
   return {
     track: next,
     verdict: next.crossingSteps >= settleSteps && settled ? 'confirm' : 'follow',
+    steered: match === steered && beyond,
   };
 }

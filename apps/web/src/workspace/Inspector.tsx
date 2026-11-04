@@ -6,6 +6,7 @@ import {
   MAX_OTHER_OBJECTS,
   OBSERVATION_MAX_AGE_MS,
   exposedEntityId,
+  gpuTrackerLine,
   isMugConcept,
   keyFromName,
   objectById,
@@ -930,7 +931,7 @@ function WatchControl() {
   const watch = useStore(watchStore);
   const stats =
     watch &&
-    `${watch.frames} frame${watch.frames === 1 ? '' : 's'} · ${watch.ai ? `${watch.checks} SAM check${watch.checks === 1 ? '' : 's'}` : 'local only, no SAM calls'}${watch.appearance ? ` · ${watch.refinds} found by appearance` : ''}`;
+    `${watch.frames} frame${watch.frames === 1 ? '' : 's'} · ${watch.ai ? `${watch.checks} SAM check${watch.checks === 1 ? '' : 's'}` : 'local only, no SAM calls'}${watch.appearance ? ` · ${watch.refinds} found by appearance` : ''}${watch.gpu ? ` · ${gpuTrackerLine(watch.gpu)}` : ''}`;
   // Followed, but close to a look-alike while one moved: which is which waits for a person.
   const entangled = watching && watch ? watch.things.filter((t) => t.status === 'entangled') : [];
   return (

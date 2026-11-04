@@ -54,7 +54,8 @@ export async function testApp({
   if (from) cpSync(from, dataDir, { recursive: true });
   const config = parseConfig({ ...env, DATA_DIR: dataDir });
   const sent = (fetcher ?? mock<Fetcher>()) as Mock<Fetcher>;
-  const app = await buildApp(config, { serveWeb: false, ...options, fetcher: sent });
+  // Apple Vision only when a test gives it, so a Mac and CI see the same backends.
+  const app = await buildApp(config, { serveWeb: false, vision: null, ...options, fetcher: sent });
   apps.push(app);
   if (trackingAi)
     await app.inject({ method: 'POST', url: '/api/settings/tracking-ai', payload: { on: true } });

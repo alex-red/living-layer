@@ -1,6 +1,38 @@
 import { loadConfig } from './config.js';
 import { buildApp } from './app.js';
 import { CameraRelay } from './relay.js';
+import { lanAddress } from './remote.js';
+import { createSocket } from 'node:dgram';
+import { lookup } from 'node:dns/promises';
+import type { Config } from './config.js';
+import type { RelayReader } from './relay.js';
+
+/**
+ * The GPU tracker as a reader of the camera relay, when one is configured:
+ * it reads the relayed camera from this machine instead of the camera. Only
+ * from its own addresses, when its host resolves.
+ */
+async function gpuReader(config: Config): Promise<RelayReader | undefined> {
+  if (!config.gpuTracker) return undefined;
+  const ips = await lookup(new URL(config.gpuTracker.url).hostname, { all: true })
+    .then((found) => found.map((a) => a.address))
+    .catch(() => []);
+  // This machine's address on the way there: with several networks, the one it reaches us by.
+  const host = (ips[0] && (await addressToward(ips[0]))) || lanAddress();
+  return host ? { host, pass: config.gpuTracker.token, ips } : undefined;
+}
+/** The local address the system would send from to `ip`; a UDP socket's connect sends nothing. */
+function addressToward(ip: string): Promise<string | null> {
+  return new Promise((done) => {
+    const socket = createSocket(ip.includes(':') ? 'udp6' : 'udp4');
+    socket.on('error', () => (socket.close(), done(null)));
+    socket.connect(9, ip, () => {
+      const { address } = socket.address();
+      socket.close();
+      done(address);
+    });
+  });
+}
 
 let app: Awaited<ReturnType<typeof buildApp>> | undefined;
 /**
@@ -34,7 +66,9 @@ if (
 try {
   const config = loadConfig();
   const { binary, port } = config.cameraRelay;
-  app = await buildApp(config, { relay: CameraRelay.find(config.dataDir, binary, port) });
+  app = await buildApp(config, {
+    relay: CameraRelay.find(config.dataDir, binary, port, undefined, await gpuReader(config)),
+  });
   // A server that is ending (a reload, a restart) can hold the port a moment longer: wait for it.
   for (let tries = 1; ; tries++)
     try {

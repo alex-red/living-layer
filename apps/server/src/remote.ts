@@ -232,7 +232,7 @@ export class RemoteCamera {
  * The address a phone on the same network can reach this machine at: the
  * Wi-Fi or Ethernet one first, never loopback, link-local or a VM bridge.
  */
-function lanAddress() {
+export function lanAddress() {
   const found = Object.entries(networkInterfaces()).flatMap(([name, list]) =>
     (list ?? [])
       .filter((i) => i.family === 'IPv4' && !i.internal && !i.address.startsWith('169.254.'))

@@ -1,0 +1,28 @@
+# Run from this directory on the GPU host:  docker compose up -d --build
+# TRACKER_TOKEN goes in .env beside this file (bun run gpu-tracker deploy writes one).
+name: livinglayer-tracker
+
+services:
+  tracker:
+    build: .
+    image: livinglayer-tracker:local
+    container_name: livinglayer-tracker
+    # Not started at boot: it shares the GPU with vLLM, which the orchestrator owns.
+    restart: 'no'
+    environment:
+      TRACKER_TOKEN: ${TRACKER_TOKEN:?set TRACKER_TOKEN in .env}
+      TRACKER_MODEL: ${TRACKER_MODEL:-facebook/sam2.1-hiera-small}
+    ports:
+      - '43450:43450'
+    volumes:
+      - models:/models
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ['0']
+              capabilities: [gpu]
+
+volumes:
+  models:

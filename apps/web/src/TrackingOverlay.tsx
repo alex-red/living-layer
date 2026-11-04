@@ -27,7 +27,13 @@ interface Sighting {
   /** SAM's outline, when the mask it came from is still loaded. */
   outline?: { path: string; width: number; height: number };
 }
-const LAYER = { local: 'LOCAL', appearance: 'LOOKS', sam: 'SAM' } as const;
+const LAYER = {
+  local: 'LOCAL',
+  vision: 'VISION',
+  appearance: 'LOOKS',
+  sam: 'SAM',
+  gpu: 'GPU',
+} as const;
 
 /**
  * The thing a selection names, by the id the camera's boxes carry: the mug's

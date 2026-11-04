@@ -905,6 +905,12 @@ export const watchBodySchema = z
   .strict();
 export type WatchBody = z.input<typeof watchBodySchema>;
 
+/** POST /api/watch/backend: what follows things for the live watcher. */
+export const watchBackendBodySchema = z
+  .object({ backend: z.enum(['local', 'vision', 'gpu']) })
+  .strict();
+export type WatchBackendBody = z.input<typeof watchBackendBodySchema>;
+
 /** POST /api/watch/demo */
 export const watchDemoBodySchema = z.object({ position: demoPositionSchema }).strict();
 export type WatchDemoBody = z.input<typeof watchDemoBodySchema>;
