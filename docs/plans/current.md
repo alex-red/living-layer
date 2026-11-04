@@ -30,6 +30,13 @@ The [organizer's current event page](https://cerebralvalley.ai/e/meta-ai-develop
 
 Defer Wonder integration, self-hosted SAM/Spark, phone-to-server streaming, multi-camera support and new model-authorized automation until the checks above are complete. Reconsider SAM video only after measuring latency and billable frames against the sparse image-confirmation approach.
 
+## Roadmap
+
+After the checks above, in order:
+
+1. **People and pets** ([plan](people-and-pets.md)). Phase 1 adds a person, a cat or a dog by name alone, drawn in the room with default looks; a seated person is merged into their seat. Later phases find them with the camera and show them in Home Assistant.
+2. **Several rooms.** A home today is one room and one calibrated camera per mode (`memory.scene`, `memory.camera`). Several rooms, each with its own camera, let the lab say where everyone is (people, pets and followed things) across the home, and give each member's place a room. Needs its own plan: rooms in desk memory, a camera per room in calibration and the watcher, and the outline grouped by room.
+
 ## Verification from this review
 
 - `bun run ci`: passed, including formatting, typechecking, 263 tests and the web build. The build reports its existing large JavaScript chunk warning.
