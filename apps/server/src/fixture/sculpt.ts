@@ -22,6 +22,7 @@ import {
   isFragmented,
   withNewModel,
   scoreAgainst,
+  sculptPartsFor,
   sculptPrompt,
   toSculpt,
   type SavedItem,
@@ -364,7 +365,15 @@ async function bestSculpt(
   let requestId: string | null = null;
   const answers = await Promise.allSettled(
     Array.from({ length: SCULPT_DRAFTS }, () =>
-      meta.sculpt(picture, current, prompt, JSON.stringify(toSculpt(from)), job.signal, 12, 'low'),
+      meta.sculpt(
+        picture,
+        current,
+        prompt,
+        JSON.stringify(toSculpt(from)),
+        job.signal,
+        sculptPartsFor(from),
+        'low',
+      ),
     ),
   );
   job.check();
@@ -518,12 +527,17 @@ async function sculptDraft(
   const { elevation, png } = r.picture;
   job.run('draft');
   const [picture, current] = await Promise.all([r.shown(png, true), r.shown(render)]);
-  const prompt = sculptPrompt(fixture.label, r.size, {
-    note: r.note ?? null,
-    facts: r.facts,
-    greyscale: r.greyscale,
-    small: r.small,
-  });
+  const prompt = sculptPrompt(
+    fixture.label,
+    r.size,
+    {
+      note: r.note ?? null,
+      facts: r.facts,
+      greyscale: r.greyscale,
+      small: r.small,
+    },
+    sculptPartsFor(from),
+  );
   const asked = await bestSculpt(meta, job, {
     label: fixture.label,
     baseLabel: activeModel.label,

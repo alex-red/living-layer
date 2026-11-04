@@ -4,6 +4,7 @@ import {
   editNote,
   editorVoxels,
   editPrompt,
+  sculptPartsFor,
   focusItem,
   fixtureSize,
   type FixtureEditOutput,
@@ -103,6 +104,7 @@ export async function editFixture(
         Boolean(photo),
         editorVoxels(from.parts),
         brushed,
+        sculptPartsFor(from),
       );
       // With parts brushed, the same view again with them marked, so Spark knows which they are.
       const marked = brushed.length
@@ -117,6 +119,7 @@ export async function editFixture(
         asked,
         JSON.stringify(toSculpt(from)),
         job.signal,
+        sculptPartsFor(from),
       );
       job.check();
       const read = await readSculpt(from.label, answer.output);

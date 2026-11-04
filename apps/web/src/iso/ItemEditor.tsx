@@ -37,6 +37,7 @@ import {
   type SavedItem,
   type StarterTemplate,
   ITEM_SPRITES,
+  MAX_ITEM_PARTS,
 } from '@livinglayer/domain';
 import { AiEdit, type AiEditStep } from './AiEdit';
 import { ItemSprite } from './IsoItem';
@@ -1340,7 +1341,9 @@ export function ItemEditor({
       <div className="item-editor">
         <div className="item-parts">
           <div className="item-head">
-            <span className="tiny">PARTS · {draft.parts.length}/12</span>
+            <span className="tiny">
+              PARTS · {draft.parts.length}/{MAX_ITEM_PARTS}
+            </span>
             {item && (
               <span className="tiny">
                 {/* A Spark model with no fit record was built by Spark from the picture, not fitted. */}
@@ -1381,7 +1384,7 @@ export function ItemEditor({
             </select>
             <Button
               size="sm"
-              disabled={draft.parts.length >= 12}
+              disabled={draft.parts.length >= MAX_ITEM_PARTS}
               onClick={() => {
                 const p = newPart(
                   addShape,
@@ -1420,7 +1423,7 @@ export function ItemEditor({
                 <Button
                   size="sm"
                   variant="ghost"
-                  disabled={draft.parts.length >= 12}
+                  disabled={draft.parts.length >= MAX_ITEM_PARTS}
                   onClick={() => {
                     const id = nextPartId(
                       part.id,

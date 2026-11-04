@@ -3,12 +3,10 @@ import type { IsoProp, IsoScene, IsoSceneKind, IsoTone } from './iso.js';
 import { ISO_PRESETS } from './iso-presets.js';
 import { foodDefaults } from './food.js';
 import { cm, propModel, type PropPart } from './iso-furniture.js';
-import type { ItemMaterial } from './iso-item.js';
+import { MAX_ITEM_PARTS, type ItemMaterial } from './iso-item.js';
 import { PROP_TONES } from './iso-prop-sprite.js';
 import { fromSculpt, type SculptPart } from './item-sculpt.js';
 
-/** The most parts an item model holds; a promoted prop keeps its biggest. */
-const ITEM_PARTS = 12;
 /**
  * A tube's least radius as a thing: a floor lamp's pole (2.5 cm), so a scanned
  * lamp's pole and arm still show a voxel wide in its sprite.
@@ -73,7 +71,7 @@ export function promoteGroup(
         volume: q.size.w * q.size.d * q.size.h,
       });
     }
-  const kept = parts.sort((a, b) => b.volume - a.volume).slice(0, ITEM_PARTS);
+  const kept = parts.sort((a, b) => b.volume - a.volume).slice(0, MAX_ITEM_PARTS);
   const head = props.find((p) => p.id === group) ?? props[0]!;
   const model = fromSculpt(head.label, { parts: kept.map(({ volume: _, ...s }) => s), note: '' });
   if (!model) return null;

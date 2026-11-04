@@ -695,7 +695,7 @@ export class MetaAdapter {
     prompt: string,
     parts: string | null,
     signal?: AbortSignal,
-    /** The most parts the answer may have: a fixture's 12, more for furniture. */
+    /** The most parts the answer may have: a fixture's (`sculptPartsFor`), more for furniture. */
     maxParts = 12,
     /** How hard Spark thinks first: a fixture's model asks for low, to answer in seconds. */
     effort?: 'low' | 'medium',
@@ -715,10 +715,17 @@ export class MetaAdapter {
    * the thing, when there is one) and its parts as JSON in, the parts with
    * only what was asked changed out.
    */
-  async sculptEdit(images: string[], prompt: string, parts: string, signal?: AbortSignal) {
+  async sculptEdit(
+    images: string[],
+    prompt: string,
+    parts: string,
+    signal?: AbortSignal,
+    /** The most parts the answer may have (`sculptPartsFor`). */
+    maxParts = 12,
+  ) {
     return this.structured('sculptEdit', {
       name: 'sculpt',
-      schema: sculptSchemaOf(12),
+      schema: sculptSchemaOf(maxParts),
       what: 'model',
       images,
       signal,

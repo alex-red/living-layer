@@ -38,6 +38,7 @@ import {
   type SavedItem,
   type Usage,
   addUsage,
+  MAX_ITEM_PARTS,
 } from '@livinglayer/domain';
 import { demoMugCloseUp, demoPng } from './demo.js';
 import { LabError, parseInput } from './errors.js';
@@ -161,7 +162,7 @@ export function keepLocked(fitted: IsoItem, previous: IsoItem | null | undefined
   if (!locked.length) return fitted;
   const parts = fitted.parts.map((p) => locked.find((l) => l.id === p.id) ?? p);
   for (const l of locked) if (!parts.some((p) => p.id === l.id)) parts.push(l);
-  return { ...fitted, parts: parts.slice(0, 12) };
+  return { ...fitted, parts: parts.slice(0, MAX_ITEM_PARTS) };
 }
 /** Score an edited model against the crop its fit came from, if there is one. */
 export async function rescore(

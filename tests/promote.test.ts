@@ -2,6 +2,7 @@ import { describe, expect, it } from 'bun:test';
 import { testApp } from './lib/app.js';
 import {
   ISO_PRESETS,
+  MAX_ITEM_PARTS,
   cm,
   cornerCamera,
   fixtureModel,
@@ -143,7 +144,7 @@ describe('making a prop a thing', () => {
     // The chair's own model, in item units: its footprint's longer side is one.
     const parts = made.fixture.model.parts;
     expect(parts.length).toBeGreaterThan(3);
-    expect(parts.length).toBeLessThanOrEqual(12);
+    expect(parts.length).toBeLessThanOrEqual(MAX_ITEM_PARTS);
     const top = Math.max(...parts.map((p) => p.at.z + p.size.h));
     expect(top).toBeCloseTo(chair.size.h / Math.max(chair.size.w, chair.size.d), 1);
   });

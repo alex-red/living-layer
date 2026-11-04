@@ -5,6 +5,8 @@ import {
   editNote,
   editorVoxels,
   editPrompt,
+  MAX_ITEM_PARTS,
+  sculptPartsFor,
   floorLampItem,
   focusItem,
   FOCUS_COLOR,
@@ -133,6 +135,27 @@ describe('an edit pointed at parts with the brush', () => {
       'The person brushed over the "base" part to show what they mean',
     );
     expect(editPrompt('Floor lamp', size, 'round this', false, voxels)).not.toContain('brushed');
+  });
+});
+
+describe('how many parts Spark may answer with', () => {
+  it('is twelve for a small model, and every part of a bigger one up to the cap', () => {
+    const lampParts = lamp().parts;
+    expect(sculptPartsFor(mug())).toBe(12);
+    expect(sculptPartsFor(null)).toBe(12);
+    const big = { parts: Array.from({ length: 16 }, (_, i) => lampParts[i % lampParts.length]!) };
+    expect(sculptPartsFor(big)).toBe(16);
+    const huge = { parts: Array.from({ length: 40 }, () => lampParts[0]!) };
+    expect(sculptPartsFor(huge)).toBe(MAX_ITEM_PARTS);
+  });
+
+  it('tells Spark the number in the edit prompt', () => {
+    const voxels = editorVoxels(lamp().parts);
+    const size = { w: 1, d: 1, h: 4.85 };
+    expect(editPrompt('Floor lamp', size, 'x', false, voxels)).toContain('at most 12 parts');
+    expect(editPrompt('Floor lamp', size, 'x', false, voxels, [], 16)).toContain(
+      'at most 16 parts',
+    );
   });
 });
 

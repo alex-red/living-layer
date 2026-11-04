@@ -384,6 +384,12 @@ export function upgradeItem<T extends { parts: readonly unknown[] }>(item: T): T
   if (!item.parts.some(isLegacy)) return item;
   return { ...item, parts: item.parts.flatMap(legacyParts) };
 }
+/**
+ * The most parts a model holds. Spark sculpts to `SCULPT_PARTS` and goes past
+ * it only for a model that already has more; a person, a variant (a cat on
+ * its tree) or a promoted prop may use them all.
+ */
+export const MAX_ITEM_PARTS = 24;
 export const isoItemSchema = z.preprocess(
   (raw) =>
     typeof raw === 'object' && raw !== null && Array.isArray((raw as { parts?: unknown }).parts)
@@ -392,7 +398,7 @@ export const isoItemSchema = z.preprocess(
   z
     .object({
       label: z.string().min(1).max(60),
-      parts: z.array(itemPartSchema).min(1).max(12),
+      parts: z.array(itemPartSchema).min(1).max(MAX_ITEM_PARTS),
     })
     .strict(),
 );

@@ -1,6 +1,12 @@
 import { fixtureEntities, type Fixture } from './fixture.js';
 import type { IsoBox, IsoScene, Point } from './iso.js';
-import { isoItemSchema, rotateItem, type IsoItem, type ItemPart } from './iso-item.js';
+import {
+  MAX_ITEM_PARTS,
+  isoItemSchema,
+  rotateItem,
+  type IsoItem,
+  type ItemPart,
+} from './iso-item.js';
 import { unprojectRoom, type RoomCamera } from './room-camera.js';
 import type { StatsNow } from './stats.js';
 
@@ -13,8 +19,6 @@ import type { StatsNow } from './stats.js';
  * occupied stat is on (`followOccupied`).
  */
 export const OCCUPIED_STATE = 'occupied';
-/** The most parts an item model holds (`isoItemSchema`). */
-const ITEM_PARTS = 12;
 /** The fewest of the occupant's parts a variant keeps, so it still reads as it. */
 const OCCUPANT_PARTS = 2;
 /** Tiles of slack when judging whether one thing stands on another's top. */
@@ -90,7 +94,7 @@ export function sightingBox(
  * The subject's model with the occupant's drawn into it where the room has
  * it now, in the subject's own item frame before its turns, and the size the
  * subject then takes (taller when the occupant lies on its top). A model
- * holds 12 parts: the occupant keeps its biggest, at least two, and the
+ * holds `MAX_ITEM_PARTS`: the occupant keeps its biggest, at least two, and the
  * subject its biggest of the rest. Why not, when it can't be made.
  */
 export function variantItem(
@@ -157,11 +161,11 @@ export function variantItem(
   const theirs = placed.toSorted((a, c) => volume(c) - volume(a));
   const keepOccupant = Math.min(
     theirs.length,
-    Math.max(OCCUPANT_PARTS, ITEM_PARTS - subject.model.parts.length),
+    Math.max(OCCUPANT_PARTS, MAX_ITEM_PARTS - subject.model.parts.length),
   );
   const own = subject.model.parts
     .toSorted((a, c) => volume(c) - volume(a))
-    .slice(0, ITEM_PARTS - keepOccupant);
+    .slice(0, MAX_ITEM_PARTS - keepOccupant);
   const taken = new Set(own.map((p) => p.id));
   const extra = theirs.slice(0, keepOccupant).map((p, i) => {
     let id = `on-${p.id}`.slice(0, 24);

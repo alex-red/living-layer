@@ -3,6 +3,7 @@ import type { ProductFacts } from './facts.js';
 import { bezier, clampFiniteOrLow, textHash } from './math.js';
 import {
   ITEM_MATERIALS,
+  MAX_ITEM_PARTS,
   itemPartSchema,
   printSchema,
   type IsoItem,
@@ -68,7 +69,17 @@ export const sculptSchemaOf = (max: number) =>
       note: z.string().max(240),
     })
     .strict();
-const sculptSchema = sculptSchemaOf(12);
+const sculptSchema = sculptSchemaOf(MAX_ITEM_PARTS);
+/** The parts Spark sculpts a thing in, as a rule: few enough to answer in seconds. */
+const SCULPT_PARTS = 12;
+/**
+ * The most parts Spark may answer with when it starts from `from`: the rule,
+ * or as many as that model already has (a cat drawn onto its tree), so it
+ * isn't made to drop any.
+ */
+export function sculptPartsFor(from: { parts: readonly unknown[] } | null | undefined): number {
+  return Math.min(MAX_ITEM_PARTS, Math.max(SCULPT_PARTS, from?.parts.length ?? 0));
+}
 export type Sculpt = z.infer<typeof sculptSchema>;
 
 /** Every print in a sculpt, to be set in type before `fromSculpt`. */
@@ -323,9 +334,10 @@ export function sculptPrompt(
   label: string,
   size: { w: number; d: number; h: number },
   context?: SculptContext,
+  parts = SCULPT_PARTS,
 ): string {
   return [
-    `Model the ${label.toLowerCase()} in the first image as a small parametric 3D model, made of at most 12 parts. The second image is how the current model renders from the same angle; its parts are given below as JSON. Start from them: keep what is right, fix what is wrong, and add or remove parts so the render matches the first image.`,
+    `Model the ${label.toLowerCase()} in the first image as a small parametric 3D model, made of at most ${parts} parts. The second image is how the current model renders from the same angle; its parts are given below as JSON. Start from them: keep what is right, fix what is wrong, and add or remove parts so the render matches the first image.`,
     `It stands ${size.w.toFixed(2)} wide, ${size.d.toFixed(2)} deep and ${size.h.toFixed(2)} tall, as its footprint's longer side is 1.`,
     ...contextLines(context),
     ...SCULPT_FORMAT,
@@ -344,9 +356,10 @@ export function editPrompt(
   photo: boolean,
   voxels: { across: number; tall: number },
   focus: readonly string[] = [],
+  parts = SCULPT_PARTS,
 ): string {
   return [
-    `This is a small parametric 3D model of a ${label.toLowerCase()}, made of at most 12 parts. ${photo ? 'The first image is a photo of the thing; the second is' : 'The image is'} how the model renders now; its parts are given below as JSON.`,
+    `This is a small parametric 3D model of a ${label.toLowerCase()}, made of at most ${parts} parts. ${photo ? 'The first image is a photo of the thing; the second is' : 'The image is'} how the model renders now; its parts are given below as JSON.`,
     `Change it as the person asks: "${request}". Change only what the request is about: every other part stays exactly as it is, with the same id, box, shape and colour.${photo ? ' Use the photo only to tell what the request refers to.' : ''}`,
     ...(focus.length
       ? [

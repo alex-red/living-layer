@@ -10,6 +10,7 @@ import {
   groupLabels,
   itemHeight,
   ISO_PRESETS,
+  MAX_ITEM_PARTS,
   projectRoom,
   readIntent,
   relatedTargets,
@@ -125,7 +126,7 @@ describe('a variant’s model', () => {
         'Cat tree (occupied)',
       );
       if ('reason' in made) throw new Error(made.reason);
-      expect(made.model.parts.length).toBeLessThanOrEqual(12);
+      expect(made.model.parts.length).toBeLessThanOrEqual(MAX_ITEM_PARTS);
       const theirs = made.model.parts.filter((p) => p.id.startsWith('on-'));
       expect(theirs.length).toBeGreaterThanOrEqual(2);
       // Drawn as the room draws the tree (turned, one unit to its box's width), the cat is where it was.
@@ -158,6 +159,21 @@ describe('a variant’s model', () => {
         6,
       );
     });
+
+  it('keeps every part of the thing and of what lies on it when they fit', () => {
+    const made = variantItem(
+      { label: 'Cat tree', box: treeBox, turns: 0, model: treeModel, size: treeBox.size },
+      { label: 'Cat', box: catOnTree, turns: 0, model: catModel },
+      'Cat tree (occupied)',
+    );
+    if ('reason' in made) throw new Error(made.reason);
+    expect(treeModel.parts.length + catModel.parts.length).toBeGreaterThan(12);
+    const ids = made.model.parts.map((p) => p.id);
+    expect(ids.filter((id) => !id.startsWith('on-')).toSorted()).toEqual(
+      treeModel.parts.map((p) => p.id).toSorted(),
+    );
+    expect(ids.filter((id) => id.startsWith('on-'))).toHaveLength(catModel.parts.length);
+  });
 
   it('shows the occupied state while the stat is on, and only switches that one off', () => {
     const things = [
