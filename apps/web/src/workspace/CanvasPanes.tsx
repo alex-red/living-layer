@@ -60,6 +60,7 @@ import {
 import { followHealthStore, useFollowView } from './state/follow-store';
 import { createStore, useStore } from './state/store';
 import { dragRectStore, useDragRect } from './state/view';
+import { zoneDrawnOn } from './zoneDraw';
 import { watchStore } from '../watch';
 import { LayerChips, useLayers, usePicture } from './LayerChips';
 import { SavedZones } from './SavedZones';
@@ -508,7 +509,7 @@ function RectDraw({
   rect: drawn,
   onRect,
 }: {
-  kind: 'box' | 'zoom' | 'motion';
+  kind: 'box' | 'zoom' | 'motion' | 'rule';
   label: string;
   rect: Rect | null | undefined;
   onRect: (rect: Rect) => void;
@@ -556,23 +557,25 @@ function RectDraw({
   );
 }
 
-/** The box drawn around a thing to add as a fixture, the camera's zoomed view, and a motion zone. */
+/** The box drawn around a thing to add as a fixture, the camera's zoomed view, and a zone being set up. */
 function DrawLayers() {
   const lab = useLabParts(useView(), useCamera(), useNavigation());
   const { camera, mode, image, boxing, zooming, ruleDraft } = lab;
   return (
     <>
-      {ruleDraft?.motion && (camera || mode === 'demo' || image) && (
-        <RectDraw
-          kind="motion"
-          label="Draw the motion zone"
-          rect={ruleDraft.rect}
-          onRect={(rect) => {
-            const { onSurface: _, ...draft } = ruleDraft;
-            lab.setRuleDraft({ ...draft, rect });
-          }}
-        />
-      )}
+      {ruleDraft &&
+        zoneDrawnOn(ruleDraft, camera || mode === 'demo') === 'picture' &&
+        (camera || mode === 'demo' || image) && (
+          <RectDraw
+            kind={ruleDraft.motion ? 'motion' : 'rule'}
+            label={ruleDraft.motion ? 'Draw the motion zone' : 'Draw the zone'}
+            rect={ruleDraft.rect}
+            onRect={(rect) => {
+              const { onSurface: _, ...draft } = ruleDraft;
+              lab.setRuleDraft({ ...draft, rect });
+            }}
+          />
+        )}
       {boxing && !camera && (mode === 'demo' || image) && (
         <RectDraw
           kind="box"

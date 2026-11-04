@@ -22,6 +22,7 @@ import type { CameraSlice } from './camera';
 import type { ObservationSlice } from './observation';
 import type { TrackingSlice } from './tracking';
 import { useStableSlice } from './stable';
+import { stageForZone } from '../zoneDraw';
 
 /** The Navigation slice of the lab's state. */
 export function useNavigationSlice(
@@ -35,6 +36,7 @@ export function useNavigationSlice(
     TrackingSlice,
 ): NavigationSlice {
   const {
+    camera,
     changeMode,
     entities,
     image,
@@ -216,9 +218,8 @@ export function useNavigationSlice(
     setDrawing(false);
     setRuleDraft(draft);
     setIsoPanel('room');
-    // A motion zone is drawn on the camera's picture; any other in the room.
-    if (draft.motion ? stageView === 'iso' : stageView === 'photo')
-      setStageView(draft.motion ? 'split' : 'iso');
+    // Drawn on the camera's picture while there is one to draw on; else in the room.
+    setStageView(stageForZone(draft, camera || mode === 'demo', stageView));
     setSelection({ kind: 'new-rule' });
   }
   const [asking, setAsking] = useState(false);

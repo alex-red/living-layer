@@ -340,6 +340,31 @@ describe('desk tracking', () => {
     expect(wrong.statusCode).toBe(400);
     await s.app.close();
   });
+  it('applies a zone drawn on the calibrated camera’s picture to its later frames', async () => {
+    const s = await setup();
+    // Around the mug's centre spot, as a rectangle of the frame with nothing in the room.
+    const map = surfaceMap(DEMO_SURFACE, DEMO_SURFACE.frame)!;
+    const rect = zoneFromSurface(
+      { x: 0.6, y: 0.2 },
+      { x: 0.78, y: 0.65 },
+      DEMO_SURFACE.frame,
+      map.toFrame,
+    )!;
+    const saved = await s.post('desk/rules/save', {
+      rule: { label: 'Coaster', objects: 'any', entityId: null, rect },
+    });
+    expect(saved.statusCode, saved.body).toBe(200);
+    const id = saved.json<DeskMemory>().rules!.at(-1)!.id;
+    const verdict = async () =>
+      (await s.post('desk/rules/verify', {}))
+        .json<{ events: EvidenceRun<PlacementDecision>[] }>()
+        .events.find((e) => e.output.ruleId === id)!.output.decision;
+    await track(s, 'right');
+    expect(await verdict()).toBe('outside');
+    await track(s, 'centre');
+    expect(await verdict()).toBe('inside');
+    await s.app.close();
+  });
   it('blocks every decision once the camera has moved', () => {
     // Kept the way it was before the mug was a thing; the upgrade makes it one.
     const memory = upgradeMemory({

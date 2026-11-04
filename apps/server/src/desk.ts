@@ -48,6 +48,7 @@ import {
   placeSeen,
   pinInOrder,
   calibrationOf,
+  CAMERA_SOURCE,
   type PlacementRule,
   type ZoneStep,
   type DesktopNodeMessage,
@@ -1136,6 +1137,8 @@ export async function deskRoutes(
         'Calibrate the camera first: a motion zone is drawn on its frames.',
         409,
       );
+    const calibrated = calibrationOf(memory)?.camera.frame;
+    const onCamera = calibrated?.width === frame.width && calibrated.height === frame.height;
     const anchor = input.anchor && memory.fixtures?.find((f) => f.id === input.anchor!.thingId);
     if (input.anchor && !anchor)
       throw new LabError('zone_anchor', 'That thing is gone. Refresh and try again.', 409);
@@ -1182,7 +1185,8 @@ export async function deskRoutes(
           }
         : {}),
       zone: anchored ?? {
-        sourceKey: o?.sourceKey ?? 'camera',
+        // Drawn on the calibrated camera's picture, it holds for all its frames, not one image.
+        sourceKey: !o || onCamera ? CAMERA_SOURCE : o.sourceKey,
         rect: input.rect!,
         frame,
         ...(input.onSurface ? { onSurface: input.onSurface } : {}),

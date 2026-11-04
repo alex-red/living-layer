@@ -176,10 +176,13 @@ export function zoneApplies(memory: DeskMemory): { applies: boolean; carried: bo
     calibrationOf(memory),
   );
 }
+/** The source of a zone drawn on the calibrated camera's picture rather than one image of it. */
+export const CAMERA_SOURCE = 'camera';
 /**
- * Whether a zone applies to an observation: one drawn in the room applies to
- * every frame of its calibrated camera; otherwise the same image, or any frame
- * of its size by the fixed-camera assumption.
+ * Whether a zone applies to an observation: one drawn in the room or on the
+ * calibrated camera's picture (`CAMERA_SOURCE`) applies to every frame of
+ * that camera; otherwise the same image, or any frame of its size by the
+ * fixed-camera assumption.
  */
 function zoneAppliesTo(
   o: DeskObservation | null | undefined,
@@ -193,7 +196,7 @@ function zoneAppliesTo(
   if (!o || !z) return { applies: false, carried: false };
   const frame = calibration?.camera.frame;
   if (
-    z.onSurface &&
+    (z.onSurface || z.sourceKey === CAMERA_SOURCE) &&
     frame?.width === o.frame.width &&
     frame?.height === o.frame.height &&
     z.frame?.width === frame.width &&

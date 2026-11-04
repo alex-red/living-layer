@@ -48,6 +48,7 @@ import {
 } from './LabContext';
 import { useFollowStats, useFollowView } from './state/follow-store';
 import { Ago, Cost, Details, Panel, useCall, useOlderThan } from './panel';
+import { zoneDrawnOn } from './zoneDraw';
 import { useStore } from './state/store';
 import { useDragRect } from './state/view';
 import { watchStore } from '../watch';
@@ -1853,7 +1854,8 @@ function NewRulePanel() {
     : !draft.rect && !anchor
       ? 'Draw the zone to save it.'
       : actionsProblem(draft.actions, motion ? [] : draft.objects);
-  const where = motion ? 'the camera picture' : 'the room';
+  const onPicture = zoneDrawnOn(draft, lab.camera || lab.mode === 'demo') === 'picture';
+  const where = onPicture ? 'the camera picture' : 'the room';
   return (
     <Panel
       tiny={editing ? 'EDIT ZONE' : 'NEW ZONE'}
@@ -1865,9 +1867,11 @@ function NewRulePanel() {
             ? `Drawn. Drag again on ${where} to redraw it.`
             : motion
               ? 'Drag a rectangle on the camera picture around what should be watched for motion.'
-              : mainSurface(lab) || lab.progress.pinned
-                ? 'Drag a rectangle on the room to draw the zone.'
-                : 'Pin a surface first, so the zone can be drawn on it.'
+              : onPicture
+                ? 'Drag a rectangle on the camera picture to draw the zone.'
+                : mainSurface(lab) || lab.progress.pinned
+                  ? 'Drag a rectangle on the room to draw the zone.'
+                  : 'Pin a surface first, so the zone can be drawn on it.'
       }
       tone={draft.rect || anchor ? 'chosen' : 'seen'}
     >

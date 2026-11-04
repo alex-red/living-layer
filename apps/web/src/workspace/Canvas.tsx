@@ -16,11 +16,12 @@ import {
   useBrushing,
   useShowIso,
 } from './CanvasPanes';
+import { zoneDrawnOn } from './zoneDraw';
 
 /** What the canvas is busy with, if it has taken over: one edit mode at a time. */
 function EditBanner() {
-  const lab = useLabParts(useView(), useNavigation());
-  const { pinning, drawing, isoPanel, stageView, ruleDraft } = lab;
+  const lab = useLabParts(useView(), useNavigation(), useCamera());
+  const { pinning, drawing, isoPanel, stageView, ruleDraft, camera, mode } = lab;
   let text = '';
   let done: (() => void) | null = null;
   let label = 'Cancel';
@@ -35,7 +36,10 @@ function EditBanner() {
     done = () => lab.setDrawing(false);
   } else if (ruleDraft) {
     const name = ruleDraft.label.trim() || 'the zone';
-    const where = ruleDraft.motion ? 'the camera picture' : 'the iso surface';
+    const where =
+      zoneDrawnOn(ruleDraft, camera || mode === 'demo') === 'picture'
+        ? 'the camera picture'
+        : 'the iso surface';
     text = ruleDraft.rect
       ? `Drag again on ${where} to redraw ${name}. Save it in the inspector.`
       : `Drag a rectangle on ${where} to draw ${name}.`;
