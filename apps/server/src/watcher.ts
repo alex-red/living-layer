@@ -204,7 +204,7 @@ export class Watcher {
   /** Motion zones, whose own motion runs their steps, and where each stands. */
   private motionZones: MotionZone[] = [];
   private motion: MotionZones = ALL_STILL;
-  /** Until when motion zones ignore motion: a light one of them switched is still settling. */
+  /** Until when motion zones ignore motion: a light just switched is still settling. */
   private settledAt = 0;
   /** Zones some entity asks to be compared with their empty look, and whether SAM may confirm. */
   private occupancyZones = new Map<string, { samConfirm: boolean }>();
@@ -523,6 +523,14 @@ export class Watcher {
     this.busy.add(work);
     void work.finally(() => this.busy.delete(work));
     return work;
+  }
+  /**
+   * Something switched a light or a switch: any zone's steps, or a person by
+   * hand. Motion zones ignore motion while it settles, as after one of their
+   * own, or the bulb going dark reads as motion beside it and lights it again.
+   */
+  lightSwitched() {
+    this.settledAt = Math.max(this.settledAt, this.now + MOTION_ZONE.settleMs);
   }
   /**
    * Step the motion zones on this frame; one that starts or stops has the

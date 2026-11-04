@@ -385,23 +385,39 @@ export async function buildApp(
     fetcher: options.fetcher,
     openSocket: options.haSocket,
   });
+  /**
+   * A switch, with the camera's motion zones told on both sides of it: the
+   * light changing as it goes would otherwise read as motion and set them off.
+   */
+  const settling = async <T>(mode: Mode, work: () => Promise<T>) => {
+    watchers[mode].lightSwitched();
+    try {
+      return await work();
+    } finally {
+      watchers[mode].lightSwitched();
+    }
+  };
   const desk = createDesk(
     store,
-    async (mode, entityId, action = 'on', look, options) =>
-      nodes.owns(mode, entityId)
-        ? nodes.switchDisplay(mode, entityId, action)
-        : mode === 'demo'
-          ? demoLampFor(entityId ?? demoLamp.entityId, action, look)
-          : switchLive(entityId, action, look, options),
+    (mode, entityId, action = 'on', look, options) =>
+      settling(mode, async () =>
+        nodes.owns(mode, entityId)
+          ? nodes.switchDisplay(mode, entityId, action)
+          : mode === 'demo'
+            ? demoLampFor(entityId ?? demoLamp.entityId, action, look)
+            : switchLive(entityId, action, look, options),
+      ),
     { desktop: (mode, nodeId, message) => nodes.send(mode, nodeId, message) },
   );
   /** Switches one entity for a fixture or by hand: a desktop's display, the demo's, or a live one. */
-  const control = async (mode: Mode, entityId: string, action: 'on' | 'off') =>
-    nodes.owns(mode, entityId)
-      ? nodes.switchDisplay(mode, entityId, action)
-      : mode === 'demo'
-        ? demoLampFor(entityId, action)
-        : switchLive(entityId, action);
+  const control = (mode: Mode, entityId: string, action: 'on' | 'off') =>
+    settling(mode, async () =>
+      nodes.owns(mode, entityId)
+        ? nodes.switchDisplay(mode, entityId, action)
+        : mode === 'demo'
+          ? demoLampFor(entityId, action)
+          : switchLive(entityId, action),
+    );
   app.register(nodeRoutes, { prefix: '/api/nodes', nodes, store, entities, control });
   app.register(deskRoutes, { prefix: '/api/desk', store, desk, entities });
   app.register(fixtureRoutes, {
