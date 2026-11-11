@@ -71,14 +71,14 @@
     "format:check": "oxfmt --check \"apps/**/*.{ts,tsx,css,html,svg,json}\" \"packages/**/*.{ts,json}\" \"scripts/**/*.ts\" \"tests/**/*.ts\" \"*.{ts,json}\""
   },
   "dependencies": {
-    "@fastify/static": "10.1.7",
+    "@fastify/static": "10.1.10",
     "@fontsource-variable/inter": "5.3.0",
     "@fontsource-variable/jetbrains-mono": "5.3.0",
     "@meta-sam/parser": "0.1.0",
-    "fastify": "^5.6.0",
+    "fastify": "^5.12.8",
     "mqtt": "5.16.1",
     "onnxruntime-node": "1.31.1",
-    "openai": "^6.0.0",
+    "openai": "^7.53.0",
     "qrcode": "1.5.4",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
@@ -86,18 +86,18 @@
     "zod": "^4.0.0"
   },
   "devDependencies": {
-    "@playwright/test": "^1.56.0",
+    "@playwright/test": "^1.65.0",
     "@types/bun": "1.4.4",
-    "@types/node": "^24.0.0",
-    "@types/qrcode": "1.5.5",
+    "@types/node": "^26.6.6",
+    "@types/qrcode": "1.5.6",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
-    "@vitejs/plugin-react": "6.1.2",
+    "@vitejs/plugin-react": "6.2.1",
     "@webgpu/types": "0.1.74",
-    "oxfmt": "0.75.0",
-    "oxlint": "1.90.0",
+    "oxfmt": "0.77.0",
+    "oxlint": "1.92.0",
     "tsrs": "0.20.1-ts7.1.0-beta",
-    "typescript": "7.1.0-beta",
-    "vite": "8.3.5"
+    "typescript": "7.1.0-dev.20261108.1",
+    "vite": "8.3.6"
   }
 }
